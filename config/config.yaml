@@ -1,0 +1,53 @@
+# ── Zettelkasten Pipeline — Configuração Principal ─────────────────────
+#
+# Edite os valores abaixo de acordo com seu ambiente.
+# Variáveis de ambiente necessárias:
+#   OPENAI_API_KEY  (se usar provider: openai)
+
+# ── Caminhos ────────────────────────────────────────────────────────────
+vault_path: ./vault
+inbox_path: ./data/inbox
+chroma_path: ./data/chroma
+state_db_path: ./data/state.db
+cache_path: ./data/cache
+prompts_path: ./prompts
+
+# ── LLM ─────────────────────────────────────────────────────────────────
+llm:
+  provider: openai          # openai | anthropic | ollama
+  model: gpt-4o-mini        # modelo para extração/geração
+  temperature: 0.15
+  top_p: 0.5
+  max_retries: 2
+
+# ── Embeddings ──────────────────────────────────────────────────────────
+embedding:
+  provider: openai           # openai | sentence-transformers
+  model: text-embedding-3-small
+
+# ── Chunking ────────────────────────────────────────────────────────────
+chunking:
+  chunk_size: 1000           # tokens aproximados
+  chunk_overlap: 200
+
+# ── Linkagem / Deduplicação ─────────────────────────────────────────────
+linking:
+  topk: 5
+  dedupe_threshold: 0.85
+
+# ── Gardener (MOCs) ────────────────────────────────────────────────────
+gardener:
+  min_cluster_size: 5
+  min_notes_for_moc: 3
+
+# ── Idioma ──────────────────────────────────────────────────────────────
+language: pt-BR
+
+# ── Logging ─────────────────────────────────────────────────────────────
+log_level: INFO
+
+# ── PDF Extractor ───────────────────────────────────────────────────────
+pdf_extractor: docling       # docling | pymupdf
+
+# ── Dispositivo (GPU) ──────────────────────────────────────────────────
+device: cuda                 # auto | cpu | cuda

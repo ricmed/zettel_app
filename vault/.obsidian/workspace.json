@@ -1,0 +1,210 @@
+{
+  "main": {
+    "id": "e0f8849c1957e1a6",
+    "type": "split",
+    "children": [
+      {
+        "id": "62dcfd6b26ab13c3",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "72b35285faad2227",
+            "type": "leaf",
+            "state": {
+              "type": "empty",
+              "state": {},
+              "icon": "lucide-file",
+              "title": "New tab"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "4b60af6cc99d91ec",
+    "type": "split",
+    "children": [
+      {
+        "id": "c06998450ed63c28",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "b2413479a6222fc1",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "0552900681f8fdd5",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "tag:#Zettelkasten",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "803a3348804eb528",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "2b8a841d8758133a",
+    "type": "split",
+    "children": [
+      {
+        "id": "e7309cd680db7e8c",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "ba11a99b58c1e6ed",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks"
+            }
+          },
+          {
+            "id": "83feb739af6ecea3",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links"
+            }
+          },
+          {
+            "id": "e8a2f1c6c40533af",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "c2ba41f5fe307bfd",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "dd6a6f9f3f338dfd",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "30_Permanent/ZTL - 01KGDZ5V5VDX56YRED2E1R59MF - importância-da-análise-de-séries-históricas-na-epi.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of ZTL - 01KGDZ5V5VDX56YRED2E1R59MF - importância-da-análise-de-séries-históricas-na-epi"
+            }
+          }
+        ],
+        "currentTab": 4
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "dd6a6f9f3f338dfd",
+  "lastOpenFiles": [
+    "40_MOCs/MOC - 01KGE1SGXWWV5DY2X8AFH2WAT9 - modelos-de-previsão-com-facebook-prophet.md",
+    "40_MOCs/MOC - 01KGE1S877DB92WR7YH9WTMH1P - análise-do-modelo-arima-no-mercado-bist30.md",
+    "40_MOCs/MOC - 01KGE1S0MGGFRTS5FJW44ZHRN9 - backtesting-na-avaliação-de-modelos-de-previsão.md",
+    "40_MOCs/MOC - 01KGE1RS17XM7C8N2SG3NCD1P1 - comparação-de-modelos-de-previsão-de-preços-de-açõ.md",
+    "40_MOCs/MOC - 01KGE1RCZG9MS1FG5E3GJJC1CA - previsão-de-preços-de-ações.md",
+    "40_MOCs/MOC - 01KGE1QZH9GD4AS1KQ0P9Z3DB9 - eficácia-das-redes-neurais-mlp-na-previsão-de-preç.md",
+    "40_MOCs/MOC - 01KGE1QP19YKKP2031W6R2Q0VE - eficácia-do-modelo-prophet-na-previsão-de-preços-d.md",
+    "40_MOCs/MOC - 01KGE1Q50G89SFBBAJPKHYMNV4 - correlação-e-modelos-preditivos.md",
+    "40_MOCs/MOC - 01KGE1PS4K0BY7RB6FX6HN619B - análise-de-séries-temporais.md",
+    "40_MOCs/MOC - 01KGE1P9QXD8PRR897D98PCFBX - modelos-generalizados-em-estatística.md",
+    "40_MOCs/MOC - 01KGE1P07AM3J1JYCGAZD56R3Y - modelos-arima-na-análise-de-séries-temporais.md",
+    "40_MOCs/MOC - 01KGE1NNV344QHMH95ENNZA0W9 - modelos-estatísticos-em-séries-temporais.md",
+    "40_MOCs/MOC - 01KGE1NDP3V9NHN0DXRWAGMQS3 - modelagem-de-fenômenos-sazonais-com-funções-trigon.md",
+    "40_MOCs/MOC - 01KGE1N45CKRAYEVD7FY9HWN29 - análise-de-tendências-com-modelos-de-regressão-pol.md",
+    "40_MOCs/MOC - 01KGE1MQVD836RAQE0QWSX5SFD - análise-de-séries-temporais-na-epidemiologia.md",
+    "40_MOCs/MOC - 01KGE1M994GJNBF1NMEZY88ZW4 - sistemas-de-busca-inteligente-com-ia-generativa.md",
+    "40_MOCs/MOC - 01KGE1KZ7W5XERAS0K3K9VMF8S - privacidade-no-uso-de-llms-e-desenvolvimento-de-si.md",
+    "40_MOCs/MOC - 01KGE1KMF063N0JGZPTCQSKJ9D - segurança-e-proteção-de-dados-em-machine-learning.md",
+    "40_MOCs/MOC - 01KGE1KA88G0PWVCMT79495Q1B - manutenção-e-aprendizado-contínuo-em-modelos-de-ma.md",
+    "40_MOCs/MOC - 01KGE1JXJGPZ787WP6QH27HYWB - raciocínio-e-resolução-de-problemas-em-modelos-de.md",
+    "40_MOCs/MOC - 01KGE1JJYSAGTKWPKXHWB091A7 - implantação-e-integração-de-modelos-de-linguagem.md",
+    "40_MOCs/MOC - 01KGE1J7SFBY15FB299114TEFR - bancos-de-dados-vetoriais-e-embeddings.md",
+    "40_MOCs/MOC - 01KGE1HWFEKYJ042G614RWQS9Q - incorporações-em-aprendizado-de-máquina.md",
+    "40_MOCs/MOC - 01KGE1HMGFW90K6Q1S9B1TTTQM - execução-do-llama-3-localmente.md",
+    "40_MOCs/MOC - 01KGE1HAKDF8G4GG8YMBW4N2HG - aprimoramento-da-busca-semântica.md",
+    "40_MOCs/MOC - 01KGE1GZ5Y00ND9XFFD72NAHY8 - langchain-e-llms-em-python.md",
+    "Untitled.base"
+  ]
+}

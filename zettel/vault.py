@@ -1,0 +1,243 @@
+"""Obsidian vault I/O — frontmatter, managed blocks, safe edits."""
+
+from __future__ import annotations
+
+import logging
+import re
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+logger = logging.getLogger(__name__)
+
+
+# ── Frontmatter ────────────────────────────────────────────────────────
+
+
+def parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
+    """Parse YAML frontmatter from Markdown. Returns (metadata, body)."""
+    if not content.startswith("---"):
+        return {}, content
+    parts = content.split("---", 2)
+    if len(parts) < 3:
+        return {}, content
+    try:
+        meta = yaml.safe_load(parts[1]) or {}
+    except yaml.YAMLError:
+        meta = {}
+    body = parts[2].lstrip("\n")
+    return meta, body
+
+
+def render_frontmatter(metadata: dict[str, Any]) -> str:
+    """Render a dict as YAML frontmatter block."""
+    dumped = yaml.dump(metadata, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    return f"---\n{dumped}---\n"
+
+
+def compose_note(metadata: dict[str, Any], body: str) -> str:
+    """Combine frontmatter and body into a full Markdown document."""
+    return render_frontmatter(metadata) + "\n" + body
+
+
+# ── Managed Blocks ─────────────────────────────────────────────────────
+
+_BLOCK_START_RE = re.compile(r"<!--\s*zettel:({name}):start\s*-->")
+_BLOCK_END_RE = re.compile(r"<!--\s*zettel:({name}):end\s*-->")
+
+
+def _block_pattern(name: str) -> tuple[str, str]:
+    return (
+        f"<!-- zettel:{name}:start -->",
+        f"<!-- zettel:{name}:end -->",
+    )
+
+
+def read_managed_block(content: str, block_name: str) -> str | None:
+    """Extract the content of a managed block, or None if not found."""
+    start_tag, end_tag = _block_pattern(block_name)
+    start_idx = content.find(start_tag)
+    if start_idx == -1:
+        return None
+    end_idx = content.find(end_tag, start_idx)
+    if end_idx == -1:
+        return None
+    inner_start = start_idx + len(start_tag)
+    return content[inner_start:end_idx].strip()
+
+
+def upsert_managed_block(content: str, block_name: str, new_inner: str) -> str:
+    """Insert or replace a managed block. Preserves content outside the block."""
+    start_tag, end_tag = _block_pattern(block_name)
+    block_text = f"{start_tag}\n{new_inner}\n{end_tag}"
+
+    start_idx = content.find(start_tag)
+    if start_idx == -1:
+        # Append at end
+        if not content.endswith("\n"):
+            content += "\n"
+        return content + "\n" + block_text + "\n"
+
+    end_idx = content.find(end_tag, start_idx)
+    if end_idx == -1:
+        # Malformed — append fresh
+        return content + "\n" + block_text + "\n"
+
+    before = content[:start_idx]
+    after = content[end_idx + len(end_tag):]
+    return before + block_text + after
+
+
+# ── Safe File I/O ──────────────────────────────────────────────────────
+
+
+def safe_write_note(path: Path, metadata: dict[str, Any], body: str) -> None:
+    """Write a note file, creating directories as needed."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    content = compose_note(metadata, body)
+    path.write_text(content, encoding="utf-8")
+    logger.debug("Nota salva: %s", path)
+
+
+def safe_update_managed_blocks(path: Path, blocks: dict[str, str]) -> None:
+    """Update only the managed blocks in an existing note, preserving manual edits."""
+    if not path.exists():
+        logger.warning("Arquivo não encontrado para atualização: %s", path)
+        return
+
+    content = path.read_text(encoding="utf-8")
+    for block_name, inner in blocks.items():
+        content = upsert_managed_block(content, block_name, inner)
+    path.write_text(content, encoding="utf-8")
+    logger.debug("Blocos gerenciados atualizados em: %s", path)
+
+
+# ── Vault Structure ───────────────────────────────────────────────────
+
+
+VAULT_DIRS = [
+    "00_Inbox",
+    "10_Sources",
+    "20_Literature",
+    "30_Permanent",
+    "40_MOCs",
+    "90_Assets",
+]
+
+
+def init_vault(vault_path: Path) -> None:
+    """Create the vault directory structure."""
+    for d in VAULT_DIRS:
+        (vault_path / d).mkdir(parents=True, exist_ok=True)
+    logger.info("Vault inicializado em: %s", vault_path)
+
+
+# ── Note Builders ─────────────────────────────────────────────────────
+
+
+def build_source_note(
+    source_id: str,
+    citekey: str,
+    title: str,
+    authors: list[str],
+    year: int | None,
+    origin_path: str,
+    origin_type: str,
+    checksum: str,
+) -> tuple[dict[str, Any], str]:
+    """Build frontmatter and body for a Source (SRC) note."""
+    now = datetime.now().isoformat()
+    meta = {
+        "type": "source",
+        "source_id": source_id,
+        "title": title,
+        "author": authors,
+        "year": year,
+        "origin_path": origin_path,
+        "origin_type": origin_type,
+        "checksum": checksum,
+        "created_at": now,
+        "updated_at": now,
+    }
+    lit_link = f"[[LIT - {citekey} - {_slug(title)}]]"
+    body = f"# {title}\n\n"
+    body += f"**Autores**: {', '.join(authors) if authors else 'Desconhecido'}\n"
+    body += f"**Ano**: {year or 'N/A'}\n"
+    body += f"**Tipo**: {origin_type}\n\n"
+    body += f"## Nota de Literatura\n\n{lit_link}\n"
+    return meta, body
+
+
+def build_literature_note(
+    source_id: str,
+    citekey: str,
+    title: str,
+) -> tuple[dict[str, Any], str]:
+    """Build frontmatter and body for a Literature (LIT) master note."""
+    now = datetime.now().isoformat()
+    meta = {
+        "type": "literature",
+        "source_id": source_id,
+        "literature_id": source_id,
+        "language": "pt-BR",
+        "created_at": now,
+        "updated_at": now,
+    }
+    body = f"# {title}\n\n"
+    body += "## Resumo\n\n"
+    body += "<!-- zettel:auto-resumo:start -->\n"
+    body += "_Preenchido automaticamente durante a extracao._\n"
+    body += "<!-- zettel:auto-resumo:end -->\n\n"
+    body += "## Conceitos-chave\n\n"
+    body += "<!-- zettel:auto-conceitos:start -->\n"
+    body += "<!-- zettel:auto-conceitos:end -->\n\n"
+    body += "## Potenciais Notas Permanentes\n\n"
+    body += "<!-- zettel:auto-candidatos:start -->\n"
+    body += "<!-- zettel:auto-candidatos:end -->\n\n"
+    body += "## Log de chunks processados\n\n\n"
+    return meta, body
+
+
+def build_permanent_note_body(
+    thesis: str,
+    definition: str,
+    intuition: str,
+    example: str,
+    limits: str,
+    connections_text: str,
+    literature_ref: str,
+    source_locator: str,
+) -> str:
+    """Build the Markdown body for a Permanent (ZTL) note."""
+    parts: list[str] = []
+    parts.append(f"> **Tese**: {thesis}\n")
+    parts.append(f"## Definição\n\n{definition}\n")
+    if intuition:
+        parts.append(f"## Intuição\n\n{intuition}\n")
+    if example:
+        parts.append(f"## Exemplo\n\n{example}\n")
+    if limits:
+        parts.append(f"## Limites\n\n{limits}\n")
+    parts.append(f"## Fonte\n\n- Ref. literatura: {literature_ref}")
+    if source_locator:
+        parts.append(f"- Localizador: {source_locator}")
+    parts.append("")
+    if connections_text:
+        parts.append(f"## Conexões\n\n{connections_text}\n")
+    return "\n".join(parts)
+
+
+def _slug(text: str, max_len: int = 50) -> str:
+    """Create a URL-safe slug from text."""
+    s = text.lower().strip()
+    s = re.sub(r"[^\w\s-]", "", s)
+    s = re.sub(r"[\s_]+", "-", s)
+    return s[:max_len].rstrip("-")
+
+
+def note_filename(prefix: str, identifier: str, title: str) -> str:
+    """Build a standardized filename: PREFIX - ID - slug.md"""
+    slug = _slug(title)
+    return f"{prefix} - {identifier} - {slug}.md"

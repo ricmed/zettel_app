@@ -1,0 +1,27 @@
+# ── Core ────────────────────────────────────────────────────────────────
+typer[all]>=0.9.0
+rich>=13.0.0
+pydantic>=2.0.0
+pyyaml>=6.0
+python-ulid>=2.0.0
+python-dotenv>=1.0.0
+
+# ── LLM / LangChain ────────────────────────────────────────────────────
+langchain-core>=0.3.0
+langchain-text-splitters>=0.3.0
+langchain-openai>=0.2.0          # Provider: OpenAI (default)
+# langchain-anthropic>=0.3.0     # Provider: Anthropic (descomente se usar)
+# langchain-ollama>=0.2.0        # Provider: Ollama local (descomente se usar)
+
+# ── Vector Store ────────────────────────────────────────────────────────
+chromadb>=0.5.0
+
+# ── PDF Extraction ──────────────────────────────────────────────────────
+docling>=2.0.0                   # Extrator principal de PDF
+# pymupdf>=1.24.0               # Fallback para PDF (descomente se preferir)
+
+# ── Clustering / MOCs (opcional) ────────────────────────────────────────
+numpy>=1.24.0
+scikit-learn>=1.3.0
+# umap-learn>=0.5.0             # Descomente para clusterização avançada
+# hdbscan>=0.8.0                # Descomente para clusterização avançada

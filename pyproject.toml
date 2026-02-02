@@ -1,0 +1,42 @@
+[project]
+name = "zettel-app"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "chromadb>=1.4.1",
+    "docling>=2.71.0",
+    "hdbscan>=0.8.41",
+    "hf-xet==1.2.0",
+    "langchain-core>=1.2.7",
+    "langchain-openai>=1.1.7",
+    "langchain-text-splitters>=1.1.0",
+    "openai>=2.16.0",
+    "pydantic>=2.12.5",
+    "pytest>=9.0.2",
+    "python-dotenv>=1.2.1",
+    "python-ulid>=3.1.0",
+    "pyyaml>=6.0.3",
+    "rich>=14.3.2",
+    "scikit-learn>=1.8.0",
+    "typer>=0.21.1",
+    "typer-slim==0.21.1",
+    "ulid>=1.1",
+    "umap-learn>=0.5.11",
+]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+torchvision = [
+  { index = "pytorch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
