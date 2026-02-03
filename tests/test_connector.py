@@ -1,0 +1,112 @@
+"""Tests for connector: typed connections, inverse relations, note body rendering."""
+
+from zettel.connector import _inverse_relation, _resolve_connections
+from zettel.schemas import RelationshipResult
+from zettel.vault import build_permanent_note_body
+
+
+class _FakeDB:
+    """Minimal stub for StateDB used in _resolve_connections tests."""
+
+    def __init__(self, notes: dict[str, dict]):
+        self._notes = notes
+
+    def get_note(self, note_id: str):
+        return self._notes.get(note_id)
+
+
+def test_inverse_relation_mapping():
+    """All defined relation types have a PT-BR inverse."""
+    assert _inverse_relation("supports") == "suportado por"
+    assert _inverse_relation("contradicts") == "contradiz"
+    assert _inverse_relation("extends") == "estendido por"
+    assert _inverse_relation("depends_on") == "base para"
+    assert _inverse_relation("exemplifies") == "exemplificado por"
+    assert _inverse_relation("related") == "relacionado"
+
+
+def test_inverse_relation_unknown_falls_back():
+    """Unknown relation type defaults to 'relacionado'."""
+    assert _inverse_relation("unknown_type") == "relacionado"
+
+
+def test_resolve_connections_with_known_note():
+    """When note exists in DB, wiki-link includes slug of title."""
+    db = _FakeDB({
+        "ABC123": {"title": "Gradient Descent Adaptativo", "path": "/vault/note.md"},
+    })
+    connections = [
+        RelationshipResult(
+            related_note_id="ABC123",
+            relation_type="extends",
+            description="Amplia o conceito base",
+        ),
+    ]
+    resolved = _resolve_connections(db, connections)
+    assert len(resolved) == 1
+    assert "[[ZTL - ABC123 - gradient-descent-adaptativo]]" == resolved[0]["wiki_link"]
+    assert resolved[0]["relation_type"] == "extends"
+    assert resolved[0]["description"] == "Amplia o conceito base"
+
+
+def test_resolve_connections_with_unknown_note():
+    """When note is not in DB, wiki-link uses just the ID."""
+    db = _FakeDB({})
+    connections = [
+        RelationshipResult(
+            related_note_id="UNKNOWN",
+            relation_type="related",
+            description="",
+        ),
+    ]
+    resolved = _resolve_connections(db, connections)
+    assert len(resolved) == 1
+    assert "[[ZTL - UNKNOWN]]" == resolved[0]["wiki_link"]
+
+
+def test_build_permanent_note_body_with_connections():
+    """Connections are rendered with type and description in the note body."""
+    connections = [
+        {
+            "wiki_link": "[[ZTL - ABC - titulo-nota]]",
+            "relation_type": "supports",
+            "description": "Valida a tese",
+        },
+        {
+            "wiki_link": "[[ZTL - DEF - outra-nota]]",
+            "relation_type": "contradicts",
+            "description": "",
+        },
+    ]
+    body = build_permanent_note_body(
+        thesis="Tese de teste",
+        definition="Definicao de teste",
+        intuition="",
+        example="",
+        limits="",
+        connections=connections,
+        literature_ref="[[LIT - @test]]",
+        source_locator="p.10",
+    )
+    assert "## Conexões" in body
+    assert "[[ZTL - ABC - titulo-nota]] (supports) -- Valida a tese" in body
+    assert "[[ZTL - DEF - outra-nota]] (contradicts)" in body
+    # Second connection has no description, so no " -- " suffix
+    lines = body.split("\n")
+    contradicts_line = [l for l in lines if "contradicts" in l][0]
+    assert contradicts_line.endswith("(contradicts)")
+
+
+def test_build_permanent_note_body_without_connections():
+    """When connections list is empty, no Conexoes section is rendered."""
+    body = build_permanent_note_body(
+        thesis="Tese",
+        definition="Def",
+        intuition="",
+        example="",
+        limits="",
+        connections=[],
+        literature_ref="[[LIT - @x]]",
+        source_locator="",
+    )
+    assert "## Conexões" not in body

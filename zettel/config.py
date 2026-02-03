@@ -35,12 +35,22 @@ class ChunkingConfig(BaseModel):
 
 class LinkingConfig(BaseModel):
     topk: int = 5
-    dedupe_threshold: float = 0.85
+    dedupe_threshold: float = 0.90
+
+
+class ExtractionConfig(BaseModel):
+    min_relevance_score: int = 3      # candidatos abaixo sao descartados
+    min_thesis_words: int = 5         # palavras minimas na tese
+    require_anchor_quote: bool = True # descartar se anchor_quote vazio
+    min_definition_words: int = 10    # palavras minimas na definicao
 
 
 class GardenerConfig(BaseModel):
     min_cluster_size: int = 5
     min_notes_for_moc: int = 3
+    domain: str = ""                               # ex: "Ciencia de Dados"
+    allowed_topics: list[str] = Field(default_factory=list)
+    strict_topics: bool = True                      # rejeitar MOCs fora da lista
 
 
 class AppConfig(BaseModel):
@@ -55,6 +65,7 @@ class AppConfig(BaseModel):
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     chunking: ChunkingConfig = Field(default_factory=ChunkingConfig)
     linking: LinkingConfig = Field(default_factory=LinkingConfig)
+    extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
     gardener: GardenerConfig = Field(default_factory=GardenerConfig)
 
     language: str = "pt-BR"
@@ -186,7 +197,7 @@ def get_gpu_info() -> dict[str, Any]:
             info["available"] = True
             info["device_name"] = torch.cuda.get_device_name(0)
             info["device_count"] = torch.cuda.device_count()
-            mem = torch.cuda.get_device_properties(0).total_mem
+            mem = torch.cuda.get_device_properties(0).total_memory
             info["vram_gb"] = round(mem / (1024 ** 3), 1)
             info["cuda_version"] = torch.version.cuda or "N/A"
     except ImportError:

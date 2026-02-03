@@ -139,9 +139,17 @@ def _process_chunk(
     # Mark chunk as extracted
     db.update_chunk_status(chunk_id, "extracted", prompt_hash, call_checksum)
 
-    # Build candidate dicts
+    # Filter candidates by quality
+    approved_cands, rejected_cands = _filter_candidates(output.candidates, cfg)
+    if rejected_cands:
+        logger.info(
+            "Chunk %s: %d candidatos rejeitados pela filtragem de qualidade",
+            chunk_id, len(rejected_cands),
+        )
+
+    # Build candidate dicts (only approved)
     candidates: list[dict] = []
-    for cand in output.candidates:
+    for cand in approved_cands:
         concept_id = _compute_concept_id(source_id, chunk_id, cand)
         candidates.append({
             "concept_id": concept_id,
@@ -155,6 +163,54 @@ def _process_chunk(
         db.upsert_concept(concept_id, source_id, chunk_id, anchor_hash, thesis_hash)
 
     return candidates, output
+
+
+# ── Candidate Filtering ──────────────────────────────────────────────
+
+
+def _filter_candidates(
+    candidates: list[PermanentNoteCandidate],
+    cfg: AppConfig,
+) -> tuple[list[PermanentNoteCandidate], list[PermanentNoteCandidate]]:
+    """Filter candidates by structural quality rules.
+
+    Returns (approved, rejected).
+    """
+    ext = cfg.extraction
+    approved: list[PermanentNoteCandidate] = []
+    rejected: list[PermanentNoteCandidate] = []
+
+    for cand in candidates:
+        reason = _check_candidate(cand, ext)
+        if reason:
+            logger.debug("Candidato rejeitado (%s): %s", reason, cand.thesis[:60])
+            rejected.append(cand)
+        else:
+            approved.append(cand)
+
+    return approved, rejected
+
+
+def _check_candidate(
+    cand: PermanentNoteCandidate,
+    ext: Any,
+) -> str | None:
+    """Return rejection reason or None if candidate passes all checks."""
+    if cand.relevance_score < ext.min_relevance_score:
+        return f"relevance_score={cand.relevance_score} < {ext.min_relevance_score}"
+
+    thesis_words = len(cand.thesis.split())
+    if thesis_words < ext.min_thesis_words:
+        return f"thesis_words={thesis_words} < {ext.min_thesis_words}"
+
+    definition_words = len(cand.definition.split())
+    if definition_words < ext.min_definition_words:
+        return f"definition_words={definition_words} < {ext.min_definition_words}"
+
+    if ext.require_anchor_quote and not cand.anchor_quote.strip():
+        return "anchor_quote vazio"
+
+    return None
 
 
 # ── Deduplication ─────────────────────────────────────────────────────

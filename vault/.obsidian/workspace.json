@@ -11,10 +11,14 @@
             "id": "72b35285faad2227",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "30_Permanent/ZTL - 01KGGMVV886D238MB0WRPBNJEZ - ajuste-de-modelos-de-regressão-polinomial-em-série.md",
+                "mode": "source",
+                "source": false
+              },
               "icon": "lucide-file",
-              "title": "New tab"
+              "title": "ZTL - 01KGGMVV886D238MB0WRPBNJEZ - ajuste-de-modelos-de-regressão-polinomial-em-série"
             }
           }
         ]
@@ -74,7 +78,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300
+    "width": 345.5049018859863
   },
   "right": {
     "id": "2b8a841d8758133a",
@@ -150,17 +154,16 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "30_Permanent/ZTL - 01KGDZ5V5VDX56YRED2E1R59MF - importância-da-análise-de-séries-históricas-na-epi.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of ZTL - 01KGDZ5V5VDX56YRED2E1R59MF - importância-da-análise-de-séries-históricas-na-epi"
+              "title": "Outline"
             }
           }
         ],
-        "currentTab": 4
+        "currentTab": 2
       }
     ],
     "direction": "horizontal",
@@ -177,34 +180,34 @@
       "bases:Create new base": false
     }
   },
-  "active": "dd6a6f9f3f338dfd",
+  "active": "72b35285faad2227",
   "lastOpenFiles": [
-    "40_MOCs/MOC - 01KGE1SGXWWV5DY2X8AFH2WAT9 - modelos-de-previsão-com-facebook-prophet.md",
-    "40_MOCs/MOC - 01KGE1S877DB92WR7YH9WTMH1P - análise-do-modelo-arima-no-mercado-bist30.md",
-    "40_MOCs/MOC - 01KGE1S0MGGFRTS5FJW44ZHRN9 - backtesting-na-avaliação-de-modelos-de-previsão.md",
-    "40_MOCs/MOC - 01KGE1RS17XM7C8N2SG3NCD1P1 - comparação-de-modelos-de-previsão-de-preços-de-açõ.md",
-    "40_MOCs/MOC - 01KGE1RCZG9MS1FG5E3GJJC1CA - previsão-de-preços-de-ações.md",
-    "40_MOCs/MOC - 01KGE1QZH9GD4AS1KQ0P9Z3DB9 - eficácia-das-redes-neurais-mlp-na-previsão-de-preç.md",
-    "40_MOCs/MOC - 01KGE1QP19YKKP2031W6R2Q0VE - eficácia-do-modelo-prophet-na-previsão-de-preços-d.md",
-    "40_MOCs/MOC - 01KGE1Q50G89SFBBAJPKHYMNV4 - correlação-e-modelos-preditivos.md",
-    "40_MOCs/MOC - 01KGE1PS4K0BY7RB6FX6HN619B - análise-de-séries-temporais.md",
-    "40_MOCs/MOC - 01KGE1P9QXD8PRR897D98PCFBX - modelos-generalizados-em-estatística.md",
-    "40_MOCs/MOC - 01KGE1P07AM3J1JYCGAZD56R3Y - modelos-arima-na-análise-de-séries-temporais.md",
-    "40_MOCs/MOC - 01KGE1NNV344QHMH95ENNZA0W9 - modelos-estatísticos-em-séries-temporais.md",
-    "40_MOCs/MOC - 01KGE1NDP3V9NHN0DXRWAGMQS3 - modelagem-de-fenômenos-sazonais-com-funções-trigon.md",
-    "40_MOCs/MOC - 01KGE1N45CKRAYEVD7FY9HWN29 - análise-de-tendências-com-modelos-de-regressão-pol.md",
-    "40_MOCs/MOC - 01KGE1MQVD836RAQE0QWSX5SFD - análise-de-séries-temporais-na-epidemiologia.md",
-    "40_MOCs/MOC - 01KGE1M994GJNBF1NMEZY88ZW4 - sistemas-de-busca-inteligente-com-ia-generativa.md",
-    "40_MOCs/MOC - 01KGE1KZ7W5XERAS0K3K9VMF8S - privacidade-no-uso-de-llms-e-desenvolvimento-de-si.md",
-    "40_MOCs/MOC - 01KGE1KMF063N0JGZPTCQSKJ9D - segurança-e-proteção-de-dados-em-machine-learning.md",
-    "40_MOCs/MOC - 01KGE1KA88G0PWVCMT79495Q1B - manutenção-e-aprendizado-contínuo-em-modelos-de-ma.md",
-    "40_MOCs/MOC - 01KGE1JXJGPZ787WP6QH27HYWB - raciocínio-e-resolução-de-problemas-em-modelos-de.md",
-    "40_MOCs/MOC - 01KGE1JJYSAGTKWPKXHWB091A7 - implantação-e-integração-de-modelos-de-linguagem.md",
-    "40_MOCs/MOC - 01KGE1J7SFBY15FB299114TEFR - bancos-de-dados-vetoriais-e-embeddings.md",
-    "40_MOCs/MOC - 01KGE1HWFEKYJ042G614RWQS9Q - incorporações-em-aprendizado-de-máquina.md",
-    "40_MOCs/MOC - 01KGE1HMGFW90K6Q1S9B1TTTQM - execução-do-llama-3-localmente.md",
-    "40_MOCs/MOC - 01KGE1HAKDF8G4GG8YMBW4N2HG - aprimoramento-da-busca-semântica.md",
-    "40_MOCs/MOC - 01KGE1GZ5Y00ND9XFFD72NAHY8 - langchain-e-llms-em-python.md",
+    "30_Permanent/ZTL - 01KGGMS4X2M1WPD8JXXWNHDN0H - modelagem-de-séries-temporais-e-influências-variáv.md",
+    "30_Permanent/ZTL - 01KGGMY79RF17BSMB986Y9VY2T - classificação-de-séries-temporais-discretas-e-cont.md",
+    "30_Permanent/ZTL - 01KGGMY19HMM71DD8XEJQHDEXK - processos-estocásticos-e-trajetórias.md",
+    "30_Permanent/ZTL - 01KGGMXSSKD9JSJTWQJMA4HCG4 - trajetória-de-um-processo-em-séries-temporais.md",
+    "30_Permanent/ZTL - 01KGGMXH06T1FHJJTRBKV52HBD - conceito-de-série-temporal.md",
+    "30_Permanent/ZTL - 01KGGMXAFFAFWWFFTCFFRQY4EX - modelos-estatísticos-na-análise-de-séries-temporai.md",
+    "30_Permanent/ZTL - 01KGGMX379NVA1K9KMAMFCGG7W - importância-da-análise-de-séries-temporais-na-epid.md",
+    "30_Permanent/ZTL - 01KGGMWX6Q3ND06Q4Q8BZCJHS3 - modelos-aditivos-generalizados-e-funções-não-param.md",
+    "30_Permanent/ZTL - 01KGGMWPFDKK4WHN61H470Y1BY - modelos-lineares-generalizados-e-variáveis-não-nor.md",
+    "30_Permanent/ZTL - 01KGGMWFD3D9TFMC2SMS2M3JEN - modelos-arima-e-sarima-em-séries-temporais.md",
+    "30_Permanent/ZTL - 01KGGMW8Q7WF88GG6DA1HRJGGD - modelos-autoregressivos-e-arma-em-séries-temporais.md",
+    "30_Permanent/ZTL - 01KGGMW23B4PPD32VYZXB8F5JQ - modelagem-de-fenômenos-sazonais-com-funções-trigon.md",
+    "30_Permanent/ZTL - 01KGGMVV886D238MB0WRPBNJEZ - ajuste-de-modelos-de-regressão-polinomial-em-série.md",
+    "30_Permanent/ZTL - 01KGGMVKVTN9TFKHJFZCM19A2Q - técnicas-estatísticas-para-análise-de-séries-tempo.md",
+    "30_Permanent/ZTL - 01KGGMVBYZA98MDM185XZS05YP - análise-de-séries-temporais-e-fatores-influentes.md",
+    "30_Permanent/ZTL - 01KGGMV5KC0ZBR35JK04SPFB88 - importância-das-séries-temporais-na-análise-de-dad.md",
+    "30_Permanent/ZTL - 01KGGMTYY46QS19V8NE9Y95GG9 - modelos-aditivos-generalizados-e-funções-não-param.md",
+    "30_Permanent/ZTL - 01KGGMTRYAJQMRK3E7PPKEWE1W - família-exponencial-de-distribuições.md",
+    "30_Permanent/ZTL - 01KGGMTHXF23T779E4S3WRGJSG - modelos-lineares-generalizados-para-variáveis-de-c.md",
+    "30_Permanent/ZTL - 01KGGMTB0YFFTTASH5N46C1298 - modelos-sarima-em-séries-temporais.md",
+    "30_Permanent/ZTL - 01KGGMT2P8CVHFARSZZQ7CFBCX - modelos-arima-em-séries-temporais.md",
+    "30_Permanent/ZTL - 01KGGMSVE41E8PA12F2WXF1JPS - modelos-auto-regressivos-em-séries-temporais.md",
+    "30_Permanent/ZTL - 01KGGMSKY8WMD2SJB557JJ8KEB - modelagem-de-fenômenos-sazonais-com-funções-trigon.md",
+    "30_Permanent/ZTL - 01KGGMSB9WYSM05P4RW0HG1VR3 - ajuste-de-modelos-de-regressão-polinomial-em-série.md",
+    "30_Permanent/ZTL - 01KGGMRTS4750MN28GA9V00PGJ - séries-temporais-e-análise-de-dados.md",
+    "30_Permanent/ZTL - 01KGGK9APQCE8G8P9K285238T4 - classificação-de-séries-temporais-discretas-vs-con.md",
     "Untitled.base"
   ]
 }

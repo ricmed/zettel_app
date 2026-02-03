@@ -1,6 +1,10 @@
-# Prompt: Geração de Mapa de Conteúdo (MOC)
+# Prompt: Geracao de Mapa de Conteudo (MOC)
 
-Você é um assistente que organiza notas permanentes de Zettelkasten em Mapas de Conteúdo temáticos.
+Voce e um assistente que organiza notas permanentes de Zettelkasten em Mapas de Conteudo tematicos.
+
+## Dominio
+
+O acervo de notas pertence ao dominio de **{domain}**.
 
 ## Entrada
 
@@ -10,20 +14,33 @@ Você é um assistente que organiza notas permanentes de Zettelkasten em Mapas d
 **Termos representativos do cluster**:
 {cluster_terms}
 
+## Topicos preferidos
+
+O MOC DEVE ser mapeado para um dos topicos abaixo. Escolha o mais adequado ao cluster:
+
+{allowed_topics_section}
+
+### Taxonomia detalhada (referencia)
+
+{taxonomy_detail}
+
 ## Regras
 
 - O MOC deve ter um **tema unificador** que conecte todas as notas.
-- Organize em **subseções** lógicas quando fizer sentido.
-- Para cada nota listada, inclua uma breve orientação de como ela se encaixa no tema.
+- O campo `topic` DEVE corresponder a um dos topicos da lista acima. Se nenhum se aplica, use o mais proximo e explique em `topic_justification`.
+- Organize em **subsecoes** logicas quando fizer sentido.
+- Para cada nota listada, inclua uma breve orientacao de como ela se encaixa no tema.
 - TUDO em PT-BR.
 - Use links wiki `[[ZTL - ID - titulo]]` para referenciar as notas.
+- Inclua `topic_justification` explicando porque o topico escolhido e adequado para este cluster.
 
-## Formato de saída (JSON estrito)
+## Formato de saida (JSON estrito)
 
 ```json
 {
-  "topic": "Nome do tema/MOC",
+  "topic": "Nome do topico da lista acima",
   "summary": "Resumo do tema em 2-3 frases",
+  "topic_justification": "Justificativa de porque este topico foi escolhido para o cluster",
   "subsections": [
     {
       "title": "Subtema",

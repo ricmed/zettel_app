@@ -11,3 +11,13 @@ wheels/
 
 .claude
 .pytest_cache
+data/chroma/*
+data/chroma/chroma.sqlite3
+data/cache/*
+data/inbox/*
+data/state.db
+data/zettel.db
+data/processed/*
+
+vault/*
+

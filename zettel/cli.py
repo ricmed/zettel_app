@@ -59,6 +59,7 @@ def init(
     config: Optional[str] = typer.Option(None, "--config", "-c", help="Caminho para config.yaml"),
     vault: Optional[str] = typer.Option(None, "--vault", help="Caminho do vault (override)"),
     inbox: Optional[str] = typer.Option(None, "--inbox", help="Caminho do inbox (override)"),
+    reset: bool = typer.Option(False, "--reset", help="Apagar e recriar todas as bases de dados"),
 ):
     """Inicializar o vault, banco de dados e índice vetorial."""
     cfg = _load_deps(config)
@@ -66,6 +67,36 @@ def init(
         cfg.vault_path = Path(vault).resolve()
     if inbox:
         cfg.inbox_path = Path(inbox).resolve()
+
+    if reset:
+        import shutil
+
+        confirmed = typer.confirm(
+            "Isso vai APAGAR o State DB, ChromaDB e cache. Continuar?"
+        )
+        if not confirmed:
+            console.print("[yellow]Reset cancelado.[/yellow]")
+            raise typer.Exit(0)
+
+        # Remove State DB
+        if cfg.state_db_path.exists():
+            cfg.state_db_path.unlink()
+            # WAL/SHM companion files
+            for suffix in ("-wal", "-shm"):
+                companion = cfg.state_db_path.with_name(cfg.state_db_path.name + suffix)
+                if companion.exists():
+                    companion.unlink()
+            console.print(f"[red]State DB removido:[/red] {cfg.state_db_path}")
+
+        # Remove ChromaDB
+        if cfg.chroma_path.exists():
+            shutil.rmtree(cfg.chroma_path)
+            console.print(f"[red]ChromaDB removido:[/red] {cfg.chroma_path}")
+
+        # Remove cache
+        if cfg.cache_path.exists():
+            shutil.rmtree(cfg.cache_path)
+            console.print(f"[red]Cache removido:[/red] {cfg.cache_path}")
 
     from zettel.vault import init_vault
     init_vault(cfg.vault_path)
@@ -86,12 +117,13 @@ def init(
     if gpu["available"]:
         device_line += f" ({gpu.get('device_name', '?')} — {gpu.get('vram_gb', '?')} GB VRAM)"
 
+    reset_line = "\n[red]Bases de dados recriadas do zero.[/red]" if reset else ""
     console.print(Panel(
         f"[green]Vault inicializado em:[/green] {cfg.vault_path}\n"
         f"[green]Inbox:[/green] {cfg.inbox_path}\n"
         f"[green]State DB:[/green] {cfg.state_db_path}\n"
         f"[green]ChromaDB:[/green] {cfg.chroma_path}\n"
-        f"{device_line}",
+        f"{device_line}{reset_line}",
         title="Zettelkasten -- Init",
         border_style="green",
     ))
@@ -161,10 +193,10 @@ def extract(
             "chunk_id": c["chunk_id"],
             "candidate": c["candidate"].model_dump(),
         }
-        if "merge_target" in c:
-            entry["merge_target"] = c["merge_target"]
-        if "merge_reason" in c:
-            entry["merge_reason"] = c["merge_reason"]
+        if "refines_note_id" in c:
+            entry["refines_note_id"] = c["refines_note_id"]
+        if "refine_reason" in c:
+            entry["refine_reason"] = c["refine_reason"]
         serializable.append(entry)
     cache_file.write_text(json.dumps(serializable, ensure_ascii=False, indent=2), encoding="utf-8")
     console.print(f"[dim]Candidatos salvos em: {cache_file}[/dim]")
@@ -379,7 +411,8 @@ def doctor(
 
     # Prompts
     prompt_files = ["literature_note.md", "permanent_note.md", "dedupe_decision.md",
-                    "relationship.md", "moc_generation.md", "ptbr_guard.md"]
+                    "relationship.md", "moc_generation.md", "moc_incremental.md",
+                    "ptbr_guard.md"]
     for pf in prompt_files:
         p = cfg.prompts_path / pf
         checks.append((f"Prompt: {pf}", p.exists(), str(p)))

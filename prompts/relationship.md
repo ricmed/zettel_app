@@ -1,5 +1,8 @@
 # Prompt: Classificação de Relacionamento entre Notas
 
+<!-- NOTA: Os tipos de relação abaixo estão integrados diretamente no prompt
+     permanent_note.md. Este arquivo serve como referência e documentação. -->
+
 Analise a relação entre a nota atual e cada nota candidata a conexão.
 
 ## Tipos de relação

@@ -29,7 +29,6 @@ class DedupeDecision(str, Enum):
     CREATE_NEW = "create_new"
     IGNORE = "ignore"
     REFINE_EXISTING = "refine_existing"
-    MERGE = "merge"
 
 
 class RelationType(str, Enum):
@@ -118,6 +117,11 @@ class PermanentNoteCandidate(BaseModel):
         default="", description="Localizador na fonte (página, seção, timestamp)"
     )
     tags: list[str] = Field(default_factory=list)
+    relevance_score: int = Field(
+        default=3,
+        ge=1, le=5,
+        description="Relevancia do candidato (1=trivial, 5=fundamental)",
+    )
 
 
 # Forward ref update
@@ -189,6 +193,10 @@ class MOCGenerationOutput(BaseModel):
     topic: str = Field(description="Nome/tema do MOC")
     summary: str = Field(description="Resumo do tema em PT-BR")
     subsections: list[MOCSubsection] = Field(default_factory=list)
+    topic_justification: str = Field(
+        default="",
+        description="Justificativa de porque este topico foi escolhido",
+    )
 
 
 class MOCSubsection(BaseModel):
@@ -198,6 +206,23 @@ class MOCSubsection(BaseModel):
 
 
 MOCGenerationOutput.model_rebuild()
+
+
+# ── MOC Incremental Update ────────────────────────────────────────────
+
+
+class MOCNotePlacement(BaseModel):
+    note_id: str
+    subsection: str = Field(description="Titulo da subsecao existente ou 'ignorar'")
+    reason: str = ""
+
+
+class MOCIncrementalOutput(BaseModel):
+    placements: list[MOCNotePlacement] = Field(default_factory=list)
+    new_subsections: list[MOCSubsection] = Field(default_factory=list)
+
+
+MOCIncrementalOutput.model_rebuild()
 
 
 # ── Permanent Note LLM Output ─────────────────────────────────────────
@@ -211,8 +236,11 @@ class PermanentNoteLLMOutput(BaseModel):
     intuition: str = Field(default="", description="Intuição ou analogia")
     example: str = Field(default="", description="Exemplo prático")
     limits: str = Field(default="", description="Limites e ressalvas")
-    connections_text: str = Field(
-        default="",
-        description="Texto de conexões com outras notas (com links wiki)",
+    connections: list[RelationshipResult] = Field(
+        default_factory=list,
+        description="Conexões tipadas com notas existentes",
     )
     tags: list[str] = Field(default_factory=list)
+
+
+PermanentNoteLLMOutput.model_rebuild()

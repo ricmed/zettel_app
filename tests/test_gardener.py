@@ -1,0 +1,538 @@
+"""Tests for gardener MOC topic validation and incremental updates."""
+
+import json
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from zettel.config import AppConfig, GardenerConfig
+from zettel.gardener import (
+    _validate_moc_topic,
+    _parse_moc_structure,
+    _parse_incremental_output,
+    _update_existing_moc,
+    _apply_incremental_placements,
+)
+from zettel.schemas import (
+    MOCGenerationOutput,
+    MOCIncrementalOutput,
+    MOCNotePlacement,
+    MOCSubsection,
+)
+from zettel.state import StateDB
+from zettel.vault import safe_write_note
+
+
+def _make_moc_output(topic: str, justification: str = "") -> MOCGenerationOutput:
+    """Helper to build a MOCGenerationOutput."""
+    return MOCGenerationOutput(
+        topic=topic,
+        summary="Resumo de teste",
+        subsections=[],
+        topic_justification=justification,
+    )
+
+
+def _make_config(
+    allowed_topics: list[str] | None = None,
+    strict: bool = True,
+) -> AppConfig:
+    """Helper to build an AppConfig with custom gardener settings."""
+    gardener_kwargs = {
+        "strict_topics": strict,
+        "allowed_topics": allowed_topics or [],
+    }
+    return AppConfig(gardener=GardenerConfig(**gardener_kwargs))
+
+
+# ── Topic Validation Tests (existing) ────────────────────────────────
+
+
+def test_validate_topic_in_list():
+    """Topic that exactly matches an allowed topic is approved."""
+    cfg = _make_config(
+        allowed_topics=["Machine Learning Classico", "Deep Learning e Modelos Neurais"],
+        strict=True,
+    )
+    moc = _make_moc_output("Machine Learning Classico")
+    assert _validate_moc_topic(cfg, moc) is True
+
+
+def test_validate_topic_substring():
+    """Topic that contains a substring of an allowed topic is approved."""
+    cfg = _make_config(
+        allowed_topics=["Deep Learning e Modelos Neurais"],
+        strict=True,
+    )
+    # Bidirectional: allowed topic contains the MOC topic
+    moc = _make_moc_output("Deep Learning")
+    assert _validate_moc_topic(cfg, moc) is True
+
+    # Bidirectional: MOC topic contains the allowed topic
+    moc2 = _make_moc_output("Deep Learning e Modelos Neurais Avancados")
+    assert _validate_moc_topic(cfg, moc2) is True
+
+
+def test_validate_topic_strict_reject():
+    """Topic not in the list is rejected when strict_topics=True."""
+    cfg = _make_config(
+        allowed_topics=["Machine Learning Classico"],
+        strict=True,
+    )
+    moc = _make_moc_output("Culinaria Molecular", justification="Nao se aplica")
+    assert _validate_moc_topic(cfg, moc) is False
+
+
+def test_validate_topic_permissive():
+    """Topic not in the list is approved when strict_topics=False."""
+    cfg = _make_config(
+        allowed_topics=["Machine Learning Classico"],
+        strict=False,
+    )
+    moc = _make_moc_output("Culinaria Molecular", justification="Nao se aplica")
+    assert _validate_moc_topic(cfg, moc) is True
+
+
+def test_validate_empty_list():
+    """When allowed_topics is empty, any topic is approved."""
+    cfg = _make_config(allowed_topics=[], strict=True)
+    moc = _make_moc_output("Qualquer Topico")
+    assert _validate_moc_topic(cfg, moc) is True
+
+
+# ── MOC Structure Parsing Tests ──────────────────────────────────────
+
+
+SAMPLE_MOC_CONTENT = """\
+---
+type: moc
+moc_id: 01ABCDEF
+topic: Machine Learning Classico
+cluster_signature: abc123
+created_at: '2025-01-01T00:00:00'
+updated_at: '2025-01-01T00:00:00'
+---
+
+# Machine Learning Classico
+
+Resumo sobre Machine Learning Classico e seus algoritmos.
+
+## Algoritmos Supervisionados
+
+Algoritmos que aprendem a partir de dados rotulados.
+
+- [[ZTL - NOTE001 - regressao-linear]]
+- [[ZTL - NOTE002 - arvores-de-decisao]]
+
+## Algoritmos Nao Supervisionados
+
+Algoritmos que encontram padroes sem rotulos.
+
+- [[ZTL - NOTE003 - k-means-clustering]]
+"""
+
+
+def test_parse_moc_structure(tmp_path):
+    """Verify parsing correctly extracts subsections and note_ids."""
+    moc_file = tmp_path / "40_MOCs" / "MOC - 01ABCDEF - machine-learning-classico.md"
+    moc_file.parent.mkdir(parents=True, exist_ok=True)
+    moc_file.write_text(SAMPLE_MOC_CONTENT, encoding="utf-8")
+
+    structure = _parse_moc_structure(moc_file)
+
+    assert structure is not None
+    assert structure["topic"] == "Machine Learning Classico"
+    assert "Resumo sobre Machine Learning" in structure["summary"]
+
+    assert len(structure["subsections"]) == 2
+
+    sub1 = structure["subsections"][0]
+    assert sub1["title"] == "Algoritmos Supervisionados"
+    assert sub1["note_ids"] == ["NOTE001", "NOTE002"]
+    assert "rotulados" in sub1["description"]
+
+    sub2 = structure["subsections"][1]
+    assert sub2["title"] == "Algoritmos Nao Supervisionados"
+    assert sub2["note_ids"] == ["NOTE003"]
+
+    assert structure["all_note_ids"] == {"NOTE001", "NOTE002", "NOTE003"}
+
+
+def test_parse_moc_structure_missing_file(tmp_path):
+    """Returns None when file does not exist."""
+    result = _parse_moc_structure(tmp_path / "nonexistent.md")
+    assert result is None
+
+
+# ── find_moc_by_topic Tests ──────────────────────────────────────────
+
+
+def test_find_moc_by_topic_exact(tmp_path):
+    """Exact topic match returns the MOC."""
+    db = StateDB(tmp_path / "test.db")
+    db.upsert_moc("MOC001", "Machine Learning Classico", "/path/moc.md", "sig1")
+
+    result = db.find_moc_by_topic("Machine Learning Classico")
+    assert result is not None
+    assert result["moc_id"] == "MOC001"
+    db.close()
+
+
+def test_find_moc_by_topic_substring(tmp_path):
+    """Bidirectional substring match works."""
+    db = StateDB(tmp_path / "test.db")
+    db.upsert_moc("MOC001", "Machine Learning Classico", "/path/moc.md", "sig1")
+
+    # Existing topic contains the query
+    result = db.find_moc_by_topic("Machine Learning")
+    assert result is not None
+    assert result["moc_id"] == "MOC001"
+
+    # Query contains the existing topic
+    result2 = db.find_moc_by_topic("Machine Learning Classico e Avancado")
+    assert result2 is not None
+    assert result2["moc_id"] == "MOC001"
+
+    db.close()
+
+
+def test_find_moc_by_topic_no_match(tmp_path):
+    """Returns None when no match is found."""
+    db = StateDB(tmp_path / "test.db")
+    db.upsert_moc("MOC001", "Machine Learning Classico", "/path/moc.md", "sig1")
+
+    result = db.find_moc_by_topic("Culinaria Molecular")
+    assert result is None
+    db.close()
+
+
+def test_find_moc_by_topic_case_insensitive(tmp_path):
+    """Match is case-insensitive."""
+    db = StateDB(tmp_path / "test.db")
+    db.upsert_moc("MOC001", "Deep Learning", "/path/moc.md", "sig1")
+
+    result = db.find_moc_by_topic("deep learning")
+    assert result is not None
+    assert result["moc_id"] == "MOC001"
+    db.close()
+
+
+# ── Incremental Output Parsing Tests ─────────────────────────────────
+
+
+def test_parse_incremental_output_basic():
+    """Parse a valid incremental JSON response."""
+    llm_response = json.dumps({
+        "placements": [
+            {"note_id": "NOTE004", "subsection": "Algoritmos Supervisionados", "reason": "E supervisionado"},
+            {"note_id": "NOTE005", "subsection": "ignorar", "reason": "Nao se encaixa"},
+        ],
+        "new_subsections": [],
+    })
+    result = _parse_incremental_output(llm_response)
+    assert isinstance(result, MOCIncrementalOutput)
+    assert len(result.placements) == 2
+    assert result.placements[0].note_id == "NOTE004"
+    assert result.placements[0].subsection == "Algoritmos Supervisionados"
+    assert result.placements[1].subsection == "ignorar"
+    assert len(result.new_subsections) == 0
+
+
+def test_parse_incremental_output_with_new_subsection():
+    """Parse response that includes new subsections."""
+    llm_response = json.dumps({
+        "placements": [
+            {"note_id": "NOTE004", "subsection": "Nova Subsecao", "reason": "Pertence aqui"},
+        ],
+        "new_subsections": [
+            {"title": "Nova Subsecao", "note_ids": ["NOTE004"], "description": "Algo novo"},
+        ],
+    })
+    result = _parse_incremental_output(llm_response)
+    assert len(result.new_subsections) == 1
+    assert result.new_subsections[0].title == "Nova Subsecao"
+    assert result.new_subsections[0].note_ids == ["NOTE004"]
+
+
+def test_parse_incremental_output_markdown_wrapped():
+    """Parse response wrapped in markdown code block."""
+    inner = json.dumps({
+        "placements": [
+            {"note_id": "NOTE004", "subsection": "Algo", "reason": "Test"},
+        ],
+        "new_subsections": [],
+    })
+    llm_response = f"```json\n{inner}\n```"
+    result = _parse_incremental_output(llm_response)
+    assert len(result.placements) == 1
+
+
+# ── Update Existing MOC Tests ────────────────────────────────────────
+
+
+def _setup_moc_file(tmp_path):
+    """Helper: create a MOC file and StateDB with notes."""
+    moc_dir = tmp_path / "vault" / "40_MOCs"
+    moc_dir.mkdir(parents=True, exist_ok=True)
+    moc_file = moc_dir / "MOC - MOC001 - machine-learning-classico.md"
+
+    meta = {
+        "type": "moc",
+        "moc_id": "MOC001",
+        "topic": "Machine Learning Classico",
+        "cluster_signature": "old_sig",
+        "created_at": "2025-01-01T00:00:00",
+        "updated_at": "2025-01-01T00:00:00",
+    }
+    body = (
+        "# Machine Learning Classico\n\n"
+        "Resumo sobre ML.\n\n"
+        "## Algoritmos Supervisionados\n\n"
+        "Descricao supervisionados.\n\n"
+        "- [[ZTL - NOTE001 - regressao-linear]]\n"
+        "- [[ZTL - NOTE002 - arvores-de-decisao]]\n\n"
+        "## Algoritmos Nao Supervisionados\n\n"
+        "Descricao nao supervisionados.\n\n"
+        "- [[ZTL - NOTE003 - k-means-clustering]]\n\n"
+    )
+    safe_write_note(moc_file, meta, body)
+
+    db = StateDB(tmp_path / "test.db")
+    db.upsert_moc("MOC001", "Machine Learning Classico", str(moc_file), "old_sig")
+    # Register notes
+    for nid, title in [("NOTE001", "Regressao Linear"), ("NOTE002", "Arvores de Decisao"),
+                        ("NOTE003", "K-Means Clustering"), ("NOTE004", "SVM"),
+                        ("NOTE005", "Random Forest")]:
+        db.upsert_note(nid, "SRC001", None, title)
+
+    return db, moc_file
+
+
+def test_update_existing_moc_no_new_notes(tmp_path):
+    """When all notes already exist in MOC, only signature is updated."""
+    db, moc_file = _setup_moc_file(tmp_path)
+    cfg = _make_config()
+    cfg.prompts_path = tmp_path / "prompts"
+
+    idx = MagicMock()
+    llm = MagicMock()
+
+    existing_moc = db.find_moc_by_topic("Machine Learning Classico")
+    result = _update_existing_moc(
+        cfg, db, idx, llm, existing_moc,
+        ["NOTE001", "NOTE002", "NOTE003"],  # all existing
+        "new_sig",
+    )
+
+    assert result == "MOC001"
+    # LLM should NOT have been called
+    llm.invoke.assert_not_called()
+    # Signature should be updated
+    updated_moc = db.find_moc_by_topic("Machine Learning Classico")
+    assert updated_moc["cluster_signature"] == "new_sig"
+
+    db.close()
+
+
+def test_update_existing_moc_with_placements(tmp_path):
+    """New notes are placed into correct subsections via LLM."""
+    db, moc_file = _setup_moc_file(tmp_path)
+    cfg = _make_config()
+
+    # Create prompts dir with incremental prompt
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir(exist_ok=True)
+    (prompts_dir / "moc_incremental.md").write_text(
+        "Prompt: {moc_topic} {moc_summary} {existing_subsections} {new_notes_list}",
+        encoding="utf-8",
+    )
+    cfg.prompts_path = prompts_dir
+
+    idx = MagicMock()
+
+    # Mock LLM to return placement
+    llm_response_data = {
+        "placements": [
+            {"note_id": "NOTE004", "subsection": "Algoritmos Supervisionados", "reason": "SVM e supervisionado"},
+        ],
+        "new_subsections": [],
+    }
+    mock_response = MagicMock()
+    mock_response.content = json.dumps(llm_response_data)
+    llm = MagicMock()
+    llm.invoke.return_value = mock_response
+
+    existing_moc = db.find_moc_by_topic("Machine Learning Classico")
+    result = _update_existing_moc(
+        cfg, db, idx, llm, existing_moc,
+        ["NOTE001", "NOTE002", "NOTE003", "NOTE004"],  # NOTE004 is new
+        "new_sig",
+    )
+
+    assert result == "MOC001"
+
+    # Verify the file was updated with NOTE004
+    content = moc_file.read_text(encoding="utf-8")
+    assert "NOTE004" in content
+    assert "Algoritmos Supervisionados" in content
+    # Existing notes should still be present
+    assert "NOTE001" in content
+    assert "NOTE002" in content
+    assert "NOTE003" in content
+
+    db.close()
+
+
+def test_incremental_ignores_notes(tmp_path):
+    """Notes marked as 'ignorar' by LLM do not appear in the updated MOC."""
+    db, moc_file = _setup_moc_file(tmp_path)
+    cfg = _make_config()
+
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir(exist_ok=True)
+    (prompts_dir / "moc_incremental.md").write_text(
+        "Prompt: {moc_topic} {moc_summary} {existing_subsections} {new_notes_list}",
+        encoding="utf-8",
+    )
+    cfg.prompts_path = prompts_dir
+
+    idx = MagicMock()
+
+    # LLM says to ignore NOTE005
+    llm_response_data = {
+        "placements": [
+            {"note_id": "NOTE005", "subsection": "ignorar", "reason": "Nao se encaixa no MOC"},
+        ],
+        "new_subsections": [],
+    }
+    mock_response = MagicMock()
+    mock_response.content = json.dumps(llm_response_data)
+    llm = MagicMock()
+    llm.invoke.return_value = mock_response
+
+    existing_moc = db.find_moc_by_topic("Machine Learning Classico")
+    result = _update_existing_moc(
+        cfg, db, idx, llm, existing_moc,
+        ["NOTE001", "NOTE003", "NOTE005"],  # NOTE005 is new
+        "new_sig",
+    )
+
+    assert result == "MOC001"
+
+    # NOTE005 should NOT appear in the MOC file
+    content = moc_file.read_text(encoding="utf-8")
+    assert "NOTE005" not in content
+    # Existing notes should still be present
+    assert "NOTE001" in content
+    assert "NOTE003" in content
+
+    db.close()
+
+
+def test_update_existing_moc_with_new_subsection(tmp_path):
+    """LLM can suggest new subsections for a group of new notes."""
+    db, moc_file = _setup_moc_file(tmp_path)
+    cfg = _make_config()
+
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir(exist_ok=True)
+    (prompts_dir / "moc_incremental.md").write_text(
+        "Prompt: {moc_topic} {moc_summary} {existing_subsections} {new_notes_list}",
+        encoding="utf-8",
+    )
+    cfg.prompts_path = prompts_dir
+
+    idx = MagicMock()
+
+    llm_response_data = {
+        "placements": [
+            {"note_id": "NOTE004", "subsection": "Metodos Ensemble", "reason": "SVM combina modelos"},
+            {"note_id": "NOTE005", "subsection": "Metodos Ensemble", "reason": "Random Forest e ensemble"},
+        ],
+        "new_subsections": [
+            {"title": "Metodos Ensemble", "note_ids": ["NOTE004", "NOTE005"],
+             "description": "Metodos que combinam multiplos modelos."},
+        ],
+    }
+    mock_response = MagicMock()
+    mock_response.content = json.dumps(llm_response_data)
+    llm = MagicMock()
+    llm.invoke.return_value = mock_response
+
+    existing_moc = db.find_moc_by_topic("Machine Learning Classico")
+    result = _update_existing_moc(
+        cfg, db, idx, llm, existing_moc,
+        ["NOTE001", "NOTE002", "NOTE003", "NOTE004", "NOTE005"],
+        "new_sig",
+    )
+
+    assert result == "MOC001"
+
+    content = moc_file.read_text(encoding="utf-8")
+    assert "Metodos Ensemble" in content
+    assert "NOTE004" in content
+    assert "NOTE005" in content
+    # Existing subsections still present
+    assert "Algoritmos Supervisionados" in content
+    assert "Algoritmos Nao Supervisionados" in content
+
+    db.close()
+
+
+# ── Routing Tests ────────────────────────────────────────────────────
+
+
+def test_generate_moc_routes_to_incremental(tmp_path):
+    """_generate_moc calls _update_existing_moc when topic already exists."""
+    db, moc_file = _setup_moc_file(tmp_path)
+    cfg = _make_config()
+
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir(exist_ok=True)
+    (prompts_dir / "moc_generation.md").write_text(
+        "Prompt: {domain} {allowed_topics_section} {taxonomy_detail} {notes_list} {cluster_terms}",
+        encoding="utf-8",
+    )
+    (prompts_dir / "moc_incremental.md").write_text(
+        "Prompt: {moc_topic} {moc_summary} {existing_subsections} {new_notes_list}",
+        encoding="utf-8",
+    )
+    cfg.prompts_path = prompts_dir
+    cfg.vault_path = tmp_path / "vault"
+
+    idx = MagicMock()
+
+    # First LLM call (moc_generation) returns topic matching existing MOC
+    generation_response = MagicMock()
+    generation_response.content = json.dumps({
+        "topic": "Machine Learning Classico",
+        "summary": "Resumo teste",
+        "topic_justification": "Justificativa",
+        "subsections": [],
+    })
+
+    # Second LLM call (incremental) returns placements
+    incremental_response = MagicMock()
+    incremental_response.content = json.dumps({
+        "placements": [
+            {"note_id": "NOTE004", "subsection": "Algoritmos Supervisionados", "reason": "Teste"},
+        ],
+        "new_subsections": [],
+    })
+
+    llm = MagicMock()
+    llm.invoke.side_effect = [generation_response, incremental_response]
+
+    from zettel.gardener import _generate_moc
+
+    result = _generate_moc(
+        cfg, db, idx, llm,
+        ["NOTE001", "NOTE002", "NOTE003", "NOTE004"],
+    )
+
+    assert result == "MOC001"
+    # Should have been called twice: generation + incremental
+    assert llm.invoke.call_count == 2
+
+    db.close()

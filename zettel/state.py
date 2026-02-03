@@ -101,6 +101,15 @@ CREATE TABLE IF NOT EXISTS llm_cache (
     created_at    TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS note_connections (
+    source_note_id TEXT NOT NULL,
+    target_note_id TEXT NOT NULL,
+    relation_type  TEXT NOT NULL,
+    description    TEXT DEFAULT '',
+    created_at     TEXT NOT NULL,
+    PRIMARY KEY (source_note_id, target_note_id, relation_type)
+);
+
 CREATE TABLE IF NOT EXISTS runs (
     run_id              INTEGER PRIMARY KEY AUTOINCREMENT,
     pipeline_signature  TEXT NOT NULL,
@@ -293,6 +302,27 @@ class StateDB:
         row = self.conn.execute("SELECT COUNT(*) as cnt FROM notes").fetchone()
         return row["cnt"] if row else 0
 
+    # ── Note Connections ──────────────────────────────────────────
+
+    def upsert_note_connection(self, source_note_id: str, target_note_id: str,
+                                relation_type: str, description: str = "") -> None:
+        self.conn.execute(
+            """INSERT INTO note_connections (source_note_id, target_note_id, relation_type, description, created_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(source_note_id, target_note_id, relation_type) DO UPDATE SET
+                 description=excluded.description, created_at=excluded.created_at""",
+            (source_note_id, target_note_id, relation_type, description, self._now()),
+        )
+        self.conn.commit()
+
+    def get_note_connections(self, note_id: str) -> list[dict]:
+        """Get all connections where note_id is source or target."""
+        return self._fetchall(
+            """SELECT * FROM note_connections
+               WHERE source_note_id=? OR target_note_id=?""",
+            (note_id, note_id),
+        )
+
     # ── MOCs ───────────────────────────────────────────────────────────
 
     def upsert_moc(self, moc_id: str, topic: str, path: str | None = None,
@@ -313,6 +343,16 @@ class StateDB:
 
     def list_mocs(self) -> list[dict]:
         return self._fetchall("SELECT * FROM mocs ORDER BY created_at DESC")
+
+    def find_moc_by_topic(self, topic: str) -> Optional[dict]:
+        """Encontra MOC existente cujo topico faz match bidirecional por substring."""
+        all_mocs = self.list_mocs()
+        topic_lower = topic.lower()
+        for moc in all_mocs:
+            existing_lower = moc["topic"].lower()
+            if existing_lower in topic_lower or topic_lower in existing_lower:
+                return moc
+        return None
 
     # ── LLM Cache ──────────────────────────────────────────────────────
 

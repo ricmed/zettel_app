@@ -2,6 +2,8 @@
 
 Takes approved candidates from the Extractor, generates full permanent notes
 using Prompt 2, and creates/updates vault files with managed backlink blocks.
+Connections are typed (supports, contradicts, extends, etc.) and backlinks
+show the inverse relation in PT-BR.
 """
 
 from __future__ import annotations
@@ -32,6 +34,23 @@ from zettel.vault import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ── Inverse relation map (PT-BR) ─────────────────────────────────────
+
+_INVERSE_RELATION: dict[str, str] = {
+    "supports": "suportado por",
+    "contradicts": "contradiz",
+    "extends": "estendido por",
+    "depends_on": "base para",
+    "exemplifies": "exemplificado por",
+    "related": "relacionado",
+}
+
+
+def _inverse_relation(relation_type: str) -> str:
+    """Return the inverse relation label in PT-BR."""
+    return _INVERSE_RELATION.get(relation_type, "relacionado")
 
 
 # ── Public API ─────────────────────────────────────────────────────────
@@ -69,17 +88,15 @@ def _process_candidate(
     cand: PermanentNoteCandidate = cand_dict["candidate"]
     source_id = cand_dict["source_id"]
     concept_id = cand_dict["concept_id"]
-    merge_target = cand_dict.get("merge_target")
+    refines_note_id = cand_dict.get("refines_note_id")
 
     # Check if concept already has a note
     existing_concept = db.get_concept(concept_id)
     if existing_concept and existing_concept.get("note_id"):
         note_id = existing_concept["note_id"]
-        logger.debug("Conceito %s já tem nota %s, atualizando", concept_id, note_id)
-    elif merge_target:
-        note_id = merge_target
-        logger.info("Merge do conceito %s na nota %s", concept_id, note_id)
+        logger.debug("Conceito %s ja tem nota %s, atualizando", concept_id, note_id)
     else:
+        # Always create a new ULID — even for refine_existing
         note_id = str(ULID())
 
     # Build literature reference
@@ -107,6 +124,9 @@ def _process_candidate(
     try:
         response_text = _call_llm(llm, filled)
         note_output = _parse_permanent_note_output(response_text)
+        if not note_output.thesis or not note_output.definition:
+            logger.warning("Conceito %s nao gerou nota permanente valida", concept_id) # TODO: adicionar o reason da falha
+            return None
     except Exception as e:
         logger.error("Erro ao gerar nota permanente para conceito %s: %s", concept_id, e)
         return None
@@ -116,6 +136,24 @@ def _process_candidate(
     if _needs_ptbr_fix(note_body_text):
         note_output = _apply_ptbr_guard(cfg, llm, note_output)
 
+    # Collect connections from LLM output
+    connections = list(note_output.connections)
+
+    # If this is a refine_existing candidate, inject an "extends" connection
+    if refines_note_id:
+        already_connected = any(
+            c.related_note_id == refines_note_id for c in connections
+        )
+        if not already_connected:
+            connections.append(RelationshipResult(
+                related_note_id=refines_note_id,
+                relation_type="extends",
+                description=cand_dict.get("refine_reason", "Refina nota existente"),
+            ))
+
+    # Resolve connections: convert note_ids into wiki-links
+    resolved_connections = _resolve_connections(db, connections)
+
     # Build note body
     body = build_permanent_note_body(
         thesis=note_output.thesis,
@@ -123,7 +161,7 @@ def _process_candidate(
         intuition=note_output.intuition,
         example=note_output.example,
         limits=note_output.limits,
-        connections_text=note_output.connections_text,
+        connections=resolved_connections,
         literature_ref=literature_ref,
         source_locator=cand.source_locator or "",
     )
@@ -165,10 +203,31 @@ def _process_candidate(
         "note_semantic_checksum": semantic_checksum,
     })
 
-    # Backlinking: update related notes' managed blocks
-    _update_backlinks(cfg, db, note_id, title, similar)
+    # Persist connections to DB and update backlinks on related notes
+    _persist_and_backlink(cfg, db, note_id, title, connections)
 
     return note_id
+
+
+# ── Connection Resolution ────────────────────────────────────────────
+
+
+def _resolve_connections(db: StateDB, connections: list[RelationshipResult]) -> list[dict]:
+    """Resolve note_ids into wiki-links for vault rendering."""
+    resolved: list[dict] = []
+    for conn in connections:
+        note_record = db.get_note(conn.related_note_id)
+        if note_record and note_record.get("title"):
+            wiki_link = f"[[ZTL - {conn.related_note_id} - {_slug(note_record['title'])}]]"
+        else:
+            wiki_link = f"[[ZTL - {conn.related_note_id}]]"
+        resolved.append({
+            "related_note_id": conn.related_note_id,
+            "wiki_link": wiki_link,
+            "relation_type": conn.relation_type if isinstance(conn.relation_type, str) else conn.relation_type.value,
+            "description": conn.description,
+        })
+    return resolved
 
 
 # ── RAG Context ───────────────────────────────────────────────────────
@@ -183,25 +242,34 @@ def _build_rag_context(similar_notes: list[dict]) -> str:
     for n in similar_notes:
         nid = n.get("id", "?")
         meta = n.get("metadata", {})
-        title = meta.get("title", "Sem título")
+        title = meta.get("title", "Sem titulo")
         doc = n.get("document", "")[:150]
         tags = meta.get("tags", "")
         parts.append(f"- **[[ZTL - {nid} - {_slug(title)}]]**: {doc}... (tags: {tags})")
     return "\n".join(parts)
 
 
-# ── Backlinking ───────────────────────────────────────────────────────
+# ── Backlinking with typed relations ─────────────────────────────────
 
 
-def _update_backlinks(
+def _persist_and_backlink(
     cfg: AppConfig, db: StateDB, new_note_id: str, new_title: str,
-    similar_notes: list[dict],
+    connections: list[RelationshipResult],
 ) -> None:
-    """Add backlinks to related notes' managed blocks."""
-    for n in similar_notes:
-        target_id = n.get("id")
-        if not target_id:
-            continue
+    """Persist connections to DB and update backlinks on related notes."""
+    for conn in connections:
+        target_id = conn.related_note_id
+        relation_type = conn.relation_type if isinstance(conn.relation_type, str) else conn.relation_type.value
+
+        # Persist to note_connections table
+        db.upsert_note_connection(
+            source_note_id=new_note_id,
+            target_note_id=target_id,
+            relation_type=relation_type,
+            description=conn.description,
+        )
+
+        # Update backlink on the target note
         target_record = db.get_note(target_id)
         if not target_record or not target_record.get("path"):
             continue
@@ -210,7 +278,11 @@ def _update_backlinks(
         if not target_path.exists():
             continue
 
-        new_link = f"- [[ZTL - {new_note_id} - {_slug(new_title)}]]"
+        inverse = _inverse_relation(relation_type)
+        new_link = f"- [[ZTL - {new_note_id} - {_slug(new_title)}]] ({inverse})"
+        if conn.description:
+            new_link += f" -- {conn.description}"
+
         safe_update_managed_blocks(target_path, {
             "auto-backlinks": _merge_backlink(target_path, new_link),
         })
@@ -281,7 +353,7 @@ def _get_llm(cfg: AppConfig) -> Any:
             temperature=cfg.llm.temperature,
         )
     else:
-        raise ValueError(f"LLM provider não suportado: {cfg.llm.provider}")
+        raise ValueError(f"LLM provider nao suportado: {cfg.llm.provider}")
 
 
 def _call_llm(llm: Any, prompt: str) -> str:
@@ -293,7 +365,7 @@ def _call_llm(llm: Any, prompt: str) -> str:
 
 def _load_prompt(path: Path) -> str:
     if not path.exists():
-        raise FileNotFoundError(f"Prompt não encontrado: {path}")
+        raise FileNotFoundError(f"Prompt nao encontrado: {path}")
     return path.read_text(encoding="utf-8")
 
 

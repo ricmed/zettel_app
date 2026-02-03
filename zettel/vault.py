@@ -206,9 +206,9 @@ def build_permanent_note_body(
     intuition: str,
     example: str,
     limits: str,
-    connections_text: str,
-    literature_ref: str,
-    source_locator: str,
+    connections: list[dict] | None = None,
+    literature_ref: str = "",
+    source_locator: str = "",
 ) -> str:
     """Build the Markdown body for a Permanent (ZTL) note."""
     parts: list[str] = []
@@ -224,8 +224,17 @@ def build_permanent_note_body(
     if source_locator:
         parts.append(f"- Localizador: {source_locator}")
     parts.append("")
-    if connections_text:
-        parts.append(f"## Conexões\n\n{connections_text}\n")
+    if connections:
+        conn_lines: list[str] = []
+        for c in connections:
+            link = c.get("wiki_link", c.get("related_note_id", "?"))
+            rtype = c.get("relation_type", "related")
+            desc = c.get("description", "")
+            line = f"- {link} ({rtype})"
+            if desc:
+                line += f" -- {desc}"
+            conn_lines.append(line)
+        parts.append(f"## Conexões\n\n" + "\n".join(conn_lines) + "\n")
     return "\n".join(parts)
 
 

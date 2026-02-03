@@ -46,13 +46,15 @@ zettel_app/
 │   └── sync.py              # Sincronização de notas manuais
 ├── config/
 │   └── config.yaml          # Configuração principal
-├── prompts/                 # Templates de prompts para o LLM
-│   ├── literature_note.md   # Prompt 1: extração de conceitos
-│   ├── permanent_note.md    # Prompt 2: geração de nota permanente
-│   ├── dedupe_decision.md   # Decisão de deduplicação
-│   ├── relationship.md      # Classificação de relacionamentos
-│   ├── moc_generation.md    # Geração de MOCs
-│   └── ptbr_guard.md        # Guardrail de idioma PT-BR
+├── prompts/                     # Templates de prompts para o LLM
+│   ├── literature_note.md       # Prompt 1: extracao de conceitos (c/ relevance_score)
+│   ├── permanent_note.md        # Prompt 2: geracao de nota permanente
+│   ├── dedupe_decision.md       # Decisao de deduplicacao
+│   ├── relationship.md          # Classificacao de relacionamentos
+│   ├── moc_generation.md        # Geracao de MOCs (c/ dominio e topicos)
+│   ├── moc_incremental.md       # Classificacao incremental de notas em MOC existente
+│   ├── moc_topics_taxonomy.md   # Taxonomia de topicos para MOCs (24 categorias)
+│   └── ptbr_guard.md            # Guardrail de idioma PT-BR
 ├── data/
 │   ├── inbox/               # Arquivos para processar (drop zone)
 │   ├── processed/           # Arquivos já processados
@@ -155,7 +157,7 @@ inbox_path: ./data/inbox
 llm:
   provider: openai           # openai | anthropic | ollama
   model: gpt-4o-mini
-  temperature: 0             # 0 = determinístico (reduz drift)
+  temperature: 0             # 0 = deterministico (reduz drift)
 
 # Embeddings
 embedding:
@@ -165,12 +167,31 @@ embedding:
 # Chunking
 chunking:
   chunk_size: 1000           # tokens por chunk
-  chunk_overlap: 200         # sobreposição
+  chunk_overlap: 200         # sobreposicao
 
 # Linkagem
 linking:
   topk: 5                    # notas similares para RAG
-  dedupe_threshold: 0.85     # limiar de deduplicação
+  dedupe_threshold: 0.85     # limiar de deduplicacao
+
+# Filtragem de candidatos a notas permanentes
+extraction:
+  min_relevance_score: 3     # score minimo de relevancia (1-5)
+  min_thesis_words: 5        # palavras minimas na tese
+  require_anchor_quote: true # exigir citacao-ancora
+  min_definition_words: 10   # palavras minimas na definicao
+
+# Gardener (MOCs)
+gardener:
+  min_cluster_size: 5        # notas minimas por cluster
+  min_notes_for_moc: 3       # notas minimas para gerar MOC
+  domain: "Ciencia de Dados" # dominio do acervo
+  strict_topics: true        # rejeitar MOCs fora da lista de topicos
+  allowed_topics:             # lista de topicos permitidos para MOCs
+    - "Machine Learning Classico"
+    - "Deep Learning e Modelos Neurais"
+    - "NLP Moderno e LLMs"
+    # ... (24 topicos no total — veja config.yaml)
 
 # PDF
 pdf_extractor: docling       # docling | pymupdf
@@ -222,6 +243,9 @@ python -m zettel run-all
 ```bash
 # Inicializar vault e dependências
 python -m zettel init
+
+# Apaga os banco de dados, mas não apaga o vault
+python -m zettel init --reset
 
 # Escanear inbox e processar arquivos → SRC + LIT + chunks
 python -m zettel harvest
@@ -276,17 +300,24 @@ python -m zettel run-all --dry-run
 6. Divide o texto em **capítulos** (por headings) e depois em **chunks semânticos** (RecursiveCharacterTextSplitter)
 7. Indexa chunks no ChromaDB e registra no SQLite
 
-### Fase 2 — Extract (Extração)
+### Fase 2 — Extract (Extracao)
 
 1. Para cada chunk pendente, chama o LLM com o **Prompt 1** (literature_note.md)
 2. O LLM retorna:
    - Resumo do chunk
    - Conceitos-chave
-   - Lista de **candidatos atômicos** a notas permanentes (com tese, definição, âncora, localizador)
-3. Valida a saída com Pydantic; se falhar, tenta retry
-4. Anexa resultados à nota **LIT** (via blocos gerenciados)
-5. Executa **deduplicação semântica**: compara candidatos com notas existentes via ChromaDB
-6. O LLM decide: `create_new` | `ignore` | `refine_existing` | `merge`
+   - Lista de **candidatos atomicos** a notas permanentes (com tese, definicao, ancora, localizador, **relevance_score**)
+3. Valida a saida com Pydantic; se falhar, tenta retry
+4. Anexa resultados a nota **LIT** (via blocos gerenciados)
+5. **Filtragem de qualidade** (duas camadas):
+   - **Camada 1 (LLM)**: O prompt instrui o LLM a atribuir um `relevance_score` (1-5) e retornar `candidates: []` para chunks sem conceitos relevantes
+   - **Camada 2 (Codigo)**: `_filter_candidates()` aplica regras estruturais configuraveis:
+     - `relevance_score` >= threshold (padrao: 3)
+     - Tese com minimo de palavras (padrao: 5)
+     - Definicao com minimo de palavras (padrao: 10)
+     - Presenca de citacao-ancora (configuravel)
+6. Executa **deduplicacao semantica**: compara candidatos aprovados com notas existentes via ChromaDB
+7. O LLM decide: `create_new` | `ignore` | `refine_existing` | `merge`
 
 ### Fase 3 — Connect (Conexão)
 
@@ -310,8 +341,21 @@ python -m zettel run-all --dry-run
 1. Carrega embeddings de todas as notas permanentes
 2. Reduz dimensionalidade com **UMAP** e clusteriza com **HDBSCAN** (ou KMeans como fallback)
 3. Extrai termos representativos via **TF-IDF**
-4. Para cada cluster com notas suficientes, gera um **MOC** via LLM
-5. Cria arquivo **MOC** em `40_MOCs/` com subseções e links organizados
+4. Para cada cluster com notas suficientes, gera um **MOC** via LLM:
+   - O prompt inclui o **dominio** do acervo e a **lista de topicos permitidos**
+   - Uma **taxonomia detalhada** (24 categorias com subtopicos) e carregada de `prompts/moc_topics_taxonomy.md` como referencia para o LLM
+   - O LLM deve mapear o cluster para um topico da lista e justificar em `topic_justification`
+5. **Validacao de topico** pos-geracao:
+   - Substring match bidirecional contra a lista de `allowed_topics`
+   - Se `strict_topics: true` e sem match: MOC rejeitado (com warning no log)
+   - Se `strict_topics: false` e sem match: MOC aprovado (com info no log)
+6. **Atualizacao incremental de MOCs**: se ja existe um MOC com o mesmo topico, em vez de criar um duplicado:
+   - Parseia a estrutura do MOC existente (subsecoes e notas)
+   - Identifica quais notas do cluster sao realmente novas
+   - Chama o LLM com `moc_incremental.md` para classificar cada nota nova na subsecao adequada (ou ignorar se nao se encaixa)
+   - Reconstroi o MOC com as notas novas inseridas nas subsecoes corretas
+   - Pode criar novas subsecoes se o LLM sugerir
+7. Se nao existe MOC para o topico, cria arquivo **MOC** novo em `40_MOCs/` com subsecoes e links organizados
 
 ## Estrutura das notas geradas
 
@@ -454,24 +498,59 @@ pip install pymupdf
 ```
 
 ### "Nenhum cluster encontrado" no garden
-- Você precisa de pelo menos `min_cluster_size` notas permanentes (padrão: 5)
+- Voce precisa de pelo menos `min_cluster_size` notas permanentes (padrao: 5)
 - Ajuste com `--min-cluster-size 3`
 
-### Chunks ficam "pending" após extract
+### Chunks ficam "pending" apos extract
 - Verifique os logs para erros de LLM
-- Execute `python -m zettel doctor` para validar dependências
-- Verifique se a API key está configurada
+- Execute `python -m zettel doctor` para validar dependencias
+- Verifique se a API key esta configurada
 
-## Personalização dos prompts
+### Poucos candidatos aprovados apos extract
+- O sistema agora filtra candidatos por qualidade. Verifique os logs por mensagens de "candidatos rejeitados"
+- Ajuste os thresholds em `config/config.yaml` na secao `extraction:`:
+  - `min_relevance_score: 2` para ser mais permissivo (padrao: 3)
+  - `min_thesis_words: 3` para aceitar teses mais curtas
+  - `min_definition_words: 5` para aceitar definicoes mais curtas
+  - `require_anchor_quote: false` para nao exigir citacao-ancora
 
-Os prompts em `prompts/` são templates Markdown com placeholders `{variável}`. Você pode editá-los para ajustar:
+### MOCs sendo rejeitados
+- Se `strict_topics: true`, MOCs com topicos fora da lista `allowed_topics` serao rejeitados
+- Verifique os logs por "MOC rejeitado: topico ... fora da lista"
+- Opcoes:
+  - Adicione o topico a `allowed_topics` em `config.yaml`
+  - Use `strict_topics: false` para aprovar todos os topicos (com aviso no log)
+  - Edite a taxonomia em `prompts/moc_topics_taxonomy.md` para cobrir mais areas
 
-- **Estilo das notas**: mais acadêmico, mais informal, etc.
-- **Idioma**: altere para outro idioma (ajuste também `language` no config)
+### MOCs duplicados
+- O sistema agora detecta MOCs existentes com o mesmo topico e atualiza incrementalmente em vez de criar duplicados
+- Se ainda houver duplicatas de execucoes anteriores, remova manualmente os MOCs duplicados do vault e do StateDB
+- Verifique os logs por "MOC existente para topico" para confirmar que o update incremental esta funcionando
+
+## Personalizacao dos prompts
+
+Os prompts em `prompts/` sao templates Markdown com placeholders `{variavel}`. Voce pode edita-los para ajustar:
+
+- **Estilo das notas**: mais academico, mais informal, etc.
+- **Idioma**: altere para outro idioma (ajuste tambem `language` no config)
 - **Profundidade**: mais ou menos detalhes por nota
-- **Tags**: critérios para sugestão de tags
+- **Tags**: criterios para sugestao de tags
+- **Seletividade**: regras de relevancia e filtragem em `literature_note.md`
+- **Taxonomia de MOCs**: edite `moc_topics_taxonomy.md` para ajustar as categorias e subtopicos disponiveis para organizacao dos MOCs
+- **Dominio e topicos**: ajuste `{domain}` e `{allowed_topics_section}` em `moc_generation.md` (preenchidos automaticamente via config)
+- **Classificacao incremental**: edite `moc_incremental.md` para ajustar como novas notas sao classificadas em MOCs existentes
 
 O sistema detecta automaticamente quando um prompt muda e reprocessa apenas os artefatos afetados.
+
+### Taxonomia de topicos para MOCs
+
+O arquivo `prompts/moc_topics_taxonomy.md` contem uma taxonomia com **24 categorias de nivel superior** e seus subtopicos. Ele e carregado automaticamente no prompt de geracao de MOCs como referencia para o LLM. Para personalizar:
+
+1. Edite `prompts/moc_topics_taxonomy.md` com suas categorias e subtopicos
+2. Atualize `allowed_topics` em `config/config.yaml` com os nomes das categorias de nivel superior
+3. Ajuste `domain` para refletir a area do seu acervo
+
+Se `strict_topics: true` (padrao), MOCs com topicos fora da lista serao rejeitados. Use `strict_topics: false` para permitir topicos fora da lista (com aviso no log).
 
 ## Licença
 

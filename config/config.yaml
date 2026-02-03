@@ -35,10 +35,44 @@ linking:
   topk: 5
   dedupe_threshold: 0.85
 
+# ── Extraction (Filtragem de Candidatos) ──────────────────────────────
+extraction:
+  min_relevance_score: 3
+  min_thesis_words: 5
+  require_anchor_quote: true
+  min_definition_words: 10
+
 # ── Gardener (MOCs) ────────────────────────────────────────────────────
 gardener:
   min_cluster_size: 5
   min_notes_for_moc: 3
+  domain: "Ciencia de Dados"
+  strict_topics: true
+  allowed_topics:
+    - "Fundamentos Matematicos e Estatisticos"
+    - "Programacao, Engenharia de Software e Boas Praticas"
+    - "Dados: Modelagem, Qualidade e Governanca"
+    - "Aquisicao, Ingestao e Integracao"
+    - "Armazenamento e Arquitetura de Dados"
+    - "Processamento e Computacao"
+    - "Analise Exploratoria e Estatistica Aplicada"
+    - "Experimentos, Produto e Tomada de Decisao"
+    - "Machine Learning Classico"
+    - "Aprendizado Nao Supervisionado e Representacao"
+    - "Deep Learning e Modelos Neurais"
+    - "NLP Moderno e LLMs"
+    - "Feature Store e Engenharia de Features"
+    - "MLOps e Ciclo de Vida de Modelos"
+    - "Observabilidade e Confiabilidade de ML"
+    - "Infraestrutura de Serving e Sistemas em Producao"
+    - "Seguranca, Privacidade e Compliance"
+    - "Responsible AI, Etica e Fairness"
+    - "Avaliacao e Validacao"
+    - "Otimizacao, Pesquisa e Modelagem Avancada"
+    - "Data Visualization e Comunicacao"
+    - "Operacao, Time e Gestao de Projetos"
+    - "Ferramentas e Ecossistema"
+    - "Dominios e Verticais"
 
 # ── Idioma ──────────────────────────────────────────────────────────────
 language: pt-BR
