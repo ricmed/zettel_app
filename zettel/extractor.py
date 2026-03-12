@@ -196,6 +196,8 @@ def _check_candidate(
     ext: Any,
 ) -> str | None:
     """Return rejection reason or None if candidate passes all checks."""
+    if cand.chunk_status == "rejected":
+        return f"chunk_status={cand.chunk_status}, rejection_reason={cand.rejection_reason}, rejection_category={cand.rejection_category}"
     if cand.relevance_score < ext.min_relevance_score:
         return f"relevance_score={cand.relevance_score} < {ext.min_relevance_score}"
 

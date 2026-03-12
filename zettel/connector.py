@@ -124,8 +124,8 @@ def _process_candidate(
     try:
         response_text = _call_llm(llm, filled)
         note_output = _parse_permanent_note_output(response_text)
-        if not note_output.thesis or not note_output.definition:
-            logger.warning("Conceito %s nao gerou nota permanente valida", concept_id) # TODO: adicionar o reason da falha
+        if note_output.status == "rejected":
+            logger.warning("Conceito %s não gerou nota permanente válida. Motivo %s", concept_id, note_output.reason) # TODO: adicionar o reason da falha
             return None
     except Exception as e:
         logger.error("Erro ao gerar nota permanente para conceito %s: %s", concept_id, e)

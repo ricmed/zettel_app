@@ -91,8 +91,19 @@ def _cluster_embeddings(
     if n_neighbors < 2:
         return [ids]
 
-    reducer = umap.UMAP(n_neighbors=n_neighbors, n_components=min(5, n_samples - 1), metric="cosine")
-    reduced = reducer.fit_transform(embeddings)
+    # Spectral init requires k < N where k = n_components + 1; use random for small datasets
+    n_components = min(5, n_samples - 2)
+    if n_components < 2:
+        logger.warning("Poucas amostras para UMAP (%d). Usando KMeans.", n_samples)
+        return _cluster_kmeans(embeddings, ids, min_cluster_size)
+    init_method = "spectral" if n_samples > n_components + 2 else "random"
+
+    try:
+        reducer = umap.UMAP(n_neighbors=n_neighbors, n_components=n_components, metric="cosine", init=init_method)
+        reduced = reducer.fit_transform(embeddings)
+    except Exception as e:
+        logger.warning("UMAP falhou (%s). Usando KMeans como fallback.", e)
+        return _cluster_kmeans(embeddings, ids, min_cluster_size)
 
     # HDBSCAN clustering
     clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, metric="euclidean")

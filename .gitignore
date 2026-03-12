@@ -12,7 +12,6 @@ wheels/
 .claude
 .pytest_cache
 data/chroma/*
-data/chroma/chroma.sqlite3
 data/cache/*
 data/inbox/*
 data/state.db
@@ -20,4 +19,13 @@ data/zettel.db
 data/processed/*
 
 vault/*
+vault/.obsidian/*
 
+data/chroma/chroma.sqlite3
+data/state.db
+data/state.db
+data/state.db-shm
+data/state.db-wal
+data/chroma/chroma.sqlite3
+vault/.obsidian/app.json
+vault/.obsidian/workspace.json

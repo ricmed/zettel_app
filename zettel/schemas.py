@@ -93,6 +93,9 @@ class ChunkRecord(BaseModel):
 
 class LiteratureChunkOutput(BaseModel):
     """Output from Prompt 1 for a single chunk — appended to LIT note."""
+    chunk_status: str = Field(description="Status do chunk")
+    rejection_reason: str = Field(description="Motivo da rejeição")
+    rejection_category: str = Field(description="Categoria da rejeição")
     summary: str = Field(description="Resumo do chunk em PT-BR")
     key_concepts: list[str] = Field(
         default_factory=list, description="Conceitos-chave extraídos"
@@ -105,6 +108,9 @@ class LiteratureChunkOutput(BaseModel):
 
 class PermanentNoteCandidate(BaseModel):
     """A single atomic concept extracted from a chunk."""
+    chunk_status: str = Field(description="Status do chunk")
+    rejection_reason: str = Field(description="Motivo da rejeição")
+    rejection_category: str = Field(description="Categoria da rejeição")
     thesis: str = Field(description="Tese principal (uma frase declarativa)")
     definition: str = Field(description="Definição/explicação autônoma")
     intuition: str = Field(default="", description="Intuição ou exemplo prático")
@@ -230,6 +236,9 @@ MOCIncrementalOutput.model_rebuild()
 
 class PermanentNoteLLMOutput(BaseModel):
     """Structured output from Prompt 2 — the permanent note body."""
+    status: str = Field(description="Status da nota")
+    reason: str = Field(description="Motivo da rejeição")
+    category: str = Field(description="Categoria da nota")
     title: str = Field(description="Título declarativo da nota")
     thesis: str = Field(description="Tese principal (blockquote)")
     definition: str = Field(description="Definição/explicação autônoma")
