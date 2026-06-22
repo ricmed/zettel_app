@@ -117,6 +117,13 @@ CREATE TABLE IF NOT EXISTS runs (
     finished_at         TEXT,
     status              TEXT NOT NULL DEFAULT 'running'
 );
+
+-- Indexes for frequently queried columns
+CREATE INDEX IF NOT EXISTS idx_chunks_status    ON chunks(status);
+CREATE INDEX IF NOT EXISTS idx_chunks_source_id ON chunks(source_id);
+CREATE INDEX IF NOT EXISTS idx_concepts_note_id ON concepts(note_id);
+CREATE INDEX IF NOT EXISTS idx_nc_source        ON note_connections(source_note_id);
+CREATE INDEX IF NOT EXISTS idx_nc_target        ON note_connections(target_note_id);
 """
 
 
@@ -154,7 +161,9 @@ class StateDB:
 
     # ── Files ──────────────────────────────────────────────────────────
 
-    def upsert_file(self, path: str, file_checksum: str, origin_type: str, source_id: str | None = None) -> None:
+    def upsert_file(
+        self, path: str, file_checksum: str, origin_type: str, source_id: str | None = None
+    ) -> None:
         self.conn.execute(
             """INSERT INTO files (path, file_checksum, origin_type, source_id, last_seen_at)
                VALUES (?, ?, ?, ?, ?)
@@ -172,9 +181,18 @@ class StateDB:
 
     # ── Sources ────────────────────────────────────────────────────────
 
-    def upsert_source(self, source_id: str, citekey: str, title: str, authors: list[str],
-                      year: int | None, file_checksum: str, origin_path: str, origin_type: str,
-                      extraction_checksum: str | None = None) -> None:
+    def upsert_source(
+        self,
+        source_id: str,
+        citekey: str,
+        title: str,
+        authors: list[str],
+        year: int | None,
+        file_checksum: str,
+        origin_path: str,
+        origin_type: str,
+        extraction_checksum: str | None = None,
+    ) -> None:
         now = self._now()
         self.conn.execute(
             """INSERT INTO sources (source_id, citekey, title, authors, year, file_checksum,
@@ -182,10 +200,13 @@ class StateDB:
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(source_id) DO UPDATE SET
                  title=excluded.title, authors=excluded.authors, year=excluded.year,
-                 file_checksum=excluded.file_checksum, extraction_checksum=excluded.extraction_checksum,
+                 file_checksum=excluded.file_checksum,
+                 extraction_checksum=excluded.extraction_checksum,
                  updated_at=excluded.updated_at""",
-            (source_id, citekey, title, json.dumps(authors), year, file_checksum,
-             extraction_checksum, origin_path, origin_type, now, now),
+            (
+                source_id, citekey, title, json.dumps(authors), year, file_checksum,
+                extraction_checksum, origin_path, origin_type, now, now,
+            ),
         )
         self.conn.commit()
 
@@ -200,13 +221,16 @@ class StateDB:
 
     # ── Chapters ───────────────────────────────────────────────────────
 
-    def upsert_chapter(self, chapter_id: str, source_id: str, title: str,
-                       chapter_checksum: str, locator: str = "") -> None:
+    def upsert_chapter(
+        self, chapter_id: str, source_id: str, title: str, chapter_checksum: str, locator: str = ""
+    ) -> None:
         self.conn.execute(
             """INSERT INTO chapters (chapter_id, source_id, title, chapter_checksum, locator)
                VALUES (?, ?, ?, ?, ?)
                ON CONFLICT(chapter_id) DO UPDATE SET
-                 chapter_checksum=excluded.chapter_checksum, title=excluded.title, locator=excluded.locator""",
+                 chapter_checksum=excluded.chapter_checksum,
+                 title=excluded.title,
+                 locator=excluded.locator""",
             (chapter_id, source_id, title, chapter_checksum, locator),
         )
         self.conn.commit()
@@ -216,9 +240,16 @@ class StateDB:
 
     # ── Chunks ─────────────────────────────────────────────────────────
 
-    def upsert_chunk(self, chunk_id: str, source_id: str, chapter_id: str,
-                     text: str, chunk_checksum: str, locator: str = "",
-                     status: str = "pending") -> None:
+    def upsert_chunk(
+        self,
+        chunk_id: str,
+        source_id: str,
+        chapter_id: str,
+        text: str,
+        chunk_checksum: str,
+        locator: str = "",
+        status: str = "pending",
+    ) -> None:
         self.conn.execute(
             """INSERT INTO chunks (chunk_id, source_id, chapter_id, text, chunk_checksum, locator, status)
                VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -236,12 +267,24 @@ class StateDB:
             )
         return self._fetchall("SELECT * FROM chunks WHERE status='pending'")
 
+    def get_failed_chunks(self, source_id: str | None = None) -> list[dict]:
+        """Return all chunks with status='failed', optionally filtered by source."""
+        if source_id:
+            return self._fetchall(
+                "SELECT * FROM chunks WHERE status='failed' AND source_id=?", (source_id,)
+            )
+        return self._fetchall("SELECT * FROM chunks WHERE status='failed'")
+
     def get_chunks_for_source(self, source_id: str) -> list[dict]:
         return self._fetchall("SELECT * FROM chunks WHERE source_id=?", (source_id,))
 
-    def update_chunk_status(self, chunk_id: str, status: str,
-                            llm_prompt1_hash: str | None = None,
-                            llm_call_checksum: str | None = None) -> None:
+    def update_chunk_status(
+        self,
+        chunk_id: str,
+        status: str,
+        llm_prompt1_hash: str | None = None,
+        llm_call_checksum: str | None = None,
+    ) -> None:
         self.conn.execute(
             """UPDATE chunks SET status=?, llm_prompt1_hash=COALESCE(?, llm_prompt1_hash),
                llm_call_checksum_prompt1=COALESCE(?, llm_call_checksum_prompt1)
@@ -252,9 +295,15 @@ class StateDB:
 
     # ── Concepts ───────────────────────────────────────────────────────
 
-    def upsert_concept(self, concept_id: str, source_id: str, chunk_id: str,
-                       anchor_hash: str = "", thesis_hash: str = "",
-                       note_id: str | None = None) -> None:
+    def upsert_concept(
+        self,
+        concept_id: str,
+        source_id: str,
+        chunk_id: str,
+        anchor_hash: str = "",
+        thesis_hash: str = "",
+        note_id: str | None = None,
+    ) -> None:
         self.conn.execute(
             """INSERT INTO concepts (concept_id, source_id, chunk_id, anchor_hash, thesis_hash, note_id)
                VALUES (?, ?, ?, ?, ?, ?)
@@ -273,9 +322,16 @@ class StateDB:
 
     # ── Notes ──────────────────────────────────────────────────────────
 
-    def upsert_note(self, note_id: str, source_id: str | None, path: str | None,
-                    title: str = "", note_semantic_checksum: str | None = None,
-                    auto_checksum: str | None = None, embedding_model: str | None = None) -> None:
+    def upsert_note(
+        self,
+        note_id: str,
+        source_id: str | None,
+        path: str | None,
+        title: str = "",
+        note_semantic_checksum: str | None = None,
+        auto_checksum: str | None = None,
+        embedding_model: str | None = None,
+    ) -> None:
         now = self._now()
         self.conn.execute(
             """INSERT INTO notes (note_id, source_id, path, title, note_semantic_checksum,
@@ -288,7 +344,10 @@ class StateDB:
                  auto_checksum=COALESCE(excluded.auto_checksum, notes.auto_checksum),
                  embedding_model=COALESCE(excluded.embedding_model, notes.embedding_model),
                  updated_at=excluded.updated_at""",
-            (note_id, source_id, path, title, note_semantic_checksum, auto_checksum, embedding_model, now, now),
+            (
+                note_id, source_id, path, title, note_semantic_checksum,
+                auto_checksum, embedding_model, now, now,
+            ),
         )
         self.conn.commit()
 
@@ -304,10 +363,12 @@ class StateDB:
 
     # ── Note Connections ──────────────────────────────────────────
 
-    def upsert_note_connection(self, source_note_id: str, target_note_id: str,
-                                relation_type: str, description: str = "") -> None:
+    def upsert_note_connection(
+        self, source_note_id: str, target_note_id: str, relation_type: str, description: str = ""
+    ) -> None:
         self.conn.execute(
-            """INSERT INTO note_connections (source_note_id, target_note_id, relation_type, description, created_at)
+            """INSERT INTO note_connections
+               (source_note_id, target_note_id, relation_type, description, created_at)
                VALUES (?, ?, ?, ?, ?)
                ON CONFLICT(source_note_id, target_note_id, relation_type) DO UPDATE SET
                  description=excluded.description, created_at=excluded.created_at""",
@@ -318,22 +379,28 @@ class StateDB:
     def get_note_connections(self, note_id: str) -> list[dict]:
         """Get all connections where note_id is source or target."""
         return self._fetchall(
-            """SELECT * FROM note_connections
-               WHERE source_note_id=? OR target_note_id=?""",
+            "SELECT * FROM note_connections WHERE source_note_id=? OR target_note_id=?",
             (note_id, note_id),
         )
 
     # ── MOCs ───────────────────────────────────────────────────────────
 
-    def upsert_moc(self, moc_id: str, topic: str, path: str | None = None,
-                   cluster_signature: str | None = None) -> None:
+    def upsert_moc(
+        self,
+        moc_id: str,
+        topic: str,
+        path: str | None = None,
+        cluster_signature: str | None = None,
+    ) -> None:
         now = self._now()
         self.conn.execute(
             """INSERT INTO mocs (moc_id, topic, path, cluster_signature, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?)
                ON CONFLICT(moc_id) DO UPDATE SET
-                 topic=excluded.topic, path=COALESCE(excluded.path, mocs.path),
-                 cluster_signature=excluded.cluster_signature, updated_at=excluded.updated_at""",
+                 topic=excluded.topic,
+                 path=COALESCE(excluded.path, mocs.path),
+                 cluster_signature=excluded.cluster_signature,
+                 updated_at=excluded.updated_at""",
             (moc_id, topic, path, cluster_signature, now, now),
         )
         self.conn.commit()
@@ -345,7 +412,7 @@ class StateDB:
         return self._fetchall("SELECT * FROM mocs ORDER BY created_at DESC")
 
     def find_moc_by_topic(self, topic: str) -> Optional[dict]:
-        """Encontra MOC existente cujo topico faz match bidirecional por substring."""
+        """Find existing MOC whose topic has a bidirectional substring match."""
         all_mocs = self.list_mocs()
         topic_lower = topic.lower()
         for moc in all_mocs:
@@ -357,10 +424,14 @@ class StateDB:
     # ── LLM Cache ──────────────────────────────────────────────────────
 
     def get_cached_llm_response(self, call_checksum: str) -> Optional[str]:
-        row = self._fetchone("SELECT response_json FROM llm_cache WHERE call_checksum=?", (call_checksum,))
+        row = self._fetchone(
+            "SELECT response_json FROM llm_cache WHERE call_checksum=?", (call_checksum,)
+        )
         return row["response_json"] if row else None
 
-    def cache_llm_response(self, call_checksum: str, request_json: str, response_json: str) -> None:
+    def cache_llm_response(
+        self, call_checksum: str, request_json: str, response_json: str
+    ) -> None:
         self.conn.execute(
             """INSERT OR REPLACE INTO llm_cache (call_checksum, request_json, response_json, created_at)
                VALUES (?, ?, ?, ?)""",
@@ -393,6 +464,8 @@ class StateDB:
         for t in tables:
             row = self.conn.execute(f"SELECT COUNT(*) as cnt FROM {t}").fetchone()
             stats[t] = row["cnt"] if row else 0
-        pending = self.conn.execute("SELECT COUNT(*) as cnt FROM chunks WHERE status='pending'").fetchone()
+        pending = self.conn.execute(
+            "SELECT COUNT(*) as cnt FROM chunks WHERE status='pending'"
+        ).fetchone()
         stats["chunks_pending"] = pending["cnt"] if pending else 0
         return stats

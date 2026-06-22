@@ -29,6 +29,7 @@ class DedupeDecision(str, Enum):
     CREATE_NEW = "create_new"
     IGNORE = "ignore"
     REFINE_EXISTING = "refine_existing"
+    MERGE = "merge"
 
 
 class RelationType(str, Enum):
@@ -73,7 +74,7 @@ class ChapterRecord(BaseModel):
     source_id: str
     title: str = ""
     chapter_checksum: str
-    locator: str = ""  # "Chapter 3" / "## Heading"
+    locator: str = ""
 
 
 class ChunkRecord(BaseModel):
@@ -82,7 +83,7 @@ class ChunkRecord(BaseModel):
     chapter_id: str
     text: str
     chunk_checksum: str
-    locator: str = ""  # pages / timestamps
+    locator: str = ""
     status: ChunkStatus = ChunkStatus.PENDING
     llm_prompt1_hash: Optional[str] = None
     llm_call_checksum: Optional[str] = None

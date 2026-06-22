@@ -44,9 +44,6 @@ def compose_note(metadata: dict[str, Any], body: str) -> str:
 
 # ── Managed Blocks ─────────────────────────────────────────────────────
 
-_BLOCK_START_RE = re.compile(r"<!--\s*zettel:({name}):start\s*-->")
-_BLOCK_END_RE = re.compile(r"<!--\s*zettel:({name}):end\s*-->")
-
 
 def _block_pattern(name: str) -> tuple[str, str]:
     return (
@@ -75,14 +72,12 @@ def upsert_managed_block(content: str, block_name: str, new_inner: str) -> str:
 
     start_idx = content.find(start_tag)
     if start_idx == -1:
-        # Append at end
         if not content.endswith("\n"):
             content += "\n"
         return content + "\n" + block_text + "\n"
 
     end_idx = content.find(end_tag, start_idx)
     if end_idx == -1:
-        # Malformed — append fresh
         return content + "\n" + block_text + "\n"
 
     before = content[:start_idx]

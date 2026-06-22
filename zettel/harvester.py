@@ -46,7 +46,10 @@ def run_harvest(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> list[str]:
         logger.warning("Inbox nao encontrado: %s", inbox)
         return new_sources
 
-    files = [f for f in inbox.rglob("*") if f.suffix.lower() in SUPPORTED_EXTENSIONS and f.is_file()]
+    files = [
+        f for f in inbox.rglob("*")
+        if f.suffix.lower() in SUPPORTED_EXTENSIONS and f.is_file()
+    ]
     logger.info("Encontrados %d arquivos no inbox", len(files))
 
     total_stats = {"text_len": 0, "chapters": 0, "chunks": 0}
@@ -86,7 +89,6 @@ def _process_file(
     ext = file_path.suffix.lower()
     origin_type = "pdf" if ext == ".pdf" else "md"
 
-    # Extract text
     text, metadata = _extract_text(cfg, file_path, origin_type)
     if not text.strip():
         logger.warning("Nenhum texto extraido de: %s", file_path.name)
@@ -94,21 +96,18 @@ def _process_file(
 
     extraction_checksum = sha256_hex(normalize_text_for_hash(text))
 
-    # Generate citekey
     title = metadata.get("title", file_path.stem)
     authors = metadata.get("authors", [])
     year = metadata.get("year")
     citekey = _generate_citekey(db, authors, year, title)
     source_id = f"@{citekey}"
 
-    # Check if extraction_checksum changed (for re-processing)
     existing_source = db.get_source(source_id)
     if existing_source and existing_source.get("extraction_checksum") == extraction_checksum:
         logger.info("Texto extraido inalterado para %s, pulando rechunking", source_id)
         db.upsert_file(str(file_path), checksum, origin_type, source_id)
         return None, empty_stats
 
-    # Persist file and source
     db.upsert_file(str(file_path), checksum, origin_type, source_id)
     db.upsert_source(
         source_id=source_id, citekey=citekey, title=title, authors=authors,
@@ -116,16 +115,13 @@ def _process_file(
         origin_type=origin_type, extraction_checksum=extraction_checksum,
     )
 
-    # Create SRC and LIT notes in vault
     _create_vault_notes(cfg, source_id, citekey, title, authors, year,
                         str(file_path), origin_type, checksum)
 
-    # Index source
     idx.upsert_source(source_id, f"{title} -- {', '.join(authors)}", {
         "citekey": citekey, "title": title, "origin_type": origin_type,
     })
 
-    # Chunk
     chapters = _split_into_chapters(text, origin_type)
     chunk_count = _chunk_and_persist(cfg, db, idx, source_id, chapters)
 
@@ -144,7 +140,6 @@ def _extract_year_from_pdf_date(pdf_date: str | None) -> int | None:
     """Extract year from PDF date strings like 'D:20230415...' or '2023-04-15'."""
     if not pdf_date:
         return None
-    # PDF date format: D:YYYYMMDDHHmmSS
     m = re.match(r"D:(\d{4})", pdf_date)
     if m:
         return int(m.group(1))
@@ -162,7 +157,9 @@ def _extract_year_from_string(s: str | None) -> int | None:
 # ── Text Extraction ───────────────────────────────────────────────────
 
 
-def _extract_text(cfg: AppConfig, file_path: Path, origin_type: str) -> tuple[str, dict[str, Any]]:
+def _extract_text(
+    cfg: AppConfig, file_path: Path, origin_type: str
+) -> tuple[str, dict[str, Any]]:
     """Extract text and basic metadata from a file."""
     if origin_type == "pdf":
         return _extract_pdf(cfg, file_path)
@@ -180,7 +177,9 @@ def _extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str
     """Extract text from PDF using Docling, with GPU acceleration when available."""
     try:
         from docling.document_converter import DocumentConverter
-        from docling.datamodel.pipeline_options import PdfPipelineOptions, AcceleratorDevice, AcceleratorOptions
+        from docling.datamodel.pipeline_options import (
+            PdfPipelineOptions, AcceleratorDevice, AcceleratorOptions,
+        )
         from docling.datamodel.base_models import InputFormat
         from docling.document_converter import PdfFormatOption
 
@@ -199,12 +198,13 @@ def _extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str
                 InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
             }
         )
-        logger.info("Docling: Iniciando conversao de %s (dispositivo: %s)", file_path.name, device.upper())
+        logger.info(
+            "Docling: Iniciando conversao de %s (dispositivo: %s)", file_path.name, device.upper()
+        )
 
         result = converter.convert(str(file_path))
         text = result.document.export_to_markdown()
 
-        # Try to extract metadata from Docling document origin
         metadata: dict[str, Any] = {"title": file_path.stem, "authors": [], "year": None}
         try:
             origin = getattr(result.document, "origin", None)
@@ -212,13 +212,14 @@ def _extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str
                 if getattr(origin, "title", None):
                     metadata["title"] = origin.title
                 if getattr(origin, "author", None):
-                    metadata["authors"] = [a.strip() for a in origin.author.split(",") if a.strip()]
+                    metadata["authors"] = [
+                        a.strip() for a in origin.author.split(",") if a.strip()
+                    ]
                 if getattr(origin, "date", None):
                     metadata["year"] = _extract_year_from_string(origin.date)
         except Exception:
             pass
 
-        # Fallback: use PyMuPDF only for metadata if Docling didn't get author/year
         if not metadata["authors"] or not metadata["year"]:
             _enrich_metadata_from_pymupdf(file_path, metadata)
 
@@ -247,7 +248,6 @@ def _extract_pdf_pymupdf(file_path: Path) -> tuple[str, dict[str, Any]]:
             pages.append(page.get_text())
         text = "\n\n".join(pages)
 
-        # Extract metadata including year
         raw_meta = doc.metadata or {}
         year = (
             _extract_year_from_pdf_date(raw_meta.get("creationDate"))
@@ -268,7 +268,9 @@ def _extract_pdf_pymupdf(file_path: Path) -> tuple[str, dict[str, Any]]:
         )
         return text, metadata
     except ImportError:
-        logger.error("Nem Docling nem PyMuPDF estao instalados. Instale um deles para processar PDFs.")
+        logger.error(
+            "Nem Docling nem PyMuPDF estao instalados. Instale um deles para processar PDFs."
+        )
         return "", {"title": file_path.stem, "authors": [], "year": None}
 
 
@@ -296,33 +298,62 @@ def _enrich_metadata_from_pymupdf(file_path: Path, metadata: dict[str, Any]) -> 
 
 
 def _extract_markdown(file_path: Path) -> tuple[str, dict[str, Any]]:
-    """Extract text from Markdown files."""
+    """Extract text and metadata from a Markdown file.
+
+    Reads YAML frontmatter to populate author, year, and title so that
+    Markdown sources generate proper citekeys and SRC notes — instead of
+    discarding the frontmatter entirely.
+    """
+    import yaml
+
     content = file_path.read_text(encoding="utf-8")
-    # Strip existing frontmatter
+    fm_meta: dict[str, Any] = {}
+    body = content
+
     if content.startswith("---"):
         parts = content.split("---", 2)
         if len(parts) >= 3:
-            content = parts[2].strip()
-    # Try to extract title from first heading
-    title = file_path.stem
-    title_match = re.match(r"^#\s+(.+)$", content, re.MULTILINE)
+            try:
+                fm_meta = yaml.safe_load(parts[1]) or {}
+            except Exception:
+                fm_meta = {}
+            body = parts[2].strip()
+
+    # Extract title: frontmatter > first H1 heading > filename stem
+    title: str = file_path.stem
+    title_match = re.match(r"^#\s+(.+)$", body, re.MULTILINE)
     if title_match:
         title = title_match.group(1).strip()
-    return content, {"title": title, "authors": [], "year": None}
+    if fm_meta.get("title"):
+        title = str(fm_meta["title"])
+
+    # Extract authors from frontmatter
+    authors: list[str] = []
+    raw_authors = fm_meta.get("authors") or fm_meta.get("author")
+    if raw_authors:
+        if isinstance(raw_authors, list):
+            authors = [str(a) for a in raw_authors if a]
+        elif isinstance(raw_authors, str) and raw_authors.strip():
+            authors = [raw_authors.strip()]
+
+    # Extract year from frontmatter
+    year: int | None = None
+    if fm_meta.get("year"):
+        try:
+            year = int(fm_meta["year"])
+        except (ValueError, TypeError):
+            pass
+    if year is None and fm_meta.get("date"):
+        year = _extract_year_from_string(str(fm_meta["date"]))
+
+    return body, {"title": title, "authors": authors, "year": year}
 
 
 # ── Citekey Generation ────────────────────────────────────────────────
 
 
 def _generate_citekey(db: StateDB, authors: list[str], year: int | None, title: str) -> str:
-    """Generate a tiered citekey based on available metadata.
-
-    Strategy:
-      Author + Year  -> SurnameYearSlug2      (e.g. Silva2023AprendizadoProfundo)
-      Author only    -> SurnameSlug3           (e.g. SilvaAprendizadoProfundoRedes)
-      Year only      -> YearSlug3              (e.g. 2023AprendizadoProfundoRedes)
-      Neither        -> Slug4                  (e.g. AprendizadoProfundoRedesNeurais)
-    """
+    """Generate a tiered citekey based on available metadata."""
     surname = ""
     if authors and authors[0]:
         parts = authors[0].strip().split()
@@ -332,36 +363,30 @@ def _generate_citekey(db: StateDB, authors: list[str], year: int | None, title: 
     has_author = bool(surname)
     has_year = year is not None
 
-    # Determine how many slug words based on what metadata is available
     words = re.sub(r"[^\w\s]", "", title).split()
 
     if has_author and has_year:
-        slug_count = 2
-        slug_words = [w.capitalize() for w in words[:slug_count]]
+        slug_words = [w.capitalize() for w in words[:2]]
         slug = "".join(slug_words) if slug_words else "Untitled"
         base = f"{surname}{year}{slug}"
     elif has_author:
-        slug_count = 3
-        slug_words = [w.capitalize() for w in words[:slug_count]]
+        slug_words = [w.capitalize() for w in words[:3]]
         slug = "".join(slug_words) if slug_words else "Untitled"
         base = f"{surname}{slug}"
     elif has_year:
-        slug_count = 3
-        slug_words = [w.capitalize() for w in words[:slug_count]]
+        slug_words = [w.capitalize() for w in words[:3]]
         slug = "".join(slug_words) if slug_words else "Untitled"
         base = f"{year}{slug}"
     else:
-        slug_count = 4
-        slug_words = [w.capitalize() for w in words[:slug_count]]
+        slug_words = [w.capitalize() for w in words[:4]]
         slug = "".join(slug_words) if slug_words else "Untitled"
         base = slug
 
-    # Handle collisions
     citekey = base
     suffix_idx = 0
     while db.get_source_by_citekey(citekey):
         suffix_idx += 1
-        citekey = f"{base}{chr(96 + suffix_idx)}"  # a, b, c...
+        citekey = f"{base}{chr(96 + suffix_idx)}"
 
     return citekey
 
@@ -373,15 +398,12 @@ def _split_into_chapters(text: str, origin_type: str) -> list[dict[str, str]]:
     """Split text into chapters/sections (Level 1 hierarchy)."""
     chapters: list[dict[str, str]] = []
 
-    # Split by markdown headings (# or ##)
     heading_pattern = re.compile(r"^(#{1,2})\s+(.+)$", re.MULTILINE)
     matches = list(heading_pattern.finditer(text))
 
     if not matches:
-        # No headings found — treat entire text as one chapter
         return [{"title": "Documento completo", "text": text.strip(), "locator": ""}]
 
-    # Content before first heading
     if matches[0].start() > 0:
         preamble = text[: matches[0].start()].strip()
         if preamble:
@@ -422,16 +444,16 @@ def _chunk_and_persist(
 
         chapter_id = f"{source_id}::ch{ch_idx:03d}"
 
-        # Check if chapter changed BEFORE upserting
         existing_chapters = db.get_chapters_for_source(source_id)
-        existing_ch = next((c for c in existing_chapters if c["chapter_id"] == chapter_id), None)
+        existing_ch = next(
+            (c for c in existing_chapters if c["chapter_id"] == chapter_id), None
+        )
         if existing_ch and existing_ch["chapter_checksum"] == chapter_checksum:
             logger.debug("Capitulo inalterado: %s", chapter_id)
             continue
 
         db.upsert_chapter(chapter_id, source_id, chapter["title"], chapter_checksum, chapter["locator"])
 
-        # Chunk within this chapter (content island)
         chunks = splitter.split_text(chapter_text)
         for chunk_text in chunks:
             chunk_norm = normalize_text_for_hash(chunk_text)
@@ -465,14 +487,12 @@ def _create_vault_notes(
     """Create SRC and LIT notes in the vault."""
     vault = cfg.vault_path
 
-    # SRC note
     src_meta, src_body = build_source_note(
         source_id, citekey, title, authors, year, origin_path, origin_type, checksum
     )
     src_filename = note_filename("SRC", f"@{citekey}", title)
     safe_write_note(vault / "10_Sources" / src_filename, src_meta, src_body)
 
-    # LIT note
     lit_meta, lit_body = build_literature_note(source_id, citekey, title)
     lit_filename = note_filename("LIT", f"@{citekey}", title)
     safe_write_note(vault / "20_Literature" / lit_filename, lit_meta, lit_body)

@@ -279,6 +279,36 @@ def garden(
     db.close()
 
 
+# ── retry-failed ──────────────────────────────────────────────────────
+
+
+@app.command(name="retry-failed")
+def retry_failed(
+    config: Optional[str] = typer.Option(None, "--config", "-c"),
+    source_id: Optional[str] = typer.Option(None, "--source-id", help="Filtrar por source_id"),
+):
+    """Resetar chunks com falha para 'pending', permitindo re-execução do extract."""
+    cfg = _load_deps(config)
+    db = _get_db(cfg)
+
+    failed = db.get_failed_chunks(source_id if source_id else None)
+    count = len(failed)
+
+    if count == 0:
+        console.print("[yellow]Nenhum chunk com falha encontrado.[/yellow]")
+        db.close()
+        return
+
+    for chunk in failed:
+        db.update_chunk_status(chunk["chunk_id"], "pending")
+
+    console.print(
+        f"[green]{count} chunk(s) resetado(s) para 'pending'. "
+        f"Execute 'extract' para reprocessar.[/green]"
+    )
+    db.close()
+
+
 # ── sync-manual ───────────────────────────────────────────────────────
 
 
