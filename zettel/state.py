@@ -115,7 +115,10 @@ CREATE TABLE IF NOT EXISTS runs (
     pipeline_signature  TEXT NOT NULL,
     started_at          TEXT NOT NULL,
     finished_at         TEXT,
-    status              TEXT NOT NULL DEFAULT 'running'
+    status              TEXT NOT NULL DEFAULT 'running',
+    duplicate_file_count     INTEGER NOT NULL DEFAULT 0,
+    duplicate_content_count  INTEGER NOT NULL DEFAULT 0,
+    duplicate_semantic_count INTEGER NOT NULL DEFAULT 0
 );
 
 -- Indexes for frequently queried columns
@@ -142,6 +145,26 @@ class StateDB:
     def _init_schema(self) -> None:
         self.conn.executescript(_SCHEMA_SQL)
         self.conn.commit()
+        self._migrate_schema()
+
+    def _migrate_schema(self) -> None:
+        """Add columns to pre-existing tables that predate this migration.
+
+        SQLite lacks `ADD COLUMN IF NOT EXISTS`, so we probe for the column
+        and swallow the "duplicate column" error if it already exists.
+        """
+        migrations = [
+            ("runs", "duplicate_file_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("runs", "duplicate_content_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("runs", "duplicate_semantic_count", "INTEGER NOT NULL DEFAULT 0"),
+        ]
+        for table, column, coltype in migrations:
+            try:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+                self.conn.commit()
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
 
     def close(self) -> None:
         self.conn.close()
@@ -179,6 +202,22 @@ class StateDB:
     def get_file(self, path: str) -> Optional[dict]:
         return self._fetchone("SELECT * FROM files WHERE path=?", (path,))
 
+    def get_file_by_checksum(self, file_checksum: str, exclude_path: str | None = None) -> Optional[dict]:
+        """Find any known file (regardless of path/name) with the same raw-byte checksum.
+
+        Used to detect a renamed/copied duplicate dropped into the inbox under a
+        different filename.
+        """
+        if exclude_path:
+            return self._fetchone(
+                "SELECT * FROM files WHERE file_checksum=? AND path<>? ORDER BY last_seen_at ASC LIMIT 1",
+                (file_checksum, exclude_path),
+            )
+        return self._fetchone(
+            "SELECT * FROM files WHERE file_checksum=? ORDER BY last_seen_at ASC LIMIT 1",
+            (file_checksum,),
+        )
+
     # ── Sources ────────────────────────────────────────────────────────
 
     def upsert_source(
@@ -215,6 +254,27 @@ class StateDB:
 
     def get_source_by_citekey(self, citekey: str) -> Optional[dict]:
         return self._fetchone("SELECT * FROM sources WHERE citekey=?", (citekey,))
+
+    def get_source_by_extraction_checksum(
+        self, extraction_checksum: str, exclude_source_id: str | None = None
+    ) -> Optional[dict]:
+        """Find any existing source with the same normalized extracted-text checksum.
+
+        Used to detect the same article saved in a different format (e.g. PDF and
+        Markdown) that extracts to textually identical content.
+        """
+        if not extraction_checksum:
+            return None
+        if exclude_source_id:
+            return self._fetchone(
+                "SELECT * FROM sources WHERE extraction_checksum=? AND source_id<>? "
+                "ORDER BY created_at ASC LIMIT 1",
+                (extraction_checksum, exclude_source_id),
+            )
+        return self._fetchone(
+            "SELECT * FROM sources WHERE extraction_checksum=? ORDER BY created_at ASC LIMIT 1",
+            (extraction_checksum,),
+        )
 
     def list_sources(self) -> list[dict]:
         return self._fetchall("SELECT * FROM sources ORDER BY created_at DESC")
@@ -455,6 +515,29 @@ class StateDB:
             (self._now(), status, run_id),
         )
         self.conn.commit()
+
+    def record_duplicate(self, run_id: int, kind: str) -> None:
+        """Increment a duplicate counter on the run row.
+
+        kind: one of "file", "content", "semantic".
+        """
+        column = {
+            "file": "duplicate_file_count",
+            "content": "duplicate_content_count",
+            "semantic": "duplicate_semantic_count",
+        }.get(kind)
+        if not column:
+            raise ValueError(f"Tipo de duplicidade desconhecido: {kind}")
+        self.conn.execute(
+            f"UPDATE runs SET {column} = {column} + 1 WHERE run_id=?", (run_id,)
+        )
+        self.conn.commit()
+
+    def get_run(self, run_id: int) -> Optional[dict]:
+        return self._fetchone("SELECT * FROM runs WHERE run_id=?", (run_id,))
+
+    def get_last_run(self) -> Optional[dict]:
+        return self._fetchone("SELECT * FROM runs ORDER BY run_id DESC LIMIT 1")
 
     # ── Stats ──────────────────────────────────────────────────────────
 

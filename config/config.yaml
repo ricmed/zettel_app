@@ -35,6 +35,16 @@ linking:
   topk: 5
   dedupe_threshold: 0.85
 
+# ── Harvest (Deduplicação de Arquivos) ─────────────────────────────────
+harvest:
+  duplicate_chunk_threshold: 0.88     # similaridade minima p/ suspeita de quase-duplicata
+  duplicate_sample_size: 5            # chunks amostrados do arquivo p/ checagem semantica
+  # Comportamento padrao SEM interacao (--yes / --skip-duplicates / --force / scripts):
+  #   skip     -> pula o arquivo suspeito e loga aviso (padrao, mais seguro)
+  #   continue -> processa mesmo assim como nova fonte
+  #   abort    -> interrompe o harvest inteiro
+  non_interactive_duplicate_action: skip
+
 # ── Extraction (Filtragem de Candidatos) ──────────────────────────────
 extraction:
   min_relevance_score: 3

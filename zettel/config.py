@@ -38,6 +38,17 @@ class LinkingConfig(BaseModel):
     dedupe_threshold: float = 0.90
 
 
+class HarvestConfig(BaseModel):
+    """Controls the three-layer duplicate detection in the harvest phase."""
+
+    duplicate_chunk_threshold: float = 0.88   # similaridade minima p/ suspeita semantica
+    duplicate_sample_size: int = 5            # nro de chunks amostrados p/ checagem semantica
+    # Comportamento padrao quando rodando sem interacao (--yes/--skip-duplicates/scripts):
+    # "skip" (pular o arquivo suspeito, seguro por padrao), "continue" (tratar como nova
+    # fonte) ou "abort" (interromper o harvest inteiro).
+    non_interactive_duplicate_action: Literal["skip", "continue", "abort"] = "skip"
+
+
 class ExtractionConfig(BaseModel):
     min_relevance_score: int = 3      # candidatos abaixo sao descartados
     min_thesis_words: int = 5         # palavras minimas na tese
@@ -65,6 +76,7 @@ class AppConfig(BaseModel):
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     chunking: ChunkingConfig = Field(default_factory=ChunkingConfig)
     linking: LinkingConfig = Field(default_factory=LinkingConfig)
+    harvest: HarvestConfig = Field(default_factory=HarvestConfig)
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
     gardener: GardenerConfig = Field(default_factory=GardenerConfig)
 

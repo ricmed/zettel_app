@@ -136,15 +136,33 @@ def init(
 def harvest(
     config: Optional[str] = typer.Option(None, "--config", "-c"),
     move_processed: bool = typer.Option(False, "--move-processed", help="Mover arquivos processados"),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Modo nao-interativo: usa o comportamento padrao configurado para duplicatas suspeitas",
+    ),
+    skip_duplicates: bool = typer.Option(
+        False, "--skip-duplicates",
+        help="Modo nao-interativo: sempre pula arquivos com suspeita de duplicidade",
+    ),
+    force: bool = typer.Option(
+        False, "--force",
+        help="Modo nao-interativo: sempre trata arquivos suspeitos como novas fontes",
+    ),
 ):
     """Escanear inbox, extrair texto, criar notas SRC/LIT e chunks."""
     cfg = _load_deps(config)
     db = _get_db(cfg)
     idx = _get_idx(cfg)
 
+    interactive, duplicate_action = _resolve_duplicate_flags(yes, skip_duplicates, force)
+
     from zettel.harvester import run_harvest
-    with console.status("[bold blue]Coletando arquivos do inbox...", spinner="dots"):
-        new_sources = run_harvest(cfg, db, idx)
+    if interactive:
+        with console.status("[bold blue]Coletando arquivos do inbox...", spinner="dots"):
+            new_sources = run_harvest(cfg, db, idx, interactive=True)
+    else:
+        console.print(f"[dim]Modo nao-interativo — duplicatas suspeitas: '{duplicate_action}'[/dim]")
+        new_sources = run_harvest(cfg, db, idx, interactive=False, duplicate_action=duplicate_action)
 
     if new_sources:
         console.print(f"[green]Fontes processadas: {len(new_sources)}[/green]")
@@ -153,12 +171,43 @@ def harvest(
     else:
         console.print("[yellow]Nenhum arquivo novo encontrado no inbox.[/yellow]")
 
+    last_run = db.get_last_run()
+    if last_run:
+        dup_total = (
+            last_run.get("duplicate_file_count", 0)
+            + last_run.get("duplicate_content_count", 0)
+            + last_run.get("duplicate_semantic_count", 0)
+        )
+        if dup_total:
+            console.print(
+                f"[yellow]Duplicatas detectadas nesta execucao: {dup_total}[/yellow] "
+                f"(arquivo: {last_run.get('duplicate_file_count', 0)}, "
+                f"conteudo: {last_run.get('duplicate_content_count', 0)}, "
+                f"semantica: {last_run.get('duplicate_semantic_count', 0)})"
+            )
+
     if move_processed and new_sources:
         processed_dir = cfg.inbox_path.parent / "processed"
         processed_dir.mkdir(exist_ok=True)
         console.print(f"[dim]Arquivos processados podem ser movidos manualmente para: {processed_dir}[/dim]")
 
     db.close()
+
+
+def _resolve_duplicate_flags(
+    yes: bool, skip_duplicates: bool, force: bool
+) -> tuple[bool, Optional[str]]:
+    """Translate --yes/--skip-duplicates/--force into (interactive, duplicate_action)."""
+    if skip_duplicates and force:
+        console.print("[red]--skip-duplicates e --force sao mutuamente exclusivos.[/red]")
+        raise typer.Exit(1)
+    if skip_duplicates:
+        return False, "skip"
+    if force:
+        return False, "continue"
+    if yes:
+        return False, None
+    return True, None
 
 
 # ── extract ───────────────────────────────────────────────────────────
@@ -342,17 +391,40 @@ def sync_manual(
 def run_all(
     config: Optional[str] = typer.Option(None, "--config", "-c"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Simular sem escrever"),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Modo nao-interativo: usa o comportamento padrao configurado para duplicatas suspeitas",
+    ),
+    skip_duplicates: bool = typer.Option(
+        False, "--skip-duplicates",
+        help="Modo nao-interativo: sempre pula arquivos com suspeita de duplicidade",
+    ),
+    force: bool = typer.Option(
+        False, "--force",
+        help="Modo nao-interativo: sempre trata arquivos suspeitos como novas fontes",
+    ),
 ):
     """Executar pipeline completo: harvest > extract > connect > garden."""
     cfg = _load_deps(config)
     db = _get_db(cfg)
     idx = _get_idx(cfg)
 
+    interactive, duplicate_action = _resolve_duplicate_flags(yes, skip_duplicates, force)
+
     # Phase 1: Harvest
     console.rule("[bold blue]Fase 1 — Harvest")
     from zettel.harvester import run_harvest
-    new_sources = run_harvest(cfg, db, idx)
+    new_sources = run_harvest(cfg, db, idx, interactive=interactive, duplicate_action=duplicate_action)
     console.print(f"  Fontes: {len(new_sources)}")
+    last_run = db.get_last_run()
+    if last_run:
+        dup_total = (
+            last_run.get("duplicate_file_count", 0)
+            + last_run.get("duplicate_content_count", 0)
+            + last_run.get("duplicate_semantic_count", 0)
+        )
+        if dup_total:
+            console.print(f"  [yellow]Duplicatas detectadas: {dup_total}[/yellow]")
 
     # Phase 2: Extract
     console.rule("[bold blue]Fase 2 — Extract")
@@ -414,6 +486,24 @@ def status(
         table.add_row(label, str(val), style=style)
 
     console.print(table)
+
+    last_run = db.get_last_run()
+    if last_run:
+        dup_table = Table(title="Duplicatas — Última Execução do Harvest")
+        dup_table.add_column("Tipo", style="bold")
+        dup_table.add_column("Quantidade", justify="right")
+        dup_table.add_row(
+            "Por hash de arquivo (copia renomeada)", str(last_run.get("duplicate_file_count", 0))
+        )
+        dup_table.add_row(
+            "Por conteudo extraido (cross-formato)", str(last_run.get("duplicate_content_count", 0))
+        )
+        dup_table.add_row(
+            "Por similaridade semantica", str(last_run.get("duplicate_semantic_count", 0))
+        )
+        dup_table.add_row("Status da execução", str(last_run.get("status", "-")))
+        console.print(dup_table)
+
     db.close()
 
 

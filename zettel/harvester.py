@@ -34,16 +34,44 @@ logger = logging.getLogger(__name__)
 SUPPORTED_EXTENSIONS = {".pdf", ".md", ".markdown", ".txt"}
 
 
+class HarvestAborted(Exception):
+    """Raised to stop `run_harvest` early when the user chooses to abort."""
+
+
 # ── Public API ─────────────────────────────────────────────────────────
 
 
-def run_harvest(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> list[str]:
-    """Scan inbox, extract text, create SRC/LIT notes, chunk. Returns new source_ids."""
+def run_harvest(
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    interactive: bool = True,
+    duplicate_action: str | None = None,
+) -> list[str]:
+    """Scan inbox, extract text, create SRC/LIT notes, chunk. Returns new source_ids.
+
+    Args:
+        interactive: if True and a probable duplicate is detected, prompt the user
+            (skip / continue / abort). If False, `duplicate_action` (or the config
+            default `harvest.non_interactive_duplicate_action`) decides automatically.
+        duplicate_action: overrides the configured non-interactive default
+            ("skip" | "continue" | "abort"). Ignored when `interactive` is True.
+    """
     new_sources: list[str] = []
     inbox = cfg.inbox_path
 
+    from zettel.hashing import compute_pipeline_signature
+    signature = compute_pipeline_signature({
+        "chunking": cfg.chunking.model_dump(),
+        "harvest": cfg.harvest.model_dump(),
+        "pdf_extractor": cfg.pdf_extractor,
+    })
+    run_id = db.start_run(signature)
+    run_status = "completed"
+
     if not inbox.exists():
         logger.warning("Inbox nao encontrado: %s", inbox)
+        db.finish_run(run_id, run_status)
         return new_sources
 
     files = [
@@ -53,13 +81,19 @@ def run_harvest(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> list[str]:
     logger.info("Encontrados %d arquivos no inbox", len(files))
 
     total_stats = {"text_len": 0, "chapters": 0, "chunks": 0}
-    for file_path in files:
-        sid, stats = _process_file(cfg, db, idx, file_path)
-        if sid:
-            new_sources.append(sid)
-            total_stats["text_len"] += stats.get("text_len", 0)
-            total_stats["chapters"] += stats.get("chapters", 0)
-            total_stats["chunks"] += stats.get("chunks", 0)
+    try:
+        for file_path in files:
+            sid, stats = _process_file(
+                cfg, db, idx, file_path, run_id, interactive, duplicate_action,
+            )
+            if sid:
+                new_sources.append(sid)
+                total_stats["text_len"] += stats.get("text_len", 0)
+                total_stats["chapters"] += stats.get("chapters", 0)
+                total_stats["chunks"] += stats.get("chunks", 0)
+    except HarvestAborted as e:
+        logger.warning("Harvest abortado pelo usuario: %s", e)
+        run_status = "aborted"
 
     if new_sources:
         logger.info(
@@ -68,6 +102,7 @@ def run_harvest(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> list[str]:
             total_stats["chapters"], total_stats["chunks"],
         )
 
+    db.finish_run(run_id, run_status)
     return new_sources
 
 
@@ -75,7 +110,13 @@ def run_harvest(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> list[str]:
 
 
 def _process_file(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, file_path: Path,
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    file_path: Path,
+    run_id: int,
+    interactive: bool = True,
+    duplicate_action: str | None = None,
 ) -> tuple[str | None, dict[str, int]]:
     """Process a single file: extract, chunk, persist. Returns (source_id, stats) or (None, {})."""
     empty_stats: dict[str, int] = {}
@@ -84,6 +125,19 @@ def _process_file(
 
     if existing and existing["file_checksum"] == checksum:
         logger.debug("Arquivo inalterado, pulando: %s", file_path.name)
+        return None, empty_stats
+
+    # ── Camada 1: duplicidade por hash de arquivo (copia renomeada) ────
+    renamed_from = db.get_file_by_checksum(checksum, exclude_path=str(file_path))
+    if renamed_from and renamed_from.get("source_id"):
+        logger.info(
+            "Arquivo '%s' e uma copia identica de '%s' (mesmo hash de arquivo). "
+            "Associando ao mesmo source_id (%s) em vez de reprocessar.",
+            file_path.name, Path(renamed_from["path"]).name, renamed_from["source_id"],
+        )
+        db.upsert_file(str(file_path), checksum, file_path.suffix.lower().lstrip("."),
+                        renamed_from["source_id"])
+        db.record_duplicate(run_id, "file")
         return None, empty_stats
 
     ext = file_path.suffix.lower()
@@ -96,6 +150,18 @@ def _process_file(
 
     extraction_checksum = sha256_hex(normalize_text_for_hash(text))
 
+    # ── Camada 2: duplicidade por hash de conteudo extraido (cross-formato) ──
+    cross_format_source = db.get_source_by_extraction_checksum(extraction_checksum)
+    if cross_format_source:
+        logger.info(
+            "Conteudo de '%s' e identico (apos normalizacao) a fonte existente %s "
+            "(%s). Reaproveitando fonte, sem gerar novo citekey/SRC/LIT/chunks.",
+            file_path.name, cross_format_source["source_id"], cross_format_source["citekey"],
+        )
+        db.upsert_file(str(file_path), checksum, origin_type, cross_format_source["source_id"])
+        db.record_duplicate(run_id, "content")
+        return None, empty_stats
+
     title = metadata.get("title", file_path.stem)
     authors = metadata.get("authors", [])
     year = metadata.get("year")
@@ -107,6 +173,28 @@ def _process_file(
         logger.info("Texto extraido inalterado para %s, pulando rechunking", source_id)
         db.upsert_file(str(file_path), checksum, origin_type, source_id)
         return None, empty_stats
+
+    chapters = _split_into_chapters(text, origin_type)
+
+    # ── Camada 3: quase-duplicata semantica via ChromaDB ───────────────
+    dup_candidates = _find_semantic_duplicate_candidates(cfg, db, idx, chapters)
+    if dup_candidates:
+        decision = _resolve_duplicate_decision(
+            file_path, dup_candidates, interactive, duplicate_action, cfg,
+        )
+        if decision == "abort":
+            raise HarvestAborted(f"Usuario abortou o harvest ao processar {file_path.name}")
+        db.record_duplicate(run_id, "semantic")
+        if decision == "skip":
+            logger.warning(
+                "Arquivo '%s' pulado por suspeita de duplicidade semantica (candidatos: %s).",
+                file_path.name, ", ".join(c["citekey"] for c in dup_candidates),
+            )
+            return None, empty_stats
+        logger.info(
+            "Arquivo '%s' segue como nova fonte apesar da suspeita de duplicidade semantica.",
+            file_path.name,
+        )
 
     db.upsert_file(str(file_path), checksum, origin_type, source_id)
     db.upsert_source(
@@ -122,7 +210,6 @@ def _process_file(
         "citekey": citekey, "title": title, "origin_type": origin_type,
     })
 
-    chapters = _split_into_chapters(text, origin_type)
     chunk_count = _chunk_and_persist(cfg, db, idx, source_id, chapters)
 
     stats = {"text_len": len(text), "chapters": len(chapters), "chunks": chunk_count}
@@ -131,6 +218,115 @@ def _process_file(
         source_id, len(chapters), chunk_count, len(text),
     )
     return source_id, stats
+
+
+# ── Semantic Duplicate Detection ───────────────────────────────────────
+
+
+def _sample_chunk_texts(cfg: AppConfig, chapters: list[dict[str, str]], sample_size: int) -> list[str]:
+    """Split chapters into chunks (without persisting) and return an evenly distributed sample."""
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=cfg.chunking.chunk_size,
+        chunk_overlap=cfg.chunking.chunk_overlap,
+        separators=["\n\n", "\n", ". ", " ", ""],
+    )
+
+    all_chunks: list[str] = []
+    for chapter in chapters:
+        all_chunks.extend(splitter.split_text(chapter["text"]))
+
+    if not all_chunks:
+        return []
+    if len(all_chunks) <= sample_size:
+        return all_chunks
+
+    step = len(all_chunks) / sample_size
+    return [all_chunks[int(i * step)] for i in range(sample_size)]
+
+
+def _find_semantic_duplicate_candidates(
+    cfg: AppConfig, db: StateDB, idx: VectorIndex, chapters: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    """Query the chunk index for near-duplicates of a sample of this file's chunks.
+
+    Returns candidate sources (aggregated, best score per source_id) whose
+    similarity is at or above `cfg.harvest.duplicate_chunk_threshold`.
+    """
+    threshold = cfg.harvest.duplicate_chunk_threshold
+    sample_size = max(1, cfg.harvest.duplicate_sample_size)
+    sample_texts = _sample_chunk_texts(cfg, chapters, sample_size)
+    if not sample_texts:
+        return []
+
+    matches = idx.find_similar_chunks(sample_texts, n_results=3)
+    best_by_source: dict[str, float] = {}
+    for m in matches:
+        distance = m.get("distance")
+        if distance is None:
+            continue
+        similarity = 1 - (distance / 2)
+        meta = m.get("metadata") or {}
+        source_id = meta.get("source_id")
+        if not source_id or similarity < threshold:
+            continue
+        if source_id not in best_by_source or similarity > best_by_source[source_id]:
+            best_by_source[source_id] = similarity
+
+    candidates: list[dict[str, Any]] = []
+    for source_id, similarity in sorted(best_by_source.items(), key=lambda kv: -kv[1]):
+        src = db.get_source(source_id)
+        candidates.append({
+            "source_id": source_id,
+            "citekey": src["citekey"] if src else source_id,
+            "title": src["title"] if src else "(desconhecido)",
+            "similarity": similarity,
+        })
+    return candidates
+
+
+def _resolve_duplicate_decision(
+    file_path: Path,
+    candidates: list[dict[str, Any]],
+    interactive: bool,
+    duplicate_action: str | None,
+    cfg: AppConfig,
+) -> str:
+    """Decide what to do about a suspected semantic duplicate.
+
+    Returns one of "skip", "continue", "abort".
+    """
+    if not interactive:
+        action = duplicate_action or cfg.harvest.non_interactive_duplicate_action
+        logger.warning(
+            "Suspeita de duplicidade semantica para '%s' (modo nao-interativo, acao='%s'). "
+            "Candidatos: %s",
+            file_path.name, action,
+            ", ".join(f"{c['citekey']} ({c['similarity']:.2f})" for c in candidates),
+        )
+        return action
+
+    from rich.console import Console
+    from rich.table import Table
+    from rich.prompt import Prompt
+
+    console = Console(stderr=True)
+    table = Table(title=f"Possivel duplicata: {file_path.name}")
+    table.add_column("Citekey", style="bold")
+    table.add_column("Titulo")
+    table.add_column("Similaridade", justify="right")
+    for c in candidates:
+        table.add_row(c["citekey"], c["title"], f"{c['similarity']:.0%}")
+    console.print(table)
+
+    choice = Prompt.ask(
+        "O conteudo parece semelhante a fonte(s) ja existente(s). O que deseja fazer?",
+        choices=["pular", "continuar", "abortar"],
+        default="pular",
+        console=console,
+    )
+    return {"pular": "skip", "continuar": "continue", "abortar": "abort"}[choice]
 
 
 # ── Year Extraction Helpers ────────────────────────────────────────────

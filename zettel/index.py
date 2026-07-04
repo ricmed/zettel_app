@@ -131,6 +131,36 @@ class VectorIndex:
             output.append(entry)
         return output[:n_results]
 
+    def find_similar_chunks(self, texts: list[str], n_results: int = 3) -> list[dict]:
+        """Find already-indexed chunks similar to a sample of newly extracted chunks.
+
+        Mirrors `query_similar_notes` but runs over the `chunks` collection, and
+        supports multiple query texts at once (a representative sample of a new
+        file's chunks). Returns a flat list of match dicts, one per (query, hit)
+        pair, each with id/document/metadata/distance.
+        """
+        results: list[dict] = []
+        texts = [t for t in texts if t and t.strip()]
+        if not texts or self.chunks.count() == 0:
+            return results
+
+        raw = self.chunks.query(
+            query_texts=texts,
+            n_results=min(n_results, self.chunks.count()),
+        )
+        ids_lists = raw.get("ids") or []
+        for qi, ids in enumerate(ids_lists):
+            for i, cid in enumerate(ids):
+                entry: dict[str, Any] = {"id": cid}
+                if raw.get("documents") and raw["documents"][qi]:
+                    entry["document"] = raw["documents"][qi][i]
+                if raw.get("metadatas") and raw["metadatas"][qi]:
+                    entry["metadata"] = raw["metadatas"][qi][i]
+                if raw.get("distances") and raw["distances"][qi]:
+                    entry["distance"] = raw["distances"][qi][i]
+                results.append(entry)
+        return results
+
     # ── MOCs ───────────────────────────────────────────────────────────
 
     def upsert_moc(self, moc_id: str, summary: str, metadata: dict[str, Any]) -> None:

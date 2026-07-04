@@ -37,3 +37,4 @@ rich
 scikit-learn
 torch
 typer[all]
+pytest
