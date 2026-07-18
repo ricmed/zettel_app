@@ -17,6 +17,25 @@ logger = logging.getLogger(__name__)
 
 _FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
+# High-frequency PT-BR closed-class words (articles, prepositions, conjunctions,
+# pronouns, common verb forms). Without this filter, a token like "que" appears
+# in nearly every note's body, so the OR-joined MATCH expression matches almost
+# the entire corpus regardless of topic — which in turn defeats any bm25-based
+# relevance signal (a "hit" stops meaning anything). Comparison is case-insensitive;
+# entries are stored lowercase.
+_PT_STOPWORDS = frozenset({
+    "a", "o", "as", "os", "um", "uma", "uns", "umas",
+    "de", "da", "do", "das", "dos", "em", "na", "no", "nas", "nos",
+    "por", "para", "com", "sem", "sobre", "entre", "ate", "apos",
+    "e", "ou", "mas", "que", "se", "como", "quando", "onde", "porque", "pois",
+    "eu", "tu", "ele", "ela", "voces", "eles", "elas",
+    "seu", "sua", "seus", "suas", "este", "esta", "esse", "essa", "isso",
+    "aquele", "aquela", "aquilo",
+    "sao", "foi", "foram", "ser", "estar", "estao", "tem", "teve", "ha",
+    "nao", "sim", "mais", "muito", "muitos", "muitas",
+    "ja", "ainda", "tambem", "qual", "quais",
+})
+
 
 def _fts_match_expr(text: str, min_len: int = 2, max_tokens: int = 32) -> str | None:
     """Turn arbitrary user text into a safe FTS5 MATCH expression.
@@ -26,10 +45,15 @@ def _fts_match_expr(text: str, min_len: int = 2, max_tokens: int = 32) -> str | 
     text can never inject query syntax. Tokens are joined with ``OR`` because a
     natural-language question rarely has *all* its terms in a single note — bm25
     ranks whoever matches more terms, and RRF fuses with the vector side.
+    High-frequency stopwords (see ``_PT_STOPWORDS``) are dropped so they can't
+    turn "matches almost every note" into a false relevance signal.
 
     Returns ``None`` when there is no usable token (caller should treat as empty).
     """
-    tokens = [t for t in _FTS_TOKEN_RE.findall(text) if len(t) >= min_len]
+    tokens = [
+        t for t in _FTS_TOKEN_RE.findall(text)
+        if len(t) >= min_len and t.lower() not in _PT_STOPWORDS
+    ]
     if not tokens:
         return None
     return " OR ".join(f'"{t}"' for t in tokens[:max_tokens])

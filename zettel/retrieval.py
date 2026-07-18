@@ -45,6 +45,22 @@ class RetrievedNote:
     vector_distance: Optional[float] = None
     hop: int = 0                          # 0 = search seed; >=1 = graph neighbour
     via: list[dict] = field(default_factory=list)  # graph path (see graph.py)
+    passed_floor: bool = True             # absolute relevance floor (see _passes_floor)
+
+
+@dataclass
+class NoteSearchResult:
+    """Result of :meth:`Retriever.search_notes`.
+
+    ``hits`` is what callers should actually use as evidence/context — it only
+    contains candidates that cleared the absolute relevance floor (plus their
+    graph neighbours). ``candidates`` is the raw ranked pool *before* the floor
+    was applied, always populated, so a caller can still show "what was closest"
+    for transparency even when nothing was relevant enough to answer from.
+    """
+
+    hits: list[RetrievedNote] = field(default_factory=list)
+    candidates: list[RetrievedNote] = field(default_factory=list)
 
 
 class Retriever:
@@ -65,14 +81,26 @@ class Retriever:
         exclude_id: Optional[str] = None,
         mode: Optional[str] = None,
         expand_graph: Optional[bool] = None,
-    ) -> list[RetrievedNote]:
+        relevance_floor: Optional[bool] = None,
+        min_vector_similarity: Optional[float] = None,
+    ) -> NoteSearchResult:
         """Retrieve permanent notes for ``query``.
 
-        Returns up to ``topk`` search seeds, plus (when graph expansion is on)
-        their graph neighbours as additional entries with ``hop >= 1``, sorted by
-        score descending. Neighbours are always additive context — their score is
-        bounded above by the seed they came from, so seeds are never displaced by
-        a weaker neighbour of a weaker seed.
+        Returns a :class:`NoteSearchResult`:
+
+        - ``hits``: up to ``topk`` seeds that cleared the absolute relevance
+          floor, plus (when graph expansion is on) their graph neighbours with
+          ``hop >= 1``. This is what callers should use as evidence/context. If
+          nothing clears the floor, ``hits`` is empty — callers should treat
+          that as "nothing relevant found" rather than forcing an answer from
+          the closest-available-but-irrelevant candidates.
+        - ``candidates``: the raw RRF-ranked pool *before* the floor, always
+          populated (when the corpus is non-empty) so a caller can still show
+          "what was closest" for transparency/debugging.
+
+        Neighbours are always additive context — their score is bounded above
+        by the seed they came from, so seeds are never displaced by a weaker
+        neighbour of a weaker seed.
         """
         topk = topk if topk is not None else self.cfg.linking.topk
         mode = mode or self.cfg.retrieval.mode
@@ -86,10 +114,17 @@ class Retriever:
         )
 
         fused = self._rrf_fuse_notes(vector_hits, bm25_hits)
-        seeds = fused[:topk]
-        if not expand_graph or not seeds:
-            return seeds
-        return self._expand_with_graph(seeds, exclude_id)
+        self._apply_relevance_floor(fused, relevance_floor, min_vector_similarity)
+        candidates = fused[: max(topk, 10)]
+
+        seeds = [f for f in fused if f.passed_floor][:topk]
+        if not seeds:
+            return NoteSearchResult(hits=[], candidates=candidates)
+        if not expand_graph:
+            return NoteSearchResult(hits=seeds, candidates=candidates)
+        return NoteSearchResult(
+            hits=self._expand_with_graph(seeds, exclude_id), candidates=candidates
+        )
 
     def search_chunks(
         self,
@@ -141,6 +176,44 @@ class Retriever:
             self._warn_no_fts()
             return []
         return self.db.search_chunks_fts(query, limit=pool)
+
+    def _apply_relevance_floor(
+        self,
+        fused: list[RetrievedNote],
+        relevance_floor: Optional[bool],
+        min_vector_similarity: Optional[float],
+    ) -> None:
+        """Mark each hit's ``passed_floor`` in place (see RelevanceFloorConfig).
+
+        RRF's fused score is purely positional — the vector kNN side always
+        returns the closest available notes regardless of whether any of them
+        are actually relevant, so a totally off-topic query gets a similarly
+        "confident-looking" score to a genuinely answerable one. This floor
+        checks the raw vector similarity (or BM25 presence) instead of rank.
+        """
+        floor_cfg = self.cfg.retrieval.relevance_floor
+        enabled = relevance_floor if relevance_floor is not None else floor_cfg.enabled
+        if not enabled:
+            for hit in fused:
+                hit.passed_floor = True
+            return
+
+        min_sim = (
+            min_vector_similarity
+            if min_vector_similarity is not None
+            else floor_cfg.min_vector_similarity
+        )
+        for hit in fused:
+            if floor_cfg.bm25_hit_bypasses_floor and hit.bm25_rank is not None:
+                hit.passed_floor = True
+                continue
+            if hit.vector_distance is not None:
+                similarity = 1.0 - hit.vector_distance / 2.0
+                hit.passed_floor = similarity >= min_sim
+                continue
+            # No vector distance and no bm25 hit — shouldn't normally happen for
+            # a fused result, but fail safe by keeping it rather than losing data.
+            hit.passed_floor = True
 
     def _warn_no_fts(self) -> None:
         if not self._warned_no_fts:

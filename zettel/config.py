@@ -114,6 +114,32 @@ class AskConfig(BaseModel):
     max_chars_per_note: int = 1500    # truncagem do corpo de cada nota no contexto
 
 
+class RelevanceFloorConfig(BaseModel):
+    """Piso de relevancia ABSOLUTO, aplicado alem da fusao RRF (que e apenas posicional).
+
+    RRF so enxerga o RANKING de cada candidato, nao o quao bom ele e de fato — a
+    busca vetorial (kNN) sempre devolve os N vizinhos mais proximos disponiveis no
+    corpus, mesmo que nenhum seja de fato relevante. Sem um piso absoluto, uma
+    pergunta totalmente fora do acervo (ex.: "o que e a chuva?") produz um score
+    RRF no mesmo patamar de uma pergunta genuinamente respondivel.
+
+    Calibrado empiricamente neste projeto (embedding text-embedding-3-small) com
+    um par de perguntas reais: uma pergunta respondivel pelo acervo teve
+    similaridade coseno 0.70-0.84 nos top-8; uma pergunta fora do tema teve
+    0.63-0.65. `min_vector_similarity=0.70` separa os dois casos. Este limiar e
+    dependente do modelo de embedding e do corpus — reajuste se notar falsos
+    negativos/positivos.
+    """
+
+    enabled: bool = True
+    min_vector_similarity: float = 0.70
+    # Uma correspondencia lexical (BM25) exige overlap real de termos na nota —
+    # ao contrario do kNN vetorial, que sempre devolve "o mais proximo disponivel"
+    # mesmo sem relacao nenhuma. Por isso um hit achado via BM25 passa no piso
+    # independente da similaridade vetorial (que pode nem existir para ele).
+    bm25_hit_bypasses_floor: bool = True
+
+
 class RetrievalConfig(BaseModel):
     """Recuperacao hibrida (vetor + BM25) com fusao RRF e expansao por grafo.
 
@@ -125,6 +151,7 @@ class RetrievalConfig(BaseModel):
     rrf_k: int = 60                   # constante do Reciprocal Rank Fusion (canonica)
     fts_min_token_len: int = 2        # tokens menores sao descartados no MATCH
     graph_expansion: GraphExpansionConfig = Field(default_factory=GraphExpansionConfig)
+    relevance_floor: RelevanceFloorConfig = Field(default_factory=RelevanceFloorConfig)
     ask: AskConfig = Field(default_factory=AskConfig)
 
 

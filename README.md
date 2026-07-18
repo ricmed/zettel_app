@@ -195,6 +195,10 @@ linking:
 retrieval:
   mode: hybrid               # hybrid (vetor + BM25) | vector (so Chroma, legado)
   rrf_k: 60                  # constante do Reciprocal Rank Fusion
+  relevance_floor:
+    enabled: true            # piso ABSOLUTO de relevancia (alem do ranking RRF)
+    min_vector_similarity: 0.70   # similaridade coseno minima (calibrado empiricamente)
+    bm25_hit_bypasses_floor: true # match lexical real (BM25) ja e evidencia por si
   graph_expansion:
     enabled: true            # expande resultados pelas conexoes tipadas entre notas
     max_hops: 1              # saltos no grafo (1 ja traz o valor principal)
@@ -564,7 +568,7 @@ Tudo fora desses blocos é preservado — edições manuais nunca são sobrescri
 A recuperação de notas (RAG do `connect`, sugestões do `sync-manual` e o comando `ask`) combina três sinais complementares:
 
 1. **Busca vetorial (densa)** — similaridade semântica no ChromaDB (como antes).
-2. **Busca lexical BM25** — índice full-text **SQLite FTS5** no próprio `state.db` (tokenizer `unicode61` com `remove_diacritics`, então "conexao" casa "conexão"). Cobre o ponto fraco do embedding: termos técnicos exatos, siglas e nomes próprios.
+2. **Busca lexical BM25** — índice full-text **SQLite FTS5** no próprio `state.db` (tokenizer `unicode61` com `remove_diacritics`, então "conexao" casa "conexão"). Cobre o ponto fraco do embedding: termos técnicos exatos, siglas e nomes próprios. Palavras funcionais de altíssima frequência em PT-BR (artigos, preposições, conjunções — ex. "que", "de", "para") são filtradas da consulta antes do MATCH: sem isso, uma palavra como "que" aparece em quase toda nota do acervo e o "match" lexical deixa de significar qualquer coisa.
 3. **Expansão por grafo (GraphRAG leve)** — as **conexões tipadas** já geradas pelo pipeline (tabela `note_connections`: `supports`, `contradicts`, `extends`, `depends_on`, `exemplifies`, `related`) são percorridas 1 salto a partir das notas recuperadas. Vizinhos entram no contexto ponderados por tipo de relação (`contradicts`/`extends` pesam mais — trazem informação que a similaridade vetorial **não** captura) e por decaimento por salto.
 
 As listas densa e lexical são fundidas por **Reciprocal Rank Fusion (RRF)**, que usa apenas o *ranking* de cada id (não os scores brutos), dispensando calibração entre escalas incompatíveis (distância L2 vs. bm25). Os ids são compartilhados entre Chroma e SQLite, então a fusão é direta.
@@ -573,13 +577,19 @@ As listas densa e lexical são fundidas por **Reciprocal Rank Fusion (RRF)**, qu
 
 > **Nota de calibração**: a deduplicação semântica (`extract`) e a detecção de duplicatas do `harvest` **não** usam a busca híbrida — seus limiares (`dedupe_threshold`, `duplicate_chunk_threshold`) são calibrados sobre a distância vetorial e permanecem no vetor puro.
 
+#### Piso de relevância absoluto
+
+O score do RRF é **posicional**, não uma medida absoluta de relevância: a busca vetorial (kNN) sempre devolve os N vizinhos mais próximos disponíveis no corpus, mesmo que nenhum seja de fato relevante — então uma pergunta totalmente fora do acervo recebe um score no mesmo patamar de uma pergunta genuinamente respondível. `retrieval.relevance_floor` corrige isso aplicando um piso **absoluto**: um resultado só é considerado evidência real se sua similaridade coseno (derivada da distância vetorial) atingir `min_vector_similarity` (padrão `0.70`, calibrado empiricamente neste projeto — ajuste para seu corpus/modelo de embedding), **ou** se tiver vindo de um match lexical (BM25) real, que por exigir sobreposição de termos já é evidência por si (`bm25_hit_bypasses_floor: true`). Resultados abaixo do piso não alimentam a resposta, mas continuam visíveis em `--show-context` para fins de transparência/depuração.
+
 ### Perguntar ao acervo (`zettel ask`)
 
 ```bash
 python -m zettel ask "Como heurísticas geram vieses?" --show-context
 ```
 
-O comando recupera as notas relevantes (híbrido + grafo), monta um contexto com citações e pede ao LLM uma resposta em PT-BR **baseada apenas no acervo** (se não houver evidência, ele diz isso, em vez de alucinar). Cada afirmação cita o `[[wikilink]]` exato da nota-fonte. A resposta pode ser salva como nota `.md` em `00_Inbox/` (`--save` ou `--save-to`), com frontmatter e uma seção **Fontes consultadas** que registra, para cada nota, o wikilink, a origem na recuperação (busca vs. conexão de grafo, com o tipo da relação), o score e a fonte bibliográfica — rastreabilidade completa de onde veio cada informação.
+O comando recupera as notas relevantes (híbrido + grafo + piso de relevância), monta um contexto com citações e pede ao LLM uma resposta em PT-BR **baseada apenas no acervo** (se não houver evidência, ele diz isso, em vez de alucinar). Cada afirmação cita o `[[wikilink]]` exato da nota-fonte. Quando nenhuma nota recuperada passa do piso de relevância, o LLM **nem chega a ser chamado** — a resposta padrão de "não encontrei evidência" é determinística. Em ambos os casos, `--show-context` sempre mostra o top-k bruto recuperado, com uma coluna indicando se cada nota foi de fato usada (`sim` / `nao (abaixo do piso)`), para você poder auditar a recuperação mesmo quando a resposta é negativa.
+
+A resposta pode ser salva como nota `.md` em `00_Inbox/` (`--save` ou `--save-to`), com frontmatter e uma seção **Fontes consultadas** que registra, para cada nota efetivamente usada, o wikilink, a origem na recuperação (busca vs. conexão de grafo, com o tipo da relação), o score e a fonte bibliográfica — rastreabilidade completa de onde veio cada informação.
 
 ### Fechando o ciclo do grafo (notas manuais)
 

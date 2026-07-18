@@ -292,6 +292,19 @@ def test_fts_match_expr_caps_token_count():
     assert expr.count(" OR ") == 31  # 32 tokens => 31 separators
 
 
+def test_fts_match_expr_drops_pt_stopwords():
+    # "que" is an extremely common PT-BR conjunction — without filtering it,
+    # the OR-joined MATCH would match nearly every note in a real corpus,
+    # making a bm25 "hit" meaningless as a relevance signal.
+    assert _fts_match_expr("Explique, o que e a chuva?") == '"Explique" OR "chuva"'
+    # Meaningful content words are preserved even when short stopwords surround them.
+    assert _fts_match_expr("o que e step-back prompting") == (
+        '"step" OR "back" OR "prompting"'
+    )
+    # A query made entirely of stopwords has no usable token.
+    assert _fts_match_expr("o que e isso") is None
+
+
 # ── FTS5 index sync + search ───────────────────────────────────────────
 
 

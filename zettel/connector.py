@@ -136,7 +136,7 @@ def _process_candidate(
     query_text = f"{cand.thesis} {cand.definition}"
     similar = retriever.search_notes(
         query_text, topk=cfg.linking.topk, exclude_id=note_id
-    )
+    ).hits
     rag_context = _build_rag_context(similar)
 
     # SECURITY NOTE: cand.thesis, cand.definition, and other candidate fields originate

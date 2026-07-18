@@ -285,7 +285,7 @@ def _suggest_connections(
     retriever = Retriever(cfg, db, idx)
     similar = retriever.search_notes(
         embeddable, topk=cfg.linking.topk, exclude_id=note_id
-    )
+    ).hits
     if not similar:
         return
 

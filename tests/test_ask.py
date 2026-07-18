@@ -5,7 +5,7 @@ import pytest
 import zettel.ask as ask_mod
 from zettel.ask import AskResult, AskSource, build_ask_note_body, run_ask, save_ask_note
 from zettel.config import AppConfig
-from zettel.retrieval import RetrievedNote
+from zettel.retrieval import NoteSearchResult, RetrievedNote
 from zettel.state import StateDB
 
 
@@ -49,10 +49,11 @@ def test_run_ask_passes_wikilinks_to_prompt(db, tmp_path, monkeypatch):
     captured = {}
 
     def _fake_search(self, query, topk=None, mode=None, expand_graph=None):
-        return [RetrievedNote(
+        hit = RetrievedNote(
             note_id="01HZZZ", score=0.9, title="Grafos de Conhecimento",
             document="Um grafo conecta conceitos por arestas tipadas.", hop=0,
-        )]
+        )
+        return NoteSearchResult(hits=[hit], candidates=[hit])
 
     def _fake_llm_call(llm, prompt):
         captured["prompt"] = prompt
@@ -75,6 +76,36 @@ def test_run_ask_passes_wikilinks_to_prompt(db, tmp_path, monkeypatch):
     assert "[[ZTL - 01HZZZ - grafos-de-conhecimento]]" in captured["prompt"]
     assert len(result.sources) == 1
     assert result.sources[0].origin == "busca"
+
+
+def test_run_ask_below_floor_shows_candidates_but_no_llm_call(db, monkeypatch):
+    """Everything below the relevance floor: no LLM call, but candidates surfaced."""
+    called = {"n": 0}
+
+    def _boom(*a, **k):
+        called["n"] += 1
+        raise AssertionError("LLM nao deveria ser chamado")
+
+    def _fake_search(self, query, topk=None, mode=None, expand_graph=None):
+        rejected = RetrievedNote(
+            note_id="n1", score=0.03, title="Nota Irrelevante",
+            document="assunto sem relacao", hop=0, passed_floor=False,
+        )
+        return NoteSearchResult(hits=[], candidates=[rejected])
+
+    monkeypatch.setattr("zettel.retrieval.Retriever.search_notes", _fake_search)
+    monkeypatch.setattr(ask_mod, "call_llm", _boom)
+    monkeypatch.setattr(ask_mod, "get_llm", lambda cfg: object())
+
+    result = run_ask(AppConfig(), db, FakeIndex(), "pergunta fora do tema")
+    assert result.answer == ask_mod._NO_EVIDENCE
+    assert result.llm_called is False
+    assert called["n"] == 0
+    assert result.sources == []
+    # Raw candidates still surfaced for transparency, marked as not used.
+    assert len(result.candidates) == 1
+    assert result.candidates[0].note_id == "n1"
+    assert result.candidates[0].passed_floor is False
 
 
 def test_build_ask_note_body_provenance():

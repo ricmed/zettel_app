@@ -645,18 +645,24 @@ def ask(
 
     console.print(Panel(result.answer.strip() or "(sem resposta)", title="Resposta"))
 
-    if show_context or result.sources:
-        ctx_table = Table(title="Notas consultadas")
+    # `candidates` is the raw ranked pool (before the relevance floor), always
+    # shown so the user can see what was closest even when nothing was relevant
+    # enough to answer from (in which case `sources` is empty).
+    if show_context or result.candidates:
+        ctx_table = Table(title="Notas recuperadas")
         ctx_table.add_column("Nota", style="bold")
         ctx_table.add_column("Score", justify="right")
         ctx_table.add_column("Salto", justify="right")
+        ctx_table.add_column("Usada?")
         ctx_table.add_column("Origem")
-        for src in result.sources:
+        for src in result.candidates:
             ctx_table.add_row(
                 src.title or src.note_id,
                 f"{src.score:.4f}",
                 str(src.hop),
+                "sim" if src.passed_floor else "nao (abaixo do piso)",
                 src.origin,
+                style="" if src.passed_floor else "dim",
             )
         console.print(ctx_table)
 

@@ -33,7 +33,7 @@ _NO_EVIDENCE = "Nao encontrei evidencia suficiente no vault para responder a ess
 
 @dataclass
 class AskSource:
-    """One note that fed the answer, with retrieval provenance."""
+    """One note surfaced by retrieval, with provenance."""
 
     note_id: str
     title: str
@@ -43,6 +43,7 @@ class AskSource:
     origin: str                       # human-readable: "busca" or "conexao ..."
     source_id: Optional[str] = None
     path: Optional[str] = None
+    passed_floor: bool = True         # False = shown for transparency, not used to answer
 
 
 @dataclass
@@ -50,6 +51,10 @@ class AskResult:
     question: str
     answer: str
     sources: list[AskSource] = field(default_factory=list)
+    # Raw ranked pool before the relevance floor, always populated (when the
+    # corpus is non-empty) so callers can show "what was closest" even when
+    # nothing cleared the floor and `sources` ends up empty.
+    candidates: list[AskSource] = field(default_factory=list)
     mode: str = "hybrid"
     graph_expansion: bool = True
     llm_model: str = ""
@@ -76,23 +81,25 @@ def run_ask(
         use_graph = cfg.retrieval.graph_expansion.enabled
 
     retriever = Retriever(cfg, db, idx)
-    hits = retriever.search_notes(
+    result_pool = retriever.search_notes(
         question, topk=topk, mode=mode, expand_graph=use_graph
     )
-    hits = hits[: ask_cfg.max_context_notes]
+    hits = result_pool.hits[: ask_cfg.max_context_notes]
 
-    sources = [_to_ask_source(db, h) for h in hits]
     result = AskResult(
         question=question,
         answer="",
-        sources=sources,
+        sources=[_to_ask_source(db, h) for h in hits],
+        candidates=[_to_ask_source(db, h) for h in result_pool.candidates],
         mode=mode,
         graph_expansion=bool(use_graph),
         llm_model=cfg.llm.model,
     )
 
     if not hits:
-        # Nothing retrieved — answer deterministically without spending an LLM call.
+        # Nothing cleared the relevance floor — answer deterministically without
+        # spending an LLM call. `candidates` still carries the raw top-k pool so
+        # the caller can show what was closest, for transparency/debugging.
         result.answer = _NO_EVIDENCE
         return result
 
@@ -181,6 +188,7 @@ def _to_ask_source(db: "StateDB", hit: RetrievedNote) -> AskSource:
         origin=_origin_label(hit),
         source_id=source_id,
         path=path,
+        passed_floor=hit.passed_floor,
     )
 
 
