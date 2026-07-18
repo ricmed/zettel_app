@@ -1,11 +1,22 @@
 """Tests for hashing utilities."""
 
 from zettel.hashing import (
+    compute_embedding_input_hash,
     extract_embeddable_text,
     normalize_text_for_hash,
     sha256_hex,
     short_hash,
 )
+
+
+def test_compute_embedding_input_hash():
+    a = compute_embedding_input_hash("sem123", "openai", "text-embedding-3-small")
+    b = compute_embedding_input_hash("sem123", "openai", "text-embedding-3-small")
+    assert a == b  # deterministic
+    # Any component change alters the hash.
+    assert a != compute_embedding_input_hash("sem124", "openai", "text-embedding-3-small")
+    assert a != compute_embedding_input_hash("sem123", "sentence-transformers", "text-embedding-3-small")
+    assert a != compute_embedding_input_hash("sem123", "openai", "outro-modelo")
 
 
 def test_normalize_collapses_whitespace():

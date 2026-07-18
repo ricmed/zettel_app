@@ -243,6 +243,7 @@ def _generate_moc(
         "moc_id": moc_id,
         "topic": topic,
         "cluster_signature": cluster_signature,
+        "origin": "pipeline",
         "created_at": now,
         "updated_at": now,
     }
@@ -260,8 +261,12 @@ def _generate_moc(
     moc_path = cfg.vault_path / "40_MOCs" / filename
     safe_write_note(moc_path, meta, body)
 
-    db.upsert_moc(moc_id, topic, str(moc_path), cluster_signature)
-    idx.upsert_moc(moc_id, f"{topic}: {moc_output.summary}", {
+    # Retencao: guarda corpo + frontmatter do MOC para rebuild sem reprocessar o LLM.
+    db.upsert_moc(
+        moc_id, topic, str(moc_path), cluster_signature,
+        body=body, frontmatter_json=json.dumps(meta, ensure_ascii=False), origin="pipeline",
+    )
+    idx.upsert_moc(moc_id, _moc_embeddable(topic, moc_output.summary), {
         "topic": topic, "note_count": len(note_ids),
     })
 
@@ -396,7 +401,11 @@ def _update_existing_moc(
 
     if not truly_new:
         logger.info("MOC %s: nenhuma nota nova, atualizando apenas assinatura", moc_id)
-        db.upsert_moc(moc_id, existing_moc["topic"], str(moc_path), cluster_signature)
+        body_snap, fm_snap = _snapshot_moc_file(moc_path)
+        db.upsert_moc(
+            moc_id, existing_moc["topic"], str(moc_path), cluster_signature,
+            body=body_snap, frontmatter_json=fm_snap, origin="pipeline",
+        )
         return moc_id
 
     logger.info("MOC %s: %d notas novas a classificar", moc_id, len(truly_new))
@@ -431,8 +440,12 @@ def _update_existing_moc(
 
     _apply_incremental_placements(db, moc_path, structure, incremental_output)
 
-    db.upsert_moc(moc_id, existing_moc["topic"], str(moc_path), cluster_signature)
-    idx.upsert_moc(moc_id, f"{structure['topic']}: {structure['summary']}", {
+    body_snap, fm_snap = _snapshot_moc_file(moc_path)
+    db.upsert_moc(
+        moc_id, existing_moc["topic"], str(moc_path), cluster_signature,
+        body=body_snap, frontmatter_json=fm_snap, origin="pipeline",
+    )
+    idx.upsert_moc(moc_id, _moc_embeddable(structure["topic"], structure["summary"]), {
         "topic": existing_moc["topic"],
         "note_count": len(existing_ids) + len(truly_new),
     })
@@ -505,6 +518,23 @@ def _apply_incremental_placements(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
+
+
+def _moc_embeddable(topic: str, summary: str) -> str:
+    """Canonical embeddable text for a MOC (unified across gardener and sync)."""
+    return f"{topic}\n\n{summary}".strip()
+
+
+def _snapshot_moc_file(moc_path: Path) -> tuple[str | None, str | None]:
+    """Read a MOC file and return (body_without_frontmatter, frontmatter_json).
+
+    Used to persist the MOC content into the DB so `zettel rebuild` can recreate the
+    .md file without reprocessing the LLM. Returns (None, None) if the file is missing.
+    """
+    if not moc_path.exists():
+        return None, None
+    meta, body = parse_frontmatter(moc_path.read_text(encoding="utf-8"))
+    return body, json.dumps(meta, ensure_ascii=False)
 
 
 def _build_notes_list(db: StateDB, note_ids: list[str]) -> str:

@@ -17,6 +17,8 @@ from ulid import ULID
 
 from zettel.config import AppConfig
 from zettel.hashing import (
+    compute_embedding_input_hash,
+    compute_llm_call_checksum,
     extract_embeddable_text,
     normalize_text_for_hash,
     sha256_hex,
@@ -119,6 +121,13 @@ def _process_candidate(
     title_src = source["title"] if source else ""
     literature_ref = f"[[LIT - @{citekey} - {_slug(title_src)}]]"
 
+    # Prefer LLM-provided image ids; fall back to paths embedded in the source chunk.
+    image_ids = list(getattr(cand, "relevant_image_ids", None) or [])
+    if not image_ids:
+        image_ids = _fallback_image_ids(db, cand_dict)
+        if image_ids:
+            cand.relevant_image_ids = image_ids
+
     query_text = f"{cand.thesis} {cand.definition}"
     similar = idx.query_similar_notes(query_text, n_results=cfg.linking.topk, exclude_id=note_id)
     rag_context = _build_rag_context(similar)
@@ -135,9 +144,26 @@ def _process_candidate(
     filled = filled.replace("{source_locator}", cand.source_locator or "")
     filled = filled.replace("{literature_ref}", literature_ref)
     filled = filled.replace("{rag_context}", rag_context)
+    images_context = _build_candidate_images_context(db, cand)
+    filled = filled.replace("{images_context}", images_context)
 
+    # Cache do Prompt 2 (a chamada mais cara do pipeline). A chave cobre todo o prompt
+    # preenchido (tese/definicao/RAG/etc.), entao um re-connect apos falha nao paga de novo.
+    prompt_hash = sha256_hex(prompt_template)
+    filled_hash = sha256_hex(normalize_text_for_hash(filled))
+    call_checksum = compute_llm_call_checksum(
+        prompt_hash, filled_hash, cfg.llm.model, cfg.llm.temperature, cfg.language,
+    )
     try:
-        response_text = call_llm(llm, filled)
+        cached = db.get_cached_llm_response(call_checksum)
+        if cached is not None:
+            logger.debug("Cache hit (Prompt 2) para conceito %s", concept_id)
+            response_text = cached
+        else:
+            response_text = call_llm(llm, filled)
+            db.cache_llm_response(
+                call_checksum, json.dumps({"prompt": filled}, ensure_ascii=False), response_text
+            )
         note_output = _parse_permanent_note_output(response_text)
         if note_output.status == "rejected":
             logger.warning(
@@ -167,6 +193,7 @@ def _process_candidate(
             ))
 
     resolved_connections = _resolve_connections(db, connections)
+    images = _resolve_images(db, image_ids)
 
     body = build_permanent_note_body(
         thesis=note_output.thesis,
@@ -177,6 +204,7 @@ def _process_candidate(
         connections=resolved_connections,
         literature_ref=literature_ref,
         source_locator=cand.source_locator or "",
+        images=images,
     )
 
     from datetime import datetime
@@ -189,6 +217,7 @@ def _process_candidate(
         "literature_ref": literature_ref,
         "source_locator": cand.source_locator or "",
         "tags": tags,
+        "origin": "pipeline",
         "created_at": now,
         "updated_at": now,
     }
@@ -201,17 +230,30 @@ def _process_candidate(
     embeddable = extract_embeddable_text(body)
     semantic_checksum = sha256_hex(normalize_text_for_hash(embeddable))
 
+    # Retencao: persiste o corpo completo e o frontmatter da ZTL no SQLite, permitindo
+    # reconstruir o arquivo .md byte-a-byte sem reprocessar o LLM (ver `zettel rebuild`).
     db.upsert_note(
         note_id=note_id, source_id=source_id, path=str(note_path),
         title=title, note_semantic_checksum=semantic_checksum,
         embedding_model=cfg.embedding.model,
+        body=body, frontmatter_json=json.dumps(meta, ensure_ascii=False),
+        origin="pipeline",
     )
-    db.upsert_concept(concept_id, source_id, cand_dict["chunk_id"], note_id=note_id)
+    db.upsert_concept(
+        concept_id, source_id, cand_dict["chunk_id"], note_id=note_id, status="noted",
+    )
 
-    idx.upsert_permanent_note(note_id, embeddable, {
-        "title": title, "source_id": source_id, "tags": ", ".join(tags),
-        "note_semantic_checksum": semantic_checksum,
-    })
+    # Skip re-embedding when the note's semantic content and embedding model are unchanged.
+    emb_hash = compute_embedding_input_hash(
+        semantic_checksum, cfg.embedding.provider, cfg.embedding.model
+    )
+    existing_note = db.get_note(note_id)
+    if not existing_note or existing_note.get("embedding_input_hash") != emb_hash:
+        idx.upsert_permanent_note(note_id, embeddable, {
+            "title": title, "source_id": source_id, "tags": ", ".join(tags),
+            "note_semantic_checksum": semantic_checksum,
+        })
+        db.update_note_embedding(note_id, emb_hash, cfg.embedding.model)
 
     _persist_and_backlink(cfg, db, note_id, title, connections)
 
@@ -219,6 +261,50 @@ def _process_candidate(
 
 
 # ── Connection Resolution ────────────────────────────────────────────
+
+
+def _resolve_images(db: StateDB, image_ids: list[str] | None) -> list[dict]:
+    """Resolve candidate.relevant_image_ids into {path, description} for the ZTL note."""
+    if not image_ids:
+        return []
+    resolved: list[dict] = []
+    for aid in image_ids:
+        asset = db.get_asset(aid)
+        if asset and asset.get("path"):
+            resolved.append({"path": asset["path"], "description": asset.get("description") or ""})
+    return resolved
+
+
+def _fallback_image_ids(db: StateDB, cand_dict: dict) -> list[str]:
+    """When the LLM left relevant_image_ids empty, use image paths present in the chunk text."""
+    from zettel.assets import asset_ids_in_text
+
+    chunk_id = cand_dict.get("chunk_id") or ""
+    source_id = cand_dict.get("source_id") or ""
+    chunk = db.get_chunk(chunk_id) if chunk_id else None
+    if not chunk:
+        return []
+    return asset_ids_in_text(db, source_id, chunk.get("text") or "")
+
+
+def _build_candidate_images_context(db: StateDB, cand: PermanentNoteCandidate) -> str:
+    """Describe relevant images for Prompt 2 (empty string when none)."""
+    ids = list(getattr(cand, "relevant_image_ids", None) or [])
+    if not ids:
+        return ""
+    lines: list[str] = []
+    for aid in ids:
+        asset = db.get_asset(aid)
+        if not asset:
+            continue
+        desc = asset.get("description") or "(sem descricao)"
+        lines.append(f"- {aid}: {desc}")
+    if not lines:
+        return ""
+    return (
+        "Figuras essenciais ao conceito (ja serao embutidas na nota; use-as na "
+        "definicao/exemplo quando iluminarem o mecanismo):\n" + "\n".join(lines)
+    )
 
 
 def _resolve_connections(db: StateDB, connections: list[RelationshipResult]) -> list[dict]:

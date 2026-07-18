@@ -33,6 +33,14 @@ class FakeVectorIndex:
     def upsert_chunk(self, chunk_id, text, metadata):
         self.upserted_chunks.append(chunk_id)
 
+    def delete_chunks(self, chunk_ids):
+        for cid in chunk_ids:
+            if cid in self.upserted_chunks:
+                self.upserted_chunks.remove(cid)
+
+    def existing_ids(self, collection_name, ids):
+        return {cid for cid in ids if cid in self.upserted_chunks}
+
 
 @pytest.fixture
 def db(tmp_path):

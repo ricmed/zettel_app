@@ -129,6 +129,10 @@ class PermanentNoteCandidate(BaseModel):
         ge=1, le=5,
         description="Relevancia do candidato (1=trivial, 5=fundamental)",
     )
+    relevant_image_ids: list[str] = Field(
+        default_factory=list,
+        description="IDs de imagens (asset_id) essenciais para entender este conceito",
+    )
 
 
 # Forward ref update

@@ -47,6 +47,13 @@ def run_extract(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> list[dict]:
     """Process all pending chunks. Returns list of approved candidates."""
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn
 
+    # Descreve imagens pendentes antes dos chunks, para que as descricoes possam
+    # alimentar o Prompt 1 (contexto de imagens do capitulo).
+    from zettel.assets import describe_pending_assets
+    described = describe_pending_assets(cfg, db)
+    if described:
+        logger.info("Imagens descritas nesta execucao: %d", described)
+
     llm = get_llm(cfg)
     prompt_template = load_prompt(cfg.prompts_path / "literature_note.md")
     prompt_hash = sha256_hex(prompt_template)
@@ -111,9 +118,17 @@ def _process_chunk(
     chunk_text = chunk_row["text"]
     chunk_checksum = chunk_row["chunk_checksum"]
 
-    # Check LLM call cache
+    # Images of this chunk's chapter, if any, feed the prompt as extra context.
+    images_context = _build_images_context(db, source_id, chunk_row.get("chapter_id", ""))
+    images_ctx_checksum = (
+        sha256_hex(normalize_text_for_hash(images_context)) if images_context else ""
+    )
+
+    # Check LLM call cache (rag_context_checksum stays "" when there are no images,
+    # so chunks without images keep the exact same cache key as before).
     call_checksum = compute_llm_call_checksum(
         prompt_hash, chunk_checksum, cfg.llm.model, cfg.llm.temperature, cfg.language,
+        rag_context_checksum=images_ctx_checksum,
     )
     cached = db.get_cached_llm_response(call_checksum)
     if cached:
@@ -130,12 +145,13 @@ def _process_chunk(
         filled = filled.replace("{source_title}", source_title)
         filled = filled.replace("{chapter_title}", chunk_row.get("locator", ""))
         filled = filled.replace("{locator}", chunk_row.get("locator", ""))
+        filled = filled.replace("{images_context}", images_context)
         filled = filled.replace("{chunk_text}", chunk_text)
 
         try:
             response_text = call_llm(llm, filled)
             db.cache_llm_response(
-                call_checksum, json.dumps({"prompt": filled[:200]}), response_text
+                call_checksum, json.dumps({"prompt": filled}, ensure_ascii=False), response_text
             )
         except Exception as e:
             logger.error("Erro no LLM para chunk %s: %s", chunk_id, e)
@@ -179,6 +195,12 @@ def _process_chunk(
     # Build candidate dicts (only approved)
     candidates: list[dict] = []
     for cand in approved_cands:
+        # Fallback: se o LLM nao preencheu relevant_image_ids, anexa assets cujo
+        # path aparece no texto do chunk (refs ![Imagem](90_Assets/...)).
+        if not cand.relevant_image_ids:
+            from zettel.assets import asset_ids_in_text
+            cand.relevant_image_ids = asset_ids_in_text(db, source_id, chunk_text)
+
         concept_id = _compute_concept_id(source_id, chunk_id, cand)
         candidates.append({
             "concept_id": concept_id,
@@ -190,9 +212,48 @@ def _process_chunk(
             sha256_hex(normalize_text_for_hash(cand.anchor_quote)) if cand.anchor_quote else ""
         )
         thesis_hash = sha256_hex(normalize_text_for_hash(cand.thesis))
-        db.upsert_concept(concept_id, source_id, chunk_id, anchor_hash, thesis_hash)
+        # Retencao: persiste o candidato completo (tese/definicao/intuicao/limites/tags...)
+        # para que o connect possa rodar a partir do DB, sem depender de candidates.json.
+        db.upsert_concept(
+            concept_id, source_id, chunk_id, anchor_hash, thesis_hash,
+            candidate_json=cand.model_dump_json(), status="extracted",
+        )
 
     return candidates, output
+
+
+def _build_lit_images_block(db: StateDB, source_id: str) -> str:
+    """Render the source's described images as Obsidian embeds + captions for the LIT note."""
+    assets = db.get_assets_for_source(source_id)
+    parts: list[str] = []
+    for a in assets:
+        embed = f"![[{a['path']}]]"
+        desc = a.get("description") or "_(sem descricao)_"
+        parts.append(f"{embed}\n\n{desc}\n")
+    return "\n".join(parts)
+
+
+def _build_images_context(db: StateDB, source_id: str, chapter_id: str) -> str:
+    """List described images of a chunk's chapter for the extraction prompt.
+
+    Returns "" when there are no described images (keeps the LLM cache key stable
+    for image-less chunks).
+    """
+    assets = db.get_assets_for_source(source_id)
+    lines: list[str] = []
+    for a in assets:
+        if a.get("chapter_id") and a["chapter_id"] != chapter_id:
+            continue
+        desc = a.get("description")
+        if desc:
+            lines.append(f"- {a['asset_id']}: {desc}")
+    if not lines:
+        return ""
+    header = (
+        "Imagens disponiveis neste trecho (referencie o asset_id em "
+        "relevant_image_ids quando a imagem for essencial ao conceito):"
+    )
+    return header + "\n" + "\n".join(lines)
 
 
 # ── Candidate Filtering ──────────────────────────────────────────────
@@ -313,6 +374,13 @@ def _deduplicate_candidates(
                 cand_dict["refine_reason"] = result.reason
                 approved.append(cand_dict)
 
+    # Retencao: registra no DB o veredito da deduplicacao. Candidatos aprovados ficam
+    # 'approved' (o connect os recarrega dai); os demais viram 'duplicate'.
+    approved_ids = {c["concept_id"] for c in approved}
+    for cand_dict in candidates:
+        cid = cand_dict["concept_id"]
+        db.update_concept_status(cid, "approved" if cid in approved_ids else "duplicate")
+
     return approved
 
 
@@ -402,11 +470,22 @@ def _aggregate_literature_notes(
                 all_theses.append(cand.thesis)
         candidatos_text = "\n".join(f"- {t}" for t in all_theses) if all_theses else ""
 
-        safe_update_managed_blocks(lit_path, {
+        imagens_text = _build_lit_images_block(db, source_id)
+
+        blocks = {
             "auto-resumo": resumo_text,
             "auto-conceitos": conceitos_text,
             "auto-candidatos": candidatos_text,
-        })
+        }
+        if imagens_text:
+            blocks["auto-imagens"] = imagens_text
+        safe_update_managed_blocks(lit_path, blocks)
+        # Retencao: snapshot integral da nota LIT no SQLite (o corpo da LIT e gerado
+        # incrementalmente e nao existiria em lugar nenhum se o vault fosse perdido).
+        try:
+            db.update_source_texts(source_id, lit_body=lit_path.read_text(encoding="utf-8"))
+        except OSError as e:
+            logger.warning("Nao foi possivel ler LIT para snapshot (%s): %s", source_id, e)
         logger.info(
             "LIT agregada para %s: %d resumos, %d conceitos, %d candidatos",
             source_id, len(summaries), len(all_concepts), len(all_theses),

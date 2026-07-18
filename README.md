@@ -39,11 +39,13 @@ zettel_app/
 │   ├── state.py             # SQLite — estado incremental
 │   ├── vault.py             # I/O do vault Obsidian (frontmatter, blocos gerenciados)
 │   ├── index.py             # ChromaDB — índice vetorial
-│   ├── harvester.py         # Fase 1: ingestão e chunking
+│   ├── harvester.py         # Fase 1: ingestão e chunking estrutural (+ rechunk)
 │   ├── extractor.py         # Fase 2: extração de conceitos via LLM
 │   ├── connector.py         # Fase 3: geração de notas permanentes
 │   ├── gardener.py          # Fase 4: clusterização e MOCs
-│   └── sync.py              # Sincronização de notas manuais
+│   ├── assets.py            # Extração e descrição multimodal de imagens
+│   ├── rebuild.py           # Reconstrução do Chroma (reindex) e do vault (rebuild) a partir do SQLite
+│   └── sync.py              # Sincronização de notas manuais (SRC/LIT/ZTL/MOC)
 ├── config/
 │   └── config.yaml          # Configuração principal
 ├── prompts/                     # Templates de prompts para o LLM
@@ -54,7 +56,8 @@ zettel_app/
 │   ├── moc_generation.md        # Geracao de MOCs (c/ dominio e topicos)
 │   ├── moc_incremental.md       # Classificacao incremental de notas em MOC existente
 │   ├── moc_topics_taxonomy.md   # Taxonomia de topicos para MOCs (24 categorias)
-│   └── ptbr_guard.md            # Guardrail de idioma PT-BR
+│   ├── ptbr_guard.md            # Guardrail de idioma PT-BR
+│   └── image_description.md     # Descricao multimodal de imagens (PT-BR)
 ├── data/
 │   ├── inbox/               # Arquivos para processar (drop zone)
 │   ├── processed/           # Arquivos já processados
@@ -67,7 +70,7 @@ zettel_app/
 │   ├── 20_Literature/       # Notas de literatura (LIT)
 │   ├── 30_Permanent/        # Notas permanentes (ZTL)
 │   ├── 40_MOCs/             # Mapas de Conteúdo
-│   └── 90_Assets/
+│   └── 90_Assets/           # Imagens extraídas de PDFs/Markdown (nome por hash)
 ├── tests/                   # Testes unitários
 ├── requirements.txt
 └── README.md
@@ -163,11 +166,22 @@ llm:
 embedding:
   provider: openai
   model: text-embedding-3-small
+  allow_fallback: false      # false = erro se faltar API key (evita vetores de 384 dims silenciosos)
 
 # Chunking
 chunking:
-  chunk_size: 1000           # tokens por chunk
+  chunk_size: 1000           # caracteres por chunk (nao tokens)
   chunk_overlap: 200         # sobreposicao
+  min_section_chars: 200     # secoes (H3+) menores sao fundidas com a seguinte
+
+# Imagens (extracao + descricao multimodal)
+images:
+  enabled: true              # extrai imagens de PDF (Docling) e Markdown e as descreve
+  scale: 2.0                 # images_scale do Docling
+  min_width: 64              # descarta imagens menores (icones/logos)
+  min_height: 64
+  context_chars: 600         # caracteres ao redor da imagem usados como contexto
+  model: ""                  # vazio = usa llm.model (precisa ser multimodal, ex. gpt-4o-mini)
 
 # Linkagem
 linking:
@@ -259,13 +273,30 @@ python -m zettel connect
 # Clusterizar notas e gerar MOCs
 python -m zettel garden
 
-# Sincronizar notas manuais do vault com o índice
+# Sincronizar notas manuais do vault com o índice (SRC, LIT, ZTL e MOCs)
 python -m zettel sync-manual
 
-# Ver estatísticas do pipeline
+# Re-chunkar fontes com a config atual (a partir do texto ja extraido, sem reprocessar o arquivo).
+# Tambem completa harvest interrompido e re-resolve o chapter_id das imagens.
+python -m zettel rechunk --all
+python -m zettel rechunk --source-id @AutorAnoTitulo
+
+# Reconstruir o ChromaDB a partir do SQLite (sem chamadas de LLM)
+python -m zettel reindex
+python -m zettel reindex --collection chunks --force
+
+# Reconstruir o vault (.md) e/ou o Chroma a partir do SQLite, sem reprocessar LLM
+python -m zettel rebuild --what vault          # recria os .md (nunca sobrescreve notas manuais)
+python -m zettel rebuild --what all --dry-run  # simula vault + chroma
+
+# Reprocessar itens com falha
+python -m zettel retry-failed                  # chunks com falha -> pending
+python -m zettel retry-failed --assets         # imagens com falha de descricao -> pending
+
+# Ver estatisticas do pipeline (alerta se houver chunking incompleto)
 python -m zettel status
 
-# Verificar configuração e dependências
+# Verificar configuracao, dependencias e cobertura de capitulos vs. texto extraido
 python -m zettel doctor
 ```
 
@@ -297,16 +328,20 @@ python -m zettel run-all --dry-run
 3. Extrai texto usando **Docling** (PDF) ou parser nativo (Markdown)
 4. Gera **citekey** determinístico: `@SobrenomeAnoTituloSlug`
 5. Cria notas **SRC** (bibliográfica) em `10_Sources/` e **LIT** (literatura-mestre) em `20_Literature/`
-6. Divide o texto em **capítulos** (por headings) e depois em **chunks semânticos** (RecursiveCharacterTextSplitter)
-7. Indexa chunks no ChromaDB e registra no SQLite
+6. Divide o texto em **capítulos** (headings H1/H2) e depois em **seções estruturais** (H3-H6) com um `section_path` hierárquico ("Capítulo > Subseção > Subsubseção"); seções menores que `min_section_chars` são fundidas, e seções grandes ainda passam pelo RecursiveCharacterTextSplitter
+7. Indexa chunks no ChromaDB e registra no SQLite (com o texto extraído completo persistido, viabilizando `rechunk`/`rebuild` sem reprocessar o arquivo)
+8. Se `images.enabled`, extrai **imagens** do PDF (Docling) e do Markdown (referências locais), salva em `90_Assets/` com nome por hash de conteúdo, reescreve as referências no texto e registra os assets no SQLite (com `chapter_id` resolvido pelo path no texto do capítulo)
+9. **Cobertura de capítulos**: ao final, valida se todos os capítulos H1/H2 do texto extraído foram persistidos. Se um harvest anterior ficou pela metade (ex.: interrompido), o próximo `harvest` (mesmo com arquivo inalterado) ou um `rechunk` **completa** os capítulos faltantes e re-resolve o `chapter_id` das imagens. O `doctor`/`status` alertam quando a cobertura está incompleta.
 
 ### Fase 2 — Extract (Extracao)
 
-1. Para cada chunk pendente, chama o LLM com o **Prompt 1** (literature_note.md)
+0. Se houver imagens pendentes, descreve cada uma com um **LLM multimodal** (usando o texto ao redor como contexto), com cache determinístico; as descrições alimentam o Prompt 1 e o bloco `auto-imagens` da nota LIT
+1. Para cada chunk pendente, chama o LLM com o **Prompt 1** (literature_note.md), incluindo `{images_context}` (descrições das imagens do capítulo)
 2. O LLM retorna:
    - Resumo do chunk
    - Conceitos-chave
-   - Lista de **candidatos atomicos** a notas permanentes (com tese, definicao, ancora, localizador, **relevance_score**)
+   - Lista de **candidatos atomicos** a notas permanentes (com tese, definicao, ancora, localizador, **relevance_score**, **relevant_image_ids**)
+   - Pode gerar candidatos a partir da **descricao de uma figura** quando o texto do chunk for fino mas o diagrama trouxer o conceito
 3. Valida a saida com Pydantic; se falhar, tenta retry
 4. Anexa resultados a nota **LIT** (via blocos gerenciados)
 5. **Filtragem de qualidade** (duas camadas):
@@ -316,25 +351,27 @@ python -m zettel run-all --dry-run
      - Tese com minimo de palavras (padrao: 5)
      - Definicao com minimo de palavras (padrao: 10)
      - Presenca de citacao-ancora (configuravel)
-6. Executa **deduplicacao semantica**: compara candidatos aprovados com notas existentes via ChromaDB
-7. O LLM decide: `create_new` | `ignore` | `refine_existing` | `merge`
+6. Se `relevant_image_ids` vier vazio, **fallback deterministico**: anexa assets cujo path `90_Assets/...` aparece no texto do chunk
+7. Executa **deduplicacao semantica**: compara candidatos aprovados com notas existentes via ChromaDB
+8. O LLM decide: `create_new` | `ignore` | `refine_existing` | `merge`
+9. Persiste cada candidato completo no SQLite (`concepts.candidate_json` + `status`), de modo que o `connect` possa rodar a partir do banco mesmo sem o `data/cache/candidates.json`
 
 ### Fase 3 — Connect (Conexão)
 
 1. Para cada candidato aprovado, busca **top-k notas similares** (RAG) — apenas para conexões
 2. Chama o LLM com o **Prompt 2** (permanent_note.md):
-   - Conceito + contexto RAG → nota permanente completa
+   - Conceito + contexto RAG + opcionalmente `{images_context}` das figuras do candidato → nota permanente completa
 3. Valida idioma PT-BR (guardrail automático)
-4. Cria arquivo **ZTL** em `30_Permanent/` com:
-   - Frontmatter YAML (type, note_id, source_id, tags, etc.)
-   - Corpo: Tese → Definição → Intuição → Exemplo → Limites → Fonte → Conexões
+4. Resolve imagens do candidato (`relevant_image_ids`, com o mesmo fallback por path no chunk se a lista estiver vazia) e cria arquivo **ZTL** em `30_Permanent/` com:
+   - Frontmatter YAML (type, note_id, source_id, tags, origin, etc.)
+   - Corpo: Tese → Definição → Intuição → Exemplo → Limites → **Figuras** (embeds Obsidian + legendas) → Fonte → Conexões
 5. Atualiza **backlinks** nas notas relacionadas via blocos gerenciados:
    ```
    <!-- zettel:auto-backlinks:start -->
    - [[ZTL - ID - titulo]]
    <!-- zettel:auto-backlinks:end -->
    ```
-6. Indexa no ChromaDB e registra no SQLite
+6. Indexa no ChromaDB e registra no SQLite, **persistindo o corpo e o frontmatter completos** (`notes.body`/`frontmatter_json`) — o que permite recriar o `.md` sem reprocessar o LLM. O re-embedding é pulado quando o conteúdo semântico e o modelo não mudaram (`embedding_input_hash`). A chamada do Prompt 2 também é cacheada.
 
 ### Fase 4 — Garden (Jardim)
 
@@ -369,6 +406,7 @@ title: "Thinking, Fast and Slow"
 author: ["Daniel Kahneman"]
 year: 2011
 origin_type: pdf
+origin: pipeline
 checksum: "a1b2c3..."
 ---
 
@@ -388,6 +426,7 @@ checksum: "a1b2c3..."
 type: literature
 source_id: "@Kahneman2011ThinkingFast"
 language: pt-BR
+origin: pipeline
 ---
 
 # Thinking, Fast and Slow
@@ -397,6 +436,13 @@ language: pt-BR
 
 ## Conceitos-chave
 ...
+
+## Imagens
+<!-- zettel:auto-imagens:start -->
+![[90_Assets/img-a1b2c3d4e5f6.png]]
+
+Gráfico de barras comparando o tempo de resposta do Sistema 1 e do Sistema 2.
+<!-- zettel:auto-imagens:end -->
 
 <!-- zettel:auto-chunks-log:start -->
 ### Chunk: @Kahneman2011::ch001::abc12345
@@ -417,6 +463,7 @@ source_id: "@Kahneman2011ThinkingFast"
 literature_ref: "[[LIT - @Kahneman2011ThinkingFast - thinking-fast-and-slow]]"
 source_locator: "p.20-25 / Capítulo 1"
 tags: [heurísticas, cognição, sistema-1]
+origin: pipeline
 ---
 
 > **Tese**: Heurísticas cognitivas são atalhos mentais que o Sistema 1 usa para produzir julgamentos rápidos com mínimo esforço consciente.
@@ -432,6 +479,12 @@ Imagine que você vê uma expressão facial irritada...
 ## Limites
 
 Heurísticas são adaptativas em contextos familiares, mas falham sistematicamente...
+
+## Figuras
+
+![[90_Assets/img-a1b2c3d4e5f6.png]]
+
+Diagrama do Sistema 1 versus Sistema 2 (quando o candidato marca a imagem como essencial).
 
 ## Fonte
 
@@ -457,8 +510,9 @@ O sistema usa múltiplas camadas de proteção contra drift (mudanças indesejad
 | Extração | `extraction_checksum` | Separar mudança binária de textual |
 | Capítulo | `chapter_checksum` | Reprocessar só capítulos alterados |
 | Chunk | `chunk_checksum` | Reprocessar só chunks alterados |
-| LLM | `llm_call_checksum` | Cache de chamadas ao LLM |
-| Nota | `note_semantic_checksum` | Re-embed apenas quando conteúdo muda |
+| LLM | `llm_call_checksum` | Cache de chamadas ao LLM (Prompt 1 e Prompt 2) |
+| Nota | `note_semantic_checksum` | Detectar mudança de conteúdo da nota |
+| Embedding | `embedding_input_hash` | Pular re-embed quando conteúdo + modelo não mudam |
 
 ### IDs estáveis
 
@@ -476,6 +530,24 @@ Atualizações automáticas ficam dentro de marcadores HTML:
 <!-- zettel:auto-backlinks:end -->
 ```
 Tudo fora desses blocos é preservado — edições manuais nunca são sobrescritas.
+
+## Retenção e reconstrução
+
+O **SQLite é a fonte de verdade durável**: além do estado do pipeline, ele persiste tudo que é caro de reproduzir — o texto extraído completo de cada fonte, o corpo integral das notas LIT/ZTL/MOC (com frontmatter), os candidatos completos (`candidate_json`) e as descrições de imagens. Os **embeddings não** são guardados no SQLite (são baratos de recomputar via API).
+
+Como consequência:
+
+- **`zettel reindex`** reconstrói o ChromaDB inteiro a partir do SQLite, sem nenhuma chamada de LLM. O índice vetorial passa a ser um cache descartável.
+- **`zettel rebuild --what vault`** recria os arquivos `.md` do vault a partir dos corpos persistidos, também sem LLM. Nunca sobrescreve um arquivo existente sem `--force`, e nunca sobrescreve uma nota `origin: manual` (mesmo com `--force`).
+- **`zettel rechunk`** re-aplica a configuração de chunking atual a partir do texto extraído persistido, sem reprocessar o arquivo original; completa capítulos faltantes após harvest interrompido e re-vincula imagens aos capítulos corretos.
+
+## Notas manuais e proveniência
+
+Notas criadas à mão no Obsidian são adotadas pelo pipeline com **`zettel sync-manual`**, que varre as quatro pastas (`10_Sources`, `20_Literature`, `30_Permanent`, `40_MOCs`):
+
+- Notas sem `note_id`/`moc_id`/`source_id` recebem um id/citekey gerado, injetado no frontmatter.
+- Cada nota ganha uma flag de proveniência `origin: manual | pipeline` (no frontmatter e no banco), permitindo distinguir o que foi escrito à mão do que foi gerado.
+- SRC e LIT manuais deixam de ficar órfãos: são registrados no SQLite (e SRC é indexado no Chroma); uma LIT sem fonte resolvível cria uma fonte manual mínima para se vincular.
 
 ## Testes
 
@@ -505,6 +577,17 @@ pip install pymupdf
 - Verifique os logs para erros de LLM
 - Execute `python -m zettel doctor` para validar dependencias
 - Verifique se a API key esta configurada
+
+### Fonte com pouco conteudo / conceitos "sumiram" apos harvest
+- Harvest interrompido no meio pode deixar so os primeiros capitulos no SQLite, enquanto o texto completo ja esta em `extracted_text`
+- Sintoma: `doctor`/`status` reportam **chunking incompleto**; imagens apontam para `chapter_id` sem chunks
+- Recuperacao: `python -m zettel rechunk --source-id @Citekey` e depois `extract` + `connect`
+- O proximo `harvest` do mesmo arquivo tambem tenta completar automaticamente
+
+### ZTL sem secao Figuras
+- Figuras dependem de `relevant_image_ids` no candidato (Prompt 1) ou do **fallback** (path `90_Assets/...` presente no texto do chunk)
+- Se a imagem esta em outro capitulo/chunk, o fallback nao a anexa — o LLM precisa marca-la via `{images_context}` do mesmo capitulo
+- Confira o bloco `## Imagens` da LIT e se o asset tem `status: described`
 
 ### Poucos candidatos aprovados apos extract
 - O sistema agora filtra candidatos por qualidade. Verifique os logs por mensagens de "candidatos rejeitados"
@@ -536,6 +619,7 @@ Os prompts em `prompts/` sao templates Markdown com placeholders `{variavel}`. V
 - **Profundidade**: mais ou menos detalhes por nota
 - **Tags**: criterios para sugestao de tags
 - **Seletividade**: regras de relevancia e filtragem em `literature_note.md`
+- **Imagens → candidatos/ZTL**: criterios de `relevant_image_ids` e extracao a partir de diagramas em `literature_note.md`; tom da descricao em `image_description.md`; uso de figuras no Prompt 2 em `permanent_note.md`
 - **Taxonomia de MOCs**: edite `moc_topics_taxonomy.md` para ajustar as categorias e subtopicos disponiveis para organizacao dos MOCs
 - **Dominio e topicos**: ajuste `{domain}` e `{allowed_topics_section}` em `moc_generation.md` (preenchidos automaticamente via config)
 - **Classificacao incremental**: edite `moc_incremental.md` para ajustar como novas notas sao classificadas em MOCs existentes

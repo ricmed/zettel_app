@@ -27,8 +27,9 @@ embedding:
 
 # ── Chunking ────────────────────────────────────────────────────────────
 chunking:
-  chunk_size: 1000           # tokens aproximados
+  chunk_size: 1000           # caracteres (nao tokens)
   chunk_overlap: 200
+  min_section_chars: 200     # secoes (H3+) menores que isso sao fundidas com a seguinte
 
 # ── Linkagem / Deduplicação ─────────────────────────────────────────────
 linking:
@@ -51,6 +52,15 @@ extraction:
   min_thesis_words: 5
   require_anchor_quote: true
   min_definition_words: 10
+
+# ── Imagens (extracao + descricao multimodal) ─────────────────────────
+images:
+  enabled: true              # extrai imagens de PDF (Docling) e Markdown e as descreve
+  scale: 2.0                 # images_scale do Docling
+  min_width: 64              # descarta imagens menores que isso (icones/logos)
+  min_height: 64
+  context_chars: 600         # caracteres ao redor da imagem usados como contexto
+  model: ""                  # vazio = usa llm.model (precisa ser multimodal, ex. gpt-4o-mini)
 
 # ── Gardener (MOCs) ────────────────────────────────────────────────────
 gardener:

@@ -23,10 +23,13 @@ class VectorIndex:
 
     def __init__(self, chroma_path: Path, embedding_provider: str = "openai",
                  embedding_model: str = "text-embedding-3-small",
-                 device: str = "auto"):
+                 device: str = "auto", allow_fallback: bool = False):
         self.chroma_path = chroma_path
         self.chroma_path.mkdir(parents=True, exist_ok=True)
         self.device = device
+        self.embedding_provider = embedding_provider
+        self.embedding_model = embedding_model
+        self.allow_fallback = allow_fallback
 
         self.client = chromadb.PersistentClient(
             path=str(chroma_path),
@@ -37,12 +40,23 @@ class VectorIndex:
         self._ensure_collections()
 
     def _build_embedding_fn(self, provider: str, model: str) -> Any:
+        """Build the embedding function, failing fast unless allow_fallback is set.
+
+        Silent fallback to ChromaDB's default (384-dim MiniLM) would mix incompatible
+        vector spaces, so by default a missing key / unknown provider raises instead.
+        """
         try:
             if provider == "openai":
                 import os
                 from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
                 # ChromaDB procura CHROMA_OPENAI_API_KEY; fallback para OPENAI_API_KEY
                 api_key = os.environ.get("CHROMA_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
+                if not api_key and not self.allow_fallback:
+                    raise RuntimeError(
+                        "Sem API key para embeddings OpenAI (defina OPENAI_API_KEY). "
+                        "Para usar o embedding local padrao do ChromaDB, ajuste "
+                        "embedding.allow_fallback: true no config.yaml."
+                    )
                 return OpenAIEmbeddingFunction(model_name=model, api_key=api_key)
             elif provider == "sentence-transformers":
                 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
@@ -53,30 +67,48 @@ class VectorIndex:
                     model_name=model, device=device,
                 )
             else:
+                if not self.allow_fallback:
+                    raise ValueError(
+                        f"Embedding provider desconhecido: '{provider}'. "
+                        f"Use 'openai' ou 'sentence-transformers', ou ajuste "
+                        f"embedding.allow_fallback: true para usar o default do ChromaDB."
+                    )
                 logger.warning("Embedding provider '%s' desconhecido, usando default do ChromaDB", provider)
                 return None
-        except (ValueError, ImportError) as e:
+        except ImportError as e:
+            if not self.allow_fallback:
+                raise
             logger.warning("Embedding function indisponivel (%s). Coleções usarão default do ChromaDB.", e)
             return None
 
+    def _collection_metadata(self) -> dict[str, Any]:
+        """Provider marker stored on each collection to detect embedding-space drift."""
+        return {
+            "embedding_provider": self.embedding_provider,
+            "embedding_model": self.embedding_model,
+        }
+
     def _get_or_create(self, name: str, **kwargs: Any) -> Any:
-        """Get or create a collection, handling embedding function conflicts."""
+        """Get or create a collection.
+
+        Refuses to silently drop data on an embedding-function conflict: the Chroma
+        store is a rebuildable cache, so the fix is `zettel reindex --force`, not an
+        automatic delete.
+        """
         try:
             return self.client.get_or_create_collection(name, **kwargs)
         except ValueError as e:
             if "Embedding function conflict" in str(e):
-                logger.warning(
-                    "Conflito de embedding na colecao '%s'. "
-                    "Recriando colecao (dados anteriores serao perdidos). "
-                    "Para evitar isso, apague data/chroma/ antes de trocar o provider de embedding.",
-                    name,
-                )
-                self.client.delete_collection(name)
-                return self.client.get_or_create_collection(name, **kwargs)
+                raise RuntimeError(
+                    f"Conflito de embedding na colecao '{name}': o provider/modelo atual "
+                    f"difere do que gerou os vetores existentes. O ChromaDB e reconstruivel "
+                    f"a partir do SQLite -- rode 'zettel reindex --force' para regerar os "
+                    f"vetores com o embedding atual."
+                ) from e
             raise
 
     def _ensure_collections(self) -> None:
-        kwargs: dict[str, Any] = {}
+        kwargs: dict[str, Any] = {"metadata": self._collection_metadata()}
         if self.embedding_fn:
             kwargs["embedding_function"] = self.embedding_fn
 
@@ -85,6 +117,25 @@ class VectorIndex:
         self.permanent = self._get_or_create(COL_PERMANENT, **kwargs)
         self.mocs_col = self._get_or_create(COL_MOCS, **kwargs)
         logger.debug("Coleções ChromaDB prontas")
+
+    def reset_collection(self, name: str) -> Any:
+        """Delete and recreate a collection (used by `reindex --force`)."""
+        try:
+            self.client.delete_collection(name)
+        except Exception:
+            pass
+        kwargs: dict[str, Any] = {"metadata": self._collection_metadata()}
+        if self.embedding_fn:
+            kwargs["embedding_function"] = self.embedding_fn
+        col = self.client.get_or_create_collection(name, **kwargs)
+        # Refresh the cached handle so subsequent upserts hit the new collection.
+        attr = {
+            COL_SOURCES: "sources", COL_CHUNKS: "chunks",
+            COL_PERMANENT: "permanent", COL_MOCS: "mocs_col",
+        }.get(name)
+        if attr:
+            setattr(self, attr, col)
+        return col
 
     # ── Sources ────────────────────────────────────────────────────────
 
@@ -99,6 +150,34 @@ class VectorIndex:
         safe_meta = _sanitize_metadata(metadata)
         self.chunks.upsert(ids=[chunk_id], documents=[text], metadatas=[safe_meta])
         logger.debug("Index: upsert chunk %s", chunk_id)
+
+    def delete_chunks(self, chunk_ids: list[str]) -> None:
+        """Remove chunks from the index (e.g. orphans after a re-chunk)."""
+        if chunk_ids:
+            self.chunks.delete(ids=chunk_ids)
+            logger.debug("Index: %d chunks removidos", len(chunk_ids))
+
+    def existing_ids(self, collection_name: str, ids: list[str]) -> set[str]:
+        """Return the subset of `ids` already present in the given collection.
+
+        Used to skip re-embedding chunks/notes whose content-addressed id is
+        already indexed (identical content => identical id => nothing to do).
+        ChromaDB rejects duplicate ids in a single get(), so callers may pass
+        a list with repeats (e.g. two chunks hashing to the same content id).
+        """
+        if not ids:
+            return set()
+        collection = {
+            COL_SOURCES: self.sources,
+            COL_CHUNKS: self.chunks,
+            COL_PERMANENT: self.permanent,
+            COL_MOCS: self.mocs_col,
+        }.get(collection_name)
+        if collection is None:
+            raise ValueError(f"Colecao desconhecida: {collection_name}")
+        unique_ids = list(dict.fromkeys(ids))
+        got = collection.get(ids=unique_ids)
+        return set(got.get("ids") or [])
 
     # ── Permanent Notes ────────────────────────────────────────────────
 

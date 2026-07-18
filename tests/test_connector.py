@@ -1,7 +1,13 @@
 """Tests for connector: typed connections, inverse relations, note body rendering."""
 
-from zettel.connector import _inverse_relation, _resolve_connections
+from zettel.connector import (
+    _fallback_image_ids,
+    _inverse_relation,
+    _resolve_connections,
+    _resolve_images,
+)
 from zettel.schemas import RelationshipResult
+from zettel.state import StateDB
 from zettel.vault import build_permanent_note_body
 
 
@@ -110,3 +116,48 @@ def test_build_permanent_note_body_without_connections():
         source_locator="",
     )
     assert "## Conexões" not in body
+
+
+def test_build_permanent_note_body_with_figures():
+    body = build_permanent_note_body(
+        thesis="Tese",
+        definition="Def",
+        intuition="",
+        example="",
+        limits="",
+        connections=[],
+        literature_ref="[[LIT - @x]]",
+        source_locator="p.1",
+        images=[{"path": "90_Assets/img-abc.png", "description": "Diagrama RAG"}],
+    )
+    assert "## Figuras" in body
+    assert "![[90_Assets/img-abc.png]]" in body
+    assert "Diagrama RAG" in body
+
+
+def test_fallback_image_ids_from_chunk_text(tmp_path):
+    db = StateDB(tmp_path / "s.db")
+    try:
+        db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
+        db.upsert_chapter("@S::ch000", "@S", "Cap", "ck", "Cap")
+        chunk_text = "Texto com ![Imagem](90_Assets/img-fig.png) no meio."
+        db.upsert_chunk("c1", "@S", "@S::ch000", chunk_text, "h1")
+        db.upsert_asset("@S::img::fig", "@S", "90_Assets/img-fig.png", "ckfig")
+        ids = _fallback_image_ids(db, {"chunk_id": "c1", "source_id": "@S"})
+        assert ids == ["@S::img::fig"]
+        resolved = _resolve_images(db, ids)
+        assert resolved[0]["path"] == "90_Assets/img-fig.png"
+    finally:
+        db.close()
+
+
+def test_fallback_image_ids_empty_when_no_paths(tmp_path):
+    db = StateDB(tmp_path / "s.db")
+    try:
+        db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
+        db.upsert_chapter("@S::ch000", "@S", "Cap", "ck", "Cap")
+        db.upsert_chunk("c1", "@S", "@S::ch000", "sem imagens", "h1")
+        db.upsert_asset("@S::img::fig", "@S", "90_Assets/img-fig.png", "ckfig")
+        assert _fallback_image_ids(db, {"chunk_id": "c1", "source_id": "@S"}) == []
+    finally:
+        db.close()

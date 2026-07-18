@@ -26,11 +26,16 @@ class LLMConfig(BaseModel):
 class EmbeddingConfig(BaseModel):
     provider: str = "openai"
     model: str = "text-embedding-3-small"
+    # Se False (padrao), a ausencia de API key / provider invalido levanta erro em vez
+    # de cair silenciosamente no embedding default do ChromaDB (384 dims), o que
+    # misturaria espacos vetoriais incompativeis.
+    allow_fallback: bool = False
 
 
 class ChunkingConfig(BaseModel):
-    chunk_size: int = 1000
+    chunk_size: int = 1000            # caracteres (nao tokens)
     chunk_overlap: int = 200
+    min_section_chars: int = 200      # secoes menores sao fundidas com a seguinte
 
 
 class LinkingConfig(BaseModel):
@@ -56,6 +61,17 @@ class ExtractionConfig(BaseModel):
     min_definition_words: int = 10    # palavras minimas na definicao
 
 
+class ImagesConfig(BaseModel):
+    """Image extraction + multimodal description (Fase 3)."""
+
+    enabled: bool = False             # extrai/descreve imagens de PDF (Docling) e Markdown
+    scale: float = 2.0               # images_scale do Docling
+    min_width: int = 64              # descarta imagens menores (icones/logos)
+    min_height: int = 64
+    context_chars: int = 600         # caracteres ao redor da imagem usados como contexto
+    model: str = ""                  # vazio = usa llm.model (deve ser multimodal)
+
+
 class GardenerConfig(BaseModel):
     min_cluster_size: int = 5
     min_notes_for_moc: int = 3
@@ -78,6 +94,7 @@ class AppConfig(BaseModel):
     linking: LinkingConfig = Field(default_factory=LinkingConfig)
     harvest: HarvestConfig = Field(default_factory=HarvestConfig)
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
+    images: ImagesConfig = Field(default_factory=ImagesConfig)
     gardener: GardenerConfig = Field(default_factory=GardenerConfig)
 
     language: str = "pt-BR"

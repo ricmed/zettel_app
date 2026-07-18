@@ -195,11 +195,28 @@ Fonte: {source_id} — {source_title}
 Capítulo/Seção: {chapter_title}
 Localizador: {locator}
 
+{images_context}
+
 Texto do chunk:
 ---
 {chunk_text}
 ---
 ```
+
+**Imagens**: quando a lista de imagens acima estiver presente:
+
+1. Se uma figura for **essencial** para entender um candidato (diagrama do
+   mecanismo, pipeline, modelo de dados), inclua o `asset_id` correspondente em
+   `relevant_image_ids` daquele candidato. Nao inclua imagens meramente decorativas
+   nem capturas de codigo sem valor conceitual.
+2. Se o texto do chunk for fino (listing, codigo, transicao) mas a **descricao da
+   figura** trouxer um conceito atomizavel (ex.: step-back prompting, parent
+   document retriever), **gere o candidato a partir da descricao**. Use trecho da
+   descricao (ou legenda textual proxima) como `anchor_quote` e indique o
+   localizador do trecho/figura.
+3. Chunks que seriam rejeitados como "fragmented" (so codigo) **nao devem ser
+   rejeitados** se houver figura conceitual no `images_context` do mesmo capitulo
+   — extraia o conceito da figura.
 
 ---
 
@@ -226,7 +243,8 @@ Texto do chunk:
       "anchor_quote": "Citação literal de 10-25 palavras extraída do texto-fonte",
       "source_locator": "p.XX / seção Y.Z / cap. N",
       "tags": ["tag1", "tag2", "tag3"],
-      "relevance_score": 4
+      "relevance_score": 4,
+      "relevant_image_ids": []
     }
   ],
   "total_candidates": 2
@@ -290,82 +308,87 @@ Category: trivial
 
 ## EXEMPLOS DE CANDIDATOS ACEITOS
 
-**ACEITO - Relevância 5:**
+**ACEITO - Relevância 5 (com figura essencial):**
 ```json
 {
-  "chunk_status": "acepted",
+  "chunk_status": "accepted",
   "rejection_reason": "",
   "rejection_category": "",
-  "summary": "Resumo conciso do chunk em 2-4 frases (PT-BR), focando nos conceitos principais",
-  "key_concepts": ["conceito1", "conceito2", "conceito3"],
+  "summary": "O trecho e o diagrama descrevem o fluxo RAG com embedding e indice vetorial.",
+  "key_concepts": ["rag", "embedding", "indice_vetorial"],
   "candidates": [
     {
       "chunk_status": "accepted",
       "rejection_reason": "",
       "rejection_category": "",
-      "thesis": "Frase declarativa específica que expressa a ideia principal",
-      "definition": "Explicação autônoma, detalhada e compreensível (3-5 frases substantivas)",
-      "intuition": "Analogia, metáfora ou exemplo cotidiano (opcional se não houver)",
-      "limits": "Ressalvas, exceções ou limites de aplicação (opcional se não houver)",
-      "anchor_quote": "Citação literal de 10-25 palavras extraída do texto-fonte",
-      "source_locator": "p.XX / seção Y.Z / cap. N",
-      "tags": ["tag1", "tag2", "tag3"],
-      "relevance_score": 4
+      "thesis": "Em RAG com busca por similaridade, a pergunta e os documentos passam pelo mesmo modelo de embedding antes da recuperacao no indice vetorial.",
+      "definition": "O pipeline separa a pergunta do usuario e o corpus em representacoes vetoriais comparaveis. O modelo de embedding projeta ambos no mesmo espaco; o banco com indice vetorial devolve os trechos mais proximos para o gerador.",
+      "intuition": "Como um catalogo que indexa livros e pedidos de emprestimo com o mesmo codigo de prateleira.",
+      "limits": "Falha se o modelo de embedding mudar entre indexacao e consulta.",
+      "anchor_quote": "question and documents are processed by an embedding model",
+      "source_locator": "secao 2.2",
+      "tags": ["rag", "embedding", "indice_vetorial"],
+      "relevance_score": 5,
+      "relevant_image_ids": ["@Fonte::img::5c97880b"]
     }
   ],
+  "total_candidates": 1
 }
 ```
-
 
 **ACEITO - Relevância 4:**
 ```json
 {
-  "chunk_status": "acepted",
+  "chunk_status": "accepted",
   "rejection_reason": "",
   "rejection_category": "",
-  "summary": "Resumo conciso do chunk em 2-4 frases (PT-BR), focando nos conceitos principais",
-  "key_concepts": ["conceito1", "conceito2", "conceito3"],
+  "summary": "Descricao do mecanismo de dropout como regularizacao.",
+  "key_concepts": ["dropout", "regularizacao", "ensemble"],
   "candidates": [
     {
       "chunk_status": "accepted",
       "rejection_reason": "",
       "rejection_category": "",
-      "thesis": "Frase declarativa específica que expressa a ideia principal",
-      "definition": "Explicação autônoma, detalhada e compreensível (3-5 frases substantivas)",
-      "intuition": "Analogia, metáfora ou exemplo cotidiano (opcional se não houver)",
-      "limits": "Ressalvas, exceções ou limites de aplicação (opcional se não houver)",
-      "anchor_quote": "Citação literal de 10-25 palavras extraída do texto-fonte",
-      "source_locator": "p.XX / seção Y.Z / cap. N",
-      "tags": ["tag1", "tag2", "tag3"],
-      "relevance_score": 4
+      "thesis": "Dropout funciona como ensemble implicito ao treinar subconjuntos aleatorios de pesos a cada passo.",
+      "definition": "Durante o treino, unidades sao desligadas aleatoriamente, forcando caminhos redundantes. Na inferencia, todas as unidades permanecem ativas com pesos reescalados, aproximando a media do ensemble.",
+      "intuition": "Como treinar varios times incompletos e na final juntar todos os jogadores.",
+      "limits": "Taxas muito altas podem impedir convergencia; menos util em redes ja pequenas.",
+      "anchor_quote": "Dropout works as an implicit ensemble of subnetworks",
+      "source_locator": "cap. 7, p.12",
+      "tags": ["dropout", "regularizacao", "ensemble"],
+      "relevance_score": 4,
+      "relevant_image_ids": []
     }
   ],
+  "total_candidates": 1
 }
 ```
 
-**ACEITO - Relevância 3:**
+**ACEITO - Relevância 3 (conceito extraido da descricao de figura):**
 ```json
 {
-  "chunk_status": "acepted",
+  "chunk_status": "accepted",
   "rejection_reason": "",
   "rejection_category": "",
-  "summary": "Resumo conciso do chunk em 2-4 frases (PT-BR), focando nos conceitos principais",
-  "key_concepts": ["conceito1", "conceito2", "conceito3"],
+  "summary": "O diagrama ilustra step-back prompting: reescrever a pergunta antes da recuperacao.",
+  "key_concepts": ["step_back_prompting", "query_rewriting", "rag"],
   "candidates": [
     {
       "chunk_status": "accepted",
       "rejection_reason": "",
       "rejection_category": "",
-      "thesis": "Frase declarativa específica que expressa a ideia principal",
-      "definition": "Explicação autônoma, detalhada e compreensível (3-5 frases substantivas)",
-      "intuition": "Analogia, metáfora ou exemplo cotidiano (opcional se não houver)",
-      "limits": "Ressalvas, exceções ou limites de aplicação (opcional se não houver)",
-      "anchor_quote": "Citação literal de 10-25 palavras extraída do texto-fonte",
-      "source_locator": "p.XX / seção Y.Z / cap. N",
-      "tags": ["tag1", "tag2", "tag3"],
-      "relevance_score": 4
+      "thesis": "Step-back prompting reescreve a pergunta do usuario em uma versao mais abstrata antes da busca, melhorando a recuperacao de documentos relevantes.",
+      "definition": "Em vez de embutir a pergunta original, um LLM gera uma pergunta de 'passo atras' (mais generica). Essa consulta reescrita alimenta o modelo de embedding e o recuperador; a resposta final usa o contexto recuperado.",
+      "intuition": "Perguntar 'o que e gravidade?' em vez de 'por que a maca caiu daquela arvore?'.",
+      "limits": "Reescritas ruins podem afastar a busca do intento original.",
+      "anchor_quote": "step-back prompting para melhorar a precisao na recuperacao",
+      "source_locator": "secao 3.1 / figura",
+      "tags": ["step_back_prompting", "query_rewriting", "rag"],
+      "relevance_score": 3,
+      "relevant_image_ids": ["@Fonte::img::53d763dc"]
     }
   ],
+  "total_candidates": 1
 }
 ```
 

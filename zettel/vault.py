@@ -141,6 +141,7 @@ def build_source_note(
     origin_path: str,
     origin_type: str,
     checksum: str,
+    origin: str = "pipeline",
 ) -> tuple[dict[str, Any], str]:
     """Build frontmatter and body for a Source (SRC) note."""
     now = datetime.now().isoformat()
@@ -153,6 +154,7 @@ def build_source_note(
         "origin_path": origin_path,
         "origin_type": origin_type,
         "checksum": checksum,
+        "origin": origin,
         "created_at": now,
         "updated_at": now,
     }
@@ -169,6 +171,7 @@ def build_literature_note(
     source_id: str,
     citekey: str,
     title: str,
+    origin: str = "pipeline",
 ) -> tuple[dict[str, Any], str]:
     """Build frontmatter and body for a Literature (LIT) master note."""
     now = datetime.now().isoformat()
@@ -177,6 +180,7 @@ def build_literature_note(
         "source_id": source_id,
         "literature_id": source_id,
         "language": "pt-BR",
+        "origin": origin,
         "created_at": now,
         "updated_at": now,
     }
@@ -191,6 +195,9 @@ def build_literature_note(
     body += "## Potenciais Notas Permanentes\n\n"
     body += "<!-- zettel:auto-candidatos:start -->\n"
     body += "<!-- zettel:auto-candidatos:end -->\n\n"
+    body += "## Imagens\n\n"
+    body += "<!-- zettel:auto-imagens:start -->\n"
+    body += "<!-- zettel:auto-imagens:end -->\n\n"
     body += "## Log de chunks processados\n\n\n"
     return meta, body
 
@@ -204,8 +211,13 @@ def build_permanent_note_body(
     connections: list[dict] | None = None,
     literature_ref: str = "",
     source_locator: str = "",
+    images: list[dict] | None = None,
 ) -> str:
-    """Build the Markdown body for a Permanent (ZTL) note."""
+    """Build the Markdown body for a Permanent (ZTL) note.
+
+    `images` is a list of {"path": ..., "description": ...} for figures deemed
+    essential to the concept; rendered as a "## Figuras" section with embeds.
+    """
     parts: list[str] = []
     parts.append(f"> **Tese**: {thesis}\n")
     parts.append(f"## Definição\n\n{definition}\n")
@@ -215,6 +227,13 @@ def build_permanent_note_body(
         parts.append(f"## Exemplo\n\n{example}\n")
     if limits:
         parts.append(f"## Limites\n\n{limits}\n")
+    if images:
+        fig_lines: list[str] = []
+        for img in images:
+            embed = f"![[{img['path']}]]"
+            desc = img.get("description") or ""
+            fig_lines.append(f"{embed}\n\n{desc}\n" if desc else f"{embed}\n")
+        parts.append("## Figuras\n\n" + "\n".join(fig_lines))
     parts.append(f"## Fonte\n\n- Ref. literatura: {literature_ref}")
     if source_locator:
         parts.append(f"- Localizador: {source_locator}")
@@ -244,4 +263,6 @@ def _slug(text: str, max_len: int = 50) -> str:
 def note_filename(prefix: str, identifier: str, title: str) -> str:
     """Build a standardized filename: PREFIX - ID - slug.md"""
     slug = _slug(title)
+    if prefix == "SRC":
+        return f"{prefix} - {slug}.md"
     return f"{prefix} - {identifier} - {slug}.md"

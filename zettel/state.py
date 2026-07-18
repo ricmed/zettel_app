@@ -33,6 +33,9 @@ CREATE TABLE IF NOT EXISTS sources (
     extraction_checksum  TEXT,
     origin_path          TEXT NOT NULL,
     origin_type          TEXT NOT NULL,
+    extracted_text       TEXT,
+    lit_body             TEXT,
+    origin               TEXT NOT NULL DEFAULT 'pipeline',
     created_at           TEXT NOT NULL,
     updated_at           TEXT NOT NULL
 );
@@ -53,6 +56,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     text                      TEXT NOT NULL,
     chunk_checksum            TEXT NOT NULL,
     locator                   TEXT NOT NULL DEFAULT '',
+    section_path              TEXT NOT NULL DEFAULT '',
     status                    TEXT NOT NULL DEFAULT 'pending',
     llm_prompt1_hash          TEXT,
     llm_call_checksum_prompt1 TEXT,
@@ -61,12 +65,14 @@ CREATE TABLE IF NOT EXISTS chunks (
 );
 
 CREATE TABLE IF NOT EXISTS concepts (
-    concept_id  TEXT PRIMARY KEY,
-    source_id   TEXT NOT NULL,
-    chunk_id    TEXT NOT NULL,
-    anchor_hash TEXT NOT NULL DEFAULT '',
-    thesis_hash TEXT NOT NULL DEFAULT '',
-    note_id     TEXT,
+    concept_id     TEXT PRIMARY KEY,
+    source_id      TEXT NOT NULL,
+    chunk_id       TEXT NOT NULL,
+    anchor_hash    TEXT NOT NULL DEFAULT '',
+    thesis_hash    TEXT NOT NULL DEFAULT '',
+    note_id        TEXT,
+    candidate_json TEXT,
+    status         TEXT NOT NULL DEFAULT 'pending',
     FOREIGN KEY (source_id) REFERENCES sources(source_id),
     FOREIGN KEY (chunk_id) REFERENCES chunks(chunk_id)
 );
@@ -76,6 +82,9 @@ CREATE TABLE IF NOT EXISTS notes (
     source_id              TEXT,
     path                   TEXT,
     title                  TEXT NOT NULL DEFAULT '',
+    body                   TEXT,
+    frontmatter_json       TEXT,
+    origin                 TEXT NOT NULL DEFAULT 'pipeline',
     note_semantic_checksum TEXT,
     auto_checksum          TEXT,
     embedding_input_hash   TEXT,
@@ -88,10 +97,27 @@ CREATE TABLE IF NOT EXISTS mocs (
     moc_id              TEXT PRIMARY KEY,
     topic               TEXT NOT NULL DEFAULT '',
     path                TEXT,
+    body                TEXT,
+    frontmatter_json    TEXT,
+    origin              TEXT NOT NULL DEFAULT 'pipeline',
     cluster_signature   TEXT,
     embedding_input_hash TEXT,
     created_at          TEXT NOT NULL,
     updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS assets (
+    asset_id        TEXT PRIMARY KEY,
+    source_id       TEXT NOT NULL,
+    chapter_id      TEXT,
+    path            TEXT NOT NULL,
+    image_checksum  TEXT NOT NULL,
+    context_snippet TEXT NOT NULL DEFAULT '',
+    description     TEXT,
+    description_call_checksum TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    created_at      TEXT NOT NULL,
+    FOREIGN KEY (source_id) REFERENCES sources(source_id)
 );
 
 CREATE TABLE IF NOT EXISTS llm_cache (
@@ -120,13 +146,19 @@ CREATE TABLE IF NOT EXISTS runs (
     duplicate_content_count  INTEGER NOT NULL DEFAULT 0,
     duplicate_semantic_count INTEGER NOT NULL DEFAULT 0
 );
+"""
 
--- Indexes for frequently queried columns
+# Indexes are created after schema migration, since some reference columns added by
+# `_migrate_schema` (e.g. concepts.status) that don't exist on pre-migration databases.
+_INDEX_SQL = """
 CREATE INDEX IF NOT EXISTS idx_chunks_status    ON chunks(status);
 CREATE INDEX IF NOT EXISTS idx_chunks_source_id ON chunks(source_id);
 CREATE INDEX IF NOT EXISTS idx_concepts_note_id ON concepts(note_id);
+CREATE INDEX IF NOT EXISTS idx_concepts_status  ON concepts(status);
 CREATE INDEX IF NOT EXISTS idx_nc_source        ON note_connections(source_note_id);
 CREATE INDEX IF NOT EXISTS idx_nc_target        ON note_connections(target_note_id);
+CREATE INDEX IF NOT EXISTS idx_assets_source    ON assets(source_id);
+CREATE INDEX IF NOT EXISTS idx_assets_status    ON assets(status);
 """
 
 
@@ -146,6 +178,8 @@ class StateDB:
         self.conn.executescript(_SCHEMA_SQL)
         self.conn.commit()
         self._migrate_schema()
+        self.conn.executescript(_INDEX_SQL)
+        self.conn.commit()
 
     def _migrate_schema(self) -> None:
         """Add columns to pre-existing tables that predate this migration.
@@ -157,6 +191,19 @@ class StateDB:
             ("runs", "duplicate_file_count", "INTEGER NOT NULL DEFAULT 0"),
             ("runs", "duplicate_content_count", "INTEGER NOT NULL DEFAULT 0"),
             ("runs", "duplicate_semantic_count", "INTEGER NOT NULL DEFAULT 0"),
+            # Fase 0 — retencao maxima no SQLite
+            ("sources", "extracted_text", "TEXT"),
+            ("sources", "lit_body", "TEXT"),
+            ("sources", "origin", "TEXT NOT NULL DEFAULT 'pipeline'"),
+            ("chunks", "section_path", "TEXT NOT NULL DEFAULT ''"),
+            ("concepts", "candidate_json", "TEXT"),
+            ("concepts", "status", "TEXT NOT NULL DEFAULT 'pending'"),
+            ("notes", "body", "TEXT"),
+            ("notes", "frontmatter_json", "TEXT"),
+            ("notes", "origin", "TEXT NOT NULL DEFAULT 'pipeline'"),
+            ("mocs", "body", "TEXT"),
+            ("mocs", "frontmatter_json", "TEXT"),
+            ("mocs", "origin", "TEXT NOT NULL DEFAULT 'pipeline'"),
         ]
         for table, column, coltype in migrations:
             try:
@@ -231,21 +278,46 @@ class StateDB:
         origin_path: str,
         origin_type: str,
         extraction_checksum: str | None = None,
+        origin: str = "pipeline",
     ) -> None:
         now = self._now()
         self.conn.execute(
             """INSERT INTO sources (source_id, citekey, title, authors, year, file_checksum,
-                                    extraction_checksum, origin_path, origin_type, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    extraction_checksum, origin_path, origin_type, origin,
+                                    created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(source_id) DO UPDATE SET
                  title=excluded.title, authors=excluded.authors, year=excluded.year,
                  file_checksum=excluded.file_checksum,
                  extraction_checksum=excluded.extraction_checksum,
+                 origin=excluded.origin,
                  updated_at=excluded.updated_at""",
             (
                 source_id, citekey, title, json.dumps(authors), year, file_checksum,
-                extraction_checksum, origin_path, origin_type, now, now,
+                extraction_checksum, origin_path, origin_type, origin, now, now,
             ),
+        )
+        self.conn.commit()
+
+    def update_source_texts(
+        self,
+        source_id: str,
+        extracted_text: str | None = None,
+        lit_body: str | None = None,
+    ) -> None:
+        """Persist the full extracted text and/or the LIT note snapshot for a source.
+
+        Only overwrites columns whose argument is not None, so callers can update
+        one field without clobbering the other. This is the durable retention layer
+        that lets `rechunk` and `rebuild` run without reprocessing the source file.
+        """
+        self.conn.execute(
+            """UPDATE sources SET
+                 extracted_text=COALESCE(?, extracted_text),
+                 lit_body=COALESCE(?, lit_body),
+                 updated_at=?
+               WHERE source_id=?""",
+            (extracted_text, lit_body, self._now(), source_id),
         )
         self.conn.commit()
 
@@ -309,16 +381,35 @@ class StateDB:
         chunk_checksum: str,
         locator: str = "",
         status: str = "pending",
+        section_path: str = "",
     ) -> None:
         self.conn.execute(
-            """INSERT INTO chunks (chunk_id, source_id, chapter_id, text, chunk_checksum, locator, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
+            """INSERT INTO chunks (chunk_id, source_id, chapter_id, text, chunk_checksum,
+                                   locator, section_path, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(chunk_id) DO UPDATE SET
                  text=excluded.text, chunk_checksum=excluded.chunk_checksum,
-                 locator=excluded.locator, status=excluded.status""",
-            (chunk_id, source_id, chapter_id, text, chunk_checksum, locator, status),
+                 locator=excluded.locator, section_path=excluded.section_path,
+                 status=excluded.status""",
+            (chunk_id, source_id, chapter_id, text, chunk_checksum, locator, section_path, status),
         )
         self.conn.commit()
+
+    def delete_chunks_for_chapter(self, chapter_id: str, keep_ids: set[str]) -> list[str]:
+        """Delete chunks of a chapter whose id is not in keep_ids. Returns removed ids.
+
+        Used after re-chunking a chapter so stale chunks (from an earlier chunking
+        config or edited text) don't linger in SQLite and ChromaDB.
+        """
+        rows = self._fetchall(
+            "SELECT chunk_id FROM chunks WHERE chapter_id=?", (chapter_id,)
+        )
+        removed = [r["chunk_id"] for r in rows if r["chunk_id"] not in keep_ids]
+        for cid in removed:
+            self.conn.execute("DELETE FROM chunks WHERE chunk_id=?", (cid,))
+        if removed:
+            self.conn.commit()
+        return removed
 
     def get_pending_chunks(self, source_id: str | None = None) -> list[dict]:
         if source_id:
@@ -337,6 +428,21 @@ class StateDB:
 
     def get_chunks_for_source(self, source_id: str) -> list[dict]:
         return self._fetchall("SELECT * FROM chunks WHERE source_id=?", (source_id,))
+
+    def get_chunk(self, chunk_id: str) -> Optional[dict]:
+        return self._fetchone("SELECT * FROM chunks WHERE chunk_id=?", (chunk_id,))
+
+    def delete_chapter(self, chapter_id: str) -> list[str]:
+        """Delete a chapter and all its chunks. Returns removed chunk_ids."""
+        rows = self._fetchall(
+            "SELECT chunk_id FROM chunks WHERE chapter_id=?", (chapter_id,)
+        )
+        removed = [r["chunk_id"] for r in rows]
+        for cid in removed:
+            self.conn.execute("DELETE FROM chunks WHERE chunk_id=?", (cid,))
+        self.conn.execute("DELETE FROM chapters WHERE chapter_id=?", (chapter_id,))
+        self.conn.commit()
+        return removed
 
     def update_chunk_status(
         self,
@@ -363,14 +469,26 @@ class StateDB:
         anchor_hash: str = "",
         thesis_hash: str = "",
         note_id: str | None = None,
+        candidate_json: str | None = None,
+        status: str | None = None,
     ) -> None:
         self.conn.execute(
-            """INSERT INTO concepts (concept_id, source_id, chunk_id, anchor_hash, thesis_hash, note_id)
-               VALUES (?, ?, ?, ?, ?, ?)
+            """INSERT INTO concepts (concept_id, source_id, chunk_id, anchor_hash, thesis_hash,
+                                     note_id, candidate_json, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, 'pending'))
                ON CONFLICT(concept_id) DO UPDATE SET
                  anchor_hash=excluded.anchor_hash, thesis_hash=excluded.thesis_hash,
-                 note_id=COALESCE(excluded.note_id, concepts.note_id)""",
-            (concept_id, source_id, chunk_id, anchor_hash, thesis_hash, note_id),
+                 note_id=COALESCE(excluded.note_id, concepts.note_id),
+                 candidate_json=COALESCE(excluded.candidate_json, concepts.candidate_json),
+                 status=COALESCE(?, concepts.status)""",
+            (concept_id, source_id, chunk_id, anchor_hash, thesis_hash,
+             note_id, candidate_json, status, status),
+        )
+        self.conn.commit()
+
+    def update_concept_status(self, concept_id: str, status: str) -> None:
+        self.conn.execute(
+            "UPDATE concepts SET status=? WHERE concept_id=?", (status, concept_id)
         )
         self.conn.commit()
 
@@ -379,6 +497,18 @@ class StateDB:
 
     def get_concepts_without_notes(self) -> list[dict]:
         return self._fetchall("SELECT * FROM concepts WHERE note_id IS NULL")
+
+    def get_concepts_by_status(self, status: str, without_notes: bool = False) -> list[dict]:
+        """Return concepts in a given status. If without_notes, only unnoted ones.
+
+        The `approved` + `without_notes` combination is how `connect` reloads pending
+        candidates straight from the DB when candidates.json is absent.
+        """
+        if without_notes:
+            return self._fetchall(
+                "SELECT * FROM concepts WHERE status=? AND note_id IS NULL", (status,)
+            )
+        return self._fetchall("SELECT * FROM concepts WHERE status=?", (status,))
 
     # ── Notes ──────────────────────────────────────────────────────────
 
@@ -391,23 +521,47 @@ class StateDB:
         note_semantic_checksum: str | None = None,
         auto_checksum: str | None = None,
         embedding_model: str | None = None,
+        body: str | None = None,
+        frontmatter_json: str | None = None,
+        origin: str = "pipeline",
     ) -> None:
         now = self._now()
         self.conn.execute(
-            """INSERT INTO notes (note_id, source_id, path, title, note_semantic_checksum,
-                                  auto_checksum, embedding_model, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """INSERT INTO notes (note_id, source_id, path, title, body, frontmatter_json,
+                                  origin, note_semantic_checksum, auto_checksum,
+                                  embedding_model, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(note_id) DO UPDATE SET
                  path=COALESCE(excluded.path, notes.path),
                  title=excluded.title,
+                 body=COALESCE(excluded.body, notes.body),
+                 frontmatter_json=COALESCE(excluded.frontmatter_json, notes.frontmatter_json),
+                 origin=excluded.origin,
                  note_semantic_checksum=excluded.note_semantic_checksum,
                  auto_checksum=COALESCE(excluded.auto_checksum, notes.auto_checksum),
                  embedding_model=COALESCE(excluded.embedding_model, notes.embedding_model),
                  updated_at=excluded.updated_at""",
             (
-                note_id, source_id, path, title, note_semantic_checksum,
-                auto_checksum, embedding_model, now, now,
+                note_id, source_id, path, title, body, frontmatter_json, origin,
+                note_semantic_checksum, auto_checksum, embedding_model, now, now,
             ),
+        )
+        self.conn.commit()
+
+    def update_note_embedding(
+        self, note_id: str, embedding_input_hash: str, embedding_model: str | None = None
+    ) -> None:
+        """Record which embedding input the note's vector was last built from.
+
+        Lets callers skip re-embedding a note whose semantic content and embedding
+        model are unchanged.
+        """
+        self.conn.execute(
+            """UPDATE notes SET
+                 embedding_input_hash=?,
+                 embedding_model=COALESCE(?, embedding_model)
+               WHERE note_id=?""",
+            (embedding_input_hash, embedding_model, note_id),
         )
         self.conn.commit()
 
@@ -451,19 +605,29 @@ class StateDB:
         topic: str,
         path: str | None = None,
         cluster_signature: str | None = None,
+        body: str | None = None,
+        frontmatter_json: str | None = None,
+        origin: str = "pipeline",
     ) -> None:
         now = self._now()
         self.conn.execute(
-            """INSERT INTO mocs (moc_id, topic, path, cluster_signature, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?)
+            """INSERT INTO mocs (moc_id, topic, path, body, frontmatter_json, origin,
+                                 cluster_signature, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(moc_id) DO UPDATE SET
                  topic=excluded.topic,
                  path=COALESCE(excluded.path, mocs.path),
+                 body=COALESCE(excluded.body, mocs.body),
+                 frontmatter_json=COALESCE(excluded.frontmatter_json, mocs.frontmatter_json),
+                 origin=excluded.origin,
                  cluster_signature=excluded.cluster_signature,
                  updated_at=excluded.updated_at""",
-            (moc_id, topic, path, cluster_signature, now, now),
+            (moc_id, topic, path, body, frontmatter_json, origin, cluster_signature, now, now),
         )
         self.conn.commit()
+
+    def get_moc(self, moc_id: str) -> Optional[dict]:
+        return self._fetchone("SELECT * FROM mocs WHERE moc_id=?", (moc_id,))
 
     def get_moc_by_signature(self, signature: str) -> Optional[dict]:
         return self._fetchone("SELECT * FROM mocs WHERE cluster_signature=?", (signature,))
@@ -480,6 +644,66 @@ class StateDB:
             if existing_lower in topic_lower or topic_lower in existing_lower:
                 return moc
         return None
+
+    # ── Assets (images) ────────────────────────────────────────────────
+
+    def upsert_asset(
+        self,
+        asset_id: str,
+        source_id: str,
+        path: str,
+        image_checksum: str,
+        chapter_id: str | None = None,
+        context_snippet: str = "",
+        status: str = "pending",
+    ) -> None:
+        self.conn.execute(
+            """INSERT INTO assets (asset_id, source_id, chapter_id, path, image_checksum,
+                                   context_snippet, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(asset_id) DO UPDATE SET
+                 chapter_id=COALESCE(excluded.chapter_id, assets.chapter_id),
+                 path=excluded.path,
+                 context_snippet=excluded.context_snippet""",
+            (asset_id, source_id, chapter_id, path, image_checksum,
+             context_snippet, status, self._now()),
+        )
+        self.conn.commit()
+
+    def get_asset(self, asset_id: str) -> Optional[dict]:
+        return self._fetchone("SELECT * FROM assets WHERE asset_id=?", (asset_id,))
+
+    def get_assets_for_source(self, source_id: str) -> list[dict]:
+        return self._fetchall("SELECT * FROM assets WHERE source_id=?", (source_id,))
+
+    def update_asset_chapter(self, asset_id: str, chapter_id: str | None) -> None:
+        """Set chapter_id explicitly (including NULL) after rechunk re-resolution."""
+        self.conn.execute(
+            "UPDATE assets SET chapter_id=? WHERE asset_id=?",
+            (chapter_id, asset_id),
+        )
+        self.conn.commit()
+
+    def get_pending_assets(self) -> list[dict]:
+        return self._fetchall("SELECT * FROM assets WHERE status='pending'")
+
+    def reset_failed_assets(self) -> int:
+        """Reset failed image descriptions back to pending. Returns count reset."""
+        cur = self.conn.execute(
+            "UPDATE assets SET status='pending' WHERE status='failed'"
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def update_asset_description(
+        self, asset_id: str, description: str, call_checksum: str, status: str = "described"
+    ) -> None:
+        self.conn.execute(
+            """UPDATE assets SET description=?, description_call_checksum=?, status=?
+               WHERE asset_id=?""",
+            (description, call_checksum, status, asset_id),
+        )
+        self.conn.commit()
 
     # ── LLM Cache ──────────────────────────────────────────────────────
 
@@ -542,7 +766,7 @@ class StateDB:
     # ── Stats ──────────────────────────────────────────────────────────
 
     def get_stats(self) -> dict[str, int]:
-        tables = ["files", "sources", "chapters", "chunks", "concepts", "notes", "mocs"]
+        tables = ["files", "sources", "chapters", "chunks", "concepts", "notes", "mocs", "assets"]
         stats: dict[str, int] = {}
         for t in tables:
             row = self.conn.execute(f"SELECT COUNT(*) as cnt FROM {t}").fetchone()

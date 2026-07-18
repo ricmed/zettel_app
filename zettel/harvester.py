@@ -64,6 +64,7 @@ def run_harvest(
     signature = compute_pipeline_signature({
         "chunking": cfg.chunking.model_dump(),
         "harvest": cfg.harvest.model_dump(),
+        "images": cfg.images.model_dump(),
         "pdf_extractor": cfg.pdf_extractor,
     })
     run_id = db.start_run(signature)
@@ -106,6 +107,129 @@ def run_harvest(
     return new_sources
 
 
+def run_rechunk(
+    cfg: AppConfig, db: StateDB, idx: VectorIndex, source_id: str | None = None
+) -> dict[str, int]:
+    """Re-chunk sources from their persisted extracted_text, without touching files.
+
+    Applies the current chunking config (e.g. new structural sections). Sources whose
+    extracted_text predates Fase 0 (NULL) are skipped with a warning — they need a
+    re-harvest of the original file. Returns {"sources": N, "chunks": M, "skipped": K}.
+    """
+    if source_id:
+        sources = [db.get_source(source_id)] if db.get_source(source_id) else []
+    else:
+        sources = db.list_sources()
+
+    stats = {"sources": 0, "chunks": 0, "skipped": 0}
+    for src in sources:
+        if not src:
+            continue
+        sid = src["source_id"]
+        text = src.get("extracted_text")
+        if not text:
+            logger.warning(
+                "Fonte %s nao tem texto extraido persistido (anterior a Fase 0). "
+                "Reprocesse o arquivo original via harvest.", sid,
+            )
+            stats["skipped"] += 1
+            continue
+        chapters = _split_into_chapters(text, src["origin_type"])
+        n = _chunk_and_persist(cfg, db, idx, sid, chapters)
+        _finalize_source_chunking(db, idx, sid, chapters)
+        stats["sources"] += 1
+        stats["chunks"] += n
+        logger.info("Rechunk %s: %d chunks (%d capitulos)", sid, n, len(chapters))
+    return stats
+
+
+def source_chunking_incomplete(db: StateDB, source_id: str) -> bool:
+    """True when persisted chapters do not cover the current H1/H2 split of extracted_text.
+
+    Detects interrupted harvests that registered assets/partial chapters but never
+    finished `_chunk_and_persist` for later sections.
+    """
+    src = db.get_source(source_id)
+    if not src or not src.get("extracted_text"):
+        return False
+    chapters = _split_into_chapters(src["extracted_text"], src["origin_type"])
+    return not _chapters_fully_persisted(db, source_id, chapters)
+
+
+def list_incomplete_sources(db: StateDB) -> list[str]:
+    """Return source_ids whose chapter coverage is incomplete vs extracted_text."""
+    return [
+        src["source_id"]
+        for src in db.list_sources()
+        if src.get("extracted_text") and source_chunking_incomplete(db, src["source_id"])
+    ]
+
+
+def _expected_chapter_ids(source_id: str, chapters: list[dict[str, str]]) -> set[str]:
+    return {f"{source_id}::ch{i:03d}" for i in range(len(chapters))}
+
+
+def _chapters_fully_persisted(
+    db: StateDB, source_id: str, chapters: list[dict[str, str]]
+) -> bool:
+    expected = _expected_chapter_ids(source_id, chapters)
+    if not expected:
+        return True
+    actual = {c["chapter_id"] for c in db.get_chapters_for_source(source_id)}
+    return expected <= actual
+
+
+def _finalize_source_chunking(
+    db: StateDB,
+    idx: VectorIndex,
+    source_id: str,
+    chapters: list[dict[str, str]],
+) -> None:
+    """Prune orphan chapters, re-resolve asset chapter_ids after a full chunk pass."""
+    keep = _expected_chapter_ids(source_id, chapters)
+    _prune_orphan_chapters(db, idx, source_id, keep)
+    from zettel.assets import reresolve_asset_chapters
+    reresolve_asset_chapters(db, source_id, chapters)
+
+
+def _prune_orphan_chapters(
+    db: StateDB, idx: VectorIndex, source_id: str, keep_ids: set[str]
+) -> None:
+    removed_chunks: list[str] = []
+    for ch in db.get_chapters_for_source(source_id):
+        if ch["chapter_id"] not in keep_ids:
+            removed_chunks.extend(db.delete_chapter(ch["chapter_id"]))
+            logger.info("Capitulo orfao removido: %s", ch["chapter_id"])
+    if removed_chunks:
+        idx.delete_chunks(removed_chunks)
+
+
+def _complete_incomplete_source(
+    cfg: AppConfig, db: StateDB, idx: VectorIndex, source_id: str
+) -> tuple[str | None, dict[str, int]]:
+    """Finish chunking for a source that has extracted_text but incomplete chapters."""
+    empty: dict[str, int] = {}
+    src = db.get_source(source_id)
+    if not src or not src.get("extracted_text"):
+        return None, empty
+    text = src["extracted_text"]
+    chapters = _split_into_chapters(text, src["origin_type"])
+    logger.warning(
+        "Fonte %s com chunking incompleto (%d capitulos esperados, %d no DB). "
+        "Completando via rechunk. Use `zettel rechunk` se o harvest pular de novo.",
+        source_id,
+        len(chapters),
+        len(db.get_chapters_for_source(source_id)),
+    )
+    n = _chunk_and_persist(cfg, db, idx, source_id, chapters)
+    _finalize_source_chunking(db, idx, source_id, chapters)
+    return source_id, {
+        "text_len": len(text),
+        "chapters": len(chapters),
+        "chunks": n,
+    }
+
+
 # ── File Processing ────────────────────────────────────────────────────
 
 
@@ -124,6 +248,9 @@ def _process_file(
     existing = db.get_file(str(file_path))
 
     if existing and existing["file_checksum"] == checksum:
+        sid = existing.get("source_id")
+        if sid and source_chunking_incomplete(db, sid):
+            return _complete_incomplete_source(cfg, db, idx, sid)
         logger.debug("Arquivo inalterado, pulando: %s", file_path.name)
         return None, empty_stats
 
@@ -135,9 +262,11 @@ def _process_file(
             "Associando ao mesmo source_id (%s) em vez de reprocessar.",
             file_path.name, Path(renamed_from["path"]).name, renamed_from["source_id"],
         )
-        db.upsert_file(str(file_path), checksum, file_path.suffix.lower().lstrip("."),
-                        renamed_from["source_id"])
+        sid = renamed_from["source_id"]
+        db.upsert_file(str(file_path), checksum, file_path.suffix.lower().lstrip("."), sid)
         db.record_duplicate(run_id, "file")
+        if source_chunking_incomplete(db, sid):
+            return _complete_incomplete_source(cfg, db, idx, sid)
         return None, empty_stats
 
     ext = file_path.suffix.lower()
@@ -153,13 +282,16 @@ def _process_file(
     # ── Camada 2: duplicidade por hash de conteudo extraido (cross-formato) ──
     cross_format_source = db.get_source_by_extraction_checksum(extraction_checksum)
     if cross_format_source:
+        sid = cross_format_source["source_id"]
         logger.info(
             "Conteudo de '%s' e identico (apos normalizacao) a fonte existente %s "
             "(%s). Reaproveitando fonte, sem gerar novo citekey/SRC/LIT/chunks.",
-            file_path.name, cross_format_source["source_id"], cross_format_source["citekey"],
+            file_path.name, sid, cross_format_source["citekey"],
         )
-        db.upsert_file(str(file_path), checksum, origin_type, cross_format_source["source_id"])
+        db.upsert_file(str(file_path), checksum, origin_type, sid)
         db.record_duplicate(run_id, "content")
+        if source_chunking_incomplete(db, sid):
+            return _complete_incomplete_source(cfg, db, idx, sid)
         return None, empty_stats
 
     title = metadata.get("title", file_path.stem)
@@ -170,8 +302,10 @@ def _process_file(
 
     existing_source = db.get_source(source_id)
     if existing_source and existing_source.get("extraction_checksum") == extraction_checksum:
-        logger.info("Texto extraido inalterado para %s, pulando rechunking", source_id)
         db.upsert_file(str(file_path), checksum, origin_type, source_id)
+        if source_chunking_incomplete(db, source_id):
+            return _complete_incomplete_source(cfg, db, idx, source_id)
+        logger.info("Texto extraido inalterado para %s, pulando rechunking", source_id)
         return None, empty_stats
 
     chapters = _split_into_chapters(text, origin_type)
@@ -202,6 +336,15 @@ def _process_file(
         year=year, file_checksum=checksum, origin_path=str(file_path),
         origin_type=origin_type, extraction_checksum=extraction_checksum,
     )
+    # Retencao: guarda o texto extraido completo para permitir rechunk/rebuild sem
+    # reprocessar o arquivo original.
+    db.update_source_texts(source_id, extracted_text=text)
+
+    # Registra imagens extraidas (se houver), resolvendo o capitulo de cada uma.
+    images = metadata.get("_images") or []
+    if images:
+        from zettel.assets import register_assets
+        register_assets(db, source_id, chapters, images)
 
     _create_vault_notes(cfg, source_id, citekey, title, authors, year,
                         str(file_path), origin_type, checksum)
@@ -211,6 +354,7 @@ def _process_file(
     })
 
     chunk_count = _chunk_and_persist(cfg, db, idx, source_id, chapters)
+    _finalize_source_chunking(db, idx, source_id, chapters)
 
     stats = {"text_len": len(text), "chapters": len(chapters), "chunks": chunk_count}
     logger.info(
@@ -224,18 +368,14 @@ def _process_file(
 
 
 def _sample_chunk_texts(cfg: AppConfig, chapters: list[dict[str, str]], sample_size: int) -> list[str]:
-    """Split chapters into chunks (without persisting) and return an evenly distributed sample."""
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    """Split chapters into chunks (without persisting) and return an evenly distributed sample.
 
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=cfg.chunking.chunk_size,
-        chunk_overlap=cfg.chunking.chunk_overlap,
-        separators=["\n\n", "\n", ". ", " ", ""],
-    )
-
+    Reuses the same structural chunker as `_chunk_and_persist`, so the semantic
+    duplicate check samples exactly the chunks that would be persisted.
+    """
     all_chunks: list[str] = []
     for chapter in chapters:
-        all_chunks.extend(splitter.split_text(chapter["text"]))
+        all_chunks.extend(text for _, text in _split_chapter_into_chunks(cfg, chapter))
 
     if not all_chunks:
         return []
@@ -356,10 +496,14 @@ def _extract_year_from_string(s: str | None) -> int | None:
 def _extract_text(
     cfg: AppConfig, file_path: Path, origin_type: str
 ) -> tuple[str, dict[str, Any]]:
-    """Extract text and basic metadata from a file."""
+    """Extract text and basic metadata from a file.
+
+    Extracted images (when images.enabled) are stashed in metadata["_images"] as a
+    list of {checksum, path, context_snippet} for later DB registration.
+    """
     if origin_type == "pdf":
         return _extract_pdf(cfg, file_path)
-    return _extract_markdown(file_path)
+    return _extract_markdown(cfg, file_path)
 
 
 def _extract_pdf(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str, Any]]:
@@ -388,6 +532,9 @@ def _extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str
             num_threads=4,
             device=accel_device,
         )
+        if cfg.images.enabled:
+            pipeline_options.generate_picture_images = True
+            pipeline_options.images_scale = cfg.images.scale
 
         converter = DocumentConverter(
             format_options={
@@ -401,7 +548,14 @@ def _extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str
         result = converter.convert(str(file_path))
         text = result.document.export_to_markdown()
 
-        metadata: dict[str, Any] = {"title": file_path.stem, "authors": [], "year": None}
+        images: list[dict[str, Any]] = []
+        if cfg.images.enabled:
+            from zettel.assets import extract_docling_images
+            text, images = extract_docling_images(cfg, result.document, text)
+
+        metadata: dict[str, Any] = {
+            "title": file_path.stem, "authors": [], "year": None, "_images": images,
+        }
         try:
             origin = getattr(result.document, "origin", None)
             if origin:
@@ -493,7 +647,7 @@ def _enrich_metadata_from_pymupdf(file_path: Path, metadata: dict[str, Any]) -> 
         logger.debug("PyMuPDF metadata fallback falhou: %s", e)
 
 
-def _extract_markdown(file_path: Path) -> tuple[str, dict[str, Any]]:
+def _extract_markdown(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str, Any]]:
     """Extract text and metadata from a Markdown file.
 
     Reads YAML frontmatter to populate author, year, and title so that
@@ -542,7 +696,10 @@ def _extract_markdown(file_path: Path) -> tuple[str, dict[str, Any]]:
     if year is None and fm_meta.get("date"):
         year = _extract_year_from_string(str(fm_meta["date"]))
 
-    return body, {"title": title, "authors": authors, "year": year}
+    from zettel.assets import extract_markdown_images
+    body, images = extract_markdown_images(cfg, body, file_path)
+
+    return body, {"title": title, "authors": authors, "year": year, "_images": images}
 
 
 # ── Citekey Generation ────────────────────────────────────────────────
@@ -616,14 +773,87 @@ def _split_into_chapters(text: str, origin_type: str) -> list[dict[str, str]]:
     return chapters
 
 
-# ── Chunking ──────────────────────────────────────────────────────────
+# ── Section Splitting (structural, H3-H6) ─────────────────────────────
 
 
-def _chunk_and_persist(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex,
-    source_id: str, chapters: list[dict[str, str]],
-) -> int:
-    """Split chapters into chunks and persist to state + index. Returns total chunk count."""
+def _split_chapter_into_sections(
+    chapter_title: str, chapter_text: str, min_section_chars: int
+) -> list[dict[str, str]]:
+    """Split a chapter's text into sub-sections by H3-H6 headings.
+
+    Returns [{"section_path": "Cap > Sub > Subsub", "text": ...}]. Text before the
+    first sub-heading (and chapters without any H3+) yields a single section whose
+    path is the chapter title. Sections shorter than `min_section_chars` are merged
+    forward to avoid crumb-sized chunks.
+    """
+    heading_re = re.compile(r"^(#{3,6})\s+(.+)$", re.MULTILINE)
+    matches = list(heading_re.finditer(chapter_text))
+    if not matches:
+        return [{"section_path": chapter_title, "text": chapter_text.strip()}]
+
+    raw: list[dict[str, str]] = []
+    if matches[0].start() > 0:
+        preamble = chapter_text[: matches[0].start()].strip()
+        if preamble:
+            raw.append({"section_path": chapter_title, "text": preamble})
+
+    stack: list[tuple[int, str]] = []  # (heading level, title)
+    for i, m in enumerate(matches):
+        level = len(m.group(1))
+        title = m.group(2).strip()
+        while stack and stack[-1][0] >= level:
+            stack.pop()
+        stack.append((level, title))
+        section_path = " > ".join([chapter_title] + [t for _, t in stack])
+
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(chapter_text)
+        text = chapter_text[start:end].strip()
+        if text:
+            raw.append({"section_path": section_path, "text": text})
+
+    return _merge_small_sections(raw, min_section_chars)
+
+
+def _merge_small_sections(
+    sections: list[dict[str, str]], min_section_chars: int
+) -> list[dict[str, str]]:
+    """Merge sections shorter than min_section_chars into the following one.
+
+    A trailing small section is appended to the previous kept section instead.
+    """
+    if not sections:
+        return sections
+
+    merged: list[dict[str, str]] = []
+    carry: dict[str, str] | None = None
+    for sec in sections:
+        if carry:
+            sec = {
+                "section_path": sec["section_path"],
+                "text": carry["text"] + "\n\n" + sec["text"],
+            }
+            carry = None
+        if len(sec["text"]) < min_section_chars:
+            carry = sec
+        else:
+            merged.append(sec)
+    if carry:
+        if merged:
+            merged[-1]["text"] += "\n\n" + carry["text"]
+        else:
+            merged.append(carry)
+    return merged
+
+
+def _split_chapter_into_chunks(
+    cfg: AppConfig, chapter: dict[str, str]
+) -> list[tuple[str, str]]:
+    """Return (section_path, chunk_text) pairs for one chapter.
+
+    Sections that fit in chunk_size become a single chunk; larger ones are further
+    split by the generic RecursiveCharacterTextSplitter (fallback within a section).
+    """
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 
     splitter = RecursiveCharacterTextSplitter(
@@ -632,6 +862,34 @@ def _chunk_and_persist(
         separators=["\n\n", "\n", ". ", " ", ""],
     )
 
+    pairs: list[tuple[str, str]] = []
+    sections = _split_chapter_into_sections(
+        chapter["title"], chapter["text"], cfg.chunking.min_section_chars
+    )
+    for sec in sections:
+        text = sec["text"]
+        if not text:
+            continue
+        pieces = [text] if len(text) <= cfg.chunking.chunk_size else splitter.split_text(text)
+        for piece in pieces:
+            if piece.strip():
+                pairs.append((sec["section_path"], piece))
+    return pairs
+
+
+# ── Chunking ──────────────────────────────────────────────────────────
+
+
+def _chunk_and_persist(
+    cfg: AppConfig, db: StateDB, idx: VectorIndex,
+    source_id: str, chapters: list[dict[str, str]],
+) -> int:
+    """Split chapters into structural chunks and persist to state + index.
+
+    Chunks carry a hierarchical `section_path` locator. Unchanged chapters are
+    skipped (by checksum); when a chapter changes, its stale chunks are removed
+    and only genuinely new chunk ids are re-embedded. Returns total chunk count.
+    """
     total_chunks = 0
     for ch_idx, chapter in enumerate(chapters):
         chapter_text = chapter["text"]
@@ -650,24 +908,48 @@ def _chunk_and_persist(
 
         db.upsert_chapter(chapter_id, source_id, chapter["title"], chapter_checksum, chapter["locator"])
 
-        chunks = splitter.split_text(chapter_text)
-        for chunk_text in chunks:
+        chunk_pairs = _split_chapter_into_chunks(cfg, chapter)
+
+        # Persist chunks to SQLite (fonte de verdade); collect ids to prune orphans.
+        # chunk_id is content-addressed: identical normalized text in the same
+        # chapter collapses to one id (skip later duplicates).
+        keep_ids: set[str] = set()
+        chunk_specs: list[tuple[str, str, str]] = []  # (chunk_id, section_path, text)
+        for section_path, chunk_text in chunk_pairs:
             chunk_norm = normalize_text_for_hash(chunk_text)
             chunk_checksum = sha256_hex(chunk_norm)
             chunk_id = f"{source_id}::{chapter_id}::{short_hash(chunk_checksum)}"
-
+            if chunk_id in keep_ids:
+                logger.debug(
+                    "Chunk duplicado por conteudo ignorado: %s (%s)",
+                    chunk_id, section_path,
+                )
+                continue
+            keep_ids.add(chunk_id)
+            chunk_specs.append((chunk_id, section_path, chunk_text))
             db.upsert_chunk(
                 chunk_id=chunk_id, source_id=source_id, chapter_id=chapter_id,
                 text=chunk_text, chunk_checksum=chunk_checksum,
-                locator=chapter.get("locator", ""),
+                locator=section_path, section_path=section_path,
             )
+
+        # Remove stale chunks from a previous chunking of this chapter.
+        removed = db.delete_chunks_for_chapter(chapter_id, keep_ids)
+        if removed:
+            idx.delete_chunks(removed)
+
+        # Only embed chunk ids not already in the index (content-addressed id).
+        already = idx.existing_ids("chunks", [cid for cid, _, _ in chunk_specs])
+        for chunk_id, section_path, chunk_text in chunk_specs:
+            if chunk_id in already:
+                continue
             idx.upsert_chunk(chunk_id, chunk_text, {
                 "source_id": source_id, "chapter_id": chapter_id,
-                "locator": chapter.get("locator", ""),
+                "locator": section_path, "section_path": section_path,
             })
 
-        total_chunks += len(chunks)
-        logger.debug("Capitulo %s: %d chunks gerados", chapter_id, len(chunks))
+        total_chunks += len(chunk_specs)
+        logger.debug("Capitulo %s: %d chunks gerados", chapter_id, len(chunk_specs))
 
     return total_chunks
 

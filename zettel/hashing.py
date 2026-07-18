@@ -64,6 +64,15 @@ def compute_llm_call_checksum(
     return sha256_hex(parts)
 
 
+def compute_embedding_input_hash(semantic_checksum: str, provider: str, model: str) -> str:
+    """Deterministic hash of what a note's vector was built from.
+
+    Lets callers skip re-embedding when the semantic content and the embedding
+    provider/model are unchanged.
+    """
+    return sha256_hex(f"{provider}|{model}|{semantic_checksum}")
+
+
 def compute_pipeline_signature(config: dict) -> str:
     """Hash the pipeline configuration that affects outputs.
 

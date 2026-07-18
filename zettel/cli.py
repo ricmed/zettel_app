@@ -48,7 +48,10 @@ def _get_db(cfg):
 
 def _get_idx(cfg):
     from zettel.index import VectorIndex
-    return VectorIndex(cfg.chroma_path, cfg.embedding.provider, cfg.embedding.model, cfg.device)
+    return VectorIndex(
+        cfg.chroma_path, cfg.embedding.provider, cfg.embedding.model, cfg.device,
+        allow_fallback=cfg.embedding.allow_fallback,
+    )
 
 
 # ── init ──────────────────────────────────────────────────────────────
@@ -272,20 +275,33 @@ def connect(
     db = _get_db(cfg)
     idx = _get_idx(cfg)
 
-    # Load candidates from cache
+    # Load candidates: prefer candidates.json (debug artifact); fall back to the DB
+    # (concepts approved but not yet noted), which is the durable source of truth.
     import json
     from zettel.schemas import PermanentNoteCandidate
     cache_file = cfg.cache_path / "candidates.json"
-    if not cache_file.exists():
+    candidates = []
+    if cache_file.exists():
+        raw = json.loads(cache_file.read_text(encoding="utf-8"))
+        for entry in raw:
+            entry["candidate"] = PermanentNoteCandidate(**entry["candidate"])
+            candidates.append(entry)
+    else:
+        console.print("[dim]candidates.json ausente — carregando candidatos aprovados do banco.[/dim]")
+        for concept in db.get_concepts_by_status("approved", without_notes=True):
+            if not concept.get("candidate_json"):
+                continue
+            candidates.append({
+                "concept_id": concept["concept_id"],
+                "source_id": concept["source_id"],
+                "chunk_id": concept["chunk_id"],
+                "candidate": PermanentNoteCandidate.model_validate_json(concept["candidate_json"]),
+            })
+
+    if not candidates:
         console.print("[red]Nenhum candidato encontrado. Execute 'extract' primeiro.[/red]")
         db.close()
         raise typer.Exit(1)
-
-    raw = json.loads(cache_file.read_text(encoding="utf-8"))
-    candidates = []
-    for entry in raw:
-        entry["candidate"] = PermanentNoteCandidate(**entry["candidate"])
-        candidates.append(entry)
 
     from zettel.connector import run_connect
     with console.status("[bold blue]Gerando notas permanentes...", spinner="dots"):
@@ -335,10 +351,23 @@ def garden(
 def retry_failed(
     config: Optional[str] = typer.Option(None, "--config", "-c"),
     source_id: Optional[str] = typer.Option(None, "--source-id", help="Filtrar por source_id"),
+    assets: bool = typer.Option(False, "--assets", help="Resetar imagens com falha de descricao"),
 ):
-    """Resetar chunks com falha para 'pending', permitindo re-execução do extract."""
+    """Resetar chunks (ou imagens) com falha para 'pending', permitindo reprocessar."""
     cfg = _load_deps(config)
     db = _get_db(cfg)
+
+    if assets:
+        n = db.reset_failed_assets()
+        if n:
+            console.print(
+                f"[green]{n} imagem(ns) resetada(s) para 'pending'. "
+                f"Execute 'extract' para redescreve-las.[/green]"
+            )
+        else:
+            console.print("[yellow]Nenhuma imagem com falha encontrada.[/yellow]")
+        db.close()
+        return
 
     failed = db.get_failed_chunks(source_id if source_id else None)
     count = len(failed)
@@ -355,6 +384,40 @@ def retry_failed(
         f"[green]{count} chunk(s) resetado(s) para 'pending'. "
         f"Execute 'extract' para reprocessar.[/green]"
     )
+    db.close()
+
+
+# ── rechunk ───────────────────────────────────────────────────────────
+
+
+@app.command()
+def rechunk(
+    config: Optional[str] = typer.Option(None, "--config", "-c"),
+    source_id: Optional[str] = typer.Option(None, "--source-id", help="Rechunk apenas esta fonte"),
+    all_sources: bool = typer.Option(False, "--all", help="Rechunk de todas as fontes"),
+):
+    """Re-chunkar fontes a partir do texto extraido persistido (aplica config atual)."""
+    if not source_id and not all_sources:
+        console.print("[red]Informe --source-id <id> ou --all.[/red]")
+        raise typer.Exit(1)
+
+    cfg = _load_deps(config)
+    db = _get_db(cfg)
+    idx = _get_idx(cfg)
+
+    from zettel.harvester import run_rechunk
+    with console.status("[bold blue]Re-chunkando fontes...", spinner="dots"):
+        stats = run_rechunk(cfg, db, idx, source_id if source_id else None)
+
+    console.print(
+        f"[green]Rechunk concluido:[/green] {stats['sources']} fonte(s), "
+        f"{stats['chunks']} chunk(s), {stats['skipped']} pulada(s)."
+    )
+    if stats["skipped"]:
+        console.print(
+            "[yellow]Fontes puladas nao tem texto extraido persistido (anteriores a Fase 0). "
+            "Reprocesse o arquivo original via harvest.[/yellow]"
+        )
     db.close()
 
 
@@ -380,6 +443,82 @@ def sync_manual(
     for k, v in stats.items():
         table.add_row(k.capitalize(), str(v))
     console.print(table)
+
+    db.close()
+
+
+# ── reindex ───────────────────────────────────────────────────────────
+
+
+@app.command()
+def reindex(
+    config: Optional[str] = typer.Option(None, "--config", "-c"),
+    collection: Optional[str] = typer.Option(
+        None, "--collection", help="Reindexar apenas: sources|chunks|permanent_notes|mocs"
+    ),
+    force: bool = typer.Option(False, "--force", help="Resetar a colecao antes de repovoar"),
+):
+    """Reconstruir o ChromaDB a partir do SQLite (sem chamadas de LLM)."""
+    cfg = _load_deps(config)
+    db = _get_db(cfg)
+    idx = _get_idx(cfg)
+
+    from zettel.rebuild import run_reindex
+    with console.status("[bold blue]Reconstruindo indice vetorial...", spinner="dots"):
+        stats = run_reindex(cfg, db, idx, collection, force)
+
+    table = Table(title="Reindex")
+    table.add_column("Colecao", style="bold")
+    table.add_column("Vetores", justify="right")
+    for k, v in stats.items():
+        table.add_row(k, str(v))
+    console.print(table)
+    db.close()
+
+
+# ── rebuild ───────────────────────────────────────────────────────────
+
+
+@app.command()
+def rebuild(
+    config: Optional[str] = typer.Option(None, "--config", "-c"),
+    what: str = typer.Option("vault", "--what", help="vault | chroma | all"),
+    force: bool = typer.Option(
+        False, "--force", help="Sobrescrever arquivos existentes (nunca notas manuais)"
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Simular sem escrever"),
+):
+    """Reconstruir o vault (.md) e/ou o ChromaDB a partir do SQLite, sem reprocessar LLM."""
+    cfg = _load_deps(config)
+    db = _get_db(cfg)
+
+    if what not in ("vault", "chroma", "all"):
+        console.print("[red]--what deve ser: vault | chroma | all[/red]")
+        db.close()
+        raise typer.Exit(1)
+
+    if what in ("vault", "all"):
+        from zettel.rebuild import run_rebuild_vault
+        with console.status("[bold blue]Reconstruindo vault a partir do banco...", spinner="dots"):
+            vstats = run_rebuild_vault(cfg, db, force=force, dry_run=dry_run)
+        table = Table(title="Rebuild vault" + (" (dry-run)" if dry_run else ""))
+        table.add_column("Metrica", style="bold")
+        table.add_column("Valor", justify="right")
+        for k, v in vstats.items():
+            table.add_row(k, str(v))
+        console.print(table)
+
+    if what in ("chroma", "all"):
+        idx = _get_idx(cfg)
+        from zettel.rebuild import run_reindex
+        with console.status("[bold blue]Reconstruindo indice vetorial...", spinner="dots"):
+            rstats = run_reindex(cfg, db, idx, force=force)
+        table = Table(title="Rebuild chroma")
+        table.add_column("Colecao", style="bold")
+        table.add_column("Vetores", justify="right")
+        for k, v in rstats.items():
+            table.add_row(k, str(v))
+        console.print(table)
 
     db.close()
 
@@ -487,6 +626,14 @@ def status(
 
     console.print(table)
 
+    from zettel.harvester import list_incomplete_sources
+    incomplete = list_incomplete_sources(db)
+    if incomplete:
+        console.print(
+            f"\n[yellow]Chunking incompleto em {len(incomplete)} fonte(s): "
+            f"{', '.join(incomplete)}. Rode `zettel rechunk` para completar.[/yellow]"
+        )
+
     last_run = db.get_last_run()
     if last_run:
         dup_table = Table(title="Duplicatas — Última Execução do Harvest")
@@ -532,7 +679,7 @@ def doctor(
     # Prompts
     prompt_files = ["literature_note.md", "permanent_note.md", "dedupe_decision.md",
                     "relationship.md", "moc_generation.md", "moc_incremental.md",
-                    "ptbr_guard.md"]
+                    "ptbr_guard.md", "image_description.md"]
     for pf in prompt_files:
         p = cfg.prompts_path / pf
         checks.append((f"Prompt: {pf}", p.exists(), str(p)))
@@ -585,6 +732,23 @@ def doctor(
         checks.append(("GPU (CUDA)", False, "nenhuma GPU detectada (usara CPU)"))
 
     checks.append(("Device config", True, f"device: {cfg.device}"))
+
+    # Chunking coverage vs extracted_text (interrupted harvest recovery)
+    try:
+        db = _get_db(cfg)
+        from zettel.harvester import list_incomplete_sources
+        incomplete = list_incomplete_sources(db)
+        db.close()
+        if incomplete:
+            checks.append((
+                "Chunking coverage",
+                False,
+                f"incompleto em {len(incomplete)} fonte(s); rode `zettel rechunk`",
+            ))
+        else:
+            checks.append(("Chunking coverage", True, "todas as fontes cobertas"))
+    except Exception as e:
+        checks.append(("Chunking coverage", False, f"erro ao verificar: {e}"))
 
     # Display
     table = Table(title="Zettelkasten — Doctor")

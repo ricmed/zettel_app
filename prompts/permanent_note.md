@@ -24,8 +24,12 @@ Recuse a criação de nota **somente** quando o conteúdo apresentar um destes p
 
 ### 3. Contexto Inseparável
 - Informação que **só faz sentido** referenciando a fonte (ex.: "o autor apresenta 5 passos no capítulo 3")
-- Dependência de figuras, tabelas ou numeração específica da fonte
+- Dependência de **numeração** de figuras/tabelas da fonte (ex.: "veja a Figura 3.2") sem princípio extraível
 - Casos anedóticos sem nenhum princípio extraível
+
+> **Figuras vs. conceitos**: um conceito autônomo **ilustrado** por diagrama (pipeline RAG,
+> step-back, parent retriever) é **válido**. Rejeite apenas quando a ideia se resume a
+> apontar para uma figura sem enunciado transferível.
 
 ### 4. Ambiguidade Irremediável
 - Conceitos tão vagos que não é possível formular um título claro
@@ -147,9 +151,15 @@ Conceito:
 - Localizador: {source_locator}
 - Referência literatura: {literature_ref}
 
+{images_context}
+
 Notas existentes relacionadas (use APENAS para conexões):
 {rag_context}
 ```
+
+Quando `{images_context}` listar figuras, use-as para enriquecer definição/exemplo
+(descreva o mecanismo que o diagrama mostra). As figuras serão embutidas na nota;
+nao invente detalhes que nao estejam na descricao.
 
 ---
 
