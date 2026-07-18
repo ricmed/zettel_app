@@ -25,6 +25,7 @@ from zettel.hashing import (
 )
 from zettel.index import VectorIndex
 from zettel.llm import call_llm, extract_json, get_llm, load_prompt
+from zettel.retrieval import RetrievedNote, Retriever
 from zettel.schemas import PermanentNoteCandidate, PermanentNoteLLMOutput, RelationshipResult
 from zettel.state import StateDB
 from zettel.vault import (
@@ -66,6 +67,7 @@ def run_connect(
 
     llm = get_llm(cfg)
     prompt_template = load_prompt(cfg.prompts_path / "permanent_note.md")
+    retriever = Retriever(cfg, db, idx)
 
     created_ids: list[str] = []
     total = len(candidates)
@@ -83,7 +85,9 @@ def run_connect(
             progress.update(task, description=f"nota {i}/{total}", advance=1)
             logger.info("Gerando nota %d/%d: %s", i, total, cand.thesis[:50])
 
-            note_id = _process_candidate(cfg, db, idx, llm, cand_dict, prompt_template)
+            note_id = _process_candidate(
+                cfg, db, idx, llm, cand_dict, prompt_template, retriever
+            )
             if note_id:
                 created_ids.append(note_id)
                 logger.info("Nota %d/%d OK (id=%s)", i, total, note_id)
@@ -102,6 +106,7 @@ def _process_candidate(
     llm: Any,
     cand_dict: dict,
     prompt_template: str,
+    retriever: Retriever,
 ) -> str | None:
     """Process a single candidate into a permanent note."""
     cand: PermanentNoteCandidate = cand_dict["candidate"]
@@ -129,7 +134,9 @@ def _process_candidate(
             cand.relevant_image_ids = image_ids
 
     query_text = f"{cand.thesis} {cand.definition}"
-    similar = idx.query_similar_notes(query_text, n_results=cfg.linking.topk, exclude_id=note_id)
+    similar = retriever.search_notes(
+        query_text, topk=cfg.linking.topk, exclude_id=note_id
+    )
     rag_context = _build_rag_context(similar)
 
     # SECURITY NOTE: cand.thesis, cand.definition, and other candidate fields originate
@@ -332,19 +339,48 @@ def _resolve_connections(db: StateDB, connections: list[RelationshipResult]) -> 
 # ── RAG Context ───────────────────────────────────────────────────────
 
 
-def _build_rag_context(similar_notes: list[dict]) -> str:
-    """Build RAG context string from similar notes."""
+def _build_rag_context(similar_notes: list[RetrievedNote]) -> str:
+    """Build RAG context from retrieved notes, split into two provenance groups.
+
+    Search seeds (hop 0) and graph neighbours (hop >= 1) are rendered under
+    separate headings so the LLM can weigh a typed connection (e.g. contradicts)
+    differently from a plain embedding match when proposing connections.
+    """
     if not similar_notes:
         return "Nenhuma nota existente encontrada."
 
+    embedding_hits = [n for n in similar_notes if n.hop == 0]
+    graph_hits = [n for n in similar_notes if n.hop >= 1]
+
     parts: list[str] = []
-    for n in similar_notes:
-        nid = n.get("id", "?")
-        meta = n.get("metadata", {})
-        title = meta.get("title", "Sem titulo")
-        doc = n.get("document", "")[:150]
-        tags = meta.get("tags", "")
-        parts.append(f"- **[[ZTL - {nid} - {_slug(title)}]]**: {doc}... (tags: {tags})")
+
+    if embedding_hits:
+        parts.append("### Similares por embedding")
+        for n in embedding_hits:
+            title = n.title or n.metadata.get("title", "Sem titulo")
+            doc = (n.document or "")[:150]
+            tags = n.metadata.get("tags", "")
+            parts.append(
+                f"- **[[ZTL - {n.note_id} - {_slug(title)}]]**: {doc}... (tags: {tags})"
+            )
+
+    if graph_hits:
+        parts.append("")
+        parts.append("### Vizinhas por conexao no grafo")
+        for n in graph_hits:
+            title = n.title or n.metadata.get("title", "Sem titulo")
+            doc = (n.document or "")[:150]
+            rel = "related"
+            anchor = ""
+            if n.via:
+                rel = n.via[-1].get("relation_type", "related")
+                anchor = n.via[-1].get("from", "")
+            anchor_txt = f" a partir de [[ZTL - {anchor}]]" if anchor else ""
+            parts.append(
+                f"- **[[ZTL - {n.note_id} - {_slug(title)}]]** "
+                f"(relacao: {rel}{anchor_txt}): {doc}..."
+            )
+
     return "\n".join(parts)
 
 

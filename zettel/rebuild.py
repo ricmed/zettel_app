@@ -96,6 +96,13 @@ def run_reindex(
             stats[t] = _reindex_permanent(cfg, db, idx)
         elif t == COL_MOCS:
             stats[t] = _reindex_mocs(db, idx)
+
+    # The FTS5 lexical index is another disposable cache reconstructible from
+    # SQLite — rebuild it whenever a full reindex runs (no specific collection).
+    if collection is None and getattr(db, "fts_enabled", False):
+        fts_counts = db.rebuild_fts()
+        stats["fts_notes"] = fts_counts.get("fts_notes", 0)
+        stats["fts_chunks"] = fts_counts.get("fts_chunks", 0)
     return stats
 
 

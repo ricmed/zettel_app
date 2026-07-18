@@ -43,6 +43,9 @@ zettel_app/
 │   ├── extractor.py         # Fase 2: extração de conceitos via LLM
 │   ├── connector.py         # Fase 3: geração de notas permanentes
 │   ├── gardener.py          # Fase 4: clusterização e MOCs
+│   ├── retrieval.py         # Recuperação híbrida (vetor + BM25) com fusão RRF
+│   ├── graph.py             # Expansão por grafo sobre as conexões tipadas (GraphRAG leve)
+│   ├── ask.py               # Comando `ask`: QA sobre o vault com citações
 │   ├── assets.py            # Extração e descrição multimodal de imagens
 │   ├── rebuild.py           # Reconstrução do Chroma (reindex) e do vault (rebuild) a partir do SQLite
 │   └── sync.py              # Sincronização de notas manuais (SRC/LIT/ZTL/MOC)
@@ -188,6 +191,20 @@ linking:
   topk: 5                    # notas similares para RAG
   dedupe_threshold: 0.85     # limiar de deduplicacao
 
+# Recuperacao (busca hibrida + GraphRAG leve)
+retrieval:
+  mode: hybrid               # hybrid (vetor + BM25) | vector (so Chroma, legado)
+  rrf_k: 60                  # constante do Reciprocal Rank Fusion
+  graph_expansion:
+    enabled: true            # expande resultados pelas conexoes tipadas entre notas
+    max_hops: 1              # saltos no grafo (1 ja traz o valor principal)
+    decay: 0.5               # atenuacao do score por salto
+    max_neighbors: 10        # teto de vizinhos trazidos ao contexto
+  ask:
+    topk: 8                  # notas semente do comando `ask`
+    max_context_notes: 8     # teto de notas no contexto do LLM
+    max_chars_per_note: 1500 # truncagem do corpo de cada nota no contexto
+
 # Filtragem de candidatos a notas permanentes
 extraction:
   min_relevance_score: 3     # score minimo de relevancia (1-5)
@@ -273,8 +290,19 @@ python -m zettel connect
 # Clusterizar notas e gerar MOCs
 python -m zettel garden
 
+# Perguntar ao acervo (QA com recuperacao hibrida + expansao por grafo)
+python -m zettel ask "O que e RAG?"
+python -m zettel ask "O que e RAG?" --show-context        # mostra as notas recuperadas
+python -m zettel ask "O que e RAG?" --no-graph            # so busca hibrida, sem grafo
+python -m zettel ask "O que e RAG?" --mode vector         # so busca vetorial (legado)
+python -m zettel ask "O que e RAG?" --save                # salva a resposta em .md (00_Inbox)
+python -m zettel ask "O que e RAG?" --save-to nota.md     # salva em caminho especifico
+
 # Sincronizar notas manuais do vault com o índice (SRC, LIT, ZTL e MOCs)
 python -m zettel sync-manual
+
+# Re-derivar arestas do grafo a partir dos wikilinks no corpo das notas manuais
+python -m zettel sync-manual --rebuild-graph
 
 # Re-chunkar fontes com a config atual (a partir do texto ja extraido, sem reprocessar o arquivo).
 # Tambem completa harvest interrompido e re-resolve o chapter_id das imagens.
@@ -531,13 +559,39 @@ Atualizações automáticas ficam dentro de marcadores HTML:
 ```
 Tudo fora desses blocos é preservado — edições manuais nunca são sobrescritas.
 
+## Recuperação: busca híbrida + GraphRAG leve
+
+A recuperação de notas (RAG do `connect`, sugestões do `sync-manual` e o comando `ask`) combina três sinais complementares:
+
+1. **Busca vetorial (densa)** — similaridade semântica no ChromaDB (como antes).
+2. **Busca lexical BM25** — índice full-text **SQLite FTS5** no próprio `state.db` (tokenizer `unicode61` com `remove_diacritics`, então "conexao" casa "conexão"). Cobre o ponto fraco do embedding: termos técnicos exatos, siglas e nomes próprios.
+3. **Expansão por grafo (GraphRAG leve)** — as **conexões tipadas** já geradas pelo pipeline (tabela `note_connections`: `supports`, `contradicts`, `extends`, `depends_on`, `exemplifies`, `related`) são percorridas 1 salto a partir das notas recuperadas. Vizinhos entram no contexto ponderados por tipo de relação (`contradicts`/`extends` pesam mais — trazem informação que a similaridade vetorial **não** captura) e por decaimento por salto.
+
+As listas densa e lexical são fundidas por **Reciprocal Rank Fusion (RRF)**, que usa apenas o *ranking* de cada id (não os scores brutos), dispensando calibração entre escalas incompatíveis (distância L2 vs. bm25). Os ids são compartilhados entre Chroma e SQLite, então a fusão é direta.
+
+**Manter as duas abordagens**: `retrieval.mode: vector` restaura o comportamento histórico (só Chroma); `hybrid` (padrão) ativa a fusão. `graph_expansion.enabled: false` desliga o grafo. Se o SQLite não tiver FTS5, o sistema **degrada automaticamente** para busca vetorial pura (com aviso). Rode `zettel doctor` para conferir a disponibilidade de FTS5.
+
+> **Nota de calibração**: a deduplicação semântica (`extract`) e a detecção de duplicatas do `harvest` **não** usam a busca híbrida — seus limiares (`dedupe_threshold`, `duplicate_chunk_threshold`) são calibrados sobre a distância vetorial e permanecem no vetor puro.
+
+### Perguntar ao acervo (`zettel ask`)
+
+```bash
+python -m zettel ask "Como heurísticas geram vieses?" --show-context
+```
+
+O comando recupera as notas relevantes (híbrido + grafo), monta um contexto com citações e pede ao LLM uma resposta em PT-BR **baseada apenas no acervo** (se não houver evidência, ele diz isso, em vez de alucinar). Cada afirmação cita o `[[wikilink]]` exato da nota-fonte. A resposta pode ser salva como nota `.md` em `00_Inbox/` (`--save` ou `--save-to`), com frontmatter e uma seção **Fontes consultadas** que registra, para cada nota, o wikilink, a origem na recuperação (busca vs. conexão de grafo, com o tipo da relação), o score e a fonte bibliográfica — rastreabilidade completa de onde veio cada informação.
+
+### Fechando o ciclo do grafo (notas manuais)
+
+Notas escritas à mão no Obsidian também alimentam o grafo: no `sync-manual`, os `[[wikilinks]]` presentes **no corpo** de uma nota permanente (fora dos blocos gerenciados `auto-connections`/`auto-backlinks`, que são sugestões automáticas, não conexões aceitas) são persistidos como arestas `related`. Uma aresta já tipada nunca é rebaixada. Use `zettel sync-manual --rebuild-graph` para re-derivar essas arestas de todo o vault a partir dos corpos já persistidos no SQLite.
+
 ## Retenção e reconstrução
 
 O **SQLite é a fonte de verdade durável**: além do estado do pipeline, ele persiste tudo que é caro de reproduzir — o texto extraído completo de cada fonte, o corpo integral das notas LIT/ZTL/MOC (com frontmatter), os candidatos completos (`candidate_json`) e as descrições de imagens. Os **embeddings não** são guardados no SQLite (são baratos de recomputar via API).
 
 Como consequência:
 
-- **`zettel reindex`** reconstrói o ChromaDB inteiro a partir do SQLite, sem nenhuma chamada de LLM. O índice vetorial passa a ser um cache descartável.
+- **`zettel reindex`** reconstrói o ChromaDB inteiro a partir do SQLite, sem nenhuma chamada de LLM. O índice vetorial passa a ser um cache descartável. Um `reindex` completo também reconstrói o índice lexical FTS5 (`fts_notes`/`fts_chunks`), igualmente descartável.
 - **`zettel rebuild --what vault`** recria os arquivos `.md` do vault a partir dos corpos persistidos, também sem LLM. Nunca sobrescreve um arquivo existente sem `--force`, e nunca sobrescreve uma nota `origin: manual` (mesmo com `--force`).
 - **`zettel rechunk`** re-aplica a configuração de chunking atual a partir do texto extraído persistido, sem reprocessar o arquivo original; completa capítulos faltantes após harvest interrompido e re-vincula imagens aos capítulos corretos.
 

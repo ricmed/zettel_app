@@ -22,3 +22,5 @@ vault/*
 vault/.obsidian/*
 data/state.db-wal
 data/state.db-shm
+
+.cursor

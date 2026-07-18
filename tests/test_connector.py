@@ -1,11 +1,13 @@
 """Tests for connector: typed connections, inverse relations, note body rendering."""
 
 from zettel.connector import (
+    _build_rag_context,
     _fallback_image_ids,
     _inverse_relation,
     _resolve_connections,
     _resolve_images,
 )
+from zettel.retrieval import RetrievedNote
 from zettel.schemas import RelationshipResult
 from zettel.state import StateDB
 from zettel.vault import build_permanent_note_body
@@ -133,6 +135,39 @@ def test_build_permanent_note_body_with_figures():
     assert "## Figuras" in body
     assert "![[90_Assets/img-abc.png]]" in body
     assert "Diagrama RAG" in body
+
+
+def test_build_rag_context_two_groups():
+    """RAG context separates embedding seeds (hop 0) from graph neighbours (hop 1)."""
+    hits = [
+        RetrievedNote(
+            note_id="AAA", score=0.9, title="Nota Semente",
+            document="corpo da semente", hop=0, metadata={"tags": "ml"},
+        ),
+        RetrievedNote(
+            note_id="BBB", score=0.4, title="Nota Vizinha",
+            document="corpo vizinho", hop=1,
+            via=[{"from": "AAA", "relation_type": "contradicts", "description": ""}],
+        ),
+    ]
+    ctx = _build_rag_context(hits)
+    assert "### Similares por embedding" in ctx
+    assert "### Vizinhas por conexao no grafo" in ctx
+    assert "[[ZTL - AAA - nota-semente]]" in ctx
+    assert "[[ZTL - BBB - nota-vizinha]]" in ctx
+    # Neighbour line carries the relation type and its anchor.
+    assert "relacao: contradicts a partir de [[ZTL - AAA]]" in ctx
+
+
+def test_build_rag_context_only_seeds_no_graph_heading():
+    hits = [RetrievedNote(note_id="AAA", score=0.9, title="So Semente", hop=0)]
+    ctx = _build_rag_context(hits)
+    assert "### Similares por embedding" in ctx
+    assert "### Vizinhas por conexao no grafo" not in ctx
+
+
+def test_build_rag_context_empty():
+    assert _build_rag_context([]) == "Nenhuma nota existente encontrada."
 
 
 def test_fallback_image_ids_from_chunk_text(tmp_path):

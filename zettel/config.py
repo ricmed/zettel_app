@@ -80,6 +80,54 @@ class GardenerConfig(BaseModel):
     strict_topics: bool = True                      # rejeitar MOCs fora da lista
 
 
+# Peso de cada tipo de aresta na expansao por grafo. `contradicts` no topo porque
+# e a informacao que a similaridade de embedding NAO captura (vetores proximos nao
+# distinguem "apoia" de "contradiz"); `related` no fundo (relacao tematica fraca).
+# Fonte unica de verdade — reutilizado por zettel/graph.py.
+DEFAULT_RELATION_WEIGHTS: dict[str, float] = {
+    "contradicts": 1.0,
+    "extends": 0.9,
+    "depends_on": 0.9,
+    "supports": 0.8,
+    "exemplifies": 0.7,
+    "related": 0.5,
+}
+
+
+class GraphExpansionConfig(BaseModel):
+    """Expansao 1-N saltos sobre note_connections apos a fusao hibrida."""
+
+    enabled: bool = True
+    max_hops: int = 1                 # 1 salto ja traz o valor do GraphRAG leve
+    decay: float = 0.5                # atenuacao do score por salto adicional
+    max_neighbors: int = 10           # teto de vizinhos trazidos para o contexto
+    relation_weights: dict[str, float] = Field(
+        default_factory=lambda: dict(DEFAULT_RELATION_WEIGHTS)
+    )
+
+
+class AskConfig(BaseModel):
+    """Comando `zettel ask` — QA sobre o vault."""
+
+    topk: int = 8
+    max_context_notes: int = 8        # teto de notas montadas no contexto do LLM
+    max_chars_per_note: int = 1500    # truncagem do corpo de cada nota no contexto
+
+
+class RetrievalConfig(BaseModel):
+    """Recuperacao hibrida (vetor + BM25) com fusao RRF e expansao por grafo.
+
+    `mode: vector` preserva o comportamento historico (Chroma puro). `hybrid`
+    funde a busca densa do Chroma com o BM25 do FTS5 no state.db.
+    """
+
+    mode: Literal["vector", "hybrid"] = "hybrid"
+    rrf_k: int = 60                   # constante do Reciprocal Rank Fusion (canonica)
+    fts_min_token_len: int = 2        # tokens menores sao descartados no MATCH
+    graph_expansion: GraphExpansionConfig = Field(default_factory=GraphExpansionConfig)
+    ask: AskConfig = Field(default_factory=AskConfig)
+
+
 class AppConfig(BaseModel):
     vault_path: Path = Path("./vault")
     inbox_path: Path = Path("./data/inbox")
@@ -96,6 +144,7 @@ class AppConfig(BaseModel):
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
     images: ImagesConfig = Field(default_factory=ImagesConfig)
     gardener: GardenerConfig = Field(default_factory=GardenerConfig)
+    retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
 
     language: str = "pt-BR"
     log_level: str = "INFO"

@@ -7,12 +7,32 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+_FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+
+
+def _fts_match_expr(text: str, min_len: int = 2, max_tokens: int = 32) -> str | None:
+    """Turn arbitrary user text into a safe FTS5 MATCH expression.
+
+    Each word token is wrapped in double quotes, which neutralizes every FTS5
+    operator (``-``, ``*``, ``NEAR``, ``:``, ``AND``/``OR``/``NOT``), so raw user
+    text can never inject query syntax. Tokens are joined with ``OR`` because a
+    natural-language question rarely has *all* its terms in a single note — bm25
+    ranks whoever matches more terms, and RRF fuses with the vector side.
+
+    Returns ``None`` when there is no usable token (caller should treat as empty).
+    """
+    tokens = [t for t in _FTS_TOKEN_RE.findall(text) if len(t) >= min_len]
+    if not tokens:
+        return None
+    return " OR ".join(f'"{t}"' for t in tokens[:max_tokens])
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS files (
@@ -161,6 +181,21 @@ CREATE INDEX IF NOT EXISTS idx_assets_source    ON assets(source_id);
 CREATE INDEX IF NOT EXISTS idx_assets_status    ON assets(status);
 """
 
+# FTS5 virtual tables for BM25 lexical search, kept in sync with notes/chunks.
+# `remove_diacritics 2` matters for PT-BR: "conexao" matches "conexão".
+# Executed separately from _SCHEMA_SQL so an fts5-less SQLite build degrades
+# gracefully (see StateDB._init_fts) instead of aborting all schema creation.
+_FTS_SQL = """
+CREATE VIRTUAL TABLE IF NOT EXISTS fts_notes USING fts5(
+    note_id UNINDEXED, title, body,
+    tokenize='unicode61 remove_diacritics 2'
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5(
+    chunk_id UNINDEXED, text,
+    tokenize='unicode61 remove_diacritics 2'
+);
+"""
+
 
 class StateDB:
     """Thin wrapper around SQLite for pipeline state."""
@@ -172,6 +207,9 @@ class StateDB:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL;")
         self.conn.execute("PRAGMA foreign_keys=ON;")
+        # True if the SQLite build supports FTS5 (set by _init_fts). When False,
+        # the hybrid retriever falls back to vector-only search.
+        self.fts_enabled = False
         self._init_schema()
 
     def _init_schema(self) -> None:
@@ -180,6 +218,81 @@ class StateDB:
         self._migrate_schema()
         self.conn.executescript(_INDEX_SQL)
         self.conn.commit()
+        self._init_fts()
+
+    def _init_fts(self) -> None:
+        """Create the FTS5 tables and backfill them for pre-existing databases.
+
+        Some SQLite builds ship without the fts5 module; in that case we set
+        ``fts_enabled = False`` and the pipeline keeps working with vector search
+        only (the Retriever degrades to ``mode="vector"``).
+        """
+        try:
+            self.conn.executescript(_FTS_SQL)
+            self.conn.commit()
+        except sqlite3.OperationalError as e:
+            msg = str(e).lower()
+            if "fts5" in msg or "no such module" in msg:
+                self.fts_enabled = False
+                logger.warning(
+                    "SQLite sem suporte a FTS5 — busca hibrida (BM25) desabilitada"
+                )
+                return
+            raise
+        self.fts_enabled = True
+        self._backfill_fts()
+
+    def _backfill_fts(self) -> None:
+        """One-time population of the FTS tables from existing rows.
+
+        Only runs when an FTS table is empty but its source table is not — i.e.
+        a database created before FTS existed. Idempotent and cheap thereafter.
+        """
+        n_notes = self.conn.execute("SELECT COUNT(*) AS c FROM fts_notes").fetchone()["c"]
+        if n_notes == 0:
+            self.conn.execute(
+                "INSERT INTO fts_notes (note_id, title, body) "
+                "SELECT note_id, COALESCE(title,''), COALESCE(body,'') FROM notes"
+            )
+        n_chunks = self.conn.execute("SELECT COUNT(*) AS c FROM fts_chunks").fetchone()["c"]
+        if n_chunks == 0:
+            self.conn.execute(
+                "INSERT INTO fts_chunks (chunk_id, text) "
+                "SELECT chunk_id, COALESCE(text,'') FROM chunks"
+            )
+        self.conn.commit()
+
+    def _fts_index_note(self, note_id: str) -> None:
+        """Refresh the FTS row for a note from its (already-written) notes row.
+
+        Called inside upsert_note *before* commit, so the resolved post-COALESCE
+        title/body are visible on the same connection.
+        """
+        if not self.fts_enabled:
+            return
+        row = self.conn.execute(
+            "SELECT title, body FROM notes WHERE note_id=?", (note_id,)
+        ).fetchone()
+        self.conn.execute("DELETE FROM fts_notes WHERE note_id=?", (note_id,))
+        if row is not None:
+            self.conn.execute(
+                "INSERT INTO fts_notes (note_id, title, body) VALUES (?, ?, ?)",
+                (note_id, row["title"] or "", row["body"] or ""),
+            )
+
+    def _fts_index_chunk(self, chunk_id: str, text: str) -> None:
+        if not self.fts_enabled:
+            return
+        self.conn.execute("DELETE FROM fts_chunks WHERE chunk_id=?", (chunk_id,))
+        self.conn.execute(
+            "INSERT INTO fts_chunks (chunk_id, text) VALUES (?, ?)",
+            (chunk_id, text or ""),
+        )
+
+    def _fts_delete_chunk(self, chunk_id: str) -> None:
+        if not self.fts_enabled:
+            return
+        self.conn.execute("DELETE FROM fts_chunks WHERE chunk_id=?", (chunk_id,))
 
     def _migrate_schema(self) -> None:
         """Add columns to pre-existing tables that predate this migration.
@@ -393,6 +506,7 @@ class StateDB:
                  status=excluded.status""",
             (chunk_id, source_id, chapter_id, text, chunk_checksum, locator, section_path, status),
         )
+        self._fts_index_chunk(chunk_id, text)
         self.conn.commit()
 
     def delete_chunks_for_chapter(self, chapter_id: str, keep_ids: set[str]) -> list[str]:
@@ -407,6 +521,7 @@ class StateDB:
         removed = [r["chunk_id"] for r in rows if r["chunk_id"] not in keep_ids]
         for cid in removed:
             self.conn.execute("DELETE FROM chunks WHERE chunk_id=?", (cid,))
+            self._fts_delete_chunk(cid)
         if removed:
             self.conn.commit()
         return removed
@@ -440,6 +555,7 @@ class StateDB:
         removed = [r["chunk_id"] for r in rows]
         for cid in removed:
             self.conn.execute("DELETE FROM chunks WHERE chunk_id=?", (cid,))
+            self._fts_delete_chunk(cid)
         self.conn.execute("DELETE FROM chapters WHERE chapter_id=?", (chapter_id,))
         self.conn.commit()
         return removed
@@ -546,6 +662,7 @@ class StateDB:
                 note_semantic_checksum, auto_checksum, embedding_model, now, now,
             ),
         )
+        self._fts_index_note(note_id)
         self.conn.commit()
 
     def update_note_embedding(
@@ -575,6 +692,72 @@ class StateDB:
         row = self.conn.execute("SELECT COUNT(*) as cnt FROM notes").fetchone()
         return row["cnt"] if row else 0
 
+    # ── Full-text (BM25) search ────────────────────────────────────────
+
+    def search_notes_fts(self, query: str, limit: int = 20) -> list[dict]:
+        """BM25 lexical search over notes. Returns ``[{note_id, rank}]``.
+
+        FTS5's ``rank`` is already best-first (more negative = better match), so
+        ``ORDER BY rank`` needs no sign flip. Returns empty when FTS is disabled
+        or the query has no usable token.
+        """
+        if not self.fts_enabled:
+            return []
+        match = _fts_match_expr(query)
+        if not match:
+            return []
+        try:
+            rows = self.conn.execute(
+                "SELECT note_id, rank FROM fts_notes WHERE fts_notes MATCH ? "
+                "ORDER BY rank LIMIT ?",
+                (match, limit),
+            ).fetchall()
+        except sqlite3.OperationalError as e:
+            logger.warning("Busca FTS de notas falhou: %s", e)
+            return []
+        return [{"note_id": r["note_id"], "rank": r["rank"]} for r in rows]
+
+    def search_chunks_fts(self, query: str, limit: int = 20) -> list[dict]:
+        """BM25 lexical search over chunks. Returns ``[{chunk_id, rank}]``."""
+        if not self.fts_enabled:
+            return []
+        match = _fts_match_expr(query)
+        if not match:
+            return []
+        try:
+            rows = self.conn.execute(
+                "SELECT chunk_id, rank FROM fts_chunks WHERE fts_chunks MATCH ? "
+                "ORDER BY rank LIMIT ?",
+                (match, limit),
+            ).fetchall()
+        except sqlite3.OperationalError as e:
+            logger.warning("Busca FTS de chunks falhou: %s", e)
+            return []
+        return [{"chunk_id": r["chunk_id"], "rank": r["rank"]} for r in rows]
+
+    def rebuild_fts(self) -> dict[str, int]:
+        """Rebuild both FTS tables from scratch from notes/chunks. Returns counts.
+
+        Wired into ``zettel reindex`` so the lexical index is a disposable cache
+        reconstructible from the SQLite source of truth, like the vector index.
+        """
+        if not self.fts_enabled:
+            return {"fts_notes": 0, "fts_chunks": 0}
+        self.conn.execute("DELETE FROM fts_notes")
+        self.conn.execute("DELETE FROM fts_chunks")
+        self.conn.execute(
+            "INSERT INTO fts_notes (note_id, title, body) "
+            "SELECT note_id, COALESCE(title,''), COALESCE(body,'') FROM notes"
+        )
+        self.conn.execute(
+            "INSERT INTO fts_chunks (chunk_id, text) "
+            "SELECT chunk_id, COALESCE(text,'') FROM chunks"
+        )
+        self.conn.commit()
+        n = self.conn.execute("SELECT COUNT(*) AS c FROM fts_notes").fetchone()["c"]
+        m = self.conn.execute("SELECT COUNT(*) AS c FROM fts_chunks").fetchone()["c"]
+        return {"fts_notes": n, "fts_chunks": m}
+
     # ── Note Connections ──────────────────────────────────────────
 
     def upsert_note_connection(
@@ -596,6 +779,29 @@ class StateDB:
             "SELECT * FROM note_connections WHERE source_note_id=? OR target_note_id=?",
             (note_id, note_id),
         )
+
+    def get_connections_for_notes(self, note_ids: list[str]) -> list[dict]:
+        """Batch-fetch every edge touching any of ``note_ids`` (as source or target).
+
+        One query per BFS frontier during graph expansion, instead of N per-note
+        queries. Returns an empty list for an empty input.
+        """
+        if not note_ids:
+            return []
+        placeholders = ",".join("?" * len(note_ids))
+        params = tuple(note_ids) + tuple(note_ids)
+        return self._fetchall(
+            f"SELECT * FROM note_connections "
+            f"WHERE source_note_id IN ({placeholders}) "
+            f"OR target_note_id IN ({placeholders})",
+            params,
+        )
+
+    def count_note_connections(self) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS c FROM note_connections"
+        ).fetchone()
+        return row["c"] if row else 0
 
     # ── MOCs ───────────────────────────────────────────────────────────
 

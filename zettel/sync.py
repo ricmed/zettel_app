@@ -22,13 +22,21 @@ from zettel.hashing import (
     sha256_hex,
 )
 from zettel.index import VectorIndex
+from zettel.retrieval import Retriever
 from zettel.state import StateDB
-from zettel.vault import parse_frontmatter, safe_update_managed_blocks, _slug
+from zettel.vault import _block_pattern, parse_frontmatter, safe_update_managed_blocks, _slug
 
 logger = logging.getLogger(__name__)
 
 # Citekey embedded in a SRC/LIT filename, e.g. "LIT - @Author2024Slug - titulo.md".
 _CITEKEY_IN_NAME = re.compile(r"-\s*@?([A-Za-z0-9]+)\s*-")
+
+# A ZTL wikilink target: ULID is Crockford base32 (no I, L, O, U), 26 chars.
+_ZTL_WIKILINK = re.compile(r"\[\[ZTL - ([0-9A-HJKMNP-TV-Z]{26})")
+
+# Managed blocks whose wikilinks are auto-generated (suggestions / backlinks) and
+# must NOT be treated as user-accepted connections.
+_AUTO_BLOCKS_TO_SKIP = ("auto-connections", "auto-backlinks")
 
 
 def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, int]:
@@ -225,6 +233,7 @@ def _sync_permanent(
         })
         db.update_note_embedding(note_id, emb_hash, cfg.embedding.model)
 
+    _extract_body_edges(db, note_id, body)
     _suggest_connections(cfg, db, idx, note_id, embeddable, file_path)
     return "new" if not existing else "updated"
 
@@ -267,22 +276,96 @@ def _suggest_connections(
     cfg: AppConfig, db: StateDB, idx: VectorIndex,
     note_id: str, embeddable: str, file_path: Path,
 ) -> None:
-    """Suggest connections for a note via the auto-connections managed block."""
-    similar = idx.query_similar_notes(embeddable, n_results=cfg.linking.topk, exclude_id=note_id)
+    """Suggest connections for a note via the auto-connections managed block.
+
+    Uses the hybrid Retriever (dense + BM25 + graph). These remain *suggestions*
+    only — they are written to the vault block, not persisted as graph edges (a
+    suggestion is not an accepted connection).
+    """
+    retriever = Retriever(cfg, db, idx)
+    similar = retriever.search_notes(
+        embeddable, topk=cfg.linking.topk, exclude_id=note_id
+    )
     if not similar:
         return
 
     links: list[str] = []
     for n in similar:
-        nid = n.get("id", "?")
-        meta = n.get("metadata", {})
-        title = meta.get("title", "Sem título")
-        links.append(f"- [[ZTL - {nid} - {_slug(title)}]]")
+        title = n.title or n.metadata.get("title", "Sem título")
+        links.append(f"- [[ZTL - {n.note_id} - {_slug(title)}]]")
 
     if links:
         safe_update_managed_blocks(file_path, {
             "auto-connections": "\n".join(links),
         })
+
+
+def _strip_auto_blocks(body: str) -> str:
+    """Remove auto-generated managed blocks so their wikilinks are not read as edges."""
+    for name in _AUTO_BLOCKS_TO_SKIP:
+        start_tag, end_tag = _block_pattern(name)
+        while True:
+            start = body.find(start_tag)
+            if start == -1:
+                break
+            end = body.find(end_tag, start)
+            if end == -1:
+                body = body[:start]
+                break
+            body = body[:start] + body[end + len(end_tag):]
+    return body
+
+
+def _extract_body_edges(db: StateDB, note_id: str, body: str) -> int:
+    """Persist manual wikilinks in a note body as `related` graph edges.
+
+    This closes the graph loop for hand-written notes: a wikilink the user placed
+    in the body (e.g. under `## Conexoes`) is an *accepted* connection, so it
+    becomes a real edge in note_connections. Auto-generated blocks
+    (`auto-connections` suggestions, `auto-backlinks`) are excluded — a suggestion
+    is not an acceptance. Never downgrades an already-typed edge: an edge is only
+    inserted when the pair has no existing connection in either direction.
+
+    Returns the number of new edges created.
+    """
+    stripped = _strip_auto_blocks(body)
+    targets = {m for m in _ZTL_WIKILINK.findall(stripped) if m != note_id}
+    if not targets:
+        return 0
+
+    existing_edges = db.get_note_connections(note_id)
+    connected_pairs = {
+        frozenset((e["source_note_id"], e["target_note_id"])) for e in existing_edges
+    }
+
+    created = 0
+    for target in targets:
+        if not db.get_note(target):
+            continue  # only link to notes the pipeline knows about
+        if frozenset((note_id, target)) in connected_pairs:
+            continue  # already connected (any type / direction) — do not downgrade
+        db.upsert_note_connection(note_id, target, "related", "wikilink manual")
+        connected_pairs.add(frozenset((note_id, target)))
+        created += 1
+    return created
+
+
+def rebuild_manual_edges(db: StateDB) -> dict[str, int]:
+    """Re-derive `related` edges from every note body already stored in SQLite.
+
+    Backfills the graph for a vault written before this feature existed, without
+    touching any file (note bodies are persisted in the notes table).
+    """
+    notes = db.list_notes()
+    total_edges = 0
+    scanned = 0
+    for note in notes:
+        body = note.get("body")
+        if not body:
+            continue
+        scanned += 1
+        total_edges += _extract_body_edges(db, note["note_id"], body)
+    return {"notes_scanned": scanned, "edges_created": total_edges}
 
 
 def _rewrite_frontmatter(file_path: Path, meta: dict, body: str) -> None:

@@ -157,6 +157,17 @@ Notas existentes relacionadas (use APENAS para conexões):
 {rag_context}
 ```
 
+O bloco de notas relacionadas pode vir em dois grupos:
+
+- **Similares por embedding**: recuperadas por proximidade semântica com o conceito.
+- **Vizinhas por conexão no grafo**: já ligadas por uma conexão explícita a alguma
+  nota similar. Vizinhas marcadas como `contradicts` (tensão) ou `extends`
+  (aprofundamento) costumam render as conexões mais informativas — avalie-as com
+  atenção especial antes de propor `connections`.
+
+Use ambos os grupos apenas como candidatos a conexão; continue priorizando
+qualidade (0-3 conexões) e só conecte quando houver relação conceitual genuína.
+
 Quando `{images_context}` listar figuras, use-as para enriquecer definição/exemplo
 (descreva o mecanismo que o diagrama mostra). As figuras serão embutidas na nota;
 nao invente detalhes que nao estejam na descricao.

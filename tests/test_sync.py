@@ -5,7 +5,7 @@ import yaml
 
 from zettel.config import AppConfig
 from zettel.state import StateDB
-from zettel.sync import run_sync_manual
+from zettel.sync import _extract_body_edges, rebuild_manual_edges, run_sync_manual
 
 
 class FakeIndex:
@@ -120,6 +120,86 @@ def test_resync_unchanged_is_skipped(cfg, db):
     stats2 = run_sync_manual(cfg, db, idx)  # second pass: unchanged
     assert stats2["skipped"] >= 1
     assert stats2["permanent"] == 0
+
+
+# ── Graph edges from manual wikilinks (Etapa 6) ────────────────────────
+
+# Valid ULID-shaped ids (Crockford base32, 26 chars).
+_A = "01HAAAAAAAAAAAAAAAAAAAAAAA"
+_B = "01HBBBBBBBBBBBBBBBBBBBBBBB"
+_C = "01HCCCCCCCCCCCCCCCCCCCCCCC"
+
+
+def _seed(db, *note_ids):
+    for nid in note_ids:
+        db.upsert_note(nid, "@S", f"/p/{nid}.md", f"Nota {nid}", body="corpo")
+
+
+def test_body_wikilink_creates_related_edge(db):
+    _seed(db, _A, _B)
+    body = f"> **Tese**: x\n\n## Conexoes\n\n- [[ZTL - {_B} - nota-b]]: relacionada"
+    created = _extract_body_edges(db, _A, body)
+    assert created == 1
+    edges = db.get_note_connections(_A)
+    assert len(edges) == 1
+    assert edges[0]["relation_type"] == "related"
+    assert {edges[0]["source_note_id"], edges[0]["target_note_id"]} == {_A, _B}
+
+
+def test_wikilink_in_managed_block_is_ignored(db):
+    _seed(db, _A, _B, _C)
+    body = (
+        f"> **Tese**: x\n\n## Conexoes\n\n- [[ZTL - {_B} - nota-b]]\n\n"
+        f"<!-- zettel:auto-connections:start -->\n"
+        f"- [[ZTL - {_C} - nota-c]]\n"
+        f"<!-- zettel:auto-connections:end -->\n"
+    )
+    _extract_body_edges(db, _A, body)
+    edges = db.get_note_connections(_A)
+    targets = {e["target_note_id"] for e in edges} | {e["source_note_id"] for e in edges}
+    assert _B in targets       # body link accepted
+    assert _C not in targets   # suggestion block link ignored
+
+
+def test_self_link_ignored(db):
+    _seed(db, _A)
+    body = f"- [[ZTL - {_A} - eu-mesmo]]"
+    assert _extract_body_edges(db, _A, body) == 0
+    assert db.get_note_connections(_A) == []
+
+
+def test_link_to_unknown_note_ignored(db):
+    _seed(db, _A)  # _B not seeded
+    body = f"- [[ZTL - {_B} - fantasma]]"
+    assert _extract_body_edges(db, _A, body) == 0
+
+
+def test_existing_typed_edge_not_downgraded(db):
+    _seed(db, _A, _B)
+    db.upsert_note_connection(_A, _B, "contradicts", "tensiona")
+    body = f"- [[ZTL - {_B} - nota-b]]"
+    created = _extract_body_edges(db, _A, body)
+    assert created == 0
+    edges = db.get_note_connections(_A)
+    assert len(edges) == 1
+    assert edges[0]["relation_type"] == "contradicts"  # preserved
+
+
+def test_existing_reverse_edge_not_duplicated(db):
+    _seed(db, _A, _B)
+    db.upsert_note_connection(_B, _A, "extends", "")  # reverse direction
+    body = f"- [[ZTL - {_B} - nota-b]]"
+    assert _extract_body_edges(db, _A, body) == 0
+
+
+def test_rebuild_manual_edges_backfills(db):
+    _seed(db, _A, _C)
+    # Overwrite _A's body to contain a link to _C.
+    db.upsert_note(_A, "@S", f"/p/{_A}.md", "Nota A",
+                   body=f"## Conexoes\n\n- [[ZTL - {_C} - nota-c]]")
+    stats = rebuild_manual_edges(db)
+    assert stats["edges_created"] == 1
+    assert db.count_note_connections() == 1
 
 
 def test_edited_moc_returns_updated(cfg, db):

@@ -427,13 +427,26 @@ def rechunk(
 @app.command(name="sync-manual")
 def sync_manual(
     config: Optional[str] = typer.Option(None, "--config", "-c"),
+    rebuild_graph: bool = typer.Option(
+        False, "--rebuild-graph",
+        help="Re-deriva arestas 'related' dos wikilinks no corpo de todas as notas",
+    ),
 ):
     """Sincronizar notas manuais do vault com o índice vetorial."""
     cfg = _load_deps(config)
     db = _get_db(cfg)
     idx = _get_idx(cfg)
 
-    from zettel.sync import run_sync_manual
+    from zettel.sync import rebuild_manual_edges, run_sync_manual
+
+    if rebuild_graph:
+        with console.status("[bold blue]Reconstruindo grafo de conexoes...", spinner="dots"):
+            gstats = rebuild_manual_edges(db)
+        console.print(
+            f"[green]Grafo:[/green] {gstats['edges_created']} aresta(s) nova(s) "
+            f"de {gstats['notes_scanned']} nota(s) com corpo."
+        )
+
     with console.status("[bold blue]Sincronizando notas manuais...", spinner="dots"):
         stats = run_sync_manual(cfg, db, idx)
 
@@ -592,6 +605,85 @@ def run_all(
     db.close()
 
 
+# ── ask ───────────────────────────────────────────────────────────────
+
+
+@app.command()
+def ask(
+    question: str = typer.Argument(..., help="Pergunta sobre o vault"),
+    config: Optional[str] = typer.Option(None, "--config", "-c"),
+    topk: Optional[int] = typer.Option(None, "--topk", help="Numero de notas semente"),
+    no_graph: bool = typer.Option(False, "--no-graph", help="Desliga expansao por grafo"),
+    mode: Optional[str] = typer.Option(None, "--mode", help="vector | hybrid"),
+    show_context: bool = typer.Option(
+        False, "--show-context", help="Exibe as notas recuperadas (debug)"
+    ),
+    save: bool = typer.Option(
+        False, "--save", help="Salva a resposta em .md no local padrao (sem perguntar)"
+    ),
+    save_to: Optional[str] = typer.Option(
+        None, "--save-to", help="Salva a resposta em .md no caminho informado"
+    ),
+    no_save_prompt: bool = typer.Option(
+        False, "--no-save-prompt", help="Nao perguntar se deve salvar (para scripts)"
+    ),
+):
+    """Responder uma pergunta usando as notas do vault (recuperacao hibrida + grafo)."""
+    cfg = _load_deps(config)
+    db = _get_db(cfg)
+    idx = _get_idx(cfg)
+
+    from zettel.ask import run_ask, save_ask_note
+
+    with console.status("[bold blue]Consultando o acervo...", spinner="dots"):
+        result = run_ask(
+            cfg, db, idx, question,
+            topk=topk,
+            use_graph=not no_graph,
+            mode=mode,
+        )
+
+    console.print(Panel(result.answer.strip() or "(sem resposta)", title="Resposta"))
+
+    if show_context or result.sources:
+        ctx_table = Table(title="Notas consultadas")
+        ctx_table.add_column("Nota", style="bold")
+        ctx_table.add_column("Score", justify="right")
+        ctx_table.add_column("Salto", justify="right")
+        ctx_table.add_column("Origem")
+        for src in result.sources:
+            ctx_table.add_row(
+                src.title or src.note_id,
+                f"{src.score:.4f}",
+                str(src.hop),
+                src.origin,
+            )
+        console.print(ctx_table)
+
+    # Save the answer with full provenance.
+    saved_path = None
+    if save_to:
+        saved_path = save_ask_note(result, cfg.vault_path, Path(save_to))
+    elif save:
+        saved_path = save_ask_note(result, cfg.vault_path)
+    elif not no_save_prompt:
+        from rich.prompt import Confirm
+        try:
+            if Confirm.ask("Salvar esta resposta como nota .md?", default=False):
+                saved_path = save_ask_note(result, cfg.vault_path)
+        except (EOFError, KeyboardInterrupt):
+            pass
+
+    if saved_path:
+        try:
+            rel = saved_path.relative_to(cfg.vault_path)
+            console.print(f"[green]Resposta salva em:[/green] {rel}")
+        except ValueError:
+            console.print(f"[green]Resposta salva em:[/green] {saved_path}")
+
+    db.close()
+
+
 # ── status ────────────────────────────────────────────────────────────
 
 
@@ -623,6 +715,8 @@ def status(
         val = stats.get(key, 0)
         style = "red" if key == "chunks_pending" and val > 0 else ""
         table.add_row(label, str(val), style=style)
+
+    table.add_row("Conexoes (grafo)", str(db.count_note_connections()))
 
     console.print(table)
 
@@ -679,10 +773,21 @@ def doctor(
     # Prompts
     prompt_files = ["literature_note.md", "permanent_note.md", "dedupe_decision.md",
                     "relationship.md", "moc_generation.md", "moc_incremental.md",
-                    "ptbr_guard.md", "image_description.md"]
+                    "ptbr_guard.md", "image_description.md", "ask.md"]
     for pf in prompt_files:
         p = cfg.prompts_path / pf
         checks.append((f"Prompt: {pf}", p.exists(), str(p)))
+
+    # FTS5 (BM25 hybrid search) availability in the SQLite build
+    db_check = _get_db(cfg)
+    try:
+        checks.append((
+            "SQLite FTS5 (busca hibrida)",
+            db_check.fts_enabled,
+            "disponivel" if db_check.fts_enabled else "indisponivel (usa vetor puro)",
+        ))
+    finally:
+        db_check.close()
 
     # Dependencies
     deps = [

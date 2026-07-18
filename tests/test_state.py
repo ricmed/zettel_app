@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from zettel.state import StateDB
+from zettel.state import StateDB, _fts_match_expr
 
 
 @pytest.fixture
@@ -266,3 +266,142 @@ def test_delete_chunks_for_chapter(db):
     assert set(removed) == {"@S::ch000::b", "@S::ch000::c"}
     remaining = {c["chunk_id"] for c in db.get_chunks_for_source("@S")}
     assert remaining == {"@S::ch000::a"}
+
+
+# ── FTS5 escaping ──────────────────────────────────────────────────────
+
+
+def test_fts_match_expr_quotes_and_neutralizes_operators():
+    # Each token becomes a double-quoted term joined by OR — FTS operators inert.
+    assert _fts_match_expr("machine learning") == '"machine" OR "learning"'
+    # Operator/punctuation tokens are split by \w+, so "-", NEAR(), ":" never leak.
+    assert _fts_match_expr("deep-learning NEAR redes") == (
+        '"deep" OR "learning" OR "NEAR" OR "redes"'
+    )
+    # C++ -> just "C" dropped (len<2) and "" — only tokens >= 2 chars survive.
+    assert _fts_match_expr("C++") is None
+    # Empty / whitespace / all-short -> None
+    assert _fts_match_expr("") is None
+    assert _fts_match_expr("   ") is None
+    assert _fts_match_expr("a b c") is None
+
+
+def test_fts_match_expr_caps_token_count():
+    many = " ".join(f"tok{i}" for i in range(50))
+    expr = _fts_match_expr(many, max_tokens=32)
+    assert expr.count(" OR ") == 31  # 32 tokens => 31 separators
+
+
+# ── FTS5 index sync + search ───────────────────────────────────────────
+
+
+def test_fts_notes_populated_on_upsert_and_search(db):
+    if not db.fts_enabled:
+        pytest.skip("SQLite build sem FTS5")
+    db.upsert_note("n1", "@S", "/p/n1.md", "Aprendizado de Maquina", body="redes neurais profundas")
+    db.upsert_note("n2", "@S", "/p/n2.md", "Bancos de Dados", body="indices e transacoes")
+
+    hits = db.search_notes_fts("redes neurais")
+    ids = [h["note_id"] for h in hits]
+    assert "n1" in ids
+    assert "n2" not in ids
+
+
+def test_fts_search_matches_across_accents(db):
+    if not db.fts_enabled:
+        pytest.skip("SQLite build sem FTS5")
+    db.upsert_note("n1", "@S", "/p/n1.md", "Conexao", body="grafo de conexões tipadas")
+    # Query without accent must match indexed text with accent (remove_diacritics 2).
+    hits = db.search_notes_fts("conexoes")
+    assert any(h["note_id"] == "n1" for h in hits)
+
+
+def test_fts_chunks_populated_and_deleted(db):
+    if not db.fts_enabled:
+        pytest.skip("SQLite build sem FTS5")
+    db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
+    db.upsert_chapter("@S::ch000", "@S", "Ch", "chk")
+    db.upsert_chunk("@S::ch000::a", "@S", "@S::ch000", "transformers e atencao", "cka")
+    assert any(h["chunk_id"] == "@S::ch000::a" for h in db.search_chunks_fts("transformers"))
+
+    db.delete_chunks_for_chapter("@S::ch000", keep_ids=set())
+    assert db.search_chunks_fts("transformers") == []
+
+
+def test_fts_reindex_on_note_update(db):
+    if not db.fts_enabled:
+        pytest.skip("SQLite build sem FTS5")
+    db.upsert_note("n1", "@S", "/p/n1.md", "Titulo", body="conteudo antigo sobre arvores")
+    assert any(h["note_id"] == "n1" for h in db.search_notes_fts("arvores"))
+    db.upsert_note("n1", "@S", "/p/n1.md", "Titulo", body="conteudo novo sobre florestas")
+    # Old term gone, new term found.
+    assert db.search_notes_fts("arvores") == []
+    assert any(h["note_id"] == "n1" for h in db.search_notes_fts("florestas"))
+
+
+def test_rebuild_fts_counts(db):
+    if not db.fts_enabled:
+        pytest.skip("SQLite build sem FTS5")
+    db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
+    db.upsert_chapter("@S::ch000", "@S", "Ch", "chk")
+    db.upsert_chunk("@S::ch000::a", "@S", "@S::ch000", "texto", "cka")
+    db.upsert_note("n1", "@S", "/p/n1.md", "Titulo", body="corpo")
+    counts = db.rebuild_fts()
+    assert counts == {"fts_notes": 1, "fts_chunks": 1}
+
+
+def test_fts_backfill_on_preexisting_db(tmp_path):
+    """A DB that already has notes/chunks but no FTS gets backfilled on open."""
+    path = tmp_path / "pre.db"
+    db1 = StateDB(path)
+    if not db1.fts_enabled:
+        db1.close()
+        pytest.skip("SQLite build sem FTS5")
+    db1.upsert_note("n1", "@S", "/p/n1.md", "Titulo", body="grafos de conhecimento")
+    # Simulate a DB created before FTS: drop the FTS tables, then reopen.
+    db1.conn.execute("DROP TABLE fts_notes")
+    db1.conn.execute("DROP TABLE fts_chunks")
+    db1.conn.commit()
+    db1.close()
+
+    db2 = StateDB(path)
+    try:
+        hits = db2.search_notes_fts("grafos")
+        assert any(h["note_id"] == "n1" for h in hits)
+    finally:
+        db2.close()
+
+
+# ── note_connections (graph edges) ─────────────────────────────────────
+
+
+def test_note_connections_roundtrip_and_batch(db):
+    db.upsert_note_connection("a", "b", "supports", "reforca a tese")
+    db.upsert_note_connection("a", "c", "contradicts", "tensiona")
+    db.upsert_note_connection("b", "d", "related")
+
+    assert db.count_note_connections() == 3
+
+    # get_note_connections: edges where the note is source OR target.
+    a_edges = db.get_note_connections("a")
+    assert len(a_edges) == 2
+    b_edges = db.get_note_connections("b")
+    assert {e["source_note_id"] + "->" + e["target_note_id"] for e in b_edges} == {
+        "a->b", "b->d",
+    }
+
+    # Batch fetch for BFS frontier.
+    batch = db.get_connections_for_notes(["a", "d"])
+    keys = {(e["source_note_id"], e["target_note_id"], e["relation_type"]) for e in batch}
+    assert ("a", "b", "supports") in keys
+    assert ("a", "c", "contradicts") in keys
+    assert ("b", "d", "related") in keys
+    assert db.get_connections_for_notes([]) == []
+
+
+def test_note_connection_upsert_updates_description(db):
+    db.upsert_note_connection("a", "b", "related", "primeira")
+    db.upsert_note_connection("a", "b", "related", "atualizada")
+    edges = db.get_note_connections("a")
+    assert len(edges) == 1
+    assert edges[0]["description"] == "atualizada"
