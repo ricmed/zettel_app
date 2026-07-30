@@ -45,6 +45,10 @@ harvest:
   #   continue -> processa mesmo assim como nova fonte
   #   abort    -> interrompe o harvest inteiro
   non_interactive_duplicate_action: skip
+  # Metadados bibliograficos ABNT (inferencia + LLM + prompt interativo)
+  biblio_confidence_threshold: 0.7    # abaixo disso, pede confirmacao do tipo
+  biblio_llm_enabled: true            # enriquece metadados via LLM apos heuristicas
+  biblio_text_sample_chars: 5000      # amostra inicial enviada ao LLM
 
 # ── Extraction (Filtragem de Candidatos) ──────────────────────────────
 extraction:

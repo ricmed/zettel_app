@@ -38,12 +38,15 @@ class AskSource:
     note_id: str
     title: str
     wiki_link: str
-    score: float
+    rrf_score: float                  # fused Reciprocal Rank Fusion score (positional, not a relevance measure)
     hop: int
     origin: str                       # human-readable: "busca" or "conexao ..."
     source_id: Optional[str] = None
     path: Optional[str] = None
     passed_floor: bool = True         # False = shown for transparency, not used to answer
+    vector_similarity: Optional[float] = None  # cosine similarity (1 - distance/2), when available
+    bm25_rank: Optional[int] = None   # position in the lexical (BM25) ranking, when found
+    floor_reason: str = ""            # human-readable explanation of the floor verdict
 
 
 @dataclass
@@ -59,6 +62,11 @@ class AskResult:
     graph_expansion: bool = True
     llm_model: str = ""
     llm_called: bool = False
+    # Snapshot of the retrieval parameters actually used for this call (topk,
+    # RRF/floor/graph thresholds), for `--show-context` to display alongside
+    # the per-note results — so the reader can see *why* the floor decided
+    # what it decided, not just the verdict.
+    retrieval_params: dict = field(default_factory=dict)
 
 
 # ── Public API ─────────────────────────────────────────────────────────
@@ -86,6 +94,24 @@ def run_ask(
     )
     hits = result_pool.hits[: ask_cfg.max_context_notes]
 
+    floor_cfg = cfg.retrieval.relevance_floor
+    graph_cfg = cfg.retrieval.graph_expansion
+    retrieval_params = {
+        "mode": mode,
+        "topk": topk,
+        "max_context_notes": ask_cfg.max_context_notes,
+        "rrf_k": cfg.retrieval.rrf_k,
+        "relevance_floor_enabled": floor_cfg.enabled,
+        "min_vector_similarity": floor_cfg.min_vector_similarity,
+        "absolute_min_similarity": floor_cfg.absolute_min_similarity,
+        "bm25_hit_bypasses_floor": floor_cfg.bm25_hit_bypasses_floor,
+        "bm25_bypass_max_rank": floor_cfg.bm25_bypass_max_rank,
+        "graph_expansion_used": bool(use_graph),
+        "graph_max_hops": graph_cfg.max_hops,
+        "graph_decay": graph_cfg.decay,
+        "graph_max_neighbors": graph_cfg.max_neighbors,
+    }
+
     result = AskResult(
         question=question,
         answer="",
@@ -94,6 +120,7 @@ def run_ask(
         mode=mode,
         graph_expansion=bool(use_graph),
         llm_model=cfg.llm.model,
+        retrieval_params=retrieval_params,
     )
 
     if not hits:
@@ -179,16 +206,24 @@ def _to_ask_source(db: "StateDB", hit: RetrievedNote) -> AskSource:
         if row:
             source_id = source_id or row.get("source_id")
             path = path or row.get("path")
+    similarity = (
+        round(1.0 - hit.vector_distance / 2.0, 4)
+        if hit.vector_distance is not None
+        else None
+    )
     return AskSource(
         note_id=hit.note_id,
         title=hit.title,
         wiki_link=_wiki_link(hit.note_id, hit.title),
-        score=round(hit.score, 5),
+        rrf_score=round(hit.score, 5),
         hop=hit.hop,
         origin=_origin_label(hit),
         source_id=source_id,
         path=path,
         passed_floor=hit.passed_floor,
+        vector_similarity=similarity,
+        bm25_rank=hit.bm25_rank,
+        floor_reason=hit.floor_reason,
     )
 
 
@@ -223,10 +258,16 @@ def build_ask_note_body(result: AskResult) -> tuple[dict, str]:
         for src in result.sources:
             detail = f"- {src.wiki_link} — {src.title or 'Sem titulo'}"
             lines.append(detail)
-            sub = [f"origem: {src.origin}", f"score: {src.score}"]
+            sub = [f"origem: {src.origin}", f"score RRF: {src.rrf_score}"]
+            if src.vector_similarity is not None:
+                sub.append(f"similaridade: {src.vector_similarity}")
+            if src.bm25_rank is not None:
+                sub.append(f"rank BM25: {src.bm25_rank}")
             if src.source_id:
                 sub.append(f"fonte: {src.source_id}")
             lines.append(f"    - {' | '.join(sub)}")
+            if src.floor_reason:
+                lines.append(f"    - motivo: {src.floor_reason}")
     else:
         lines.append("- (nenhuma nota recuperada)")
     lines.append("")

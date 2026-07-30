@@ -80,6 +80,9 @@ CREATE TABLE IF NOT EXISTS sources (
     extracted_text       TEXT,
     lit_body             TEXT,
     origin               TEXT NOT NULL DEFAULT 'pipeline',
+    document_type        TEXT,
+    bibliography_json    TEXT,
+    abnt_reference       TEXT,
     created_at           TEXT NOT NULL,
     updated_at           TEXT NOT NULL
 );
@@ -341,6 +344,10 @@ class StateDB:
             ("mocs", "body", "TEXT"),
             ("mocs", "frontmatter_json", "TEXT"),
             ("mocs", "origin", "TEXT NOT NULL DEFAULT 'pipeline'"),
+            # Metadados bibliograficos ABNT
+            ("sources", "document_type", "TEXT"),
+            ("sources", "bibliography_json", "TEXT"),
+            ("sources", "abnt_reference", "TEXT"),
         ]
         for table, column, coltype in migrations:
             try:
@@ -416,22 +423,30 @@ class StateDB:
         origin_type: str,
         extraction_checksum: str | None = None,
         origin: str = "pipeline",
+        document_type: str | None = None,
+        bibliography_json: str | None = None,
+        abnt_reference: str | None = None,
     ) -> None:
         now = self._now()
         self.conn.execute(
             """INSERT INTO sources (source_id, citekey, title, authors, year, file_checksum,
                                     extraction_checksum, origin_path, origin_type, origin,
+                                    document_type, bibliography_json, abnt_reference,
                                     created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(source_id) DO UPDATE SET
                  title=excluded.title, authors=excluded.authors, year=excluded.year,
                  file_checksum=excluded.file_checksum,
                  extraction_checksum=excluded.extraction_checksum,
                  origin=excluded.origin,
+                 document_type=COALESCE(excluded.document_type, sources.document_type),
+                 bibliography_json=COALESCE(excluded.bibliography_json, sources.bibliography_json),
+                 abnt_reference=COALESCE(excluded.abnt_reference, sources.abnt_reference),
                  updated_at=excluded.updated_at""",
             (
                 source_id, citekey, title, json.dumps(authors), year, file_checksum,
-                extraction_checksum, origin_path, origin_type, origin, now, now,
+                extraction_checksum, origin_path, origin_type, origin,
+                document_type, bibliography_json, abnt_reference, now, now,
             ),
         )
         self.conn.commit()

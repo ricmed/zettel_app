@@ -6,6 +6,7 @@ Audio support is stub-only (requires faster-whisper).
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from pathlib import Path
@@ -47,6 +48,7 @@ def run_harvest(
     idx: VectorIndex,
     interactive: bool = True,
     duplicate_action: str | None = None,
+    skip_biblio: bool = False,
 ) -> list[str]:
     """Scan inbox, extract text, create SRC/LIT notes, chunk. Returns new source_ids.
 
@@ -56,6 +58,8 @@ def run_harvest(
             default `harvest.non_interactive_duplicate_action`) decides automatically.
         duplicate_action: overrides the configured non-interactive default
             ("skip" | "continue" | "abort"). Ignored when `interactive` is True.
+        skip_biblio: if True, allow incomplete bibliographic metadata in non-interactive
+            mode; otherwise incomplete biblio skips the file when not interactive.
     """
     new_sources: list[str] = []
     inbox = cfg.inbox_path
@@ -86,6 +90,7 @@ def run_harvest(
         for file_path in files:
             sid, stats = _process_file(
                 cfg, db, idx, file_path, run_id, interactive, duplicate_action,
+                skip_biblio=skip_biblio,
             )
             if sid:
                 new_sources.append(sid)
@@ -241,6 +246,7 @@ def _process_file(
     run_id: int,
     interactive: bool = True,
     duplicate_action: str | None = None,
+    skip_biblio: bool = False,
 ) -> tuple[str | None, dict[str, int]]:
     """Process a single file: extract, chunk, persist. Returns (source_id, stats) or (None, {})."""
     empty_stats: dict[str, int] = {}
@@ -294,9 +300,34 @@ def _process_file(
             return _complete_incomplete_source(cfg, db, idx, sid)
         return None, empty_stats
 
-    title = metadata.get("title", file_path.stem)
-    authors = metadata.get("authors", [])
-    year = metadata.get("year")
+    # ── Metadados bibliograficos (ABNT) ────────────────────────────────
+    from zettel.bibliography import (
+        bibliography_dict,
+        build_bibliographic_metadata,
+        format_abnt,
+        frontmatter_biblio_fields,
+        primary_authors,
+        primary_title,
+    )
+    biblio = build_bibliographic_metadata(cfg, db, metadata, text, file_path.name)
+    biblio = _resolve_bibliography(
+        file_path, biblio, interactive, skip_biblio, cfg,
+    )
+    if biblio is None:
+        logger.warning(
+            "Arquivo '%s' pulado: metadados bibliograficos incompletos "
+            "(use --skip-biblio no modo nao-interativo para forcar).",
+            file_path.name,
+        )
+        return None, empty_stats
+
+    title = primary_title(biblio, fallback=metadata.get("title", file_path.stem))
+    authors = primary_authors(biblio) or list(metadata.get("authors") or [])
+    year = biblio.year if biblio.year is not None else metadata.get("year")
+    abnt_reference = format_abnt(biblio) if biblio.document_type else ""
+    biblio_json = json.dumps(bibliography_dict(biblio), ensure_ascii=False)
+    biblio_fm = frontmatter_biblio_fields(biblio)
+
     citekey = _generate_citekey(db, authors, year, title)
     source_id = f"@{citekey}"
 
@@ -335,6 +366,9 @@ def _process_file(
         source_id=source_id, citekey=citekey, title=title, authors=authors,
         year=year, file_checksum=checksum, origin_path=str(file_path),
         origin_type=origin_type, extraction_checksum=extraction_checksum,
+        document_type=biblio.document_type,
+        bibliography_json=biblio_json,
+        abnt_reference=abnt_reference or None,
     )
     # Retencao: guarda o texto extraido completo para permitir rechunk/rebuild sem
     # reprocessar o arquivo original.
@@ -346,8 +380,13 @@ def _process_file(
         from zettel.assets import register_assets
         register_assets(db, source_id, chapters, images)
 
-    _create_vault_notes(cfg, source_id, citekey, title, authors, year,
-                        str(file_path), origin_type, checksum)
+    _create_vault_notes(
+        cfg, source_id, citekey, title, authors, year,
+        str(file_path), origin_type, checksum,
+        document_type=biblio.document_type,
+        biblio_fields=biblio_fm,
+        abnt_reference=abnt_reference or None,
+    )
 
     idx.upsert_source(source_id, f"{title} -- {', '.join(authors)}", {
         "citekey": citekey, "title": title, "origin_type": origin_type,
@@ -467,6 +506,166 @@ def _resolve_duplicate_decision(
         console=console,
     )
     return {"pular": "skip", "continuar": "continue", "abortar": "abort"}[choice]
+
+
+def _resolve_bibliography(
+    file_path: Path,
+    biblio: Any,
+    interactive: bool,
+    skip_biblio: bool,
+    cfg: AppConfig,
+) -> Any | None:
+    """Confirm/complete bibliographic metadata. Returns meta or None to skip file."""
+    from zettel.bibliography import (
+        BIBLIO_FRONTMATTER_FIELDS,
+        DOCUMENT_TYPE_LABELS,
+        DOCUMENT_TYPES,
+        FIELD_LABELS,
+        REQUIRED_FIELDS,
+        BibliographicMetadata,
+        format_abnt,
+        is_complete,
+        missing_required,
+        required_fields,
+    )
+
+    threshold = cfg.harvest.biblio_confidence_threshold
+    if is_complete(biblio, threshold):
+        return biblio
+
+    missing = missing_required(biblio)
+    low_confidence = not biblio.document_type or biblio.confidence < threshold
+
+    if not interactive:
+        if skip_biblio:
+            logger.warning(
+                "Metadados bibliograficos incompletos para '%s' "
+                "(faltando: %s; confidence=%.2f). Seguindo por --skip-biblio.",
+                file_path.name, ", ".join(missing) or "tipo incerto", biblio.confidence,
+            )
+            return biblio
+        return None
+
+    from rich.console import Console
+    from rich.prompt import Confirm, Prompt
+    from rich.table import Table
+
+    console = Console(stderr=True)
+    console.print(f"\n[bold]Metadados bibliograficos: {file_path.name}[/bold]")
+
+    table = Table(title="Campos inferidos")
+    table.add_column("Campo")
+    table.add_column("Valor")
+    table.add_row("document_type", biblio.document_type or "(ausente)")
+    table.add_row("confidence", f"{biblio.confidence:.2f}")
+    preview_fields = (
+        required_fields(biblio.document_type)
+        if biblio.document_type
+        else ["title", "authors", "year"]
+    )
+    for field in preview_fields:
+        if field == "document_type":
+            continue
+        value = getattr(biblio, field, None)
+        if isinstance(value, list):
+            display = ", ".join(value) if value else "(vazio)"
+        else:
+            display = str(value) if value not in (None, "") else "(vazio)"
+        table.add_row(FIELD_LABELS.get(field, field), display)
+    console.print(table)
+
+    meta = biblio.model_copy(deep=True)
+
+    if low_confidence or not meta.document_type:
+        console.print("Tipos disponiveis:")
+        for i, dtype in enumerate(DOCUMENT_TYPES, 1):
+            console.print(f"  {i}. {dtype} — {DOCUMENT_TYPE_LABELS[dtype]}")
+        default_idx = (
+            str(DOCUMENT_TYPES.index(meta.document_type) + 1)
+            if meta.document_type in DOCUMENT_TYPES
+            else "1"
+        )
+        choice = Prompt.ask(
+            "Tipo documental",
+            choices=[str(i) for i in range(1, len(DOCUMENT_TYPES) + 1)],
+            default=default_idx,
+            console=console,
+        )
+        meta.document_type = DOCUMENT_TYPES[int(choice) - 1]
+        meta.confidence = max(meta.confidence, threshold)
+
+    # So pede campos obrigatorios ainda vazios (nao re-pergunta o que ja veio inferido).
+    to_fill = [f for f in missing_required(meta) if f != "document_type"]
+    if to_fill:
+        console.print(
+            "[cyan]Preencha os campos obrigatorios faltantes "
+            "(Enter deixa vazio):[/cyan]"
+        )
+    for field in to_fill:
+        current = getattr(meta, field, None)
+        if isinstance(current, list):
+            default = ", ".join(current) if current else ""
+        elif current is None:
+            default = ""
+        else:
+            default = str(current)
+
+        label = FIELD_LABELS.get(field, field)
+        answer = Prompt.ask(label, default=default or "", console=console)
+        answer = answer.strip()
+        if field in ("authors", "chapter_authors", "book_editors"):
+            setattr(
+                meta, field,
+                [a.strip() for a in answer.split(",") if a.strip()] if answer else [],
+            )
+        elif field == "year":
+            try:
+                setattr(meta, field, int(answer) if answer else None)
+            except ValueError:
+                setattr(meta, field, None)
+        else:
+            setattr(meta, field, answer or None)
+
+    still_missing = missing_required(meta)
+    if still_missing:
+        console.print(
+            f"[yellow]Ainda faltam campos obrigatorios: {', '.join(still_missing)}[/yellow]"
+        )
+        if Confirm.ask("Continuar mesmo assim?", default=False, console=console):
+            meta.confidence = max(meta.confidence, threshold)
+            return meta
+        return None
+
+    if Confirm.ask("Preencher campos opcionais?", default=False, console=console):
+        optional = [
+            f for f in BIBLIO_FRONTMATTER_FIELDS
+            if f not in REQUIRED_FIELDS.get(meta.document_type, ())
+        ]
+        for field in optional:
+            current = getattr(meta, field, None)
+            if isinstance(current, list) and current:
+                continue
+            if isinstance(current, str) and current.strip():
+                continue
+            if current not in (None, "", []):
+                continue
+            label = FIELD_LABELS.get(field, field)
+            answer = Prompt.ask(f"{label} (opcional)", default="", console=console)
+            answer = answer.strip()
+            if not answer:
+                continue
+            if field in ("authors", "chapter_authors", "book_editors"):
+                setattr(meta, field, [a.strip() for a in answer.split(",") if a.strip()])
+            else:
+                setattr(meta, field, answer)
+
+    abnt = format_abnt(meta)
+    console.print(f"\n[bold]Referencia ABNT:[/bold]\n{abnt}")
+    if not Confirm.ask("Confirmar metadados?", default=True, console=console):
+        return None
+
+    meta.confidence = max(meta.confidence, threshold)
+    return BibliographicMetadata.model_validate(meta.model_dump())
 
 
 # ── Year Extraction Helpers ────────────────────────────────────────────
@@ -699,7 +898,25 @@ def _extract_markdown(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str, A
     from zettel.assets import extract_markdown_images
     body, images = extract_markdown_images(cfg, body, file_path)
 
-    return body, {"title": title, "authors": authors, "year": year, "_images": images}
+    meta: dict[str, Any] = {
+        "title": title, "authors": authors, "year": year, "_images": images,
+    }
+    # Pass through known bibliographic frontmatter fields for ABNT inference.
+    _BIBLIO_KEYS = (
+        "document_type", "subtitle", "edition", "place", "city", "publisher",
+        "editora", "translator", "traducao", "isbn", "journal", "periodico",
+        "volume", "issue", "number", "pages", "paginas", "doi", "url",
+        "accessed_at", "access_date", "site_name", "published_at",
+        "institution", "instituicao", "course", "curso", "discipline",
+        "disciplina", "degree", "advisor", "orientador", "event_name",
+        "report_number", "chapter_title", "book_title", "chapter_authors",
+        "book_editors", "editors",
+    )
+    for key in _BIBLIO_KEYS:
+        if key in fm_meta and fm_meta[key] not in (None, ""):
+            meta[key] = fm_meta[key]
+
+    return body, meta
 
 
 # ── Citekey Generation ────────────────────────────────────────────────
@@ -961,12 +1178,18 @@ def _create_vault_notes(
     cfg: AppConfig, source_id: str, citekey: str, title: str,
     authors: list[str], year: int | None, origin_path: str,
     origin_type: str, checksum: str,
+    document_type: str | None = None,
+    biblio_fields: dict[str, Any] | None = None,
+    abnt_reference: str | None = None,
 ) -> None:
     """Create SRC and LIT notes in the vault."""
     vault = cfg.vault_path
 
     src_meta, src_body = build_source_note(
-        source_id, citekey, title, authors, year, origin_path, origin_type, checksum
+        source_id, citekey, title, authors, year, origin_path, origin_type, checksum,
+        document_type=document_type,
+        biblio_fields=biblio_fields,
+        abnt_reference=abnt_reference,
     )
     src_filename = note_filename("SRC", f"@{citekey}", title)
     safe_write_note(vault / "10_Sources" / src_filename, src_meta, src_body)

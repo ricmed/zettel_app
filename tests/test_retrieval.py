@@ -3,7 +3,7 @@
 import pytest
 
 from zettel.config import AppConfig
-from zettel.retrieval import Retriever
+from zettel.retrieval import RetrievedNote, Retriever
 from zettel.state import StateDB
 
 
@@ -196,6 +196,79 @@ def test_no_hits_when_everything_below_floor_but_candidates_shown(db):
     assert result.hits == []
     assert {c.note_id for c in result.candidates} == {"n1", "n2"}
     assert all(not c.passed_floor for c in result.candidates)
+
+
+# ── Floor refinements: bm25_bypass_max_rank + absolute_min_similarity ──
+
+
+def _floor(cfg, hit):
+    """Run just the floor logic on a single synthetic hit (unit-level)."""
+    r = Retriever(cfg, db=None, idx=None)
+    r._apply_relevance_floor([hit], None, None)
+    return hit
+
+
+def test_strong_bm25_rank_bypasses_low_similarity():
+    cfg = _cfg()  # default bm25_bypass_max_rank=5
+    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=2)  # sim=0.65
+    _floor(cfg, hit)
+    assert hit.passed_floor is True
+    assert "forte" in hit.floor_reason
+
+
+def test_weak_bm25_rank_does_not_bypass():
+    cfg = _cfg()  # default bm25_bypass_max_rank=5
+    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=8)  # sim=0.65
+    _floor(cfg, hit)
+    # Rank 8 > max_rank 5 -> falls through to the similarity check, which fails.
+    assert hit.passed_floor is False
+    assert "abaixo do piso" in hit.floor_reason
+
+
+def test_bm25_bypass_max_rank_is_configurable():
+    cfg = _cfg()
+    cfg.retrieval.relevance_floor.bm25_bypass_max_rank = 10
+    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=8)  # sim=0.65
+    _floor(cfg, hit)
+    assert hit.passed_floor is True  # now within the widened rank window
+
+
+def test_absolute_min_similarity_blocks_even_strong_bm25_bypass():
+    """A hard backstop: an embedding-orthogonal note can't be rescued by BM25."""
+    cfg = _cfg()  # default absolute_min_similarity=0.15
+    # distance=1.8 -> similarity = 1 - 1.8/2 = 0.10, below the 0.15 hard floor.
+    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=1.8, bm25_rank=1)
+    _floor(cfg, hit)
+    assert hit.passed_floor is False
+    assert "minimo absoluto" in hit.floor_reason
+
+
+def test_absolute_min_similarity_does_not_block_legitimate_rescue():
+    """A jargon/acronym rescue (moderate similarity, strong bm25) still works."""
+    cfg = _cfg()
+    # similarity 0.40 -- well above absolute_min_similarity (0.15) and below
+    # min_vector_similarity (0.70), but rescued by a strong bm25 rank.
+    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=1.2, bm25_rank=1)
+    _floor(cfg, hit)
+    assert hit.passed_floor is True
+
+
+def test_weak_bm25_only_hit_with_no_vector_data_fails():
+    """A hit found only via a weak bm25 rank, with no vector data, is rejected."""
+    cfg = _cfg()
+    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=None, bm25_rank=9)
+    _floor(cfg, hit)
+    assert hit.passed_floor is False
+    assert "fraco" in hit.floor_reason
+
+
+def test_floor_reason_populated_when_disabled():
+    cfg = _cfg()
+    cfg.retrieval.relevance_floor.enabled = False
+    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=1.9, bm25_rank=None)
+    _floor(cfg, hit)
+    assert hit.passed_floor is True
+    assert hit.floor_reason == "piso desabilitado"
 
 
 def test_search_chunks_hybrid(db):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -124,6 +125,13 @@ VAULT_DIRS = [
 
 def init_vault(vault_path: Path) -> None:
     """Create the vault directory structure."""
+
+    # First, delete the vault directory if it exists
+    if vault_path.exists():
+        shutil.rmtree(vault_path)
+        logger.info("Vault apagado: %s", vault_path)
+
+    # Then, create the vault directory structure
     for d in VAULT_DIRS:
         (vault_path / d).mkdir(parents=True, exist_ok=True)
     logger.info("Vault inicializado em: %s", vault_path)
@@ -142,10 +150,17 @@ def build_source_note(
     origin_type: str,
     checksum: str,
     origin: str = "pipeline",
+    document_type: str | None = None,
+    biblio_fields: dict[str, Any] | None = None,
+    abnt_reference: str | None = None,
 ) -> tuple[dict[str, Any], str]:
-    """Build frontmatter and body for a Source (SRC) note."""
+    """Build frontmatter and body for a Source (SRC) note.
+
+    Bibliographic fields appear both separately in the frontmatter and grouped
+    as `abnt_reference` for easy citation copy-paste.
+    """
     now = datetime.now().isoformat()
-    meta = {
+    meta: dict[str, Any] = {
         "type": "source",
         "source_id": source_id,
         "title": title,
@@ -158,11 +173,29 @@ def build_source_note(
         "created_at": now,
         "updated_at": now,
     }
+    if document_type:
+        meta["document_type"] = document_type
+    if biblio_fields:
+        for key, value in biblio_fields.items():
+            if value is None:
+                continue
+            if isinstance(value, list) and not value:
+                continue
+            if isinstance(value, str) and not value.strip():
+                continue
+            meta[key] = value
+    if abnt_reference:
+        meta["abnt_reference"] = abnt_reference
+
     lit_link = f"[[LIT - {citekey} - {_slug(title)}]]"
     body = f"# {title}\n\n"
     body += f"**Autores**: {', '.join(authors) if authors else 'Desconhecido'}\n"
     body += f"**Ano**: {year or 'N/A'}\n"
-    body += f"**Tipo**: {origin_type}\n\n"
+    if document_type:
+        body += f"**Tipo documental**: {document_type}\n"
+    body += f"**Tipo de arquivo**: {origin_type}\n\n"
+    if abnt_reference:
+        body += f"## Referencia ABNT\n\n{abnt_reference}\n\n"
     body += f"## Nota de Literatura\n\n{lit_link}\n"
     return meta, body
 

@@ -52,6 +52,10 @@ class HarvestConfig(BaseModel):
     # "skip" (pular o arquivo suspeito, seguro por padrao), "continue" (tratar como nova
     # fonte) ou "abort" (interromper o harvest inteiro).
     non_interactive_duplicate_action: Literal["skip", "continue", "abort"] = "skip"
+    # Metadados bibliograficos (ABNT): inferencia + prompt interativo.
+    biblio_confidence_threshold: float = 0.7
+    biblio_llm_enabled: bool = True
+    biblio_text_sample_chars: int = 5000
 
 
 class ExtractionConfig(BaseModel):
@@ -135,9 +139,24 @@ class RelevanceFloorConfig(BaseModel):
     min_vector_similarity: float = 0.70
     # Uma correspondencia lexical (BM25) exige overlap real de termos na nota —
     # ao contrario do kNN vetorial, que sempre devolve "o mais proximo disponivel"
-    # mesmo sem relacao nenhuma. Por isso um hit achado via BM25 passa no piso
-    # independente da similaridade vetorial (que pode nem existir para ele).
+    # mesmo sem relacao nenhuma. Por isso um hit achado via BM25 pode passar o piso
+    # independente da similaridade vetorial (que pode nem existir para ele) —
+    # mas so quando o match lexical for FORTE (ver bm25_bypass_max_rank abaixo).
     bm25_hit_bypasses_floor: bool = True
+    # O bypass so vale para matches lexicais bem posicionados no ranking BM25
+    # (top-N do pool). Um match fraco (achado apenas na cauda do pool de ~20)
+    # e um sinal fraco demais para dispensar a checagem de similaridade — sem
+    # este teto, qualquer sobreposicao lexical incidental (mesmo apos o filtro
+    # de stopwords) poderia "furar" o piso.
+    bm25_bypass_max_rank: int = 5
+    # Piso absoluto que NENHUM hit pode furar, nem mesmo via bypass do BM25 —
+    # protege contra o caso patologico de uma nota embedding-mente quase
+    # ortogonal (similaridade muito baixa) que por acaso compartilha um termo
+    # exato com a pergunta. Deliberadamente bem abaixo de min_vector_similarity
+    # para nao atrapalhar o caso de uso principal do BM25 (resgatar siglas/
+    # termos tecnicos que o embedding subestima mas cuja similaridade nao
+    # costuma ser proxima de zero).
+    absolute_min_similarity: float = 0.15
 
 
 class RetrievalConfig(BaseModel):

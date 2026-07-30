@@ -115,12 +115,12 @@ def test_build_ask_note_body_provenance():
         sources=[
             AskSource(
                 note_id="01ABC", title="RAG",
-                wiki_link="[[ZTL - 01ABC - rag]]", score=0.42, hop=0,
-                origin="busca", source_id="@Paper2024",
+                wiki_link="[[ZTL - 01ABC - rag]]", rrf_score=0.42, hop=0,
+                origin="busca", source_id="@Paper2024", vector_similarity=0.84,
             ),
             AskSource(
                 note_id="01DEF", title="Embeddings",
-                wiki_link="[[ZTL - 01DEF - embeddings]]", score=0.1, hop=1,
+                wiki_link="[[ZTL - 01DEF - embeddings]]", rrf_score=0.1, hop=1,
                 origin="conexao depends_on a partir de [[ZTL - 01ABC]]",
                 source_id="@Paper2024",
             ),
@@ -137,6 +137,8 @@ def test_build_ask_note_body_provenance():
     assert "[[ZTL - 01DEF - embeddings]]" in body
     assert "conexao depends_on" in body
     assert "@Paper2024" in body
+    # Vector similarity is included when available, and omitted otherwise.
+    assert "similaridade: 0.84" in body
 
 
 def test_save_ask_note_default_location(tmp_path):

@@ -133,10 +133,33 @@ def _sync_source(
     if isinstance(authors, str):
         authors = [authors]
     year = meta.get("year")
+
+    biblio_payload = {
+        k: meta[k] for k in (
+            "document_type", "subtitle", "edition", "place", "publisher",
+            "translator", "isbn", "chapter_authors", "chapter_title", "book_title",
+            "book_editors", "pages", "journal", "volume", "issue", "doi", "url",
+            "accessed_at", "site_name", "published_at", "institution", "course",
+            "discipline", "degree", "advisor", "event_name", "report_number",
+            "title", "authors", "year",
+        ) if k in meta and meta[k] not in (None, "", [])
+    }
+    if authors and "authors" not in biblio_payload:
+        biblio_payload["authors"] = list(authors)
+    if year is not None and "year" not in biblio_payload:
+        biblio_payload["year"] = year
+    if meta.get("title") and "title" not in biblio_payload:
+        biblio_payload["title"] = meta["title"]
+
+    biblio_json = json.dumps(biblio_payload, ensure_ascii=False) if biblio_payload else None
+
     db.upsert_source(
         source_id=source_id, citekey=citekey, title=meta.get("title", file_path.stem),
         authors=list(authors), year=year if isinstance(year, int) else None,
         file_checksum="", origin_path=str(file_path), origin_type="md", origin=origin,
+        document_type=meta.get("document_type"),
+        bibliography_json=biblio_json,
+        abnt_reference=meta.get("abnt_reference"),
     )
     idx.upsert_source(source_id, f"{meta.get('title', file_path.stem)} -- {', '.join(authors)}", {
         "citekey": citekey, "title": meta.get("title", file_path.stem), "origin_type": "md",

@@ -39,6 +39,7 @@ zettel_app/
 │   ├── state.py             # SQLite — estado incremental
 │   ├── vault.py             # I/O do vault Obsidian (frontmatter, blocos gerenciados)
 │   ├── index.py             # ChromaDB — índice vetorial
+│   ├── bibliography.py      # Metadados bibliograficos ABNT (tipos, inferencia, formatacao)
 │   ├── harvester.py         # Fase 1: ingestão e chunking estrutural (+ rechunk)
 │   ├── extractor.py         # Fase 2: extração de conceitos via LLM
 │   ├── connector.py         # Fase 3: geração de notas permanentes
@@ -52,6 +53,7 @@ zettel_app/
 ├── config/
 │   └── config.yaml          # Configuração principal
 ├── prompts/                     # Templates de prompts para o LLM
+│   ├── bibliographic_metadata.md # Extracao de metadados bibliograficos (ABNT)
 │   ├── literature_note.md       # Prompt 1: extracao de conceitos (c/ relevance_score)
 │   ├── permanent_note.md        # Prompt 2: geracao de nota permanente
 │   ├── dedupe_decision.md       # Decisao de deduplicacao
@@ -60,6 +62,7 @@ zettel_app/
 │   ├── moc_incremental.md       # Classificacao incremental de notas em MOC existente
 │   ├── moc_topics_taxonomy.md   # Taxonomia de topicos para MOCs (24 categorias)
 │   ├── ptbr_guard.md            # Guardrail de idioma PT-BR
+│   ├── ask.md                   # Resposta a perguntas sobre o vault
 │   └── image_description.md     # Descricao multimodal de imagens (PT-BR)
 ├── data/
 │   ├── inbox/               # Arquivos para processar (drop zone)
@@ -191,6 +194,15 @@ linking:
   topk: 5                    # notas similares para RAG
   dedupe_threshold: 0.85     # limiar de deduplicacao
 
+# Harvest (duplicatas + metadados bibliograficos ABNT)
+harvest:
+  duplicate_chunk_threshold: 0.88
+  duplicate_sample_size: 5
+  non_interactive_duplicate_action: skip   # skip | continue | abort
+  biblio_confidence_threshold: 0.7         # abaixo disso, pede confirmacao do tipo
+  biblio_llm_enabled: true                 # enriquece metadados via LLM apos heuristicas
+  biblio_text_sample_chars: 5000           # amostra inicial (capa/folha de rosto) enviada ao LLM
+
 # Recuperacao (busca hibrida + GraphRAG leve)
 retrieval:
   mode: hybrid               # hybrid (vetor + BM25) | vector (so Chroma, legado)
@@ -198,7 +210,9 @@ retrieval:
   relevance_floor:
     enabled: true            # piso ABSOLUTO de relevancia (alem do ranking RRF)
     min_vector_similarity: 0.70   # similaridade coseno minima (calibrado empiricamente)
-    bm25_hit_bypasses_floor: true # match lexical real (BM25) ja e evidencia por si
+    bm25_hit_bypasses_floor: true # match lexical real (BM25) pode dispensar a similaridade
+    bm25_bypass_max_rank: 5       # ... mas so quando o match lexical for forte (top-5 do BM25)
+    absolute_min_similarity: 0.15 # piso rigido que nem o bypass do BM25 derruba
   graph_expansion:
     enabled: true            # expande resultados pelas conexoes tipadas entre notas
     max_hops: 1              # saltos no grafo (1 ja traz o valor principal)
@@ -285,6 +299,13 @@ python -m zettel init --reset
 # Escanear inbox e processar arquivos → SRC + LIT + chunks
 python -m zettel harvest
 
+# Harvest nao-interativo (duplicatas usam o default da config)
+python -m zettel harvest --yes
+python -m zettel harvest --skip-duplicates   # sempre pula suspeitas de duplicata
+python -m zettel harvest --force             # trata suspeitas como nova fonte
+# Bibliografia incompleta: --yes sozinho ABORTA o arquivo; use --skip-biblio para seguir parcial
+python -m zettel harvest --yes --skip-biblio
+
 # Extrair conceitos dos chunks via LLM
 python -m zettel extract
 
@@ -338,6 +359,9 @@ python -m zettel doctor
 # Usar arquivo de configuração alternativo
 python -m zettel run-all --config ./minha_config.yaml
 
+# Flags de harvest tambem valem em run-all
+python -m zettel run-all --yes --skip-biblio
+
 # Ajustar top-k de notas similares
 python -m zettel connect --topk 10
 
@@ -356,14 +380,20 @@ python -m zettel run-all --dry-run
 ### Fase 1 — Harvest (Coleta)
 
 1. Varre `data/inbox/` por arquivos `.pdf` e `.md`
-2. Calcula checksum SHA-256 de cada arquivo (pula inalterados)
+2. Calcula checksum SHA-256 de cada arquivo (pula inalterados) e aplica **detecção de duplicatas em 3 camadas** (hash de arquivo → hash do texto extraído → similaridade semântica de chunks)
 3. Extrai texto usando **Docling** (PDF) ou parser nativo (Markdown)
-4. Gera **citekey** determinístico: `@SobrenomeAnoTituloSlug`
-5. Cria notas **SRC** (bibliográfica) em `10_Sources/` e **LIT** (literatura-mestre) em `20_Literature/`
-6. Divide o texto em **capítulos** (headings H1/H2) e depois em **seções estruturais** (H3-H6) com um `section_path` hierárquico ("Capítulo > Subseção > Subsubseção"); seções menores que `min_section_chars` são fundidas, e seções grandes ainda passam pelo RecursiveCharacterTextSplitter
-7. Indexa chunks no ChromaDB e registra no SQLite (com o texto extraído completo persistido, viabilizando `rechunk`/`rebuild` sem reprocessar o arquivo)
-8. Se `images.enabled`, extrai **imagens** do PDF (Docling) e do Markdown (referências locais), salva em `90_Assets/` com nome por hash de conteúdo, reescreve as referências no texto e registra os assets no SQLite (com `chapter_id` resolvido pelo path no texto do capítulo)
-9. **Cobertura de capítulos**: ao final, valida se todos os capítulos H1/H2 do texto extraído foram persistidos. Se um harvest anterior ficou pela metade (ex.: interrompido), o próximo `harvest` (mesmo com arquivo inalterado) ou um `rechunk` **completa** os capítulos faltantes e re-resolve o `chapter_id` das imagens. O `doctor`/`status` alertam quando a cobertura está incompleta.
+4. **Metadados bibliográficos (ABNT)**:
+   - Infere o **tipo documental** (`livro`, `capitulo_livro`, `artigo_periodico`, `artigo_internet`, `material_curso`, `tese`, `anais_evento`, `relatorio`) e os campos tipados a partir de metadados do arquivo, heurísticas no texto e, se habilitado, LLM (`prompts/bibliographic_metadata.md`, com cache)
+   - Campos obrigatórios variam por tipo (ex.: livro exige autores, título, cidade, editora, ano; artigo de internet exige título, URL e data de acesso)
+   - Em modo interativo, se o tipo estiver incerto ou faltarem campos obrigatórios, o CLI **solicita** apenas o que falta e mostra um preview da referência ABNT
+   - Em modo não-interativo (`--yes`), bibliografia incompleta **pula o arquivo**, salvo `--skip-biblio` (segue com parcial + aviso)
+   - Persiste `document_type`, `bibliography_json` e `abnt_reference` no SQLite; a nota **SRC** recebe os campos separados no frontmatter **e** a string `abnt_reference` pronta para citar
+5. Gera **citekey** determinístico: `@SobrenomeAnoTituloSlug` (a partir dos metadados já enriquecidos)
+6. Cria notas **SRC** (bibliográfica) em `10_Sources/` e **LIT** (literatura-mestre) em `20_Literature/`
+7. Divide o texto em **capítulos** (headings H1/H2) e depois em **seções estruturais** (H3-H6) com um `section_path` hierárquico ("Capítulo > Subseção > Subsubseção"); seções menores que `min_section_chars` são fundidas, e seções grandes ainda passam pelo RecursiveCharacterTextSplitter
+8. Indexa chunks no ChromaDB e registra no SQLite (com o texto extraído completo persistido, viabilizando `rechunk`/`rebuild` sem reprocessar o arquivo)
+9. Se `images.enabled`, extrai **imagens** do PDF (Docling) e do Markdown (referências locais), salva em `90_Assets/` com nome por hash de conteúdo, reescreve as referências no texto e registra os assets no SQLite (com `chapter_id` resolvido pelo path no texto do capítulo)
+10. **Cobertura de capítulos**: ao final, valida se todos os capítulos H1/H2 do texto extraído foram persistidos. Se um harvest anterior ficou pela metade (ex.: interrompido), o próximo `harvest` (mesmo com arquivo inalterado) ou um `rechunk` **completa** os capítulos faltantes e re-resolve o `chapter_id` das imagens. O `doctor`/`status` alertam quando a cobertura está incompleta.
 
 ### Fase 2 — Extract (Extracao)
 
@@ -430,13 +460,20 @@ python -m zettel run-all --dry-run
 
 ### Nota Bibliográfica (SRC)
 
+Campos tipados conforme o `document_type` (cidade, editora, edição, URL, instituição, etc.) aparecem separados no frontmatter; `abnt_reference` agrupa a citação no padrão ABNT para copiar facilmente.
+
 ```markdown
 ---
 type: source
 source_id: "@Kahneman2011ThinkingFast"
+document_type: livro
 title: "Thinking, Fast and Slow"
 author: ["Daniel Kahneman"]
 year: 2011
+place: "New York"
+publisher: "Farrar, Straus and Giroux"
+edition: "1. ed."
+abnt_reference: "KAHNEMAN, Daniel. Thinking, Fast and Slow. 1. ed. New York: Farrar, Straus and Giroux, 2011."
 origin_type: pdf
 origin: pipeline
 checksum: "a1b2c3..."
@@ -446,11 +483,29 @@ checksum: "a1b2c3..."
 
 **Autores**: Daniel Kahneman
 **Ano**: 2011
+**Tipo documental**: livro
+**Tipo de arquivo**: pdf
+
+## Referencia ABNT
+
+KAHNEMAN, Daniel. Thinking, Fast and Slow. 1. ed. New York: Farrar, Straus and Giroux, 2011.
 
 ## Nota de Literatura
 [[LIT - @Kahneman2011ThinkingFast - thinking-fast-and-slow]]
 ```
 
+Tipos suportados e campos obrigatórios principais:
+
+| Tipo | Obrigatórios (resumo) |
+|------|------------------------|
+| `livro` | authors, title, place, publisher, year |
+| `capitulo_livro` | chapter_authors, chapter_title, book_title, place, publisher, year, pages |
+| `artigo_periodico` | authors, title, journal, year |
+| `artigo_internet` | title, url, accessed_at |
+| `material_curso` | title, institution (+ course/discipline opcionais) |
+| `tese` | authors, title, year, institution, degree |
+| `anais_evento` | authors, title, event_name, year, place |
+| `relatorio` | title, year, institution |
 ### Nota de Literatura (LIT)
 
 ```markdown
@@ -579,7 +634,13 @@ As listas densa e lexical são fundidas por **Reciprocal Rank Fusion (RRF)**, qu
 
 #### Piso de relevância absoluto
 
-O score do RRF é **posicional**, não uma medida absoluta de relevância: a busca vetorial (kNN) sempre devolve os N vizinhos mais próximos disponíveis no corpus, mesmo que nenhum seja de fato relevante — então uma pergunta totalmente fora do acervo recebe um score no mesmo patamar de uma pergunta genuinamente respondível. `retrieval.relevance_floor` corrige isso aplicando um piso **absoluto**: um resultado só é considerado evidência real se sua similaridade coseno (derivada da distância vetorial) atingir `min_vector_similarity` (padrão `0.70`, calibrado empiricamente neste projeto — ajuste para seu corpus/modelo de embedding), **ou** se tiver vindo de um match lexical (BM25) real, que por exigir sobreposição de termos já é evidência por si (`bm25_hit_bypasses_floor: true`). Resultados abaixo do piso não alimentam a resposta, mas continuam visíveis em `--show-context` para fins de transparência/depuração.
+O score do RRF é **posicional**, não uma medida absoluta de relevância: a busca vetorial (kNN) sempre devolve os N vizinhos mais próximos disponíveis no corpus, mesmo que nenhum seja de fato relevante — então uma pergunta totalmente fora do acervo recebe um score no mesmo patamar de uma pergunta genuinamente respondível. `retrieval.relevance_floor` corrige isso aplicando três verificações, nesta ordem, por nota recuperada:
+
+1. **Piso rígido** (`absolute_min_similarity`, padrão `0.15`): se a similaridade coseno (derivada da distância vetorial) estiver abaixo desse valor, a nota é **sempre** rejeitada — nem um match lexical (BM25) a salva. É uma proteção contra o caso patológico de uma nota semanticamente quase ortogonal que por acaso compartilha um termo com a pergunta. É deliberadamente bem mais baixo que o piso normal, para não atrapalhar o caso de uso principal do BM25 (siglas/termos técnicos que o embedding às vezes subestima, mas cuja similaridade raramente é próxima de zero).
+2. **Bypass por match lexical forte** (`bm25_hit_bypasses_floor: true` + `bm25_bypass_max_rank`, padrão `5`): se a nota também apareceu bem posicionada no ranking BM25 (posição ≤ `bm25_bypass_max_rank`), ela passa direto, **independente** da similaridade vetorial — sobreposição de termo real, bem ranqueada, já é evidência suficiente por si. Um match lexical **fraco** (achado só na cauda do pool de candidatos) não conta para o bypass; a nota cai para a checagem normal de similaridade.
+3. **Piso normal de similaridade** (`min_vector_similarity`, padrão `0.70`, calibrado empiricamente neste projeto — ajuste para seu corpus/modelo de embedding): critério padrão para notas sem match lexical forte.
+
+Resultados abaixo do piso não alimentam a resposta, mas continuam visíveis em `--show-context` para fins de transparência/depuração — junto com o **motivo exato** da decisão (ex.: `similaridade 0.67 abaixo do piso (0.70)` ou `match lexical forte (bm25 rank 3 <= 5)`).
 
 ### Perguntar ao acervo (`zettel ask`)
 
@@ -587,7 +648,12 @@ O score do RRF é **posicional**, não uma medida absoluta de relevância: a bus
 python -m zettel ask "Como heurísticas geram vieses?" --show-context
 ```
 
-O comando recupera as notas relevantes (híbrido + grafo + piso de relevância), monta um contexto com citações e pede ao LLM uma resposta em PT-BR **baseada apenas no acervo** (se não houver evidência, ele diz isso, em vez de alucinar). Cada afirmação cita o `[[wikilink]]` exato da nota-fonte. Quando nenhuma nota recuperada passa do piso de relevância, o LLM **nem chega a ser chamado** — a resposta padrão de "não encontrei evidência" é determinística. Em ambos os casos, `--show-context` sempre mostra o top-k bruto recuperado, com uma coluna indicando se cada nota foi de fato usada (`sim` / `nao (abaixo do piso)`), para você poder auditar a recuperação mesmo quando a resposta é negativa.
+O comando recupera as notas relevantes (híbrido + grafo + piso de relevância), monta um contexto com citações e pede ao LLM uma resposta em PT-BR **baseada apenas no acervo** (se não houver evidência, ele diz isso, em vez de alucinar). Cada afirmação cita o `[[wikilink]]` exato da nota-fonte. Quando nenhuma nota recuperada passa do piso de relevância, o LLM **nem chega a ser chamado** — a resposta padrão de "não encontrei evidência" é determinística.
+
+Com `--show-context`, o comando mostra dois relatórios extras:
+
+- **Parâmetros de recuperação**: todos os valores configurados usados naquela consulta (modo, top-k, `rrf_k`, os três limiares do piso de relevância, e os parâmetros de expansão por grafo) — para você conferir exatamente sob quais regras a recuperação rodou, sem precisar abrir o `config.yaml`.
+- **Notas recuperadas**: o top-k bruto, com Score RRF, Similaridade, Rank BM25 (posição no ranking lexical, ou "-" se não casou), Salto (0 = achada na busca, ≥1 = vizinha de grafo), se foi **usada** e o **motivo** exato da decisão (ex.: `match lexical forte (bm25 rank 3 <= 5)` ou `similaridade 0.67 abaixo do piso (0.70)`) — para auditar a recuperação mesmo quando a resposta é negativa.
 
 A resposta pode ser salva como nota `.md` em `00_Inbox/` (`--save` ou `--save-to`), com frontmatter e uma seção **Fontes consultadas** que registra, para cada nota efetivamente usada, o wikilink, a origem na recuperação (busca vs. conexão de grafo, com o tipo da relação), o score e a fonte bibliográfica — rastreabilidade completa de onde veio cada informação.
 

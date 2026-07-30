@@ -51,7 +51,13 @@ def db(tmp_path):
 
 @pytest.fixture
 def cfg(tmp_path):
-    c = AppConfig(vault_path=tmp_path / "vault", harvest=HarvestConfig(duplicate_chunk_threshold=0.85))
+    c = AppConfig(
+        vault_path=tmp_path / "vault",
+        harvest=HarvestConfig(
+            duplicate_chunk_threshold=0.85,
+            biblio_llm_enabled=False,
+        ),
+    )
     (tmp_path / "vault" / "10_Sources").mkdir(parents=True, exist_ok=True)
     (tmp_path / "vault" / "20_Literature").mkdir(parents=True, exist_ok=True)
     return c
@@ -148,11 +154,16 @@ def test_process_file_detects_renamed_copy_by_file_hash(db, cfg, tmp_path, monke
 
     idx = FakeVectorIndex()
 
-    sid1, stats1 = _process_file(cfg, db, idx, original, run_id=db.start_run("sig"))
+    sid1, stats1 = _process_file(
+        cfg, db, idx, original, run_id=db.start_run("sig"),
+        interactive=False, skip_biblio=True,
+    )
     assert sid1 is not None
 
     run_id2 = db.start_run("sig2")
-    sid2, stats2 = _process_file(cfg, db, idx, copy, run_id=run_id2)
+    sid2, stats2 = _process_file(
+        cfg, db, idx, copy, run_id=run_id2, interactive=False, skip_biblio=True,
+    )
     assert sid2 is None
     assert stats2 == {}
 
@@ -177,11 +188,15 @@ def test_process_file_detects_cross_format_content_duplicate(db, cfg, tmp_path):
     idx = FakeVectorIndex()
 
     run_id1 = db.start_run("sig1")
-    sid1, _ = _process_file(cfg, db, idx, md_file, run_id=run_id1)
+    sid1, _ = _process_file(
+        cfg, db, idx, md_file, run_id=run_id1, interactive=False, skip_biblio=True,
+    )
     assert sid1 is not None
 
     run_id2 = db.start_run("sig2")
-    sid2, stats2 = _process_file(cfg, db, idx, pdf_like_file, run_id=run_id2)
+    sid2, stats2 = _process_file(
+        cfg, db, idx, pdf_like_file, run_id=run_id2, interactive=False, skip_biblio=True,
+    )
     assert sid2 is None
     assert stats2 == {}
 
@@ -209,6 +224,7 @@ def test_process_file_semantic_duplicate_skip(db, cfg, tmp_path, monkeypatch):
     run_id = db.start_run("sig")
     sid, stats = _process_file(
         cfg, db, idx, new_file, run_id=run_id, interactive=False, duplicate_action="skip",
+        skip_biblio=True,
     )
     assert sid is None
     assert stats == {}
@@ -235,6 +251,7 @@ def test_process_file_semantic_duplicate_continue_creates_source(db, cfg, tmp_pa
     run_id = db.start_run("sig")
     sid, stats = _process_file(
         cfg, db, idx, new_file, run_id=run_id, interactive=False, duplicate_action="continue",
+        skip_biblio=True,
     )
     assert sid is not None
     assert stats.get("chunks", 0) >= 1
@@ -260,4 +277,5 @@ def test_process_file_semantic_duplicate_abort_raises(db, cfg, tmp_path):
     with pytest.raises(HarvestAborted):
         _process_file(
             cfg, db, idx, new_file, run_id=run_id, interactive=False, duplicate_action="abort",
+            skip_biblio=True,
         )

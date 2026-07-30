@@ -215,11 +215,24 @@ def run_rebuild_vault(
         title = src["title"]
         authors = json.loads(src.get("authors") or "[]")
         origin = src.get("origin", "pipeline")
+        biblio_fields = None
+        if src.get("bibliography_json"):
+            try:
+                raw = json.loads(src["bibliography_json"])
+                biblio_fields = {
+                    k: v for k, v in raw.items()
+                    if k not in ("document_type", "title", "authors", "year", "confidence")
+                }
+            except (json.JSONDecodeError, TypeError):
+                biblio_fields = None
 
         src_meta, src_body = build_source_note(
             src["source_id"], citekey, title, authors, src.get("year"),
             src.get("origin_path", ""), src.get("origin_type", "md"),
             src.get("file_checksum", ""), origin=origin,
+            document_type=src.get("document_type"),
+            biblio_fields=biblio_fields,
+            abnt_reference=src.get("abnt_reference"),
         )
         src_path = cfg.vault_path / "10_Sources" / note_filename("SRC", f"@{citekey}", title)
         if _write(src_path, compose_note(src_meta, src_body), origin):

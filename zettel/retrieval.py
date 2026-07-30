@@ -45,7 +45,8 @@ class RetrievedNote:
     vector_distance: Optional[float] = None
     hop: int = 0                          # 0 = search seed; >=1 = graph neighbour
     via: list[dict] = field(default_factory=list)  # graph path (see graph.py)
-    passed_floor: bool = True             # absolute relevance floor (see _passes_floor)
+    passed_floor: bool = True             # absolute relevance floor (see _apply_relevance_floor)
+    floor_reason: str = ""                # human-readable explanation of the floor verdict
 
 
 @dataclass
@@ -183,19 +184,38 @@ class Retriever:
         relevance_floor: Optional[bool],
         min_vector_similarity: Optional[float],
     ) -> None:
-        """Mark each hit's ``passed_floor`` in place (see RelevanceFloorConfig).
+        """Mark each hit's ``passed_floor``/``floor_reason`` in place.
 
         RRF's fused score is purely positional — the vector kNN side always
         returns the closest available notes regardless of whether any of them
         are actually relevant, so a totally off-topic query gets a similarly
         "confident-looking" score to a genuinely answerable one. This floor
-        checks the raw vector similarity (or BM25 presence) instead of rank.
+        checks the raw vector similarity (or BM25 rank) instead of rank alone.
+
+        Decision order per hit (see RelevanceFloorConfig for the tunables):
+
+        1. Floor disabled -> always passes.
+        2. Similarity present and below ``absolute_min_similarity`` -> FAILS,
+           even if a lexical match exists. This is a hard backstop against a
+           note that is embedding-wise near-orthogonal but happens to share an
+           incidental term with the query; it is set well below
+           ``min_vector_similarity`` so it doesn't undermine BM25's main use
+           case (rescuing jargon/acronyms the embedding underrates).
+        3. A BM25 hit ranked within ``bm25_bypass_max_rank`` bypasses the
+           similarity check entirely -- a *strong* lexical match is evidence a
+           kNN "closest available" hit isn't. A *weak* lexical match (found only
+           deep in the pool) does not get this pass; it falls through to the
+           similarity check like any other hit.
+        4. Otherwise, gate on ``min_vector_similarity``.
+        5. No similarity data at all and a bm25 hit too weak to bypass -> FAILS
+           (insufficient evidence either way).
         """
         floor_cfg = self.cfg.retrieval.relevance_floor
         enabled = relevance_floor if relevance_floor is not None else floor_cfg.enabled
         if not enabled:
             for hit in fused:
                 hit.passed_floor = True
+                hit.floor_reason = "piso desabilitado"
             return
 
         min_sim = (
@@ -203,17 +223,53 @@ class Retriever:
             if min_vector_similarity is not None
             else floor_cfg.min_vector_similarity
         )
+        abs_min = floor_cfg.absolute_min_similarity
+        max_rank = floor_cfg.bm25_bypass_max_rank
+
         for hit in fused:
-            if floor_cfg.bm25_hit_bypasses_floor and hit.bm25_rank is not None:
+            similarity = (
+                1.0 - hit.vector_distance / 2.0 if hit.vector_distance is not None else None
+            )
+
+            if similarity is not None and similarity < abs_min:
+                hit.passed_floor = False
+                hit.floor_reason = (
+                    f"similaridade {similarity:.2f} abaixo do minimo absoluto "
+                    f"({abs_min:.2f}) — bypass do BM25 nao se aplica"
+                )
+                continue
+
+            if (
+                floor_cfg.bm25_hit_bypasses_floor
+                and hit.bm25_rank is not None
+                and hit.bm25_rank <= max_rank
+            ):
                 hit.passed_floor = True
+                hit.floor_reason = f"match lexical forte (bm25 rank {hit.bm25_rank} <= {max_rank})"
                 continue
-            if hit.vector_distance is not None:
-                similarity = 1.0 - hit.vector_distance / 2.0
+
+            if similarity is not None:
                 hit.passed_floor = similarity >= min_sim
+                hit.floor_reason = (
+                    f"similaridade {similarity:.2f} >= piso {min_sim:.2f}"
+                    if hit.passed_floor
+                    else f"similaridade {similarity:.2f} abaixo do piso ({min_sim:.2f})"
+                )
                 continue
-            # No vector distance and no bm25 hit — shouldn't normally happen for
-            # a fused result, but fail safe by keeping it rather than losing data.
-            hit.passed_floor = True
+
+            # No vector distance at all — only evidence is a bm25 hit that
+            # didn't qualify for bypass (rank worse than max_rank).
+            if hit.bm25_rank is not None:
+                hit.passed_floor = False
+                hit.floor_reason = (
+                    f"match lexical fraco (bm25 rank {hit.bm25_rank} > {max_rank}), "
+                    f"sem dado de similaridade vetorial"
+                )
+            else:
+                # Shouldn't normally happen for a fused result (every hit comes
+                # from vector_hits or bm25_hits), but fail safe rather than lose data.
+                hit.passed_floor = True
+                hit.floor_reason = "sem dados de similaridade (mantido por seguranca)"
 
     def _warn_no_fts(self) -> None:
         if not self._warned_no_fts:

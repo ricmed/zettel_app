@@ -62,6 +62,9 @@ class SourceRecord(BaseModel):
     extraction_checksum: Optional[str] = None
     origin_path: str
     origin_type: OriginType
+    document_type: Optional[str] = None
+    bibliography: Optional[dict] = None
+    abnt_reference: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
