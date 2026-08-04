@@ -1026,7 +1026,7 @@ def article(
         db.close()
         raise typer.Exit(0)
 
-    if not result.body and result.outline is not None:
+    if result.aborted:
         console.print("[yellow]Geracao abortada pelo usuario.[/yellow]")
         db.close()
         raise typer.Exit(0)

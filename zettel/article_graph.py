@@ -597,6 +597,7 @@ def _result_from_state(
         )),
         source_ids=list(state.get("cited_source_ids") or []),
         no_evidence=no_evidence,
+        aborted=bool(state.get("aborted")),
     )
 
 

@@ -124,6 +124,7 @@ class ArticleResult:
     source_ids: list[str] = field(default_factory=list)
     answer: str = ""  # alias of assembled body for CLI convenience
     no_evidence: bool = False
+    aborted: bool = False
 
 
 ApproveOutlineFn = Callable[
