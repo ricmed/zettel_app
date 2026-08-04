@@ -1,11 +1,11 @@
 [project]
 name = "zettel-app"
-version = "0.1.0"
+version = "0.2.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "chromadb>=1.4.1",
+    "chromadb==1.5.9",
     "docling>=2.71.0",
     "hdbscan>=0.8.41",
     "hf-xet==1.2.0",
