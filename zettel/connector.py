@@ -56,6 +56,19 @@ def _inverse_relation(relation_type: str) -> str:
     return _INVERSE_RELATION.get(relation_type, "relacionado")
 
 
+def _relation_type_value(relation_type: Any) -> str:
+    """Normalize RelationType / str to the canonical string value.
+
+    ``RelationType`` is a ``str, Enum`` hybrid, so ``isinstance(x, str)`` is True
+    for members — but ``f"{RelationType.SUPPORTS}"`` renders as
+    ``RelationType.SUPPORTS``, not ``supports``. Always prefer ``.value``.
+    """
+    from enum import Enum
+    if isinstance(relation_type, Enum):
+        return str(relation_type.value)
+    return str(relation_type or "related")
+
+
 # ── Public API ─────────────────────────────────────────────────────────
 
 
@@ -326,11 +339,7 @@ def _resolve_connections(db: StateDB, connections: list[RelationshipResult]) -> 
         resolved.append({
             "related_note_id": conn.related_note_id,
             "wiki_link": wiki_link,
-            "relation_type": (
-                conn.relation_type
-                if isinstance(conn.relation_type, str)
-                else conn.relation_type.value
-            ),
+            "relation_type": _relation_type_value(conn.relation_type),
             "description": conn.description,
         })
     return resolved
@@ -397,11 +406,7 @@ def _persist_and_backlink(
     """Persist connections to DB and update backlinks on related notes."""
     for conn in connections:
         target_id = conn.related_note_id
-        relation_type = (
-            conn.relation_type
-            if isinstance(conn.relation_type, str)
-            else conn.relation_type.value
-        )
+        relation_type = _relation_type_value(conn.relation_type)
 
         db.upsert_note_connection(
             source_note_id=new_note_id,

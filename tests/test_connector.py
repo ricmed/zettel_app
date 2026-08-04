@@ -4,11 +4,12 @@ from zettel.connector import (
     _build_rag_context,
     _fallback_image_ids,
     _inverse_relation,
+    _relation_type_value,
     _resolve_connections,
     _resolve_images,
 )
 from zettel.retrieval import RetrievedNote
-from zettel.schemas import RelationshipResult
+from zettel.schemas import RelationType, RelationshipResult
 from zettel.state import StateDB
 from zettel.vault import build_permanent_note_body
 
@@ -70,6 +71,52 @@ def test_resolve_connections_with_unknown_note():
     resolved = _resolve_connections(db, connections)
     assert len(resolved) == 1
     assert "[[ZTL - UNKNOWN]]" == resolved[0]["wiki_link"]
+
+
+def test_relation_type_value_from_enum():
+    """str Enum members must resolve to the value, not 'RelationType.X'."""
+    assert _relation_type_value(RelationType.SUPPORTS) == "supports"
+    assert _relation_type_value(RelationType.EXTENDS) == "extends"
+    assert _relation_type_value("contradicts") == "contradicts"
+    # Regression: f-string of the enum itself is NOT the vault label.
+    assert f"{RelationType.SUPPORTS}" == "RelationType.SUPPORTS"
+
+
+def test_resolve_connections_normalizes_enum_relation_type():
+    """Pydantic may leave relation_type as RelationType; vault needs plain str."""
+    db = _FakeDB({
+        "ABC123": {"title": "Nota Alvo", "path": "/vault/note.md"},
+    })
+    connections = [
+        RelationshipResult(
+            related_note_id="ABC123",
+            relation_type=RelationType.SUPPORTS,
+            description="Reforca a tese",
+        ),
+    ]
+    resolved = _resolve_connections(db, connections)
+    assert resolved[0]["relation_type"] == "supports"
+    assert "RelationType" not in resolved[0]["relation_type"]
+
+
+def test_build_permanent_note_body_with_enum_relation_type():
+    """Defensive: even if an Enum sneaks into the dict, render the value."""
+    body = build_permanent_note_body(
+        thesis="Tese",
+        definition="Def",
+        intuition="",
+        example="",
+        limits="",
+        connections=[{
+            "wiki_link": "[[ZTL - ABC - titulo]]",
+            "relation_type": RelationType.SUPPORTS,
+            "description": "Reforca",
+        }],
+        literature_ref="[[LIT - @x]]",
+        source_locator="",
+    )
+    assert "(supports) -- Reforca" in body
+    assert "RelationType.SUPPORTS" not in body
 
 
 def test_build_permanent_note_body_with_connections():

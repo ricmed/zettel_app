@@ -276,6 +276,10 @@ def build_permanent_note_body(
         for c in connections:
             link = c.get("wiki_link", c.get("related_note_id", "?"))
             rtype = c.get("relation_type", "related")
+            # RelationType is a str Enum — f"{enum}" renders "RelationType.X", not "x".
+            if hasattr(rtype, "value"):
+                rtype = rtype.value
+            rtype = str(rtype)
             desc = c.get("description", "")
             line = f"- {link} ({rtype})"
             if desc:
