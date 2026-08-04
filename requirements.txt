@@ -10,6 +10,7 @@ python-dotenv>=1.0.0
 langchain-core>=0.3.0
 langchain-text-splitters>=0.3.0
 langchain-openai>=0.2.0          # Provider: OpenAI (default)
+langgraph>=0.2.0                 # Article pipeline StateGraph
 # langchain-anthropic>=0.3.0     # Provider: Anthropic (descomente se usar)
 # langchain-ollama>=0.2.0        # Provider: Ollama local (descomente se usar)
 

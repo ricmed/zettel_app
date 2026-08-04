@@ -12,6 +12,7 @@ dependencies = [
     "langchain-core>=1.2.7",
     "langchain-openai>=1.1.7",
     "langchain-text-splitters>=1.1.0",
+    "langgraph>=0.2.0",
     "openai>=2.16.0",
     "pydantic>=2.12.5",
     "pytest>=9.0.2",

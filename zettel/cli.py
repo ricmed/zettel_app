@@ -6,6 +6,8 @@ Commands:
   extract     — Process chunks with LLM (Prompt 1), generate candidates
   connect     — Generate permanent notes from candidates (Prompt 2)
   garden      — Cluster notes and generate/update MOCs
+  ask         — QA over the vault (hybrid retrieval + graph)
+  article     — LangGraph long-form article (blog/academic + HITL + judge)
   sync-manual — Sync manual notes from vault to index
   run-all     — Execute harvest → extract → connect → garden
   status      — Show pipeline statistics
@@ -874,6 +876,197 @@ def ask(
             console.print(f"[green]Resposta salva em:[/green] {rel}")
         except ValueError:
             console.print(f"[green]Resposta salva em:[/green] {saved_path}")
+
+    db.close()
+
+
+# ── article ───────────────────────────────────────────────────────────
+
+
+@app.command()
+def article(
+    topic: str = typer.Argument(..., help="Tema do artigo"),
+    style: str = typer.Option(
+        "blog", "--style", "-s", help="blog | academic"
+    ),
+    config: Optional[str] = typer.Option(None, "--config", "-c"),
+    topk: Optional[int] = typer.Option(None, "--topk", help="Numero de notas semente"),
+    no_graph: bool = typer.Option(False, "--no-graph", help="Desliga expansao por grafo"),
+    mode: Optional[str] = typer.Option(None, "--mode", help="vector | hybrid"),
+    personality: Optional[str] = typer.Option(
+        None, "--personality", "-p", help="Perfil em config/personalities.yaml"
+    ),
+    style_notes: Optional[str] = typer.Option(
+        None, "--style-notes", help="Override textual de estilo"
+    ),
+    show_context: bool = typer.Option(
+        False, "--show-context", help="Exibe notas recuperadas (debug)"
+    ),
+    outline_only: bool = typer.Option(
+        False, "--outline-only", help="Gera so o outline e encerra"
+    ),
+    skip_context_review: bool = typer.Option(
+        False, "--skip-context-review", help="Pula revisao humana do contexto"
+    ),
+    skip_judge: bool = typer.Option(
+        False, "--skip-judge", help="Pula o juiz automatico de qualidade"
+    ),
+    max_judge_iterations: Optional[int] = typer.Option(
+        None, "--max-judge-iterations", help="Max. ciclos de reescrita do juiz"
+    ),
+    save: bool = typer.Option(
+        False, "--save", help="Salva o artigo em .md no local padrao (sem perguntar)"
+    ),
+    save_to: Optional[str] = typer.Option(
+        None, "--save-to", help="Salva o artigo em .md no caminho informado"
+    ),
+    no_save_prompt: bool = typer.Option(
+        False, "--no-save-prompt", help="Nao perguntar se deve salvar (para scripts)"
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Confirmar automaticamente o reprocessamento se o embedding mudou",
+    ),
+):
+    """Gerar artigo estruturado (blog ou academico) via LangGraph."""
+    style_norm = (style or "blog").strip().lower()
+    if style_norm not in ("blog", "academic"):
+        console.print("[red]--style deve ser 'blog' ou 'academic'[/red]")
+        raise typer.Exit(1)
+
+    cfg = _load_deps(config)
+    db = _get_db(cfg)
+    idx = _get_idx(cfg, db=db, yes=yes)
+
+    from rich.prompt import Prompt
+
+    from zettel.article import parse_extra_queries, save_article_note
+    from zettel.article_graph import run_article_graph
+
+    def _hitl(payload: dict) -> dict:
+        itype = payload.get("type")
+        if itype == "context_review":
+            notes = payload.get("notes") or []
+            table = Table(title="Notas recuperadas (contexto)")
+            table.add_column("#", justify="right")
+            table.add_column("Titulo")
+            table.add_column("Score", justify="right")
+            table.add_column("Hop", justify="right")
+            table.add_column("Fonte")
+            for i, n in enumerate(notes, 1):
+                meta = n.get("metadata") or {}
+                table.add_row(
+                    str(i),
+                    (n.get("title") or n.get("note_id") or "")[:60],
+                    f"{float(n.get('score') or 0):.4f}",
+                    str(n.get("hop") or 0),
+                    str(meta.get("source_id") or "-"),
+                )
+            console.print(table)
+            qs = payload.get("executed_queries") or []
+            if qs:
+                console.print("[dim]Queries usadas: " + ", ".join(qs) + "[/dim]")
+            choice = Prompt.ask(
+                "Contexto: [a]aprovar / [e]extras / [q]quit",
+                choices=["a", "e", "q"],
+                default="a",
+            )
+            if choice == "a":
+                return {"context_decision": "approve", "extra_queries": []}
+            if choice == "q":
+                return {"context_decision": "abort", "extra_queries": []}
+            raw = Prompt.ask(
+                "Queries extras (separadas por ; ou linhas)", default=""
+            )
+            extras = parse_extra_queries(raw)
+            if not extras:
+                return {"context_decision": "approve", "extra_queries": []}
+            return {"context_decision": "enrich", "extra_queries": extras}
+
+        if itype == "outline_review":
+            console.print(
+                Panel(str(payload.get("preview") or ""), title="Outline proposto")
+            )
+            choice = Prompt.ask(
+                "Outline: [a]provar / [r]egenerar / [q]uit",
+                choices=["a", "r", "q"],
+                default="a",
+            )
+            if choice == "a":
+                return {"outline_decision": "approve", "outline_feedback": ""}
+            if choice == "q":
+                return {"outline_decision": "abort", "outline_feedback": ""}
+            feedback = Prompt.ask(
+                "Feedback para regenerar (opcional)", default=""
+            )
+            return {
+                "outline_decision": "regenerate",
+                "outline_feedback": feedback.strip(),
+            }
+        return {}
+
+    console.print("[dim]Pipeline de artigo (LangGraph)...[/dim]")
+    result = run_article_graph(
+        cfg, db, idx, topic,
+        style=style_norm,  # type: ignore[arg-type]
+        topk=topk,
+        use_graph=not no_graph,
+        mode=mode,
+        outline_only=outline_only,
+        personality=personality,
+        custom_style_notes=style_notes,
+        skip_context_review=skip_context_review or outline_only,
+        skip_judge=skip_judge or outline_only,
+        max_judge_iterations=max_judge_iterations,
+        hitl_handler=_hitl,
+    )
+
+    if result.no_evidence:
+        console.print(Panel(result.body, title="Sem evidencia"))
+        db.close()
+        raise typer.Exit(0)
+
+    if not result.body and result.outline is not None:
+        console.print("[yellow]Geracao abortada pelo usuario.[/yellow]")
+        db.close()
+        raise typer.Exit(0)
+
+    if outline_only:
+        console.print(Panel(result.body, title="Outline"))
+        db.close()
+        raise typer.Exit(0)
+
+    console.print(Panel(result.body.strip() or "(vazio)", title=result.title or "Artigo"))
+
+    for w in result.warnings:
+        console.print(f"[yellow]Aviso:[/yellow] {w}")
+
+    if show_context and result.note_ids:
+        table = Table(title="Notas usadas no artigo")
+        table.add_column("note_id")
+        for nid in result.note_ids:
+            table.add_row(nid)
+        console.print(table)
+
+    saved_path = None
+    if save_to:
+        saved_path = save_article_note(result, cfg.vault_path, Path(save_to))
+    elif save:
+        saved_path = save_article_note(result, cfg.vault_path)
+    elif not no_save_prompt:
+        from rich.prompt import Confirm
+        try:
+            if Confirm.ask("Salvar este artigo como nota .md?", default=True):
+                saved_path = save_article_note(result, cfg.vault_path)
+        except (EOFError, KeyboardInterrupt):
+            pass
+
+    if saved_path:
+        try:
+            rel = saved_path.relative_to(cfg.vault_path)
+            console.print(f"[green]Artigo salvo em:[/green] {rel}")
+        except ValueError:
+            console.print(f"[green]Artigo salvo em:[/green] {saved_path}")
 
     db.close()
 

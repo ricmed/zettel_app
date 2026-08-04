@@ -337,12 +337,28 @@ class VectorIndex:
     def upsert_permanent_note(self, note_id: str, embeddable_text: str,
                                metadata: dict[str, Any]) -> None:
         safe_meta = _sanitize_metadata(metadata)
+        from zettel.llm import clip_text
+        self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
+        logger.info(
+            "Embedding [%d] upsert nota %s | %s",
+            self._embed_call_count,
+            note_id,
+            clip_text(embeddable_text),
+        )
         self.permanent.upsert(ids=[note_id], documents=[embeddable_text], metadatas=[safe_meta])
-        logger.info("Index: upsert nota permanente %s", note_id)
+        logger.debug("Index: upsert nota permanente %s", note_id)
 
     def query_similar_notes(self, query_text: str, n_results: int = 5,
                             exclude_id: str | None = None) -> list[dict]:
         """Find the most similar permanent notes to the given text."""
+        from zettel.llm import clip_text
+        self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
+        logger.info(
+            "Embedding [%d] busca notas | n=%d | query=%s",
+            self._embed_call_count,
+            n_results,
+            clip_text(query_text),
+        )
         results = self.permanent.query(
             query_texts=[query_text],
             n_results=min(n_results + (1 if exclude_id else 0), self.permanent.count() or 1),
@@ -375,6 +391,19 @@ class VectorIndex:
         texts = [t for t in texts if t and t.strip()]
         if not texts or self.chunks.count() == 0:
             return results
+
+        from zettel.llm import clip_text
+        self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
+        preview = " | ".join(clip_text(t, 40) for t in texts[:3])
+        if len(texts) > 3:
+            preview += f" (+{len(texts) - 3} textos)"
+        logger.info(
+            "Embedding [%d] busca chunks | amostras=%d n=%d | %s",
+            self._embed_call_count,
+            len(texts),
+            n_results,
+            preview,
+        )
 
         raw = self.chunks.query(
             query_texts=texts,

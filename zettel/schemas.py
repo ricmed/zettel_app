@@ -239,6 +239,29 @@ class MOCIncrementalOutput(BaseModel):
 MOCIncrementalOutput.model_rebuild()
 
 
+# ── Article generation ────────────────────────────────────────────────
+
+
+class ArticleOutlineSection(BaseModel):
+    heading: str
+    goal: str
+    note_ids: list[str] = Field(default_factory=list)
+    figure_asset_ids: list[str] = Field(default_factory=list)
+
+
+class ArticleOutline(BaseModel):
+    title: str
+    thesis: str = Field(description="Tese / ideia central em 1-2 frases")
+    sections: list[ArticleOutlineSection] = Field(default_factory=list)
+    style_notes: str = Field(
+        default="",
+        description="Dicas de tom para a redacao das secoes",
+    )
+
+
+ArticleOutline.model_rebuild()
+
+
 # ── Permanent Note LLM Output ─────────────────────────────────────────
 
 

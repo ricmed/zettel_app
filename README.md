@@ -223,6 +223,21 @@ retrieval:
     topk: 8                  # notas semente do comando `ask`
     max_context_notes: 8     # teto de notas no contexto do LLM
     max_chars_per_note: 1500 # truncagem do corpo de cada nota no contexto
+  article:
+    topk: 20                 # notas semente do comando `article`
+    max_context_notes: 24
+    max_chars_per_note: 1200
+    max_hops: 2              # expansao de grafo mais ampla que o ask
+    max_sections: 8
+    max_figures: 6
+    chars_per_section_draft: 2500
+    personalities_path: ./config/personalities.yaml
+    default_personality: neutral
+    enrich_query_count: 6
+    max_judge_iterations: 3
+    judge_min_score: 7.0
+    judge_temperature: 0.2
+    enrich_temperature: 0.2
 
 # Filtragem de candidatos a notas permanentes
 extraction:
@@ -366,6 +381,11 @@ python -m zettel ask "O que e RAG?" --no-graph            # so busca hibrida, se
 python -m zettel ask "O que e RAG?" --mode vector         # so busca vetorial (legado)
 python -m zettel ask "O que e RAG?" --save                # salva a resposta em .md (00_Inbox)
 python -m zettel ask "O que e RAG?" --save-to nota.md     # salva em caminho especifico
+
+# Gerar artigo estruturado a partir do vault (outline interativo)
+python -m zettel article "Tecnicas de Prompt Engineering" --style blog
+python -m zettel article "Grafos de conhecimento" --style academic --personality serious_academic --save
+python -m zettel article "RAG" --outline-only             # so o outline, sem redigir
 
 # Sincronizar notas manuais do vault com o índice (SRC, LIT, ZTL e MOCs)
 python -m zettel sync-manual
@@ -702,6 +722,27 @@ Com `--show-context`, o comando mostra dois relatórios extras:
 - **Notas recuperadas**: o top-k bruto, com Score RRF, Similaridade, Rank BM25 (posição no ranking lexical, ou "-" se não casou), Salto (0 = achada na busca, ≥1 = vizinha de grafo), se foi **usada** e o **motivo** exato da decisão (ex.: `match lexical forte (bm25 rank 3 <= 5)` ou `similaridade 0.67 abaixo do piso (0.70)`) — para auditar a recuperação mesmo quando a resposta é negativa.
 
 A resposta pode ser salva como nota `.md` em `00_Inbox/` (`--save` ou `--save-to`), com frontmatter e uma seção **Fontes consultadas** que registra, para cada nota efetivamente usada, o wikilink, a origem na recuperação (busca vs. conexão de grafo, com o tipo da relação), o score e a fonte bibliográfica — rastreabilidade completa de onde veio cada informação.
+
+### Gerar artigo a partir do vault (`zettel article`)
+
+```bash
+python -m zettel article "Tecnicas de Prompt Engineering" --style blog
+python -m zettel article "Grafos de conhecimento e LLMs" --style academic --personality serious_academic --save
+python -m zettel article "RAG" --outline-only
+```
+
+Orquestrado por **LangGraph** (`zettel/article_graph.py`), diferente do `ask` (QA curto). Fluxo:
+
+1. **Query enricher** — expande o tema em varias queries semanticas
+2. **Busca acumulativa** — Retriever hibrido + merge por `note_id` (queries extras do usuario somam, nao substituem)
+3. **HITL de contexto** — aprovar pool, pedir queries extras (`e`) ou abortar
+4. **Outline** — LLM + aprovacao interativa (`a` / `r`+feedback / `q`)
+5. **Draft por secao** — blog (mencoes leves) ou academico (ABNT autor-data) + anti-padroes de prosa
+6. **Assemble** — figuras, "Para saber mais" ou "Referencias" ABNT, "Origem no vault"
+7. **Personality** — reescrita estilistica via `config/personalities.yaml` (`neutral` = no-op)
+8. **Judge** — avalia fidelidade/cobertura/refs/naturalidade; rejeicao re-drafta ate `max_judge_iterations`
+
+Flags: `--personality`, `--style-notes`, `--skip-context-review`, `--skip-judge`, `--max-judge-iterations`, `--outline-only`, `--save` / `--save-to`. Saida em `00_Inbox/ART - ....md` (nao indexa no Chroma).
 
 ### Fechando o ciclo do grafo (notas manuais)
 

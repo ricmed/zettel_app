@@ -270,6 +270,58 @@ def format_authors_abnt(authors: list[str]) -> str:
     return "; ".join(invert_author_name(a) for a in cleaned)
 
 
+def _author_surname(name: str) -> str:
+    parts = name.strip().split()
+    return parts[-1].upper() if parts else ""
+
+
+def format_abnt_in_text(
+    authors: list[str],
+    year: int | None,
+    pages: str | None = None,
+) -> str:
+    """Parenthetical author-date citation (ABNT NBR 10520).
+
+    Examples: ``(SANTOS, 2020)``, ``(SILVA; SOUZA, 2019)``,
+    ``(NEGRO et al., 2026, p. 42)``.
+    """
+    cleaned = [a.strip() for a in authors if a and a.strip()]
+    year_str = str(year) if year else "s.d."
+    if not cleaned:
+        return f"({year_str})" if year else ""
+
+    if len(cleaned) == 1:
+        cite_authors = _author_surname(cleaned[0])
+    elif len(cleaned) == 2:
+        cite_authors = (
+            f"{_author_surname(cleaned[0])}; {_author_surname(cleaned[1])}"
+        )
+    elif len(cleaned) == 3:
+        cite_authors = (
+            f"{_author_surname(cleaned[0])}; "
+            f"{_author_surname(cleaned[1])}; "
+            f"{_author_surname(cleaned[2])}"
+        )
+    else:
+        cite_authors = f"{_author_surname(cleaned[0])} et al."
+
+    if pages and str(pages).strip():
+        return f"({cite_authors}, {year_str}, {str(pages).strip()})"
+    return f"({cite_authors}, {year_str})"
+
+
+def display_author_natural(authors: list[str]) -> str:
+    """First author(s) in natural order for light blog mentions."""
+    cleaned = [a.strip() for a in authors if a and a.strip()]
+    if not cleaned:
+        return ""
+    if len(cleaned) == 1:
+        return cleaned[0]
+    if len(cleaned) == 2:
+        return f"{cleaned[0]} e {cleaned[1]}"
+    return f"{cleaned[0]} et al."
+
+
 def _fmt_accessed(accessed_at: str) -> str:
     """Normalize access date to ABNT-ish 'DD mês. AAAA' when possible."""
     raw = accessed_at.strip()

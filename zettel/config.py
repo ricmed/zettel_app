@@ -133,6 +133,26 @@ class AskConfig(BaseModel):
     max_chars_per_note: int = 1500    # truncagem do corpo de cada nota no contexto
 
 
+class ArticleConfig(BaseModel):
+    """Comando `zettel article` — artigo estruturado a partir do vault."""
+
+    topk: int = 20
+    max_context_notes: int = 24
+    max_chars_per_note: int = 1200
+    max_hops: int = 2                 # expansao de grafo mais ampla que o ask
+    max_sections: int = 8
+    max_figures: int = 6
+    chars_per_section_draft: int = 2500
+    personalities_path: Path = Path("./config/personalities.yaml")
+    default_personality: str = "neutral"
+    enrich_query_count: int = 6
+    max_judge_iterations: int = 3
+    judge_min_score: float = 7.0
+    writer_temperature: float | None = None   # None = cfg.llm.temperature
+    judge_temperature: float = 0.2
+    enrich_temperature: float = 0.2
+
+
 class RelevanceFloorConfig(BaseModel):
     """Piso de relevancia ABSOLUTO, aplicado alem da fusao RRF (que e apenas posicional).
 
@@ -187,6 +207,7 @@ class RetrievalConfig(BaseModel):
     graph_expansion: GraphExpansionConfig = Field(default_factory=GraphExpansionConfig)
     relevance_floor: RelevanceFloorConfig = Field(default_factory=RelevanceFloorConfig)
     ask: AskConfig = Field(default_factory=AskConfig)
+    article: ArticleConfig = Field(default_factory=ArticleConfig)
 
 
 class AppConfig(BaseModel):
