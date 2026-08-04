@@ -17,19 +17,93 @@ COL_CHUNKS = "chunks"
 COL_PERMANENT = "permanent_notes"
 COL_MOCS = "mocs"
 
+_ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS]
+
+_DEFAULT_OLLAMA_URL = "http://localhost:11434/v1"
+_SUPPORTED_PROVIDERS = ("openai", "sentence-transformers", "ollama")
+
+
+class EmbeddingSpaceMismatch(Exception):
+    """Raised when config embedding provider/model differs from Chroma collection metadata."""
+
+    def __init__(
+        self,
+        stored_provider: str | None,
+        stored_model: str | None,
+        current_provider: str,
+        current_model: str,
+    ):
+        self.stored_provider = stored_provider
+        self.stored_model = stored_model
+        self.current_provider = current_provider
+        self.current_model = current_model
+        super().__init__(
+            f"Espaco vetorial incompativel: Chroma tem "
+            f"{stored_provider}/{stored_model}, config pede "
+            f"{current_provider}/{current_model}. "
+            f"Rode 'zettel reindex --force' (ou confirme o reprocessamento)."
+        )
+
+
+def peek_stored_embedding_identity(
+    chroma_path: Path,
+) -> tuple[str | None, str | None]:
+    """Read embedding provider/model markers from an existing Chroma store.
+
+    Returns ``(None, None)`` when the path is missing, empty, or collections
+    have no markers yet (fresh / legacy store).
+    """
+    if not chroma_path.exists():
+        return None, None
+    try:
+        client = chromadb.PersistentClient(
+            path=str(chroma_path),
+            settings=Settings(anonymized_telemetry=False),
+        )
+    except Exception as e:
+        logger.debug("Nao foi possivel abrir Chroma em %s: %s", chroma_path, e)
+        return None, None
+    return _identity_from_client(client)
+
+
+def _identity_from_client(client: Any) -> tuple[str | None, str | None]:
+    for name in (COL_PERMANENT, COL_CHUNKS, COL_SOURCES, COL_MOCS):
+        try:
+            col = client.get_collection(name)
+        except Exception:
+            continue
+        meta = col.metadata or {}
+        provider = meta.get("embedding_provider")
+        model = meta.get("embedding_model")
+        if provider is not None or model is not None:
+            return (
+                str(provider) if provider is not None else None,
+                str(model) if model is not None else None,
+            )
+    return None, None
+
 
 class VectorIndex:
     """Manages ChromaDB collections for the Zettelkasten pipeline."""
 
-    def __init__(self, chroma_path: Path, embedding_provider: str = "openai",
-                 embedding_model: str = "text-embedding-3-small",
-                 device: str = "auto", allow_fallback: bool = False):
+    def __init__(
+        self,
+        chroma_path: Path,
+        embedding_provider: str = "openai",
+        embedding_model: str = "text-embedding-3-small",
+        device: str = "auto",
+        allow_fallback: bool = False,
+        base_url: str | None = None,
+        reset_mismatched: bool = False,
+    ):
         self.chroma_path = chroma_path
         self.chroma_path.mkdir(parents=True, exist_ok=True)
         self.device = device
         self.embedding_provider = embedding_provider
         self.embedding_model = embedding_model
         self.allow_fallback = allow_fallback
+        self.base_url = base_url
+        self.reset_mismatched = reset_mismatched
 
         self.client = chromadb.PersistentClient(
             path=str(chroma_path),
@@ -37,6 +111,22 @@ class VectorIndex:
         )
 
         self.embedding_fn = self._build_embedding_fn(embedding_provider, embedding_model)
+
+        stored = self.get_stored_embedding_identity()
+        if not self.embedding_space_matches(stored):
+            if reset_mismatched:
+                logger.warning(
+                    "Resetando colecoes Chroma por troca de embedding: %s/%s -> %s/%s",
+                    stored[0], stored[1],
+                    self.embedding_provider, self.embedding_model,
+                )
+                self._delete_all_collections()
+            else:
+                raise EmbeddingSpaceMismatch(
+                    stored[0], stored[1],
+                    self.embedding_provider, self.embedding_model,
+                )
+
         self._ensure_collections()
 
     def _build_embedding_fn(self, provider: str, model: str) -> Any:
@@ -57,7 +147,10 @@ class VectorIndex:
                         "Para usar o embedding local padrao do ChromaDB, ajuste "
                         "embedding.allow_fallback: true no config.yaml."
                     )
-                return OpenAIEmbeddingFunction(model_name=model, api_key=api_key)
+                kwargs: dict[str, Any] = {"model_name": model, "api_key": api_key}
+                if self.base_url:
+                    kwargs["api_base"] = self.base_url
+                return OpenAIEmbeddingFunction(**kwargs)
             elif provider == "sentence-transformers":
                 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
                 from zettel.config import detect_device
@@ -66,19 +159,38 @@ class VectorIndex:
                 return SentenceTransformerEmbeddingFunction(
                     model_name=model, device=device,
                 )
+            elif provider == "ollama":
+                # API OpenAI-compatible do Ollama — evita depender do pacote `ollama`.
+                from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
+                url = self.base_url or _DEFAULT_OLLAMA_URL
+                if not url.rstrip("/").endswith("/v1"):
+                    url = url.rstrip("/") + "/v1"
+                logger.info("Ollama embeddings (OpenAI-compatible) em %s (modelo=%s)", url, model)
+                return OpenAIEmbeddingFunction(
+                    model_name=model,
+                    api_key="ollama",  # Ollama nao valida a key
+                    api_base=url,
+                )
             else:
                 if not self.allow_fallback:
                     raise ValueError(
                         f"Embedding provider desconhecido: '{provider}'. "
-                        f"Use 'openai' ou 'sentence-transformers', ou ajuste "
-                        f"embedding.allow_fallback: true para usar o default do ChromaDB."
+                        f"Use {', '.join(repr(p) for p in _SUPPORTED_PROVIDERS)}, "
+                        f"ou ajuste embedding.allow_fallback: true para usar o default "
+                        f"do ChromaDB."
                     )
-                logger.warning("Embedding provider '%s' desconhecido, usando default do ChromaDB", provider)
+                logger.warning(
+                    "Embedding provider '%s' desconhecido, usando default do ChromaDB",
+                    provider,
+                )
                 return None
         except ImportError as e:
             if not self.allow_fallback:
                 raise
-            logger.warning("Embedding function indisponivel (%s). Coleções usarão default do ChromaDB.", e)
+            logger.warning(
+                "Embedding function indisponivel (%s). Colecoes usarao default do ChromaDB.",
+                e,
+            )
             return None
 
     def _collection_metadata(self) -> dict[str, Any]:
@@ -88,6 +200,28 @@ class VectorIndex:
             "embedding_model": self.embedding_model,
         }
 
+    def get_stored_embedding_identity(self) -> tuple[str | None, str | None]:
+        """Return ``(provider, model)`` markers from existing collections, if any."""
+        return _identity_from_client(self.client)
+
+    def embedding_space_matches(
+        self, stored: tuple[str | None, str | None] | None = None,
+    ) -> bool:
+        """True when there is no stored marker, or it equals the current provider/model."""
+        if stored is None:
+            stored = self.get_stored_embedding_identity()
+        sp, sm = stored
+        if sp is None and sm is None:
+            return True
+        return sp == self.embedding_provider and sm == self.embedding_model
+
+    def _delete_all_collections(self) -> None:
+        for name in _ALL_COLLECTIONS:
+            try:
+                self.client.delete_collection(name)
+            except Exception:
+                pass
+
     def _get_or_create(self, name: str, **kwargs: Any) -> Any:
         """Get or create a collection.
 
@@ -95,6 +229,25 @@ class VectorIndex:
         store is a rebuildable cache, so the fix is `zettel reindex --force`, not an
         automatic delete.
         """
+        # Proactive metadata check (covers cases where Chroma does not raise EF conflict).
+        try:
+            existing = self.client.get_collection(name)
+            meta = existing.metadata or {}
+            sp, sm = meta.get("embedding_provider"), meta.get("embedding_model")
+            if (sp is not None or sm is not None) and (
+                sp != self.embedding_provider or sm != self.embedding_model
+            ):
+                raise EmbeddingSpaceMismatch(
+                    str(sp) if sp is not None else None,
+                    str(sm) if sm is not None else None,
+                    self.embedding_provider,
+                    self.embedding_model,
+                )
+        except EmbeddingSpaceMismatch:
+            raise
+        except Exception:
+            pass
+
         try:
             return self.client.get_or_create_collection(name, **kwargs)
         except ValueError as e:

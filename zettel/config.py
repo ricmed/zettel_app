@@ -24,8 +24,12 @@ class LLMConfig(BaseModel):
 
 
 class EmbeddingConfig(BaseModel):
-    provider: str = "openai"
+    provider: Literal["openai", "sentence-transformers", "ollama"] = "openai"
     model: str = "text-embedding-3-small"
+    # URL do endpoint de embeddings. Para ollama: http://localhost:11434/v1
+    # (API OpenAI-compatible). Para openai com proxy/Azure: api_base OpenAI-compatible.
+    # None = default do provider.
+    base_url: str | None = None
     # Se False (padrao), a ausencia de API key / provider invalido levanta erro em vez
     # de cair silenciosamente no embedding default do ChromaDB (384 dims), o que
     # misturaria espacos vetoriais incompativeis.
@@ -80,8 +84,19 @@ class GardenerConfig(BaseModel):
     min_cluster_size: int = 5
     min_notes_for_moc: int = 3
     domain: str = ""                               # ex: "Ciencia de Dados"
+    # Fonte unica da taxonomia (pilar > categoria > topicos). Categorias viram a
+    # whitelist do campo topic do MOC. None = default config/moc_topics.yaml.
+    topics_path: Path | None = Path("config/moc_topics.yaml")
+    # Override opcional para testes; se vazio, deriva de topics_path.
     allowed_topics: list[str] = Field(default_factory=list)
     strict_topics: bool = True                      # rejeitar MOCs fora da lista
+
+    @field_validator("topics_path", mode="before")
+    @classmethod
+    def resolve_topics_path(cls, v: Any) -> Path | None:
+        if v is None or v == "":
+            return None
+        return Path(v).resolve()
 
 
 # Peso de cada tipo de aresta na expansao por grafo. `contradicts` no topo porque

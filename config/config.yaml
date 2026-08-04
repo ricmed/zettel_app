@@ -16,19 +16,30 @@ prompts_path: ./prompts
 llm:
   provider: openai          # openai | anthropic | ollama
   model: gpt-4o-mini        # modelo para extração/geração
+  #provider: ollama
+  #model: qwen3.5:4b
   temperature: 0.15
   top_p: 0.5
   max_retries: 2
 
 # ── Embeddings ──────────────────────────────────────────────────────────
+# Providers: openai | sentence-transformers | ollama
+# Trocar provider ou model exige regenerar TODOS os vetores
+# (`zettel reindex --force`). O CLI detecta o drift, avisa e pede confirmacao
+# (ou use --yes). Apos a troca, recalibre retrieval.relevance_floor e limiares
+# de dedupe se a busca degradar.
 embedding:
-  provider: openai           # openai | sentence-transformers
-  model: text-embedding-3-small
+  # provider: openai           # openai | sentence-transformers | ollama
+  # model: text-embedding-3-small
+  base_url: null             # opcional; ollama default http://localhost:11434/v1
+  provider: ollama
+  model: qwen3-embedding
+  # allow_fallback: false      # true = permite default Chroma (mistura espacos — evite)
 
 # ── Chunking ────────────────────────────────────────────────────────────
 chunking:
-  chunk_size: 1000           # caracteres (nao tokens)
-  chunk_overlap: 200
+  chunk_size: 1500           # caracteres (nao tokens)
+  chunk_overlap: 400
   min_section_chars: 200     # secoes (H3+) menores que isso sao fundidas com a seguinte
 
 # ── Linkagem / Deduplicação ─────────────────────────────────────────────
@@ -72,31 +83,8 @@ gardener:
   min_notes_for_moc: 3
   domain: "Ciencia de Dados"
   strict_topics: true
-  allowed_topics:
-    - "Fundamentos Matematicos e Estatisticos"
-    - "Programacao, Engenharia de Software e Boas Praticas"
-    - "Dados: Modelagem, Qualidade e Governanca"
-    - "Aquisicao, Ingestao e Integracao"
-    - "Armazenamento e Arquitetura de Dados"
-    - "Processamento e Computacao"
-    - "Analise Exploratoria e Estatistica Aplicada"
-    - "Experimentos, Produto e Tomada de Decisao"
-    - "Machine Learning Classico"
-    - "Aprendizado Nao Supervisionado e Representacao"
-    - "Deep Learning e Modelos Neurais"
-    - "NLP Moderno e LLMs"
-    - "Feature Store e Engenharia de Features"
-    - "MLOps e Ciclo de Vida de Modelos"
-    - "Observabilidade e Confiabilidade de ML"
-    - "Infraestrutura de Serving e Sistemas em Producao"
-    - "Seguranca, Privacidade e Compliance"
-    - "Responsible AI, Etica e Fairness"
-    - "Avaliacao e Validacao"
-    - "Otimizacao, Pesquisa e Modelagem Avancada"
-    - "Data Visualization e Comunicacao"
-    - "Operacao, Time e Gestao de Projetos"
-    - "Ferramentas e Ecossistema"
-    - "Dominios e Verticais"
+  # Taxonomia hierarquica (pilar > categoria > topicos). Categorias = whitelist do MOC.
+  topics_path: ./config/moc_topics.yaml
 
 # ── Idioma ──────────────────────────────────────────────────────────────
 language: pt-BR

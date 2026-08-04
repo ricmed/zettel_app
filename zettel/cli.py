@@ -46,12 +46,85 @@ def _get_db(cfg):
     return StateDB(cfg.state_db_path)
 
 
-def _get_idx(cfg):
-    from zettel.index import VectorIndex
-    return VectorIndex(
-        cfg.chroma_path, cfg.embedding.provider, cfg.embedding.model, cfg.device,
-        allow_fallback=cfg.embedding.allow_fallback,
-    )
+def _idx_kwargs(cfg, *, reset_mismatched: bool = False) -> dict:
+    return {
+        "chroma_path": cfg.chroma_path,
+        "embedding_provider": cfg.embedding.provider,
+        "embedding_model": cfg.embedding.model,
+        "device": cfg.device,
+        "allow_fallback": cfg.embedding.allow_fallback,
+        "base_url": cfg.embedding.base_url,
+        "reset_mismatched": reset_mismatched,
+    }
+
+
+def _warn_embedding_mismatch(exc) -> None:
+    """Print a clear warning when the configured embedding differs from Chroma."""
+    console.print(Panel(
+        f"[yellow]O modelo de embedding mudou.[/yellow]\n\n"
+        f"  Chroma (atual): [bold]{exc.stored_provider}/{exc.stored_model}[/bold]\n"
+        f"  Config (novo):  [bold]{exc.current_provider}/{exc.current_model}[/bold]\n\n"
+        f"Os vetores existentes sao incompativeis com o novo espaco. "
+        f"E necessario regenerar TODOS os embeddings a partir do SQLite "
+        f"([bold]zettel reindex --force[/bold]).\n"
+        f"Isso [bold]nao[/bold] reescreve notas .md nem chama o LLM.\n"
+        f"Apos a troca, considere recalibrar "
+        f"`retrieval.relevance_floor.min_vector_similarity` e os limiares de dedupe "
+        f"se a qualidade da busca degradar.",
+        title="Troca de embedding",
+        border_style="yellow",
+    ))
+
+
+def _confirm_embedding_reprocess(yes: bool) -> bool:
+    if yes:
+        return True
+    return typer.confirm("Reprocessar todos os embeddings agora?", default=False)
+
+
+def _get_idx(cfg, db=None, yes: bool = False):
+    """Open VectorIndex; on embedding-space drift, warn, confirm, and reindex.
+
+    Args:
+        db: StateDB used to repopulate Chroma after a confirmed reprocess.
+            Opened temporarily if omitted.
+        yes: skip interactive confirmation (CI / ``--yes``).
+    """
+    from zettel.index import EmbeddingSpaceMismatch, VectorIndex
+
+    try:
+        return VectorIndex(**_idx_kwargs(cfg))
+    except EmbeddingSpaceMismatch as exc:
+        _warn_embedding_mismatch(exc)
+        if not _confirm_embedding_reprocess(yes):
+            console.print(
+                "[red]Abortado.[/red] Para regenerar os vetores depois: "
+                "[bold]zettel reindex --force[/bold] "
+                "(ou passe --yes em scripts)."
+            )
+            raise typer.Exit(1) from exc
+
+        own_db = db is None
+        if own_db:
+            db = _get_db(cfg)
+        try:
+            idx = VectorIndex(**_idx_kwargs(cfg, reset_mismatched=True))
+            from zettel.rebuild import run_reindex
+            with console.status(
+                "[bold blue]Regenerando embeddings (reindex --force)...",
+                spinner="dots",
+            ):
+                stats = run_reindex(cfg, db, idx, force=True)
+            table = Table(title="Reindex (troca de embedding)")
+            table.add_column("Colecao", style="bold")
+            table.add_column("Vetores", justify="right")
+            for k, v in stats.items():
+                table.add_row(k, str(v))
+            console.print(table)
+            return idx
+        finally:
+            if own_db and db is not None:
+                db.close()
 
 
 # ── init ──────────────────────────────────────────────────────────────
@@ -105,9 +178,8 @@ def init(
     init_vault(cfg.vault_path)
 
     db = _get_db(cfg)
+    idx = _get_idx(cfg, db=db, yes=False)
     db.close()
-
-    idx = _get_idx(cfg)
 
     # Ensure directories
     cfg.inbox_path.mkdir(parents=True, exist_ok=True)
@@ -141,7 +213,7 @@ def harvest(
     move_processed: bool = typer.Option(False, "--move-processed", help="Mover arquivos processados"),
     yes: bool = typer.Option(
         False, "--yes", "-y",
-        help="Modo nao-interativo: usa o comportamento padrao configurado para duplicatas suspeitas",
+        help="Modo nao-interativo: default da config para duplicatas; confirma reprocessamento se embedding mudou",
     ),
     skip_duplicates: bool = typer.Option(
         False, "--skip-duplicates",
@@ -159,7 +231,7 @@ def harvest(
     """Escanear inbox, extrair texto, criar notas SRC/LIT e chunks."""
     cfg = _load_deps(config)
     db = _get_db(cfg)
-    idx = _get_idx(cfg)
+    idx = _get_idx(cfg, db=db, yes=yes)
 
     interactive, duplicate_action = _resolve_duplicate_flags(yes, skip_duplicates, force)
 
@@ -233,11 +305,15 @@ def _resolve_duplicate_flags(
 @app.command()
 def extract(
     config: Optional[str] = typer.Option(None, "--config", "-c"),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Confirmar automaticamente o reprocessamento se o embedding mudou",
+    ),
 ):
     """Processar chunks pendentes com LLM (Prompt 1), gerar candidatos."""
     cfg = _load_deps(config)
     db = _get_db(cfg)
-    idx = _get_idx(cfg)
+    idx = _get_idx(cfg, db=db, yes=yes)
 
     from zettel.extractor import run_extract
     with console.status("[bold blue]Extraindo conceitos dos chunks...", spinner="dots"):
@@ -278,6 +354,10 @@ def connect(
     config: Optional[str] = typer.Option(None, "--config", "-c"),
     topk: Optional[int] = typer.Option(None, "--topk", help="Top-k notas similares"),
     dedupe_threshold: Optional[float] = typer.Option(None, "--dedupe-threshold"),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Confirmar automaticamente o reprocessamento se o embedding mudou",
+    ),
 ):
     """Gerar notas permanentes a partir dos candidatos extraídos."""
     cfg = _load_deps(config)
@@ -287,7 +367,7 @@ def connect(
         cfg.linking.dedupe_threshold = dedupe_threshold
 
     db = _get_db(cfg)
-    idx = _get_idx(cfg)
+    idx = _get_idx(cfg, db=db, yes=yes)
 
     # Load candidates: prefer candidates.json (debug artifact); fall back to the DB
     # (concepts approved but not yet noted), which is the durable source of truth.
@@ -335,6 +415,10 @@ def connect(
 def garden(
     config: Optional[str] = typer.Option(None, "--config", "-c"),
     min_cluster_size: Optional[int] = typer.Option(None, "--min-cluster-size"),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Confirmar automaticamente o reprocessamento se o embedding mudou",
+    ),
 ):
     """Clusterizar notas e gerar/atualizar MOCs."""
     cfg = _load_deps(config)
@@ -342,7 +426,7 @@ def garden(
         cfg.gardener.min_cluster_size = min_cluster_size
 
     db = _get_db(cfg)
-    idx = _get_idx(cfg)
+    idx = _get_idx(cfg, db=db, yes=yes)
 
     from zettel.gardener import run_garden
     with console.status("[bold blue]Cultivando o jardim de notas...", spinner="dots"):
@@ -409,6 +493,10 @@ def rechunk(
     config: Optional[str] = typer.Option(None, "--config", "-c"),
     source_id: Optional[str] = typer.Option(None, "--source-id", help="Rechunk apenas esta fonte"),
     all_sources: bool = typer.Option(False, "--all", help="Rechunk de todas as fontes"),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Confirmar automaticamente o reprocessamento se o embedding mudou",
+    ),
 ):
     """Re-chunkar fontes a partir do texto extraido persistido (aplica config atual)."""
     if not source_id and not all_sources:
@@ -417,7 +505,7 @@ def rechunk(
 
     cfg = _load_deps(config)
     db = _get_db(cfg)
-    idx = _get_idx(cfg)
+    idx = _get_idx(cfg, db=db, yes=yes)
 
     from zettel.harvester import run_rechunk
     with console.status("[bold blue]Re-chunkando fontes...", spinner="dots"):
@@ -445,11 +533,15 @@ def sync_manual(
         False, "--rebuild-graph",
         help="Re-deriva arestas 'related' dos wikilinks no corpo de todas as notas",
     ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Confirmar automaticamente o reprocessamento se o embedding mudou",
+    ),
 ):
     """Sincronizar notas manuais do vault com o índice vetorial."""
     cfg = _load_deps(config)
     db = _get_db(cfg)
-    idx = _get_idx(cfg)
+    idx = _get_idx(cfg, db=db, yes=yes)
 
     from zettel.sync import rebuild_manual_edges, run_sync_manual
 
@@ -484,11 +576,44 @@ def reindex(
         None, "--collection", help="Reindexar apenas: sources|chunks|permanent_notes|mocs"
     ),
     force: bool = typer.Option(False, "--force", help="Resetar a colecao antes de repovoar"),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Confirmar automaticamente o reprocessamento se o embedding mudou",
+    ),
 ):
-    """Reconstruir o ChromaDB a partir do SQLite (sem chamadas de LLM)."""
+    """Reconstruir o ChromaDB a partir do SQLite (sem chamadas de LLM).
+
+    Se o provider/modelo de embedding no config diferir do marcado no Chroma,
+    --force e aplicado automaticamente (aviso + confirmacao, ou --yes).
+    Sem --force apos troca de modelo, sources/chunks antigos nao seriam regenerados.
+    """
+    from zettel.index import EmbeddingSpaceMismatch, VectorIndex, peek_stored_embedding_identity
+
     cfg = _load_deps(config)
     db = _get_db(cfg)
-    idx = _get_idx(cfg)
+
+    stored = peek_stored_embedding_identity(cfg.chroma_path)
+    drift = (
+        (stored[0] is not None or stored[1] is not None)
+        and (stored[0] != cfg.embedding.provider or stored[1] != cfg.embedding.model)
+    )
+    if drift:
+        exc = EmbeddingSpaceMismatch(
+            stored[0], stored[1], cfg.embedding.provider, cfg.embedding.model,
+        )
+        _warn_embedding_mismatch(exc)
+        if not force and not _confirm_embedding_reprocess(yes):
+            console.print(
+                "[red]Abortado.[/red] Use [bold]zettel reindex --force[/bold] "
+                "ou passe --yes."
+            )
+            db.close()
+            raise typer.Exit(1)
+        force = True
+        console.print("[dim]Troca de embedding detectada — aplicando --force.[/dim]")
+        idx = VectorIndex(**_idx_kwargs(cfg, reset_mismatched=True))
+    else:
+        idx = VectorIndex(**_idx_kwargs(cfg))
 
     from zettel.rebuild import run_reindex
     with console.status("[bold blue]Reconstruindo indice vetorial...", spinner="dots"):
@@ -514,6 +639,10 @@ def rebuild(
         False, "--force", help="Sobrescrever arquivos existentes (nunca notas manuais)"
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Simular sem escrever"),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Confirmar automaticamente o reprocessamento se o embedding mudou",
+    ),
 ):
     """Reconstruir o vault (.md) e/ou o ChromaDB a partir do SQLite, sem reprocessar LLM."""
     cfg = _load_deps(config)
@@ -536,7 +665,7 @@ def rebuild(
         console.print(table)
 
     if what in ("chroma", "all"):
-        idx = _get_idx(cfg)
+        idx = _get_idx(cfg, db=db, yes=yes)
         from zettel.rebuild import run_reindex
         with console.status("[bold blue]Reconstruindo indice vetorial...", spinner="dots"):
             rstats = run_reindex(cfg, db, idx, force=force)
@@ -559,7 +688,7 @@ def run_all(
     dry_run: bool = typer.Option(False, "--dry-run", help="Simular sem escrever"),
     yes: bool = typer.Option(
         False, "--yes", "-y",
-        help="Modo nao-interativo: usa o comportamento padrao configurado para duplicatas suspeitas",
+        help="Modo nao-interativo: default da config para duplicatas; confirma reprocessamento se embedding mudou",
     ),
     skip_duplicates: bool = typer.Option(
         False, "--skip-duplicates",
@@ -577,7 +706,7 @@ def run_all(
     """Executar pipeline completo: harvest > extract > connect > garden."""
     cfg = _load_deps(config)
     db = _get_db(cfg)
-    idx = _get_idx(cfg)
+    idx = _get_idx(cfg, db=db, yes=yes)
 
     interactive, duplicate_action = _resolve_duplicate_flags(yes, skip_duplicates, force)
 
@@ -648,11 +777,15 @@ def ask(
     no_save_prompt: bool = typer.Option(
         False, "--no-save-prompt", help="Nao perguntar se deve salvar (para scripts)"
     ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Confirmar automaticamente o reprocessamento se o embedding mudou",
+    ),
 ):
     """Responder uma pergunta usando as notas do vault (recuperacao hibrida + grafo)."""
     cfg = _load_deps(config)
     db = _get_db(cfg)
-    idx = _get_idx(cfg)
+    idx = _get_idx(cfg, db=db, yes=yes)
 
     from zettel.ask import run_ask, save_ask_note
 
@@ -898,6 +1031,46 @@ def doctor(
         checks.append(("GPU (CUDA)", False, "nenhuma GPU detectada (usara CPU)"))
 
     checks.append(("Device config", True, f"device: {cfg.device}"))
+
+    # MOC taxonomy YAML
+    topics_path = cfg.gardener.topics_path
+    if topics_path is None:
+        checks.append(("MOC taxonomy", not cfg.gardener.strict_topics,
+                        "topics_path nao configurado"))
+    elif topics_path.exists():
+        try:
+            from zettel.taxonomy import allowed_topic_names, load_moc_taxonomy
+            tax = load_moc_taxonomy(topics_path)
+            n_cat = len(allowed_topic_names(tax))
+            checks.append(("MOC taxonomy", True, f"{topics_path.name} ({n_cat} categorias)"))
+        except Exception as e:
+            checks.append(("MOC taxonomy", False, f"invalida: {e}"))
+    else:
+        checks.append(("MOC taxonomy", False, f"arquivo nao encontrado: {topics_path}"))
+
+    # Embedding space: config vs Chroma collection markers
+    from zettel.index import peek_stored_embedding_identity
+    stored_p, stored_m = peek_stored_embedding_identity(cfg.chroma_path)
+    cfg_p, cfg_m = cfg.embedding.provider, cfg.embedding.model
+    if stored_p is None and stored_m is None:
+        checks.append((
+            "Embedding space",
+            True,
+            f"config={cfg_p}/{cfg_m} (Chroma sem marcador ou vazio)",
+        ))
+    elif stored_p == cfg_p and stored_m == cfg_m:
+        checks.append((
+            "Embedding space",
+            True,
+            f"{cfg_p}/{cfg_m}",
+        ))
+    else:
+        checks.append((
+            "Embedding space",
+            False,
+            f"drift: Chroma={stored_p}/{stored_m} -> config={cfg_p}/{cfg_m}; "
+            f"rode `zettel reindex --force`",
+        ))
 
     # Chunking coverage vs extracted_text (interrupted harvest recovery)
     try:

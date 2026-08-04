@@ -78,6 +78,10 @@ def run_reindex(
         collection: rebuild only this collection (one of sources/chunks/
             permanent_notes/mocs). None rebuilds all.
         force: reset each target collection before repopulating.
+
+    When the embedding provider/model changes, callers **must** pass
+    ``force=True`` (or reset collections first). Without force, sources/chunks
+    already present under the old vector space are skipped and the spaces mix.
     """
     targets = [collection] if collection else _ALL_COLLECTIONS
     for t in targets:

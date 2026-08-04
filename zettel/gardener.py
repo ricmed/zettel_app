@@ -21,6 +21,7 @@ from zettel.index import VectorIndex
 from zettel.llm import call_llm, extract_json, get_llm, load_prompt
 from zettel.schemas import MOCGenerationOutput, MOCIncrementalOutput
 from zettel.state import StateDB
+from zettel.taxonomy import TaxonomyLoadError, resolve_allowed_topics
 from zettel.vault import (
     note_filename,
     safe_write_note,
@@ -38,6 +39,17 @@ logger = logging.getLogger(__name__)
 
 def run_garden(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> list[str]:
     """Cluster permanent notes and generate/update MOCs. Returns moc_ids."""
+    # Fail fast if taxonomy file is required but missing/invalid.
+    try:
+        resolve_allowed_topics(
+            cfg.gardener.topics_path,
+            cfg.gardener.allowed_topics,
+            strict=cfg.gardener.strict_topics,
+        )
+    except TaxonomyLoadError as e:
+        logger.error("Taxonomia de MOCs indisponivel: %s", e)
+        raise
+
     note_count = idx.count_permanent_notes()
     if note_count < cfg.gardener.min_cluster_size:
         logger.info(
@@ -194,17 +206,20 @@ def _generate_moc(
     prompt_template = load_prompt(cfg.prompts_path / "moc_generation.md")
 
     domain = cfg.gardener.domain or "Geral"
-    allowed_topics = cfg.gardener.allowed_topics
+    try:
+        allowed_topics, taxonomy_detail = resolve_allowed_topics(
+            cfg.gardener.topics_path,
+            cfg.gardener.allowed_topics,
+            strict=cfg.gardener.strict_topics,
+        )
+    except TaxonomyLoadError as e:
+        logger.error("Taxonomia de MOCs indisponivel: %s", e)
+        return None
+
     if allowed_topics:
         topics_section = "\n".join(f"- {t}" for t in allowed_topics)
     else:
-        topics_section = "_(Nenhuma lista de topicos definida — escolha livremente.)_"
-
-    taxonomy_path = cfg.prompts_path / "moc_topics_taxonomy.md"
-    if taxonomy_path.exists():
-        taxonomy_detail = taxonomy_path.read_text(encoding="utf-8")
-    else:
-        taxonomy_detail = "_(Taxonomia detalhada nao disponivel.)_"
+        topics_section = "_(Nenhuma lista de categorias definida — escolha livremente.)_"
 
     filled = prompt_template.replace("{domain}", domain)
     filled = filled.replace("{allowed_topics_section}", topics_section)
@@ -278,8 +293,17 @@ def _generate_moc(
 
 
 def _validate_moc_topic(cfg: AppConfig, moc_output: MOCGenerationOutput) -> bool:
-    """Validate that the MOC topic matches the allowed_topics list."""
-    allowed = cfg.gardener.allowed_topics
+    """Validate that the MOC topic matches an allowed category name."""
+    try:
+        allowed, _ = resolve_allowed_topics(
+            cfg.gardener.topics_path,
+            cfg.gardener.allowed_topics,
+            strict=cfg.gardener.strict_topics,
+        )
+    except TaxonomyLoadError as e:
+        logger.error("Taxonomia de MOCs indisponivel na validacao: %s", e)
+        return False
+
     if not allowed:
         return True
 

@@ -1,0 +1,201 @@
+# Taxonomia hierarquica de topicos para MOCs (fonte unica de verdade).
+# Referenciada por gardener.topics_path em config.yaml.
+# Nivel de validacao do MOC: categorias[].nome (pilares agrupam; topicos orientam subsecoes).
+
+taxonomia_conhecimento:
+  - pilar: "Fundamentos (Matemática, Estatística e Computação)"
+    categorias:
+      - nome: "Matemática e Estatística"
+        topicos:
+          - "Álgebra Linear"
+          - "Cálculo"
+          - "Probabilidade e Distribuições"
+      - nome: "Lógica e Computação"
+        topicos:
+          - "Estruturas de Dados"
+          - "Algoritmos e Complexidade"
+      - nome: "Pesquisa e Otimização"
+        topicos:
+          - "Otimização Convexa"
+          - "Pesquisa Operacional"
+          - "Heurísticas"
+
+  - pilar: "Engenharia de Software e Arquitetura"
+    categorias:
+      - nome: "Boas Práticas e Código"
+        topicos:
+          - "Clean Code"
+          - "SOLID"
+          - "Design Patterns"
+          - "Refatoração"
+      - nome: "Ciclo de Desenvolvimento"
+        topicos:
+          - "Versionamento e Git"
+          - "CI/CD e Automação"
+          - "Testes Unitários e de Integração"
+      - nome: "Infraestrutura Básica"
+        topicos:
+          - "Containers e Docker"
+          - "Orquestração"
+          - "Ambientes em Nuvem"
+
+  - pilar: "Engenharia, Processamento e Infraestrutura de Dados"
+    categorias:
+      - nome: "Fundamentos de Dados"
+        topicos:
+          - "Modelagem de Dados"
+          - "Qualidade de Dados"
+          - "Governança e Catálogos"
+      - nome: "Pipelines de Dados"
+        topicos:
+          - "Aquisição e Ingestão"
+          - "Integração"
+          - "Processamento Batch"
+          - "Processamento Streaming"
+      - nome: "Armazenamento"
+        topicos:
+          - "Data Lakes"
+          - "Data Warehouses"
+          - "Bancos de Dados de Grafos"
+          - "Bancos de Dados Vetoriais"
+
+  - pilar: "Análise Exploratória e Experimentação"
+    categorias:
+      - nome: "Análise Aplicada"
+        topicos:
+          - "Estatística Aplicada"
+          - "Inferência Causal"
+          - "Testes de Hipóteses"
+      - nome: "Experimentação"
+        topicos:
+          - "Testes A/B/n"
+          - "Desenho de Experimentos"
+          - "Métricas de Sucesso"
+      - nome: "Comunicação Visual"
+        topicos:
+          - "Data Visualization"
+          - "Storytelling com Dados"
+          - "Dashboards"
+
+  - pilar: "Machine Learning Clássico e Feature Engineering"
+    categorias:
+      - nome: "Preparo e Representação"
+        topicos:
+          - "Feature Engineering"
+          - "Seleção de Variáveis"
+          - "Feature Stores"
+      - nome: "Aprendizado Supervisionado"
+        topicos:
+          - "Classificação"
+          - "Regressão"
+          - "Métodos Ensemble"
+      - nome: "Aprendizado Não Supervisionado"
+        topicos:
+          - "Clusterização"
+          - "Redução de Dimensionalidade"
+          - "Detecção de Anomalias"
+      - nome: "Técnicas Específicas"
+        topicos:
+          - "Sistemas de Recomendação"
+          - "Análise de Séries Temporais"
+
+  - pilar: "Deep Learning e Inteligência Artificial"
+    categorias:
+      - nome: "Fundamentos Neurais"
+        topicos:
+          - "Arquiteturas Base"
+          - "Funções de Ativação"
+          - "Otimizadores"
+      - nome: "Visão Computacional"
+        topicos:
+          - "Processamento de Imagens"
+          - "Detecção de Objetos"
+          - "Segmentação"
+      - nome: "Aprendizado por Reforço"
+        topicos:
+          - "Q-Learning"
+          - "Policy Gradients"
+          - "Aplicações em Ambientes Complexos"
+
+  - pilar: "IA Generativa, NLP e Agentes"
+    categorias:
+      - nome: "Processamento de Linguagem Natural"
+        topicos:
+          - "NLP Clássico"
+          - "Embeddings"
+          - "Representação Semântica"
+      - nome: "Modelos de Linguagem"
+        topicos:
+          - "Arquitetura Transformer"
+          - "Fine-Tuning"
+          - "PEFT e LoRA"
+      - nome: "Aplicações de LLMs"
+        topicos:
+          - "RAG (Retrieval-Augmented Generation)"
+          - "Prompt Engineering"
+          - "Chunking Strategies"
+      - nome: "Sistemas Autônomos"
+        topicos:
+          - "Agentes de IA"
+          - "Orquestração"
+          - "Uso de Ferramentas"
+          - "Memória"
+
+  - pilar: "MLOps e Engenharia de Machine Learning"
+    categorias:
+      - nome: "Gestão e Rastreamento"
+        topicos:
+          - "Tracking de Experimentos"
+          - "Versionamento de Modelos"
+          - "Model Registry"
+      - nome: "Deploy e Serving"
+        topicos:
+          - "Infraestrutura de Serving"
+          - "APIs"
+          - "Inferência Real-time"
+          - "Inferência Batch"
+      - nome: "Observabilidade e Confiabilidade"
+        topicos:
+          - "Monitoramento em Produção"
+          - "Data Drift"
+          - "Concept Drift"
+          - "Retreinamento"
+
+  - pilar: "Governança, Ética e Segurança em IA"
+    categorias:
+      - nome: "Uso Responsável"
+        topicos:
+          - "Responsible AI"
+          - "Ética"
+          - "Explicabilidade (XAI)"
+          - "Mitigação de Viés (Fairness)"
+      - nome: "Segurança e Privacidade"
+        topicos:
+          - "Compliance"
+          - "Anonimização"
+          - "Defesa contra Prompt Injections"
+          - "Jailbreaks"
+      - nome: "Avaliação de Modelos"
+        topicos:
+          - "Avaliação Sistêmica"
+          - "Frameworks de Evals"
+          - "Validação de Outputs"
+
+  - pilar: "Domínios de Negócio, Gestão e Verticais"
+    categorias:
+      - nome: "Operação e Times"
+        topicos:
+          - "Gestão de Projetos de Dados"
+          - "Metodologias Ágeis"
+          - "Estrutura de Equipes"
+      - nome: "Produtos de Dados"
+        topicos:
+          - "Ciclo de Vida do Produto"
+          - "Tomada de Decisão"
+          - "Estratégia de Dados"
+      - nome: "Casos de Uso por Vertical"
+        topicos:
+          - "Detecção de Fraudes"
+          - "Credit Scoring"
+          - "Saúde Pública"
+          - "Saúde Suplementar"

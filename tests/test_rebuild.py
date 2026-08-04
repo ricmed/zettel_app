@@ -94,6 +94,54 @@ def test_reindex_unknown_collection_raises(db):
         run_reindex(AppConfig(), db, FakeIndex(), collection="bogus")
 
 
+def test_reindex_force_after_embedding_swap(db, tmp_path, monkeypatch):
+    """Troca de modelo com force regenera sources/chunks (sem force, ficariam stale)."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
+    from zettel.index import EmbeddingSpaceMismatch, VectorIndex
+
+    _seed(db)
+    chroma = tmp_path / "chroma"
+    cfg = AppConfig(
+        embedding={"provider": "openai", "model": "modelo-a", "allow_fallback": True},
+        chroma_path=chroma,
+    )
+    # Bypass Literal validation by constructing VectorIndex directly for markers.
+    idx_a = VectorIndex(chroma, "provider-invalido", "modelo-a", allow_fallback=True)
+    run_reindex(cfg, db, idx_a, force=True)
+    assert idx_a.chunks.count() == 1
+    assert idx_a.get_stored_embedding_identity() == ("provider-invalido", "modelo-a")
+
+    with pytest.raises(EmbeddingSpaceMismatch):
+        VectorIndex(chroma, "provider-invalido", "modelo-b", allow_fallback=True)
+
+    idx_b = VectorIndex(
+        chroma, "provider-invalido", "modelo-b",
+        allow_fallback=True, reset_mismatched=True,
+    )
+    stats = run_reindex(cfg, db, idx_b, force=True)
+    assert stats["chunks"] == 1
+    assert stats["sources"] == 1
+    assert idx_b.get_stored_embedding_identity() == ("provider-invalido", "modelo-b")
+    assert idx_b.chunks.count() == 1
+
+
+def test_embedding_config_rejects_unknown_provider():
+    from pydantic import ValidationError
+    from zettel.config import EmbeddingConfig
+
+    with pytest.raises(ValidationError):
+        EmbeddingConfig(provider="provider-invalido", model="x")
+
+
+def test_embedding_config_accepts_ollama():
+    from zettel.config import EmbeddingConfig
+
+    cfg = EmbeddingConfig(provider="ollama", model="qwen3-embedding")
+    assert cfg.provider == "ollama"
+    assert cfg.base_url is None
+
+
 def test_rebuild_vault_writes_from_db(db, tmp_path):
     _seed(db)
     cfg = AppConfig(vault_path=tmp_path / "vault")

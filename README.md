@@ -51,16 +51,16 @@ zettel_app/
 │   ├── rebuild.py           # Reconstrução do Chroma (reindex) e do vault (rebuild) a partir do SQLite
 │   └── sync.py              # Sincronização de notas manuais (SRC/LIT/ZTL/MOC)
 ├── config/
-│   └── config.yaml          # Configuração principal
+│   ├── config.yaml          # Configuração principal
+│   └── moc_topics.yaml      # Taxonomia hierarquica de topicos para MOCs
 ├── prompts/                     # Templates de prompts para o LLM
 │   ├── bibliographic_metadata.md # Extracao de metadados bibliograficos (ABNT)
 │   ├── literature_note.md       # Prompt 1: extracao de conceitos (c/ relevance_score)
 │   ├── permanent_note.md        # Prompt 2: geracao de nota permanente
 │   ├── dedupe_decision.md       # Decisao de deduplicacao
 │   ├── relationship.md          # Classificacao de relacionamentos
-│   ├── moc_generation.md        # Geracao de MOCs (c/ dominio e topicos)
+│   ├── moc_generation.md        # Geracao de MOCs (c/ dominio e categorias)
 │   ├── moc_incremental.md       # Classificacao incremental de notas em MOC existente
-│   ├── moc_topics_taxonomy.md   # Taxonomia de topicos para MOCs (24 categorias)
 │   ├── ptbr_guard.md            # Guardrail de idioma PT-BR
 │   ├── ask.md                   # Resposta a perguntas sobre o vault
 │   └── image_description.md     # Descricao multimodal de imagens (PT-BR)
@@ -170,9 +170,10 @@ llm:
 
 # Embeddings
 embedding:
-  provider: openai
+  provider: openai                    # openai | sentence-transformers | ollama
   model: text-embedding-3-small
-  allow_fallback: false      # false = erro se faltar API key (evita vetores de 384 dims silenciosos)
+  # base_url: null                    # opcional; ollama default http://localhost:11434/v1
+  allow_fallback: false               # false = erro se faltar API key (evita vetores de 384 dims silenciosos)
 
 # Chunking
 chunking:
@@ -235,12 +236,8 @@ gardener:
   min_cluster_size: 5        # notas minimas por cluster
   min_notes_for_moc: 3       # notas minimas para gerar MOC
   domain: "Ciencia de Dados" # dominio do acervo
-  strict_topics: true        # rejeitar MOCs fora da lista de topicos
-  allowed_topics:             # lista de topicos permitidos para MOCs
-    - "Machine Learning Classico"
-    - "Deep Learning e Modelos Neurais"
-    - "NLP Moderno e LLMs"
-    # ... (24 topicos no total — veja config.yaml)
+  strict_topics: true        # rejeitar MOCs fora das categorias da taxonomia
+  topics_path: ./config/moc_topics.yaml  # pilar > categoria > topicos
 
 # PDF
 pdf_extractor: docling       # docling | pymupdf
@@ -272,6 +269,52 @@ llm:
 ```
 Requer: Ollama rodando localmente e `pip install langchain-ollama`
 
+### Provedores de embedding suportados
+
+**OpenAI** (padrão):
+```yaml
+embedding:
+  provider: openai
+  model: text-embedding-3-small
+```
+Requer: `OPENAI_API_KEY`
+
+**Sentence-Transformers** (local via PyTorch):
+```yaml
+embedding:
+  provider: sentence-transformers
+  model: all-MiniLM-L6-v2
+```
+Usa `device` da config (`auto` / `cpu` / `cuda`).
+
+**Ollama** (local):
+```yaml
+embedding:
+  provider: ollama
+  model: qwen3-embedding
+  # base_url: http://localhost:11434/v1   # opcional (API OpenAI-compatible)
+```
+Requer: Ollama rodando com o modelo de embedding puxado (`ollama pull qwen3-embedding`). Não precisa do pacote Python `ollama` — usa o endpoint `/v1` compatível com OpenAI.
+
+### Trocar o modelo de embedding
+
+O espaço vetorial é identificado pelo par `provider`/`model` gravado na metadata das coleções Chroma. Trocar qualquer um dos dois torna os vetores antigos incompatíveis.
+
+1. Edite `embedding.provider` / `embedding.model` (e opcionalmente `base_url`) em `config/config.yaml`.
+2. No próximo comando que abre o índice (`harvest`, `extract`, `connect`, `ask`, `reindex`, etc.), o CLI detecta o drift, avisa e pede confirmação.
+3. Confirmando (ou passando `--yes`), roda automaticamente um `reindex --force`: regenera todos os embeddings a partir do SQLite, **sem** chamar o LLM e **sem** reescrever notas `.md`.
+
+Você também pode forçar na mão:
+
+```bash
+python -m zettel reindex --force
+python -m zettel reindex --force --yes   # sem prompt (scripts/CI)
+```
+
+Sem `--force` após uma troca de modelo, sources/chunks já indexados **não** seriam regenerados (só notas permanentes), misturando espaços vetoriais. Por isso, na detecção de drift, o `reindex` aplica `--force` automaticamente.
+
+Depois da troca, se a qualidade da busca degradar, recalibre `retrieval.relevance_floor.min_vector_similarity` e os limiares de dedupe (`linking.dedupe_threshold`, `harvest.duplicate_chunk_threshold`) — são dependentes do modelo. O `zettel doctor` também reporta drift de embedding.
+
 ## Uso
 
 ### Fluxo básico
@@ -299,7 +342,8 @@ python -m zettel init --reset
 # Escanear inbox e processar arquivos → SRC + LIT + chunks
 python -m zettel harvest
 
-# Harvest nao-interativo (duplicatas usam o default da config)
+# Harvest nao-interativo (duplicatas usam o default da config;
+# --yes tambem confirma reprocessamento de embeddings se o modelo mudou)
 python -m zettel harvest --yes
 python -m zettel harvest --skip-duplicates   # sempre pula suspeitas de duplicata
 python -m zettel harvest --force             # trata suspeitas como nova fonte
@@ -334,8 +378,10 @@ python -m zettel sync-manual --rebuild-graph
 python -m zettel rechunk --all
 python -m zettel rechunk --source-id @AutorAnoTitulo
 
-# Reconstruir o ChromaDB a partir do SQLite (sem chamadas de LLM)
+# Reconstruir o ChromaDB a partir do SQLite (sem chamadas de LLM).
+# Apos troca de embedding, use --force (obrigatorio para regenerar sources/chunks).
 python -m zettel reindex
+python -m zettel reindex --force
 python -m zettel reindex --collection chunks --force
 
 # Reconstruir o vault (.md) e/ou o Chroma a partir do SQLite, sem reprocessar LLM
@@ -349,7 +395,7 @@ python -m zettel retry-failed --assets         # imagens com falha de descricao 
 # Ver estatisticas do pipeline (alerta se houver chunking incompleto)
 python -m zettel status
 
-# Verificar configuracao, dependencias e cobertura de capitulos vs. texto extraido
+# Verificar configuracao, dependencias, cobertura de capitulos e espaco de embedding
 python -m zettel doctor
 ```
 
@@ -441,11 +487,11 @@ python -m zettel run-all --dry-run
 2. Reduz dimensionalidade com **UMAP** e clusteriza com **HDBSCAN** (ou KMeans como fallback)
 3. Extrai termos representativos via **TF-IDF**
 4. Para cada cluster com notas suficientes, gera um **MOC** via LLM:
-   - O prompt inclui o **dominio** do acervo e a **lista de topicos permitidos**
-   - Uma **taxonomia detalhada** (24 categorias com subtopicos) e carregada de `prompts/moc_topics_taxonomy.md` como referencia para o LLM
-   - O LLM deve mapear o cluster para um topico da lista e justificar em `topic_justification`
+   - O prompt inclui o **dominio** do acervo e a **lista de categorias** derivadas de `config/moc_topics.yaml`
+   - A **taxonomia hierarquica** (pilar > categoria > topicos) e injetada como referencia; topicos-folha orientam subsecoes
+   - O LLM deve mapear o cluster para uma **categoria** e justificar em `topic_justification`
 5. **Validacao de topico** pos-geracao:
-   - Substring match bidirecional contra a lista de `allowed_topics`
+   - Substring match bidirecional contra os nomes das **categorias** do YAML
    - Se `strict_topics: true` e sem match: MOC rejeitado (com warning no log)
    - Se `strict_topics: false` e sem match: MOC aprovado (com info no log)
 6. **Atualizacao incremental de MOCs**: se ja existe um MOC com o mesmo topico, em vez de criar um duplicado:
@@ -663,11 +709,11 @@ Notas escritas à mão no Obsidian também alimentam o grafo: no `sync-manual`, 
 
 ## Retenção e reconstrução
 
-O **SQLite é a fonte de verdade durável**: além do estado do pipeline, ele persiste tudo que é caro de reproduzir — o texto extraído completo de cada fonte, o corpo integral das notas LIT/ZTL/MOC (com frontmatter), os candidatos completos (`candidate_json`) e as descrições de imagens. Os **embeddings não** são guardados no SQLite (são baratos de recomputar via API).
+O **SQLite é a fonte de verdade durável**: além do estado do pipeline, ele persiste tudo que é caro de reproduzir — o texto extraído completo de cada fonte, o corpo integral das notas LIT/ZTL/MOC (com frontmatter), os candidatos completos (`candidate_json`) e as descrições de imagens. Os **embeddings não** são guardados no SQLite (são baratos de recomputar via API ou modelo local).
 
 Como consequência:
 
-- **`zettel reindex`** reconstrói o ChromaDB inteiro a partir do SQLite, sem nenhuma chamada de LLM. O índice vetorial passa a ser um cache descartável. Um `reindex` completo também reconstrói o índice lexical FTS5 (`fts_notes`/`fts_chunks`), igualmente descartável.
+- **`zettel reindex`** reconstrói o ChromaDB inteiro a partir do SQLite, sem nenhuma chamada de LLM e sem reescrever o vault. O índice vetorial passa a ser um cache descartável. Um `reindex` completo também reconstrói o índice lexical FTS5 (`fts_notes`/`fts_chunks`), igualmente descartável. Após trocar `embedding.provider`/`model`, use **`--force`** (o CLI também detecta o drift e força o reset sob confirmação).
 - **`zettel rebuild --what vault`** recria os arquivos `.md` do vault a partir dos corpos persistidos, também sem LLM. Nunca sobrescreve um arquivo existente sem `--force`, e nunca sobrescreve uma nota `origin: manual` (mesmo com `--force`).
 - **`zettel rechunk`** re-aplica a configuração de chunking atual a partir do texto extraído persistido, sem reprocessar o arquivo original; completa capítulos faltantes após harvest interrompido e re-vincula imagens aos capítulos corretos.
 
@@ -728,12 +774,12 @@ pip install pymupdf
   - `require_anchor_quote: false` para nao exigir citacao-ancora
 
 ### MOCs sendo rejeitados
-- Se `strict_topics: true`, MOCs com topicos fora da lista `allowed_topics` serao rejeitados
+- Se `strict_topics: true`, MOCs cujo `topic` nao casa com uma **categoria** de `config/moc_topics.yaml` serao rejeitados
 - Verifique os logs por "MOC rejeitado: topico ... fora da lista"
 - Opcoes:
-  - Adicione o topico a `allowed_topics` em `config.yaml`
+  - Adicione/ajuste a categoria em `config/moc_topics.yaml`
   - Use `strict_topics: false` para aprovar todos os topicos (com aviso no log)
-  - Edite a taxonomia em `prompts/moc_topics_taxonomy.md` para cobrir mais areas
+  - Confirme que `gardener.topics_path` aponta para o YAML correto
 
 ### MOCs duplicados
 - O sistema agora detecta MOCs existentes com o mesmo topico e atualiza incrementalmente em vez de criar duplicados
@@ -750,21 +796,23 @@ Os prompts em `prompts/` sao templates Markdown com placeholders `{variavel}`. V
 - **Tags**: criterios para sugestao de tags
 - **Seletividade**: regras de relevancia e filtragem em `literature_note.md`
 - **Imagens → candidatos/ZTL**: criterios de `relevant_image_ids` e extracao a partir de diagramas em `literature_note.md`; tom da descricao em `image_description.md`; uso de figuras no Prompt 2 em `permanent_note.md`
-- **Taxonomia de MOCs**: edite `moc_topics_taxonomy.md` para ajustar as categorias e subtopicos disponiveis para organizacao dos MOCs
-- **Dominio e topicos**: ajuste `{domain}` e `{allowed_topics_section}` em `moc_generation.md` (preenchidos automaticamente via config)
+- **Taxonomia de MOCs**: edite `config/moc_topics.yaml` (pilares, categorias e topicos)
+- **Dominio e categorias**: ajuste `{domain}` e `{allowed_topics_section}` em `moc_generation.md` (preenchidos automaticamente a partir do YAML)
 - **Classificacao incremental**: edite `moc_incremental.md` para ajustar como novas notas sao classificadas em MOCs existentes
 
 O sistema detecta automaticamente quando um prompt muda e reprocessa apenas os artefatos afetados.
 
 ### Taxonomia de topicos para MOCs
 
-O arquivo `prompts/moc_topics_taxonomy.md` contem uma taxonomia com **24 categorias de nivel superior** e seus subtopicos. Ele e carregado automaticamente no prompt de geracao de MOCs como referencia para o LLM. Para personalizar:
+O arquivo [`config/moc_topics.yaml`](config/moc_topics.yaml) e a **fonte unica** da taxonomia (pilar > categoria > topicos). As **categorias** sao a whitelist do campo `topic` do MOC; pilares agrupam; topicos-folha orientam subsecoes no prompt.
 
-1. Edite `prompts/moc_topics_taxonomy.md` com suas categorias e subtopicos
-2. Atualize `allowed_topics` em `config/config.yaml` com os nomes das categorias de nivel superior
+Para personalizar:
+
+1. Edite `config/moc_topics.yaml`
+2. Ajuste `gardener.topics_path` em `config/config.yaml` se o arquivo estiver em outro caminho
 3. Ajuste `domain` para refletir a area do seu acervo
 
-Se `strict_topics: true` (padrao), MOCs com topicos fora da lista serao rejeitados. Use `strict_topics: false` para permitir topicos fora da lista (com aviso no log).
+Se `strict_topics: true` (padrao), MOCs com `topic` fora das categorias serao rejeitados. Use `strict_topics: false` para permitir topicos fora da lista (com aviso no log).
 
 ## Licença
 

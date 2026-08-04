@@ -21,6 +21,13 @@ from zettel.schemas import (
     MOCSubsection,
 )
 from zettel.state import StateDB
+from zettel.taxonomy import (
+    TaxonomyLoadError,
+    allowed_topic_names,
+    format_taxonomy_for_prompt,
+    load_moc_taxonomy,
+    resolve_allowed_topics,
+)
 from zettel.vault import safe_write_note
 
 
@@ -37,16 +44,113 @@ def _make_moc_output(topic: str, justification: str = "") -> MOCGenerationOutput
 def _make_config(
     allowed_topics: list[str] | None = None,
     strict: bool = True,
+    topics_path: Path | None = None,
 ) -> AppConfig:
-    """Helper to build an AppConfig with custom gardener settings."""
+    """Helper to build an AppConfig with custom gardener settings.
+
+    ``topics_path=None`` avoids loading the real YAML so unit tests can
+    inject ``allowed_topics`` (or empty = allow-all) in isolation.
+    """
     gardener_kwargs = {
         "strict_topics": strict,
         "allowed_topics": allowed_topics or [],
+        "topics_path": topics_path,
     }
     return AppConfig(gardener=GardenerConfig(**gardener_kwargs))
 
 
-# ── Topic Validation Tests (existing) ────────────────────────────────
+# ── Taxonomy YAML ────────────────────────────────────────────────────
+
+
+_MINI_TAXONOMY = """\
+taxonomia_conhecimento:
+  - pilar: "Pilar A"
+    categorias:
+      - nome: "Categoria Um"
+        topicos:
+          - "Folha A"
+          - "Folha B"
+      - nome: "Categoria Dois"
+        topicos:
+          - "Folha C"
+  - pilar: "Pilar B"
+    categorias:
+      - nome: "Categoria Tres"
+        topicos:
+          - "Folha D"
+"""
+
+
+@pytest.fixture
+def mini_taxonomy_path(tmp_path: Path) -> Path:
+    p = tmp_path / "moc_topics.yaml"
+    p.write_text(_MINI_TAXONOMY, encoding="utf-8")
+    return p
+
+
+def test_load_moc_taxonomy(mini_taxonomy_path: Path):
+    tax = load_moc_taxonomy(mini_taxonomy_path)
+    assert len(tax.taxonomia_conhecimento) == 2
+    assert tax.taxonomia_conhecimento[0].pilar == "Pilar A"
+    assert tax.taxonomia_conhecimento[0].categorias[0].nome == "Categoria Um"
+    assert tax.taxonomia_conhecimento[0].categorias[0].topicos == ["Folha A", "Folha B"]
+
+
+def test_allowed_topic_names_are_categories(mini_taxonomy_path: Path):
+    tax = load_moc_taxonomy(mini_taxonomy_path)
+    assert allowed_topic_names(tax) == [
+        "Categoria Um", "Categoria Dois", "Categoria Tres",
+    ]
+
+
+def test_format_taxonomy_for_prompt(mini_taxonomy_path: Path):
+    tax = load_moc_taxonomy(mini_taxonomy_path)
+    md = format_taxonomy_for_prompt(tax)
+    assert "## Pilar: Pilar A" in md
+    assert "### Categoria: Categoria Um" in md
+    assert "- Folha A" in md
+    assert "Categoria Tres" in md
+
+
+def test_resolve_allowed_topics_from_file(mini_taxonomy_path: Path):
+    allowed, detail = resolve_allowed_topics(mini_taxonomy_path, strict=True)
+    assert "Categoria Um" in allowed
+    assert "## Pilar: Pilar A" in detail
+
+
+def test_resolve_allowed_topics_override(mini_taxonomy_path: Path):
+    allowed, detail = resolve_allowed_topics(
+        mini_taxonomy_path, override=["So Esta"], strict=True,
+    )
+    assert allowed == ["So Esta"]
+    assert "## Pilar: Pilar A" in detail  # detail still from file
+
+
+def test_resolve_missing_file_strict(tmp_path: Path):
+    with pytest.raises(TaxonomyLoadError):
+        resolve_allowed_topics(tmp_path / "missing.yaml", strict=True)
+
+
+def test_resolve_missing_file_permissive(tmp_path: Path):
+    allowed, detail = resolve_allowed_topics(tmp_path / "missing.yaml", strict=False)
+    assert allowed == []
+    assert "nao disponivel" in detail
+
+
+def test_load_project_moc_topics_yaml():
+    """Smoke: the shipped config/moc_topics.yaml parses and has categories."""
+    path = Path("config/moc_topics.yaml")
+    if not path.exists():
+        pytest.skip("config/moc_topics.yaml ausente")
+    tax = load_moc_taxonomy(path.resolve())
+    names = allowed_topic_names(tax)
+    assert len(names) >= 10
+    assert "Aplicações de LLMs" in names or "Aplicacoes de LLMs" in names or any(
+        "LLM" in n for n in names
+    )
+
+
+# ── Topic Validation Tests ───────────────────────────────────────────
 
 
 def test_validate_topic_in_list():
@@ -54,6 +158,7 @@ def test_validate_topic_in_list():
     cfg = _make_config(
         allowed_topics=["Machine Learning Classico", "Deep Learning e Modelos Neurais"],
         strict=True,
+        topics_path=None,
     )
     moc = _make_moc_output("Machine Learning Classico")
     assert _validate_moc_topic(cfg, moc) is True
@@ -64,12 +169,11 @@ def test_validate_topic_substring():
     cfg = _make_config(
         allowed_topics=["Deep Learning e Modelos Neurais"],
         strict=True,
+        topics_path=None,
     )
-    # Bidirectional: allowed topic contains the MOC topic
     moc = _make_moc_output("Deep Learning")
     assert _validate_moc_topic(cfg, moc) is True
 
-    # Bidirectional: MOC topic contains the allowed topic
     moc2 = _make_moc_output("Deep Learning e Modelos Neurais Avancados")
     assert _validate_moc_topic(cfg, moc2) is True
 
@@ -79,6 +183,7 @@ def test_validate_topic_strict_reject():
     cfg = _make_config(
         allowed_topics=["Machine Learning Classico"],
         strict=True,
+        topics_path=None,
     )
     moc = _make_moc_output("Culinaria Molecular", justification="Nao se aplica")
     assert _validate_moc_topic(cfg, moc) is False
@@ -89,16 +194,23 @@ def test_validate_topic_permissive():
     cfg = _make_config(
         allowed_topics=["Machine Learning Classico"],
         strict=False,
+        topics_path=None,
     )
     moc = _make_moc_output("Culinaria Molecular", justification="Nao se aplica")
     assert _validate_moc_topic(cfg, moc) is True
 
 
 def test_validate_empty_list():
-    """When allowed_topics is empty, any topic is approved."""
-    cfg = _make_config(allowed_topics=[], strict=True)
+    """When allowed_topics is empty and no topics_path, any topic is approved."""
+    cfg = _make_config(allowed_topics=[], strict=True, topics_path=None)
     moc = _make_moc_output("Qualquer Topico")
     assert _validate_moc_topic(cfg, moc) is True
+
+
+def test_validate_from_taxonomy_file(mini_taxonomy_path: Path):
+    cfg = _make_config(allowed_topics=[], strict=True, topics_path=mini_taxonomy_path)
+    assert _validate_moc_topic(cfg, _make_moc_output("Categoria Um")) is True
+    assert _validate_moc_topic(cfg, _make_moc_output("Fora da Taxonomia")) is False
 
 
 # ── MOC Structure Parsing Tests ──────────────────────────────────────
