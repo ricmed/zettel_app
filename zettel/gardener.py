@@ -39,6 +39,11 @@ logger = logging.getLogger(__name__)
 
 def run_garden(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> list[str]:
     """Cluster permanent notes and generate/update MOCs. Returns moc_ids."""
+    from zettel.usage import begin_run, finish_pipeline_run
+
+    run_id = db.start_run("garden")
+    begin_run(run_id)
+
     # Fail fast if taxonomy file is required but missing/invalid.
     try:
         resolve_allowed_topics(
@@ -48,6 +53,7 @@ def run_garden(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> list[str]:
         )
     except TaxonomyLoadError as e:
         logger.error("Taxonomia de MOCs indisponivel: %s", e)
+        finish_pipeline_run(db, run_id, "failed")
         raise
 
     note_count = idx.count_permanent_notes()
@@ -55,11 +61,13 @@ def run_garden(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> list[str]:
         logger.info(
             "Poucas notas para clusterização (%d < %d)", note_count, cfg.gardener.min_cluster_size
         )
+        finish_pipeline_run(db, run_id)
         return []
 
     ids, embeddings = idx.get_all_permanent_embeddings()
     if embeddings is None or len(embeddings) < cfg.gardener.min_cluster_size:
         logger.info("Embeddings insuficientes para clusterização")
+        finish_pipeline_run(db, run_id)
         return []
 
     embeddings_array = np.array(embeddings)
@@ -67,6 +75,7 @@ def run_garden(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> list[str]:
     clusters = _cluster_embeddings(embeddings_array, ids, cfg.gardener.min_cluster_size)
     if not clusters:
         logger.info("Nenhum cluster encontrado")
+        finish_pipeline_run(db, run_id)
         return []
 
     logger.info("Clusters encontrados: %d", len(clusters))
@@ -81,6 +90,7 @@ def run_garden(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> list[str]:
         if moc_id:
             moc_ids.append(moc_id)
 
+    finish_pipeline_run(db, run_id)
     return moc_ids
 
 

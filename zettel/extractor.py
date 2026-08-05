@@ -1,13 +1,16 @@
-"""The Extractor — LLM processing of chunks, LIT aggregation, deduplication.
+"""The Extractor — LLM processing of chunks into granular literature drafts.
 
-Processes each pending chunk with Prompt 1 (literature extraction),
-then runs semantic deduplication against existing permanent notes.
+Processes each pending chunk with Prompt 1, writes a draft LIT note under
+``00_Inbox/Review/``, and leaves concepts in ``awaiting_review`` until
+``zettel review`` approves them. Deduplication against permanent notes runs
+only after approval (in review), not here.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +25,7 @@ from zettel.hashing import (
 )
 from zettel.index import VectorIndex
 from zettel.llm import call_llm, extract_json, get_llm, load_prompt
+from zettel.paging import format_source_locator
 from zettel.schemas import (
     DedupeDecision,
     DedupeResult,
@@ -30,11 +34,10 @@ from zettel.schemas import (
 )
 from zettel.state import StateDB
 from zettel.vault import (
-    note_filename,
-    parse_frontmatter,
-    read_managed_block,
-    safe_update_managed_blocks,
-    upsert_managed_block,
+    build_literature_chunk_note,
+    draft_chunk_filename,
+    literature_chunk_dirname,
+    safe_write_note,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,12 +46,26 @@ logger = logging.getLogger(__name__)
 # ── Public API ─────────────────────────────────────────────────────────
 
 
-def run_extract(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> list[dict]:
-    """Process all pending chunks. Returns list of approved candidates."""
+def run_extract(
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    *,
+    auto_approve: bool = False,
+) -> list[dict]:
+    """Process pending chunks into literature drafts. Returns awaiting-review candidates.
+
+    If ``auto_approve`` is True, chunks with ``review_confidence`` >= config limiar
+    are immediately approved via ``zettel.review.approve_chunk``.
+    """
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn
 
-    # Descreve imagens pendentes antes dos chunks, para que as descricoes possam
-    # alimentar o Prompt 1 (contexto de imagens do capitulo).
+    from zettel.usage import begin_run, finish_pipeline_run, get_tracker, set_source
+    from zettel.vault import sync_source_costs_to_vault
+
+    run_id = db.start_run("extract")
+    begin_run(run_id)
+
     from zettel.assets import describe_pending_assets
     described = describe_pending_assets(cfg, db)
     if described:
@@ -63,7 +80,6 @@ def run_extract(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> list[dict]:
     logger.info("Chunks pendentes para extracao: %d", total)
 
     all_candidates: list[dict] = []
-    outputs_by_source: dict[str, list[LiteratureChunkOutput]] = {}
 
     with Progress(
         SpinnerColumn(),
@@ -76,28 +92,52 @@ def run_extract(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> list[dict]:
         for i, chunk_row in enumerate(pending, 1):
             chunk_id = chunk_row["chunk_id"]
             source_id = chunk_row["source_id"]
+            set_source(source_id)
             progress.update(task, description=f"chunk {i}/{total}", advance=1)
-            logger.info("Extraindo chunk %d/%d (%s)", i, total, chunk_id)
 
-            candidates, output = _process_chunk(
-                cfg, db, idx, llm, chunk_row, prompt_template, prompt_hash
+            page_file = chunk_row.get("page_in_file")
+            page_book = chunk_row.get("page_in_book")
+            page_conf = chunk_row.get("page_confidence") or "unknown"
+            logger.info(
+                "[SOURCE=%s] [CHUNK=%s idx=%s/%d] "
+                "[PAGE file=%s book=%s conf=%s] → Iniciando analise LLM",
+                source_id, chunk_id, chunk_row.get("chunk_index"), total,
+                page_file, page_book, page_conf,
+            )
+
+            candidates, _output = _process_chunk(
+                cfg, db, idx, llm, chunk_row, prompt_template, prompt_hash,
+                step=i, total=total,
             )
             all_candidates.extend(candidates)
-            logger.info("Chunk %d/%d OK - %d candidatos", i, total, len(candidates))
+            logger.info(
+                "[SOURCE=%s] [CHUNK=%s] → Analise concluida, %d candidatos",
+                source_id, chunk_id, len(candidates),
+            )
 
-            if output:
-                outputs_by_source.setdefault(source_id, []).append(output)
+            db.update_source_paging(
+                source_id,
+                last_chunk_processed=chunk_row.get("chunk_index"),
+            )
 
-    # Aggregate LIT notes per source
-    _aggregate_literature_notes(cfg, db, outputs_by_source)
+    set_source(None)
+    tracker = get_tracker()
+    if tracker:
+        for sid in tracker.sources_touched():
+            db.add_source_usage(sid, tracker.summary_for_source(sid).as_dict())
+            sync_source_costs_to_vault(cfg, db, sid)
 
-    # Deduplicate candidates
-    approved = _deduplicate_candidates(cfg, db, idx, llm, all_candidates)
+    if auto_approve:
+        from zettel.review import approve_high_confidence
+        n = approve_high_confidence(cfg, db, idx)
+        logger.info("Auto-approve: %d chunks persistidos", n)
+
     logger.info(
-        "Candidatos aprovados apos deduplicacao: %d / %d", len(approved), len(all_candidates)
+        "Extract concluido: %d candidatos aguardando review (status awaiting_review)",
+        len(all_candidates),
     )
-
-    return approved
+    finish_pipeline_run(db, run_id)
+    return all_candidates
 
 
 # ── Chunk Processing ──────────────────────────────────────────────────
@@ -111,21 +151,30 @@ def _process_chunk(
     chunk_row: dict,
     prompt_template: str,
     prompt_hash: str,
+    *,
+    step: int | None = None,
+    total: int | None = None,
 ) -> tuple[list[dict], LiteratureChunkOutput | None]:
-    """Process a single chunk with Prompt 1. Returns (candidate dicts, parsed output)."""
+    """Process a single chunk with Prompt 1. Writes draft; status=awaiting_review."""
+    from zettel.usage import clear_progress, set_progress
+
     chunk_id = chunk_row["chunk_id"]
     source_id = chunk_row["source_id"]
     chunk_text = chunk_row["text"]
     chunk_checksum = chunk_row["chunk_checksum"]
+    t0 = time.perf_counter()
 
-    # Images of this chunk's chapter, if any, feed the prompt as extra context.
-    images_context = _build_images_context(db, source_id, chunk_row.get("chapter_id", ""))
+    if step is not None:
+        set_progress(step, total, "chunk")
+
+    images_context = _build_images_context(
+        db, source_id, chunk_row.get("chapter_id", ""),
+        page_in_file=chunk_row.get("page_in_file"),
+    )
     images_ctx_checksum = (
         sha256_hex(normalize_text_for_hash(images_context)) if images_context else ""
     )
 
-    # Check LLM call cache (rag_context_checksum stays "" when there are no images,
-    # so chunks without images keep the exact same cache key as before).
     call_checksum = compute_llm_call_checksum(
         prompt_hash, chunk_checksum, cfg.llm.model, cfg.llm.temperature, cfg.language,
         rag_context_checksum=images_ctx_checksum,
@@ -133,32 +182,42 @@ def _process_chunk(
     cached = db.get_cached_llm_response(call_checksum)
     if cached:
         logger.debug("Cache hit para chunk %s", chunk_id)
+        from zettel.usage import record_cache_hit
+        record_cache_hit(label=f"extract:{chunk_id}", model=cfg.llm.model)
         response_text = cached
     else:
         source = db.get_source(source_id)
         source_title = source["title"] if source else "Desconhecido"
+        locator = format_source_locator(
+            chunk_row.get("page_in_book"),
+            chunk_row.get("section_path") or chunk_row.get("locator") or "",
+            chunk_row.get("page_in_file"),
+        ) or chunk_row.get("locator", "")
 
-        # SECURITY NOTE: chunk_text and source_title originate from user-supplied files.
-        # Basic sanitization (stripping prompt delimiters) should be applied here if
-        # untrusted input is expected, to reduce prompt-injection risk.
         filled = prompt_template.replace("{source_id}", source_id)
         filled = filled.replace("{source_title}", source_title)
         filled = filled.replace("{chapter_title}", chunk_row.get("locator", ""))
-        filled = filled.replace("{locator}", chunk_row.get("locator", ""))
+        filled = filled.replace("{locator}", locator)
         filled = filled.replace("{images_context}", images_context)
         filled = filled.replace("{chunk_text}", chunk_text)
 
         try:
-            response_text = call_llm(llm, filled)
+            response_text = call_llm(
+                llm, filled, label=f"extract:{chunk_id}", step=step, total=total,
+            )
             db.cache_llm_response(
                 call_checksum, json.dumps({"prompt": filled}, ensure_ascii=False), response_text
+            )
+            logger.info(
+                "[SOURCE=%s] [CHUNK=%s] [LLM_CALL model=%s] → resposta recebida",
+                source_id, chunk_id, cfg.llm.model,
             )
         except Exception as e:
             logger.error("Erro no LLM para chunk %s: %s", chunk_id, e)
             db.update_chunk_status(chunk_id, "failed")
+            clear_progress()
             return [], None
 
-    # Parse response
     try:
         output = _parse_literature_output(response_text)
     except Exception as e:
@@ -170,33 +229,68 @@ def _process_chunk(
                 f"O JSON abaixo esta malformado. Corrija e retorne APENAS o JSON valido:\n\n"
                 f"{response_text}"
             )
-            response_text = call_llm(llm, retry_prompt)
+            response_text = call_llm(
+                llm, retry_prompt, label=f"extract-retry:{chunk_id}",
+                step=step, total=total,
+            )
             output = _parse_literature_output(response_text)
         except Exception:
-            logger.error("Chunk %s enviado para revisao manual", chunk_id)
+            logger.error("Chunk %s enviado para revisao manual (parse falhou)", chunk_id)
             db.update_chunk_status(chunk_id, "failed")
+            clear_progress()
             return [], None
 
-    # Update LIT note
-    _append_to_literature_note(cfg, db, source_id, chunk_id, output)
+    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+    confidence = _score_review_confidence(output, cfg)
 
-    # Mark chunk as extracted
-    db.update_chunk_status(chunk_id, "extracted", prompt_hash, call_checksum)
+    # Structural locator for candidates
+    locator = format_source_locator(
+        chunk_row.get("page_in_book"),
+        chunk_row.get("section_path") or "",
+        chunk_row.get("page_in_file"),
+    )
+    for cand in output.candidates:
+        if locator and (not cand.source_locator or cand.source_locator.startswith("p.?")
+                        or len(cand.source_locator) < 3):
+            cand.source_locator = locator
 
-    # Filter candidates by quality
     approved_cands, rejected_cands = _filter_candidates(output.candidates, cfg)
     if rejected_cands:
         logger.info(
             "Chunk %s: %d candidatos rejeitados pela filtragem de qualidade",
-            chunk_id,
-            len(rejected_cands),
+            chunk_id, len(rejected_cands),
         )
 
-    # Build candidate dicts (only approved)
+    literature_id = str(ULID())
+    draft_path = _write_literature_draft(
+        cfg, db, chunk_row, output, literature_id, confidence, elapsed_ms,
+        candidates=approved_cands,
+    )
+
+    summary_payload = {
+        "summary": output.summary,
+        "key_concepts": output.key_concepts,
+        "chunk_status": output.chunk_status,
+        "candidates": [c.model_dump() for c in approved_cands],
+    }
+    db.update_chunk_review(
+        chunk_id,
+        status="awaiting_review",
+        literature_note_path=str(draft_path) if draft_path else None,
+        literature_id=literature_id,
+        review_confidence=confidence,
+        summary_json=json.dumps(summary_payload, ensure_ascii=False),
+        llm_prompt1_hash=prompt_hash,
+        llm_call_checksum=call_checksum,
+    )
+
+    logger.info(
+        "[SOURCE=%s] [NOTE=%s] status=AWAITING_REVIEW confidence=%.2f",
+        source_id, draft_path, confidence,
+    )
+
     candidates: list[dict] = []
     for cand in approved_cands:
-        # Fallback: se o LLM nao preencheu relevant_image_ids, anexa assets cujo
-        # path aparece no texto do chunk (refs ![Imagem](90_Assets/...)).
         if not cand.relevant_image_ids:
             from zettel.assets import asset_ids_in_text
             cand.relevant_image_ids = asset_ids_in_text(db, source_id, chunk_text)
@@ -207,42 +301,124 @@ def _process_chunk(
             "source_id": source_id,
             "chunk_id": chunk_id,
             "candidate": cand,
+            "literature_id": literature_id,
         })
         anchor_hash = (
             sha256_hex(normalize_text_for_hash(cand.anchor_quote)) if cand.anchor_quote else ""
         )
         thesis_hash = sha256_hex(normalize_text_for_hash(cand.thesis))
-        # Retencao: persiste o candidato completo (tese/definicao/intuicao/limites/tags...)
-        # para que o connect possa rodar a partir do DB, sem depender de candidates.json.
         db.upsert_concept(
             concept_id, source_id, chunk_id, anchor_hash, thesis_hash,
-            candidate_json=cand.model_dump_json(), status="extracted",
+            candidate_json=cand.model_dump_json(), status="awaiting_review",
         )
 
+    clear_progress()
     return candidates, output
 
 
-def _build_lit_images_block(db: StateDB, source_id: str) -> str:
-    """Render the source's described images as Obsidian embeds + captions for the LIT note."""
-    assets = db.get_assets_for_source(source_id)
-    parts: list[str] = []
+def _write_literature_draft(
+    cfg: AppConfig,
+    db: StateDB,
+    chunk_row: dict,
+    output: LiteratureChunkOutput,
+    literature_id: str,
+    confidence: float,
+    elapsed_ms: int,
+    candidates: list[PermanentNoteCandidate],
+) -> Path | None:
+    source = db.get_source(chunk_row["source_id"])
+    if not source:
+        return None
+    citekey = source["citekey"]
+    title = source["title"]
+    chunk_index = int(chunk_row.get("chunk_index") or 0)
+
+    images = _images_for_chunk(db, chunk_row)
+    meta, body = build_literature_chunk_note(
+        source_id=chunk_row["source_id"],
+        citekey=citekey,
+        title=title,
+        chunk_id=chunk_row["chunk_id"],
+        chunk_index=chunk_index,
+        literature_id=literature_id,
+        summary=output.summary,
+        key_concepts=output.key_concepts,
+        candidates=[c.model_dump() for c in candidates],
+        images=images,
+        page_in_file=chunk_row.get("page_in_file"),
+        page_in_book=chunk_row.get("page_in_book"),
+        page_confidence=chunk_row.get("page_confidence") or "unknown",
+        status="awaiting_review",
+        review_confidence=confidence,
+        llm_model=cfg.llm.model,
+        processing_time_ms=elapsed_ms,
+    )
+
+    draft_root = cfg.vault_path / cfg.literature_review.drafts_subdir
+    draft_dir = draft_root / literature_chunk_dirname(citekey)
+    draft_dir.mkdir(parents=True, exist_ok=True)
+    path = draft_dir / draft_chunk_filename(chunk_index)
+    safe_write_note(path, meta, body)
+    return path
+
+
+def _images_for_chunk(db: StateDB, chunk_row: dict) -> list[dict[str, Any]]:
+    """Assets for this chunk: same chapter, optionally same page."""
+    assets = db.get_assets_for_source(chunk_row["source_id"])
+    chapter_id = chunk_row.get("chapter_id")
+    page = chunk_row.get("page_in_file")
+    out: list[dict[str, Any]] = []
     for a in assets:
-        embed = f"![[{a['path']}]]"
-        desc = a.get("description") or "_(sem descricao)_"
-        parts.append(f"{embed}\n\n{desc}\n")
-    return "\n".join(parts)
+        if chapter_id and a.get("chapter_id") and a["chapter_id"] != chapter_id:
+            continue
+        if page is not None and a.get("page_in_file") is not None:
+            if abs(int(a["page_in_file"]) - int(page)) > 1:
+                continue
+        out.append({
+            "path": a["path"],
+            "description": a.get("description") or "",
+            "asset_id": a["asset_id"],
+        })
+    return out
 
 
-def _build_images_context(db: StateDB, source_id: str, chapter_id: str) -> str:
-    """List described images of a chunk's chapter for the extraction prompt.
+def _score_review_confidence(output: LiteratureChunkOutput, cfg: AppConfig) -> float:
+    """Heuristic confidence in [0, 1] for auto-approve decisions."""
+    if output.chunk_status == "rejected":
+        return 0.1
+    score = 0.4
+    if output.summary and len(output.summary.split()) >= 20:
+        score += 0.15
+    if output.key_concepts:
+        score += min(0.15, 0.05 * len(output.key_concepts))
+    if not output.candidates:
+        return min(score, 0.55)
+    approved, _ = _filter_candidates(output.candidates, cfg)
+    if not approved:
+        return min(score, 0.45)
+    avg_rel = sum(c.relevance_score for c in approved) / len(approved)
+    score += 0.1 * (avg_rel / 5.0)
+    with_quote = sum(1 for c in approved if c.anchor_quote.strip())
+    score += 0.2 * (with_quote / len(approved))
+    return round(min(1.0, score), 3)
 
-    Returns "" when there are no described images (keeps the LLM cache key stable
-    for image-less chunks).
-    """
+
+def _build_images_context(
+    db: StateDB,
+    source_id: str,
+    chapter_id: str,
+    page_in_file: int | None = None,
+) -> str:
     assets = db.get_assets_for_source(source_id)
     lines: list[str] = []
     for a in assets:
-        if a.get("chapter_id") and a["chapter_id"] != chapter_id:
+        if a.get("chapter_id") and chapter_id and a["chapter_id"] != chapter_id:
+            continue
+        if (
+            page_in_file is not None
+            and a.get("page_in_file") is not None
+            and abs(int(a["page_in_file"]) - int(page_in_file)) > 1
+        ):
             continue
         desc = a.get("description")
         if desc:
@@ -263,11 +439,9 @@ def _filter_candidates(
     candidates: list[PermanentNoteCandidate],
     cfg: AppConfig,
 ) -> tuple[list[PermanentNoteCandidate], list[PermanentNoteCandidate]]:
-    """Filter candidates by structural quality rules. Returns (approved, rejected)."""
     ext = cfg.extraction
     approved: list[PermanentNoteCandidate] = []
     rejected: list[PermanentNoteCandidate] = []
-
     for cand in candidates:
         reason = _check_candidate(cand, ext)
         if reason:
@@ -275,12 +449,10 @@ def _filter_candidates(
             rejected.append(cand)
         else:
             approved.append(cand)
-
     return approved, rejected
 
 
 def _check_candidate(cand: PermanentNoteCandidate, ext: Any) -> str | None:
-    """Return rejection reason or None if candidate passes all checks."""
     if cand.chunk_status == "rejected":
         return (
             f"chunk_status={cand.chunk_status}, "
@@ -289,32 +461,28 @@ def _check_candidate(cand: PermanentNoteCandidate, ext: Any) -> str | None:
         )
     if cand.relevance_score < ext.min_relevance_score:
         return f"relevance_score={cand.relevance_score} < {ext.min_relevance_score}"
-
     thesis_words = len(cand.thesis.split())
     if thesis_words < ext.min_thesis_words:
         return f"thesis_words={thesis_words} < {ext.min_thesis_words}"
-
     definition_words = len(cand.definition.split())
     if definition_words < ext.min_definition_words:
         return f"definition_words={definition_words} < {ext.min_definition_words}"
-
     if ext.require_anchor_quote and not cand.anchor_quote.strip():
         return "anchor_quote vazio"
-
     return None
 
 
-# ── Deduplication ─────────────────────────────────────────────────────
+# ── Deduplication (used by review after approval) ─────────────────────
 
 
-def _deduplicate_candidates(
+def deduplicate_candidates(
     cfg: AppConfig,
     db: StateDB,
     idx: VectorIndex,
     llm: Any,
     candidates: list[dict],
 ) -> list[dict]:
-    """Semantic deduplication of candidates against existing notes."""
+    """Semantic deduplication of candidates against existing permanent notes."""
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn
 
     if not candidates:
@@ -337,7 +505,6 @@ def _deduplicate_candidates(
             progress.update(task, description=f"candidato {i}/{total}", advance=1)
             logger.info("Deduplicando candidato %d/%d: %s", i, total, cand.thesis[:50])
             query_text = f"{cand.thesis} {cand.definition}"
-
             similar = idx.query_similar_notes(query_text, n_results=cfg.linking.topk)
 
             if not similar:
@@ -346,7 +513,6 @@ def _deduplicate_candidates(
 
             closest_distance = similar[0].get("distance", 999)
             similarity_threshold_distance = 2 * (1 - cfg.linking.dedupe_threshold)
-
             if closest_distance > similarity_threshold_distance:
                 approved.append(cand_dict)
                 continue
@@ -360,7 +526,7 @@ def _deduplicate_candidates(
                 response = call_llm(llm, filled)
                 result = _parse_dedupe_result(response)
             except Exception as e:
-                logger.warning("Erro na deduplicação, aprovando candidato: %s", e)
+                logger.warning("Erro na deduplicacao, aprovando candidato: %s", e)
                 approved.append(cand_dict)
                 continue
 
@@ -369,13 +535,10 @@ def _deduplicate_candidates(
             elif result.decision == DedupeDecision.IGNORE:
                 logger.info("Candidato ignorado (duplicata): %s", cand.thesis[:60])
             elif result.decision in (DedupeDecision.REFINE_EXISTING, DedupeDecision.MERGE):
-                # Use 'refines_note_id' / 'refine_reason' — keys expected by connector.py
                 cand_dict["refines_note_id"] = result.target_note_id
                 cand_dict["refine_reason"] = result.reason
                 approved.append(cand_dict)
 
-    # Retencao: registra no DB o veredito da deduplicacao. Candidatos aprovados ficam
-    # 'approved' (o connect os recarrega dai); os demais viram 'duplicate'.
     approved_ids = {c["concept_id"] for c in approved}
     for cand_dict in candidates:
         cid = cand_dict["concept_id"]
@@ -384,121 +547,13 @@ def _deduplicate_candidates(
     return approved
 
 
-# ── LIT Note Aggregation ─────────────────────────────────────────────
-
-
-def _append_to_literature_note(
-    cfg: AppConfig,
-    db: StateDB,
-    source_id: str,
-    chunk_id: str,
-    output: LiteratureChunkOutput,
-) -> None:
-    """Append chunk extraction results to the LIT master note."""
-    source = db.get_source(source_id)
-    if not source:
-        return
-
-    citekey = source["citekey"]
-
-    lit_dir = cfg.vault_path / "20_Literature"
-    lit_files = list(lit_dir.glob(f"LIT - @{citekey}*"))
-    if not lit_files:
-        logger.warning("Nota LIT não encontrada para %s", source_id)
-        return
-
-    lit_path = lit_files[0]
-    content = lit_path.read_text(encoding="utf-8")
-
-    chunk_section = f"\n### Chunk: {chunk_id}\n\n"
-    chunk_section += f"**Resumo**: {output.summary}\n\n"
-    if output.key_concepts:
-        chunk_section += "**Conceitos**: " + ", ".join(output.key_concepts) + "\n\n"
-    if output.candidates:
-        chunk_section += "**Candidatos a notas permanentes**:\n"
-        for c in output.candidates:
-            chunk_section += f"- {c.thesis}\n"
-    chunk_section += "\n"
-
-    block_name = "auto-chunks-log"
-    existing_log = ""
-    existing = read_managed_block(content, block_name)
-    if existing:
-        existing_log = existing + "\n"
-
-    content = upsert_managed_block(content, block_name, existing_log + chunk_section)
-    lit_path.write_text(content, encoding="utf-8")
-
-
-def _aggregate_literature_notes(
-    cfg: AppConfig,
-    db: StateDB,
-    outputs_by_source: dict[str, list[LiteratureChunkOutput]],
-) -> None:
-    """Aggregate all chunk outputs per source into the LIT note managed blocks."""
-    for source_id, outputs in outputs_by_source.items():
-        source = db.get_source(source_id)
-        if not source:
-            continue
-
-        citekey = source["citekey"]
-
-        lit_dir = cfg.vault_path / "20_Literature"
-        lit_files = list(lit_dir.glob(f"LIT - @{citekey}*"))
-        if not lit_files:
-            logger.warning("Nota LIT nao encontrada para agregacao: %s", source_id)
-            continue
-
-        lit_path = lit_files[0]
-
-        summaries = [o.summary for o in outputs if o.summary]
-        resumo_text = "\n\n".join(summaries) if summaries else "_Nenhum resumo disponivel._"
-
-        all_concepts: list[str] = []
-        seen_concepts: set[str] = set()
-        for o in outputs:
-            for concept in o.key_concepts:
-                lower = concept.lower().strip()
-                if lower not in seen_concepts:
-                    seen_concepts.add(lower)
-                    all_concepts.append(concept)
-        conceitos_text = "\n".join(f"- {c}" for c in all_concepts) if all_concepts else ""
-
-        all_theses: list[str] = []
-        for o in outputs:
-            for cand in o.candidates:
-                all_theses.append(cand.thesis)
-        candidatos_text = "\n".join(f"- {t}" for t in all_theses) if all_theses else ""
-
-        imagens_text = _build_lit_images_block(db, source_id)
-
-        blocks = {
-            "auto-resumo": resumo_text,
-            "auto-conceitos": conceitos_text,
-            "auto-candidatos": candidatos_text,
-        }
-        if imagens_text:
-            blocks["auto-imagens"] = imagens_text
-        safe_update_managed_blocks(lit_path, blocks)
-        # Retencao: snapshot integral da nota LIT no SQLite (o corpo da LIT e gerado
-        # incrementalmente e nao existiria em lugar nenhum se o vault fosse perdido).
-        try:
-            db.update_source_texts(source_id, lit_body=lit_path.read_text(encoding="utf-8"))
-        except OSError as e:
-            logger.warning("Nao foi possivel ler LIT para snapshot (%s): %s", source_id, e)
-        logger.info(
-            "LIT agregada para %s: %d resumos, %d conceitos, %d candidatos",
-            source_id, len(summaries), len(all_concepts), len(all_theses),
-        )
-
-
-# ── Concept ID ────────────────────────────────────────────────────────
+# Backwards-compatible alias
+_deduplicate_candidates = deduplicate_candidates
 
 
 def _compute_concept_id(
     source_id: str, chunk_id: str, cand: PermanentNoteCandidate
 ) -> str:
-    """Compute a stable concept_id based on source text anchors."""
     if cand.anchor_quote:
         anchor_hash = sha256_hex(normalize_text_for_hash(cand.anchor_quote))
         concept_key = sha256_hex(f"{source_id}|{chunk_id}|{anchor_hash}")
@@ -508,31 +563,25 @@ def _compute_concept_id(
     return f"{source_id}::concept::{short_hash(concept_key)}"
 
 
-# ── Parsers ───────────────────────────────────────────────────────────
-
-
 def _parse_literature_output(text: str) -> LiteratureChunkOutput:
-    """Parse LLM response into structured LiteratureChunkOutput."""
     json_text = extract_json(text)
     data = json.loads(json_text)
     return LiteratureChunkOutput(**data)
 
 
 def _parse_dedupe_result(text: str) -> DedupeResult:
-    """Parse LLM response into DedupeResult."""
     json_text = extract_json(text)
     data = json.loads(json_text)
     return DedupeResult(**data)
 
 
 def _format_existing_notes(notes: list[dict]) -> str:
-    """Format existing notes for the deduplication prompt."""
     parts: list[str] = []
     for n in notes:
         nid = n.get("id", "?")
         meta = n.get("metadata", {})
         doc = n.get("document", "")[:200]
-        title = meta.get("title", "Sem título")
+        title = meta.get("title", "Sem titulo")
         dist = n.get("distance", "?")
         parts.append(f"- **{nid}** ({title}) [dist={dist}]: {doc}")
     return "\n".join(parts)

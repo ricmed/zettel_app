@@ -21,7 +21,24 @@ class OriginType(str, Enum):
 class ChunkStatus(str, Enum):
     PENDING = "pending"
     EXTRACTED = "extracted"
+    AWAITING_REVIEW = "awaiting_review"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    PERSISTED = "persisted"
     FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class PageConfidence(str, Enum):
+    EXPLICIT = "explicit"
+    INFERRED = "inferred"
+    UNKNOWN = "unknown"
+
+
+class PageOffsetConfidence(str, Enum):
+    CONFIRMED = "confirmed"
+    HEURISTIC = "heuristic"
+    NONE = "none"
     SKIPPED = "skipped"
 
 
@@ -87,9 +104,38 @@ class ChunkRecord(BaseModel):
     text: str
     chunk_checksum: str
     locator: str = ""
+    section_path: str = ""
     status: ChunkStatus = ChunkStatus.PENDING
+    chunk_index: Optional[int] = None
+    page_in_file: Optional[int] = None
+    page_in_book: Optional[int] = None
+    page_confidence: PageConfidence = PageConfidence.UNKNOWN
+    literature_note_path: Optional[str] = None
+    literature_id: Optional[str] = None
+    review_confidence: Optional[float] = None
+    summary_json: Optional[str] = None
     llm_prompt1_hash: Optional[str] = None
     llm_call_checksum: Optional[str] = None
+
+
+class LiteratureChunkNoteMeta(BaseModel):
+    """Frontmatter fields for a granular literature note (draft or approved)."""
+
+    type: str = "literature"
+    source_id: str
+    citekey: str = ""
+    chunk_id: str
+    chunk_index: int = 0
+    literature_id: str = ""
+    page_in_file: Optional[int] = None
+    page_in_book: Optional[int] = None
+    page_confidence: PageConfidence = PageConfidence.UNKNOWN
+    status: ChunkStatus = ChunkStatus.AWAITING_REVIEW
+    review_confidence: Optional[float] = None
+    language: str = "pt-BR"
+    llm_model: str = ""
+    processing_time_ms: Optional[int] = None
+    origin: str = "pipeline"
 
 
 # ── LLM Extraction Outputs ────────────────────────────────────────────
@@ -112,9 +158,9 @@ class LiteratureChunkOutput(BaseModel):
 
 class PermanentNoteCandidate(BaseModel):
     """A single atomic concept extracted from a chunk."""
-    chunk_status: str = Field(description="Status do chunk")
-    rejection_reason: str = Field(description="Motivo da rejeição")
-    rejection_category: str = Field(description="Categoria da rejeição")
+    chunk_status: str = Field(default="ok", description="Status do chunk")
+    rejection_reason: str = Field(default="", description="Motivo da rejeição")
+    rejection_category: str = Field(default="", description="Categoria da rejeição")
     thesis: str = Field(description="Tese principal (uma frase declarativa)")
     definition: str = Field(description="Definição/explicação autônoma")
     intuition: str = Field(default="", description="Intuição ou exemplo prático")

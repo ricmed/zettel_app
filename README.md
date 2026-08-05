@@ -9,9 +9,11 @@ O pipeline automatiza o ciclo completo do Zettelkasten:
 ```
 Arquivo (PDF/MD)
     ↓ harvest
-Texto extraído → Chunks → Notas SRC + LIT
+Texto extraído → Chunks (com pagina) → SRC + indice LIT
     ↓ extract
-Conceitos atômicos (candidatos a notas permanentes)
+Drafts de LIT granular (1 por chunk) em 00_Inbox/Review
+    ↓ review
+LIT aprovadas em 20_Literature/@Citekey/ + literature_notes no Chroma
     ↓ connect
 Notas Permanentes (ZTL) com links e backlinks
     ↓ garden
@@ -36,12 +38,17 @@ zettel_app/
 │   ├── config.py            # Carregamento e validação de config
 │   ├── schemas.py           # Modelos Pydantic
 │   ├── hashing.py           # Hashing canônico em camadas
+│   ├── pricing.py           # Estimativa de custo via mapa LiteLLM (só calculadora)
+│   ├── usage.py             # CostTracker por run/fonte (contextvars)
+│   ├── llm.py               # get_llm / call_llm (com usage + custo)
 │   ├── state.py             # SQLite — estado incremental
 │   ├── vault.py             # I/O do vault Obsidian (frontmatter, blocos gerenciados)
 │   ├── index.py             # ChromaDB — índice vetorial
 │   ├── bibliography.py      # Metadados bibliograficos ABNT (tipos, inferencia, formatacao)
-│   ├── harvester.py         # Fase 1: ingestão e chunking estrutural (+ rechunk)
-│   ├── extractor.py         # Fase 2: extração de conceitos via LLM
+│   ├── harvester.py         # Fase 1: ingestão, paginas, chunking estrutural (+ rechunk)
+│   ├── paging.py            # Inferencia de pagina arquivo/livro + inicio do conteudo
+│   ├── extractor.py         # Fase 2: Prompt 1 → drafts LIT granulares
+│   ├── review.py            # Fase 2b: aprovacao seletiva de LIT antes do vetorial
 │   ├── connector.py         # Fase 3: geração de notas permanentes
 │   ├── gardener.py          # Fase 4: clusterização e MOCs
 │   ├── retrieval.py         # Recuperação híbrida (vetor + BM25) com fusão RRF
@@ -72,8 +79,9 @@ zettel_app/
 │   └── state.db             # SQLite (estado do pipeline)
 ├── vault/                   # Vault do Obsidian (criado pelo init)
 │   ├── 00_Inbox/
+│   │   └── Review/          # Drafts de LIT granular (aguardando aprovacao)
 │   ├── 10_Sources/          # Notas bibliográficas (SRC)
-│   ├── 20_Literature/       # Notas de literatura (LIT)
+│   ├── 20_Literature/       # Indice LIT + pasta @Citekey/chunk_NNNN.md (aprovadas)
 │   ├── 30_Permanent/        # Notas permanentes (ZTL)
 │   ├── 40_MOCs/             # Mapas de Conteúdo
 │   └── 90_Assets/           # Imagens extraídas de PDFs/Markdown (nome por hash)
@@ -189,6 +197,10 @@ images:
   min_height: 64
   context_chars: 600         # caracteres ao redor da imagem usados como contexto
   model: ""                  # vazio = usa llm.model (precisa ser multimodal, ex. gpt-4o-mini)
+  min_interval_seconds: 0.4  # pacing entre descricoes (evita estourar TPM)
+  rate_limit_max_retries: 8  # retries por imagem em 429 (nao marca failed)
+  rate_limit_backoff_max: 60 # teto de espera (s)
+  rate_limit_abort_after: 5  # 429 esgotados seguidos => pausa o lote (fica pending)
 
 # Linkagem
 linking:
@@ -354,21 +366,23 @@ python -m zettel init
 # Apaga os banco de dados, mas não apaga o vault
 python -m zettel init --reset
 
-# Escanear inbox e processar arquivos → SRC + LIT + chunks
+# Escanear inbox e processar arquivos → SRC + indice LIT + chunks (com paginas)
 python -m zettel harvest
+python -m zettel harvest --yes --skip-biblio --skip-paging
+python -m zettel harvest --content-start-file 35 --content-start-book 10
+# arquivo p.35 = impressa p.10; paginas anteriores nao geram chunks
+python -m zettel set-paging --source-id @Citekey --content-start-file 35 --content-start-book 10
 
-# Harvest nao-interativo (duplicatas usam o default da config;
-# --yes tambem confirma reprocessamento de embeddings se o modelo mudou)
-python -m zettel harvest --yes
-python -m zettel harvest --skip-duplicates   # sempre pula suspeitas de duplicata
-python -m zettel harvest --force             # trata suspeitas como nova fonte
-# Bibliografia incompleta: --yes sozinho ABORTA o arquivo; use --skip-biblio para seguir parcial
-python -m zettel harvest --yes --skip-biblio
-
-# Extrair conceitos dos chunks via LLM
+# Extrair conceitos → drafts LIT granulares em 00_Inbox/Review
 python -m zettel extract
+python -m zettel extract --auto-approve   # aprova drafts com confianca >= limiar
 
-# Gerar notas permanentes a partir dos conceitos
+# Revisar/aprovar LIT granulares (obrigatorio antes do connect, salvo auto-approve)
+python -m zettel review
+python -m zettel review --yes             # aprova todos >= limiar
+python -m zettel review --low-confidence-only
+
+# Gerar notas permanentes a partir dos conceitos aprovados
 python -m zettel connect
 
 # Clusterizar notas e gerar MOCs
@@ -451,38 +465,33 @@ python -m zettel run-all --dry-run
 4. **Metadados bibliográficos (ABNT)**:
    - Infere o **tipo documental** (`livro`, `capitulo_livro`, `artigo_periodico`, `artigo_internet`, `material_curso`, `tese`, `anais_evento`, `relatorio`) e os campos tipados a partir de metadados do arquivo, heurísticas no texto e, se habilitado, LLM (`prompts/bibliographic_metadata.md`, com cache)
    - Campos obrigatórios variam por tipo (ex.: livro exige autores, título, cidade, editora, ano; artigo de internet exige título, URL e data de acesso)
-   - Em modo interativo, se o tipo estiver incerto ou faltarem campos obrigatórios, o CLI **solicita** apenas o que falta e mostra um preview da referência ABNT
-   - Em modo não-interativo (`--yes`), bibliografia incompleta **pula o arquivo**, salvo `--skip-biblio` (segue com parcial + aviso)
+   - Em modo interativo, **sempre** mostra preview (tabela + referência ABNT) e pede confirmação antes de gravar a SRC — mesmo quando os metadados já estão completos; dá para editar tipo/campos se recusar
+   - Em modo não-interativo (`--yes`), bibliografia completa é aceita sem prompt; incompleta **pula o arquivo**, salvo `--skip-biblio` (segue com parcial + aviso)
    - Persiste `document_type`, `bibliography_json` e `abnt_reference` no SQLite; a nota **SRC** recebe os campos separados no frontmatter **e** a string `abnt_reference` pronta para citar
 5. Gera **citekey** determinístico: `@SobrenomeAnoTituloSlug` (a partir dos metadados já enriquecidos)
-6. Cria notas **SRC** (bibliográfica) em `10_Sources/` e **LIT** (literatura-mestre) em `20_Literature/`
-7. Divide o texto em **capítulos** (headings H1/H2) e depois em **seções estruturais** (H3-H6) com um `section_path` hierárquico ("Capítulo > Subseção > Subsubseção"); seções menores que `min_section_chars` são fundidas, e seções grandes ainda passam pelo RecursiveCharacterTextSplitter
-8. Indexa chunks no ChromaDB e registra no SQLite (com o texto extraído completo persistido, viabilizando `rechunk`/`rebuild` sem reprocessar o arquivo)
-9. Se `images.enabled`, extrai **imagens** do PDF (Docling) e do Markdown (referências locais), salva em `90_Assets/` com nome por hash de conteúdo, reescreve as referências no texto e registra os assets no SQLite (com `chapter_id` resolvido pelo path no texto do capítulo)
-10. **Cobertura de capítulos**: ao final, valida se todos os capítulos H1/H2 do texto extraído foram persistidos. Se um harvest anterior ficou pela metade (ex.: interrompido), o próximo `harvest` (mesmo com arquivo inalterado) ou um `rechunk` **completa** os capítulos faltantes e re-resolve o `chapter_id` das imagens. O `doctor`/`status` alertam quando a cobertura está incompleta.
+6. Grava nota **SRC** em `10_Sources/` e o **índice LIT** (`LIT - @Citekey - …-index.md`) em `20_Literature/` **antes** do chunking/embeddings (que podem demorar minutos); `processing_status=in_progress`
+7. Se `images.enabled`, registra imagens já extraídas em `90_Assets/`
+8. Resolve **inicio da paginacao** (HITL ou `--content-start-file` / `--content-start-book` / `--skip-paging`): pagina do PDF onde o conteudo comeca e o numero impresso nessa pagina; paginas anteriores nao geram chunks
+9. Divide o texto em **capitulos**/secoes, indexa chunks no ChromaDB e no SQLite com `page_in_book = page_in_file - start_file + start_book` (chunk multi-pagina usa a primeira pagina)
+10. Atualiza a SRC com inicio de conteudo/paginas/`total_chunks` e `processing_status=completed`
+11. **Cobertura de capítulos**: harvest interrompido é completado no próximo `harvest` ou via `zettel rechunk`
 
-### Fase 2 — Extract (Extracao)
+### Fase 2 — Extract (Extracao → drafts granulares)
 
-0. Se houver imagens pendentes, descreve cada uma com um **LLM multimodal** (usando o texto ao redor como contexto), com cache determinístico; as descrições alimentam o Prompt 1 e o bloco `auto-imagens` da nota LIT
-1. Para cada chunk pendente, chama o LLM com o **Prompt 1** (literature_note.md), incluindo `{images_context}` (descrições das imagens do capítulo)
-2. O LLM retorna:
-   - Resumo do chunk
-   - Conceitos-chave
-   - Lista de **candidatos atomicos** a notas permanentes (com tese, definicao, ancora, localizador, **relevance_score**, **relevant_image_ids**)
-   - Pode gerar candidatos a partir da **descricao de uma figura** quando o texto do chunk for fino mas o diagrama trouxer o conceito
-3. Valida a saida com Pydantic; se falhar, tenta retry
-4. Anexa resultados a nota **LIT** (via blocos gerenciados)
-5. **Filtragem de qualidade** (duas camadas):
-   - **Camada 1 (LLM)**: O prompt instrui o LLM a atribuir um `relevance_score` (1-5) e retornar `candidates: []` para chunks sem conceitos relevantes
-   - **Camada 2 (Codigo)**: `_filter_candidates()` aplica regras estruturais configuraveis:
-     - `relevance_score` >= threshold (padrao: 3)
-     - Tese com minimo de palavras (padrao: 5)
-     - Definicao com minimo de palavras (padrao: 10)
-     - Presenca de citacao-ancora (configuravel)
-6. Se `relevant_image_ids` vier vazio, **fallback deterministico**: anexa assets cujo path `90_Assets/...` aparece no texto do chunk
-7. Executa **deduplicacao semantica**: compara candidatos aprovados com notas existentes via ChromaDB
-8. O LLM decide: `create_new` | `ignore` | `refine_existing` | `merge`
-9. Persiste cada candidato completo no SQLite (`concepts.candidate_json` + `status`), de modo que o `connect` possa rodar a partir do banco mesmo sem o `data/cache/candidates.json`
+0. Descreve imagens pendentes com LLM multimodal (cache determinístico)
+1. Para cada chunk `pending`, chama o LLM com o **Prompt 1**; localizador preferencial = `p.{page_in_book} / {section_path}`
+2. Escreve um **draft** em `00_Inbox/Review/@Citekey/chunk_NNNN_draft.md` (resumo, conceitos, candidatos, imagens)
+3. Checkpoint no SQLite após **cada** chunk: `status=awaiting_review`, `summary_json`, `review_confidence`, `literature_note_path`
+4. Concepts ficam em `awaiting_review` (não elegíveis ao `connect` ainda)
+5. Filtragem estrutural de qualidade (relevance_score, tese, definição, âncora) — igual à versão anterior
+6. `--auto-approve` pode promover drafts com confiança ≥ `literature_review.auto_approve_min_confidence`
+
+### Fase 2b — Review (aprovacao seletiva)
+
+1. `zettel review` lista drafts `awaiting_review` (modo lote por limiar ou nota a nota)
+2. **Approve**: move para `20_Literature/@Citekey/chunk_NNNN.md`, indexa na coleção Chroma **`literature_notes`**, atualiza o índice LIT, promove concepts para dedupe → `approved`
+3. **Reject**: apaga draft, `status=rejected`, concepts rejeitados — **nunca** entram em `literature_notes`
+4. Deduplicação semântica contra permanentes roda **após** a aprovação (não no extract)
 
 ### Fase 3 — Connect (Conexão)
 
@@ -543,6 +552,12 @@ abnt_reference: "KAHNEMAN, Daniel. Thinking, Fast and Slow. 1. ed. New York: Far
 origin_type: pdf
 origin: pipeline
 checksum: "a1b2c3..."
+cost_usd_total: 0.012345
+cost_usd_llm: 0.001234
+cost_usd_embedding: 0.011111
+tokens_prompt: 1200
+tokens_completion: 400
+tokens_embedding: 85000
 ---
 
 # Thinking, Fast and Slow
@@ -572,6 +587,16 @@ Tipos suportados e campos obrigatórios principais:
 | `tese` | authors, title, year, institution, degree |
 | `anais_evento` | authors, title, event_name, year, place |
 | `relatorio` | title, year, institution |
+
+### Custos LLM e embeddings
+
+Cada chamada LLM (via `call_llm`) e cada upsert/query de embedding registra tokens e **USD estimado** usando o mapa público do pacote **LiteLLM** (`cost_per_token` — só calculadora; o runtime continua LangChain). Atualize preços/modelos com `pip install -U litellm`.
+
+- **Por comando**: totais em `runs` (também no fim do log: `Custo do run: ...`). `zettel status` mostra a tabela do último run.
+- **Por fonte**: colunas acumulativas em `sources` e frontmatter da SRC (`cost_usd_*`, `tokens_*`).
+- **Por ZTL**: `llm_cost_usd` / tokens / `llm_cache_hit` no frontmatter + log na geração.
+- Cache hit = `$0`. Ollama / modelos locais = `$0` (tokens ainda contados). Valores são list price, não a fatura do provedor.
+
 ### Nota de Literatura (LIT)
 
 ```markdown
@@ -617,6 +642,10 @@ literature_ref: "[[LIT - @Kahneman2011ThinkingFast - thinking-fast-and-slow]]"
 source_locator: "p.20-25 / Capítulo 1"
 tags: [heurísticas, cognição, sistema-1]
 origin: pipeline
+llm_cost_usd: 0.002100
+llm_tokens_prompt: 1800
+llm_tokens_completion: 420
+llm_cache_hit: false
 ---
 
 > **Tese**: Heurísticas cognitivas são atalhos mentais que o Sistema 1 usa para produzir julgamentos rápidos com mínimo esforço consciente.

@@ -82,6 +82,11 @@ def run_ask(
     mode: Optional[str] = None,
 ) -> AskResult:
     """Answer ``question`` from the vault. Returns the answer plus its provenance."""
+    from zettel.usage import begin_run, finish_pipeline_run
+
+    run_id = db.start_run("ask")
+    begin_run(run_id)
+
     ask_cfg = cfg.retrieval.ask
     topk = topk if topk is not None else ask_cfg.topk
     mode = mode or cfg.retrieval.mode
@@ -128,6 +133,7 @@ def run_ask(
         # spending an LLM call. `candidates` still carries the raw top-k pool so
         # the caller can show what was closest, for transparency/debugging.
         result.answer = _NO_EVIDENCE
+        finish_pipeline_run(db, run_id)
         return result
 
     context = _build_context(hits, ask_cfg.max_chars_per_note)
@@ -147,6 +153,8 @@ def run_ask(
     cached = db.get_cached_llm_response(call_checksum)
     if cached is not None:
         logger.debug("Cache hit (ask) para pergunta")
+        from zettel.usage import record_cache_hit
+        record_cache_hit(label="ask", model=cfg.llm.model)
         result.answer = cached
     else:
         llm = get_llm(cfg)
@@ -157,6 +165,7 @@ def run_ask(
         result.answer = answer
         result.llm_called = True
 
+    finish_pipeline_run(db, run_id)
     return result
 
 

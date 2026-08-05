@@ -939,6 +939,8 @@ def _cached_llm(
                 logger.info("LLM cache %s", label)
         else:
             logger.debug("Cache hit (article)")
+        from zettel.usage import record_cache_hit
+        record_cache_hit(label=label or "article", model=cfg.llm.model)
         return cached, False
     llm = get_llm(cfg, temperature=temp)
     answer = call_llm(llm, filled, label=label, step=step, total=total)

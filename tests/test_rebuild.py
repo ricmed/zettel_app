@@ -28,7 +28,7 @@ class FakeIndex:
     def upsert_source(self, sid, summary, meta):
         self.store["sources"].add(sid)
 
-    def upsert_chunk(self, cid, text, meta):
+    def upsert_chunk(self, cid, text, meta, **kwargs):
         self.store["chunks"].add(cid)
 
     def upsert_permanent_note(self, nid, text, meta):

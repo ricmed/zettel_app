@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -120,17 +121,28 @@ def extract_docling_images(
 
     pictures = getattr(docling_document, "pictures", None) or []
     if not pictures:
+        logger.info("Docling: nenhuma imagem (picture) no documento")
         return markdown_text, []
+
+    logger.info(
+        "Docling: extraindo imagens — %d pictures detectadas "
+        "(min %dx%d px; placeholders <!-- image -->)",
+        len(pictures), cfg.images.min_width, cfg.images.min_height,
+    )
 
     images: list[dict[str, Any]] = []
     text = markdown_text
-    for pic in pictures:
+    skipped_small = 0
+    skipped_fail = 0
+    for pi, pic in enumerate(pictures, 1):
         # Locate the next placeholder (document order).
         idx = text.find(_DOCLING_PLACEHOLDER)
         pil_image = _docling_pil(pic, docling_document)
         if pil_image is None:
+            skipped_fail += 1
             continue
         if pil_image.width < cfg.images.min_width or pil_image.height < cfg.images.min_height:
+            skipped_small += 1
             if idx != -1:
                 text = text[:idx] + text[idx + len(_DOCLING_PLACEHOLDER):]
             continue
@@ -149,7 +161,15 @@ def extract_docling_images(
             text = text[:idx] + ref + text[idx + len(_DOCLING_PLACEHOLDER):]
         else:
             text = f"{text}\n\n{ref}"
+        logger.info(
+            "Docling: imagem %d/%d salva → %s (%dx%d)",
+            pi, len(pictures), relpath, pil_image.width, pil_image.height,
+        )
 
+    logger.info(
+        "Docling: imagens concluidas — %d salvas, %d pequenas ignoradas, %d falhas",
+        len(images), skipped_small, skipped_fail,
+    )
     return text, images
 
 
@@ -190,7 +210,12 @@ def register_assets(
             image_checksum=img["checksum"],
             chapter_id=chapter_id,
             context_snippet=img.get("context_snippet", ""),
+            page_in_file=img.get("page_in_file"),
         )
+    logger.info(
+        "[SOURCE=%s] %d imagens registradas no StateDB (90_Assets)",
+        source_id, len(images),
+    )
 
 
 def reresolve_asset_chapters(
@@ -240,11 +265,79 @@ def _resolve_chapter_id(
 # ── Multimodal description ─────────────────────────────────────────────
 
 
+_RETRY_AFTER_RE = re.compile(
+    r"try again in\s+([\d.]+)\s*(ms|milliseconds?|s|seconds?|m|minutes?)",
+    re.IGNORECASE,
+)
+
+
+class RateLimitExhausted(Exception):
+    """Raised when an image description keeps hitting 429 after all retries."""
+
+
+def _is_rate_limit_error(exc: BaseException) -> bool:
+    """Detect OpenAI/Anthropic/provider rate-limit errors across wrapped exceptions."""
+    seen: set[int] = set()
+    stack: list[BaseException] = [exc]
+    while stack:
+        cur = stack.pop()
+        if id(cur) in seen:
+            continue
+        seen.add(id(cur))
+        name = type(cur).__name__.lower()
+        if "ratelimit" in name:
+            return True
+        msg = str(cur).lower()
+        if (
+            "rate_limit" in msg
+            or "rate limit" in msg
+            or "429" in msg
+            or "tokens per min" in msg
+            or ("tpm" in msg and "limit" in msg)
+        ):
+            return True
+        if cur.__cause__ is not None:
+            stack.append(cur.__cause__)
+        if cur.__context__ is not None and cur.__context__ is not cur.__cause__:
+            stack.append(cur.__context__)
+    return False
+
+
+def _parse_retry_after_seconds(exc: BaseException) -> float | None:
+    """Extract wait hint from provider messages like 'Please try again in 392ms'."""
+    match = _RETRY_AFTER_RE.search(str(exc))
+    if not match:
+        return None
+    value = float(match.group(1))
+    unit = match.group(2).lower()
+    if unit.startswith("ms") or unit.startswith("millisecond"):
+        return value / 1000.0
+    if unit.startswith("m") and not unit.startswith("ms"):
+        return value * 60.0
+    return value
+
+
+def _rate_limit_wait_seconds(
+    exc: BaseException, attempt: int, backoff_max: float
+) -> float:
+    """Prefer provider hint; else exponential backoff capped at backoff_max."""
+    hinted = _parse_retry_after_seconds(exc)
+    if hinted is not None:
+        # Provider hints are often sub-second while the TPM window is still full;
+        # keep a small floor so we don't immediately re-hit the same limit.
+        return min(backoff_max, max(hinted, 0.6))
+    return min(backoff_max, (2 ** attempt) * 1.0)
+
+
 def describe_pending_assets(cfg: AppConfig, db: StateDB) -> int:
     """Describe all pending assets with a multimodal LLM. Returns count described.
 
     Idempotent: each call is keyed by (prompt, image bytes, context, model) in the
     llm_cache, so re-running costs nothing for already-described images.
+
+    Rate limits (429/TPM): retries with backoff, leaves the asset ``pending`` (never
+    ``failed``), and aborts the remaining batch after consecutive exhausted retries
+    so a saturated TPM window does not mark hundreds of images as failed.
     """
     if not cfg.images.enabled:
         return 0
@@ -253,15 +346,28 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB) -> int:
     if not pending:
         return 0
 
-    from zettel.llm import call_llm, load_prompt
+    from zettel.llm import load_prompt
 
     prompt_template = load_prompt(cfg.prompts_path / "image_description.md")
     prompt_hash = sha256_hex(prompt_template)
     model = cfg.images.model or cfg.llm.model
     llm = _get_multimodal_llm(cfg, model)
 
+    min_interval = max(0.0, float(cfg.images.min_interval_seconds))
+    max_retries = max(0, int(cfg.images.rate_limit_max_retries))
+    backoff_max = max(1.0, float(cfg.images.rate_limit_backoff_max))
+    abort_after = max(1, int(cfg.images.rate_limit_abort_after))
+
     described = 0
-    for asset in pending:
+    consecutive_exhausted = 0
+    last_llm_call_at = 0.0
+    total_images = len(pending)
+
+    from zettel.usage import clear_progress, set_progress
+
+    for idx, asset in enumerate(pending):
+        step = idx + 1
+        set_progress(step, total_images, "imagem")
         img_file = cfg.vault_path / asset["path"]
         if not img_file.exists():
             db.update_asset_description(asset["asset_id"], "", "", status="failed")
@@ -273,39 +379,128 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB) -> int:
         )
         cached = db.get_cached_llm_response(call_checksum)
         if cached is not None:
+            from zettel.usage import record_cache_hit
+            record_cache_hit(label=f"image:{asset['asset_id']}", model=model)
             db.update_asset_description(asset["asset_id"], cached, call_checksum)
             described += 1
+            consecutive_exhausted = 0
             continue
 
+        if min_interval > 0 and last_llm_call_at > 0:
+            elapsed = time.monotonic() - last_llm_call_at
+            if elapsed < min_interval:
+                time.sleep(min_interval - elapsed)
+
         try:
-            description = _describe_one(llm, prompt_template, img_file, context)
+            description = _describe_with_rate_limit_retry(
+                llm,
+                prompt_template,
+                img_file,
+                context,
+                asset_id=asset["asset_id"],
+                max_retries=max_retries,
+                backoff_max=backoff_max,
+                step=step,
+                total=total_images,
+            )
+            last_llm_call_at = time.monotonic()
             db.cache_llm_response(call_checksum, "(image)", description)
             db.update_asset_description(asset["asset_id"], description, call_checksum)
             described += 1
+            consecutive_exhausted = 0
+        except RateLimitExhausted as e:
+            # Leave status=pending so a later extract / retry-failed is not required.
+            consecutive_exhausted += 1
+            logger.warning(
+                "Rate limit ao descrever %s apos %d tentativas — mantendo pending (%s)",
+                asset["asset_id"], max_retries + 1, e,
+            )
+            if consecutive_exhausted >= abort_after:
+                remaining = len(pending) - idx
+                logger.error(
+                    "Abortando descricao de imagens: %d rate limits consecutivos "
+                    "(TPM saturado). %d imagem(ns) permanecem pending — "
+                    "rode extract de novo apos a janela TPM.",
+                    consecutive_exhausted, remaining,
+                )
+                break
+            # Cooldown before the next asset so the TPM window can recover.
+            time.sleep(min(backoff_max, 5.0))
+            last_llm_call_at = time.monotonic()
         except Exception as e:
             logger.error("Falha ao descrever imagem %s: %s", asset["asset_id"], e)
             db.update_asset_description(asset["asset_id"], "", call_checksum, status="failed")
+            consecutive_exhausted = 0
 
+    clear_progress()
     logger.info("Imagens descritas: %d", described)
     return described
+
+
+def _describe_with_rate_limit_retry(
+    llm: Any,
+    prompt_template: str,
+    img_file: Path,
+    context: str,
+    *,
+    asset_id: str,
+    max_retries: int,
+    backoff_max: float,
+    step: int | None = None,
+    total: int | None = None,
+) -> str:
+    """Call multimodal describe; retry on 429 using provider wait hints."""
+    attempts = max_retries + 1
+    for attempt in range(attempts):
+        try:
+            return _describe_one(
+                llm, prompt_template, img_file, context,
+                step=step, total=total,
+            )
+        except Exception as e:
+            if not _is_rate_limit_error(e) or attempt >= max_retries:
+                if _is_rate_limit_error(e):
+                    raise RateLimitExhausted(str(e)) from e
+                raise
+            wait = _rate_limit_wait_seconds(e, attempt, backoff_max)
+            logger.warning(
+                "Rate limit na imagem %s (tentativa %d/%d) — aguardando %.2fs",
+                asset_id, attempt + 1, attempts, wait,
+            )
+            time.sleep(wait)
+    raise RateLimitExhausted(f"esgotadas {attempts} tentativas para {asset_id}")
 
 
 def _get_multimodal_llm(cfg: AppConfig, model: str) -> Any:
     """Instantiate a chat model for image description (provider from cfg.llm)."""
     if cfg.llm.provider == "openai":
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model=model, temperature=cfg.llm.temperature, max_retries=cfg.llm.max_retries)
+        # Retries de 429 sao tratados em _describe_with_rate_limit_retry (com pacing
+        # e wait hint da API). max_retries=0 evita double-retry curto do SDK.
+        return ChatOpenAI(model=model, temperature=cfg.llm.temperature, max_retries=0)
     if cfg.llm.provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(model=model, temperature=cfg.llm.temperature, max_retries=cfg.llm.max_retries)
+        return ChatAnthropic(model=model, temperature=cfg.llm.temperature, max_retries=0)
     if cfg.llm.provider == "ollama":
         from langchain_ollama import ChatOllama
         return ChatOllama(model=model, temperature=cfg.llm.temperature)
     raise ValueError(f"Provider nao suportado para descricao de imagem: {cfg.llm.provider}")
 
 
-def _describe_one(llm: Any, prompt_template: str, img_file: Path, context: str) -> str:
+def _describe_one(
+    llm: Any,
+    prompt_template: str,
+    img_file: Path,
+    context: str,
+    *,
+    step: int | None = None,
+    total: int | None = None,
+) -> str:
     from langchain_core.messages import HumanMessage
+
+    from zettel.llm import _extract_usage, _resolve_model_name
+    from zettel.pricing import estimate_llm_cost
+    from zettel.usage import record_llm
 
     b64 = base64.b64encode(img_file.read_bytes()).decode("ascii")
     prompt = prompt_template.replace("{context}", context or "(sem contexto textual)")
@@ -314,4 +509,21 @@ def _describe_one(llm: Any, prompt_template: str, img_file: Path, context: str) 
         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
     ])
     response = llm.invoke([message])
-    return response.content.strip()
+    content = response.content
+    if not isinstance(content, str):
+        content = str(content)
+
+    model_name = _resolve_model_name(llm, None)
+    tokens_in, tokens_out = _extract_usage(response)
+    cost = estimate_llm_cost(model_name, tokens_in, tokens_out)
+    record_llm(
+        model=model_name or "unknown",
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        cost_usd=cost,
+        label=f"image:{img_file.name}",
+        step=step,
+        total=total,
+        kind="imagem" if step is not None else None,
+    )
+    return content.strip()

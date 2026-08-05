@@ -69,6 +69,39 @@ def _relation_type_value(relation_type: Any) -> str:
     return str(relation_type or "related")
 
 
+def _literature_ref_for_chunk(
+    cfg: AppConfig,
+    db: StateDB,
+    source_id: str,
+    citekey: str,
+    title_src: str,
+    chunk_id: str | None,
+) -> str:
+    """Wikilink to the approved granular LIT for this chunk (fallback: index)."""
+    from zettel.vault import (
+        approved_chunk_filename,
+        literature_chunk_dirname,
+        literature_index_stem,
+    )
+    if chunk_id:
+        chunk = db.get_chunk(chunk_id)
+        if chunk and chunk.get("status") in ("approved", "persisted"):
+            idx_n = int(chunk.get("chunk_index") or 0)
+            stem = (
+                f"{literature_chunk_dirname(citekey)}/"
+                f"{approved_chunk_filename(idx_n).removesuffix('.md')}"
+            )
+            return f"[[{stem}]]"
+        if chunk and chunk.get("literature_note_path"):
+            p = Path(chunk["literature_note_path"])
+            try:
+                rel = p.relative_to(cfg.vault_path).with_suffix("").as_posix()
+                return f"[[{rel}]]"
+            except ValueError:
+                pass
+    return f"[[{literature_index_stem(citekey, title_src)}]]"
+
+
 # ── Public API ─────────────────────────────────────────────────────────
 
 
@@ -77,6 +110,12 @@ def run_connect(
 ) -> list[str]:
     """Generate permanent notes from approved candidates. Returns created note_ids."""
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn
+
+    from zettel.usage import begin_run, finish_pipeline_run, get_tracker, set_source
+    from zettel.vault import sync_source_costs_to_vault
+
+    run_id = db.start_run("connect")
+    begin_run(run_id)
 
     llm = get_llm(cfg)
     prompt_template = load_prompt(cfg.prompts_path / "permanent_note.md")
@@ -95,17 +134,27 @@ def run_connect(
         task = progress.add_task("notas", total=total)
         for i, cand_dict in enumerate(candidates, 1):
             cand: PermanentNoteCandidate = cand_dict["candidate"]
+            set_source(cand_dict.get("source_id"))
             progress.update(task, description=f"nota {i}/{total}", advance=1)
             logger.info("Gerando nota %d/%d: %s", i, total, cand.thesis[:50])
 
             note_id = _process_candidate(
-                cfg, db, idx, llm, cand_dict, prompt_template, retriever
+                cfg, db, idx, llm, cand_dict, prompt_template, retriever,
+                step=i, total=total,
             )
             if note_id:
                 created_ids.append(note_id)
                 logger.info("Nota %d/%d OK (id=%s)", i, total, note_id)
 
+    set_source(None)
+    tracker = get_tracker()
+    if tracker:
+        for sid in tracker.sources_touched():
+            db.add_source_usage(sid, tracker.summary_for_source(sid).as_dict())
+            sync_source_costs_to_vault(cfg, db, sid)
+
     logger.info("Notas permanentes criadas/atualizadas: %d", len(created_ids))
+    finish_pipeline_run(db, run_id)
     return created_ids
 
 
@@ -120,12 +169,20 @@ def _process_candidate(
     cand_dict: dict,
     prompt_template: str,
     retriever: Retriever,
+    *,
+    step: int | None = None,
+    total: int | None = None,
 ) -> str | None:
     """Process a single candidate into a permanent note."""
+    from zettel.usage import clear_progress, set_progress
+
     cand: PermanentNoteCandidate = cand_dict["candidate"]
     source_id = cand_dict["source_id"]
     concept_id = cand_dict["concept_id"]
     refines_note_id = cand_dict.get("refines_note_id")
+
+    if step is not None:
+        set_progress(step, total, "nota")
 
     existing_concept = db.get_concept(concept_id)
     if existing_concept and existing_concept.get("note_id"):
@@ -137,7 +194,9 @@ def _process_candidate(
     source = db.get_source(source_id)
     citekey = source["citekey"] if source else "unknown"
     title_src = source["title"] if source else ""
-    literature_ref = f"[[LIT - @{citekey} - {_slug(title_src)}]]"
+    literature_ref = _literature_ref_for_chunk(
+        cfg, db, source_id, citekey, title_src, cand_dict.get("chunk_id"),
+    )
 
     # Prefer LLM-provided image ids; fall back to paths embedded in the source chunk.
     image_ids = list(getattr(cand, "relevant_image_ids", None) or [])
@@ -169,18 +228,28 @@ def _process_candidate(
 
     # Cache do Prompt 2 (a chamada mais cara do pipeline). A chave cobre todo o prompt
     # preenchido (tese/definicao/RAG/etc.), entao um re-connect apos falha nao paga de novo.
+    from zettel.usage import get_tracker
+
     prompt_hash = sha256_hex(prompt_template)
     filled_hash = sha256_hex(normalize_text_for_hash(filled))
     call_checksum = compute_llm_call_checksum(
         prompt_hash, filled_hash, cfg.llm.model, cfg.llm.temperature, cfg.language,
     )
+    tracker = get_tracker()
+    snap = tracker.summary().as_dict() if tracker else {}
+    cache_hit = False
     try:
         cached = db.get_cached_llm_response(call_checksum)
         if cached is not None:
             logger.debug("Cache hit (Prompt 2) para conceito %s", concept_id)
+            from zettel.usage import record_cache_hit
+            record_cache_hit(label=f"connect:{concept_id}", model=cfg.llm.model)
             response_text = cached
+            cache_hit = True
         else:
-            response_text = call_llm(llm, filled)
+            response_text = call_llm(
+                llm, filled, label=f"connect:{concept_id}", step=step, total=total,
+            )
             db.cache_llm_response(
                 call_checksum, json.dumps({"prompt": filled}, ensure_ascii=False), response_text
             )
@@ -190,15 +259,37 @@ def _process_candidate(
                 "Conceito %s não gerou nota permanente válida. Motivo: %s",
                 concept_id, note_output.reason,
             )
+            clear_progress()
             return None
     except Exception as e:
         logger.error("Erro ao gerar nota permanente para conceito %s: %s", concept_id, e)
+        clear_progress()
         return None
 
     # PT-BR guard: re-translate fields that slipped into English
     note_body_text = f"{note_output.thesis} {note_output.definition} {note_output.intuition}"
     if _needs_ptbr_fix(note_body_text):
         note_output = _apply_ptbr_guard(cfg, llm, note_output)
+
+    after = tracker.summary().as_dict() if tracker else {}
+    note_cost = float(after.get("cost_usd_llm", 0) or 0) - float(snap.get("cost_usd_llm", 0) or 0)
+    note_tokens_in = int(after.get("tokens_prompt", 0) or 0) - int(snap.get("tokens_prompt", 0) or 0)
+    note_tokens_out = int(after.get("tokens_completion", 0) or 0) - int(
+        snap.get("tokens_completion", 0) or 0
+    )
+    from zettel.usage import format_progress_from_context
+    prog = format_progress_from_context()
+    if prog:
+        logger.info(
+            "Nota permanente [%s] conceito=%s custo_usd=%.6f "
+            "tokens_in=%d tokens_out=%d cache_hit=%s",
+            prog, concept_id, note_cost, note_tokens_in, note_tokens_out, cache_hit,
+        )
+    else:
+        logger.info(
+            "Nota permanente conceito=%s custo_usd=%.6f tokens_in=%d tokens_out=%d cache_hit=%s",
+            concept_id, note_cost, note_tokens_in, note_tokens_out, cache_hit,
+        )
 
     connections = list(note_output.connections)
 
@@ -240,6 +331,10 @@ def _process_candidate(
         "origin": "pipeline",
         "created_at": now,
         "updated_at": now,
+        "llm_cost_usd": round(note_cost, 6),
+        "llm_tokens_prompt": note_tokens_in,
+        "llm_tokens_completion": note_tokens_out,
+        "llm_cache_hit": cache_hit,
     }
 
     title = note_output.title or cand.thesis[:60]
@@ -277,6 +372,7 @@ def _process_candidate(
 
     _persist_and_backlink(cfg, db, note_id, title, connections)
 
+    clear_progress()
     return note_id
 
 

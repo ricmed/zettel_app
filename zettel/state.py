@@ -83,6 +83,22 @@ CREATE TABLE IF NOT EXISTS sources (
     document_type        TEXT,
     bibliography_json    TEXT,
     abnt_reference       TEXT,
+    total_pages_file     INTEGER,
+    total_pages_book     INTEGER,
+    page_offset          INTEGER,
+    page_offset_confidence TEXT,
+    content_start_file_page INTEGER,
+    content_start_book_page INTEGER,
+    processing_status    TEXT NOT NULL DEFAULT 'completed',
+    last_chunk_processed INTEGER,
+    total_chunks         INTEGER,
+    docling_config_hash  TEXT,
+    cost_usd_total       REAL NOT NULL DEFAULT 0,
+    cost_usd_llm         REAL NOT NULL DEFAULT 0,
+    cost_usd_embedding   REAL NOT NULL DEFAULT 0,
+    tokens_prompt        INTEGER NOT NULL DEFAULT 0,
+    tokens_completion    INTEGER NOT NULL DEFAULT 0,
+    tokens_embedding     INTEGER NOT NULL DEFAULT 0,
     created_at           TEXT NOT NULL,
     updated_at           TEXT NOT NULL
 );
@@ -105,6 +121,14 @@ CREATE TABLE IF NOT EXISTS chunks (
     locator                   TEXT NOT NULL DEFAULT '',
     section_path              TEXT NOT NULL DEFAULT '',
     status                    TEXT NOT NULL DEFAULT 'pending',
+    chunk_index               INTEGER,
+    page_in_file              INTEGER,
+    page_in_book              INTEGER,
+    page_confidence           TEXT NOT NULL DEFAULT 'unknown',
+    literature_note_path      TEXT,
+    literature_id             TEXT,
+    review_confidence         REAL,
+    summary_json              TEXT,
     llm_prompt1_hash          TEXT,
     llm_call_checksum_prompt1 TEXT,
     FOREIGN KEY (source_id) REFERENCES sources(source_id),
@@ -163,6 +187,7 @@ CREATE TABLE IF NOT EXISTS assets (
     description     TEXT,
     description_call_checksum TEXT,
     status          TEXT NOT NULL DEFAULT 'pending',
+    page_in_file    INTEGER,
     created_at      TEXT NOT NULL,
     FOREIGN KEY (source_id) REFERENCES sources(source_id)
 );
@@ -191,7 +216,15 @@ CREATE TABLE IF NOT EXISTS runs (
     status              TEXT NOT NULL DEFAULT 'running',
     duplicate_file_count     INTEGER NOT NULL DEFAULT 0,
     duplicate_content_count  INTEGER NOT NULL DEFAULT 0,
-    duplicate_semantic_count INTEGER NOT NULL DEFAULT 0
+    duplicate_semantic_count INTEGER NOT NULL DEFAULT 0,
+    cost_usd_total      REAL NOT NULL DEFAULT 0,
+    cost_usd_llm        REAL NOT NULL DEFAULT 0,
+    cost_usd_embedding  REAL NOT NULL DEFAULT 0,
+    tokens_prompt       INTEGER NOT NULL DEFAULT 0,
+    tokens_completion   INTEGER NOT NULL DEFAULT 0,
+    tokens_embedding    INTEGER NOT NULL DEFAULT 0,
+    llm_calls           INTEGER NOT NULL DEFAULT 0,
+    cache_hits          INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -348,6 +381,41 @@ class StateDB:
             ("sources", "document_type", "TEXT"),
             ("sources", "bibliography_json", "TEXT"),
             ("sources", "abnt_reference", "TEXT"),
+            # LIT granular — paginas, offset, checkpoint de processamento
+            ("sources", "total_pages_file", "INTEGER"),
+            ("sources", "total_pages_book", "INTEGER"),
+            ("sources", "page_offset", "INTEGER"),
+            ("sources", "page_offset_confidence", "TEXT"),
+            ("sources", "content_start_file_page", "INTEGER"),
+            ("sources", "content_start_book_page", "INTEGER"),
+            ("sources", "processing_status", "TEXT NOT NULL DEFAULT 'completed'"),
+            ("sources", "last_chunk_processed", "INTEGER"),
+            ("sources", "total_chunks", "INTEGER"),
+            ("sources", "docling_config_hash", "TEXT"),
+            ("chunks", "chunk_index", "INTEGER"),
+            ("chunks", "page_in_file", "INTEGER"),
+            ("chunks", "page_in_book", "INTEGER"),
+            # Custos LLM / embeddings
+            ("runs", "cost_usd_total", "REAL NOT NULL DEFAULT 0"),
+            ("runs", "cost_usd_llm", "REAL NOT NULL DEFAULT 0"),
+            ("runs", "cost_usd_embedding", "REAL NOT NULL DEFAULT 0"),
+            ("runs", "tokens_prompt", "INTEGER NOT NULL DEFAULT 0"),
+            ("runs", "tokens_completion", "INTEGER NOT NULL DEFAULT 0"),
+            ("runs", "tokens_embedding", "INTEGER NOT NULL DEFAULT 0"),
+            ("runs", "llm_calls", "INTEGER NOT NULL DEFAULT 0"),
+            ("runs", "cache_hits", "INTEGER NOT NULL DEFAULT 0"),
+            ("sources", "cost_usd_total", "REAL NOT NULL DEFAULT 0"),
+            ("sources", "cost_usd_llm", "REAL NOT NULL DEFAULT 0"),
+            ("sources", "cost_usd_embedding", "REAL NOT NULL DEFAULT 0"),
+            ("sources", "tokens_prompt", "INTEGER NOT NULL DEFAULT 0"),
+            ("sources", "tokens_completion", "INTEGER NOT NULL DEFAULT 0"),
+            ("sources", "tokens_embedding", "INTEGER NOT NULL DEFAULT 0"),
+            ("chunks", "page_confidence", "TEXT NOT NULL DEFAULT 'unknown'"),
+            ("chunks", "literature_note_path", "TEXT"),
+            ("chunks", "literature_id", "TEXT"),
+            ("chunks", "review_confidence", "REAL"),
+            ("chunks", "summary_json", "TEXT"),
+            ("assets", "page_in_file", "INTEGER"),
         ]
         for table, column, coltype in migrations:
             try:
@@ -426,14 +494,30 @@ class StateDB:
         document_type: str | None = None,
         bibliography_json: str | None = None,
         abnt_reference: str | None = None,
+        total_pages_file: int | None = None,
+        total_pages_book: int | None = None,
+        page_offset: int | None = None,
+        page_offset_confidence: str | None = None,
+        content_start_file_page: int | None = None,
+        content_start_book_page: int | None = None,
+        processing_status: str | None = None,
+        last_chunk_processed: int | None = None,
+        total_chunks: int | None = None,
+        docling_config_hash: str | None = None,
     ) -> None:
         now = self._now()
+        if processing_status is None:
+            processing_status = "completed"
         self.conn.execute(
             """INSERT INTO sources (source_id, citekey, title, authors, year, file_checksum,
                                     extraction_checksum, origin_path, origin_type, origin,
                                     document_type, bibliography_json, abnt_reference,
+                                    total_pages_file, total_pages_book, page_offset,
+                                    page_offset_confidence, content_start_file_page,
+                                    content_start_book_page, processing_status,
+                                    last_chunk_processed, total_chunks, docling_config_hash,
                                     created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(source_id) DO UPDATE SET
                  title=excluded.title, authors=excluded.authors, year=excluded.year,
                  file_checksum=excluded.file_checksum,
@@ -442,11 +526,25 @@ class StateDB:
                  document_type=COALESCE(excluded.document_type, sources.document_type),
                  bibliography_json=COALESCE(excluded.bibliography_json, sources.bibliography_json),
                  abnt_reference=COALESCE(excluded.abnt_reference, sources.abnt_reference),
+                 total_pages_file=COALESCE(excluded.total_pages_file, sources.total_pages_file),
+                 total_pages_book=COALESCE(excluded.total_pages_book, sources.total_pages_book),
+                 page_offset=COALESCE(excluded.page_offset, sources.page_offset),
+                 page_offset_confidence=COALESCE(excluded.page_offset_confidence, sources.page_offset_confidence),
+                 content_start_file_page=COALESCE(excluded.content_start_file_page, sources.content_start_file_page),
+                 content_start_book_page=COALESCE(excluded.content_start_book_page, sources.content_start_book_page),
+                 processing_status=COALESCE(excluded.processing_status, sources.processing_status),
+                 last_chunk_processed=COALESCE(excluded.last_chunk_processed, sources.last_chunk_processed),
+                 total_chunks=COALESCE(excluded.total_chunks, sources.total_chunks),
+                 docling_config_hash=COALESCE(excluded.docling_config_hash, sources.docling_config_hash),
                  updated_at=excluded.updated_at""",
             (
                 source_id, citekey, title, json.dumps(authors), year, file_checksum,
                 extraction_checksum, origin_path, origin_type, origin,
-                document_type, bibliography_json, abnt_reference, now, now,
+                document_type, bibliography_json, abnt_reference,
+                total_pages_file, total_pages_book, page_offset,
+                page_offset_confidence, content_start_file_page, content_start_book_page,
+                processing_status, last_chunk_processed, total_chunks, docling_config_hash,
+                now, now,
             ),
         )
         self.conn.commit()
@@ -457,11 +555,12 @@ class StateDB:
         extracted_text: str | None = None,
         lit_body: str | None = None,
     ) -> None:
-        """Persist the full extracted text and/or the LIT note snapshot for a source.
+        """Persist the full extracted text and/or the LIT index snapshot for a source.
 
         Only overwrites columns whose argument is not None, so callers can update
         one field without clobbering the other. This is the durable retention layer
         that lets `rechunk` and `rebuild` run without reprocessing the source file.
+        ``lit_body`` now stores the literature *index* note, not a monolithic LIT.
         """
         self.conn.execute(
             """UPDATE sources SET
@@ -470,6 +569,79 @@ class StateDB:
                  updated_at=?
                WHERE source_id=?""",
             (extracted_text, lit_body, self._now(), source_id),
+        )
+        self.conn.commit()
+
+    def update_source_paging(
+        self,
+        source_id: str,
+        *,
+        total_pages_file: int | None = None,
+        total_pages_book: int | None = None,
+        page_offset: int | None = None,
+        page_offset_confidence: str | None = None,
+        content_start_file_page: int | None = None,
+        content_start_book_page: int | None = None,
+        processing_status: str | None = None,
+        last_chunk_processed: int | None = None,
+        total_chunks: int | None = None,
+        docling_config_hash: str | None = None,
+    ) -> None:
+        """Update paging / processing checkpoint fields for a source."""
+        self.conn.execute(
+            """UPDATE sources SET
+                 total_pages_file=COALESCE(?, total_pages_file),
+                 total_pages_book=COALESCE(?, total_pages_book),
+                 page_offset=COALESCE(?, page_offset),
+                 page_offset_confidence=COALESCE(?, page_offset_confidence),
+                 content_start_file_page=COALESCE(?, content_start_file_page),
+                 content_start_book_page=COALESCE(?, content_start_book_page),
+                 processing_status=COALESCE(?, processing_status),
+                 last_chunk_processed=COALESCE(?, last_chunk_processed),
+                 total_chunks=COALESCE(?, total_chunks),
+                 docling_config_hash=COALESCE(?, docling_config_hash),
+                 updated_at=?
+               WHERE source_id=?""",
+            (
+                total_pages_file, total_pages_book, page_offset, page_offset_confidence,
+                content_start_file_page, content_start_book_page,
+                processing_status, last_chunk_processed, total_chunks, docling_config_hash,
+                self._now(), source_id,
+            ),
+        )
+        self.conn.commit()
+
+    def delete_chunks(self, chunk_ids: list[str]) -> int:
+        """Delete chunks by id (SQLite + FTS). Returns how many were removed."""
+        if not chunk_ids:
+            return 0
+        removed = 0
+        for cid in chunk_ids:
+            cur = self.conn.execute("DELETE FROM chunks WHERE chunk_id=?", (cid,))
+            if cur.rowcount:
+                removed += 1
+                self._fts_delete_chunk(cid)
+                self.conn.execute("DELETE FROM concepts WHERE chunk_id=?", (cid,))
+        if removed:
+            self.conn.commit()
+        return removed
+
+    def update_chunk_pages(
+        self,
+        chunk_id: str,
+        *,
+        page_in_file: int | None = None,
+        page_in_book: int | None = None,
+        page_confidence: str | None = None,
+    ) -> None:
+        """Overwrite page fields (allows setting page_in_book explicitly)."""
+        self.conn.execute(
+            """UPDATE chunks SET
+                 page_in_file=COALESCE(?, page_in_file),
+                 page_in_book=?,
+                 page_confidence=COALESCE(?, page_confidence)
+               WHERE chunk_id=?""",
+            (page_in_file, page_in_book, page_confidence, chunk_id),
         )
         self.conn.commit()
 
@@ -534,16 +706,39 @@ class StateDB:
         locator: str = "",
         status: str = "pending",
         section_path: str = "",
+        chunk_index: int | None = None,
+        page_in_file: int | None = None,
+        page_in_book: int | None = None,
+        page_confidence: str = "unknown",
+        literature_note_path: str | None = None,
+        literature_id: str | None = None,
+        review_confidence: float | None = None,
+        summary_json: str | None = None,
     ) -> None:
         self.conn.execute(
             """INSERT INTO chunks (chunk_id, source_id, chapter_id, text, chunk_checksum,
-                                   locator, section_path, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                   locator, section_path, status, chunk_index,
+                                   page_in_file, page_in_book, page_confidence,
+                                   literature_note_path, literature_id,
+                                   review_confidence, summary_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(chunk_id) DO UPDATE SET
                  text=excluded.text, chunk_checksum=excluded.chunk_checksum,
                  locator=excluded.locator, section_path=excluded.section_path,
-                 status=excluded.status""",
-            (chunk_id, source_id, chapter_id, text, chunk_checksum, locator, section_path, status),
+                 status=excluded.status,
+                 chunk_index=COALESCE(excluded.chunk_index, chunks.chunk_index),
+                 page_in_file=COALESCE(excluded.page_in_file, chunks.page_in_file),
+                 page_in_book=COALESCE(excluded.page_in_book, chunks.page_in_book),
+                 page_confidence=excluded.page_confidence,
+                 literature_note_path=COALESCE(excluded.literature_note_path, chunks.literature_note_path),
+                 literature_id=COALESCE(excluded.literature_id, chunks.literature_id),
+                 review_confidence=COALESCE(excluded.review_confidence, chunks.review_confidence),
+                 summary_json=COALESCE(excluded.summary_json, chunks.summary_json)""",
+            (
+                chunk_id, source_id, chapter_id, text, chunk_checksum, locator, section_path,
+                status, chunk_index, page_in_file, page_in_book, page_confidence,
+                literature_note_path, literature_id, review_confidence, summary_json,
+            ),
         )
         self._fts_index_chunk(chunk_id, text)
         self.conn.commit()
@@ -611,6 +806,65 @@ class StateDB:
                llm_call_checksum_prompt1=COALESCE(?, llm_call_checksum_prompt1)
                WHERE chunk_id=?""",
             (status, llm_prompt1_hash, llm_call_checksum, chunk_id),
+        )
+        self.conn.commit()
+
+    def update_chunk_review(
+        self,
+        chunk_id: str,
+        *,
+        status: str | None = None,
+        literature_note_path: str | None = None,
+        literature_id: str | None = None,
+        review_confidence: float | None = None,
+        summary_json: str | None = None,
+        page_in_book: int | None = None,
+        page_confidence: str | None = None,
+        llm_prompt1_hash: str | None = None,
+        llm_call_checksum: str | None = None,
+    ) -> None:
+        """Update review / literature fields for a chunk (checkpoint after extract/review)."""
+        self.conn.execute(
+            """UPDATE chunks SET
+                 status=COALESCE(?, status),
+                 literature_note_path=COALESCE(?, literature_note_path),
+                 literature_id=COALESCE(?, literature_id),
+                 review_confidence=COALESCE(?, review_confidence),
+                 summary_json=COALESCE(?, summary_json),
+                 page_in_book=COALESCE(?, page_in_book),
+                 page_confidence=COALESCE(?, page_confidence),
+                 llm_prompt1_hash=COALESCE(?, llm_prompt1_hash),
+                 llm_call_checksum_prompt1=COALESCE(?, llm_call_checksum_prompt1)
+               WHERE chunk_id=?""",
+            (
+                status, literature_note_path, literature_id, review_confidence,
+                summary_json, page_in_book, page_confidence,
+                llm_prompt1_hash, llm_call_checksum, chunk_id,
+            ),
+        )
+        self.conn.commit()
+
+    def get_chunks_by_status(
+        self, status: str, source_id: str | None = None
+    ) -> list[dict]:
+        if source_id:
+            return self._fetchall(
+                "SELECT * FROM chunks WHERE status=? AND source_id=? ORDER BY chunk_index ASC",
+                (status, source_id),
+            )
+        return self._fetchall(
+            "SELECT * FROM chunks WHERE status=? ORDER BY source_id, chunk_index ASC",
+            (status,),
+        )
+
+    def get_concepts_for_chunk(self, chunk_id: str) -> list[dict]:
+        return self._fetchall(
+            "SELECT * FROM concepts WHERE chunk_id=?", (chunk_id,)
+        )
+
+    def update_concepts_status_for_chunk(self, chunk_id: str, status: str) -> None:
+        self.conn.execute(
+            "UPDATE concepts SET status=? WHERE chunk_id=?", (status, chunk_id)
         )
         self.conn.commit()
 
@@ -901,17 +1155,19 @@ class StateDB:
         chapter_id: str | None = None,
         context_snippet: str = "",
         status: str = "pending",
+        page_in_file: int | None = None,
     ) -> None:
         self.conn.execute(
             """INSERT INTO assets (asset_id, source_id, chapter_id, path, image_checksum,
-                                   context_snippet, status, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                   context_snippet, status, page_in_file, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(asset_id) DO UPDATE SET
                  chapter_id=COALESCE(excluded.chapter_id, assets.chapter_id),
                  path=excluded.path,
-                 context_snippet=excluded.context_snippet""",
+                 context_snippet=excluded.context_snippet,
+                 page_in_file=COALESCE(excluded.page_in_file, assets.page_in_file)""",
             (asset_id, source_id, chapter_id, path, image_checksum,
-             context_snippet, status, self._now()),
+             context_snippet, status, page_in_file, self._now()),
         )
         self.conn.commit()
 
@@ -978,10 +1234,63 @@ class StateDB:
         self.conn.commit()
         return cur.lastrowid  # type: ignore[return-value]
 
-    def finish_run(self, run_id: int, status: str = "completed") -> None:
+    def finish_run(
+        self,
+        run_id: int,
+        status: str = "completed",
+        usage: dict | None = None,
+    ) -> None:
+        if usage:
+            self.conn.execute(
+                """UPDATE runs SET
+                     finished_at=?, status=?,
+                     cost_usd_total=?, cost_usd_llm=?, cost_usd_embedding=?,
+                     tokens_prompt=?, tokens_completion=?, tokens_embedding=?,
+                     llm_calls=?, cache_hits=?
+                   WHERE run_id=?""",
+                (
+                    self._now(),
+                    status,
+                    float(usage.get("cost_usd_total", 0) or 0),
+                    float(usage.get("cost_usd_llm", 0) or 0),
+                    float(usage.get("cost_usd_embedding", 0) or 0),
+                    int(usage.get("tokens_prompt", 0) or 0),
+                    int(usage.get("tokens_completion", 0) or 0),
+                    int(usage.get("tokens_embedding", 0) or 0),
+                    int(usage.get("llm_calls", 0) or 0),
+                    int(usage.get("cache_hits", 0) or 0),
+                    run_id,
+                ),
+            )
+        else:
+            self.conn.execute(
+                "UPDATE runs SET finished_at=?, status=? WHERE run_id=?",
+                (self._now(), status, run_id),
+            )
+        self.conn.commit()
+
+    def add_source_usage(self, source_id: str, usage: dict) -> None:
+        """Accumulate cost/token deltas onto a source row."""
         self.conn.execute(
-            "UPDATE runs SET finished_at=?, status=? WHERE run_id=?",
-            (self._now(), status, run_id),
+            """UPDATE sources SET
+                 cost_usd_total = COALESCE(cost_usd_total, 0) + ?,
+                 cost_usd_llm = COALESCE(cost_usd_llm, 0) + ?,
+                 cost_usd_embedding = COALESCE(cost_usd_embedding, 0) + ?,
+                 tokens_prompt = COALESCE(tokens_prompt, 0) + ?,
+                 tokens_completion = COALESCE(tokens_completion, 0) + ?,
+                 tokens_embedding = COALESCE(tokens_embedding, 0) + ?,
+                 updated_at=?
+               WHERE source_id=?""",
+            (
+                float(usage.get("cost_usd_total", 0) or 0),
+                float(usage.get("cost_usd_llm", 0) or 0),
+                float(usage.get("cost_usd_embedding", 0) or 0),
+                int(usage.get("tokens_prompt", 0) or 0),
+                int(usage.get("tokens_completion", 0) or 0),
+                int(usage.get("tokens_embedding", 0) or 0),
+                self._now(),
+                source_id,
+            ),
         )
         self.conn.commit()
 
@@ -1016,8 +1325,22 @@ class StateDB:
         for t in tables:
             row = self.conn.execute(f"SELECT COUNT(*) as cnt FROM {t}").fetchone()
             stats[t] = row["cnt"] if row else 0
-        pending = self.conn.execute(
-            "SELECT COUNT(*) as cnt FROM chunks WHERE status='pending'"
+        for status_key, status_val in (
+            ("chunks_pending", "pending"),
+            ("chunks_awaiting_review", "awaiting_review"),
+            ("chunks_approved", "approved"),
+            ("chunks_rejected", "rejected"),
+            ("chunks_failed", "failed"),
+        ):
+            row = self.conn.execute(
+                "SELECT COUNT(*) as cnt FROM chunks WHERE status=?", (status_val,)
+            ).fetchone()
+            stats[status_key] = row["cnt"] if row else 0
+        # persisted counts as approved for status display
+        persisted = self.conn.execute(
+            "SELECT COUNT(*) as cnt FROM chunks WHERE status='persisted'"
         ).fetchone()
-        stats["chunks_pending"] = pending["cnt"] if pending else 0
+        stats["chunks_approved"] = stats.get("chunks_approved", 0) + (
+            persisted["cnt"] if persisted else 0
+        )
         return stats

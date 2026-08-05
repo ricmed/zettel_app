@@ -24,9 +24,24 @@ from zettel.hashing import (
     normalize_text_for_hash,
     sha256_hex,
 )
-from zettel.index import COL_CHUNKS, COL_MOCS, COL_PERMANENT, COL_SOURCES, VectorIndex
+from zettel.index import (
+    COL_CHUNKS,
+    COL_LITERATURE,
+    COL_MOCS,
+    COL_PERMANENT,
+    COL_SOURCES,
+    VectorIndex,
+)
 from zettel.state import StateDB
-from zettel.vault import build_source_note, compose_note, note_filename
+from zettel.vault import (
+    approved_chunk_filename,
+    build_literature_chunk_note,
+    build_source_note,
+    compose_note,
+    literature_chunk_dirname,
+    literature_index_filename,
+    note_filename,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +80,7 @@ def _tags_from_frontmatter(frontmatter_json: str | None) -> list[str]:
 
 # ── Reindex ChromaDB from SQLite ───────────────────────────────────────
 
-_ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS]
+_ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS, COL_LITERATURE]
 
 
 def run_reindex(
@@ -100,6 +115,8 @@ def run_reindex(
             stats[t] = _reindex_permanent(cfg, db, idx)
         elif t == COL_MOCS:
             stats[t] = _reindex_mocs(db, idx)
+        elif t == COL_LITERATURE:
+            stats[t] = _reindex_literature(cfg, db, idx)
 
     # The FTS5 lexical index is another disposable cache reconstructible from
     # SQLite — rebuild it whenever a full reindex runs (no specific collection).
@@ -181,6 +198,39 @@ def _reindex_mocs(db: StateDB, idx: VectorIndex) -> int:
     return n
 
 
+def _reindex_literature(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
+    """Re-embed approved/persisted granular literature notes from vault or summary_json."""
+    n = 0
+    for src in db.list_sources():
+        for chunk in db.get_chunks_for_source(src["source_id"]):
+            if chunk.get("status") not in ("approved", "persisted"):
+                continue
+            lit_id = chunk.get("literature_id") or chunk["chunk_id"]
+            path_str = chunk.get("literature_note_path")
+            embed_text = ""
+            if path_str and Path(path_str).exists():
+                embed_text = Path(path_str).read_text(encoding="utf-8")[:3000]
+            elif chunk.get("summary_json"):
+                try:
+                    data = json.loads(chunk["summary_json"])
+                    embed_text = f"{data.get('summary', '')}\n{' '.join(data.get('key_concepts') or [])}"
+                except json.JSONDecodeError:
+                    embed_text = chunk.get("text", "")[:1500]
+            else:
+                embed_text = (chunk.get("text") or "")[:1500]
+            if not embed_text.strip():
+                continue
+            idx.upsert_literature_note(lit_id, embed_text, {
+                "source_id": src["source_id"],
+                "chunk_id": chunk["chunk_id"],
+                "citekey": src["citekey"],
+                "chunk_index": chunk.get("chunk_index") or 0,
+                "page_in_book": chunk.get("page_in_book") or -1,
+            })
+            n += 1
+    return n
+
+
 # ── Rebuild vault .md files from SQLite (Fase 5) ───────────────────────
 
 
@@ -237,18 +287,73 @@ def run_rebuild_vault(
             document_type=src.get("document_type"),
             biblio_fields=biblio_fields,
             abnt_reference=src.get("abnt_reference"),
+            total_pages_file=src.get("total_pages_file"),
+            total_pages_book=src.get("total_pages_book"),
+            page_offset=src.get("page_offset"),
+            page_offset_confidence=src.get("page_offset_confidence"),
+            content_start_file_page=src.get("content_start_file_page"),
+            content_start_book_page=src.get("content_start_book_page"),
+            processing_status=src.get("processing_status"),
+            total_chunks=src.get("total_chunks"),
+            docling_config_hash=src.get("docling_config_hash"),
+            cost_usd_total=src.get("cost_usd_total"),
+            cost_usd_llm=src.get("cost_usd_llm"),
+            cost_usd_embedding=src.get("cost_usd_embedding"),
+            tokens_prompt=src.get("tokens_prompt"),
+            tokens_completion=src.get("tokens_completion"),
+            tokens_embedding=src.get("tokens_embedding"),
         )
         src_path = cfg.vault_path / "10_Sources" / note_filename("SRC", f"@{citekey}", title)
         if _write(src_path, compose_note(src_meta, src_body), origin):
             stats["sources"] += 1
 
+        # Literature index snapshot
         lit_body = src.get("lit_body")
         if lit_body:
-            lit_path = cfg.vault_path / "20_Literature" / note_filename("LIT", f"@{citekey}", title)
+            lit_path = cfg.vault_path / "20_Literature" / literature_index_filename(citekey, title)
             if _write(lit_path, lit_body, origin):
                 stats["literature"] += 1
         else:
             stats["missing_body"] += 1
+
+        # Granular approved LIT notes from chunk summary_json / path
+        for chunk in db.get_chunks_for_source(src["source_id"]):
+            if chunk.get("status") not in ("approved", "persisted"):
+                continue
+            dest = (
+                cfg.vault_path / "20_Literature" / literature_chunk_dirname(citekey)
+                / approved_chunk_filename(int(chunk.get("chunk_index") or 0))
+            )
+            if chunk.get("literature_note_path") and Path(chunk["literature_note_path"]).exists():
+                content = Path(chunk["literature_note_path"]).read_text(encoding="utf-8")
+                if _write(dest, content, origin):
+                    stats["literature"] += 1
+                continue
+            summary_data: dict[str, Any] = {}
+            if chunk.get("summary_json"):
+                try:
+                    summary_data = json.loads(chunk["summary_json"])
+                except json.JSONDecodeError:
+                    pass
+            meta, body = build_literature_chunk_note(
+                source_id=src["source_id"],
+                citekey=citekey,
+                title=title,
+                chunk_id=chunk["chunk_id"],
+                chunk_index=int(chunk.get("chunk_index") or 0),
+                literature_id=chunk.get("literature_id") or chunk["chunk_id"],
+                summary=summary_data.get("summary", ""),
+                key_concepts=summary_data.get("key_concepts") or [],
+                candidates=summary_data.get("candidates") or [],
+                page_in_file=chunk.get("page_in_file"),
+                page_in_book=chunk.get("page_in_book"),
+                page_confidence=chunk.get("page_confidence") or "unknown",
+                status="approved",
+                review_confidence=chunk.get("review_confidence"),
+                origin=origin,
+            )
+            if _write(dest, compose_note(meta, body), origin):
+                stats["literature"] += 1
 
     # ZTL permanent notes.
     for note in db.list_notes():

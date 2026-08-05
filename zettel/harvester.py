@@ -12,8 +12,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-from ulid import ULID
-
 from zettel.config import AppConfig
 from zettel.hashing import (
     file_sha256,
@@ -24,10 +22,21 @@ from zettel.hashing import (
 from zettel.index import VectorIndex
 from zettel.state import StateDB
 from zettel.vault import (
-    build_literature_note,
+    build_literature_index_note,
     build_source_note,
+    literature_index_filename,
     note_filename,
     safe_write_note,
+)
+from zettel.paging import (
+    ContentPaging,
+    apply_page_inference,
+    build_page_map_from_texts,
+    compute_docling_config_hash,
+    compute_page_in_book,
+    extract_page_hint,
+    lookup_page_for_chunk,
+    suggest_content_start,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,8 +58,11 @@ def run_harvest(
     interactive: bool = True,
     duplicate_action: str | None = None,
     skip_biblio: bool = False,
+    content_start_file: int | None = None,
+    content_start_book: int | None = None,
+    skip_paging: bool = False,
 ) -> list[str]:
-    """Scan inbox, extract text, create SRC/LIT notes, chunk. Returns new source_ids.
+    """Scan inbox, extract text, create SRC + LIT index, chunk. Returns new source_ids.
 
     Args:
         interactive: if True and a probable duplicate is detected, prompt the user
@@ -60,6 +72,9 @@ def run_harvest(
             ("skip" | "continue" | "abort"). Ignored when `interactive` is True.
         skip_biblio: if True, allow incomplete bibliographic metadata in non-interactive
             mode; otherwise incomplete biblio skips the file when not interactive.
+        content_start_file: PDF/file page (1-based) where content processing starts.
+        content_start_book: printed page number on that first content page (default 1).
+        skip_paging: skip HITL; process from file page 1 with book page = file page.
     """
     new_sources: list[str] = []
     inbox = cfg.inbox_path
@@ -70,13 +85,16 @@ def run_harvest(
         "harvest": cfg.harvest.model_dump(),
         "images": cfg.images.model_dump(),
         "pdf_extractor": cfg.pdf_extractor,
+        "docling_config_hash": compute_docling_config_hash(cfg),
     })
     run_id = db.start_run(signature)
+    from zettel.usage import begin_run, finish_pipeline_run
+    begin_run(run_id)
     run_status = "completed"
 
     if not inbox.exists():
         logger.warning("Inbox nao encontrado: %s", inbox)
-        db.finish_run(run_id, run_status)
+        finish_pipeline_run(db, run_id, run_status)
         return new_sources
 
     files = [
@@ -91,6 +109,9 @@ def run_harvest(
             sid, stats = _process_file(
                 cfg, db, idx, file_path, run_id, interactive, duplicate_action,
                 skip_biblio=skip_biblio,
+                content_start_file=content_start_file,
+                content_start_book=content_start_book,
+                skip_paging=skip_paging,
             )
             if sid:
                 new_sources.append(sid)
@@ -108,7 +129,7 @@ def run_harvest(
             total_stats["chapters"], total_stats["chunks"],
         )
 
-    db.finish_run(run_id, run_status)
+    finish_pipeline_run(db, run_id, run_status)
     return new_sources
 
 
@@ -140,11 +161,239 @@ def run_rechunk(
             stats["skipped"] += 1
             continue
         chapters = _split_into_chapters(text, src["origin_type"])
-        n = _chunk_and_persist(cfg, db, idx, sid, chapters)
+        paging = ContentPaging(
+            content_start_file_page=int(src.get("content_start_file_page") or 1),
+            content_start_book_page=int(src.get("content_start_book_page") or 1),
+            confidence=src.get("page_offset_confidence") or "skipped",
+        )
+        # Prefer rebuilding page_map from origin PDF when available
+        page_map: list[tuple[int, str]] = []
+        origin = src.get("origin_path")
+        if origin and Path(origin).suffix.lower() == ".pdf" and Path(origin).exists():
+            try:
+                page_map = _pymupdf_page_map(Path(origin))
+            except Exception as e:
+                logger.debug("Page map indisponivel no rechunk de %s: %s", sid, e)
+        n = _chunk_and_persist(
+            cfg, db, idx, sid, chapters, page_map=page_map, paging=paging,
+        )
         _finalize_source_chunking(db, idx, sid, chapters)
         stats["sources"] += 1
         stats["chunks"] += n
         logger.info("Rechunk %s: %d chunks (%d capitulos)", sid, n, len(chapters))
+    return stats
+
+
+def run_set_paging(
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    source_id: str,
+    *,
+    content_start_file: int,
+    content_start_book: int = 1,
+    drop_before_start: bool = False,
+) -> dict[str, int]:
+    """Repair paging on an existing source without re-calling the LLM.
+
+    Updates source bounds, recomputes ``page_in_book`` on all chunks, drops
+    ``pending`` chunks before ``content_start_file``, optionally drops
+    awaiting_review/approved with ``--drop-before-start``, and patches LIT
+    frontmatter page fields in the vault.
+    """
+    from zettel.vault import (
+        approved_chunk_filename,
+        draft_chunk_filename,
+        literature_chunk_dirname,
+        parse_frontmatter,
+        safe_write_note,
+    )
+
+    src = db.get_source(source_id)
+    if not src:
+        raise ValueError(f"Fonte nao encontrada: {source_id}")
+
+    start_file = max(1, int(content_start_file))
+    start_book = max(1, int(content_start_book))
+    paging = ContentPaging(start_file, start_book, "confirmed")
+
+    total_pages_file = src.get("total_pages_file")
+    total_pages_book = None
+    if total_pages_file is not None:
+        total_pages_book = max(1, int(total_pages_file) - start_file + start_book)
+
+    db.update_source_paging(
+        source_id,
+        total_pages_file=total_pages_file,
+        total_pages_book=total_pages_book,
+        page_offset=paging.page_offset,
+        page_offset_confidence=paging.confidence,
+        content_start_file_page=start_file,
+        content_start_book_page=start_book,
+        total_chunks=None,
+    )
+
+    stats = {
+        "updated": 0,
+        "dropped_pending": 0,
+        "dropped_other": 0,
+        "notes_patched": 0,
+    }
+
+    drop_ids: list[str] = []
+    for chunk in db.get_chunks_for_source(source_id):
+        page_file = chunk.get("page_in_file")
+        status = chunk.get("status") or "pending"
+        before_start = page_file is not None and int(page_file) < start_file
+
+        if before_start and status == "pending":
+            drop_ids.append(chunk["chunk_id"])
+            continue
+        if before_start and drop_before_start:
+            drop_ids.append(chunk["chunk_id"])
+            if status != "pending":
+                stats["dropped_other"] += 1
+            continue
+
+        page_book = compute_page_in_book(page_file, start_file, start_book)
+        db.update_chunk_pages(
+            chunk["chunk_id"],
+            page_in_book=page_book,
+            page_confidence=chunk.get("page_confidence") or "unknown",
+        )
+        stats["updated"] += 1
+
+        # Patch vault note frontmatter when a literature path exists
+        lit_path_str = chunk.get("literature_note_path")
+        paths: list[Path] = []
+        if lit_path_str:
+            paths.append(Path(lit_path_str))
+        citekey = src["citekey"]
+        idx_n = chunk.get("chunk_index")
+        if idx_n is not None:
+            draft = (
+                cfg.vault_path
+                / cfg.literature_review.drafts_subdir
+                / literature_chunk_dirname(citekey)
+                / draft_chunk_filename(int(idx_n))
+            )
+            approved = (
+                cfg.vault_path
+                / "20_Literature"
+                / literature_chunk_dirname(citekey)
+                / approved_chunk_filename(int(idx_n))
+            )
+            paths.extend([draft, approved])
+
+        seen: set[str] = set()
+        for path in paths:
+            key = str(path.resolve()) if path.exists() else ""
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            try:
+                meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+            except OSError:
+                continue
+            meta["page_in_file"] = page_file
+            meta["page_in_book"] = page_book
+            if chunk.get("page_confidence"):
+                meta["page_confidence"] = chunk["page_confidence"]
+            safe_write_note(path, meta, body)
+            stats["notes_patched"] += 1
+
+    if drop_ids:
+        # Remove draft files for dropped chunks when present
+        for cid in drop_ids:
+            ch = db.get_chunk(cid)
+            if not ch:
+                continue
+            if ch.get("status") == "pending":
+                stats["dropped_pending"] += 1
+            lit = ch.get("literature_note_path")
+            if lit:
+                try:
+                    Path(lit).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            citekey = src["citekey"]
+            idx_n = ch.get("chunk_index")
+            if idx_n is not None:
+                for path in (
+                    cfg.vault_path
+                    / cfg.literature_review.drafts_subdir
+                    / literature_chunk_dirname(citekey)
+                    / draft_chunk_filename(int(idx_n)),
+                    cfg.vault_path
+                    / "20_Literature"
+                    / literature_chunk_dirname(citekey)
+                    / approved_chunk_filename(int(idx_n)),
+                ):
+                    try:
+                        path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+        db.delete_chunks(drop_ids)
+        idx.delete_chunks(drop_ids)
+
+    remaining = len(db.get_chunks_for_source(source_id))
+    db.update_source_paging(source_id, total_chunks=remaining)
+
+    # Refresh SRC note paging fields
+    authors = []
+    try:
+        authors = json.loads(src.get("authors") or "[]")
+    except (json.JSONDecodeError, TypeError):
+        authors = []
+    biblio_fm = None
+    if src.get("bibliography_json"):
+        try:
+            raw = json.loads(src["bibliography_json"])
+            biblio_fm = {
+                k: v for k, v in raw.items()
+                if k not in ("document_type", "title", "authors", "year", "confidence")
+            }
+        except (json.JSONDecodeError, TypeError):
+            biblio_fm = None
+    _create_vault_notes(
+        cfg,
+        source_id,
+        src["citekey"],
+        src["title"],
+        authors,
+        src.get("year"),
+        src.get("origin_path") or "",
+        src.get("origin_type") or "pdf",
+        src.get("file_checksum") or "",
+        document_type=src.get("document_type"),
+        biblio_fields=biblio_fm,
+        abnt_reference=src.get("abnt_reference"),
+        total_pages_file=total_pages_file,
+        total_pages_book=total_pages_book,
+        page_offset=paging.page_offset,
+        page_offset_confidence=paging.confidence,
+        content_start_file_page=start_file,
+        content_start_book_page=start_book,
+        processing_status=src.get("processing_status"),
+        total_chunks=remaining,
+        docling_config_hash=src.get("docling_config_hash"),
+        db=db,
+        cost_usd_total=src.get("cost_usd_total"),
+        cost_usd_llm=src.get("cost_usd_llm"),
+        cost_usd_embedding=src.get("cost_usd_embedding"),
+        tokens_prompt=src.get("tokens_prompt"),
+        tokens_completion=src.get("tokens_completion"),
+        tokens_embedding=src.get("tokens_embedding"),
+    )
+    logger.info(
+        "set-paging %s: updated=%d dropped_pending=%d dropped_other=%d notes=%d remaining=%d",
+        source_id,
+        stats["updated"],
+        stats["dropped_pending"],
+        stats["dropped_other"],
+        stats["notes_patched"],
+        remaining,
+    )
     return stats
 
 
@@ -226,7 +475,21 @@ def _complete_incomplete_source(
         len(chapters),
         len(db.get_chapters_for_source(source_id)),
     )
-    n = _chunk_and_persist(cfg, db, idx, source_id, chapters)
+    paging = ContentPaging(
+        content_start_file_page=int(src.get("content_start_file_page") or 1),
+        content_start_book_page=int(src.get("content_start_book_page") or 1),
+        confidence=src.get("page_offset_confidence") or "skipped",
+    )
+    page_map: list[tuple[int, str]] = []
+    origin = src.get("origin_path")
+    if origin and Path(origin).suffix.lower() == ".pdf" and Path(origin).exists():
+        try:
+            page_map = _pymupdf_page_map(Path(origin))
+        except Exception as e:
+            logger.debug("Page map indisponivel ao completar %s: %s", source_id, e)
+    n = _chunk_and_persist(
+        cfg, db, idx, source_id, chapters, page_map=page_map, paging=paging,
+    )
     _finalize_source_chunking(db, idx, source_id, chapters)
     return source_id, {
         "text_len": len(text),
@@ -247,16 +510,28 @@ def _process_file(
     interactive: bool = True,
     duplicate_action: str | None = None,
     skip_biblio: bool = False,
+    content_start_file: int | None = None,
+    content_start_book: int | None = None,
+    skip_paging: bool = False,
 ) -> tuple[str | None, dict[str, int]]:
     """Process a single file: extract, chunk, persist. Returns (source_id, stats) or (None, {})."""
     empty_stats: dict[str, int] = {}
     checksum = file_sha256(file_path)
     existing = db.get_file(str(file_path))
+    config_hash = compute_docling_config_hash(cfg)
 
     if existing and existing["file_checksum"] == checksum:
         sid = existing.get("source_id")
-        if sid and source_chunking_incomplete(db, sid):
-            return _complete_incomplete_source(cfg, db, idx, sid)
+        if sid:
+            src = db.get_source(sid)
+            if src and src.get("docling_config_hash") and src["docling_config_hash"] != config_hash:
+                logger.warning(
+                    "Fonte %s: docling_config_hash mudou (%s -> %s). "
+                    "Use `zettel rechunk --source-id %s` para reaplicar chunking.",
+                    sid, src["docling_config_hash"], config_hash, sid,
+                )
+            if source_chunking_incomplete(db, sid):
+                return _complete_incomplete_source(cfg, db, idx, sid)
         logger.debug("Arquivo inalterado, pulando: %s", file_path.name)
         return None, empty_stats
 
@@ -331,9 +606,13 @@ def _process_file(
     citekey = _generate_citekey(db, authors, year, title)
     source_id = f"@{citekey}"
 
+    from zettel.usage import get_tracker, set_source
+    set_source(source_id)
+
     existing_source = db.get_source(source_id)
     if existing_source and existing_source.get("extraction_checksum") == extraction_checksum:
         db.upsert_file(str(file_path), checksum, origin_type, source_id)
+        set_source(None)
         if source_chunking_incomplete(db, source_id):
             return _complete_incomplete_source(cfg, db, idx, source_id)
         logger.info("Texto extraido inalterado para %s, pulando rechunking", source_id)
@@ -348,6 +627,7 @@ def _process_file(
             file_path, dup_candidates, interactive, duplicate_action, cfg,
         )
         if decision == "abort":
+            set_source(None)
             raise HarvestAborted(f"Usuario abortou o harvest ao processar {file_path.name}")
         db.record_duplicate(run_id, "semantic")
         if decision == "skip":
@@ -355,11 +635,31 @@ def _process_file(
                 "Arquivo '%s' pulado por suspeita de duplicidade semantica (candidatos: %s).",
                 file_path.name, ", ".join(c["citekey"] for c in dup_candidates),
             )
+            set_source(None)
             return None, empty_stats
         logger.info(
             "Arquivo '%s' segue como nova fonte apesar da suspeita de duplicidade semantica.",
             file_path.name,
         )
+
+    total_pages_file = metadata.get("total_pages_file")
+    page_map = metadata.get("_page_map") or []
+
+    paging = _resolve_content_paging(
+        page_map,
+        interactive=interactive,
+        content_start_file=content_start_file,
+        content_start_book=content_start_book,
+        skip_paging=skip_paging,
+    )
+    logger.info(
+        "[SOURCE=%s] Paginacao: arquivo p.%d = impressa p.%d (offset derivado=%d, %s)",
+        source_id,
+        paging.content_start_file_page,
+        paging.content_start_book_page,
+        paging.page_offset,
+        paging.confidence,
+    )
 
     db.upsert_file(str(file_path), checksum, origin_type, source_id)
     db.upsert_source(
@@ -369,31 +669,119 @@ def _process_file(
         document_type=biblio.document_type,
         bibliography_json=biblio_json,
         abnt_reference=abnt_reference or None,
+        total_pages_file=total_pages_file,
+        page_offset=paging.page_offset,
+        page_offset_confidence=paging.confidence,
+        content_start_file_page=paging.content_start_file_page,
+        content_start_book_page=paging.content_start_book_page,
+        processing_status="in_progress",
+        docling_config_hash=config_hash,
     )
-    # Retencao: guarda o texto extraido completo para permitir rechunk/rebuild sem
-    # reprocessar o arquivo original.
     db.update_source_texts(source_id, extracted_text=text)
 
-    # Registra imagens extraidas (se houver), resolvendo o capitulo de cada uma.
-    images = metadata.get("_images") or []
-    if images:
-        from zettel.assets import register_assets
-        register_assets(db, source_id, chapters, images)
-
+    # Grava SRC + indice LIT ANTES dos embeddings (podem demorar minutos).
+    logger.info(
+        "[SOURCE=%s] Gravando nota SRC e indice LIT no vault (antes dos embeddings)",
+        source_id,
+    )
     _create_vault_notes(
         cfg, source_id, citekey, title, authors, year,
         str(file_path), origin_type, checksum,
         document_type=biblio.document_type,
         biblio_fields=biblio_fm,
         abnt_reference=abnt_reference or None,
+        total_pages_file=total_pages_file,
+        page_offset=paging.page_offset,
+        page_offset_confidence=paging.confidence,
+        content_start_file_page=paging.content_start_file_page,
+        content_start_book_page=paging.content_start_book_page,
+        processing_status="in_progress",
+        docling_config_hash=config_hash,
+        db=db,
     )
-
     idx.upsert_source(source_id, f"{title} -- {', '.join(authors)}", {
         "citekey": citekey, "title": title, "origin_type": origin_type,
     })
 
-    chunk_count = _chunk_and_persist(cfg, db, idx, source_id, chapters)
+    images = metadata.get("_images") or []
+    if images:
+        from zettel.assets import register_assets
+        logger.info(
+            "[SOURCE=%s] Registrando %d imagens extraidas...",
+            source_id, len(images),
+        )
+        register_assets(db, source_id, chapters, images)
+    else:
+        logger.info("[SOURCE=%s] Nenhuma imagem para registrar", source_id)
+
+    logger.info(
+        "[SOURCE=%s] Iniciando chunking estrutural (%d capitulos) "
+        "e indexacao vetorial dos chunks...",
+        source_id, len(chapters),
+    )
+    chunk_count = _chunk_and_persist(
+        cfg, db, idx, source_id, chapters,
+        page_map=page_map,
+        paging=paging,
+    )
     _finalize_source_chunking(db, idx, source_id, chapters)
+
+    total_pages_book = None
+    if total_pages_file is not None:
+        total_pages_book = max(
+            1,
+            total_pages_file - paging.content_start_file_page + paging.content_start_book_page,
+        )
+
+    db.update_source_paging(
+        source_id,
+        total_pages_file=total_pages_file,
+        total_pages_book=total_pages_book,
+        page_offset=paging.page_offset,
+        page_offset_confidence=paging.confidence,
+        content_start_file_page=paging.content_start_file_page,
+        content_start_book_page=paging.content_start_book_page,
+        processing_status="completed",
+        last_chunk_processed=-1,
+        total_chunks=chunk_count,
+        docling_config_hash=config_hash,
+    )
+
+    cost_kwargs: dict = {}
+    tracker = get_tracker()
+    if tracker:
+        delta = tracker.summary_for_source(source_id).as_dict()
+        db.add_source_usage(source_id, delta)
+        row = db.get_source(source_id) or {}
+        cost_kwargs = {
+            "cost_usd_total": row.get("cost_usd_total"),
+            "cost_usd_llm": row.get("cost_usd_llm"),
+            "cost_usd_embedding": row.get("cost_usd_embedding"),
+            "tokens_prompt": row.get("tokens_prompt"),
+            "tokens_completion": row.get("tokens_completion"),
+            "tokens_embedding": row.get("tokens_embedding"),
+        }
+
+    # Atualiza SRC com offset/paginas/total_chunks/custos finais.
+    _create_vault_notes(
+        cfg, source_id, citekey, title, authors, year,
+        str(file_path), origin_type, checksum,
+        document_type=biblio.document_type,
+        biblio_fields=biblio_fm,
+        abnt_reference=abnt_reference or None,
+        total_pages_file=total_pages_file,
+        total_pages_book=total_pages_book,
+        page_offset=paging.page_offset,
+        page_offset_confidence=paging.confidence,
+        content_start_file_page=paging.content_start_file_page,
+        content_start_book_page=paging.content_start_book_page,
+        processing_status="completed",
+        total_chunks=chunk_count,
+        docling_config_hash=config_hash,
+        db=db,
+        **cost_kwargs,
+    )
+    set_source(None)
 
     stats = {"text_len": len(text), "chapters": len(chapters), "chunks": chunk_count}
     logger.info(
@@ -439,7 +827,16 @@ def _find_semantic_duplicate_candidates(
     if not sample_texts:
         return []
 
+    logger.info(
+        "Deduplicacao semantica: consultando Chroma com %d amostras de chunks "
+        "(threshold=%.2f) — gera embeddings das amostras",
+        len(sample_texts), threshold,
+    )
     matches = idx.find_similar_chunks(sample_texts, n_results=3)
+    logger.info(
+        "Deduplicacao semantica: %d hits retornados pelo indice de chunks",
+        len(matches),
+    )
     best_by_source: dict[str, float] = {}
     for m in matches:
         distance = m.get("distance")
@@ -515,7 +912,11 @@ def _resolve_bibliography(
     skip_biblio: bool,
     cfg: AppConfig,
 ) -> Any | None:
-    """Confirm/complete bibliographic metadata. Returns meta or None to skip file."""
+    """Confirm/complete bibliographic metadata. Returns meta or None to skip file.
+
+    In interactive mode always shows a preview (even when already complete) so the
+    user can confirm or edit before SRC is written and embeddings start.
+    """
     from zettel.bibliography import (
         BIBLIO_FRONTMATTER_FIELDS,
         DOCUMENT_TYPE_LABELS,
@@ -530,18 +931,23 @@ def _resolve_bibliography(
     )
 
     threshold = cfg.harvest.biblio_confidence_threshold
-    if is_complete(biblio, threshold):
-        return biblio
-
-    missing = missing_required(biblio)
-    low_confidence = not biblio.document_type or biblio.confidence < threshold
+    complete = is_complete(biblio, threshold)
 
     if not interactive:
+        if complete:
+            logger.info(
+                "Biblio completa para '%s' (tipo=%s, confidence=%.2f) — "
+                "aceita sem prompt (modo nao-interativo)",
+                file_path.name, biblio.document_type, biblio.confidence,
+            )
+            return biblio
         if skip_biblio:
             logger.warning(
                 "Metadados bibliograficos incompletos para '%s' "
                 "(faltando: %s; confidence=%.2f). Seguindo por --skip-biblio.",
-                file_path.name, ", ".join(missing) or "tipo incerto", biblio.confidence,
+                file_path.name,
+                ", ".join(missing_required(biblio)) or "tipo incerto",
+                biblio.confidence,
             )
             return biblio
         return None
@@ -551,56 +957,88 @@ def _resolve_bibliography(
     from rich.table import Table
 
     console = Console(stderr=True)
-    console.print(f"\n[bold]Metadados bibliograficos: {file_path.name}[/bold]")
-
-    table = Table(title="Campos inferidos")
-    table.add_column("Campo")
-    table.add_column("Valor")
-    table.add_row("document_type", biblio.document_type or "(ausente)")
-    table.add_row("confidence", f"{biblio.confidence:.2f}")
-    preview_fields = (
-        required_fields(biblio.document_type)
-        if biblio.document_type
-        else ["title", "authors", "year"]
-    )
-    for field in preview_fields:
-        if field == "document_type":
-            continue
-        value = getattr(biblio, field, None)
-        if isinstance(value, list):
-            display = ", ".join(value) if value else "(vazio)"
-        else:
-            display = str(value) if value not in (None, "") else "(vazio)"
-        table.add_row(FIELD_LABELS.get(field, field), display)
-    console.print(table)
-
     meta = biblio.model_copy(deep=True)
 
-    if low_confidence or not meta.document_type:
-        console.print("Tipos disponiveis:")
-        for i, dtype in enumerate(DOCUMENT_TYPES, 1):
-            console.print(f"  {i}. {dtype} — {DOCUMENT_TYPE_LABELS[dtype]}")
-        default_idx = (
-            str(DOCUMENT_TYPES.index(meta.document_type) + 1)
-            if meta.document_type in DOCUMENT_TYPES
-            else "1"
+    def _show_preview(m: Any, title: str = "Campos inferidos") -> None:
+        console.print(f"\n[bold]Metadados bibliograficos: {file_path.name}[/bold]")
+        table = Table(title=title)
+        table.add_column("Campo")
+        table.add_column("Valor")
+        table.add_row("document_type", m.document_type or "(ausente)")
+        table.add_row("confidence", f"{m.confidence:.2f}")
+        preview_fields = (
+            required_fields(m.document_type)
+            if m.document_type
+            else ["title", "authors", "year"]
         )
-        choice = Prompt.ask(
-            "Tipo documental",
-            choices=[str(i) for i in range(1, len(DOCUMENT_TYPES) + 1)],
-            default=default_idx,
+        for field in preview_fields:
+            if field == "document_type":
+                continue
+            value = getattr(m, field, None)
+            if isinstance(value, list):
+                display = ", ".join(value) if value else "(vazio)"
+            else:
+                display = str(value) if value not in (None, "") else "(vazio)"
+            table.add_row(FIELD_LABELS.get(field, field), display)
+        console.print(table)
+        if m.document_type:
+            abnt = format_abnt(m)
+            if abnt:
+                console.print(f"\n[bold]Referencia ABNT:[/bold]\n{abnt}")
+
+    _show_preview(meta)
+
+    # Complete: still ask confirmation; decline -> edit path below.
+    force_edit = False
+    if complete:
+        if Confirm.ask(
+            "Metadados completos. Confirmar e gravar SRC?",
+            default=True,
+            console=console,
+        ):
+            meta.confidence = max(meta.confidence, threshold)
+            return BibliographicMetadata.model_validate(meta.model_dump())
+        console.print("[cyan]Edicao dos metadados:[/cyan]")
+        force_edit = True
+
+    low_confidence = not meta.document_type or meta.confidence < threshold
+    if low_confidence or not meta.document_type or not complete or force_edit:
+        ask_type = (not meta.document_type) or low_confidence or Confirm.ask(
+            "Alterar tipo documental?",
+            default=not bool(meta.document_type),
             console=console,
         )
-        meta.document_type = DOCUMENT_TYPES[int(choice) - 1]
-        meta.confidence = max(meta.confidence, threshold)
+        if ask_type:
+            console.print("Tipos disponiveis:")
+            for i, dtype in enumerate(DOCUMENT_TYPES, 1):
+                console.print(f"  {i}. {dtype} — {DOCUMENT_TYPE_LABELS[dtype]}")
+            default_idx = (
+                str(DOCUMENT_TYPES.index(meta.document_type) + 1)
+                if meta.document_type in DOCUMENT_TYPES
+                else "1"
+            )
+            choice = Prompt.ask(
+                "Tipo documental",
+                choices=[str(i) for i in range(1, len(DOCUMENT_TYPES) + 1)],
+                default=default_idx,
+                console=console,
+            )
+            meta.document_type = DOCUMENT_TYPES[int(choice) - 1]
+            meta.confidence = max(meta.confidence, threshold)
 
-    # So pede campos obrigatorios ainda vazios (nao re-pergunta o que ja veio inferido).
     to_fill = [f for f in missing_required(meta) if f != "document_type"]
     if to_fill:
         console.print(
             "[cyan]Preencha os campos obrigatorios faltantes "
             "(Enter deixa vazio):[/cyan]"
         )
+    elif Confirm.ask(
+        "Revisar campos obrigatorios ja preenchidos?", default=False, console=console,
+    ):
+        to_fill = [
+            f for f in required_fields(meta.document_type) if f != "document_type"
+        ]
+
     for field in to_fill:
         current = getattr(meta, field, None)
         if isinstance(current, list):
@@ -633,8 +1071,8 @@ def _resolve_bibliography(
         )
         if Confirm.ask("Continuar mesmo assim?", default=False, console=console):
             meta.confidence = max(meta.confidence, threshold)
-            return meta
-        return None
+        else:
+            return None
 
     if Confirm.ask("Preencher campos opcionais?", default=False, console=console):
         optional = [
@@ -659,9 +1097,8 @@ def _resolve_bibliography(
             else:
                 setattr(meta, field, answer)
 
-    abnt = format_abnt(meta)
-    console.print(f"\n[bold]Referencia ABNT:[/bold]\n{abnt}")
-    if not Confirm.ask("Confirmar metadados?", default=True, console=console):
+    _show_preview(meta, title="Metadados finais")
+    if not Confirm.ask("Confirmar e gravar SRC?", default=True, console=console):
         return None
 
     meta.confidence = max(meta.confidence, threshold)
@@ -772,10 +1209,24 @@ def _extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str
         if not metadata["authors"] or not metadata["year"]:
             _enrich_metadata_from_pymupdf(file_path, metadata)
 
-        num_pages = getattr(result.document, "num_pages", None) or "?"
+        num_pages = getattr(result.document, "num_pages", None)
+        if isinstance(num_pages, int):
+            metadata["total_pages_file"] = num_pages
+        # Page map from PyMuPDF (Docling markdown loses page boundaries).
+        try:
+            logger.info("Montando mapa de paginas via PyMuPDF para inferencia de pagina...")
+            page_map = _pymupdf_page_map(file_path)
+            if page_map:
+                metadata["_page_map"] = page_map
+                if "total_pages_file" not in metadata:
+                    metadata["total_pages_file"] = len(page_map)
+                logger.info("Mapa de paginas: %d paginas do arquivo", len(page_map))
+        except Exception as e:
+            logger.debug("Page map PyMuPDF indisponivel: %s", e)
+
         logger.info(
             "Docling: Conversao concluida - %s (%d caracteres, %s paginas)",
-            file_path.name, len(text), num_pages,
+            file_path.name, len(text), metadata.get("total_pages_file", "?"),
         )
         return text, metadata
     except ImportError:
@@ -807,6 +1258,8 @@ def _extract_pdf_pymupdf(file_path: Path) -> tuple[str, dict[str, Any]]:
             "title": raw_meta.get("title", file_path.stem) or file_path.stem,
             "authors": [raw_meta.get("author", "")] if raw_meta.get("author") else [],
             "year": year,
+            "total_pages_file": doc.page_count,
+            "_page_map": build_page_map_from_texts(pages),
         }
         num_pages = doc.page_count
         doc.close()
@@ -821,6 +1274,17 @@ def _extract_pdf_pymupdf(file_path: Path) -> tuple[str, dict[str, Any]]:
             "Nem Docling nem PyMuPDF estao instalados. Instale um deles para processar PDFs."
         )
         return "", {"title": file_path.stem, "authors": [], "year": None}
+
+
+def _pymupdf_page_map(file_path: Path) -> list[tuple[int, str]]:
+    """Build a (page_no, text) map via PyMuPDF for page inference."""
+    import pymupdf
+    doc = pymupdf.open(str(file_path))
+    try:
+        pages = [page.get_text() for page in doc]
+    finally:
+        doc.close()
+    return build_page_map_from_texts(pages)
 
 
 def _enrich_metadata_from_pymupdf(file_path: Path, metadata: dict[str, Any]) -> None:
@@ -1100,14 +1564,35 @@ def _split_chapter_into_chunks(
 def _chunk_and_persist(
     cfg: AppConfig, db: StateDB, idx: VectorIndex,
     source_id: str, chapters: list[dict[str, str]],
+    page_map: list[tuple[int, str]] | None = None,
+    paging: ContentPaging | None = None,
 ) -> int:
     """Split chapters into structural chunks and persist to state + index.
 
-    Chunks carry a hierarchical `section_path` locator. Unchanged chapters are
-    skipped (by checksum); when a chapter changes, its stale chunks are removed
-    and only genuinely new chunk ids are re-embedded. Returns total chunk count.
+    Chunks carry a hierarchical `section_path` locator plus inferred page numbers.
+    Chunks with ``page_in_file < content_start_file_page`` are discarded (not
+    persisted). Unchanged chapters are skipped (by checksum); when a chapter
+    changes, its stale chunks are removed and only genuinely new chunk ids are
+    re-embedded.
+    Returns total chunk count for the source after this pass (all chapters).
     """
-    total_chunks = 0
+    page_map = page_map or []
+    paging = paging or ContentPaging()
+    allow_regex = not bool(page_map)
+    start_file = paging.content_start_file_page
+    start_book = paging.content_start_book_page
+
+    # Global chunk index across chapters for stable ordering / filenames.
+    existing_all = db.get_chunks_for_source(source_id)
+    next_index = 0
+    if existing_all:
+        idxs = [c.get("chunk_index") for c in existing_all if c.get("chunk_index") is not None]
+        if idxs:
+            next_index = max(idxs) + 1
+
+    # First pass: collect all new specs with provisional pages, then infer.
+    pending_specs: list[dict[str, Any]] = []
+
     for ch_idx, chapter in enumerate(chapters):
         chapter_text = chapter["text"]
         normalized = normalize_text_for_hash(chapter_text)
@@ -1126,12 +1611,8 @@ def _chunk_and_persist(
         db.upsert_chapter(chapter_id, source_id, chapter["title"], chapter_checksum, chapter["locator"])
 
         chunk_pairs = _split_chapter_into_chunks(cfg, chapter)
-
-        # Persist chunks to SQLite (fonte de verdade); collect ids to prune orphans.
-        # chunk_id is content-addressed: identical normalized text in the same
-        # chapter collapses to one id (skip later duplicates).
         keep_ids: set[str] = set()
-        chunk_specs: list[tuple[str, str, str]] = []  # (chunk_id, section_path, text)
+        chapter_specs: list[dict[str, Any]] = []
         for section_path, chunk_text in chunk_pairs:
             chunk_norm = normalize_text_for_hash(chunk_text)
             chunk_checksum = sha256_hex(chunk_norm)
@@ -1143,32 +1624,185 @@ def _chunk_and_persist(
                 )
                 continue
             keep_ids.add(chunk_id)
-            chunk_specs.append((chunk_id, section_path, chunk_text))
-            db.upsert_chunk(
-                chunk_id=chunk_id, source_id=source_id, chapter_id=chapter_id,
-                text=chunk_text, chunk_checksum=chunk_checksum,
-                locator=section_path, section_path=section_path,
+            meta_page = lookup_page_for_chunk(chunk_text, page_map) if page_map else None
+            hint = extract_page_hint(
+                chunk_text, page_from_meta=meta_page, allow_regex=allow_regex,
             )
+            chapter_specs.append({
+                "chunk_id": chunk_id,
+                "chapter_id": chapter_id,
+                "section_path": section_path,
+                "text": chunk_text,
+                "chunk_checksum": chunk_checksum,
+                "page_hint": hint,
+            })
 
-        # Remove stale chunks from a previous chunking of this chapter.
         removed = db.delete_chunks_for_chapter(chapter_id, keep_ids)
         if removed:
             idx.delete_chunks(removed)
 
-        # Only embed chunk ids not already in the index (content-addressed id).
-        already = idx.existing_ids("chunks", [cid for cid, _, _ in chunk_specs])
-        for chunk_id, section_path, chunk_text in chunk_specs:
-            if chunk_id in already:
+        # Assign sequential indices for new/changed chapter chunks
+        for spec in chapter_specs:
+            # Reuse index if chunk already existed
+            old = db.get_chunk(spec["chunk_id"])
+            if old and old.get("chunk_index") is not None:
+                spec["chunk_index"] = old["chunk_index"]
+            else:
+                spec["chunk_index"] = next_index
+                next_index += 1
+            pending_specs.append(spec)
+
+    # Infer missing pages across the newly written batch using only this batch's
+    # hints plus already-persisted pages for the source.
+    if pending_specs:
+        hints = [s["page_hint"] for s in pending_specs]
+        inferred = apply_page_inference(hints)
+        for spec, hint in zip(pending_specs, inferred):
+            spec["page_in_file"] = hint.page_in_file
+            spec["page_confidence"] = hint.confidence
+
+        before = len(pending_specs)
+        kept: list[dict[str, Any]] = []
+        skipped_ids: list[str] = []
+        for spec in pending_specs:
+            page_file = spec.get("page_in_file")
+            # Unknown page: keep (cannot prove it is before content start).
+            if page_file is not None and page_file < start_file:
+                skipped_ids.append(spec["chunk_id"])
                 continue
-            idx.upsert_chunk(chunk_id, chunk_text, {
-                "source_id": source_id, "chapter_id": chapter_id,
-                "locator": section_path, "section_path": section_path,
-            })
+            page_book = compute_page_in_book(page_file, start_file, start_book)
+            spec["page_in_book"] = page_book
+            kept.append(spec)
+        pending_specs = kept
+        if skipped_ids:
+            db.delete_chunks(skipped_ids)
+            idx.delete_chunks(skipped_ids)
+            logger.info(
+                "[SOURCE=%s] %d chunk(s) antes da p.%d do arquivo ignorados "
+                "(%d permanecem de %d)",
+                source_id, len(skipped_ids), start_file, len(pending_specs), before,
+            )
 
-        total_chunks += len(chunk_specs)
-        logger.debug("Capitulo %s: %d chunks gerados", chapter_id, len(chunk_specs))
+        already = idx.existing_ids("chunks", [s["chunk_id"] for s in pending_specs]) if pending_specs else set()
+        to_embed = [s for s in pending_specs if s["chunk_id"] not in already]
+        logger.info(
+            "[SOURCE=%s] Persistindo %d chunks no SQLite; "
+            "gerando embeddings no Chroma para %d novos "
+            "(%d ja indexados, pulados)",
+            source_id, len(pending_specs), len(to_embed), len(already),
+        )
+        embed_i = 0
+        for spec in pending_specs:
+            db.upsert_chunk(
+                chunk_id=spec["chunk_id"],
+                source_id=source_id,
+                chapter_id=spec["chapter_id"],
+                text=spec["text"],
+                chunk_checksum=spec["chunk_checksum"],
+                locator=spec["section_path"],
+                section_path=spec["section_path"],
+                chunk_index=spec["chunk_index"],
+                page_in_file=spec.get("page_in_file"),
+                page_in_book=spec.get("page_in_book"),
+                page_confidence=spec.get("page_confidence", "unknown"),
+            )
+            if spec["chunk_id"] not in already:
+                embed_i += 1
+                idx.upsert_chunk(
+                    spec["chunk_id"],
+                    spec["text"],
+                    {
+                        "source_id": source_id,
+                        "chapter_id": spec["chapter_id"],
+                        "locator": spec["section_path"],
+                        "section_path": spec["section_path"],
+                        "chunk_index": spec["chunk_index"],
+                        "page_in_file": spec.get("page_in_file") or -1,
+                        "page_in_book": spec.get("page_in_book") or -1,
+                    },
+                    progress=(embed_i, len(to_embed)),
+                )
+        if to_embed:
+            logger.info(
+                "[SOURCE=%s] Embeddings de chunks concluidos: %d/%d",
+                source_id, len(to_embed), len(to_embed),
+            )
 
-    return total_chunks
+    # Return total chunks currently stored for the source
+    return len(db.get_chunks_for_source(source_id))
+
+
+def _resolve_content_paging(
+    page_map: list[tuple[int, str]],
+    *,
+    interactive: bool,
+    content_start_file: int | None,
+    content_start_book: int | None,
+    skip_paging: bool,
+) -> ContentPaging:
+    """Resolve content-start file/book pages before chunking."""
+    if skip_paging and content_start_file is None:
+        return ContentPaging(1, 1, "skipped")
+
+    suggested = suggest_content_start(page_map)
+    sug_file = int(suggested.get("content_start_file_page") or 1)
+    sug_book = int(suggested.get("content_start_book_page") or 1)
+
+    if content_start_file is not None:
+        start_file = int(content_start_file)
+        start_book = int(content_start_book) if content_start_book is not None else 1
+        return ContentPaging(start_file, start_book, "confirmed")
+
+    if skip_paging or not interactive:
+        conf = "skipped" if skip_paging else (
+            "heuristic" if suggested.get("confidence") == "heuristic" else "skipped"
+        )
+        if not interactive and not skip_paging:
+            # Non-interactive without flags: process all pages (file==book).
+            return ContentPaging(1, 1, "skipped")
+        return ContentPaging(sug_file if conf == "heuristic" else 1, sug_book if conf == "heuristic" else 1, conf)
+
+    from rich.console import Console
+    from rich.prompt import Prompt
+
+    console = Console(stderr=True)
+    anchor = suggested.get("anchor_page_in_file")
+    if anchor is not None:
+        console.print(
+            f"[cyan]Detectei inicio de conteudo na pagina {anchor} do arquivo. "
+            f"Sugestao: arquivo p.{sug_file} = impressa p.{sug_book}.[/cyan]"
+        )
+    else:
+        console.print(
+            "[cyan]Nao detectei Capitulo 1 / Introduction no mapa de paginas. "
+            "Padrao: processar desde p.1 do arquivo (numeracao = pagina do arquivo).[/cyan]"
+        )
+    console.print(
+        "[dim]Paginas do arquivo anteriores ao inicio serao ignoradas no chunking/extract. "
+        "Chunk que cruza paginas usa a pagina do inicio do trecho.[/dim]"
+    )
+
+    file_answer = Prompt.ask(
+        "Pagina do arquivo (PDF) onde o conteudo comeca",
+        default=str(sug_file),
+        console=console,
+    )
+    book_answer = Prompt.ask(
+        "Numero impresso nessa primeira pagina de conteudo",
+        default=str(sug_book),
+        console=console,
+    )
+    try:
+        start_file = max(1, int(file_answer.strip()))
+    except ValueError:
+        logger.warning("Inicio de arquivo invalido '%s'; usando %d", file_answer, sug_file)
+        start_file = sug_file
+    try:
+        start_book = max(1, int(book_answer.strip()))
+    except ValueError:
+        logger.warning("Inicio impresso invalido '%s'; usando %d", book_answer, sug_book)
+        start_book = sug_book
+    return ContentPaging(start_file, start_book, "confirmed")
 
 
 # ── Vault Note Creation ───────────────────────────────────────────────
@@ -1181,8 +1815,24 @@ def _create_vault_notes(
     document_type: str | None = None,
     biblio_fields: dict[str, Any] | None = None,
     abnt_reference: str | None = None,
+    total_pages_file: int | None = None,
+    total_pages_book: int | None = None,
+    page_offset: int | None = None,
+    page_offset_confidence: str | None = None,
+    content_start_file_page: int | None = None,
+    content_start_book_page: int | None = None,
+    processing_status: str | None = None,
+    total_chunks: int | None = None,
+    docling_config_hash: str | None = None,
+    db: StateDB | None = None,
+    cost_usd_total: float | None = None,
+    cost_usd_llm: float | None = None,
+    cost_usd_embedding: float | None = None,
+    tokens_prompt: int | None = None,
+    tokens_completion: int | None = None,
+    tokens_embedding: int | None = None,
 ) -> None:
-    """Create SRC and LIT notes in the vault."""
+    """Create SRC note and empty literature index in the vault."""
     vault = cfg.vault_path
 
     src_meta, src_body = build_source_note(
@@ -1190,10 +1840,29 @@ def _create_vault_notes(
         document_type=document_type,
         biblio_fields=biblio_fields,
         abnt_reference=abnt_reference,
+        total_pages_file=total_pages_file,
+        total_pages_book=total_pages_book,
+        page_offset=page_offset,
+        page_offset_confidence=page_offset_confidence,
+        content_start_file_page=content_start_file_page,
+        content_start_book_page=content_start_book_page,
+        processing_status=processing_status,
+        total_chunks=total_chunks,
+        docling_config_hash=docling_config_hash,
+        cost_usd_total=cost_usd_total,
+        cost_usd_llm=cost_usd_llm,
+        cost_usd_embedding=cost_usd_embedding,
+        tokens_prompt=tokens_prompt,
+        tokens_completion=tokens_completion,
+        tokens_embedding=tokens_embedding,
     )
     src_filename = note_filename("SRC", f"@{citekey}", title)
     safe_write_note(vault / "10_Sources" / src_filename, src_meta, src_body)
 
-    lit_meta, lit_body = build_literature_note(source_id, citekey, title)
-    lit_filename = note_filename("LIT", f"@{citekey}", title)
-    safe_write_note(vault / "20_Literature" / lit_filename, lit_meta, lit_body)
+    lit_meta, lit_body = build_literature_index_note(source_id, citekey, title)
+    lit_filename = literature_index_filename(citekey, title)
+    lit_path = vault / "20_Literature" / lit_filename
+    safe_write_note(lit_path, lit_meta, lit_body)
+    if db is not None:
+        from zettel.vault import compose_note
+        db.update_source_texts(source_id, lit_body=compose_note(lit_meta, lit_body))

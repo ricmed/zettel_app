@@ -16,8 +16,9 @@ COL_SOURCES = "sources"
 COL_CHUNKS = "chunks"
 COL_PERMANENT = "permanent_notes"
 COL_MOCS = "mocs"
+COL_LITERATURE = "literature_notes"
 
-_ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS]
+_ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS, COL_LITERATURE]
 
 _DEFAULT_OLLAMA_URL = "http://localhost:11434/v1"
 _SUPPORTED_PROVIDERS = ("openai", "sentence-transformers", "ollama")
@@ -269,6 +270,7 @@ class VectorIndex:
         self.chunks = self._get_or_create(COL_CHUNKS, **kwargs)
         self.permanent = self._get_or_create(COL_PERMANENT, **kwargs)
         self.mocs_col = self._get_or_create(COL_MOCS, **kwargs)
+        self.literature = self._get_or_create(COL_LITERATURE, **kwargs)
         logger.debug("Coleções ChromaDB prontas")
 
     def reset_collection(self, name: str) -> Any:
@@ -285,6 +287,7 @@ class VectorIndex:
         attr = {
             COL_SOURCES: "sources", COL_CHUNKS: "chunks",
             COL_PERMANENT: "permanent", COL_MOCS: "mocs_col",
+            COL_LITERATURE: "literature",
         }.get(name)
         if attr:
             setattr(self, attr, col)
@@ -295,14 +298,42 @@ class VectorIndex:
     def upsert_source(self, source_id: str, summary: str, metadata: dict[str, Any]) -> None:
         safe_meta = _sanitize_metadata(metadata)
         self.sources.upsert(ids=[source_id], documents=[summary], metadatas=[safe_meta])
+        self._record_embed_usage(summary, label=f"source:{source_id}")
         logger.debug("Index: upsert source %s", source_id)
 
     # ── Chunks ─────────────────────────────────────────────────────────
 
-    def upsert_chunk(self, chunk_id: str, text: str, metadata: dict[str, Any]) -> None:
+    def upsert_chunk(
+        self,
+        chunk_id: str,
+        text: str,
+        metadata: dict[str, Any],
+        *,
+        progress: tuple[int, int] | None = None,
+    ) -> None:
+        """Embed and upsert a chunk. Optional ``progress=(i, total)`` logs X/Y."""
         safe_meta = _sanitize_metadata(metadata)
+        from zettel.llm import clip_text
+        self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
+        if progress:
+            i, total = progress
+            logger.info(
+                "Embedding [%d] upsert chunk %d/%d %s | %s",
+                self._embed_call_count, i, total, chunk_id, clip_text(text),
+            )
+        else:
+            logger.info(
+                "Embedding [%d] upsert chunk %s | %s",
+                self._embed_call_count, chunk_id, clip_text(text),
+            )
         self.chunks.upsert(ids=[chunk_id], documents=[text], metadatas=[safe_meta])
-        logger.debug("Index: upsert chunk %s", chunk_id)
+        if progress:
+            i, tot = progress
+            self._record_embed_usage(
+                text, label=f"chunk:{chunk_id}", step=i, total=tot, kind="chunk",
+            )
+        else:
+            self._record_embed_usage(text, label=f"chunk:{chunk_id}")
 
     def delete_chunks(self, chunk_ids: list[str]) -> None:
         """Remove chunks from the index (e.g. orphans after a re-chunk)."""
@@ -325,6 +356,7 @@ class VectorIndex:
             COL_CHUNKS: self.chunks,
             COL_PERMANENT: self.permanent,
             COL_MOCS: self.mocs_col,
+            COL_LITERATURE: self.literature,
         }.get(collection_name)
         if collection is None:
             raise ValueError(f"Colecao desconhecida: {collection_name}")
@@ -346,7 +378,32 @@ class VectorIndex:
             clip_text(embeddable_text),
         )
         self.permanent.upsert(ids=[note_id], documents=[embeddable_text], metadatas=[safe_meta])
+        self._record_embed_usage(embeddable_text, label=f"note:{note_id}")
         logger.debug("Index: upsert nota permanente %s", note_id)
+
+    def upsert_literature_note(
+        self, literature_id: str, embeddable_text: str, metadata: dict[str, Any]
+    ) -> None:
+        """Index an approved granular literature note (only after review)."""
+        safe_meta = _sanitize_metadata(metadata)
+        from zettel.llm import clip_text
+        self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
+        logger.info(
+            "Embedding [%d] upsert LIT %s | %s",
+            self._embed_call_count,
+            literature_id,
+            clip_text(embeddable_text),
+        )
+        self.literature.upsert(
+            ids=[literature_id], documents=[embeddable_text], metadatas=[safe_meta]
+        )
+        self._record_embed_usage(embeddable_text, label=f"lit:{literature_id}")
+        logger.debug("Index: upsert literature_note %s", literature_id)
+
+    def delete_literature_notes(self, literature_ids: list[str]) -> None:
+        if literature_ids:
+            self.literature.delete(ids=literature_ids)
+            logger.debug("Index: %d literature_notes removidos", len(literature_ids))
 
     def query_similar_notes(self, query_text: str, n_results: int = 5,
                             exclude_id: str | None = None) -> list[dict]:
@@ -363,6 +420,7 @@ class VectorIndex:
             query_texts=[query_text],
             n_results=min(n_results + (1 if exclude_id else 0), self.permanent.count() or 1),
         )
+        self._record_embed_usage(query_text, label="query_notes")
         output: list[dict] = []
         if not results or not results["ids"] or not results["ids"][0]:
             return output
@@ -409,6 +467,8 @@ class VectorIndex:
             query_texts=texts,
             n_results=min(n_results, self.chunks.count()),
         )
+        for t in texts:
+            self._record_embed_usage(t, label="query_chunks")
         ids_lists = raw.get("ids") or []
         for qi, ids in enumerate(ids_lists):
             for i, cid in enumerate(ids):
@@ -427,7 +487,39 @@ class VectorIndex:
     def upsert_moc(self, moc_id: str, summary: str, metadata: dict[str, Any]) -> None:
         safe_meta = _sanitize_metadata(metadata)
         self.mocs_col.upsert(ids=[moc_id], documents=[summary], metadatas=[safe_meta])
+        self._record_embed_usage(summary, label=f"moc:{moc_id}")
         logger.info("Index: upsert MOC %s", moc_id)
+
+    def _record_embed_usage(
+        self,
+        text: str,
+        *,
+        label: str = "",
+        step: int | None = None,
+        total: int | None = None,
+        kind: str | None = None,
+    ) -> None:
+        """Attribute estimated embedding tokens/cost to the active CostTracker."""
+        from zettel.pricing import estimate_embed_cost, estimate_embed_tokens
+        from zettel.usage import get_tracker, record_embed
+
+        if get_tracker() is None:
+            return
+        tokens = estimate_embed_tokens(text)
+        cost = estimate_embed_cost(
+            self.embedding_model,
+            tokens,
+            provider=self.embedding_provider,
+        )
+        record_embed(
+            model=self.embedding_model,
+            tokens=tokens,
+            cost_usd=cost,
+            label=label,
+            step=step,
+            total=total,
+            kind=kind,
+        )
 
     # ── Utility ────────────────────────────────────────────────────────
 

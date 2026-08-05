@@ -160,3 +160,126 @@ def test_describe_pending_assets_uses_cache(tmp_path, db, monkeypatch):
     n2 = describe_pending_assets(cfg, db)
     assert n2 == 1
     assert calls["n"] == 1  # served from cache, no extra call
+
+
+def _pending_asset(tmp_path, db, cfg, asset_id="@S::img::a", rel="90_Assets/img-xyz.png"):
+    db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
+    (cfg.vault_path / rel).parent.mkdir(parents=True, exist_ok=True)
+    (cfg.vault_path / rel).write_bytes(_PNG)
+    db.upsert_asset(asset_id, "@S", rel, "ckimg", context_snippet="um grafico")
+    return asset_id
+
+
+def test_describe_retries_rate_limit_then_succeeds(tmp_path, db, monkeypatch):
+    cfg = _cfg(tmp_path, min_interval_seconds=0, rate_limit_max_retries=3)
+    asset_id = _pending_asset(tmp_path, db, cfg)
+    calls = {"n": 0}
+    sleeps: list[float] = []
+
+    class FakeLLM:
+        def invoke(self, messages):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise RuntimeError(
+                    "Error code: 429 - Rate limit reached for gpt-4o-mini "
+                    "on tokens per min (TPM): Limit 200000. Please try again in 392ms."
+                )
+
+            class R:
+                content = "Diagrama de entidades apos retry."
+
+            return R()
+
+    monkeypatch.setattr("zettel.assets._get_multimodal_llm", lambda cfg, model: FakeLLM())
+    monkeypatch.setattr("zettel.assets.time.sleep", lambda s: sleeps.append(s))
+
+    n = describe_pending_assets(cfg, db)
+    assert n == 1
+    assert calls["n"] == 3
+    assert db.get_asset(asset_id)["status"] == "described"
+    assert sleeps  # waited on 429
+    assert sleeps[0] >= 0.5  # floor over the 392ms hint
+
+
+def test_describe_rate_limit_exhausted_keeps_pending(tmp_path, db, monkeypatch):
+    cfg = _cfg(
+        tmp_path,
+        min_interval_seconds=0,
+        rate_limit_max_retries=1,
+        rate_limit_abort_after=1,
+        rate_limit_backoff_max=1.0,
+    )
+    asset_id = _pending_asset(tmp_path, db, cfg)
+    sleeps: list[float] = []
+
+    class Always429:
+        def invoke(self, messages):
+            raise RuntimeError(
+                "Error code: 429 - {'error': {'code': 'rate_limit_exceeded'}}"
+            )
+
+    monkeypatch.setattr("zettel.assets._get_multimodal_llm", lambda cfg, model: Always429())
+    monkeypatch.setattr("zettel.assets.time.sleep", lambda s: sleeps.append(s))
+
+    n = describe_pending_assets(cfg, db)
+    assert n == 0
+    assert db.get_asset(asset_id)["status"] == "pending"  # never failed
+
+
+def test_describe_non_rate_limit_error_marks_failed(tmp_path, db, monkeypatch):
+    cfg = _cfg(tmp_path, min_interval_seconds=0)
+    asset_id = _pending_asset(tmp_path, db, cfg)
+
+    class Boom:
+        def invoke(self, messages):
+            raise RuntimeError("connection reset by peer")
+
+    monkeypatch.setattr("zettel.assets._get_multimodal_llm", lambda cfg, model: Boom())
+    monkeypatch.setattr("zettel.assets.time.sleep", lambda s: None)
+
+    n = describe_pending_assets(cfg, db)
+    assert n == 0
+    assert db.get_asset(asset_id)["status"] == "failed"
+
+
+def test_describe_aborts_batch_after_consecutive_rate_limits(tmp_path, db, monkeypatch):
+    cfg = _cfg(
+        tmp_path,
+        min_interval_seconds=0,
+        rate_limit_max_retries=0,
+        rate_limit_abort_after=2,
+        rate_limit_backoff_max=1.0,
+    )
+    db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
+    for i, aid in enumerate(("@S::img::a", "@S::img::b", "@S::img::c")):
+        rel = f"90_Assets/img-{i}.png"
+        (cfg.vault_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (cfg.vault_path / rel).write_bytes(_PNG + bytes([i]))
+        db.upsert_asset(aid, "@S", rel, f"ck{i}", context_snippet="ctx")
+
+    class Always429:
+        def invoke(self, messages):
+            raise RuntimeError("Error code: 429 - rate_limit_exceeded")
+
+    monkeypatch.setattr("zettel.assets._get_multimodal_llm", lambda cfg, model: Always429())
+    monkeypatch.setattr("zettel.assets.time.sleep", lambda s: None)
+
+    n = describe_pending_assets(cfg, db)
+    assert n == 0
+    statuses = {
+        a["asset_id"]: a["status"]
+        for a in (db.get_asset("@S::img::a"), db.get_asset("@S::img::b"), db.get_asset("@S::img::c"))
+    }
+    assert statuses == {
+        "@S::img::a": "pending",
+        "@S::img::b": "pending",
+        "@S::img::c": "pending",  # never attempted after abort
+    }
+
+
+def test_parse_retry_after_seconds():
+    from zettel.assets import _parse_retry_after_seconds
+
+    assert _parse_retry_after_seconds(RuntimeError("try again in 392ms")) == pytest.approx(0.392)
+    assert _parse_retry_after_seconds(RuntimeError("try again in 1.5s")) == pytest.approx(1.5)
+    assert _parse_retry_after_seconds(RuntimeError("no hint")) is None

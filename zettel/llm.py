@@ -53,6 +53,43 @@ def get_llm(cfg: Any, temperature: float | None = None) -> Any:
         raise ValueError(f"LLM provider não suportado: {cfg.llm.provider}")
 
 
+def _resolve_model_name(llm: Any, model: Optional[str]) -> str:
+    if model:
+        return model
+    for attr in ("model", "model_name", "model_id"):
+        val = getattr(llm, attr, None)
+        if isinstance(val, str) and val.strip():
+            return val
+    return ""
+
+
+def _extract_usage(response: Any) -> tuple[int, int]:
+    """Return (prompt_tokens, completion_tokens) from a LangChain AIMessage."""
+    usage = getattr(response, "usage_metadata", None) or {}
+    if isinstance(usage, dict) and usage:
+        prompt = usage.get("input_tokens")
+        completion = usage.get("output_tokens")
+        if prompt is None:
+            prompt = usage.get("prompt_tokens", 0)
+        if completion is None:
+            completion = usage.get("completion_tokens", 0)
+        return int(prompt or 0), int(completion or 0)
+
+    meta = getattr(response, "response_metadata", None) or {}
+    if not isinstance(meta, dict):
+        return 0, 0
+    token_usage = meta.get("token_usage") or meta.get("usage") or {}
+    if isinstance(token_usage, dict):
+        prompt = token_usage.get("prompt_tokens") or token_usage.get("input_tokens") or 0
+        completion = (
+            token_usage.get("completion_tokens")
+            or token_usage.get("output_tokens")
+            or 0
+        )
+        return int(prompt or 0), int(completion or 0)
+    return 0, 0
+
+
 def call_llm(
     llm: Any,
     prompt: str,
@@ -60,14 +97,21 @@ def call_llm(
     label: Optional[str] = None,
     step: Optional[int] = None,
     total: Optional[int] = None,
+    model: Optional[str] = None,
+    provider: Optional[str] = None,
 ) -> str:
     """Call the LLM with a single human message and return the response text.
 
     Optional ``label`` / ``step`` / ``total`` emit an INFO line before the HTTP
     call so opaque client logs (``HTTP Request: POST .../chat/completions``)
     can be correlated with pipeline stages.
+
+    Records token usage and estimated USD cost on the active ``CostTracker``.
     """
     from langchain_core.messages import HumanMessage
+
+    from zettel.pricing import estimate_llm_cost
+    from zettel.usage import record_llm
 
     if label:
         if step is not None and total is not None:
@@ -78,7 +122,25 @@ def call_llm(
             logger.info("LLM %s", label)
 
     response = llm.invoke([HumanMessage(content=prompt)])
-    return response.content
+    content = response.content
+    if not isinstance(content, str):
+        content = str(content)
+
+    model_name = _resolve_model_name(llm, model)
+    tokens_in, tokens_out = _extract_usage(response)
+    cost = estimate_llm_cost(
+        model_name, tokens_in, tokens_out, provider=provider,
+    )
+    record_llm(
+        model=model_name or "unknown",
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        cost_usd=cost,
+        label=label or "",
+        step=step,
+        total=total,
+    )
+    return content
 
 
 def load_prompt(path: Path) -> str:

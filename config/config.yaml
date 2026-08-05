@@ -68,6 +68,13 @@ extraction:
   require_anchor_quote: true
   min_definition_words: 10
 
+# ── Literature Review (aprovacao seletiva de LIT por chunk) ───────────
+literature_review:
+  auto_approve_min_confidence: 0.85
+  batch_sample_size: 20
+  drafts_subdir: 00_Inbox/Review
+  literature_subdir_by_citekey: true
+
 # ── Imagens (extracao + descricao multimodal) ─────────────────────────
 images:
   enabled: true              # extrai imagens de PDF (Docling) e Markdown e as descreve
@@ -76,6 +83,11 @@ images:
   min_height: 64
   context_chars: 600         # caracteres ao redor da imagem usados como contexto
   model: ""                  # vazio = usa llm.model (precisa ser multimodal, ex. gpt-4o-mini)
+  # Visao consome TPM rápido; pacing + retry evitam marcar 429 como failed:
+  min_interval_seconds: 0.7  # pausa minima entre chamadas de descricao
+  rate_limit_max_retries: 8  # tentativas por imagem em rate limit
+  rate_limit_backoff_max: 60 # teto de espera (s) entre retries
+  rate_limit_abort_after: 5  # falhas 429 consecutivas (apos retries) => para o lote
 
 # ── Gardener (MOCs) ────────────────────────────────────────────────────
 gardener:

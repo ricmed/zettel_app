@@ -2,14 +2,15 @@
 
 Commands:
   init        — Initialize vault, database, and vector store
-  harvest     — Scan inbox, extract text, create SRC/LIT, chunk
-  extract     — Process chunks with LLM (Prompt 1), generate candidates
-  connect     — Generate permanent notes from candidates (Prompt 2)
+  harvest     — Scan inbox, extract text, create SRC + LIT index, chunk (+ pages)
+  extract     — Process chunks with LLM (Prompt 1), write LIT drafts
+  review      — Approve/reject granular literature notes
+  connect     — Generate permanent notes from approved candidates (Prompt 2)
   garden      — Cluster notes and generate/update MOCs
   ask         — QA over the vault (hybrid retrieval + graph)
   article     — LangGraph long-form article (blog/academic + HITL + judge)
   sync-manual — Sync manual notes from vault to index
-  run-all     — Execute harvest → extract → connect → garden
+  run-all     — Execute harvest → extract → review → connect → garden
   status      — Show pipeline statistics
   doctor      — Validate configuration and dependencies
 """
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -229,8 +231,20 @@ def harvest(
         False, "--skip-biblio",
         help="Modo nao-interativo: permite seguir com metadados bibliograficos incompletos",
     ),
+    content_start_file: Optional[int] = typer.Option(
+        None, "--content-start-file",
+        help="Pagina do arquivo (PDF) onde o conteudo comeca (1-based)",
+    ),
+    content_start_book: Optional[int] = typer.Option(
+        None, "--content-start-book",
+        help="Numero impresso nessa primeira pagina de conteudo (default 1)",
+    ),
+    skip_paging: bool = typer.Option(
+        False, "--skip-paging",
+        help="Nao perguntar paginacao; processa desde p.1 do arquivo (livro = arquivo)",
+    ),
 ):
-    """Escanear inbox, extrair texto, criar notas SRC/LIT e chunks."""
+    """Escanear inbox, extrair texto, criar SRC + indice LIT e chunks."""
     cfg = _load_deps(config)
     db = _get_db(cfg)
     idx = _get_idx(cfg, db=db, yes=yes)
@@ -243,9 +257,14 @@ def harvest(
         # precisam do terminal livre; o spinner engole o Prompt.ask e parece travado.
         console.print(
             "[dim]Coletando arquivos do inbox "
-            "(pode solicitar metadados bibliograficos)...[/dim]"
+            "(pode solicitar metadados bibliograficos / inicio de paginacao)...[/dim]"
         )
-        new_sources = run_harvest(cfg, db, idx, interactive=True, skip_biblio=skip_biblio)
+        new_sources = run_harvest(
+            cfg, db, idx, interactive=True, skip_biblio=skip_biblio,
+            content_start_file=content_start_file,
+            content_start_book=content_start_book,
+            skip_paging=skip_paging,
+        )
     else:
         console.print(f"[dim]Modo nao-interativo — duplicatas suspeitas: '{duplicate_action}'[/dim]")
         if skip_biblio:
@@ -253,6 +272,9 @@ def harvest(
         new_sources = run_harvest(
             cfg, db, idx, interactive=False, duplicate_action=duplicate_action,
             skip_biblio=skip_biblio,
+            content_start_file=content_start_file,
+            content_start_book=content_start_book,
+            skip_paging=skip_paging or True,
         )
 
     if new_sources:
@@ -311,24 +333,28 @@ def extract(
         False, "--yes", "-y",
         help="Confirmar automaticamente o reprocessamento se o embedding mudou",
     ),
+    auto_approve: bool = typer.Option(
+        False, "--auto-approve",
+        help="Aprovar automaticamente drafts com confianca >= limiar (literature_review)",
+    ),
 ):
-    """Processar chunks pendentes com LLM (Prompt 1), gerar candidatos."""
+    """Processar chunks pendentes com LLM (Prompt 1), gerar drafts de LIT granular."""
     cfg = _load_deps(config)
     db = _get_db(cfg)
     idx = _get_idx(cfg, db=db, yes=yes)
 
     from zettel.extractor import run_extract
     with console.status("[bold blue]Extraindo conceitos dos chunks...", spinner="dots"):
-        candidates = run_extract(cfg, db, idx)
+        candidates = run_extract(cfg, db, idx, auto_approve=auto_approve)
 
-    console.print(f"[green]Candidatos extraídos: {len(candidates)}[/green]")
+    console.print(
+        f"[green]Candidatos em awaiting_review: {len(candidates)}[/green] "
+        "(use `zettel review` antes do connect)"
+    )
 
-    # Store candidates in cache for the connect phase
     import json
     cache_file = cfg.cache_path / "candidates.json"
     cache_file.parent.mkdir(parents=True, exist_ok=True)
-
-    # Serialize candidates
     serializable = []
     for c in candidates:
         entry = {
@@ -337,14 +363,51 @@ def extract(
             "chunk_id": c["chunk_id"],
             "candidate": c["candidate"].model_dump(),
         }
-        if "refines_note_id" in c:
-            entry["refines_note_id"] = c["refines_note_id"]
-        if "refine_reason" in c:
-            entry["refine_reason"] = c["refine_reason"]
+        if c.get("literature_id"):
+            entry["literature_id"] = c["literature_id"]
         serializable.append(entry)
     cache_file.write_text(json.dumps(serializable, ensure_ascii=False, indent=2), encoding="utf-8")
     console.print(f"[dim]Candidatos salvos em: {cache_file}[/dim]")
 
+    db.close()
+
+
+@app.command()
+def review(
+    config: Optional[str] = typer.Option(None, "--config", "-c"),
+    source_id: Optional[str] = typer.Option(None, "--source-id", help="Filtrar por fonte"),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Nao-interativo: aprova todos com confianca >= limiar",
+    ),
+    auto_approve: bool = typer.Option(
+        False, "--auto-approve",
+        help="Aprovar automaticamente drafts com confianca >= limiar",
+    ),
+    low_confidence_only: bool = typer.Option(
+        False, "--low-confidence-only",
+        help="Listar apenas drafts abaixo do limiar",
+    ),
+):
+    """Aprovar/rejeitar Notas de Literatura granulares antes do connect."""
+    cfg = _load_deps(config)
+    db = _get_db(cfg)
+    idx = _get_idx(cfg, db=db, yes=yes)
+
+    from zettel.review import run_review
+    interactive = not (yes or auto_approve)
+    stats = run_review(
+        cfg, db, idx,
+        source_id=source_id,
+        auto_approve=auto_approve or yes,
+        interactive=interactive,
+        low_confidence_only=low_confidence_only,
+    )
+    console.print(
+        f"[green]Aprovados: {stats['approved']}[/green] | "
+        f"[red]Rejeitados: {stats['rejected']}[/red] | "
+        f"[yellow]Pulados: {stats['skipped']}[/yellow]"
+    )
     db.close()
 
 
@@ -522,6 +585,58 @@ def rechunk(
             "[yellow]Fontes puladas nao tem texto extraido persistido (anteriores a Fase 0). "
             "Reprocesse o arquivo original via harvest.[/yellow]"
         )
+    db.close()
+
+
+# ── set-paging ────────────────────────────────────────────────────────
+
+
+@app.command(name="set-paging")
+def set_paging_cmd(
+    source_id: str = typer.Option(..., "--source-id", help="Fonte a corrigir (ex. @Citekey)"),
+    content_start_file: int = typer.Option(
+        ..., "--content-start-file",
+        help="Pagina do arquivo (PDF) onde o conteudo comeca (1-based)",
+    ),
+    content_start_book: int = typer.Option(
+        1, "--content-start-book",
+        help="Numero impresso nessa primeira pagina de conteudo",
+    ),
+    drop_before_start: bool = typer.Option(
+        False, "--drop-before-start",
+        help="Tambem remove chunks awaiting_review/aprovados antes do inicio",
+    ),
+    config: Optional[str] = typer.Option(None, "--config", "-c"),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Confirmar automaticamente reprocessamento de embedding se necessario",
+    ),
+):
+    """Corrigir paginacao de uma fonte ja harvestada (sem re-chamar o LLM)."""
+    cfg = _load_deps(config)
+    db = _get_db(cfg)
+    idx = _get_idx(cfg, db=db, yes=yes)
+
+    from zettel.harvester import run_set_paging
+    try:
+        stats = run_set_paging(
+            cfg, db, idx, source_id,
+            content_start_file=content_start_file,
+            content_start_book=content_start_book,
+            drop_before_start=drop_before_start,
+        )
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+
+    console.print(
+        f"[green]Paginacao atualizada para {source_id}:[/green] "
+        f"arquivo p.{content_start_file} = impressa p.{content_start_book}\n"
+        f"  chunks atualizados: {stats['updated']}\n"
+        f"  pending removidos (antes do inicio): {stats['dropped_pending']}\n"
+        f"  outros removidos (--drop-before-start): {stats['dropped_other']}\n"
+        f"  notas LIT patchadas: {stats['notes_patched']}"
+    )
     db.close()
 
 
@@ -705,7 +820,7 @@ def run_all(
         help="Modo nao-interativo: permite seguir com metadados bibliograficos incompletos",
     ),
 ):
-    """Executar pipeline completo: harvest > extract > connect > garden."""
+    """Executar pipeline completo: harvest > extract > review > connect > garden."""
     cfg = _load_deps(config)
     db = _get_db(cfg)
     idx = _get_idx(cfg, db=db, yes=yes)
@@ -718,6 +833,7 @@ def run_all(
     new_sources = run_harvest(
         cfg, db, idx, interactive=interactive, duplicate_action=duplicate_action,
         skip_biblio=skip_biblio,
+        skip_paging=not interactive,
     )
     console.print(f"  Fontes: {len(new_sources)}")
     last_run = db.get_last_run()
@@ -733,18 +849,45 @@ def run_all(
     # Phase 2: Extract
     console.rule("[bold blue]Fase 2 — Extract")
     from zettel.extractor import run_extract
-    candidates = run_extract(cfg, db, idx)
-    console.print(f"  Candidatos: {len(candidates)}")
+    candidates = run_extract(cfg, db, idx, auto_approve=False)
+    console.print(f"  Drafts / candidatos: {len(candidates)}")
+
+    # Phase 2b: Review
+    console.rule("[bold blue]Fase 2b — Review")
+    from zettel.review import run_review
+    rev = run_review(
+        cfg, db, idx,
+        auto_approve=yes or not interactive,
+        interactive=interactive and not yes,
+    )
+    console.print(
+        f"  Aprovados: {rev['approved']} | Rejeitados: {rev['rejected']} | "
+        f"Pulados: {rev['skipped']}"
+    )
 
     if dry_run:
-        console.print("[yellow]Dry run — parando antes da geração de notas.[/yellow]")
+        console.print("[yellow]Dry run — parando antes da geracao de notas.[/yellow]")
         db.close()
         return
 
-    # Phase 3: Connect
+    # Phase 3: Connect (from DB approved concepts)
     console.rule("[bold blue]Fase 3 — Connect")
     from zettel.connector import run_connect
-    note_ids = run_connect(cfg, db, idx, candidates)
+    from zettel.schemas import PermanentNoteCandidate
+    import json as _json
+    approved_rows = db.get_concepts_by_status("approved", without_notes=True)
+    connect_cands = []
+    for row in approved_rows:
+        raw = row.get("candidate_json")
+        if not raw:
+            continue
+        connect_cands.append({
+            "concept_id": row["concept_id"],
+            "source_id": row["source_id"],
+            "chunk_id": row["chunk_id"],
+            "candidate": PermanentNoteCandidate(**_json.loads(raw)),
+        })
+    note_ids = run_connect(cfg, db, idx, connect_cands)
     console.print(f"  Notas permanentes: {len(note_ids)}")
 
     # Phase 4: Garden
@@ -1091,16 +1234,23 @@ def status(
     labels = {
         "files": "Arquivos",
         "sources": "Fontes (SRC)",
-        "chapters": "Capítulos",
+        "chapters": "Capitulos",
         "chunks": "Chunks (total)",
-        "chunks_pending": "Chunks pendentes",
+        "chunks_pending": "Chunks pendentes (extract)",
+        "chunks_awaiting_review": "Chunks aguardando review",
+        "chunks_approved": "Chunks aprovados",
+        "chunks_rejected": "Chunks rejeitados",
+        "chunks_failed": "Chunks falhos",
         "concepts": "Conceitos",
         "notes": "Notas Permanentes",
         "mocs": "MOCs",
+        "assets": "Assets",
     }
     for key, label in labels.items():
         val = stats.get(key, 0)
-        style = "red" if key == "chunks_pending" and val > 0 else ""
+        style = ""
+        if key in ("chunks_pending", "chunks_awaiting_review", "chunks_failed") and val > 0:
+            style = "yellow"
         table.add_row(label, str(val), style=style)
 
     table.add_row("Conexoes (grafo)", str(db.count_note_connections()))
@@ -1117,7 +1267,7 @@ def status(
 
     last_run = db.get_last_run()
     if last_run:
-        dup_table = Table(title="Duplicatas — Última Execução do Harvest")
+        dup_table = Table(title="Duplicatas — Ultima Execucao do Harvest")
         dup_table.add_column("Tipo", style="bold")
         dup_table.add_column("Quantidade", justify="right")
         dup_table.add_row(
@@ -1131,6 +1281,19 @@ def status(
         )
         dup_table.add_row("Status da execução", str(last_run.get("status", "-")))
         console.print(dup_table)
+
+        cost_table = Table(title="Custo — Ultimo Run")
+        cost_table.add_column("Metrica", style="bold")
+        cost_table.add_column("Valor", justify="right")
+        cost_table.add_row("USD total", f"{float(last_run.get('cost_usd_total') or 0):.6f}")
+        cost_table.add_row("USD LLM", f"{float(last_run.get('cost_usd_llm') or 0):.6f}")
+        cost_table.add_row("USD embeddings", f"{float(last_run.get('cost_usd_embedding') or 0):.6f}")
+        cost_table.add_row("Tokens prompt", str(last_run.get("tokens_prompt", 0) or 0))
+        cost_table.add_row("Tokens completion", str(last_run.get("tokens_completion", 0) or 0))
+        cost_table.add_row("Tokens embedding", str(last_run.get("tokens_embedding", 0) or 0))
+        cost_table.add_row("LLM calls", str(last_run.get("llm_calls", 0) or 0))
+        cost_table.add_row("Cache hits", str(last_run.get("cache_hits", 0) or 0))
+        console.print(cost_table)
 
     db.close()
 
@@ -1308,4 +1471,8 @@ def main():
 
 
 if __name__ == "__main__":
+    # Logar o tempo de execucao
+    start_time = time.time()
     main()
+    end_time = time.time()
+    console.print(f"Tempo de execucao total: {(end_time - start_time)/60} minutos")

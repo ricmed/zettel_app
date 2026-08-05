@@ -306,14 +306,9 @@ No topo do Markdown, sempre YAML/Properties do Obsidian. ([Obsidian Help][4])
 
 #### 3.2 Agregação rígida no LIT (nota-mestre por arquivo)
 
-* O sistema **não cria várias notas de literatura por chunk** (como você pediu).
-* Ele **anexa** ao `LIT - ...`:
-
-  * `## Chunk <capítulo> | <páginas>` + conteúdo resumido/conceitos
-  * e no final de LIT mantém uma seção consolidada:
-
-    * “Conceitos-chave globais”
-    * “Lista global de candidatos a permanentes (com ids temporários)”
+* O sistema **cria uma Nota de Literatura granular por chunk** (draft em `00_Inbox/Review/`, materializada em `20_Literature/@Citekey/` após `zettel review`).
+* Mantém também um **índice** `LIT - @Citekey - …-index.md` com wikilinks das LITs aprovadas.
+* ZTLs apontam `literature_ref` para a LIT do chunk, não para o índice.
 
 #### 3.3 Deduplicação semântica antes de virar permanente
 

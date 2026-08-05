@@ -18,7 +18,7 @@ class _FakeIdx:
     def __init__(self):
         self.chunks_store: set[str] = set()
 
-    def upsert_chunk(self, chunk_id, text, metadata):
+    def upsert_chunk(self, chunk_id, text, metadata, **kwargs):
         self.chunks_store.add(chunk_id)
 
     def delete_chunks(self, chunk_ids):

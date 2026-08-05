@@ -25,21 +25,23 @@ Python 3.12, venv at `.venv/`, dependencies managed via `requirements.txt`. Envi
 
 ## Architecture
 
-Four-phase pipeline that converts PDF/Markdown files into Obsidian-compatible Zettelkasten notes:
+Pipeline that converts PDF/Markdown files into Obsidian-compatible Zettelkasten notes:
 
 ```
-harvest → extract → connect → garden
+harvest → extract → review → connect → garden
 ```
 
-**Phase 1 (harvester.py)**: Scans `data/inbox/`, extracts text (Docling for PDF, native for MD), generates citekeys, creates SRC + LIT vault notes, chunks text via LangChain `RecursiveCharacterTextSplitter`. Runs three-layer duplicate detection before creating anything (see below).
+**Phase 1 (harvester.py + paging.py)**: Scans `data/inbox/`, extracts text (Docling for PDF, native for MD), generates citekeys, creates SRC + literature **index** notes. Resolves content-start paging (HITL or `--content-start-file` / `--content-start-book`): PDF page where content begins + printed number on that page; earlier pages produce no chunks. Chunks text via structural H3–H6 + LangChain splitter. Infers `page_in_file` (PyMuPDF map preferred; regex only if no map) and `page_in_book = file - start_file + start_book` (multi-page chunks use the **first** page). Runs three-layer duplicate detection. Indexes raw chunks into Chroma `chunks` (for dedupe/FTS); does **not** create per-chunk LIT files yet. `zettel set-paging` repairs paging on an existing source without re-calling the LLM.
 
-**Phase 2 (extractor.py)**: Processes each pending chunk through LLM Prompt 1 (`prompts/literature_note.md`), extracts atomic concept candidates, runs semantic deduplication against existing notes in ChromaDB. Approved candidates cached to `data/cache/candidates.json`.
+**Phase 2 (extractor.py)**: Processes each `pending` chunk through LLM Prompt 1 (`prompts/literature_note.md`), writes a **draft** LIT note under `00_Inbox/Review/@Citekey/`, checkpoints chunk status to `awaiting_review` after every chunk. Concepts stay `awaiting_review`. Optional `--auto-approve` for high `review_confidence`.
 
-**Phase 3 (connector.py)**: Takes approved candidates, uses RAG (top-k similar notes via the hybrid `Retriever`) for context, calls LLM Prompt 2 (`prompts/permanent_note.md`) to generate full permanent notes. Writes ZTL files to vault and updates backlinks via managed blocks. The RAG context is split into two groups — `### Similares por embedding` (search seeds) and `### Vizinhas por conexao no grafo` (graph neighbours, with relation type) — so the LLM can weigh a typed connection differently from a fuzzy match.
+**Phase 2b (review.py)**: Selective approval. Approved drafts move to `20_Literature/@Citekey/chunk_NNNN.md`, are embedded into Chroma collection **`literature_notes`**, and concepts are deduped then marked `approved` for connect. Rejected drafts are deleted and never indexed as literature notes.
+
+**Phase 3 (connector.py)**: Takes `approved` concepts, uses RAG (hybrid `Retriever`) for context, calls Prompt 2, writes ZTL notes. `literature_ref` points at the **granular** approved LIT for that chunk (fallback: source index).
 
 **Phase 4 (gardener.py)**: Clusters permanent note embeddings (UMAP+HDBSCAN or KMeans fallback), generates MOCs via LLM. New MOCs get their topic validated against **categorias** derived from `gardener.topics_path` (`config/moc_topics.yaml`; substring match; rejected if `strict_topics: true` and no match). When a MOC for the same topic already exists, it's updated incrementally (`prompts/moc_incremental.md` classifies new notes into existing subsections) instead of creating a duplicate.
 
-**sync.py**: Not part of the linear pipeline — scans `30_Permanent/` and `40_MOCs/` for manually-created or hand-edited notes (via `zettel sync-manual`), assigns IDs/checksums if missing, indexes them into ChromaDB/StateDB, and writes suggested connections into an `auto-connections` managed block. This is how notes written directly in Obsidian (bypassing the pipeline) become discoverable by RAG/dedup in later runs. It also closes the graph loop: `_extract_body_edges` persists `[[wikilinks]]` found in a note's body (outside the auto-generated managed blocks) as `related` edges in `note_connections`, never downgrading an already-typed edge. `zettel sync-manual --rebuild-graph` (`rebuild_manual_edges`) backfills these edges for the whole vault from bodies already in SQLite.
+**sync.py**: Not part of the linear pipeline — scans `10_Sources/`, `20_Literature/` (including citekey subfolders), `30_Permanent/`, `40_MOCs/` for manually-created or hand-edited notes (via `zettel sync-manual`), assigns IDs/checksums if missing, indexes them into ChromaDB/StateDB, and writes suggested connections into an `auto-connections` managed block. It also closes the graph loop: `_extract_body_edges` persists `[[wikilinks]]` found in a note's body (outside the auto-generated managed blocks) as `related` edges in `note_connections`, never downgrading an already-typed edge. `zettel sync-manual --rebuild-graph` (`rebuild_manual_edges`) backfills these edges for the whole vault from bodies already in SQLite.
 
 ### Hybrid retrieval + GraphRAG (retrieval.py, graph.py, ask.py, article.py)
 
@@ -66,19 +68,22 @@ Every decision is recorded via `db.record_duplicate(run_id, layer)` and surfaced
 
 ### Key shared infrastructure
 
-- **state.py (StateDB)**: SQLite with WAL mode. Tables: files, sources, chapters, chunks, concepts, notes, mocs, assets, llm_cache, note_connections, runs, plus FTS5 virtual tables fts_notes/fts_chunks. All pipeline modules receive a `StateDB` instance for incremental processing.
-- **index.py (VectorIndex)**: ChromaDB wrapper with 4 collections (sources, chunks, permanent_notes, mocs). Embedding provider configurable (OpenAI/SentenceTransformers). Falls back to ChromaDB default if API key missing.
-- **vault.py**: Obsidian I/O — YAML frontmatter parse/render, managed blocks (`<!-- zettel:auto-backlinks:start/end -->`), safe file writes that never overwrite manual edits outside managed blocks.
+- **state.py (StateDB)**: SQLite with WAL mode. Tables: files, sources, chapters, chunks, concepts, notes, mocs, assets, llm_cache, note_connections, runs, plus FTS5 virtual tables fts_notes/fts_chunks. `runs` and `sources` store estimated LLM/embedding cost and token totals. All pipeline modules receive a `StateDB` instance for incremental processing.
+- **index.py (VectorIndex)**: ChromaDB wrapper with 5 collections (sources, chunks, permanent_notes, mocs, **literature_notes**). Embedding provider configurable (OpenAI/SentenceTransformers/Ollama). Literature notes are embedded only after `review` approval. Upserts record estimated embedding usage on the active `CostTracker`.
+- **vault.py**: Obsidian I/O — YAML frontmatter parse/render, managed blocks (`<!-- zettel:auto-backlinks:start/end -->`), safe file writes that never overwrite manual edits outside managed blocks. Builders for SRC, literature **index**, and granular literature chunk notes. `sync_source_costs_to_vault` mirrors SQLite cost fields onto SRC frontmatter.
+- **pricing.py / usage.py**: LiteLLM `cost_per_token` as price calculator only (not an LLM client); `CostTracker` aggregates per run/source via contextvars. Instrumented from `call_llm` and embedding upserts.
 - **hashing.py**: Canonical text normalization (NFKC, whitespace collapse, PDF dehyphenation) before hashing. Layered checksums: file → extraction → chapter → chunk → llm_call → note_semantic. `compute_llm_call_checksum()` enables deterministic LLM response caching.
 - **schemas.py**: Pydantic v2 models for all data objects and LLM structured outputs (LiteratureChunkOutput, PermanentNoteLLMOutput, DedupeResult, MOCGenerationOutput, ArticleOutline).
 
 ### Data flow between phases
 
-`extract` saves candidates to `data/cache/candidates.json` — `connect` reads from there. All other inter-phase communication goes through StateDB and ChromaDB. Each CLI command instantiates `(AppConfig, StateDB, VectorIndex)` via `_load_deps()`, `_get_db()`, `_get_idx()` in cli.py.
+`extract` writes drafts + concepts `awaiting_review`. `review` promotes approved concepts (after dedupe) to `approved`. `connect` loads `get_concepts_by_status("approved")` from SQLite (`candidates.json` is optional debug cache). All other inter-phase communication goes through StateDB and ChromaDB. Each CLI command instantiates `(AppConfig, StateDB, VectorIndex)` via `_load_deps()`, `_get_db()`, `_get_idx()` in cli.py.
+
+**Breaking change**: the old monolithic LIT-per-source model is gone. Re-run `extract` + `review` for sources harvested before this change.
 
 ### LLM provider pattern
 
-Each pipeline module that needs LLM has its own `_get_llm(cfg)` that returns a LangChain chat model based on `cfg.llm.provider` (openai/anthropic/ollama). LLM calls go through `_call_llm(llm, prompt) → str`, responses parsed via `_extract_json()` which handles markdown code blocks.
+Shared helpers live in `llm.py` (`get_llm` / `call_llm`). `call_llm` reads `usage_metadata`, estimates USD via LiteLLM's public price map, and records on the active `CostTracker`. Cache hits are `$0`. Pipeline commands (`harvest`, `extract`, `connect`, `garden`, `review`, `ask`, `article`) start/finish a `runs` row with cost totals; sources accumulate costs and SRC/ZTL frontmatter store them. Ollama / unknown models log tokens with `$0` cost. Upgrade `litellm` to refresh prices — no local price table to maintain.
 
 ## Important Conventions
 

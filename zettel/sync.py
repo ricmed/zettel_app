@@ -59,7 +59,11 @@ def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, 
     for scan_dir, note_type, counter in dirs_to_scan:
         if not scan_dir.exists():
             continue
-        for md_file in scan_dir.glob("*.md"):
+        # Literature may live in citekey subfolders (granular LITs).
+        pattern = "**/*.md" if note_type == "literature" else "*.md"
+        for md_file in scan_dir.glob(pattern):
+            if not md_file.is_file():
+                continue
             result = _sync_single_note(cfg, db, idx, md_file, note_type)
             stats[result] += 1
             if result in ("new", "updated"):
@@ -170,24 +174,29 @@ def _sync_source(
 def _sync_literature(
     cfg: AppConfig, db: StateDB, file_path: Path, meta: dict, body: str,
 ) -> str:
-    """Adopt a hand-created LIT note: link to its source and persist its body.
+    """Adopt a hand-created LIT note (index or granular chunk).
 
-    LIT notes are not embedded (mirrors the pipeline), so this only registers the
-    source link and snapshots the LIT body into sources.lit_body for retention.
+    Index notes (type=literature_index or filename *-index.md) snapshot into
+    sources.lit_body. Granular notes (type=literature with chunk_id) update the
+    matching chunk row and may be embedded if status=approved.
     """
     from zettel.harvester import _generate_citekey
 
+    note_type = meta.get("type") or "literature"
+    # Skip drafts under Review
+    if "00_Inbox" in file_path.parts or "Review" in file_path.parts:
+        return "skipped"
+
     source_id = meta.get("source_id") or meta.get("literature_id")
     citekey = None
-    if source_id:
-        citekey = source_id.lstrip("@")
+    if source_id and "::" not in str(source_id):
+        citekey = str(source_id).lstrip("@")
     else:
         citekey = _citekey_from_filename(file_path)
         if citekey:
             source_id = f"@{citekey}"
 
-    # Orphan LIT (no resolvable source): create a minimal manual source to attach to.
-    if not source_id:
+    if not source_id or "::" in str(source_id):
         citekey = _generate_citekey(db, [], meta.get("year"), meta.get("title", file_path.stem))
         source_id = f"@{citekey}"
 
@@ -198,13 +207,27 @@ def _sync_literature(
             file_checksum="", origin_path=str(file_path), origin_type="md", origin="manual",
         )
 
+    # Granular chunk LIT
+    if note_type == "literature" and meta.get("chunk_id"):
+        chunk_id = meta["chunk_id"]
+        chunk = db.get_chunk(chunk_id)
+        status = meta.get("status") or "approved"
+        if chunk:
+            db.update_chunk_review(
+                chunk_id,
+                status=status if status in ("approved", "persisted", "awaiting_review") else "approved",
+                literature_note_path=str(file_path),
+                literature_id=meta.get("literature_id"),
+            )
+        return "updated" if chunk else "skipped"
+
+    # Index / legacy monolithic LIT → lit_body
     if source_id != meta.get("source_id"):
         meta["source_id"] = source_id
-        meta["type"] = "literature"
+        meta["type"] = note_type if note_type in ("literature", "literature_index") else "literature_index"
         meta.setdefault("origin", "manual")
         _rewrite_frontmatter(file_path, meta, body)
 
-    # Snapshot the full LIT file for retention (skip if unchanged).
     full = file_path.read_text(encoding="utf-8")
     existing = db.get_source(source_id)
     if existing and existing.get("lit_body") == full:

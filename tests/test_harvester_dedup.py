@@ -30,7 +30,7 @@ class FakeVectorIndex:
     def upsert_source(self, source_id, summary, metadata):
         self.upserted_sources.append(source_id)
 
-    def upsert_chunk(self, chunk_id, text, metadata):
+    def upsert_chunk(self, chunk_id, text, metadata, **kwargs):
         self.upserted_chunks.append(chunk_id)
 
     def delete_chunks(self, chunk_ids):

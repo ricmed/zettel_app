@@ -626,6 +626,11 @@ def run_article_graph(
     it with the interrupt payload and resuming with its return value.
     Callbacks (``context_callback`` / ``approve_outline``) bypass interrupts.
     """
+    from zettel.usage import begin_run, finish_pipeline_run
+
+    run_id = db.start_run("article")
+    begin_run(run_id)
+
     art_cfg = cfg.retrieval.article
     if use_graph is None:
         use_graph = cfg.retrieval.graph_expansion.enabled
@@ -683,26 +688,26 @@ def run_article_graph(
         "warnings": [],
     }
 
-    result_state: dict = graph.invoke(initial, config)
+    try:
+        result_state: dict = graph.invoke(initial, config)
 
-    # Resolve interrupts via HITL handler (CLI)
-    while result_state.get("__interrupt__"):
-        if hitl_handler is None:
-            # Auto-approve if somehow interrupted without handler
-            resume_val: dict = {"context_decision": "approve", "outline_decision": "approve"}
-            ints = result_state["__interrupt__"]
-            if ints and getattr(ints[0], "value", None):
-                itype = (ints[0].value or {}).get("type")
-                if itype == "outline_review":
-                    resume_val = {"outline_decision": "approve", "outline_feedback": ""}
-                else:
-                    resume_val = {"context_decision": "approve", "extra_queries": []}
+        # Resolve interrupts via HITL handler (CLI)
+        while result_state.get("__interrupt__"):
+            if hitl_handler is None:
+                # Auto-approve if somehow interrupted without handler
+                resume_val: dict = {"context_decision": "approve", "outline_decision": "approve"}
+                ints = result_state["__interrupt__"]
+                if ints and getattr(ints[0], "value", None):
+                    itype = (ints[0].value or {}).get("type")
+                    if itype == "outline_review":
+                        resume_val = {"outline_decision": "approve", "outline_feedback": ""}
+                    else:
+                        resume_val = {"context_decision": "approve", "extra_queries": []}
+                result_state = graph.invoke(Command(resume=resume_val), config)
+                continue
+            resume_val = hitl_handler(result_state)
             result_state = graph.invoke(Command(resume=resume_val), config)
-            continue
 
-        ints = result_state["__interrupt__"]
-        payload = ints[0].value if ints else {}
-        resume_val = hitl_handler(payload if isinstance(payload, dict) else {})
-        result_state = graph.invoke(Command(resume=resume_val), config)
-
-    return _result_from_state(result_state, rt, topic, style)
+        return _result_from_state(result_state, rt, topic, style)
+    finally:
+        finish_pipeline_run(db, run_id)

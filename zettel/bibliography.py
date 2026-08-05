@@ -758,6 +758,8 @@ def enrich_with_llm(
     )
     cached = db.get_cached_llm_response(call_checksum)
     if cached:
+        from zettel.usage import record_cache_hit
+        record_cache_hit(label=f"biblio:{filename}", model=cfg.llm.model)
         response_text = cached
     else:
         filled = prompt_template.replace("{filename}", filename)

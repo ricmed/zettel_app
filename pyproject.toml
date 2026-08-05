@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "chromadb==1.5.9",
     "docling>=2.71.0",
-    "hdbscan>=0.8.41",
+    "hdbscan==0.8.44",
     "hf-xet==1.2.0",
     "langchain-core>=1.2.7",
     "langchain-openai>=1.1.7",
@@ -24,10 +24,11 @@ dependencies = [
     "typer>=0.21.1",
     "typer-slim==0.21.1",
     "ulid>=1.1",
-    "umap-learn>=0.5.11",
+    "umap-learn==0.5.12",
     "torch>=2.10.0; sys_platform == 'win32' or sys_platform == 'linux'",
     "torchvision>=0.25.0; sys_platform == 'win32' or sys_platform == 'linux'",
     "langchain-ollama>=1.0.1",
+    "litellm>=1.95.0",
 ]
 
 [tool.uv.sources]

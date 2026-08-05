@@ -69,6 +69,15 @@ class ExtractionConfig(BaseModel):
     min_definition_words: int = 10    # palavras minimas na definicao
 
 
+class LiteratureReviewConfig(BaseModel):
+    """Aprovacao seletiva de Notas de Literatura granulares (por chunk)."""
+
+    auto_approve_min_confidence: float = 0.85
+    batch_sample_size: int = 20       # max drafts de baixa confianca a listar no review interativo
+    drafts_subdir: str = "00_Inbox/Review"
+    literature_subdir_by_citekey: bool = True
+
+
 class ImagesConfig(BaseModel):
     """Image extraction + multimodal description (Fase 3)."""
 
@@ -78,6 +87,11 @@ class ImagesConfig(BaseModel):
     min_height: int = 64
     context_chars: int = 600         # caracteres ao redor da imagem usados como contexto
     model: str = ""                  # vazio = usa llm.model (deve ser multimodal)
+    # Pacing + resiliencia a TPM (visao estoura tokens/min bem mais rapido que texto):
+    min_interval_seconds: float = 0.4       # pausa minima entre chamadas LLM de imagem
+    rate_limit_max_retries: int = 8         # tentativas por imagem em 429
+    rate_limit_backoff_max: float = 60.0    # teto de espera (s) entre retries
+    rate_limit_abort_after: int = 5         # 429 esgotados consecutivos => para o lote
 
 
 class GardenerConfig(BaseModel):
@@ -224,6 +238,7 @@ class AppConfig(BaseModel):
     linking: LinkingConfig = Field(default_factory=LinkingConfig)
     harvest: HarvestConfig = Field(default_factory=HarvestConfig)
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
+    literature_review: LiteratureReviewConfig = Field(default_factory=LiteratureReviewConfig)
     images: ImagesConfig = Field(default_factory=ImagesConfig)
     gardener: GardenerConfig = Field(default_factory=GardenerConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
@@ -279,6 +294,7 @@ def setup_logging(level: str = "INFO") -> None:
     """Configure root logger with RichHandler.
 
     Uses stderr so log messages flow correctly alongside Rich console.status() spinners.
+    Quiets noisy HTTP client loggers so pipeline progress (X/Y) stays readable.
     """
     from rich.logging import RichHandler
     from rich.console import Console
@@ -295,6 +311,10 @@ def setup_logging(level: str = "INFO") -> None:
         datefmt="%H:%M:%S",
         handlers=[handler],
     )
+    # httpx/OpenAI emit one INFO line per request ("HTTP Request: POST ... 200 OK"),
+    # which drowns the harvest progress when embedding hundreds of chunks.
+    for noisy in ("httpx", "httpcore", "openai", "openai._base_client", "urllib3"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def detect_device(preference: str = "auto") -> str:
