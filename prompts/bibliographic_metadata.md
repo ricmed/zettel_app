@@ -31,7 +31,13 @@ institution, course, discipline, degree, advisor,
 event_name, report_number
 ```
 
-## Entrada
+## Saida
+
+Objeto JSON com os campos preenchidos.
+
+Nome do arquivo, seed de metadados e amostra de texto seguem na mensagem do usuario.
+
+<!-- zettel:user -->
 
 Arquivo: `{filename}`
 
@@ -44,7 +50,3 @@ Amostra do texto:
 ---
 {text_sample}
 ---
-
-## Saida
-
-Objeto JSON com os campos preenchidos.

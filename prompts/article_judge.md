@@ -7,22 +7,6 @@ fornecidas. Seja rigoroso com fidelidade factual.
 
 Responda em **{language}** (campos de texto do JSON).
 
-## Tema
-
-{topic}
-
-## Estilo
-
-`{style}`
-
-## Notas de contexto (evidencia permitida)
-
-{notes_catalog}
-
-## Artigo a avaliar
-
-{article_body}
-
 ## Criterios (0 a 10 cada)
 
 1. **fidelity** — afirmacoes sustentadas pelo contexto; sem invencao
@@ -48,3 +32,23 @@ JSON unico:
 
 `verdict` deve ser `APPROVED` ou `REJECTED`.
 Calcule `average` como media aritmetica dos quatro scores.
+
+Tema, estilo, notas de contexto e o artigo a avaliar seguem na mensagem do usuario.
+
+<!-- zettel:user -->
+
+## Tema
+
+{topic}
+
+## Estilo
+
+`{style}`
+
+## Notas de contexto (evidencia permitida)
+
+{notes_catalog}
+
+## Artigo a avaliar
+
+{article_body}

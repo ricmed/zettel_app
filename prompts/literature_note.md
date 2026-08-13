@@ -190,20 +190,23 @@ Seja **objetivamente criterioso**. Quando em dúvida entre dois níveis, escolha
 
 ## FORMATO DE ENTRADA
 
-```
-Fonte: {source_id} — {source_title}
-Capítulo/Seção: {chapter_title}
-Localizador: {locator}
+Os dados do chunk (fonte, localizador, imagens e texto) chegam na mensagem do
+usuário, neste formato:
 
-{images_context}
+```
+Fonte: <source_id> — <source_title>
+Capítulo/Seção: <chapter_title>
+Localizador: <locator>
+
+<images_context opcional>
 
 Texto do chunk:
 ---
-{chunk_text}
+<chunk_text>
 ---
 ```
 
-**Imagens**: quando a lista de imagens acima estiver presente:
+**Imagens**: quando a lista de imagens no input do usuário estiver presente:
 
 1. Se uma figura for **essencial** para entender um candidato (diagrama do
    mecanismo, pipeline, modelo de dados), inclua o `asset_id` correspondente em
@@ -415,3 +418,16 @@ Category: trivial
 **SEJA IMPLACÁVEL NA SELETIVIDADE.** Notas de Literatura não são um resumo exaustivo da fonte — são sementes para futuras Notas Permanentes. Prefira retornar **poucos candidatos excelentes** do que muitos candidatos medianos. Se o chunk não contém conceitos dignos de desenvolvimento, **rejeite-o sem hesitação**.
 
 Um chunk pode ser informativo, bem escrito e útil no contexto do livro, mas ainda assim não conter conceitos atomizáveis para o Zettelkasten. **Isso é normal e esperado.**
+
+<!-- zettel:user -->
+
+Fonte: {source_id} — {source_title}
+Capítulo/Seção: {chapter_title}
+Localizador: {locator}
+
+{images_context}
+
+Texto do chunk:
+---
+{chunk_text}
+---

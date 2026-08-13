@@ -21,6 +21,11 @@ class LLMConfig(BaseModel):
     temperature: float = 0
     top_p: float = 1
     max_retries: int = 2
+    # OpenAI-compatible gateways (OpenRouter, OpenCode, vLLM, Azure, …).
+    base_url: str | None = None
+    # Provider prefix caching: System+Human layout + Anthropic cache_control hints.
+    # Orthogonal to SQLite llm_cache (full response reuse on identical calls).
+    prompt_cache: bool = True
 
 
 class EmbeddingConfig(BaseModel):

@@ -14,13 +14,15 @@ prompts_path: ./prompts
 
 # ── LLM ─────────────────────────────────────────────────────────────────
 llm:
-  provider: openai          # openai | anthropic | ollama
+  provider: openai          # openai | anthropic | ollama | gemini | openrouter | opencode
   model: gpt-4o-mini        # modelo para extração/geração
   #provider: ollama
   #model: qwen3.5:4b
   temperature: 0.15
   top_p: 0.5
   max_retries: 2
+  # base_url: null          # gateways OpenAI-compatible (OpenRouter, OpenCode, vLLM, …)
+  prompt_cache: true        # System+Human + hints Anthropic; ≠ llm_cache SQLite
 
 # ── Embeddings ──────────────────────────────────────────────────────────
 # Providers: openai | sentence-transformers | ollama

@@ -7,19 +7,6 @@ do acervo fornecidas abaixo. Nao invente fatos, fontes nem note_ids.
 
 Planeje em **{language}**. Titulos e goals no mesmo idioma.
 
-## Tema
-
-{topic}
-
-## Estilo
-
-`{style}`
-
-- Se `blog`: gancho acessivel, secoes tematicas claras, fechamento pratico.
-  Prosa futura sera informal, com mencoes leves a autores/livros.
-- Se `academic`: estrutura proxima de introducao / desenvolvimento / conclusao
-  (ou equivalente formal). Prosa futura usara citacoes autor-data ABNT.
-
 ## Limites
 
 - No maximo **{max_sections}** secoes.
@@ -28,15 +15,12 @@ Planeje em **{language}**. Titulos e goals no mesmo idioma.
 - Inclua `figure_asset_ids` so quando a figura for realmente util a secao
   (no maximo 2 por secao).
 
-## Feedback do usuario (se houver)
+## Estilo (referencia)
 
-{feedback}
-
-Se o feedback pedir mudancas, priorize-as mantendo fidelidade ao catalogo.
-
-## Catalogo de notas
-
-{notes_catalog}
+- Se `blog`: gancho acessivel, secoes tematicas claras, fechamento pratico.
+  Prosa futura sera informal, com mencoes leves a autores/livros.
+- Se `academic`: estrutura proxima de introducao / desenvolvimento / conclusao
+  (ou equivalente formal). Prosa futura usara citacoes autor-data ABNT.
 
 ## Saida
 
@@ -57,3 +41,24 @@ Responda **apenas** com um JSON valido (sem markdown fora do JSON) no formato:
   ]
 }
 ```
+
+Tema, estilo, feedback e catalogo de notas seguem na mensagem do usuario.
+Se o feedback pedir mudancas, priorize-as mantendo fidelidade ao catalogo.
+
+<!-- zettel:user -->
+
+## Tema
+
+{topic}
+
+## Estilo
+
+`{style}`
+
+## Feedback do usuario (se houver)
+
+{feedback}
+
+## Catalogo de notas
+
+{notes_catalog}

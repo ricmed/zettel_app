@@ -24,7 +24,14 @@ from zettel.hashing import (
     sha256_hex,
 )
 from zettel.index import VectorIndex
-from zettel.llm import call_llm, extract_json, get_llm, load_prompt
+from zettel.llm import (
+    PromptParts,
+    call_llm,
+    extract_json,
+    fill_template,
+    get_llm,
+    load_prompt_parts,
+)
 from zettel.retrieval import RetrievedNote, Retriever
 from zettel.schemas import PermanentNoteCandidate, PermanentNoteLLMOutput, RelationshipResult
 from zettel.state import StateDB
@@ -118,7 +125,7 @@ def run_connect(
     begin_run(run_id)
 
     llm = get_llm(cfg)
-    prompt_template = load_prompt(cfg.prompts_path / "permanent_note.md")
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "permanent_note.md")
     retriever = Retriever(cfg, db, idx)
 
     created_ids: list[str] = []
@@ -139,7 +146,7 @@ def run_connect(
             logger.info("Gerando nota %d/%d: %s", i, total, cand.thesis[:50])
 
             note_id = _process_candidate(
-                cfg, db, idx, llm, cand_dict, prompt_template, retriever,
+                cfg, db, idx, llm, cand_dict, prompt_parts, retriever,
                 step=i, total=total,
             )
             if note_id:
@@ -167,7 +174,7 @@ def _process_candidate(
     idx: VectorIndex,
     llm: Any,
     cand_dict: dict,
-    prompt_template: str,
+    prompt_parts: PromptParts,
     retriever: Retriever,
     *,
     step: int | None = None,
@@ -215,23 +222,28 @@ def _process_candidate(
     # from LLM output derived from user-supplied files. Sanitize prompt delimiters
     # (e.g. strip "---", "</s>", "###SYSTEM") before interpolation if untrusted input
     # is expected, to reduce prompt-injection risk.
-    filled = prompt_template.replace("{thesis}", cand.thesis)
-    filled = filled.replace("{definition}", cand.definition)
-    filled = filled.replace("{intuition}", cand.intuition or "")
-    filled = filled.replace("{limits}", cand.limits or "")
-    filled = filled.replace("{source_id}", source_id)
-    filled = filled.replace("{source_locator}", cand.source_locator or "")
-    filled = filled.replace("{literature_ref}", literature_ref)
-    filled = filled.replace("{rag_context}", rag_context)
     images_context = _build_candidate_images_context(db, cand)
-    filled = filled.replace("{images_context}", images_context)
+    mapping = {
+        "thesis": cand.thesis,
+        "definition": cand.definition,
+        "intuition": cand.intuition or "",
+        "limits": cand.limits or "",
+        "source_id": source_id,
+        "source_locator": cand.source_locator or "",
+        "literature_ref": literature_ref,
+        "rag_context": rag_context,
+        "images_context": images_context,
+    }
+    system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
+    user = fill_template(prompt_parts.user_template, mapping)
+    filled_for_hash = f"{system}\n{user}" if system else user
 
     # Cache do Prompt 2 (a chamada mais cara do pipeline). A chave cobre todo o prompt
     # preenchido (tese/definicao/RAG/etc.), entao um re-connect apos falha nao paga de novo.
     from zettel.usage import get_tracker
 
-    prompt_hash = sha256_hex(prompt_template)
-    filled_hash = sha256_hex(normalize_text_for_hash(filled))
+    prompt_hash = sha256_hex(prompt_parts.full_template)
+    filled_hash = sha256_hex(normalize_text_for_hash(filled_for_hash))
     call_checksum = compute_llm_call_checksum(
         prompt_hash, filled_hash, cfg.llm.model, cfg.llm.temperature, cfg.language,
     )
@@ -248,10 +260,19 @@ def _process_candidate(
             cache_hit = True
         else:
             response_text = call_llm(
-                llm, filled, label=f"connect:{concept_id}", step=step, total=total,
+                llm,
+                user,
+                system=system or None,
+                label=f"connect:{concept_id}",
+                step=step,
+                total=total,
+                provider=cfg.llm.provider,
+                prompt_cache=cfg.llm.prompt_cache,
             )
             db.cache_llm_response(
-                call_checksum, json.dumps({"prompt": filled}, ensure_ascii=False), response_text
+                call_checksum,
+                json.dumps({"system": system, "user": user}, ensure_ascii=False),
+                response_text,
             )
         note_output = _parse_permanent_note_output(response_text)
         if note_output.status == "rejected":
@@ -561,7 +582,7 @@ def _apply_ptbr_guard(
     PermanentNoteLLMOutput instead of destructuring free-text lines.
     """
     try:
-        guard_prompt = load_prompt(cfg.prompts_path / "ptbr_guard.md")
+        guard_parts = load_prompt_parts(cfg.prompts_path / "ptbr_guard.md")
         note_json = json.dumps(
             {
                 "thesis": output.thesis,
@@ -573,8 +594,16 @@ def _apply_ptbr_guard(
             ensure_ascii=False,
             indent=2,
         )
-        filled = guard_prompt.replace("{text}", note_json)
-        corrected_raw = call_llm(llm, filled)
+        mapping = {"text": note_json}
+        system = fill_template(guard_parts.system, mapping) if guard_parts.system else ""
+        user = fill_template(guard_parts.user_template, mapping)
+        corrected_raw = call_llm(
+            llm,
+            user,
+            system=system or None,
+            provider=cfg.llm.provider,
+            prompt_cache=cfg.llm.prompt_cache,
+        )
         corrected_data = json.loads(extract_json(corrected_raw))
         output.thesis = corrected_data.get("thesis", output.thesis)
         output.definition = corrected_data.get("definition", output.definition)

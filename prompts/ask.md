@@ -33,6 +33,10 @@ Cada nota vem anotada com sua origem na recuperacao:
   casou). Use-a como contexto complementar; conexoes `contradicts`/`contradiz` e
   `extends`/`estende` costumam ser as mais informativas.
 
+A pergunta e as notas do acervo seguem na mensagem do usuario. Responda apos elas.
+
+<!-- zettel:user -->
+
 ## Pergunta
 
 {question}

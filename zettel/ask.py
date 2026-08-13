@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from .hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
-from .llm import call_llm, get_llm, load_prompt
+from .llm import call_llm, fill_template, get_llm, load_prompt_parts
 from .retrieval import RetrievedNote, Retriever
 from .vault import _slug, render_frontmatter
 
@@ -137,16 +137,18 @@ def run_ask(
         return result
 
     context = _build_context(hits, ask_cfg.max_chars_per_note)
-    prompt_template = load_prompt(cfg.prompts_path / "ask.md")
-    filled = (
-        prompt_template
-        .replace("{language}", cfg.language)
-        .replace("{question}", question)
-        .replace("{context_notes}", context)
-    )
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "ask.md")
+    mapping = {
+        "language": cfg.language,
+        "question": question,
+        "context_notes": context,
+    }
+    system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
+    user = fill_template(prompt_parts.user_template, mapping)
+    filled_for_hash = f"{system}\n{user}" if system else user
 
-    prompt_hash = sha256_hex(prompt_template)
-    filled_hash = sha256_hex(normalize_text_for_hash(filled))
+    prompt_hash = sha256_hex(prompt_parts.full_template)
+    filled_hash = sha256_hex(normalize_text_for_hash(filled_for_hash))
     call_checksum = compute_llm_call_checksum(
         prompt_hash, filled_hash, cfg.llm.model, cfg.llm.temperature, cfg.language,
     )
@@ -158,9 +160,17 @@ def run_ask(
         result.answer = cached
     else:
         llm = get_llm(cfg)
-        answer = call_llm(llm, filled)
+        answer = call_llm(
+            llm,
+            user,
+            system=system or None,
+            provider=cfg.llm.provider,
+            prompt_cache=cfg.llm.prompt_cache,
+        )
         db.cache_llm_response(
-            call_checksum, json.dumps({"prompt": filled}, ensure_ascii=False), answer
+            call_checksum,
+            json.dumps({"system": system, "user": user}, ensure_ascii=False),
+            answer,
         )
         result.answer = answer
         result.llm_called = True

@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Callable, Literal, Optional
 from . import graph
 from .bibliography import display_author_natural, format_abnt_in_text
 from .hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
-from .llm import call_llm, clip_text, extract_json, get_llm, load_prompt
+from .llm import call_llm, clip_text, extract_json, fill_template, get_llm, load_prompt_parts
 from .retrieval import RetrievedNote, Retriever
 from .schemas import ArticleOutline, ArticleOutlineSection
 from .vault import _slug, render_frontmatter
@@ -276,20 +276,21 @@ def generate_outline(
 ) -> tuple[ArticleOutline, bool]:
     """Call the LLM to produce an ArticleOutline. Returns (outline, llm_called)."""
     art_cfg = cfg.retrieval.article
-    prompt_template = load_prompt(cfg.prompts_path / "article_outline.md")
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "article_outline.md")
     notes_block = _format_notes_for_outline(catalog)
-    filled = (
-        prompt_template
-        .replace("{language}", cfg.language)
-        .replace("{topic}", catalog.topic)
-        .replace("{style}", catalog.style)
-        .replace("{max_sections}", str(art_cfg.max_sections))
-        .replace("{notes_catalog}", notes_block)
-        .replace("{feedback}", feedback.strip() if feedback else "(nenhum)")
-    )
+    mapping = {
+        "language": cfg.language,
+        "topic": catalog.topic,
+        "style": catalog.style,
+        "max_sections": str(art_cfg.max_sections),
+        "notes_catalog": notes_block,
+        "feedback": feedback.strip() if feedback else "(nenhum)",
+    }
+    system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
+    user = fill_template(prompt_parts.user_template, mapping)
 
     raw, llm_called = _cached_llm(
-        cfg, db, prompt_template, filled,
+        cfg, db, prompt_parts.full_template, system=system, user=user,
         label=f"outline | tema={clip_text(catalog.topic)}",
     )
     data = json.loads(extract_json(raw))
@@ -348,7 +349,7 @@ def draft_sections(
         if catalog.style == "blog"
         else "article_section_academic.md"
     )
-    prompt_template = load_prompt(cfg.prompts_path / prompt_name)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / prompt_name)
     anti_path = cfg.prompts_path / "article_anti_ai.md"
     anti_ai = anti_path.read_text(encoding="utf-8") if anti_path.exists() else ""
     feedback_block = judge_feedback.strip() if judge_feedback else "(nenhum)"
@@ -361,27 +362,29 @@ def draft_sections(
     for i, section in enumerate(outline.sections, 1):
         packed = _pack_section(catalog, section)
         used_note_ids.extend(packed["note_ids"])
-        filled = (
-            prompt_template
-            .replace("{language}", cfg.language)
-            .replace("{topic}", catalog.topic)
-            .replace("{article_title}", outline.title)
-            .replace("{thesis}", outline.thesis)
-            .replace("{style_notes}", outline.style_notes or "")
-            .replace("{heading}", section.heading)
-            .replace("{goal}", section.goal)
-            .replace("{target_chars}", str(art_cfg.chars_per_section_draft))
-            .replace("{evidence}", packed["evidence"])
-            .replace("{figures}", packed["figures"])
-            .replace("{sources}", packed["sources"])
-            .replace("{anti_ai}", anti_ai)
-            .replace("{judge_feedback}", feedback_block)
-        )
+        mapping = {
+            "language": cfg.language,
+            "topic": catalog.topic,
+            "article_title": outline.title,
+            "thesis": outline.thesis,
+            "style_notes": outline.style_notes or "",
+            "heading": section.heading,
+            "goal": section.goal,
+            "target_chars": str(art_cfg.chars_per_section_draft),
+            "evidence": packed["evidence"],
+            "figures": packed["figures"],
+            "sources": packed["sources"],
+            "anti_ai": anti_ai,
+            "judge_feedback": feedback_block,
+        }
+        system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
+        user = fill_template(prompt_parts.user_template, mapping)
         note_preview = ", ".join(packed["note_ids"][:2])
         if len(packed["note_ids"]) > 2:
             note_preview += f" (+{len(packed['note_ids']) - 2})"
         raw, called = _cached_llm(
-            cfg, db, prompt_template, filled, temperature=writer_temp,
+            cfg, db, prompt_parts.full_template, system=system, user=user,
+            temperature=writer_temp,
             label=(
                 f"secao {i}/{len(outline.sections)} | "
                 f"{clip_text(section.heading, 40)} | notas={note_preview or '-'}"
@@ -917,16 +920,21 @@ def _cached_llm(
     cfg: "AppConfig",
     db: "StateDB",
     prompt_template: str,
-    filled: str,
+    filled: str = "",
     temperature: float | None = None,
     *,
+    system: str = "",
+    user: str = "",
     label: str | None = None,
     step: int | None = None,
     total: int | None = None,
 ) -> tuple[str, bool]:
     temp = cfg.llm.temperature if temperature is None else temperature
+    user_text = user or filled
+    system_text = system or ""
+    filled_for_hash = f"{system_text}\n{user_text}" if system_text else user_text
     prompt_hash = sha256_hex(prompt_template)
-    filled_hash = sha256_hex(normalize_text_for_hash(filled))
+    filled_hash = sha256_hex(normalize_text_for_hash(filled_for_hash))
     call_checksum = compute_llm_call_checksum(
         prompt_hash, filled_hash, cfg.llm.model, temp, cfg.language,
     )
@@ -943,9 +951,20 @@ def _cached_llm(
         record_cache_hit(label=label or "article", model=cfg.llm.model)
         return cached, False
     llm = get_llm(cfg, temperature=temp)
-    answer = call_llm(llm, filled, label=label, step=step, total=total)
+    answer = call_llm(
+        llm,
+        user_text,
+        system=system_text or None,
+        label=label,
+        step=step,
+        total=total,
+        provider=cfg.llm.provider,
+        prompt_cache=cfg.llm.prompt_cache,
+    )
     db.cache_llm_response(
-        call_checksum, json.dumps({"prompt": filled}, ensure_ascii=False), answer
+        call_checksum,
+        json.dumps({"system": system_text, "user": user_text}, ensure_ascii=False),
+        answer,
     )
     return answer, True
 
@@ -1106,17 +1125,19 @@ def enrich_search_queries(
     extras = [q.strip() for q in (extra_queries or []) if q and q.strip()]
     extras_block = "\n".join(f"- {q}" for q in extras) if extras else "(nenhuma)"
 
-    prompt_template = load_prompt(cfg.prompts_path / "article_query_enrich.md")
-    filled = (
-        prompt_template
-        .replace("{language}", cfg.language)
-        .replace("{topic}", topic)
-        .replace("{style}", style)
-        .replace("{count}", str(count))
-        .replace("{extra_queries}", extras_block)
-    )
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "article_query_enrich.md")
+    mapping = {
+        "language": cfg.language,
+        "topic": topic,
+        "style": style,
+        "count": str(count),
+        "extra_queries": extras_block,
+    }
+    system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
+    user = fill_template(prompt_parts.user_template, mapping)
     raw, called = _cached_llm(
-        cfg, db, prompt_template, filled, temperature=art_cfg.enrich_temperature,
+        cfg, db, prompt_parts.full_template, system=system, user=user,
+        temperature=art_cfg.enrich_temperature,
         label=f"enrich queries | tema={clip_text(topic)} | alvo={count}",
     )
     data = json.loads(extract_json(raw))
@@ -1195,18 +1216,19 @@ def apply_personality_rewrite(
         "temperature": 0.7,
         "style_prompt": notes or "Reescreva com clareza.",
     }
-    prompt_template = load_prompt(cfg.prompts_path / "article_personality.md")
-    filled = (
-        prompt_template
-        .replace("{language}", cfg.language)
-        .replace("{personality_name}", str(profile.get("name") or pid))
-        .replace("{style_prompt}", str(profile.get("style_prompt") or ""))
-        .replace("{custom_style_notes}", notes or "(nenhuma)")
-        .replace("{article_body}", body)
-    )
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "article_personality.md")
+    mapping = {
+        "language": cfg.language,
+        "personality_name": str(profile.get("name") or pid),
+        "style_prompt": str(profile.get("style_prompt") or ""),
+        "custom_style_notes": notes or "(nenhuma)",
+        "article_body": body,
+    }
+    system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
+    user = fill_template(prompt_parts.user_template, mapping)
     temp = float(profile.get("temperature", 0.7))
     raw, called = _cached_llm(
-        cfg, db, prompt_template, filled, temperature=temp,
+        cfg, db, prompt_parts.full_template, system=system, user=user, temperature=temp,
         label=f"personality | perfil={pid} | {clip_text(str(profile.get('name') or pid), 40)}",
     )
     return raw.strip(), called
@@ -1220,17 +1242,19 @@ def judge_article_body(
 ) -> tuple[dict, bool]:
     """Run judge LLM. Returns (scores_dict with verdict/feedback, llm_called)."""
     art_cfg = cfg.retrieval.article
-    prompt_template = load_prompt(cfg.prompts_path / "article_judge.md")
-    filled = (
-        prompt_template
-        .replace("{language}", cfg.language)
-        .replace("{topic}", catalog.topic)
-        .replace("{style}", catalog.style)
-        .replace("{notes_catalog}", _format_notes_for_outline(catalog))
-        .replace("{article_body}", body)
-    )
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "article_judge.md")
+    mapping = {
+        "language": cfg.language,
+        "topic": catalog.topic,
+        "style": catalog.style,
+        "notes_catalog": _format_notes_for_outline(catalog),
+        "article_body": body,
+    }
+    system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
+    user = fill_template(prompt_parts.user_template, mapping)
     raw, called = _cached_llm(
-        cfg, db, prompt_template, filled, temperature=art_cfg.judge_temperature,
+        cfg, db, prompt_parts.full_template, system=system, user=user,
+        temperature=art_cfg.judge_temperature,
         label=f"judge | tema={clip_text(catalog.topic)} | estilo={catalog.style}",
     )
     data = json.loads(extract_json(raw))

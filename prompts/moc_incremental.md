@@ -2,20 +2,6 @@
 
 Voce e um assistente que classifica notas novas dentro de um MOC (Mapa de Conteudo) ja existente.
 
-## MOC Existente
-
-**Topico**: {moc_topic}
-
-**Resumo**: {moc_summary}
-
-### Subsecoes atuais
-
-{existing_subsections}
-
-## Notas novas a classificar
-
-{new_notes_list}
-
 ## Regras
 
 - Para cada nota nova, indique em qual subsecao existente ela melhor se encaixa.
@@ -45,3 +31,21 @@ Voce e um assistente que classifica notas novas dentro de um MOC (Mapa de Conteu
   ]
 }
 ```
+
+O MOC existente e as notas novas a classificar seguem na mensagem do usuario.
+
+<!-- zettel:user -->
+
+## MOC Existente
+
+**Topico**: {moc_topic}
+
+**Resumo**: {moc_summary}
+
+### Subsecoes atuais
+
+{existing_subsections}
+
+## Notas novas a classificar
+
+{new_notes_list}

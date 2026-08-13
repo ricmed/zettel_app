@@ -18,7 +18,7 @@ from ulid import ULID
 from zettel.config import AppConfig
 from zettel.hashing import sha256_hex
 from zettel.index import VectorIndex
-from zettel.llm import call_llm, extract_json, get_llm, load_prompt
+from zettel.llm import call_llm, extract_json, fill_template, get_llm, load_prompt_parts
 from zettel.schemas import MOCGenerationOutput, MOCIncrementalOutput
 from zettel.state import StateDB
 from zettel.taxonomy import TaxonomyLoadError, resolve_allowed_topics
@@ -213,7 +213,7 @@ def _generate_moc(
     notes_list_text = _build_notes_list(db, note_ids)
     cluster_terms = _extract_cluster_terms(db, note_ids)
 
-    prompt_template = load_prompt(cfg.prompts_path / "moc_generation.md")
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "moc_generation.md")
 
     domain = cfg.gardener.domain or "Geral"
     try:
@@ -231,16 +231,24 @@ def _generate_moc(
     else:
         topics_section = "_(Nenhuma lista de categorias definida — escolha livremente.)_"
 
-    filled = prompt_template.replace("{domain}", domain)
-    filled = filled.replace("{allowed_topics_section}", topics_section)
-    filled = filled.replace("{taxonomy_detail}", taxonomy_detail)
-    filled = filled.replace("{notes_list}", notes_list_text)
-    filled = filled.replace(
-        "{cluster_terms}", ", ".join(cluster_terms) if cluster_terms else "N/A"
-    )
+    mapping = {
+        "domain": domain,
+        "allowed_topics_section": topics_section,
+        "taxonomy_detail": taxonomy_detail,
+        "notes_list": notes_list_text,
+        "cluster_terms": ", ".join(cluster_terms) if cluster_terms else "N/A",
+    }
+    system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
+    user = fill_template(prompt_parts.user_template, mapping)
 
     try:
-        response = call_llm(llm, filled)
+        response = call_llm(
+            llm,
+            user,
+            system=system or None,
+            provider=cfg.llm.provider,
+            prompt_cache=cfg.llm.prompt_cache,
+        )
         moc_output = _parse_moc_output(response)
     except Exception as e:
         logger.error("Erro ao gerar MOC: %s", e)
@@ -444,7 +452,7 @@ def _update_existing_moc(
 
     logger.info("MOC %s: %d notas novas a classificar", moc_id, len(truly_new))
 
-    prompt_template = load_prompt(cfg.prompts_path / "moc_incremental.md")
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "moc_incremental.md")
 
     sub_parts: list[str] = []
     for sub in structure["subsections"]:
@@ -460,13 +468,23 @@ def _update_existing_moc(
 
     new_notes_text = _build_notes_list(db, truly_new)
 
-    filled = prompt_template.replace("{moc_topic}", structure["topic"])
-    filled = filled.replace("{moc_summary}", structure["summary"])
-    filled = filled.replace("{existing_subsections}", existing_subsections_text)
-    filled = filled.replace("{new_notes_list}", new_notes_text)
+    mapping = {
+        "moc_topic": structure["topic"],
+        "moc_summary": structure["summary"],
+        "existing_subsections": existing_subsections_text,
+        "new_notes_list": new_notes_text,
+    }
+    system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
+    user = fill_template(prompt_parts.user_template, mapping)
 
     try:
-        response = call_llm(llm, filled)
+        response = call_llm(
+            llm,
+            user,
+            system=system or None,
+            provider=cfg.llm.provider,
+            prompt_cache=cfg.llm.prompt_cache,
+        )
         incremental_output = _parse_incremental_output(response)
     except Exception as e:
         logger.error("Erro ao classificar notas incrementais: %s", e)

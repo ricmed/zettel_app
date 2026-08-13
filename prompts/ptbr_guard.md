@@ -10,12 +10,16 @@ Revise o texto abaixo e corrija qualquer trecho que NÃO esteja em português br
 - Mantenha a estrutura e formatação original (Markdown).
 - NÃO altere o significado.
 
+## Formato de saída
+
+Retorne APENAS o texto corrigido, sem explicações adicionais.
+
+O texto a revisar segue na mensagem do usuário.
+
+<!-- zettel:user -->
+
 ## Texto para revisão
 
 ```
 {text}
 ```
-
-## Formato de saída
-
-Retorne APENAS o texto corrigido, sem explicações adicionais.

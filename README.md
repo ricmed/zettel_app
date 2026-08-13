@@ -156,6 +156,7 @@ Descomente no `requirements.txt` conforme necessário:
 | Dependência | Finalidade |
 |---|---|
 | `langchain-anthropic` | Usar Claude como LLM |
+| `langchain-google-genai` | Usar Gemini como LLM |
 | `langchain-ollama` | Usar modelos locais via Ollama |
 | `pymupdf` | Extração PDF alternativa (mais leve que Docling) |
 | `umap-learn` | Clusterização avançada para MOCs |
@@ -172,9 +173,11 @@ inbox_path: ./data/inbox
 
 # LLM
 llm:
-  provider: openai           # openai | anthropic | ollama
+  provider: openai           # openai | anthropic | ollama | gemini | openrouter | opencode
   model: gpt-4o-mini
   temperature: 0             # 0 = deterministico (reduz drift)
+  # base_url: null           # gateways OpenAI-compatible
+  prompt_cache: true         # prefix cache do provedor (System+Human)
 
 # Embeddings
 embedding:
@@ -277,16 +280,37 @@ pdf_extractor: docling       # docling | pymupdf
 llm:
   provider: openai
   model: gpt-4o-mini    # ou gpt-4o, gpt-4-turbo
+  prompt_cache: true
 ```
 Requer: `OPENAI_API_KEY`
+
+**Gateways OpenAI-compatible** (OpenRouter, OpenCode, vLLM, LM Studio, Azure-compatible):
+```yaml
+llm:
+  provider: openrouter   # ou opencode | compatible | azure
+  model: openai/gpt-4o-mini
+  base_url: https://openrouter.ai/api/v1
+  prompt_cache: true
+```
+Usa `ChatOpenAI` com `base_url`. A chave segue o que o gateway espera (ex.: `OPENAI_API_KEY`).
 
 **Anthropic**:
 ```yaml
 llm:
   provider: anthropic
   model: claude-sonnet-4-20250514
+  prompt_cache: true
 ```
 Requer: `ANTHROPIC_API_KEY` e `pip install langchain-anthropic`
+
+**Gemini**:
+```yaml
+llm:
+  provider: gemini
+  model: gemini-2.0-flash
+  prompt_cache: true
+```
+Requer: `GOOGLE_API_KEY` (ou equivalente do SDK) e `pip install langchain-google-genai`
 
 **Ollama (local)**:
 ```yaml
@@ -296,6 +320,14 @@ llm:
 ```
 Requer: Ollama rodando localmente e `pip install langchain-ollama`
 
+### Prompt caching do provedor vs cache SQLite
+
+Há **dois** mecanismos distintos:
+
+1. **`llm_cache` (SQLite)** — se a mesma chamada (prompt + inputs + modelo + temperatura) se repetir, a resposta completa é reutilizada (`$0`, sem HTTP). É o `cache_hits` nos logs/`zettel status`.
+2. **Prompt caching do provedor** — entre chamadas *diferentes* que compartilham o mesmo prefixo de instruções (ex.: N chunks no `extract`). Os templates em `prompts/` usam o marcador `<!-- zettel:user -->`: o trecho antes vira `SystemMessage` (estável) e o depois `HumanMessage` (payload da chamada). OpenAI/Gemini aproveitam o prefixo de forma implícita; Anthropic recebe `cache_control` explícito; Ollama só ganha reuso de KV (sem billing). Contadores: `prompt_cache_read_tokens` / `prompt_cache_write_tokens` nos logs COST (observabilidade; a estimativa USD via LiteLLM ainda usa tokens in/out totais — o desconto real aparece na fatura do provedor). Templates curtos podem ficar abaixo do mínimo do provedor (~1k–2k tokens) e não gerar hit.
+
+Desligue hints/layout com `llm.prompt_cache: false` se precisar comparar.
 ### Provedores de embedding suportados
 
 **OpenAI** (padrão):
@@ -595,8 +627,8 @@ Cada chamada LLM (via `call_llm`) e cada upsert/query de embedding registra toke
 - **Por comando**: totais em `runs` (também no fim do log: `Custo do run: ...`). `zettel status` mostra a tabela do último run.
 - **Por fonte**: colunas acumulativas em `sources` e frontmatter da SRC (`cost_usd_*`, `tokens_*`).
 - **Por ZTL**: `llm_cost_usd` / tokens / `llm_cache_hit` no frontmatter + log na geração.
-- Cache hit = `$0`. Ollama / modelos locais = `$0` (tokens ainda contados). Valores são list price, não a fatura do provedor.
-
+- **Cache SQLite** (`cache_hits`) = `$0`. **Prompt cache do provedor** = contadores `prompt_cache_read` / `prompt_cache_write` nos logs (não confundir com `cache_hits`).
+- Ollama / modelos locais = `$0` (tokens ainda contados). Valores estimados são list price, não a fatura do provedor.
 ### Nota de Literatura (LIT)
 
 ```markdown

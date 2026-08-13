@@ -141,20 +141,23 @@ Responda mentalmente antes de decidir:
 
 ## Formato de Entrada
 
+Os dados do conceito, imagens e notas relacionadas chegam na mensagem do usuário,
+neste formato:
+
 ```
 Conceito:
-- Tese: {thesis}
-- Definição: {definition}
-- Intuição: {intuition}
-- Limites: {limits}
-- Fonte: {source_id}
-- Localizador: {source_locator}
-- Referência literatura: {literature_ref}
+- Tese: <thesis>
+- Definição: <definition>
+- Intuição: <intuition>
+- Limites: <limits>
+- Fonte: <source_id>
+- Localizador: <source_locator>
+- Referência literatura: <literature_ref>
 
-{images_context}
+<images_context opcional>
 
 Notas existentes relacionadas (use APENAS para conexões):
-{rag_context}
+<rag_context>
 ```
 
 O bloco de notas relacionadas pode vir em dois grupos:
@@ -168,7 +171,7 @@ O bloco de notas relacionadas pode vir em dois grupos:
 Use ambos os grupos apenas como candidatos a conexão; continue priorizando
 qualidade (0-3 conexões) e só conecte quando houver relação conceitual genuína.
 
-Quando `{images_context}` listar figuras, use-as para enriquecer definição/exemplo
+Quando o bloco de imagens no input listar figuras, use-as para enriquecer definição/exemplo
 (descreva o mecanismo que o diagrama mostra). As figuras serão embutidas na nota;
 nao invente detalhes que nao estejam na descricao.
 
@@ -275,3 +278,19 @@ Reason: "Tese substantiva com mecanismo claro (memória episódica → contextua
 ## Lembrete Final
 
 **AVALIE O VALOR CONCEITUAL LÍQUIDO.** Uma nota Zettelkasten não é um resumo ou lista de fatos, mas também não precisa ser revolucionária. É uma **unidade de pensamento** autônoma e conectável. Rejeite o que for genuinamente vazio, promocional ou inseparável do contexto — aceite o que tiver substância técnica ou conceitual, mesmo que já seja conhecido na literatura.
+
+<!-- zettel:user -->
+
+Conceito:
+- Tese: {thesis}
+- Definição: {definition}
+- Intuição: {intuition}
+- Limites: {limits}
+- Fonte: {source_id}
+- Localizador: {source_locator}
+- Referência literatura: {literature_ref}
+
+{images_context}
+
+Notas existentes relacionadas (use APENAS para conexões):
+{rag_context}

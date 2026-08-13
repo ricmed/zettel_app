@@ -13,6 +13,7 @@ langchain-openai>=0.2.0          # Provider: OpenAI (default)
 langgraph>=0.2.0                 # Article pipeline StateGraph
 litellm>=1.40.0                  # Pricing map only (cost_per_token); not used as LLM client
 # langchain-anthropic>=0.3.0     # Provider: Anthropic (descomente se usar)
+# langchain-google-genai>=2.0.0  # Provider: Gemini (descomente se usar)
 # langchain-ollama>=0.2.0        # Provider: Ollama local (descomente se usar)
 
 # ── Vector Store ────────────────────────────────────────────────────────

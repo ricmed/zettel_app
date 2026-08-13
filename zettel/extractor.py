@@ -24,7 +24,14 @@ from zettel.hashing import (
     short_hash,
 )
 from zettel.index import VectorIndex
-from zettel.llm import call_llm, extract_json, get_llm, load_prompt
+from zettel.llm import (
+    PromptParts,
+    call_llm,
+    extract_json,
+    fill_template,
+    get_llm,
+    load_prompt_parts,
+)
 from zettel.paging import format_source_locator
 from zettel.schemas import (
     DedupeDecision,
@@ -72,8 +79,8 @@ def run_extract(
         logger.info("Imagens descritas nesta execucao: %d", described)
 
     llm = get_llm(cfg)
-    prompt_template = load_prompt(cfg.prompts_path / "literature_note.md")
-    prompt_hash = sha256_hex(prompt_template)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    prompt_hash = sha256_hex(prompt_parts.full_template)
 
     pending = db.get_pending_chunks()
     total = len(pending)
@@ -106,7 +113,7 @@ def run_extract(
             )
 
             candidates, _output = _process_chunk(
-                cfg, db, idx, llm, chunk_row, prompt_template, prompt_hash,
+                cfg, db, idx, llm, chunk_row, prompt_parts, prompt_hash,
                 step=i, total=total,
             )
             all_candidates.extend(candidates)
@@ -149,7 +156,7 @@ def _process_chunk(
     idx: VectorIndex,
     llm: Any,
     chunk_row: dict,
-    prompt_template: str,
+    prompt_parts: PromptParts,
     prompt_hash: str,
     *,
     step: int | None = None,
@@ -194,19 +201,32 @@ def _process_chunk(
             chunk_row.get("page_in_file"),
         ) or chunk_row.get("locator", "")
 
-        filled = prompt_template.replace("{source_id}", source_id)
-        filled = filled.replace("{source_title}", source_title)
-        filled = filled.replace("{chapter_title}", chunk_row.get("locator", ""))
-        filled = filled.replace("{locator}", locator)
-        filled = filled.replace("{images_context}", images_context)
-        filled = filled.replace("{chunk_text}", chunk_text)
+        mapping = {
+            "source_id": source_id,
+            "source_title": source_title,
+            "chapter_title": chunk_row.get("locator", ""),
+            "locator": locator,
+            "images_context": images_context,
+            "chunk_text": chunk_text,
+        }
+        system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
+        user = fill_template(prompt_parts.user_template, mapping)
 
         try:
             response_text = call_llm(
-                llm, filled, label=f"extract:{chunk_id}", step=step, total=total,
+                llm,
+                user,
+                system=system or None,
+                label=f"extract:{chunk_id}",
+                step=step,
+                total=total,
+                provider=cfg.llm.provider,
+                prompt_cache=cfg.llm.prompt_cache,
             )
             db.cache_llm_response(
-                call_checksum, json.dumps({"prompt": filled}, ensure_ascii=False), response_text
+                call_checksum,
+                json.dumps({"system": system, "user": user}, ensure_ascii=False),
+                response_text,
             )
             logger.info(
                 "[SOURCE=%s] [CHUNK=%s] [LLM_CALL model=%s] → resposta recebida",
@@ -230,8 +250,13 @@ def _process_chunk(
                 f"{response_text}"
             )
             response_text = call_llm(
-                llm, retry_prompt, label=f"extract-retry:{chunk_id}",
-                step=step, total=total,
+                llm,
+                retry_prompt,
+                label=f"extract-retry:{chunk_id}",
+                step=step,
+                total=total,
+                provider=cfg.llm.provider,
+                prompt_cache=False,
             )
             output = _parse_literature_output(response_text)
         except Exception:
@@ -488,7 +513,7 @@ def deduplicate_candidates(
     if not candidates:
         return []
 
-    dedupe_prompt = load_prompt(cfg.prompts_path / "dedupe_decision.md")
+    dedupe_parts = load_prompt_parts(cfg.prompts_path / "dedupe_decision.md")
     approved: list[dict] = []
     total = len(candidates)
 
@@ -518,12 +543,22 @@ def deduplicate_candidates(
                 continue
 
             existing_notes_text = _format_existing_notes(similar)
-            filled = dedupe_prompt.replace("{new_thesis}", cand.thesis)
-            filled = filled.replace("{new_definition}", cand.definition)
-            filled = filled.replace("{existing_notes}", existing_notes_text)
+            mapping = {
+                "new_thesis": cand.thesis,
+                "new_definition": cand.definition,
+                "existing_notes": existing_notes_text,
+            }
+            system = fill_template(dedupe_parts.system, mapping) if dedupe_parts.system else ""
+            user = fill_template(dedupe_parts.user_template, mapping)
 
             try:
-                response = call_llm(llm, filled)
+                response = call_llm(
+                    llm,
+                    user,
+                    system=system or None,
+                    provider=cfg.llm.provider,
+                    prompt_cache=cfg.llm.prompt_cache,
+                )
                 result = _parse_dedupe_result(response)
             except Exception as e:
                 logger.warning("Erro na deduplicacao, aprovando candidato: %s", e)

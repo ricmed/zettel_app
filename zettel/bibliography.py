@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from zettel.config import AppConfig
 from zettel.hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
-from zettel.llm import call_llm, extract_json, get_llm, load_prompt
+from zettel.llm import call_llm, extract_json, fill_template, get_llm, load_prompt_parts
 from zettel.state import StateDB
 
 logger = logging.getLogger(__name__)
@@ -741,8 +741,8 @@ def enrich_with_llm(
         logger.warning("Prompt bibliografico ausente: %s", prompt_path)
         return seed
 
-    prompt_template = load_prompt(prompt_path)
-    prompt_hash = sha256_hex(prompt_template)
+    prompt_parts = load_prompt_parts(prompt_path)
+    prompt_hash = sha256_hex(prompt_parts.full_template)
     sample_checksum = sha256_hex(normalize_text_for_hash(text_sample))
     seed_checksum = sha256_hex(normalize_text_for_hash(json.dumps(
         seed.model_dump(), sort_keys=True, ensure_ascii=False,
@@ -762,19 +762,26 @@ def enrich_with_llm(
         record_cache_hit(label=f"biblio:{filename}", model=cfg.llm.model)
         response_text = cached
     else:
-        filled = prompt_template.replace("{filename}", filename)
-        filled = filled.replace("{seed_json}", json.dumps(seed.model_dump(), ensure_ascii=False, indent=2))
-        filled = filled.replace("{text_sample}", text_sample)
-        filled = filled.replace(
-            "{document_types}",
-            ", ".join(DOCUMENT_TYPES),
-        )
+        mapping = {
+            "filename": filename,
+            "seed_json": json.dumps(seed.model_dump(), ensure_ascii=False, indent=2),
+            "text_sample": text_sample,
+            "document_types": ", ".join(DOCUMENT_TYPES),
+        }
+        system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
+        user = fill_template(prompt_parts.user_template, mapping)
         try:
             llm = get_llm(cfg)
-            response_text = call_llm(llm, filled)
+            response_text = call_llm(
+                llm,
+                user,
+                system=system or None,
+                provider=cfg.llm.provider,
+                prompt_cache=cfg.llm.prompt_cache,
+            )
             db.cache_llm_response(
                 call_checksum,
-                json.dumps({"prompt": filled}, ensure_ascii=False),
+                json.dumps({"system": system, "user": user}, ensure_ascii=False),
                 response_text,
             )
         except Exception as e:

@@ -20,6 +20,9 @@ class UsageEvent:
     label: str = ""
     source_id: Optional[str] = None
     progress: str = ""
+    # Provider prompt-prefix cache (not SQLite llm_cache hits).
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 @dataclass
@@ -33,6 +36,8 @@ class UsageSummary:
     llm_calls: int = 0
     cache_hits: int = 0
     embed_calls: int = 0
+    prompt_cache_read_tokens: int = 0
+    prompt_cache_write_tokens: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -45,6 +50,8 @@ class UsageSummary:
             "llm_calls": self.llm_calls,
             "cache_hits": self.cache_hits,
             "embed_calls": self.embed_calls,
+            "prompt_cache_read_tokens": self.prompt_cache_read_tokens,
+            "prompt_cache_write_tokens": self.prompt_cache_write_tokens,
         }
 
     def add(self, other: "UsageSummary") -> None:
@@ -57,6 +64,8 @@ class UsageSummary:
         self.llm_calls += other.llm_calls
         self.cache_hits += other.cache_hits
         self.embed_calls += other.embed_calls
+        self.prompt_cache_read_tokens += other.prompt_cache_read_tokens
+        self.prompt_cache_write_tokens += other.prompt_cache_write_tokens
 
 
 def format_progress(
@@ -114,6 +123,8 @@ class CostTracker:
         step: Optional[int] = None,
         total: Optional[int] = None,
         kind: Optional[str] = None,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
     ) -> UsageEvent:
         sid = source_id if source_id is not None else get_source_id()
         prog = _progress_tag(step, total, kind)
@@ -126,11 +137,15 @@ class CostTracker:
             label=label,
             source_id=sid,
             progress=prog,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
         )
         self.events.append(event)
         self._total.llm_calls += 1
         self._total.tokens_prompt += tokens_in
         self._total.tokens_completion += tokens_out
+        self._total.prompt_cache_read_tokens += cache_read_tokens
+        self._total.prompt_cache_write_tokens += cache_write_tokens
         self._total.cost_usd_llm += cost_usd
         self._total.cost_usd_total += cost_usd
         if sid:
@@ -138,17 +153,24 @@ class CostTracker:
             bucket.llm_calls += 1
             bucket.tokens_prompt += tokens_in
             bucket.tokens_completion += tokens_out
+            bucket.prompt_cache_read_tokens += cache_read_tokens
+            bucket.prompt_cache_write_tokens += cache_write_tokens
             bucket.cost_usd_llm += cost_usd
             bucket.cost_usd_total += cost_usd
+        cache_tag = ""
+        if cache_read_tokens or cache_write_tokens:
+            cache_tag = f" cache_read={cache_read_tokens} cache_write={cache_write_tokens}"
         if prog:
             logger.info(
-                "COST llm [%s] model=%s in=%d out=%d usd=%.6f label=%s source=%s",
+                "COST llm [%s] model=%s in=%d out=%d usd=%.6f label=%s source=%s%s",
                 prog, model, tokens_in, tokens_out, cost_usd, label or "-", sid or "-",
+                cache_tag,
             )
         else:
             logger.info(
-                "COST llm model=%s in=%d out=%d usd=%.6f label=%s source=%s",
+                "COST llm model=%s in=%d out=%d usd=%.6f label=%s source=%s%s",
                 model, tokens_in, tokens_out, cost_usd, label or "-", sid or "-",
+                cache_tag,
             )
         return event
 
@@ -311,6 +333,8 @@ def record_llm(
     step: Optional[int] = None,
     total: Optional[int] = None,
     kind: Optional[str] = None,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
 ) -> None:
     require_tracker().record_llm(
         model=model,
@@ -322,6 +346,8 @@ def record_llm(
         step=step,
         total=total,
         kind=kind,
+        cache_read_tokens=cache_read_tokens,
+        cache_write_tokens=cache_write_tokens,
     )
 
 
@@ -375,7 +401,8 @@ def log_run_summary(prefix: str = "Custo do run") -> None:
     logger.info(
         "%s: usd_total=%.6f llm=%.6f embed=%.6f "
         "tokens_in=%d tokens_out=%d tokens_embed=%d "
-        "llm_calls=%d cache_hits=%d embed_calls=%d",
+        "llm_calls=%d cache_hits=%d embed_calls=%d "
+        "prompt_cache_read=%d prompt_cache_write=%d",
         prefix,
         s["cost_usd_total"],
         s["cost_usd_llm"],
@@ -386,6 +413,8 @@ def log_run_summary(prefix: str = "Custo do run") -> None:
         s["llm_calls"],
         s["cache_hits"],
         s["embed_calls"],
+        s.get("prompt_cache_read_tokens", 0),
+        s.get("prompt_cache_write_tokens", 0),
     )
 
 

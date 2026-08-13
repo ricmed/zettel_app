@@ -14,15 +14,6 @@ Analise a relação entre a nota atual e cada nota candidata a conexão.
 - `exemplifies`: uma serve como exemplo prático da outra
 - `related`: relação temática clara mas não se encaixa nas anteriores
 
-## Entrada
-
-**Nota atual**:
-- Título: {current_title}
-- Tese: {current_thesis}
-
-**Notas candidatas**:
-{candidate_notes}
-
 ## Formato de saída (JSON — lista)
 
 ```json
@@ -34,3 +25,14 @@ Analise a relação entre a nota atual e cada nota candidata a conexão.
   }
 ]
 ```
+
+A nota atual e as candidatas seguem na mensagem do usuario.
+
+<!-- zettel:user -->
+
+**Nota atual**:
+- Título: {current_title}
+- Tese: {current_thesis}
+
+**Notas candidatas**:
+{candidate_notes}

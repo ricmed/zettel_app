@@ -6,14 +6,6 @@ Voce e um assistente que organiza notas permanentes de Zettelkasten em Mapas de 
 
 O acervo de notas pertence ao dominio de **{domain}**.
 
-## Entrada
-
-**Notas do cluster**:
-{notes_list}
-
-**Termos representativos do cluster**:
-{cluster_terms}
-
 ## Categorias preferidas (nivel do MOC)
 
 O campo `topic` do MOC DEVE ser uma das **categorias** abaixo (nao use o nome do pilar nem um topico-folha como `topic`). Escolha a categoria mais adequada ao cluster:
@@ -52,3 +44,13 @@ Pilares agrupam categorias; os topicos-folha orientam as **subsecoes** do MOC:
   ]
 }
 ```
+
+As notas do cluster e os termos representativos seguem na mensagem do usuario.
+
+<!-- zettel:user -->
+
+**Notas do cluster**:
+{notes_list}
+
+**Termos representativos do cluster**:
+{cluster_terms}

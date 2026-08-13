@@ -55,8 +55,10 @@ def test_run_ask_passes_wikilinks_to_prompt(db, tmp_path, monkeypatch):
         )
         return NoteSearchResult(hits=[hit], candidates=[hit])
 
-    def _fake_llm_call(llm, prompt):
-        captured["prompt"] = prompt
+    def _fake_llm_call(llm, prompt="", **kwargs):
+        # Prefer explicit user=; legacy positional `prompt` still works.
+        captured["prompt"] = kwargs.get("user") or prompt
+        captured["system"] = kwargs.get("system")
         return "Resposta baseada em [[ZTL - 01HZZZ - grafos-de-conhecimento]]."
 
     monkeypatch.setattr("zettel.retrieval.Retriever.search_notes", _fake_search)

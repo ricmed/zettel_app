@@ -8,16 +8,6 @@ nem embeds Obsidian** (`![[...]]`).
 
 Mantenha o texto em **{language}**.
 
-## Perfil
-
-Nome: {personality_name}
-
-Instrucoes de estilo:
-{style_prompt}
-
-Notas extras do usuario (se houver):
-{custom_style_notes}
-
 ## Regras
 
 1. Preserve a estrutura Markdown (`#`, `##`, listas, blockquotes, embeds).
@@ -27,6 +17,20 @@ Notas extras do usuario (se houver):
    narrativas, nao nas listas bibliograficas).
 4. Nao adicione fatos novos nem remova afirmacoes substantivas.
 5. Responda **apenas** com o Markdown reescrito completo.
+
+Perfil de estilo e o artigo a reescrever seguem na mensagem do usuario.
+
+<!-- zettel:user -->
+
+## Perfil
+
+Nome: {personality_name}
+
+Instrucoes de estilo:
+{style_prompt}
+
+Notas extras do usuario (se houver):
+{custom_style_notes}
 
 ## Artigo
 

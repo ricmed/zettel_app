@@ -346,10 +346,10 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB) -> int:
     if not pending:
         return 0
 
-    from zettel.llm import load_prompt
+    from zettel.llm import fill_template, load_prompt_parts
 
-    prompt_template = load_prompt(cfg.prompts_path / "image_description.md")
-    prompt_hash = sha256_hex(prompt_template)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "image_description.md")
+    prompt_hash = sha256_hex(prompt_parts.full_template)
     model = cfg.images.model or cfg.llm.model
     llm = _get_multimodal_llm(cfg, model)
 
@@ -394,7 +394,7 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB) -> int:
         try:
             description = _describe_with_rate_limit_retry(
                 llm,
-                prompt_template,
+                prompt_parts,
                 img_file,
                 context,
                 asset_id=asset["asset_id"],
@@ -402,6 +402,8 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB) -> int:
                 backoff_max=backoff_max,
                 step=step,
                 total=total_images,
+                provider=cfg.llm.provider,
+                prompt_cache=cfg.llm.prompt_cache,
             )
             last_llm_call_at = time.monotonic()
             db.cache_llm_response(call_checksum, "(image)", description)
@@ -439,7 +441,7 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB) -> int:
 
 def _describe_with_rate_limit_retry(
     llm: Any,
-    prompt_template: str,
+    prompt_parts: Any,
     img_file: Path,
     context: str,
     *,
@@ -448,14 +450,17 @@ def _describe_with_rate_limit_retry(
     backoff_max: float,
     step: int | None = None,
     total: int | None = None,
+    provider: str | None = None,
+    prompt_cache: bool = True,
 ) -> str:
     """Call multimodal describe; retry on 429 using provider wait hints."""
     attempts = max_retries + 1
     for attempt in range(attempts):
         try:
             return _describe_one(
-                llm, prompt_template, img_file, context,
+                llm, prompt_parts, img_file, context,
                 step=step, total=total,
+                provider=provider, prompt_cache=prompt_cache,
             )
         except Exception as e:
             if not _is_rate_limit_error(e) or attempt >= max_retries:
@@ -473,57 +478,98 @@ def _describe_with_rate_limit_retry(
 
 def _get_multimodal_llm(cfg: AppConfig, model: str) -> Any:
     """Instantiate a chat model for image description (provider from cfg.llm)."""
-    if cfg.llm.provider == "openai":
+    from zettel.llm import is_openai_compatible, normalize_llm_provider
+
+    provider = normalize_llm_provider(cfg.llm.provider)
+    base_url = getattr(cfg.llm, "base_url", None)
+    # Retries de 429 sao tratados em _describe_with_rate_limit_retry (com pacing
+    # e wait hint da API). max_retries=0 evita double-retry curto do SDK.
+    if is_openai_compatible(provider):
         from langchain_openai import ChatOpenAI
-        # Retries de 429 sao tratados em _describe_with_rate_limit_retry (com pacing
-        # e wait hint da API). max_retries=0 evita double-retry curto do SDK.
-        return ChatOpenAI(model=model, temperature=cfg.llm.temperature, max_retries=0)
-    if cfg.llm.provider == "anthropic":
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "temperature": cfg.llm.temperature,
+            "max_retries": 0,
+        }
+        if base_url:
+            kwargs["base_url"] = base_url
+        return ChatOpenAI(**kwargs)
+    if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(model=model, temperature=cfg.llm.temperature, max_retries=0)
-    if cfg.llm.provider == "ollama":
+    if provider == "ollama":
         from langchain_ollama import ChatOllama
-        return ChatOllama(model=model, temperature=cfg.llm.temperature)
+        kwargs = {"model": model, "temperature": cfg.llm.temperature}
+        if base_url:
+            kwargs["base_url"] = base_url
+        return ChatOllama(**kwargs)
+    if provider == "gemini":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(
+            model=model, temperature=cfg.llm.temperature, max_retries=0,
+        )
     raise ValueError(f"Provider nao suportado para descricao de imagem: {cfg.llm.provider}")
 
 
 def _describe_one(
     llm: Any,
-    prompt_template: str,
+    prompt_parts: Any,
     img_file: Path,
     context: str,
     *,
     step: int | None = None,
     total: int | None = None,
+    provider: str | None = None,
+    prompt_cache: bool = True,
 ) -> str:
-    from langchain_core.messages import HumanMessage
+    from langchain_core.messages import HumanMessage, SystemMessage
 
-    from zettel.llm import _extract_usage, _resolve_model_name
+    from zettel.llm import (
+        _extract_usage,
+        _resolve_model_name,
+        apply_prompt_cache_hints,
+        fill_template,
+    )
     from zettel.pricing import estimate_llm_cost
     from zettel.usage import record_llm
 
     b64 = base64.b64encode(img_file.read_bytes()).decode("ascii")
-    prompt = prompt_template.replace("{context}", context or "(sem contexto textual)")
-    message = HumanMessage(content=[
-        {"type": "text", "text": prompt},
-        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
-    ])
-    response = llm.invoke([message])
+    mapping = {"context": context or "(sem contexto textual)"}
+    system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
+    user_text = fill_template(prompt_parts.user_template, mapping)
+
+    messages: list[Any] = []
+    if system:
+        messages.append(SystemMessage(content=system))
+    messages.append(
+        HumanMessage(content=[
+            {"type": "text", "text": user_text},
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+        ])
+    )
+    messages, invoke_kwargs = apply_prompt_cache_hints(
+        provider, messages, enabled=prompt_cache,
+    )
+    response = llm.invoke(messages, **invoke_kwargs)
     content = response.content
     if not isinstance(content, str):
         content = str(content)
 
     model_name = _resolve_model_name(llm, None)
-    tokens_in, tokens_out = _extract_usage(response)
-    cost = estimate_llm_cost(model_name, tokens_in, tokens_out)
+    usage = _extract_usage(response)
+    cost = estimate_llm_cost(
+        model_name, usage.prompt_tokens, usage.completion_tokens, provider=provider,
+    )
     record_llm(
         model=model_name or "unknown",
-        tokens_in=tokens_in,
-        tokens_out=tokens_out,
+        tokens_in=usage.prompt_tokens,
+        tokens_out=usage.completion_tokens,
         cost_usd=cost,
         label=f"image:{img_file.name}",
         step=step,
         total=total,
         kind="imagem" if step is not None else None,
+        cache_read_tokens=usage.cache_read_tokens,
+        cache_write_tokens=usage.cache_write_tokens,
     )
     return content.strip()

@@ -2,15 +2,6 @@
 
 Você é um assistente que decide se um novo candidato a nota permanente é duplicata de notas existentes.
 
-## Entrada
-
-**Candidato novo**:
-- Tese: {new_thesis}
-- Definição: {new_definition}
-
-**Notas existentes mais similares**:
-{existing_notes}
-
 ## Decisões possíveis
 
 - `create_new`: o candidato é suficientemente distinto — criar nova nota
@@ -26,3 +17,14 @@ Você é um assistente que decide se um novo candidato a nota permanente é dupl
   "reason": "Justificativa breve da decisão"
 }
 ```
+
+O candidato novo e as notas existentes similares seguem na mensagem do usuário.
+
+<!-- zettel:user -->
+
+**Candidato novo**:
+- Tese: {new_thesis}
+- Definição: {new_definition}
+
+**Notas existentes mais similares**:
+{existing_notes}
