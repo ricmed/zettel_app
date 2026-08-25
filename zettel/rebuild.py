@@ -363,6 +363,8 @@ def run_rebuild_vault(
             stats["missing_body"] += 1
             continue
         meta = json.loads(fm_json)
+        if not meta.get("title") and note.get("title"):
+            meta["title"] = note["title"][:100]
         path_str = note.get("path")
         note_path = Path(path_str) if path_str else (
             cfg.vault_path / "30_Permanent"

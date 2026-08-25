@@ -342,9 +342,11 @@ def _process_candidate(
     from datetime import datetime
     now = datetime.now().isoformat()
     tags = note_output.tags or cand.tags
+    title = note_output.title[:100] or cand.thesis[:60]
     meta = {
         "type": "permanent",
         "note_id": note_id,
+        "title": title,
         "source_id": source_id,
         "literature_ref": literature_ref,
         "source_locator": cand.source_locator or "",
@@ -358,7 +360,6 @@ def _process_candidate(
         "llm_cache_hit": cache_hit,
     }
 
-    title = note_output.title or cand.thesis[:60]
     filename = note_filename("ZTL", note_id, title)
     note_path = cfg.vault_path / "30_Permanent" / filename
     safe_write_note(note_path, meta, body)

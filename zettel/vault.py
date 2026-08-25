@@ -493,7 +493,7 @@ def build_permanent_note_body(
     return "\n".join(parts)
 
 
-def _slug(text: str, max_len: int = 50) -> str:
+def _slug(text: str, max_len: int = 100) -> str:
     """Create a URL-safe slug from text."""
     s = text.lower().strip()
     s = re.sub(r"[^\w\s-]", "", s)

@@ -188,7 +188,7 @@ Responda APENAS com JSON válido:
   "status": "accepted",
   "reason": "Descrição específica do motivo da aceitação",
   "category": "promotional | generic | vague | context_dependent | redundant | low_density",
-  "title": "Título declarativo curto (máx 80 chars)",
+  "title": "Título declarativo curto (máx 100 chars)",
   "thesis": "Uma frase-tese clara e completa",
   "definition": "Explicação autônoma, detalhada e compreensível por si só (mínimo 3-4 frases substantivas)",
   "intuition": "Analogia, metáfora ou exemplo cotidiano que ilumina o conceito",

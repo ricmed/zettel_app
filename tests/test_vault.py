@@ -77,7 +77,7 @@ def test_upsert_managed_block_replace():
 
 def test_slug():
     assert _slug("Hello World! Test 123") == "hello-world-test-123"
-    assert len(_slug("a" * 100)) <= 50
+    assert len(_slug("a" * 100)) <= 80
 
 
 def test_note_filename():
