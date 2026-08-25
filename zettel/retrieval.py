@@ -127,26 +127,6 @@ class Retriever:
             hits=self._expand_with_graph(seeds, exclude_id), candidates=candidates
         )
 
-    def search_chunks(
-        self,
-        query: str,
-        topk: Optional[int] = None,
-        mode: Optional[str] = None,
-    ) -> list[RetrievedNote]:
-        """Retrieve source chunks for ``query`` (no graph expansion — graph is notes only).
-
-        Result ``note_id`` field carries the ``chunk_id`` (same id space in Chroma
-        and FTS). Used for optional raw-evidence retrieval in ``ask``.
-        """
-        topk = topk if topk is not None else self.cfg.linking.topk
-        mode = mode or self.cfg.retrieval.mode
-        pool = max(topk * 3, 20)
-
-        vector_hits = self._vector_chunks(query, pool)
-        bm25_hits = self._bm25_chunks(query, pool) if mode == "hybrid" else []
-        fused = self._rrf_fuse_chunks(vector_hits, bm25_hits)
-        return fused[:topk]
-
     # ── Vector / BM25 source rankings ──────────────────────────────────
 
     def _vector_notes(self, query: str, pool: int, exclude_id: Optional[str]) -> list[dict]:
@@ -154,13 +134,6 @@ class Retriever:
             return self.idx.query_similar_notes(query, n_results=pool, exclude_id=exclude_id)
         except Exception as e:  # pragma: no cover - defensive around Chroma
             logger.warning("Busca vetorial de notas falhou: %s", e)
-            return []
-
-    def _vector_chunks(self, query: str, pool: int) -> list[dict]:
-        try:
-            return self.idx.find_similar_chunks([query], n_results=pool)
-        except Exception as e:  # pragma: no cover
-            logger.warning("Busca vetorial de chunks falhou: %s", e)
             return []
 
     def _bm25_notes(self, query: str, pool: int, exclude_id: Optional[str]) -> list[dict]:
@@ -171,12 +144,6 @@ class Retriever:
         if exclude_id:
             hits = [h for h in hits if h["note_id"] != exclude_id]
         return hits
-
-    def _bm25_chunks(self, query: str, pool: int) -> list[dict]:
-        if not getattr(self.db, "fts_enabled", False):
-            self._warn_no_fts()
-            return []
-        return self.db.search_chunks_fts(query, limit=pool)
 
     def _apply_relevance_floor(
         self,
@@ -312,37 +279,6 @@ class Retriever:
         self._hydrate_notes(results)
         return results
 
-    def _rrf_fuse_chunks(
-        self, vector_hits: list[dict], bm25_hits: list[dict]
-    ) -> list[RetrievedNote]:
-        k = self.cfg.retrieval.rrf_k
-        scores: dict[str, float] = {}
-        merged: dict[str, RetrievedNote] = {}
-
-        for rank, hit in enumerate(vector_hits, start=1):
-            cid = hit["id"]
-            scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank)
-            rn = merged.setdefault(cid, RetrievedNote(note_id=cid, score=0.0))
-            rn.vector_rank = rank
-            rn.vector_distance = hit.get("distance")
-            if hit.get("document"):
-                rn.document = hit["document"]
-            if hit.get("metadata"):
-                rn.metadata = hit["metadata"]
-
-        for rank, hit in enumerate(bm25_hits, start=1):
-            cid = hit["chunk_id"]
-            scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank)
-            rn = merged.setdefault(cid, RetrievedNote(note_id=cid, score=0.0))
-            rn.bm25_rank = rank
-
-        for cid, rn in merged.items():
-            rn.score = scores[cid]
-
-        results = sorted(merged.values(), key=lambda r: r.score, reverse=True)
-        self._hydrate_chunks(results)
-        return results
-
     # ── Hydration (fill title/document for ids that came only from BM25) ──
 
     def _hydrate_notes(self, results: list[RetrievedNote]) -> None:
@@ -357,18 +293,6 @@ class Retriever:
                 rn.document = row.get("body") or ""
             rn.metadata.setdefault("source_id", row.get("source_id"))
             rn.metadata.setdefault("path", row.get("path"))
-
-    def _hydrate_chunks(self, results: list[RetrievedNote]) -> None:
-        for rn in results:
-            if rn.document:
-                continue
-            row = self.db.get_chunk(rn.note_id)
-            if not row:
-                continue
-            rn.document = row.get("text") or ""
-            rn.metadata.setdefault("source_id", row.get("source_id"))
-            rn.metadata.setdefault("locator", row.get("locator"))
-            rn.metadata.setdefault("section_path", row.get("section_path"))
 
     # ── Graph expansion ────────────────────────────────────────────────
 

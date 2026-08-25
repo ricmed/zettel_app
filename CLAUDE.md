@@ -77,7 +77,7 @@ Every decision is recorded via `db.record_duplicate(run_id, layer)` and surfaced
 
 ### Data flow between phases
 
-`extract` writes drafts + concepts `awaiting_review`. `review` promotes approved concepts (after dedupe) to `approved`. `connect` loads `get_concepts_by_status("approved")` from SQLite (`candidates.json` is optional debug cache). All other inter-phase communication goes through StateDB and ChromaDB. Each CLI command instantiates `(AppConfig, StateDB, VectorIndex)` via `_load_deps()`, `_get_db()`, `_get_idx()` in cli.py.
+`extract` writes drafts + concepts `awaiting_review`. `review` promotes approved concepts (after dedupe) to `approved`. `connect` loads `get_concepts_by_status("approved", without_notes=True)` from SQLite only. All other inter-phase communication goes through StateDB and ChromaDB. Each CLI command instantiates `(AppConfig, StateDB, VectorIndex)` via `_load_deps()`, `_get_db()`, `_get_idx()` in cli.py.
 
 **Breaking change**: the old monolithic LIT-per-source model is gone. Re-run `extract` + `review` for sources harvested before this change.
 

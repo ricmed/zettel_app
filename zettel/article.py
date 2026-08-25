@@ -16,11 +16,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Literal, Optional
 
-from . import graph
 from .bibliography import display_author_natural, format_abnt_in_text
 from .hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
 from .llm import call_llm, clip_text, extract_json, fill_template, get_llm, load_prompt_parts
-from .retrieval import RetrievedNote, Retriever
+from .retrieval import RetrievedNote
 from .schemas import ArticleOutline, ArticleOutlineSection
 from .vault import _slug, render_frontmatter
 
@@ -178,96 +177,6 @@ def run_article(
     )
 
 
-def discover_and_catalog(
-    cfg: "AppConfig",
-    db: "StateDB",
-    idx: "VectorIndex",
-    topic: str,
-    style: ArticleStyle = "blog",
-    topk: Optional[int] = None,
-    use_graph: Optional[bool] = None,
-    mode: Optional[str] = None,
-) -> ArticleCatalog:
-    """Retrieve notes for ``topic`` and enrich with sources/assets."""
-    art_cfg = cfg.retrieval.article
-    topk = topk if topk is not None else art_cfg.topk
-    mode = mode or cfg.retrieval.mode
-    if use_graph is None:
-        use_graph = cfg.retrieval.graph_expansion.enabled
-
-    retriever = Retriever(cfg, db, idx)
-    result_pool = retriever.search_notes(
-        topic, topk=topk, mode=mode, expand_graph=use_graph
-    )
-    hits = list(result_pool.hits)
-
-    # Extra graph hops when article.max_hops exceeds the global default used
-    # by Retriever.search_notes.
-    gcfg = cfg.retrieval.graph_expansion
-    if use_graph and hits and art_cfg.max_hops > gcfg.max_hops:
-        seeds = [h for h in hits if h.hop == 0] or hits[:topk]
-        neighbors = graph.expand_notes(
-            db,
-            seed_ids=[s.note_id for s in seeds],
-            max_hops=art_cfg.max_hops,
-            decay=gcfg.decay,
-            relation_weights=gcfg.relation_weights,
-            max_neighbors=gcfg.max_neighbors,
-            seed_weights={s.note_id: s.score for s in seeds},
-        )
-        by_id = {h.note_id: h for h in hits}
-        for nid, neigh in neighbors.items():
-            if nid in by_id:
-                continue
-            rn = RetrievedNote(
-                note_id=nid, score=neigh.weight, hop=neigh.hop, via=neigh.via
-            )
-            row = db.get_note(nid)
-            if row:
-                rn.title = row.get("title") or ""
-                rn.document = row.get("body") or ""
-                rn.metadata["source_id"] = row.get("source_id")
-                rn.metadata["path"] = row.get("path")
-            by_id[nid] = rn
-        hits = sorted(by_id.values(), key=lambda r: r.score, reverse=True)
-
-    moc_ids: list[str] = []
-    moc = db.find_moc_by_topic(topic)
-    if moc:
-        moc_ids.append(moc["moc_id"])
-        hits = _merge_moc_notes(db, hits, moc)
-
-    hits = hits[: art_cfg.max_context_notes]
-
-    floor_cfg = cfg.retrieval.relevance_floor
-    retrieval_params = {
-        "mode": mode,
-        "topk": topk,
-        "max_context_notes": art_cfg.max_context_notes,
-        "rrf_k": cfg.retrieval.rrf_k,
-        "relevance_floor_enabled": floor_cfg.enabled,
-        "min_vector_similarity": floor_cfg.min_vector_similarity,
-        "absolute_min_similarity": floor_cfg.absolute_min_similarity,
-        "bm25_hit_bypasses_floor": floor_cfg.bm25_hit_bypasses_floor,
-        "bm25_bypass_max_rank": floor_cfg.bm25_bypass_max_rank,
-        "graph_expansion_used": bool(use_graph),
-        "graph_max_hops": max(gcfg.max_hops, art_cfg.max_hops if use_graph else 0),
-        "graph_decay": gcfg.decay,
-        "graph_max_neighbors": gcfg.max_neighbors,
-        "moc_boost": bool(moc_ids),
-    }
-
-    catalog = ArticleCatalog(
-        topic=topic,
-        style=style,
-        moc_ids=moc_ids,
-        candidates=list(result_pool.candidates),
-        retrieval_params=retrieval_params,
-    )
-    _populate_catalog(db, catalog, hits, art_cfg.max_figures, art_cfg.max_chars_per_note)
-    return catalog
-
-
 def generate_outline(
     cfg: "AppConfig",
     db: "StateDB",
@@ -297,42 +206,6 @@ def generate_outline(
     outline = ArticleOutline.model_validate(data)
     outline = _sanitize_outline(outline, catalog, art_cfg.max_sections)
     return outline, llm_called
-
-
-def draft_and_assemble(
-    cfg: "AppConfig",
-    db: "StateDB",
-    catalog: ArticleCatalog,
-    outline: ArticleOutline,
-    judge_feedback: str = "",
-) -> ArticleResult:
-    """Draft each section and assemble the final Markdown article."""
-    section_bodies, used_note_ids, llm_called = draft_sections(
-        cfg, db, catalog, outline, judge_feedback=judge_feedback
-    )
-    frontmatter, body, cited_sources, warnings = assemble_article(
-        outline, section_bodies, catalog, cfg.vault_path
-    )
-    frontmatter["llm_model"] = cfg.llm.model
-    frontmatter["topic"] = catalog.topic
-    frontmatter["style"] = catalog.style
-    frontmatter["origin"] = "article"
-    frontmatter["type"] = "article"
-
-    return ArticleResult(
-        topic=catalog.topic,
-        style=catalog.style,
-        title=outline.title,
-        body=body,
-        answer=body,
-        frontmatter=frontmatter,
-        outline=outline,
-        warnings=warnings,
-        llm_called=llm_called,
-        llm_model=cfg.llm.model,
-        note_ids=list(dict.fromkeys(used_note_ids)),
-        source_ids=cited_sources,
-    )
 
 
 def draft_sections(

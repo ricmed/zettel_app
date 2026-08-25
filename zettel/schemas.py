@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from enum import Enum
 from typing import Optional
 
@@ -10,36 +9,6 @@ from pydantic import BaseModel, Field
 
 
 # ── Enums ──────────────────────────────────────────────────────────────
-
-
-class OriginType(str, Enum):
-    PDF = "pdf"
-    MARKDOWN = "md"
-    AUDIO = "audio"
-
-
-class ChunkStatus(str, Enum):
-    PENDING = "pending"
-    EXTRACTED = "extracted"
-    AWAITING_REVIEW = "awaiting_review"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-    PERSISTED = "persisted"
-    FAILED = "failed"
-    SKIPPED = "skipped"
-
-
-class PageConfidence(str, Enum):
-    EXPLICIT = "explicit"
-    INFERRED = "inferred"
-    UNKNOWN = "unknown"
-
-
-class PageOffsetConfidence(str, Enum):
-    CONFIRMED = "confirmed"
-    HEURISTIC = "heuristic"
-    NONE = "none"
-    SKIPPED = "skipped"
 
 
 class DedupeDecision(str, Enum):
@@ -58,102 +27,7 @@ class RelationType(str, Enum):
     RELATED = "related"
 
 
-# ── Source / File ──────────────────────────────────────────────────────
-
-
-class FileRecord(BaseModel):
-    path: str
-    file_checksum: str
-    origin_type: OriginType
-    source_id: Optional[str] = None
-    last_seen_at: datetime = Field(default_factory=datetime.now)
-
-
-class SourceRecord(BaseModel):
-    source_id: str
-    citekey: str
-    title: str
-    authors: list[str] = Field(default_factory=list)
-    year: Optional[int] = None
-    file_checksum: str
-    extraction_checksum: Optional[str] = None
-    origin_path: str
-    origin_type: OriginType
-    document_type: Optional[str] = None
-    bibliography: Optional[dict] = None
-    abnt_reference: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
-
-
-# ── Chapter / Chunk ────────────────────────────────────────────────────
-
-
-class ChapterRecord(BaseModel):
-    chapter_id: str
-    source_id: str
-    title: str = ""
-    chapter_checksum: str
-    locator: str = ""
-
-
-class ChunkRecord(BaseModel):
-    chunk_id: str
-    source_id: str
-    chapter_id: str
-    text: str
-    chunk_checksum: str
-    locator: str = ""
-    section_path: str = ""
-    status: ChunkStatus = ChunkStatus.PENDING
-    chunk_index: Optional[int] = None
-    page_in_file: Optional[int] = None
-    page_in_book: Optional[int] = None
-    page_confidence: PageConfidence = PageConfidence.UNKNOWN
-    literature_note_path: Optional[str] = None
-    literature_id: Optional[str] = None
-    review_confidence: Optional[float] = None
-    summary_json: Optional[str] = None
-    llm_prompt1_hash: Optional[str] = None
-    llm_call_checksum: Optional[str] = None
-
-
-class LiteratureChunkNoteMeta(BaseModel):
-    """Frontmatter fields for a granular literature note (draft or approved)."""
-
-    type: str = "literature"
-    source_id: str
-    citekey: str = ""
-    chunk_id: str
-    chunk_index: int = 0
-    literature_id: str = ""
-    page_in_file: Optional[int] = None
-    page_in_book: Optional[int] = None
-    page_confidence: PageConfidence = PageConfidence.UNKNOWN
-    status: ChunkStatus = ChunkStatus.AWAITING_REVIEW
-    review_confidence: Optional[float] = None
-    language: str = "pt-BR"
-    llm_model: str = ""
-    processing_time_ms: Optional[int] = None
-    origin: str = "pipeline"
-
-
 # ── LLM Extraction Outputs ────────────────────────────────────────────
-
-
-class LiteratureChunkOutput(BaseModel):
-    """Output from Prompt 1 for a single chunk — appended to LIT note."""
-    chunk_status: str = Field(description="Status do chunk")
-    rejection_reason: str = Field(description="Motivo da rejeição")
-    rejection_category: str = Field(description="Categoria da rejeição")
-    summary: str = Field(description="Resumo do chunk em PT-BR")
-    key_concepts: list[str] = Field(
-        default_factory=list, description="Conceitos-chave extraídos"
-    )
-    candidates: list[PermanentNoteCandidate] = Field(
-        default_factory=list,
-        description="Candidatos atômicos a notas permanentes",
-    )
 
 
 class PermanentNoteCandidate(BaseModel):
@@ -184,8 +58,19 @@ class PermanentNoteCandidate(BaseModel):
     )
 
 
-# Forward ref update
-LiteratureChunkOutput.model_rebuild()
+class LiteratureChunkOutput(BaseModel):
+    """Output from Prompt 1 for a single chunk — appended to LIT note."""
+    chunk_status: str = Field(description="Status do chunk")
+    rejection_reason: str = Field(description="Motivo da rejeição")
+    rejection_category: str = Field(description="Categoria da rejeição")
+    summary: str = Field(description="Resumo do chunk em PT-BR")
+    key_concepts: list[str] = Field(
+        default_factory=list, description="Conceitos-chave extraídos"
+    )
+    candidates: list[PermanentNoteCandidate] = Field(
+        default_factory=list,
+        description="Candidatos atômicos a notas permanentes",
+    )
 
 
 class DedupeResult(BaseModel):
@@ -196,57 +81,19 @@ class DedupeResult(BaseModel):
 
 
 class RelationshipResult(BaseModel):
-    """Output from relationship prompt."""
+    """Typed relation between permanent notes (Prompt 2 / connect)."""
     related_note_id: str
     relation_type: RelationType
     description: str = ""
 
 
-# ── Permanent Note ─────────────────────────────────────────────────────
-
-
-class PermanentNoteRecord(BaseModel):
-    note_id: str
-    source_id: str
-    literature_ref: str = ""
-    title: str = ""
-    thesis: str = ""
-    body: str = ""
-    tags: list[str] = Field(default_factory=list)
-    source_locator: str = ""
-    connections: list[RelationshipResult] = Field(default_factory=list)
-    note_semantic_checksum: Optional[str] = None
-    auto_checksum: Optional[str] = None
-    embedding_model: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
-
-
-# ── Concept mapping ───────────────────────────────────────────────────
-
-
-class ConceptRecord(BaseModel):
-    concept_id: str
-    source_id: str
-    chunk_id: str
-    anchor_hash: str = ""
-    thesis_hash: str = ""
-    note_id: Optional[str] = None
-
-
-# ── MOC ────────────────────────────────────────────────────────────────
-
-
-class MOCRecord(BaseModel):
-    moc_id: str
-    topic: str
-    note_ids: list[str] = Field(default_factory=list)
-    cluster_signature: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
-
-
 # ── LLM MOC Output ────────────────────────────────────────────────────
+
+
+class MOCSubsection(BaseModel):
+    title: str
+    note_ids: list[str] = Field(default_factory=list)
+    description: str = ""
 
 
 class MOCGenerationOutput(BaseModel):
@@ -257,15 +104,6 @@ class MOCGenerationOutput(BaseModel):
         default="",
         description="Justificativa de porque este topico foi escolhido",
     )
-
-
-class MOCSubsection(BaseModel):
-    title: str
-    note_ids: list[str] = Field(default_factory=list)
-    description: str = ""
-
-
-MOCGenerationOutput.model_rebuild()
 
 
 # ── MOC Incremental Update ────────────────────────────────────────────
@@ -280,9 +118,6 @@ class MOCNotePlacement(BaseModel):
 class MOCIncrementalOutput(BaseModel):
     placements: list[MOCNotePlacement] = Field(default_factory=list)
     new_subsections: list[MOCSubsection] = Field(default_factory=list)
-
-
-MOCIncrementalOutput.model_rebuild()
 
 
 # ── Article generation ────────────────────────────────────────────────
@@ -305,9 +140,6 @@ class ArticleOutline(BaseModel):
     )
 
 
-ArticleOutline.model_rebuild()
-
-
 # ── Permanent Note LLM Output ─────────────────────────────────────────
 
 
@@ -327,6 +159,3 @@ class PermanentNoteLLMOutput(BaseModel):
         description="Conexões tipadas com notas existentes",
     )
     tags: list[str] = Field(default_factory=list)
-
-
-PermanentNoteLLMOutput.model_rebuild()

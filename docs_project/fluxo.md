@@ -40,8 +40,7 @@ A seguir está um **fluxo detalhado, em bullet points**, para um sistema em **Py
 * `prompts/`
 
   * `literature_note.md` (Prompt 1 melhorado)
-  * `permanent_note.md` (Prompt 2 melhorado)
-  * `relationship.md` (decidir tipo de relação entre notas)
+  * `permanent_note.md` (Prompt 2 melhorado; inclui tipos de relação)
   * `dedupe_decision.md` (merge/ignore/refine/update)
   * `moc_generation.md` (gerar/atualizar MOCs)
   * `ptbr_guard.md` (checagem/ajuste de idioma PT-BR)

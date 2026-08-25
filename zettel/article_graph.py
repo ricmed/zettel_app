@@ -705,7 +705,9 @@ def run_article_graph(
                         resume_val = {"context_decision": "approve", "extra_queries": []}
                 result_state = graph.invoke(Command(resume=resume_val), config)
                 continue
-            resume_val = hitl_handler(result_state)
+            ints = result_state["__interrupt__"]
+            payload = ints[0].value if ints and getattr(ints[0], "value", None) else {}
+            resume_val = hitl_handler(payload if isinstance(payload, dict) else {})
             result_state = graph.invoke(Command(resume=resume_val), config)
 
         return _result_from_state(result_state, rt, topic, style)

@@ -439,17 +439,6 @@ def build_literature_chunk_note(
     return meta, body
 
 
-# Backwards-compatible alias (old monolithic LIT builder → index)
-def build_literature_note(
-    source_id: str,
-    citekey: str,
-    title: str,
-    origin: str = "pipeline",
-) -> tuple[dict[str, Any], str]:
-    """Deprecated alias: creates a literature index note."""
-    return build_literature_index_note(source_id, citekey, title, origin=origin)
-
-
 def build_permanent_note_body(
     thesis: str,
     definition: str,

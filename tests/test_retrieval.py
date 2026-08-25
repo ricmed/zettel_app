@@ -269,16 +269,3 @@ def test_floor_reason_populated_when_disabled():
     _floor(cfg, hit)
     assert hit.passed_floor is True
     assert hit.floor_reason == "piso desabilitado"
-
-
-def test_search_chunks_hybrid(db):
-    if not db.fts_enabled:
-        pytest.skip("SQLite build sem FTS5")
-    db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
-    db.upsert_chapter("@S::ch000", "@S", "Ch", "chk")
-    db.upsert_chunk("@S::ch000::a", "@S", "@S::ch000", "atencao e transformers", "cka")
-    idx = FakeIndex(chunk_ids=[])
-    r = Retriever(_cfg(), db, idx)
-    res = r.search_chunks("transformers", topk=5)
-    assert any(x.note_id == "@S::ch000::a" for x in res)
-    assert "atencao" in res[0].document

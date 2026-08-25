@@ -50,6 +50,24 @@ def _get_db(cfg):
     return StateDB(cfg.state_db_path)
 
 
+def _load_approved_candidates(db) -> list[dict]:
+    """Load approved concepts without notes from SQLite for ``connect``."""
+    from zettel.schemas import PermanentNoteCandidate
+
+    candidates: list[dict] = []
+    for concept in db.get_concepts_by_status("approved", without_notes=True):
+        raw = concept.get("candidate_json")
+        if not raw:
+            continue
+        candidates.append({
+            "concept_id": concept["concept_id"],
+            "source_id": concept["source_id"],
+            "chunk_id": concept["chunk_id"],
+            "candidate": PermanentNoteCandidate.model_validate_json(raw),
+        })
+    return candidates
+
+
 def _idx_kwargs(cfg, *, reset_mismatched: bool = False) -> dict:
     return {
         "chroma_path": cfg.chroma_path,
@@ -352,23 +370,6 @@ def extract(
         "(use `zettel review` antes do connect)"
     )
 
-    import json
-    cache_file = cfg.cache_path / "candidates.json"
-    cache_file.parent.mkdir(parents=True, exist_ok=True)
-    serializable = []
-    for c in candidates:
-        entry = {
-            "concept_id": c["concept_id"],
-            "source_id": c["source_id"],
-            "chunk_id": c["chunk_id"],
-            "candidate": c["candidate"].model_dump(),
-        }
-        if c.get("literature_id"):
-            entry["literature_id"] = c["literature_id"]
-        serializable.append(entry)
-    cache_file.write_text(json.dumps(serializable, ensure_ascii=False, indent=2), encoding="utf-8")
-    console.print(f"[dim]Candidatos salvos em: {cache_file}[/dim]")
-
     db.close()
 
 
@@ -424,7 +425,7 @@ def connect(
         help="Confirmar automaticamente o reprocessamento se o embedding mudou",
     ),
 ):
-    """Gerar notas permanentes a partir dos candidatos extraídos."""
+    """Gerar notas permanentes a partir dos candidatos aprovados no review."""
     cfg = _load_deps(config)
     if topk:
         cfg.linking.topk = topk
@@ -434,31 +435,12 @@ def connect(
     db = _get_db(cfg)
     idx = _get_idx(cfg, db=db, yes=yes)
 
-    # Load candidates: prefer candidates.json (debug artifact); fall back to the DB
-    # (concepts approved but not yet noted), which is the durable source of truth.
-    import json
-    from zettel.schemas import PermanentNoteCandidate
-    cache_file = cfg.cache_path / "candidates.json"
-    candidates = []
-    if cache_file.exists():
-        raw = json.loads(cache_file.read_text(encoding="utf-8"))
-        for entry in raw:
-            entry["candidate"] = PermanentNoteCandidate(**entry["candidate"])
-            candidates.append(entry)
-    else:
-        console.print("[dim]candidates.json ausente — carregando candidatos aprovados do banco.[/dim]")
-        for concept in db.get_concepts_by_status("approved", without_notes=True):
-            if not concept.get("candidate_json"):
-                continue
-            candidates.append({
-                "concept_id": concept["concept_id"],
-                "source_id": concept["source_id"],
-                "chunk_id": concept["chunk_id"],
-                "candidate": PermanentNoteCandidate.model_validate_json(concept["candidate_json"]),
-            })
+    candidates = _load_approved_candidates(db)
 
     if not candidates:
-        console.print("[red]Nenhum candidato encontrado. Execute 'extract' primeiro.[/red]")
+        console.print(
+            "[red]Nenhum candidato aprovado. Execute 'extract' e 'review' primeiro.[/red]"
+        )
         db.close()
         raise typer.Exit(1)
 
@@ -873,20 +855,7 @@ def run_all(
     # Phase 3: Connect (from DB approved concepts)
     console.rule("[bold blue]Fase 3 — Connect")
     from zettel.connector import run_connect
-    from zettel.schemas import PermanentNoteCandidate
-    import json as _json
-    approved_rows = db.get_concepts_by_status("approved", without_notes=True)
-    connect_cands = []
-    for row in approved_rows:
-        raw = row.get("candidate_json")
-        if not raw:
-            continue
-        connect_cands.append({
-            "concept_id": row["concept_id"],
-            "source_id": row["source_id"],
-            "chunk_id": row["chunk_id"],
-            "candidate": PermanentNoteCandidate(**_json.loads(raw)),
-        })
+    connect_cands = _load_approved_candidates(db)
     note_ids = run_connect(cfg, db, idx, connect_cands)
     console.print(f"  Notas permanentes: {len(note_ids)}")
 
@@ -1320,10 +1289,25 @@ def doctor(
     # Inbox
     checks.append(("Inbox path", cfg.inbox_path.exists(), str(cfg.inbox_path)))
 
-    # Prompts
-    prompt_files = ["literature_note.md", "permanent_note.md", "dedupe_decision.md",
-                    "relationship.md", "moc_generation.md", "moc_incremental.md",
-                    "ptbr_guard.md", "image_description.md", "ask.md"]
+    # Prompts (must match files actually loaded by the pipeline)
+    prompt_files = [
+        "literature_note.md",
+        "permanent_note.md",
+        "dedupe_decision.md",
+        "moc_generation.md",
+        "moc_incremental.md",
+        "ptbr_guard.md",
+        "image_description.md",
+        "ask.md",
+        "bibliographic_metadata.md",
+        "article_outline.md",
+        "article_section_blog.md",
+        "article_section_academic.md",
+        "article_anti_ai.md",
+        "article_query_enrich.md",
+        "article_personality.md",
+        "article_judge.md",
+    ]
     for pf in prompt_files:
         p = cfg.prompts_path / pf
         checks.append((f"Prompt: {pf}", p.exists(), str(p)))

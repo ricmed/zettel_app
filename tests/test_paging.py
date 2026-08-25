@@ -3,9 +3,7 @@
 from zettel.paging import (
     ContentPaging,
     apply_page_inference,
-    apply_page_offset,
     compute_page_in_book,
-    detect_page_offset,
     extract_page_hint,
     format_source_locator,
     infer_missing_page,
@@ -70,19 +68,6 @@ def test_content_paging_derived_offset():
     assert p.page_offset == 25
     p2 = ContentPaging(32, 1, "confirmed")
     assert p2.page_offset == 31
-
-
-def test_apply_page_offset_legacy():
-    assert apply_page_offset(50, 32) == 18
-    assert apply_page_offset(None, 5) is None
-
-
-def test_detect_page_offset_chapter_1():
-    texts = ["Prefacio", "# Capitulo 1\nInicio", "mais"]
-    pages = [5, 12, 13]
-    result = detect_page_offset(texts, pages)
-    assert result["offset"] == 11
-    assert result["needs_confirmation"] is True
 
 
 def test_suggest_content_start_from_page_map():

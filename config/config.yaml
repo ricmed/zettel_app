@@ -75,7 +75,6 @@ literature_review:
   auto_approve_min_confidence: 0.85
   batch_sample_size: 20
   drafts_subdir: 00_Inbox/Review
-  literature_subdir_by_citekey: true
 
 # ── Imagens (extracao + descricao multimodal) ─────────────────────────
 images:

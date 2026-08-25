@@ -60,7 +60,7 @@ class ContentPaging:
 
     @property
     def page_offset(self) -> int:
-        """Derived legacy offset: file - book when book numbering starts at start_book."""
+        """Derived offset: file - book when book numbering starts at start_book."""
         return int(self.content_start_file_page) - int(self.content_start_book_page)
 
 
@@ -162,18 +162,6 @@ def compute_page_in_book(
     return page_in_file - start_file + start_book
 
 
-def apply_page_offset(
-    page_in_file: int | None,
-    page_offset: int | None,
-) -> int | None:
-    """Legacy helper: book = file - offset (kept for older callers/tests)."""
-    if page_in_file is None:
-        return None
-    offset = page_offset or 0
-    # Equivalent to start_file=offset+1, start_book=1 when offset >= 0
-    return compute_page_in_book(page_in_file, offset + 1, 1)
-
-
 def suggest_content_start(
     page_map: Sequence[tuple[int, str]],
 ) -> dict[str, Any]:
@@ -194,34 +182,6 @@ def suggest_content_start(
         "content_start_book_page": 1,
         "confidence": "none",
         "needs_confirmation": True,
-        "anchor_page_in_file": None,
-    }
-
-
-def detect_page_offset(
-    chunk_texts: Sequence[str],
-    page_in_files: Sequence[int | None],
-) -> dict[str, Any]:
-    """Legacy heuristic via chunks; prefer ``suggest_content_start(page_map)``."""
-    for i, text in enumerate(chunk_texts):
-        head = text[:800]
-        for pattern in CHAPTER_START_PATTERNS:
-            if pattern.search(head):
-                file_page = page_in_files[i] if i < len(page_in_files) else None
-                if file_page is not None and file_page >= 1:
-                    offset = file_page - 1
-                    return {
-                        "offset": offset,
-                        "confidence": "heuristic",
-                        "needs_confirmation": True,
-                        "anchor_chunk_index": i,
-                        "anchor_page_in_file": file_page,
-                    }
-    return {
-        "offset": 0,
-        "confidence": "none",
-        "needs_confirmation": True,
-        "anchor_chunk_index": None,
         "anchor_page_in_file": None,
     }
 

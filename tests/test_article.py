@@ -14,8 +14,9 @@ from zettel.article import (
     CatalogNote,
     CatalogSource,
     assemble_article,
-    discover_and_catalog,
+    catalog_from_retrieved,
     format_outline_for_display,
+    retrieved_note_to_dict,
     run_article,
     save_article_note,
     verify_article,
@@ -132,7 +133,7 @@ def test_format_abnt_in_text_variants():
     ) == "A et al."
 
 
-def test_discover_catalog_joins_source_and_assets(db, seeded, monkeypatch):
+def test_catalog_from_retrieved_joins_source_and_assets(db, seeded):
     hits = [
         RetrievedNote(
             note_id=NOTE_A,
@@ -152,15 +153,14 @@ def test_discover_catalog_joins_source_and_assets(db, seeded, monkeypatch):
         ),
     ]
 
-    def fake_search(self, query, topk=None, **kwargs):
-        return NoteSearchResult(hits=hits, candidates=hits)
-
-    monkeypatch.setattr(
-        "zettel.retrieval.Retriever.search_notes", fake_search
-    )
-
     cfg = AppConfig(vault_path=seeded, prompts_path=Path("prompts"))
-    catalog = discover_and_catalog(cfg, db, FakeIndex(), "prompt engineering")
+    catalog = catalog_from_retrieved(
+        cfg,
+        db,
+        "prompt engineering",
+        "blog",
+        [retrieved_note_to_dict(h) for h in hits],
+    )
 
     assert NOTE_A in catalog.notes
     assert "@Negro2026KnowledgeGraphs" in catalog.sources

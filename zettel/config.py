@@ -80,7 +80,6 @@ class LiteratureReviewConfig(BaseModel):
     auto_approve_min_confidence: float = 0.85
     batch_sample_size: int = 20       # max drafts de baixa confianca a listar no review interativo
     drafts_subdir: str = "00_Inbox/Review"
-    literature_subdir_by_citekey: bool = True
 
 
 class ImagesConfig(BaseModel):
@@ -222,7 +221,6 @@ class RetrievalConfig(BaseModel):
 
     mode: Literal["vector", "hybrid"] = "hybrid"
     rrf_k: int = 60                   # constante do Reciprocal Rank Fusion (canonica)
-    fts_min_token_len: int = 2        # tokens menores sao descartados no MATCH
     graph_expansion: GraphExpansionConfig = Field(default_factory=GraphExpansionConfig)
     relevance_floor: RelevanceFloorConfig = Field(default_factory=RelevanceFloorConfig)
     ask: AskConfig = Field(default_factory=AskConfig)

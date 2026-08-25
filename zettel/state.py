@@ -904,14 +904,11 @@ class StateDB:
     def get_concept(self, concept_id: str) -> Optional[dict]:
         return self._fetchone("SELECT * FROM concepts WHERE concept_id=?", (concept_id,))
 
-    def get_concepts_without_notes(self) -> list[dict]:
-        return self._fetchall("SELECT * FROM concepts WHERE note_id IS NULL")
-
     def get_concepts_by_status(self, status: str, without_notes: bool = False) -> list[dict]:
         """Return concepts in a given status. If without_notes, only unnoted ones.
 
-        The `approved` + `without_notes` combination is how `connect` reloads pending
-        candidates straight from the DB when candidates.json is absent.
+        The `approved` + `without_notes` combination is how `connect` loads
+        pending candidates from the DB (source of truth after review).
         """
         if without_notes:
             return self._fetchall(

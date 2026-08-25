@@ -70,7 +70,7 @@ def test_upsert_chunk_and_get_pending(db):
     assert len(pending) == 1
     assert pending[0]["chunk_id"] == "@S::ch000::abc"
 
-    db.update_chunk_status("@S::ch000::abc", "extracted")
+    db.update_chunk_status("@S::ch000::abc", "awaiting_review")
     pending = db.get_pending_chunks()
     assert len(pending) == 0
 

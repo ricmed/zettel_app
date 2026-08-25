@@ -63,18 +63,19 @@ zettel_app/
 ├── prompts/                     # Templates de prompts para o LLM
 │   ├── bibliographic_metadata.md # Extracao de metadados bibliograficos (ABNT)
 │   ├── literature_note.md       # Prompt 1: extracao de conceitos (c/ relevance_score)
-│   ├── permanent_note.md        # Prompt 2: geracao de nota permanente
+│   ├── permanent_note.md        # Prompt 2: geracao de nota permanente (+ tipos de relacao)
 │   ├── dedupe_decision.md       # Decisao de deduplicacao
-│   ├── relationship.md          # Classificacao de relacionamentos
 │   ├── moc_generation.md        # Geracao de MOCs (c/ dominio e categorias)
 │   ├── moc_incremental.md       # Classificacao incremental de notas em MOC existente
 │   ├── ptbr_guard.md            # Guardrail de idioma PT-BR
 │   ├── ask.md                   # Resposta a perguntas sobre o vault
-│   └── image_description.md     # Descricao multimodal de imagens (PT-BR)
+│   ├── image_description.md     # Descricao multimodal de imagens (PT-BR)
+│   ├── article_*.md             # Pipeline de artigo (outline, secoes, judge, etc.)
+│   └── article_anti_ai.md       # Bloco anti-prosa generica no article
 ├── data/
 │   ├── inbox/               # Arquivos para processar (drop zone)
 │   ├── processed/           # Arquivos já processados
-│   ├── cache/               # Cache de candidatos e intermediários
+│   ├── cache/               # Cache intermediário
 │   ├── chroma/              # ChromaDB (persistente)
 │   └── state.db             # SQLite (estado do pipeline)
 ├── vault/                   # Vault do Obsidian (criado pelo init)

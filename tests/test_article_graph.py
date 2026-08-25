@@ -213,3 +213,74 @@ def test_graph_context_enrich_loop(tmp_path, monkeypatch):
     assert calls["n"] >= 2
     assert result.body
     db.close()
+
+
+class _FakeInterrupt:
+    def __init__(self, value: dict):
+        self.value = value
+
+
+def test_hitl_handler_receives_interrupt_payload(tmp_path, monkeypatch):
+    """run_article_graph must unwrap __interrupt__[0].value before calling hitl_handler."""
+    db = StateDB(tmp_path / "hitl.db")
+    vault = tmp_path / "vault"
+    vault.mkdir()
+
+    received: list[dict] = []
+
+    class FakeCompiled:
+        def __init__(self):
+            self._n = 0
+
+        def invoke(self, input_or_cmd, config=None):
+            self._n += 1
+            if self._n == 1:
+                return {
+                    "__interrupt__": [
+                        _FakeInterrupt(
+                            {
+                                "type": "context_review",
+                                "notes": [{"note_id": "N1", "title": "T", "score": 0.9}],
+                                "executed_queries": ["tema"],
+                            }
+                        )
+                    ]
+                }
+            return {
+                "final_body": "# Ok\n\nTexto.\n",
+                "frontmatter": {"title": "Ok"},
+                "warnings": [],
+                "llm_called": False,
+                "used_note_ids": [],
+                "cited_source_ids": [],
+                "no_evidence": False,
+                "aborted": False,
+            }
+
+    class FakeBuilder:
+        def compile(self, checkpointer=None):
+            return FakeCompiled()
+
+    monkeypatch.setattr(
+        "zettel.article_graph.build_article_graph", lambda: FakeBuilder()
+    )
+
+    def hitl(payload: dict) -> dict:
+        received.append(payload)
+        return {"context_decision": "approve", "extra_queries": []}
+
+    cfg = AppConfig(vault_path=vault, prompts_path=Path("prompts"))
+    result = run_article_graph(
+        cfg, db, FakeIndex(), "tema",
+        style="blog",
+        personality="neutral",
+        skip_context_review=False,
+        skip_judge=True,
+        hitl_handler=hitl,
+    )
+
+    assert len(received) == 1
+    assert received[0]["type"] == "context_review"
+    assert received[0]["executed_queries"] == ["tema"]
+    assert "Ok" in result.body
+    db.close()
