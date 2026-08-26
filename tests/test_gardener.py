@@ -8,11 +8,18 @@ import pytest
 
 from zettel.config import AppConfig, GardenerConfig
 from zettel.gardener import (
+    _MOC_FALLBACK_SUBSECTION,
     _validate_moc_topic,
     _parse_moc_structure,
     _parse_incremental_output,
     _update_existing_moc,
     _apply_incremental_placements,
+    _build_moc_body,
+    _build_note_alias_map,
+    _resolve_note_ref,
+    _allowed_note_ids,
+    _note_wikilink,
+    purge_pipeline_mocs,
 )
 from zettel.schemas import (
     MOCGenerationOutput,
@@ -647,4 +654,137 @@ def test_generate_moc_routes_to_incremental(tmp_path):
     # Should have been called twice: generation + incremental
     assert llm.invoke.call_count == 2
 
+    db.close()
+
+
+# ── Note ID resolution & reconciliation ──────────────────────────────
+
+
+def test_resolve_note_ref_alias():
+    alias_to_id = _build_note_alias_map(["NOTE001", "NOTE002"])
+    allowed = {"NOTE001", "NOTE002"}
+    assert _resolve_note_ref("N1", allowed, alias_to_id) == "NOTE001"
+    assert _resolve_note_ref("N2", allowed, alias_to_id) == "NOTE002"
+
+
+def test_resolve_note_ref_rejects_ghost():
+    alias_to_id = _build_note_alias_map(["NOTE001"])
+    allowed = {"NOTE001"}
+    assert _resolve_note_ref("GHOST999", allowed, alias_to_id) is None
+
+
+def test_resolve_note_ref_fuzzy_typo():
+    alias_to_id = _build_note_alias_map(["NOTE001"])
+    allowed = {"NOTE001"}
+    assert _resolve_note_ref("NOTO001", allowed, alias_to_id) == "NOTE001"
+
+
+def test_build_moc_body_filters_ghost_and_reconciles_missing(tmp_path):
+    db = StateDB(tmp_path / "test.db")
+    for nid, title in [("NOTE001", "A"), ("NOTE002", "B"), ("NOTE003", "C")]:
+        db.upsert_note(nid, "SRC001", None, title)
+
+    alias_to_id = _build_note_alias_map(["NOTE001", "NOTE002", "NOTE003"])
+    allowed = _allowed_note_ids(db, ["NOTE001", "NOTE002", "NOTE003"])
+    subsections = [
+        MOCSubsection(
+            title="Grupo",
+            note_ids=["N1", "GHOST", "N2"],
+            description="Descricao",
+        ),
+    ]
+    body = _build_moc_body(db, "Topico", "Resumo", subsections, allowed, alias_to_id)
+
+    assert "GHOST" not in body
+    assert "NOTE001" in body
+    assert "NOTE002" in body
+    assert _MOC_FALLBACK_SUBSECTION in body
+    assert "NOTE003" in body
+    db.close()
+
+
+def test_apply_incremental_reconciles_unplaced(tmp_path):
+    db, moc_file = _setup_moc_file(tmp_path)
+    structure = _parse_moc_structure(moc_file)
+    alias_to_id = _build_note_alias_map(["NOTE004", "NOTE005"])
+    allowed = _allowed_note_ids(db, ["NOTE004", "NOTE005"])
+
+    output = MOCIncrementalOutput(
+        placements=[
+            MOCNotePlacement(note_id="N1", subsection="Algoritmos Supervisionados", reason="ok"),
+        ],
+        new_subsections=[],
+    )
+    _apply_incremental_placements(db, moc_file, structure, output, allowed, alias_to_id)
+
+    content = moc_file.read_text(encoding="utf-8")
+    assert "NOTE004" in content
+    assert "NOTE005" in content
+    assert _MOC_FALLBACK_SUBSECTION in content
+    assert "GHOST" not in content
+    db.close()
+
+
+def test_apply_incremental_ghost_id_ignored(tmp_path):
+    db, moc_file = _setup_moc_file(tmp_path)
+    structure = _parse_moc_structure(moc_file)
+    alias_to_id = _build_note_alias_map(["NOTE004"])
+    allowed = _allowed_note_ids(db, ["NOTE004"])
+
+    output = MOCIncrementalOutput(
+        placements=[
+            MOCNotePlacement(note_id="GHOST", subsection="Algoritmos Supervisionados", reason="bad"),
+        ],
+        new_subsections=[],
+    )
+    _apply_incremental_placements(db, moc_file, structure, output, allowed, alias_to_id)
+
+    content = moc_file.read_text(encoding="utf-8")
+    assert "GHOST" not in content
+    assert "NOTE004" in content
+    db.close()
+
+
+def test_note_wikilink_uses_file_stem_not_title_slug(tmp_path):
+    db = StateDB(tmp_path / "test.db")
+    db.upsert_note(
+        "01KZ7YZNCQPT3693DP17PC3PVV",
+        "SRC001",
+        "/vault/30_Permanent/ZTL - 01KZ7YZNCQPT3693DP17PC3PVV - importancia-de-interfaces-interativas-em-sistemas.md",
+        "Importancia de interfaces interativas em sistemas de questionamento",
+    )
+    link = _note_wikilink(db, "01KZ7YZNCQPT3693DP17PC3PVV")
+    assert link is not None
+    assert "importancia-de-interfaces-interativas-em-sistemas.md" not in link
+    assert "importancia-de-interfaces-interativas-em-sistemas-de-questionamento" not in link
+    assert "importancia-de-interfaces-interativas-em-sistemas]]" in link
+    db.close()
+
+
+def test_purge_pipeline_mocs_keeps_manual(tmp_path):
+    vault = tmp_path / "vault"
+    moc_dir = vault / "40_MOCs"
+    moc_dir.mkdir(parents=True)
+
+    pipeline_file = moc_dir / "MOC - PIPE001 - pipeline-topic.md"
+    pipeline_file.write_text("# Pipeline\n", encoding="utf-8")
+    manual_file = moc_dir / "MOC - MAN001 - manual-topic.md"
+    manual_file.write_text("# Manual\n", encoding="utf-8")
+
+    db = StateDB(tmp_path / "state.db")
+    db.upsert_moc("PIPE001", "Pipeline Topic", str(pipeline_file), "sig1", origin="pipeline")
+    db.upsert_moc("MAN001", "Manual Topic", str(manual_file), "sig2", origin="manual")
+
+    idx = MagicMock()
+    cfg = AppConfig()
+    cfg.vault_path = vault
+
+    removed = purge_pipeline_mocs(cfg, db, idx)
+
+    assert removed == 1
+    assert not pipeline_file.exists()
+    assert manual_file.exists()
+    assert db.get_moc("PIPE001") is None
+    assert db.get_moc("MAN001") is not None
+    idx.delete_mocs.assert_called_once_with(["PIPE001"])
     db.close()

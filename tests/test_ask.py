@@ -43,8 +43,12 @@ def test_run_ask_empty_vault_no_llm(db, monkeypatch):
 
 def test_run_ask_passes_wikilinks_to_prompt(db, tmp_path, monkeypatch):
     """The context handed to the LLM must contain the exact citation wikilinks."""
-    db.upsert_note("01HZZZ", "@S", "/p/n.md", "Grafos de Conhecimento",
-                   body="Um grafo conecta conceitos por arestas tipadas.")
+    db.upsert_note(
+        "01HZZZ", "@S",
+        "/vault/30_Permanent/ZTL - 01HZZZ - grafos-de-conhecimento.md",
+        "Grafos de Conhecimento",
+        body="Um grafo conecta conceitos por arestas tipadas.",
+    )
 
     captured = {}
 

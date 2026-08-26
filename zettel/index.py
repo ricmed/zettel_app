@@ -405,6 +405,11 @@ class VectorIndex:
             self.literature.delete(ids=literature_ids)
             logger.debug("Index: %d literature_notes removidos", len(literature_ids))
 
+    def delete_mocs(self, moc_ids: list[str]) -> None:
+        if moc_ids:
+            self.mocs_col.delete(ids=moc_ids)
+            logger.debug("Index: %d mocs removidos", len(moc_ids))
+
     def query_similar_notes(self, query_text: str, n_results: int = 5,
                             exclude_id: str | None = None) -> list[dict]:
         """Find the most similar permanent notes to the given text."""

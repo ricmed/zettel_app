@@ -8,6 +8,7 @@ Voce e um assistente que classifica notas novas dentro de um MOC (Mapa de Conteu
 - Se a nota NAO se encaixa em nenhuma subsecao, use `"ignorar"` como valor de `subsection`. NAO force notas em subsecoes inadequadas.
 - Se um grupo coeso de notas novas justificar uma nova subsecao, inclua-a em `new_subsections`.
 - O campo `subsection` deve conter o titulo EXATO da subsecao existente (case-sensitive) ou `"ignorar"`.
+- Use **apenas** os aliases (`N1`, `N2`, ...) da lista de notas novas em `note_id` e em `note_ids`.
 - Inclua uma breve razao (`reason`) para cada classificacao.
 - TUDO em PT-BR.
 
@@ -17,7 +18,7 @@ Voce e um assistente que classifica notas novas dentro de um MOC (Mapa de Conteu
 {
   "placements": [
     {
-      "note_id": "ID_DA_NOTA",
+      "note_id": "N1",
       "subsection": "Titulo Exato da Subsecao ou ignorar",
       "reason": "Breve justificativa"
     }
@@ -25,7 +26,7 @@ Voce e um assistente que classifica notas novas dentro de um MOC (Mapa de Conteu
   "new_subsections": [
     {
       "title": "Nova Subsecao",
-      "note_ids": ["id1", "id2"],
+      "note_ids": ["N1", "N2"],
       "description": "Descricao da nova subsecao"
     }
   ]

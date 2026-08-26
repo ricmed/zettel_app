@@ -507,3 +507,19 @@ def note_filename(prefix: str, identifier: str, title: str) -> str:
     if prefix == "SRC":
         return f"{prefix} - {slug}.md"
     return f"{prefix} - {identifier} - {slug}.md"
+
+
+def permanent_wikilink(
+    note_id: str,
+    title: str = "",
+    *,
+    path: str | Path | None = None,
+) -> str:
+    """Build a ZTL wikilink that matches the note file on disk when path is known."""
+    if path:
+        stem = Path(path).stem
+        if stem:
+            return f"[[{stem}]]"
+    if title:
+        return f"[[ZTL - {note_id} - {_slug(title)}]]"
+    return f"[[ZTL - {note_id}]]"

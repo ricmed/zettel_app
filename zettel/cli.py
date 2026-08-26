@@ -462,9 +462,13 @@ def connect(
 def garden(
     config: Optional[str] = typer.Option(None, "--config", "-c"),
     min_cluster_size: Optional[int] = typer.Option(None, "--min-cluster-size"),
+    recreate: bool = typer.Option(
+        False, "--recreate",
+        help="Apagar MOCs gerados pelo pipeline e regenerar do zero",
+    ),
     yes: bool = typer.Option(
         False, "--yes", "-y",
-        help="Confirmar automaticamente o reprocessamento se o embedding mudou",
+        help="Confirmar automaticamente (--recreate e reprocessamento de embedding)",
     ),
 ):
     """Clusterizar notas e gerar/atualizar MOCs."""
@@ -472,13 +476,22 @@ def garden(
     if min_cluster_size:
         cfg.gardener.min_cluster_size = min_cluster_size
 
+    if recreate and not yes:
+        if not typer.confirm(
+            "Apaga todos os MOCs do pipeline (vault, banco e indice) e regenera. Continuar?",
+            default=False,
+        ):
+            raise typer.Exit(0)
+
     db = _get_db(cfg)
     idx = _get_idx(cfg, db=db, yes=yes)
 
     from zettel.gardener import run_garden
     with console.status("[bold blue]Cultivando o jardim de notas...", spinner="dots"):
-        moc_ids = run_garden(cfg, db, idx)
+        moc_ids = run_garden(cfg, db, idx, recreate=recreate)
 
+    if recreate:
+        console.print("[dim]MOCs do pipeline foram removidos antes da geracao.[/dim]")
     if moc_ids:
         console.print(f"[green]MOCs gerados/atualizados: {len(moc_ids)}[/green]")
         for mid in moc_ids:

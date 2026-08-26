@@ -40,7 +40,7 @@ from zettel.vault import (
     note_filename,
     safe_update_managed_blocks,
     safe_write_note,
-    _slug,
+    permanent_wikilink,
 )
 
 logger = logging.getLogger(__name__)
@@ -216,7 +216,7 @@ def _process_candidate(
     similar = retriever.search_notes(
         query_text, topk=cfg.linking.topk, exclude_id=note_id
     ).hits
-    rag_context = _build_rag_context(similar)
+    rag_context = _build_rag_context(db, similar)
 
     # SECURITY NOTE: cand.thesis, cand.definition, and other candidate fields originate
     # from LLM output derived from user-supplied files. Sanitize prompt delimiters
@@ -450,10 +450,14 @@ def _resolve_connections(db: StateDB, connections: list[RelationshipResult]) -> 
     resolved: list[dict] = []
     for conn in connections:
         note_record = db.get_note(conn.related_note_id)
-        if note_record and note_record.get("title"):
-            wiki_link = f"[[ZTL - {conn.related_note_id} - {_slug(note_record['title'])}]]"
+        if note_record:
+            wiki_link = permanent_wikilink(
+                conn.related_note_id,
+                note_record.get("title", ""),
+                path=note_record.get("path"),
+            )
         else:
-            wiki_link = f"[[ZTL - {conn.related_note_id}]]"
+            wiki_link = permanent_wikilink(conn.related_note_id)
         resolved.append({
             "related_note_id": conn.related_note_id,
             "wiki_link": wiki_link,
@@ -466,7 +470,7 @@ def _resolve_connections(db: StateDB, connections: list[RelationshipResult]) -> 
 # ── RAG Context ───────────────────────────────────────────────────────
 
 
-def _build_rag_context(similar_notes: list[RetrievedNote]) -> str:
+def _build_rag_context(db: StateDB, similar_notes: list[RetrievedNote]) -> str:
     """Build RAG context from retrieved notes, split into two provenance groups.
 
     Search seeds (hop 0) and graph neighbours (hop >= 1) are rendered under
@@ -487,8 +491,12 @@ def _build_rag_context(similar_notes: list[RetrievedNote]) -> str:
             title = n.title or n.metadata.get("title", "Sem titulo")
             doc = (n.document or "")[:150]
             tags = n.metadata.get("tags", "")
+            row = db.get_note(n.note_id)
+            wiki = permanent_wikilink(
+                n.note_id, title, path=row.get("path") if row else None,
+            )
             parts.append(
-                f"- **[[ZTL - {n.note_id} - {_slug(title)}]]**: {doc}... (tags: {tags})"
+                f"- **{wiki}**: {doc}... (tags: {tags})"
             )
 
     if graph_hits:
@@ -503,8 +511,12 @@ def _build_rag_context(similar_notes: list[RetrievedNote]) -> str:
                 rel = n.via[-1].get("relation_type", "related")
                 anchor = n.via[-1].get("from", "")
             anchor_txt = f" a partir de [[ZTL - {anchor}]]" if anchor else ""
+            row = db.get_note(n.note_id)
+            wiki = permanent_wikilink(
+                n.note_id, title, path=row.get("path") if row else None,
+            )
             parts.append(
-                f"- **[[ZTL - {n.note_id} - {_slug(title)}]]** "
+                f"- **{wiki}** "
                 f"(relacao: {rel}{anchor_txt}): {doc}..."
             )
 
@@ -542,7 +554,13 @@ def _persist_and_backlink(
             continue
 
         inverse = _inverse_relation(relation_type)
-        new_link = f"- [[ZTL - {new_note_id} - {_slug(new_title)}]] ({inverse})"
+        new_record = db.get_note(new_note_id)
+        new_wiki = permanent_wikilink(
+            new_note_id,
+            new_title,
+            path=new_record.get("path") if new_record else None,
+        )
+        new_link = f"- {new_wiki} ({inverse})"
         if conn.description:
             new_link += f" -- {conn.description}"
 

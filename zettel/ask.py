@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Optional
 from .hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
 from .llm import call_llm, fill_template, get_llm, load_prompt_parts
 from .retrieval import RetrievedNote, Retriever
-from .vault import _slug, render_frontmatter
+from .vault import _slug, permanent_wikilink, render_frontmatter
 
 if TYPE_CHECKING:
     from .config import AppConfig
@@ -136,7 +136,7 @@ def run_ask(
         finish_pipeline_run(db, run_id)
         return result
 
-    context = _build_context(hits, ask_cfg.max_chars_per_note)
+    context = _build_context(db, hits, ask_cfg.max_chars_per_note)
     prompt_parts = load_prompt_parts(cfg.prompts_path / "ask.md")
     mapping = {
         "language": cfg.language,
@@ -192,18 +192,19 @@ def _origin_label(hit: RetrievedNote) -> str:
     return f"conexao {rel} a partir de [[ZTL - {anchor}]]"
 
 
-def _wiki_link(note_id: str, title: str) -> str:
-    if title:
-        return f"[[ZTL - {note_id} - {_slug(title)}]]"
-    return f"[[ZTL - {note_id}]]"
+def _wiki_link(db: "StateDB", note_id: str, title: str) -> str:
+    row = db.get_note(note_id)
+    return permanent_wikilink(
+        note_id, title, path=row.get("path") if row else None,
+    )
 
 
-def _build_context(hits: list[RetrievedNote], max_chars: int) -> str:
+def _build_context(db: "StateDB", hits: list[RetrievedNote], max_chars: int) -> str:
     """Render retrieved notes into the prompt's context block."""
     parts: list[str] = []
     for i, hit in enumerate(hits, 1):
         title = hit.title or "Sem titulo"
-        wiki = _wiki_link(hit.note_id, hit.title)
+        wiki = _wiki_link(db, hit.note_id, title)
         body = (hit.document or "").strip()
         if len(body) > max_chars:
             body = body[:max_chars].rstrip() + "..."
@@ -233,7 +234,7 @@ def _to_ask_source(db: "StateDB", hit: RetrievedNote) -> AskSource:
     return AskSource(
         note_id=hit.note_id,
         title=hit.title,
-        wiki_link=_wiki_link(hit.note_id, hit.title),
+        wiki_link=_wiki_link(db, hit.note_id, hit.title),
         rrf_score=round(hit.score, 5),
         hop=hit.hop,
         origin=_origin_label(hit),

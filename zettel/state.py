@@ -1141,6 +1141,14 @@ class StateDB:
                 return moc
         return None
 
+    def delete_pipeline_mocs(self) -> list[dict]:
+        """Remove pipeline MOC rows and return the deleted records."""
+        rows = self._fetchall("SELECT * FROM mocs WHERE origin='pipeline'")
+        if rows:
+            self.conn.execute("DELETE FROM mocs WHERE origin='pipeline'")
+            self.conn.commit()
+        return rows
+
     # ── Assets (images) ────────────────────────────────────────────────
 
     def upsert_asset(

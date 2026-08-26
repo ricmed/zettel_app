@@ -21,7 +21,7 @@ from .hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_
 from .llm import call_llm, clip_text, extract_json, fill_template, get_llm, load_prompt_parts
 from .retrieval import RetrievedNote
 from .schemas import ArticleOutline, ArticleOutlineSection
-from .vault import _slug, render_frontmatter
+from .vault import _slug, permanent_wikilink, render_frontmatter
 
 if TYPE_CHECKING:
     from .config import AppConfig
@@ -484,10 +484,11 @@ def format_outline_for_display(outline: ArticleOutline) -> str:
 # ── Internals ──────────────────────────────────────────────────────────
 
 
-def _wiki_link(note_id: str, title: str) -> str:
-    if title:
-        return f"[[ZTL - {note_id} - {_slug(title)}]]"
-    return f"[[ZTL - {note_id}]]"
+def _wiki_link(db: "StateDB", note_id: str, title: str, path: str | None = None) -> str:
+    if path is None:
+        row = db.get_note(note_id)
+        path = row.get("path") if row else None
+    return permanent_wikilink(note_id, title, path=path)
 
 
 def _origin_label(hit: RetrievedNote) -> str:
@@ -589,7 +590,9 @@ def _populate_catalog(
             note_id=hit.note_id,
             title=title,
             body=body_trunc,
-            wiki_link=_wiki_link(hit.note_id, title),
+            wiki_link=_wiki_link(
+                db, hit.note_id, title, path=row.get("path") if row else None,
+            ),
             source_id=source_id,
             score=hit.score,
             hop=hit.hop,

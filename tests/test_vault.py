@@ -7,6 +7,7 @@ from zettel.vault import (
     upsert_managed_block,
     _slug,
     note_filename,
+    permanent_wikilink,
 )
 
 
@@ -83,3 +84,18 @@ def test_slug():
 def test_note_filename():
     name = note_filename("ZTL", "ABC123", "My Great Note")
     assert name == "ZTL - ABC123 - my-great-note.md"
+
+
+def test_permanent_wikilink_prefers_path_stem():
+    path = "/vault/30_Permanent/ZTL - 01ABC - titulo-curto.md"
+    link = permanent_wikilink(
+        "01ABC",
+        "Titulo longo diferente no frontmatter",
+        path=path,
+    )
+    assert link == "[[ZTL - 01ABC - titulo-curto]]"
+
+
+def test_permanent_wikilink_falls_back_to_title():
+    link = permanent_wikilink("01ABC", "Hello World")
+    assert link == "[[ZTL - 01ABC - hello-world]]"

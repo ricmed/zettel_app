@@ -421,6 +421,12 @@ python -m zettel connect
 # Clusterizar notas e gerar MOCs
 python -m zettel garden
 
+# Regenerar MOCs do pipeline do zero (apaga vault + banco + indice; pede confirmacao)
+python -m zettel garden --recreate
+
+# Sem prompt de confirmacao (util em scripts)
+python -m zettel garden --recreate -y
+
 # Perguntar ao acervo (QA com recuperacao hibrida + expansao por grafo)
 python -m zettel ask "O que e RAG?"
 python -m zettel ask "O que e RAG?" --show-context        # mostra as notas recuperadas

@@ -24,7 +24,7 @@ from zettel.hashing import (
 from zettel.index import VectorIndex
 from zettel.retrieval import Retriever
 from zettel.state import StateDB
-from zettel.vault import _block_pattern, parse_frontmatter, safe_update_managed_blocks, _slug
+from zettel.vault import _block_pattern, parse_frontmatter, safe_update_managed_blocks, permanent_wikilink
 
 logger = logging.getLogger(__name__)
 
@@ -338,7 +338,11 @@ def _suggest_connections(
     links: list[str] = []
     for n in similar:
         title = n.title or n.metadata.get("title", "Sem título")
-        links.append(f"- [[ZTL - {n.note_id} - {_slug(title)}]]")
+        row = db.get_note(n.note_id)
+        wiki = permanent_wikilink(
+            n.note_id, title, path=row.get("path") if row else None,
+        )
+        links.append(f"- {wiki}")
 
     if links:
         safe_update_managed_blocks(file_path, {
