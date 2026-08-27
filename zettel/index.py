@@ -540,6 +540,15 @@ class VectorIndex:
     def count_permanent_notes(self) -> int:
         return self.permanent.count()
 
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        """Embed arbitrary texts with the same function used for Chroma collections."""
+        if not texts:
+            return []
+        if self.embedding_fn is None:
+            raise RuntimeError("Embedding function not configured")
+        vectors = self.embedding_fn(texts)
+        return [list(v) for v in vectors]
+
 
 def _sanitize_metadata(meta: dict[str, Any]) -> dict[str, Any]:
     """ChromaDB only accepts str/int/float/bool in metadata."""

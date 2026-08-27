@@ -269,6 +269,11 @@ gardener:
   domain: "Ciencia de Dados" # dominio do acervo
   strict_topics: true        # rejeitar MOCs fora das categorias da taxonomia
   topics_path: ./config/moc_topics.yaml  # pilar > categoria > topicos
+  cluster_within_category: true
+  category_label_template: "{domain}: {categoria}"
+  overlap_threshold: 0.4
+  graph_cohesion_enabled: true
+  graph_cohesion_min_ratio: 0.0
 
 # PDF
 pdf_extractor: docling       # docling | pymupdf
@@ -551,24 +556,38 @@ python -m zettel run-all --dry-run
 
 ### Fase 4 — Garden (Jardim)
 
+Pipeline **hibrido** (taxonomia → cluster por categoria → grafo → roteamento LLM):
+
 1. Carrega embeddings de todas as notas permanentes
-2. Reduz dimensionalidade com **UMAP** e clusteriza com **HDBSCAN** (ou KMeans como fallback)
-3. Extrai termos representativos via **TF-IDF**
-4. Para cada cluster com notas suficientes, gera um **MOC** via LLM:
-   - O prompt inclui o **dominio** do acervo e a **lista de categorias** derivadas de `config/moc_topics.yaml`
-   - A **taxonomia hierarquica** (pilar > categoria > topicos) e injetada como referencia; topicos-folha orientam subsecoes
-   - O LLM deve mapear o cluster para uma **categoria** e justificar em `topic_justification`
-5. **Validacao de topico** pos-geracao:
+2. **Atribuicao taxonomia-first** (`gardener_assign.py`): embedda labels das categorias de `config/moc_topics.yaml` e agrupa cada nota no bucket de maior similaridade
+3. **Clusterizacao por bucket**: UMAP + HDBSCAN (ou KMeans como fallback) **dentro de cada categoria**, alinhando clusters ao guarda-chuva da taxonomia
+4. Extrai termos representativos via **TF-IDF**
+5. **Roteamento inteligente** (`_process_cluster`) — no maximo **1 chamada LLM por cluster**:
+   - Assinatura identica → skip (sem LLM)
+   - Overlap de notas com MOC existente ≥ `overlap_threshold` → `moc_incremental` apenas
+   - Categoria do bucket ja tem MOC → `moc_incremental` apenas
+   - Coesao de grafo abaixo de `graph_cohesion_min_ratio` (se > 0) → cluster rejeitado, sem MOC novo
+   - Caso contrario → `moc_generation` uma vez, com **categoria sugerida** pelo pipeline no prompt
+6. **Validacao de topico** pos-geracao:
    - Substring match bidirecional contra os nomes das **categorias** do YAML
    - Se `strict_topics: true` e sem match: MOC rejeitado (com warning no log)
    - Se `strict_topics: false` e sem match: MOC aprovado (com info no log)
-6. **Atualizacao incremental de MOCs**: se ja existe um MOC com o mesmo topico, em vez de criar um duplicado:
-   - Parseia a estrutura do MOC existente (subsecoes e notas)
-   - Identifica quais notas do cluster sao realmente novas
-   - Chama o LLM com `moc_incremental.md` para classificar cada nota nova na subsecao adequada (ou ignorar se nao se encaixa)
-   - Reconstroi o MOC com as notas novas inseridas nas subsecoes corretas
-   - Pode criar novas subsecoes se o LLM sugerir
-7. Se nao existe MOC para o topico, cria arquivo **MOC** novo em `40_MOCs/` com subsecoes e links organizados
+7. **Atualizacao incremental**: classifica notas novas nas subsecoes existentes (`moc_incremental.md`); pode criar subsecoes
+8. Notas fora de MOC (ruido HDBSCAN) permanecem no vault e sao navegaveis via grafo/conexoes — sem fila de orfas
+
+Parametros hibridos em `config.yaml` (`gardener.*`):
+
+| Parametro | Proposito |
+|-----------|-----------|
+| `cluster_within_category` | Ativa pipeline taxonomia-first (default `true`) |
+| `category_label_template` | Texto embeddavel por categoria (ex. `"{domain}: {categoria}"`) |
+| `overlap_threshold` | Fracao do cluster ja presente em um MOC → update incremental direto |
+| `graph_cohesion_enabled` | Calcula score interno do cluster via `note_connections` |
+| `graph_cohesion_min_ratio` | `0` = so log; `>0` rejeita cluster fraco antes de criar MOC novo |
+| `umap_n_neighbors` | `null` = auto |
+| `hdbscan_min_samples` | Opcional; ajuste fino do HDBSCAN |
+
+`zettel garden --recreate` apaga MOCs gerados pelo pipeline (`origin='pipeline'`) e regenera do zero, preservando MOCs manuais.
 
 ## Estrutura das notas geradas
 

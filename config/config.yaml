@@ -98,6 +98,14 @@ gardener:
   strict_topics: true
   # Taxonomia hierarquica (pilar > categoria > topicos). Categorias = whitelist do MOC.
   topics_path: ./config/moc_topics.yaml
+  # Pipeline hibrido: atribui notas a categorias, clusteriza por bucket, valida grafo.
+  cluster_within_category: true
+  category_label_template: "{domain}: {categoria}"
+  overlap_threshold: 0.4           # fracao do cluster ja no MOC -> update incremental
+  graph_cohesion_enabled: true
+  graph_cohesion_min_ratio: 0.0    # 0 = so log; >0 exige coesao minima p/ MOC novo
+  # umap_n_neighbors: null         # null = auto
+  # hdbscan_min_samples: null
 
 # ── Idioma ──────────────────────────────────────────────────────────────
 language: pt-BR

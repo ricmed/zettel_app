@@ -603,16 +603,12 @@ def test_update_existing_moc_with_new_subsection(tmp_path):
 
 
 def test_generate_moc_routes_to_incremental(tmp_path):
-    """_generate_moc calls _update_existing_moc when topic already exists."""
+    """_process_cluster routes to incremental when category matches existing MOC."""
     db, moc_file = _setup_moc_file(tmp_path)
     cfg = _make_config()
 
     prompts_dir = tmp_path / "prompts"
     prompts_dir.mkdir(exist_ok=True)
-    (prompts_dir / "moc_generation.md").write_text(
-        "Prompt: {domain} {allowed_topics_section} {taxonomy_detail} {notes_list} {cluster_terms}",
-        encoding="utf-8",
-    )
     (prompts_dir / "moc_incremental.md").write_text(
         "Prompt: {moc_topic} {moc_summary} {existing_subsections} {new_notes_list}",
         encoding="utf-8",
@@ -622,37 +618,78 @@ def test_generate_moc_routes_to_incremental(tmp_path):
 
     idx = MagicMock()
 
-    # First LLM call (moc_generation) returns topic matching existing MOC
-    generation_response = MagicMock()
-    generation_response.content = json.dumps({
-        "topic": "Machine Learning Classico",
-        "summary": "Resumo teste",
-        "topic_justification": "Justificativa",
-        "subsections": [],
-    })
-
-    # Second LLM call (incremental) returns placements
     incremental_response = MagicMock()
     incremental_response.content = json.dumps({
         "placements": [
-            {"note_id": "NOTE004", "subsection": "Algoritmos Supervisionados", "reason": "Teste"},
+            {"note_id": "N1", "subsection": "Algoritmos Supervisionados", "reason": "Teste"},
         ],
         "new_subsections": [],
     })
 
     llm = MagicMock()
-    llm.invoke.side_effect = [generation_response, incremental_response]
+    llm.invoke.return_value = incremental_response
 
-    from zettel.gardener import _generate_moc
+    from zettel.gardener import _process_cluster, _GardenStats
 
-    result = _generate_moc(
-        cfg, db, idx, llm,
+    stats = _GardenStats()
+    result = _process_cluster(
+        cfg, db, idx, llm, "Machine Learning Classico",
         ["NOTE001", "NOTE002", "NOTE003", "NOTE004"],
+        stats,
     )
 
     assert result == "MOC001"
-    # Should have been called twice: generation + incremental
-    assert llm.invoke.call_count == 2
+    assert llm.invoke.call_count == 1
+    assert stats.incremental == 1
+
+    db.close()
+
+
+def test_process_cluster_routes_by_overlap(tmp_path):
+    """High note overlap with existing MOC skips generation and calls incremental only."""
+    db, moc_file = _setup_moc_file(tmp_path)
+    body = (
+        "# Outro Topico\n\n"
+        "- [[ZTL - NOTE001 - a]]\n"
+        "- [[ZTL - NOTE002 - b]]\n"
+    )
+    db.upsert_moc(
+        "MOC001", "Outro Topico", str(moc_file), "old_sig", body=body,
+    )
+
+    cfg = _make_config()
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir(exist_ok=True)
+    (prompts_dir / "moc_incremental.md").write_text(
+        "Prompt: {moc_topic} {moc_summary} {existing_subsections} {new_notes_list}",
+        encoding="utf-8",
+    )
+    cfg.prompts_path = prompts_dir
+    cfg.vault_path = tmp_path / "vault"
+
+    idx = MagicMock()
+    incremental_response = MagicMock()
+    incremental_response.content = json.dumps({
+        "placements": [
+            {"note_id": "N3", "subsection": "Algoritmos Supervisionados", "reason": "Teste"},
+        ],
+        "new_subsections": [],
+    })
+    llm = MagicMock()
+    llm.invoke.return_value = incremental_response
+
+    from zettel.gardener import _process_cluster, _GardenStats
+
+    stats = _GardenStats()
+    result = _process_cluster(
+        cfg, db, idx, llm, "_unassigned",
+        ["NOTE001", "NOTE002", "NOTE005"],
+        stats,
+    )
+
+    assert result == "MOC001"
+    assert llm.invoke.call_count == 1
+    assert stats.incremental == 1
 
     db.close()
 

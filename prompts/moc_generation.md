@@ -22,6 +22,7 @@ Pilares agrupam categorias; os topicos-folha orientam as **subsecoes** do MOC:
 
 - O MOC deve ter um **tema unificador** que conecte todas as notas.
 - O campo `topic` DEVE corresponder a uma das **categorias** da lista acima. Se nenhuma se aplica, use a mais proxima e explique em `topic_justification`.
+- Se uma **categoria sugerida pelo pipeline** for informada abaixo, use-a como `topic` (salvo conflito evidente com as notas).
 - Organize em **subsecoes** logicas (pode inspirar-se nos topicos-folha da taxonomia).
 - Para cada nota listada, inclua uma breve orientacao de como ela se encaixa no tema.
 - TUDO em PT-BR.
@@ -56,3 +57,6 @@ As notas do cluster e os termos representativos seguem na mensagem do usuario.
 
 **Termos representativos do cluster**:
 {cluster_terms}
+
+**Categoria sugerida pelo pipeline**:
+{suggested_category}

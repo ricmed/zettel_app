@@ -9,13 +9,25 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from ulid import ULID
 
-from zettel.config import AppConfig
+from zettel.config import AppConfig, DEFAULT_RELATION_WEIGHTS
+from zettel.gardener_assign import (
+    assign_notes_to_categories,
+    build_embeddings_by_id,
+    cluster_notes_global,
+    cluster_notes_within_buckets,
+    dominant_category_for_cluster,
+    embed_category_labels,
+    find_moc_by_note_overlap,
+    graph_cohesion,
+    load_category_names,
+)
 from zettel.hashing import sha256_hex
 from zettel.index import VectorIndex
 from zettel.llm import call_llm, extract_json, fill_template, get_llm, load_prompt_parts
@@ -32,6 +44,14 @@ from zettel.vault import (
 logger = logging.getLogger(__name__)
 
 _MOC_FALLBACK_SUBSECTION = "Outras notas do cluster"
+
+
+@dataclass
+class _GardenStats:
+    incremental: int = 0
+    created: int = 0
+    skipped_signature: int = 0
+    rejected_cohesion: int = 0
 
 
 # ── Public API ─────────────────────────────────────────────────────────
@@ -77,24 +97,67 @@ def run_garden(
         return []
 
     embeddings_array = np.array(embeddings)
+    embeddings_by_id = build_embeddings_by_id(ids, embeddings)
+    gcfg = cfg.gardener
+    stats = _GardenStats()
 
-    clusters = _cluster_embeddings(embeddings_array, ids, cfg.gardener.min_cluster_size)
-    if not clusters:
+    categories = load_category_names(gcfg.topics_path)
+    if not categories and gcfg.allowed_topics:
+        categories = list(gcfg.allowed_topics)
+
+    cluster_pairs: list[tuple[str, list[str]]] = []
+
+    if categories and gcfg.cluster_within_category:
+        domain = gcfg.domain or "Geral"
+        try:
+            cat_vectors = embed_category_labels(
+                idx, categories, domain, gcfg.category_label_template,
+            )
+            buckets = assign_notes_to_categories(ids, embeddings_by_id, cat_vectors)
+            cluster_pairs = cluster_notes_within_buckets(buckets, embeddings_by_id, gcfg)
+        except Exception as e:
+            logger.warning("Atribuicao por categoria falhou (%s); cluster global.", e)
+            categories = []
+
+    if not cluster_pairs:
+        global_clusters = cluster_notes_global(ids, embeddings_array, gcfg)
+        if categories:
+            domain = gcfg.domain or "Geral"
+            try:
+                cat_vectors = embed_category_labels(
+                    idx, categories, domain, gcfg.category_label_template,
+                )
+                buckets = assign_notes_to_categories(ids, embeddings_by_id, cat_vectors)
+            except Exception:
+                buckets = {}
+        else:
+            buckets = {}
+        for cluster_ids in global_clusters:
+            if len(cluster_ids) < gcfg.min_notes_for_moc:
+                continue
+            category = dominant_category_for_cluster(cluster_ids, buckets)
+            cluster_pairs.append((category, cluster_ids))
+
+    if not cluster_pairs:
         logger.info("Nenhum cluster encontrado")
         finish_pipeline_run(db, run_id)
         return []
 
-    logger.info("Clusters encontrados: %d", len(clusters))
+    logger.info("Clusters encontrados: %d", len(cluster_pairs))
 
     llm = get_llm(cfg)
     moc_ids: list[str] = []
 
-    for cluster_ids in clusters:
-        if len(cluster_ids) < cfg.gardener.min_notes_for_moc:
-            continue
-        moc_id = _generate_moc(cfg, db, idx, llm, cluster_ids)
+    for category, cluster_ids in cluster_pairs:
+        moc_id = _process_cluster(cfg, db, idx, llm, category, cluster_ids, stats)
         if moc_id:
             moc_ids.append(moc_id)
+
+    logger.info(
+        "Garden: %d MOCs, %d incrementais, %d novos, %d skip assinatura, %d rejeitados coesao",
+        len(moc_ids), stats.incremental, stats.created,
+        stats.skipped_signature, stats.rejected_cohesion,
+    )
 
     finish_pipeline_run(db, run_id)
     return moc_ids
@@ -122,79 +185,6 @@ def _moc_vault_path(cfg: AppConfig, moc: dict) -> Path:
     if path_str:
         return Path(path_str)
     return cfg.vault_path / "40_MOCs" / note_filename("MOC", moc["moc_id"], moc["topic"])
-
-
-# ── Clustering ────────────────────────────────────────────────────────
-
-
-def _cluster_embeddings(
-    embeddings: np.ndarray, ids: list[str], min_cluster_size: int
-) -> list[list[str]]:
-    """Cluster embeddings using UMAP + HDBSCAN."""
-    try:
-        import umap
-        import hdbscan
-    except ImportError:
-        logger.warning("umap-learn ou hdbscan não instalados. Usando clusterização simples (KMeans).")
-        return _cluster_kmeans(embeddings, ids, min_cluster_size)
-
-    n_samples = embeddings.shape[0]
-    n_neighbors = min(15, n_samples - 1)
-    if n_neighbors < 2:
-        return [ids]
-
-    n_components = min(5, n_samples - 2)
-    if n_components < 2:
-        logger.warning("Poucas amostras para UMAP (%d). Usando KMeans.", n_samples)
-        return _cluster_kmeans(embeddings, ids, min_cluster_size)
-    init_method = "spectral" if n_samples > n_components + 2 else "random"
-
-    try:
-        reducer = umap.UMAP(
-            n_neighbors=n_neighbors,
-            n_components=n_components,
-            metric="cosine",
-            init=init_method,
-        )
-        reduced = reducer.fit_transform(embeddings)
-    except Exception as e:
-        logger.warning("UMAP falhou (%s). Usando KMeans como fallback.", e)
-        return _cluster_kmeans(embeddings, ids, min_cluster_size)
-
-    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, metric="euclidean")
-    labels = clusterer.fit_predict(reduced)
-
-    clusters: dict[int, list[str]] = {}
-    for i, label in enumerate(labels):
-        if label == -1:
-            continue
-        clusters.setdefault(label, []).append(ids[i])
-
-    return list(clusters.values())
-
-
-def _cluster_kmeans(
-    embeddings: np.ndarray, ids: list[str], min_cluster_size: int
-) -> list[list[str]]:
-    """Simple KMeans fallback when UMAP/HDBSCAN unavailable."""
-    try:
-        from sklearn.cluster import KMeans
-    except ImportError:
-        logger.error("scikit-learn não instalado. Não é possível clusterizar.")
-        return []
-
-    n = len(ids)
-    k = max(2, n // min_cluster_size)
-    k = min(k, n)
-
-    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
-    labels = kmeans.fit_predict(embeddings)
-
-    clusters: dict[int, list[str]] = {}
-    for i, label in enumerate(labels):
-        clusters.setdefault(label, []).append(ids[i])
-
-    return [c for c in clusters.values() if len(c) >= min_cluster_size]
 
 
 # ── Topic Extraction ──────────────────────────────────────────────────
@@ -228,18 +218,77 @@ def _extract_cluster_terms(db: StateDB, note_ids: list[str], n_terms: int = 10) 
 # ── MOC Generation ────────────────────────────────────────────────────
 
 
-def _generate_moc(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, llm: Any, note_ids: list[str],
+def _process_cluster(
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    llm: Any,
+    category: str,
+    note_ids: list[str],
+    stats: _GardenStats,
 ) -> str | None:
-    """Generate or update a MOC for a cluster of notes."""
+    """Route a cluster to incremental update or new MOC creation (at most one LLM call)."""
     sorted_ids = sorted(note_ids)
     cluster_signature = sha256_hex("|".join(sorted_ids))
 
-    existing_moc = db.get_moc_by_signature(cluster_signature)
-    if existing_moc:
-        logger.debug("MOC já existe para esta assinatura: %s", existing_moc["moc_id"])
-        return existing_moc["moc_id"]
+    existing_sig = db.get_moc_by_signature(cluster_signature)
+    if existing_sig:
+        logger.debug("MOC ja existe para assinatura: %s", existing_sig["moc_id"])
+        stats.skipped_signature += 1
+        return existing_sig["moc_id"]
 
+    overlap_moc = find_moc_by_note_overlap(db, note_ids, cfg.gardener.overlap_threshold)
+    if overlap_moc:
+        logger.info(
+            "Cluster roteado por overlap para MOC %s", overlap_moc["moc_id"],
+        )
+        stats.incremental += 1
+        return _update_existing_moc(
+            cfg, db, idx, llm, overlap_moc, note_ids, cluster_signature,
+        )
+
+    if category and category != "_unassigned":
+        topic_moc = db.find_moc_by_topic(category)
+        if topic_moc:
+            logger.info(
+                "Cluster roteado por categoria '%s' para MOC %s",
+                category, topic_moc["moc_id"],
+            )
+            stats.incremental += 1
+            return _update_existing_moc(
+                cfg, db, idx, llm, topic_moc, note_ids, cluster_signature,
+            )
+
+    if cfg.gardener.graph_cohesion_enabled:
+        cohesion = graph_cohesion(db, note_ids, DEFAULT_RELATION_WEIGHTS)
+        logger.debug("Coesao de grafo do cluster: %.3f", cohesion)
+        min_ratio = cfg.gardener.graph_cohesion_min_ratio
+        if min_ratio > 0 and cohesion < min_ratio:
+            logger.warning(
+                "Cluster rejeitado: coesao de grafo %.3f < %.3f",
+                cohesion, min_ratio,
+            )
+            stats.rejected_cohesion += 1
+            return None
+
+    moc_id = _create_new_moc(
+        cfg, db, idx, llm, category, note_ids, cluster_signature,
+    )
+    if moc_id:
+        stats.created += 1
+    return moc_id
+
+
+def _create_new_moc(
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    llm: Any,
+    category: str,
+    note_ids: list[str],
+    cluster_signature: str,
+) -> str | None:
+    """Generate a new MOC via LLM (single call)."""
     notes_list_text = _build_notes_list(db, note_ids, _build_note_alias_map(note_ids))
     cluster_terms = _extract_cluster_terms(db, note_ids)
 
@@ -261,12 +310,15 @@ def _generate_moc(
     else:
         topics_section = "_(Nenhuma lista de categorias definida — escolha livremente.)_"
 
+    suggested = category if category and category != "_unassigned" else ""
+
     mapping = {
         "domain": domain,
         "allowed_topics_section": topics_section,
         "taxonomy_detail": taxonomy_detail,
         "notes_list": notes_list_text,
         "cluster_terms": ", ".join(cluster_terms) if cluster_terms else "N/A",
+        "suggested_category": suggested or "_(Nenhuma — escolha da lista.)_",
     }
     system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
     user = fill_template(prompt_parts.user_template, mapping)
@@ -284,17 +336,11 @@ def _generate_moc(
         logger.error("Erro ao gerar MOC: %s", e)
         return None
 
+    if suggested and _topic_matches_allowed(suggested, allowed_topics):
+        moc_output.topic = suggested
+
     if not _validate_moc_topic(cfg, moc_output):
         return None
-
-    existing_topic_moc = db.find_moc_by_topic(moc_output.topic)
-    if existing_topic_moc:
-        logger.info(
-            "MOC existente para topico '%s': %s", moc_output.topic, existing_topic_moc["moc_id"]
-        )
-        return _update_existing_moc(
-            cfg, db, idx, llm, existing_topic_moc, note_ids, cluster_signature
-        )
 
     moc_id = str(ULID())
     topic = moc_output.topic
@@ -324,7 +370,6 @@ def _generate_moc(
     moc_path = cfg.vault_path / "40_MOCs" / filename
     safe_write_note(moc_path, meta, body)
 
-    # Retencao: guarda corpo + frontmatter do MOC para rebuild sem reprocessar o LLM.
     db.upsert_moc(
         moc_id, topic, str(moc_path), cluster_signature,
         body=body, frontmatter_json=json.dumps(meta, ensure_ascii=False), origin="pipeline",
@@ -335,6 +380,25 @@ def _generate_moc(
 
     logger.info("MOC criado: %s — %s (%d notas)", moc_id, topic, len(note_ids))
     return moc_id
+
+
+def _topic_matches_allowed(topic: str, allowed: list[str]) -> bool:
+    if not allowed:
+        return True
+    topic_lower = topic.lower()
+    for allowed_topic in allowed:
+        al = allowed_topic.lower()
+        if al in topic_lower or topic_lower in al:
+            return True
+    return False
+
+
+def _generate_moc(
+    cfg: AppConfig, db: StateDB, idx: VectorIndex, llm: Any, note_ids: list[str],
+) -> str | None:
+    """Backward-compatible entry: process cluster with unknown category."""
+    stats = _GardenStats()
+    return _process_cluster(cfg, db, idx, llm, "_unassigned", note_ids, stats)
 
 
 # ── MOC Topic Validation ─────────────────────────────────────────────

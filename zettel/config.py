@@ -108,6 +108,14 @@ class GardenerConfig(BaseModel):
     # Override opcional para testes; se vazio, deriva de topics_path.
     allowed_topics: list[str] = Field(default_factory=list)
     strict_topics: bool = True                      # rejeitar MOCs fora da lista
+    # Pipeline hibrido: taxonomia -> cluster por categoria -> grafo -> LLM.
+    cluster_within_category: bool = True
+    category_label_template: str = "{domain}: {categoria}"
+    overlap_threshold: float = 0.4                  # overlap cluster/MOC -> incremental
+    graph_cohesion_enabled: bool = True
+    graph_cohesion_min_ratio: float = 0.0           # 0 = metrica apenas; >0 rejeita MOC novo
+    umap_n_neighbors: int | None = None             # None = auto (min(15, n-1))
+    hdbscan_min_samples: int | None = None          # None = default HDBSCAN
 
     @field_validator("topics_path", mode="before")
     @classmethod
