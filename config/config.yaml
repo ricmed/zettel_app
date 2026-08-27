@@ -1,28 +1,33 @@
 # ── Zettelkasten Pipeline — Configuração Principal ─────────────────────
 #
-# Edite os valores abaixo de acordo com seu ambiente.
-# Variáveis de ambiente necessárias:
-#   OPENAI_API_KEY  (se usar provider: openai)
+# FONTE OPERACIONAL UNICA: edite este arquivo. zettel/config.py e o schema
+# Pydantic (tipos, validators) e so preenche chave ausente / YAML faltando
+# (fallback de fabrica + testes com AppConfig()).
+#
+# Variaveis de ambiente (.env, nao este arquivo):
+#   OPENAI_API_KEY      provider openai / gateways OpenAI-compatible
+#   ANTHROPIC_API_KEY   provider anthropic
+#   GOOGLE_API_KEY      provider gemini
 
 # ── Caminhos ────────────────────────────────────────────────────────────
-vault_path: ./vault
-inbox_path: ./data/inbox
-chroma_path: ./data/chroma
-state_db_path: ./data/state.db
-cache_path: ./data/cache
-prompts_path: ./prompts
+vault_path: ./vault                 # vault Obsidian (00_Inbox … 90_Assets)
+inbox_path: ./data/inbox            # drop zone de PDF/Markdown para harvest
+chroma_path: ./data/chroma          # indice vetorial persistente
+state_db_path: ./data/state.db      # SQLite (estado, FTS5, grafo, cache LLM)
+cache_path: ./data/cache            # cache intermediario (ex. checkpointer article)
+prompts_path: ./prompts             # templates .md dos prompts
 
 # ── LLM ─────────────────────────────────────────────────────────────────
 llm:
   provider: openai          # openai | anthropic | ollama | gemini | openrouter | opencode
-  model: gpt-4o-mini        # modelo para extração/geração
+  model: gpt-4o-mini        # modelo de extracao/geracao (nao e o de embedding)
   #provider: ollama
   #model: qwen3.5:4b
-  temperature: 0.15
-  top_p: 0.5
-  max_retries: 2
-  # base_url: null          # gateways OpenAI-compatible (OpenRouter, OpenCode, vLLM, …)
-  prompt_cache: true        # System+Human + hints Anthropic; ≠ llm_cache SQLite
+  temperature: 0.15         # 0 = mais deterministico; >0 aumenta variacao
+  top_p: 0.5                # nucleus sampling encaminhado a get_llm (LangChain)
+  max_retries: 2            # retries do client LangChain em falha HTTP
+  base_url: null            # gateways OpenAI-compatible (OpenRouter, OpenCode, vLLM, …)
+  prompt_cache: true        # layout System+Human + hints Anthropic; ≠ llm_cache SQLite
 
 # ── Embeddings ──────────────────────────────────────────────────────────
 # Providers: openai | sentence-transformers | ollama
@@ -33,101 +38,153 @@ llm:
 embedding:
   # provider: openai           # openai | sentence-transformers | ollama
   # model: text-embedding-3-small
-  base_url: null             # opcional; ollama default http://localhost:11434/v1
   provider: ollama
   model: qwen3-embedding
-  # allow_fallback: false      # true = permite default Chroma (mistura espacos — evite)
+  base_url: null             # opcional; ollama default http://localhost:11434/v1
+  allow_fallback: false      # true = default Chroma 384-d (mistura espacos — evite)
 
 # ── Chunking ────────────────────────────────────────────────────────────
+# Tamanhos em caracteres (nao tokens). Entram no hash de paging; mudar
+# re-chunka fontes se o harvest/rechunk rodar de novo.
 chunking:
-  chunk_size: 1500           # caracteres (nao tokens)
-  chunk_overlap: 400
-  min_section_chars: 200     # secoes (H3+) menores que isso sao fundidas com a seguinte
+  chunk_size: 1500           # alvo do splitter LangChain apos fusao de secoes
+  chunk_overlap: 400         # sobreposicao entre chunks consecutivos
+  min_section_chars: 200     # secoes (H3+) menores sao fundidas com a seguinte
 
 # ── Linkagem / Deduplicação ─────────────────────────────────────────────
 linking:
-  topk: 5
-  dedupe_threshold: 0.85
+  topk: 5                    # default do Retriever e RAG de connect/sync (CLI pode sobrescrever)
+  dedupe_threshold: 0.85     # similaridade; distancia L2 = 2 * (1 - threshold) no extract
 
-# ── Harvest (Deduplicação de Arquivos) ─────────────────────────────────
+# ── Harvest (Deduplicação de Arquivos + ABNT) ──────────────────────────
 harvest:
-  duplicate_chunk_threshold: 0.88     # similaridade minima p/ suspeita de quase-duplicata
+  duplicate_chunk_threshold: 0.88     # similaridade minima p/ suspeita semantica (camada 3)
   duplicate_sample_size: 5            # chunks amostrados do arquivo p/ checagem semantica
-  # Comportamento padrao SEM interacao (--yes / --skip-duplicates / --force / scripts):
-  #   skip     -> pula o arquivo suspeito e loga aviso (padrao, mais seguro)
+  # Sem interacao (--yes / --skip-duplicates / --force / scripts):
+  #   skip     -> pula o arquivo suspeito e loga aviso (mais seguro)
   #   continue -> processa mesmo assim como nova fonte
   #   abort    -> interrompe o harvest inteiro
   non_interactive_duplicate_action: skip
-  # Metadados bibliograficos ABNT (inferencia + LLM + prompt interativo)
+  # Metadados bibliograficos ABNT (heuristicas + LLM + prompt interativo)
   biblio_confidence_threshold: 0.7    # abaixo disso, pede confirmacao do tipo
   biblio_llm_enabled: true            # enriquece metadados via LLM apos heuristicas
-  biblio_text_sample_chars: 5000      # amostra inicial enviada ao LLM
+  biblio_text_sample_chars: 5000      # amostra inicial (capa/folha de rosto) enviada ao LLM
 
-# ── Extraction (Filtragem de Candidatos) ──────────────────────────────
+# ── Extraction (Filtragem de Candidatos a ZTL) ─────────────────────────
 extraction:
-  min_relevance_score: 3
-  min_thesis_words: 5
-  require_anchor_quote: true
-  min_definition_words: 10
+  min_relevance_score: 3     # candidatos com relevance_score abaixo sao descartados (1-5)
+  min_thesis_words: 5        # palavras minimas no campo thesis
+  require_anchor_quote: true # descartar se anchor_quote vazio
+  min_definition_words: 10   # palavras minimas no campo definition
 
 # ── Literature Review (aprovacao seletiva de LIT por chunk) ───────────
 literature_review:
-  auto_approve_min_confidence: 0.85
-  batch_sample_size: 20
-  drafts_subdir: 00_Inbox/Review
+  auto_approve_min_confidence: 0.85  # comparado a review_confidence (heuristica pos-extract)
+  batch_sample_size: 20              # max drafts de baixa confianca listados no review interativo
+  drafts_subdir: 00_Inbox/Review     # relativo ao vault; drafts antes da promocao para 20_Literature
 
-# ── Imagens (extracao + descricao multimodal) ─────────────────────────
+# ── Imagens (extracao no harvest + descricao multimodal) ──────────────
 images:
   enabled: true              # extrai imagens de PDF (Docling) e Markdown e as descreve
   scale: 2.0                 # images_scale do Docling
-  min_width: 64              # descarta imagens menores que isso (icones/logos)
+  min_width: 64              # descarta imagens menores (icones/logos)
   min_height: 64
   context_chars: 600         # caracteres ao redor da imagem usados como contexto
-  model: ""                  # vazio = usa llm.model (precisa ser multimodal, ex. gpt-4o-mini)
-  # Visao consome TPM rápido; pacing + retry evitam marcar 429 como failed:
+  model: ""                  # vazio = usa llm.model (precisa ser multimodal)
+  # Visao consome TPM rapido; pacing + retry evitam marcar 429 como failed:
   min_interval_seconds: 0.7  # pausa minima entre chamadas de descricao
   rate_limit_max_retries: 8  # tentativas por imagem em rate limit
   rate_limit_backoff_max: 60 # teto de espera (s) entre retries
   rate_limit_abort_after: 5  # falhas 429 consecutivas (apos retries) => para o lote
 
-# ── Gardener (MOCs) ────────────────────────────────────────────────────
+# ── Gardener (MOCs taxonomicos; zettel garden) ─────────────────────────
 gardener:
-  min_cluster_size: 5
-  min_notes_for_moc: 3
-  domain: "Ciencia de Dados"
-  strict_topics: true
-  # Taxonomia hierarquica (pilar > categoria > topicos). Categorias = whitelist do MOC.
-  topics_path: ./config/moc_topics.yaml
-  # Pipeline hibrido: atribui notas a categorias, clusteriza por bucket, valida grafo.
-  cluster_within_category: true
-  category_label_template: "{domain}: {categoria}"
-  overlap_threshold: 0.4           # fracao do cluster ja no MOC -> update incremental
-  graph_cohesion_enabled: true
-  graph_cohesion_min_ratio: 0.0    # 0 = so log; >0 exige coesao minima p/ MOC novo
-  # umap_n_neighbors: null         # null = auto
-  # hdbscan_min_samples: null
+  min_cluster_size: 5                  # notas minimas para tentar clusterizar
+  min_notes_for_moc: 3                 # cluster menor que isso nao vira MOC
+  domain: "Ciencia de Dados"           # preenchido nos prompts de MOC
+  strict_topics: true                  # rejeitar topic fora das categorias de moc_topics.yaml
+  topics_path: ./config/moc_topics.yaml  # pilar > categoria > topicos; categorias = whitelist
+  cluster_within_category: true        # clusteriza dentro de cada bucket da taxonomia
+  category_label_template: "{domain}: {categoria}"  # texto embeddado p/ atribuir notas
+  overlap_threshold: 0.4               # fracao do cluster ja no MOC -> update incremental
+  graph_cohesion_enabled: true         # mede coesao via note_connections
+  graph_cohesion_min_ratio: 0.0        # 0 = so log; >0 exige coesao minima p/ MOC novo
+  umap_n_neighbors: null               # null = auto min(15, n-1); cluster UMAP+HDBSCAN
+  hdbscan_min_samples: null            # null = default da lib HDBSCAN
 
-# ── MOCs Hub (porta de entrada tematica; use: zettel garden --hubs) ─────
+# ── MOCs Hub (zettel garden --hubs) ────────────────────────────────────
+# Porta de entrada tematica: ranqueia notas permanentes por grau ponderado
+# em note_connections, expande vizinhanca (BFS) e gera MOC radial
+# (origin=hub_pipeline, hub_note_id no frontmatter).
+# Pre-requisito: grafo populado (connect + sync-manual --rebuild-graph).
 hub_mocs:
-  selection_mode: percentile       # percentile | absolute
-  hub_percentile: 0.90             # top 10% por grau ponderado
-  top_n_hubs: 20
-  min_weighted_degree: 8.0         # limiar no modo absolute
-  max_hops: 2
-  max_neighbors: 25
-  min_neighbors: 3
-  decay: 0.5
-  min_neighbor_weight: 0.3
-  dedup_subset_threshold: 0.8
+  selection_mode: percentile       # percentile (escala com o vault) | absolute (limiar fixo)
+  hub_percentile: 0.90             # modo percentile: 0.90 = top 10% por grau ponderado
+  top_n_hubs: 15                   # teto de hubs processados por execucao (apos filtros/dedup)
+  min_weighted_degree: 8.0         # modo absolute: grau minimo (soma DEFAULT_RELATION_WEIGHTS)
+  max_hops: 2                      # profundidade BFS a partir do hub (1 = so vizinhos diretos)
+  max_neighbors: 25                # teto do cluster (hub + vizinhos de maior peso BFS)
+  min_neighbors: 8                 # vizinhanca minima; abaixo disso o hub e ignorado
+  decay: 0.5                       # atenuacao do peso de caminho a cada hop (0.5 = metade)
+  min_neighbor_weight: 0.3         # peso BFS minimo para o vizinho entrar na vizinhanca
+  dedup_subset_threshold: 0.8      # se >= 80% da vizinhanca ja esta num hub maior, descarta
 
-# ── Idioma ──────────────────────────────────────────────────────────────
+# ── Recuperacao hibrida (ask, article, connect RAG, sync) ──────────────
+# mode hybrid = Chroma (denso) + FTS5 BM25, fundidos por RRF. vector = so Chroma.
+# RRF e so posicional: o kNN sempre devolve os N mais proximos, mesmo irrelevantes.
+# O relevance_floor e o piso ABSOLUTO alem do ranking. Recalibre se trocar embedding.
+retrieval:
+  mode: hybrid
+  rrf_k: 60                        # constante canonica do Reciprocal Rank Fusion
+  relevance_floor:
+    enabled: true
+    min_vector_similarity: 0.70    # similaridade coseno minima (sem match lexical forte)
+    bm25_hit_bypasses_floor: true  # match BM25 forte pode dispensar a similaridade vetorial
+    bm25_bypass_max_rank: 5        # bypass so se o hit BM25 estiver no top-N do pool
+    absolute_min_similarity: 0.15  # piso rigido; nem o bypass BM25 fura (quase-ortogonal)
+  graph_expansion:
+    enabled: true                  # apos o piso, expande sementes pelas arestas tipadas
+    max_hops: 1                    # saltos no grafo do ask/RAG (1 ja traz o GraphRAG leve)
+    decay: 0.5                     # atenuacao do score por salto adicional
+    max_neighbors: 10              # teto de vizinhos trazidos ao contexto
+    # Override operacional dos pesos de aresta. Se omitido, vale DEFAULT_RELATION_WEIGHTS
+    # em config.py (fallback tambem usado quando expand_notes e chamado sem pesos).
+    relation_weights:
+      contradicts: 1.0             # sinal que embedding nao captura (vetores proximos ≠ apoia)
+      extends: 0.9
+      depends_on: 0.9
+      supports: 0.8
+      exemplifies: 0.7
+      related: 0.5                 # relacao tematica fraca
+  ask:
+    topk: 8                        # notas semente do comando `zettel ask`
+    max_context_notes: 8           # teto de notas montadas no contexto do LLM
+    max_chars_per_note: 1500       # truncagem do corpo de cada nota no contexto
+  article:
+    topk: 20                       # notas semente do comando `zettel article`
+    max_context_notes: 24
+    max_chars_per_note: 1200
+    max_hops: 2                    # expansao de grafo do article (≠ graph_expansion.max_hops)
+    max_sections: 8                # teto de secoes no outline
+    max_figures: 6                 # teto de figuras no catalogo
+    chars_per_section_draft: 2500  # alvo de tamanho por secao no prompt de draft
+    personalities_path: ./config/personalities.yaml
+    default_personality: neutral   # neutral = nao reescreve via LLM
+    enrich_query_count: 6          # queries extras geradas no enricher
+    max_judge_iterations: 3        # ciclos draft ↔ judge
+    judge_min_score: 7.0           # media minima para APPROVED
+    writer_temperature: null       # null = usa llm.temperature nas secoes
+    judge_temperature: 0.2
+    enrich_temperature: 0.2
+
+# ── Idioma dos prompts / texto gerado ──────────────────────────────────
 language: pt-BR
 
-# ── Logging ─────────────────────────────────────────────────────────────
+# ── Logging (raiz do pipeline; httpx/openai ficam em WARNING) ──────────
 log_level: INFO
 
-# ── PDF Extractor ───────────────────────────────────────────────────────
+# ── PDF (harvest) ──────────────────────────────────────────────────────
 pdf_extractor: docling       # docling | pymupdf
 
-# ── Dispositivo (GPU) ──────────────────────────────────────────────────
+# ── Dispositivo (Docling + sentence-transformers) ──────────────────────
 device: cuda                 # auto | cpu | cuda

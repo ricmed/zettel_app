@@ -1,4 +1,8 @@
-"""Configuration loader and validator."""
+"""Schema Pydantic e loader da configuracao.
+
+Fonte operacional: config/config.yaml. Este modulo define tipos/validators e
+os Field defaults usados como fallback (YAML ausente, chave omitida, testes).
+"""
 
 from __future__ import annotations
 
@@ -16,29 +20,24 @@ _DEFAULT_CONFIG_PATH = Path("config/config.yaml")
 
 
 class LLMConfig(BaseModel):
+    """Fallback de fabrica. Valores operacionais: config/config.yaml -> llm."""
+
     provider: str = "openai"
     model: str = "gpt-4o-mini"
     temperature: float = 0
-    top_p: float = 1
+    top_p: float = 1                  # nucleus sampling; encaminhado em get_llm
     max_retries: int = 2
-    # OpenAI-compatible gateways (OpenRouter, OpenCode, vLLM, Azure, …).
-    base_url: str | None = None
-    # Provider prefix caching: System+Human layout + Anthropic cache_control hints.
-    # Orthogonal to SQLite llm_cache (full response reuse on identical calls).
-    prompt_cache: bool = True
+    base_url: str | None = None       # gateways OpenAI-compatible; None = default do provider
+    prompt_cache: bool = True         # prefix cache do provedor; ≠ llm_cache SQLite
 
 
 class EmbeddingConfig(BaseModel):
+    """Fallback de fabrica. Valores operacionais: config/config.yaml -> embedding."""
+
     provider: Literal["openai", "sentence-transformers", "ollama"] = "openai"
     model: str = "text-embedding-3-small"
-    # URL do endpoint de embeddings. Para ollama: http://localhost:11434/v1
-    # (API OpenAI-compatible). Para openai com proxy/Azure: api_base OpenAI-compatible.
-    # None = default do provider.
-    base_url: str | None = None
-    # Se False (padrao), a ausencia de API key / provider invalido levanta erro em vez
-    # de cair silenciosamente no embedding default do ChromaDB (384 dims), o que
-    # misturaria espacos vetoriais incompativeis.
-    allow_fallback: bool = False
+    base_url: str | None = None       # ollama: http://localhost:11434/v1; None = default
+    allow_fallback: bool = False      # False = erro se faltar key (evita Chroma 384-d)
 
 
 class ChunkingConfig(BaseModel):
@@ -53,15 +52,11 @@ class LinkingConfig(BaseModel):
 
 
 class HarvestConfig(BaseModel):
-    """Controls the three-layer duplicate detection in the harvest phase."""
+    """Dedupe em 3 camadas (hash arquivo/texto + similaridade) e metadados ABNT."""
 
-    duplicate_chunk_threshold: float = 0.88   # similaridade minima p/ suspeita semantica
-    duplicate_sample_size: int = 5            # nro de chunks amostrados p/ checagem semantica
-    # Comportamento padrao quando rodando sem interacao (--yes/--skip-duplicates/scripts):
-    # "skip" (pular o arquivo suspeito, seguro por padrao), "continue" (tratar como nova
-    # fonte) ou "abort" (interromper o harvest inteiro).
+    duplicate_chunk_threshold: float = 0.88
+    duplicate_sample_size: int = 5
     non_interactive_duplicate_action: Literal["skip", "continue", "abort"] = "skip"
-    # Metadados bibliograficos (ABNT): inferencia + prompt interativo.
     biblio_confidence_threshold: float = 0.7
     biblio_llm_enabled: bool = True
     biblio_text_sample_chars: int = 5000
@@ -83,7 +78,7 @@ class LiteratureReviewConfig(BaseModel):
 
 
 class ImagesConfig(BaseModel):
-    """Image extraction + multimodal description (Fase 3)."""
+    """Extracao de imagens no harvest (Docling/Markdown) e descricao multimodal."""
 
     enabled: bool = False             # extrai/descreve imagens de PDF (Docling) e Markdown
     scale: float = 2.0               # images_scale do Docling
@@ -102,12 +97,12 @@ class GardenerConfig(BaseModel):
     min_cluster_size: int = 5
     min_notes_for_moc: int = 3
     domain: str = ""                               # ex: "Ciencia de Dados"
-    # Fonte unica da taxonomia (pilar > categoria > topicos). Categorias viram a
-    # whitelist do campo topic do MOC. None = default config/moc_topics.yaml.
+    # Default ja aponta para o YAML da taxonomia. None = taxonomia nao configurada
+    # (TaxonomyLoadError se strict_topics). Nao confundir None com "usar o default".
     topics_path: Path | None = Path("config/moc_topics.yaml")
-    # Override opcional para testes; se vazio, deriva de topics_path.
+    # Override de testes; nao e knob do config.yaml (whitelist vem de topics_path).
     allowed_topics: list[str] = Field(default_factory=list)
-    strict_topics: bool = True                      # rejeitar MOCs fora da lista
+    strict_topics: bool = True                      # rejeitar topic fora das categorias
     # Pipeline hibrido: taxonomia -> cluster por categoria -> grafo -> LLM.
     cluster_within_category: bool = True
     category_label_template: str = "{domain}: {categoria}"
@@ -126,73 +121,23 @@ class GardenerConfig(BaseModel):
 
 
 class HubMocsConfig(BaseModel):
-    """Parametros do pipeline `zettel garden --hubs` (MOCs por nota-hub).
+    """Fallback de `zettel garden --hubs`. Catalogo operacional: config.yaml -> hub_mocs."""
 
-    Complementa o gardener taxonomico: em vez de clusterizar por embedding/categoria,
-    identifica notas permanentes com muitas conexoes tipadas em ``note_connections``
-    e gera MOCs radiais em torno delas (porta de entrada tematica).
-
-    Fluxo resumido: ranquear hubs por grau ponderado → expandir vizinhanca via BFS
-    (``expand_notes``) → deduplicar vizinhancas sobrepostas → LLM (geracao ou
-    incremental) → MOC com ``origin='hub_pipeline'`` e ``hub_note_id`` no frontmatter.
-
-    Pre-requisito: grafo populado (``connect`` + ``sync-manual --rebuild-graph``).
-    """
-
-    # Como escolher quais notas sao hubs candidatos.
-    # ``percentile``: mantem notas acima do percentil ``hub_percentile`` (escala com o
-    # vault; recomendado na maioria dos casos). ``absolute``: mantem notas com grau
-    # ponderado >= ``min_weighted_degree`` (util quando voce ja calibrou um limiar fixo).
-    selection_mode: str = "percentile"
-
-    # No modo ``percentile``, notas com grau ponderado >= ao valor do percentil entram
-    # na lista. Ex.: 0.90 = top 10% das notas permanentes conectadas. Suba (0.95) para
-    # menos hubs mais centrais; baixe (0.80) para mais cobertura tematica.
+    selection_mode: Literal["percentile", "absolute"] = "percentile"
     hub_percentile: float = 0.90
-
-    # Teto de hubs processados por execucao de ``garden --hubs``. Apos filtros e
-    # deduplicacao, no maximo este numero de MOCs hub sera criado/atualizado. Evita
-    # explosao de custo LLM em vaults muito densos.
     top_n_hubs: int = 10
-
-    # No modo ``absolute``, grau ponderado minimo para ser hub. O grau soma os pesos
-    # de ``DEFAULT_RELATION_WEIGHTS`` em todas as arestas incidentes (undirected).
-    # Ex.: 5 arestas ``extends`` (0.9) ≈ 4.5; calibrar apos inspecionar ``doctor``/logs.
     min_weighted_degree: float = 8.0
-
-    # Profundidade do BFS a partir do hub ao montar a vizinhanca (``expand_notes``).
-    # 1 = apenas vizinhos diretos; 2 = inclui vizinhos dos vizinhos (com atenuacao
-    # ``decay``). Valores maiores ampliam o MOC mas diluem o foco tematico.
     max_hops: int = 2
-
-    # Numero maximo de notas no cluster hub (hub + vizinhos). O hub sempre entra;
-    # os demais slots sao preenchidos pelos vizinhos de maior peso BFS ate este teto.
     max_neighbors: int = 15
-
-    # Vizinhanca minima para processar um hub. Clusters menores sao ignorados (notas
-    # continuam no vault; nenhum MOC hub e criado). Evita MOCs com 1-2 links fracos.
     min_neighbors: int = 8
-
-    # Atenuacao multiplicativa do peso de caminho a cada salto adicional no BFS
-    # (mesma semantica de ``GraphExpansionConfig.decay``). 0.5 = metade do peso por hop.
     decay: float = 0.5
-
-    # Peso BFS minimo para um vizinho entrar na vizinhanca. Filtra arestas fracas ou
-    # caminhos muito longos/atenuados. Suba para vizinhancas mais coesas; baixe para
-    # incluir notas perifericas ainda relevantes.
     min_neighbor_weight: float = 0.3
-
-    # Deduplicacao entre hubs: ao ordenar por grau decrescente, descarta um hub menor
-    # se >= esta fracao de sua vizinhanca ja estiver contida na vizinhanca de um hub
-    # maior ja aceito. Ex.: 0.8 = se 80% das notas do hub B ja estao no MOC do hub A,
-    # B e ignorado. Reduz MOCs hub redundantes sobre o mesmo tema.
     dedup_subset_threshold: float = 0.8
 
 
-# Peso de cada tipo de aresta na expansao por grafo. `contradicts` no topo porque
-# e a informacao que a similaridade de embedding NAO captura (vetores proximos nao
-# distinguem "apoia" de "contradiz"); `related` no fundo (relacao tematica fraca).
-# Fonte unica de verdade — reutilizado por zettel/graph.py.
+# Fallback dos pesos de aresta (grafo + hubs). Override operacional:
+# retrieval.graph_expansion.relation_weights em config.yaml.
+# contradicts no topo: embedding nao distingue "apoia" de "contradiz".
 DEFAULT_RELATION_WEIGHTS: dict[str, float] = {
     "contradicts": 1.0,
     "extends": 0.9,
@@ -244,43 +189,12 @@ class ArticleConfig(BaseModel):
 
 
 class RelevanceFloorConfig(BaseModel):
-    """Piso de relevancia ABSOLUTO, aplicado alem da fusao RRF (que e apenas posicional).
-
-    RRF so enxerga o RANKING de cada candidato, nao o quao bom ele e de fato — a
-    busca vetorial (kNN) sempre devolve os N vizinhos mais proximos disponiveis no
-    corpus, mesmo que nenhum seja de fato relevante. Sem um piso absoluto, uma
-    pergunta totalmente fora do acervo (ex.: "o que e a chuva?") produz um score
-    RRF no mesmo patamar de uma pergunta genuinamente respondivel.
-
-    Calibrado empiricamente neste projeto (embedding text-embedding-3-small) com
-    um par de perguntas reais: uma pergunta respondivel pelo acervo teve
-    similaridade coseno 0.70-0.84 nos top-8; uma pergunta fora do tema teve
-    0.63-0.65. `min_vector_similarity=0.70` separa os dois casos. Este limiar e
-    dependente do modelo de embedding e do corpus — reajuste se notar falsos
-    negativos/positivos.
-    """
+    """Piso absoluto alem do RRF (que so ranqueia). Catalogo: config.yaml -> retrieval."""
 
     enabled: bool = True
     min_vector_similarity: float = 0.70
-    # Uma correspondencia lexical (BM25) exige overlap real de termos na nota —
-    # ao contrario do kNN vetorial, que sempre devolve "o mais proximo disponivel"
-    # mesmo sem relacao nenhuma. Por isso um hit achado via BM25 pode passar o piso
-    # independente da similaridade vetorial (que pode nem existir para ele) —
-    # mas so quando o match lexical for FORTE (ver bm25_bypass_max_rank abaixo).
     bm25_hit_bypasses_floor: bool = True
-    # O bypass so vale para matches lexicais bem posicionados no ranking BM25
-    # (top-N do pool). Um match fraco (achado apenas na cauda do pool de ~20)
-    # e um sinal fraco demais para dispensar a checagem de similaridade — sem
-    # este teto, qualquer sobreposicao lexical incidental (mesmo apos o filtro
-    # de stopwords) poderia "furar" o piso.
     bm25_bypass_max_rank: int = 5
-    # Piso absoluto que NENHUM hit pode furar, nem mesmo via bypass do BM25 —
-    # protege contra o caso patologico de uma nota embedding-mente quase
-    # ortogonal (similaridade muito baixa) que por acaso compartilha um termo
-    # exato com a pergunta. Deliberadamente bem abaixo de min_vector_similarity
-    # para nao atrapalhar o caso de uso principal do BM25 (resgatar siglas/
-    # termos tecnicos que o embedding subestima mas cuja similaridade nao
-    # costuma ser proxima de zero).
     absolute_min_similarity: float = 0.15
 
 
@@ -300,6 +214,11 @@ class RetrievalConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
+    """Schema do pipeline. Fonte operacional: config/config.yaml (load_config).
+
+    Field defaults sao fallback de fabrica (YAML ausente, chave omitida, testes).
+    """
+
     vault_path: Path = Path("./vault")
     inbox_path: Path = Path("./data/inbox")
     chroma_path: Path = Path("./data/chroma")
@@ -339,9 +258,11 @@ class AppConfig(BaseModel):
 
 
 def load_config(path: Path | str | None = None) -> AppConfig:
-    """Load configuration from a YAML file, with defaults.
+    """Carrega config/config.yaml (ou ``path``) e valida em AppConfig.
 
-    Also loads environment variables from a .env file (project root).
+    Contrato YAML-primeiro: cada chave do YAML substitui o Field default;
+    chave ausente (ou arquivo faltando) usa o fallback de fabrica. Segredos
+    (API keys) vêm de ``.env``, nao do YAML.
     """
     # Load .env before anything that reads env vars (LLM keys, etc.)
     env_path = Path(".env")

@@ -52,6 +52,7 @@ def get_llm(cfg: Any, temperature: float | None = None) -> Any:
 
     ``temperature`` overrides ``cfg.llm.temperature`` when provided (used by
     article enricher/judge/personality nodes that need cooler or warmer draws).
+    ``cfg.llm.top_p`` is always forwarded to the LangChain client.
 
     OpenAI-compatible gateways (``openrouter``, ``opencode``, ``azure``,
     ``compatible``) use ``ChatOpenAI`` with optional ``llm.base_url``.
@@ -60,12 +61,14 @@ def get_llm(cfg: Any, temperature: float | None = None) -> Any:
     provider = normalize_llm_provider(cfg.llm.provider)
     base_url = getattr(cfg.llm, "base_url", None)
     max_retries = cfg.llm.max_retries
+    top_p = getattr(cfg.llm, "top_p", 1)
 
     if is_openai_compatible(provider):
         from langchain_openai import ChatOpenAI
         kwargs: dict[str, Any] = {
             "model": cfg.llm.model,
             "temperature": temp,
+            "top_p": top_p,
             "max_retries": max_retries,
         }
         if base_url:
@@ -77,6 +80,7 @@ def get_llm(cfg: Any, temperature: float | None = None) -> Any:
         return ChatAnthropic(
             model=cfg.llm.model,
             temperature=temp,
+            top_p=top_p,
             max_retries=max_retries,
         )
 
@@ -85,6 +89,7 @@ def get_llm(cfg: Any, temperature: float | None = None) -> Any:
         kwargs = {
             "model": cfg.llm.model,
             "temperature": temp,
+            "top_p": top_p,
         }
         if base_url:
             kwargs["base_url"] = base_url
@@ -95,6 +100,7 @@ def get_llm(cfg: Any, temperature: float | None = None) -> Any:
         return ChatGoogleGenerativeAI(
             model=cfg.llm.model,
             temperature=temp,
+            top_p=top_p,
             max_retries=max_retries,
         )
 

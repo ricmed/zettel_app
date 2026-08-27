@@ -35,7 +35,7 @@ MOCs (Mapas de Conteúdo) por clusterização semântica
 zettel_app/
 ├── zettel/                  # Pacote principal
 │   ├── cli.py               # Interface CLI (Typer + Rich)
-│   ├── config.py            # Carregamento e validação de config
+│   ├── config.py            # Schema Pydantic + fallback; load_config le o YAML
 │   ├── schemas.py           # Modelos Pydantic
 │   ├── hashing.py           # Hashing canônico em camadas
 │   ├── pricing.py           # Estimativa de custo via mapa LiteLLM (só calculadora)
@@ -58,7 +58,7 @@ zettel_app/
 │   ├── rebuild.py           # Reconstrução do Chroma (reindex) e do vault (rebuild) a partir do SQLite
 │   └── sync.py              # Sincronização de notas manuais (SRC/LIT/ZTL/MOC)
 ├── config/
-│   ├── config.yaml          # Configuração principal
+│   ├── config.yaml          # Fonte operacional (todos os knobs do schema)
 │   └── moc_topics.yaml      # Taxonomia hierarquica de topicos para MOCs
 ├── prompts/                     # Templates de prompts para o LLM
 │   ├── bibliographic_metadata.md # Extracao de metadados bibliograficos (ABNT)
@@ -165,6 +165,10 @@ Descomente no `requirements.txt` conforme necessário:
 
 ## Configuração
 
+A **fonte operacional** é `config/config.yaml` — é o arquivo que o CLI carrega. `zettel/config.py` define o schema Pydantic e só aplica fallback se o YAML faltar, se uma chave for omitida, ou nos testes que instanciam `AppConfig()`. Segredos (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`) ficam no `.env`, não no YAML.
+
+Um teste (`tests/test_config.py`) exige que toda chave do schema exista no YAML, com exceção de `gardener.allowed_topics` (override de testes). Valores deste vault (Ollama, CUDA, limiares calibrados) estão no arquivo local; o bloco abaixo é o catálogo de knobs.
+
 Edite `config/config.yaml`:
 
 ```yaml
@@ -177,14 +181,16 @@ llm:
   provider: openai           # openai | anthropic | ollama | gemini | openrouter | opencode
   model: gpt-4o-mini
   temperature: 0             # 0 = deterministico (reduz drift)
-  # base_url: null           # gateways OpenAI-compatible
+  top_p: 1                   # nucleus sampling (encaminhado a get_llm)
+  max_retries: 2
+  base_url: null             # gateways OpenAI-compatible
   prompt_cache: true         # prefix cache do provedor (System+Human)
 
 # Embeddings
 embedding:
   provider: openai                    # openai | sentence-transformers | ollama
   model: text-embedding-3-small
-  # base_url: null                    # opcional; ollama default http://localhost:11434/v1
+  base_url: null                      # opcional; ollama default http://localhost:11434/v1
   allow_fallback: false               # false = erro se faltar API key (evita vetores de 384 dims silenciosos)
 
 # Chunking
@@ -208,8 +214,8 @@ images:
 
 # Linkagem
 linking:
-  topk: 5                    # notas similares para RAG
-  dedupe_threshold: 0.85     # limiar de deduplicacao
+  topk: 5                    # default do Retriever e RAG de connect/sync
+  dedupe_threshold: 0.85     # similaridade; L2 = 2 * (1 - threshold) no extract
 
 # Harvest (duplicatas + metadados bibliograficos ABNT)
 harvest:
@@ -219,6 +225,12 @@ harvest:
   biblio_confidence_threshold: 0.7         # abaixo disso, pede confirmacao do tipo
   biblio_llm_enabled: true                 # enriquece metadados via LLM apos heuristicas
   biblio_text_sample_chars: 5000           # amostra inicial (capa/folha de rosto) enviada ao LLM
+
+# Literature review (aprovacao seletiva de LIT por chunk)
+literature_review:
+  auto_approve_min_confidence: 0.85
+  batch_sample_size: 20
+  drafts_subdir: 00_Inbox/Review
 
 # Recuperacao (busca hibrida + GraphRAG leve)
 retrieval:
@@ -235,6 +247,13 @@ retrieval:
     max_hops: 1              # saltos no grafo (1 ja traz o valor principal)
     decay: 0.5               # atenuacao do score por salto
     max_neighbors: 10        # teto de vizinhos trazidos ao contexto
+    relation_weights:        # omitir = DEFAULT_RELATION_WEIGHTS em config.py
+      contradicts: 1.0
+      extends: 0.9
+      depends_on: 0.9
+      supports: 0.8
+      exemplifies: 0.7
+      related: 0.5
   ask:
     topk: 8                  # notas semente do comando `ask`
     max_context_notes: 8     # teto de notas no contexto do LLM
@@ -252,6 +271,7 @@ retrieval:
     enrich_query_count: 6
     max_judge_iterations: 3
     judge_min_score: 7.0
+    writer_temperature: null # null = llm.temperature
     judge_temperature: 0.2
     enrich_temperature: 0.2
 
@@ -274,6 +294,8 @@ gardener:
   overlap_threshold: 0.4
   graph_cohesion_enabled: true
   graph_cohesion_min_ratio: 0.0
+  umap_n_neighbors: null     # null = auto min(15, n-1)
+  hdbscan_min_samples: null  # null = default HDBSCAN
 
 # MOCs hub (use: zettel garden --hubs)
 hub_mocs:
@@ -290,6 +312,10 @@ hub_mocs:
 
 # PDF
 pdf_extractor: docling       # docling | pymupdf
+
+language: pt-BR
+log_level: INFO
+device: auto                 # auto | cpu | cuda
 ```
 
 ### Provedores de LLM suportados
