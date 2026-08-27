@@ -275,6 +275,19 @@ gardener:
   graph_cohesion_enabled: true
   graph_cohesion_min_ratio: 0.0
 
+# MOCs hub (use: zettel garden --hubs)
+hub_mocs:
+  selection_mode: percentile
+  hub_percentile: 0.90
+  top_n_hubs: 20
+  min_weighted_degree: 8.0
+  max_hops: 2
+  max_neighbors: 25
+  min_neighbors: 3
+  decay: 0.5
+  min_neighbor_weight: 0.3
+  dedup_subset_threshold: 0.8
+
 # PDF
 pdf_extractor: docling       # docling | pymupdf
 ```
@@ -426,8 +439,14 @@ python -m zettel connect
 # Clusterizar notas e gerar MOCs
 python -m zettel garden
 
+# MOCs hub (porta de entrada tematica; complementar ao pipeline taxonomico)
+python -m zettel garden --hubs
+
 # Regenerar MOCs do pipeline do zero (apaga vault + banco + indice; pede confirmacao)
 python -m zettel garden --recreate
+
+# Regenerar apenas MOCs hub
+python -m zettel garden --hubs --recreate -y
 
 # Sem prompt de confirmacao (util em scripts)
 python -m zettel garden --recreate -y
@@ -588,6 +607,36 @@ Parametros hibridos em `config.yaml` (`gardener.*`):
 | `hdbscan_min_samples` | Opcional; ajuste fino do HDBSCAN |
 
 `zettel garden --recreate` apaga MOCs gerados pelo pipeline (`origin='pipeline'`) e regenera do zero, preservando MOCs manuais.
+
+### Fase 4b — Garden Hub (porta de entrada tematica)
+
+Complementar ao pipeline taxonomico: MOCs ancorados em **notas-hub** (alto grau ponderado em `note_connections`). Uma nota pode aparecer em MOC de categoria **e** em MOC hub.
+
+```bash
+python -m zettel garden --hubs              # MOCs hub (complementar)
+python -m zettel garden --hubs --recreate -y
+```
+
+1. Ranqueia notas permanentes por **grau ponderado** no grafo (`DEFAULT_RELATION_WEIGHTS`)
+2. Expande vizinhanca via BFS (`expand_notes`, `max_hops` configuravel)
+3. Deduplica vizinhancas muito sobrepostas (`dedup_subset_threshold`)
+4. Roteia cada hub (`gardener_hub.py`):
+   - MOC existente com mesmo `hub_note_id` → `moc_hub_incremental`
+   - Senao → `moc_hub_generation` (topic livre, derivado pelo LLM)
+5. Persiste com `origin='hub_pipeline'`, frontmatter `hub_note_id` e secao **Porta de entrada**
+
+| Parametro (`hub_mocs.*`) | Proposito |
+|--------------------------|-----------|
+| `selection_mode` | `percentile` (top %) ou `absolute` (limiar fixo) |
+| `hub_percentile` | Percentil minimo no modo percentile (default `0.90`) |
+| `min_weighted_degree` | Limiar absoluto de grau ponderado |
+| `top_n_hubs` | Teto de hubs processados por run |
+| `max_hops` / `decay` | Expansao BFS a partir do hub |
+| `max_neighbors` / `min_neighbors` | Tamanho da vizinhanca |
+| `min_neighbor_weight` | Filtra vizinhos fracos pos-BFS |
+| `dedup_subset_threshold` | Descarta hub menor se vizinhanca >= N% contida em outra |
+
+`garden --hubs --recreate` apaga apenas MOCs `origin='hub_pipeline'`; MOCs taxonomicos (`pipeline`) e manuais permanecem intactos.
 
 ## Estrutura das notas geradas
 

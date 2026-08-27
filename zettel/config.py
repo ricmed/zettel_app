@@ -125,6 +125,70 @@ class GardenerConfig(BaseModel):
         return Path(v).resolve()
 
 
+class HubMocsConfig(BaseModel):
+    """Parametros do pipeline `zettel garden --hubs` (MOCs por nota-hub).
+
+    Complementa o gardener taxonomico: em vez de clusterizar por embedding/categoria,
+    identifica notas permanentes com muitas conexoes tipadas em ``note_connections``
+    e gera MOCs radiais em torno delas (porta de entrada tematica).
+
+    Fluxo resumido: ranquear hubs por grau ponderado → expandir vizinhanca via BFS
+    (``expand_notes``) → deduplicar vizinhancas sobrepostas → LLM (geracao ou
+    incremental) → MOC com ``origin='hub_pipeline'`` e ``hub_note_id`` no frontmatter.
+
+    Pre-requisito: grafo populado (``connect`` + ``sync-manual --rebuild-graph``).
+    """
+
+    # Como escolher quais notas sao hubs candidatos.
+    # ``percentile``: mantem notas acima do percentil ``hub_percentile`` (escala com o
+    # vault; recomendado na maioria dos casos). ``absolute``: mantem notas com grau
+    # ponderado >= ``min_weighted_degree`` (util quando voce ja calibrou um limiar fixo).
+    selection_mode: str = "percentile"
+
+    # No modo ``percentile``, notas com grau ponderado >= ao valor do percentil entram
+    # na lista. Ex.: 0.90 = top 10% das notas permanentes conectadas. Suba (0.95) para
+    # menos hubs mais centrais; baixe (0.80) para mais cobertura tematica.
+    hub_percentile: float = 0.90
+
+    # Teto de hubs processados por execucao de ``garden --hubs``. Apos filtros e
+    # deduplicacao, no maximo este numero de MOCs hub sera criado/atualizado. Evita
+    # explosao de custo LLM em vaults muito densos.
+    top_n_hubs: int = 10
+
+    # No modo ``absolute``, grau ponderado minimo para ser hub. O grau soma os pesos
+    # de ``DEFAULT_RELATION_WEIGHTS`` em todas as arestas incidentes (undirected).
+    # Ex.: 5 arestas ``extends`` (0.9) ≈ 4.5; calibrar apos inspecionar ``doctor``/logs.
+    min_weighted_degree: float = 8.0
+
+    # Profundidade do BFS a partir do hub ao montar a vizinhanca (``expand_notes``).
+    # 1 = apenas vizinhos diretos; 2 = inclui vizinhos dos vizinhos (com atenuacao
+    # ``decay``). Valores maiores ampliam o MOC mas diluem o foco tematico.
+    max_hops: int = 2
+
+    # Numero maximo de notas no cluster hub (hub + vizinhos). O hub sempre entra;
+    # os demais slots sao preenchidos pelos vizinhos de maior peso BFS ate este teto.
+    max_neighbors: int = 15
+
+    # Vizinhanca minima para processar um hub. Clusters menores sao ignorados (notas
+    # continuam no vault; nenhum MOC hub e criado). Evita MOCs com 1-2 links fracos.
+    min_neighbors: int = 8
+
+    # Atenuacao multiplicativa do peso de caminho a cada salto adicional no BFS
+    # (mesma semantica de ``GraphExpansionConfig.decay``). 0.5 = metade do peso por hop.
+    decay: float = 0.5
+
+    # Peso BFS minimo para um vizinho entrar na vizinhanca. Filtra arestas fracas ou
+    # caminhos muito longos/atenuados. Suba para vizinhancas mais coesas; baixe para
+    # incluir notas perifericas ainda relevantes.
+    min_neighbor_weight: float = 0.3
+
+    # Deduplicacao entre hubs: ao ordenar por grau decrescente, descarta um hub menor
+    # se >= esta fracao de sua vizinhanca ja estiver contida na vizinhanca de um hub
+    # maior ja aceito. Ex.: 0.8 = se 80% das notas do hub B ja estao no MOC do hub A,
+    # B e ignorado. Reduz MOCs hub redundantes sobre o mesmo tema.
+    dedup_subset_threshold: float = 0.8
+
+
 # Peso de cada tipo de aresta na expansao por grafo. `contradicts` no topo porque
 # e a informacao que a similaridade de embedding NAO captura (vetores proximos nao
 # distinguem "apoia" de "contradiz"); `related` no fundo (relacao tematica fraca).
@@ -252,6 +316,7 @@ class AppConfig(BaseModel):
     literature_review: LiteratureReviewConfig = Field(default_factory=LiteratureReviewConfig)
     images: ImagesConfig = Field(default_factory=ImagesConfig)
     gardener: GardenerConfig = Field(default_factory=GardenerConfig)
+    hub_mocs: HubMocsConfig = Field(default_factory=HubMocsConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
 
     language: str = "pt-BR"

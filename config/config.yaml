@@ -107,6 +107,19 @@ gardener:
   # umap_n_neighbors: null         # null = auto
   # hdbscan_min_samples: null
 
+# ── MOCs Hub (porta de entrada tematica; use: zettel garden --hubs) ─────
+hub_mocs:
+  selection_mode: percentile       # percentile | absolute
+  hub_percentile: 0.90             # top 10% por grau ponderado
+  top_n_hubs: 20
+  min_weighted_degree: 8.0         # limiar no modo absolute
+  max_hops: 2
+  max_neighbors: 25
+  min_neighbors: 3
+  decay: 0.5
+  min_neighbor_weight: 0.3
+  dedup_subset_threshold: 0.8
+
 # ── Idioma ──────────────────────────────────────────────────────────────
 language: pt-BR
 

@@ -462,6 +462,10 @@ def connect(
 def garden(
     config: Optional[str] = typer.Option(None, "--config", "-c"),
     min_cluster_size: Optional[int] = typer.Option(None, "--min-cluster-size"),
+    hubs: bool = typer.Option(
+        False, "--hubs",
+        help="Gerar MOCs ancorados em notas-hub do grafo (complementar ao pipeline taxonomico)",
+    ),
     recreate: bool = typer.Option(
         False, "--recreate",
         help="Apagar MOCs gerados pelo pipeline e regenerar do zero",
@@ -477,8 +481,9 @@ def garden(
         cfg.gardener.min_cluster_size = min_cluster_size
 
     if recreate and not yes:
+        target = "hub" if hubs else "taxonomia"
         if not typer.confirm(
-            "Apaga todos os MOCs do pipeline (vault, banco e indice) e regenera. Continuar?",
+            f"Apaga todos os MOCs do pipeline ({target}) (vault, banco e indice) e regenera. Continuar?",
             default=False,
         ):
             raise typer.Exit(0)
@@ -486,18 +491,25 @@ def garden(
     db = _get_db(cfg)
     idx = _get_idx(cfg, db=db, yes=yes)
 
-    from zettel.gardener import run_garden
-    with console.status("[bold blue]Cultivando o jardim de notas...", spinner="dots"):
-        moc_ids = run_garden(cfg, db, idx, recreate=recreate)
+    if hubs:
+        from zettel.gardener_hub import run_garden_hubs
+        with console.status("[bold blue]Cultivando MOCs hub...", spinner="dots"):
+            moc_ids = run_garden_hubs(cfg, db, idx, recreate=recreate)
+        if recreate:
+            console.print("[dim]MOCs hub do pipeline foram removidos antes da geracao.[/dim]")
+    else:
+        from zettel.gardener import run_garden
+        with console.status("[bold blue]Cultivando o jardim de notas...", spinner="dots"):
+            moc_ids = run_garden(cfg, db, idx, recreate=recreate)
+        if recreate:
+            console.print("[dim]MOCs do pipeline foram removidos antes da geracao.[/dim]")
 
-    if recreate:
-        console.print("[dim]MOCs do pipeline foram removidos antes da geracao.[/dim]")
     if moc_ids:
         console.print(f"[green]MOCs gerados/atualizados: {len(moc_ids)}[/green]")
         for mid in moc_ids:
             console.print(f"  - {mid}")
     else:
-        console.print("[yellow]Nenhum MOC gerado (notas insuficientes ou já atualizados).[/yellow]")
+        console.print("[yellow]Nenhum MOC gerado (notas insuficientes ou ja atualizados).[/yellow]")
 
     db.close()
 

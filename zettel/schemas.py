@@ -120,6 +120,19 @@ class MOCIncrementalOutput(BaseModel):
     new_subsections: list[MOCSubsection] = Field(default_factory=list)
 
 
+# ── Hub MOC Output ────────────────────────────────────────────────────
+
+
+class MOCHubGenerationOutput(BaseModel):
+    topic: str = Field(description="Tema derivado do hub e vizinhanca")
+    summary: str = Field(description="Resumo do tema em PT-BR")
+    hub_role: str = Field(
+        default="",
+        description="Por que a nota-hub e a porta de entrada",
+    )
+    subsections: list[MOCSubsection] = Field(default_factory=list)
+
+
 # ── Article generation ────────────────────────────────────────────────
 
 

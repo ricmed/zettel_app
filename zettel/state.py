@@ -1149,6 +1149,79 @@ class StateDB:
             self.conn.commit()
         return rows
 
+    def delete_hub_pipeline_mocs(self) -> list[dict]:
+        """Remove hub_pipeline MOC rows and return the deleted records."""
+        rows = self._fetchall("SELECT * FROM mocs WHERE origin='hub_pipeline'")
+        if rows:
+            self.conn.execute("DELETE FROM mocs WHERE origin='hub_pipeline'")
+            self.conn.commit()
+        return rows
+
+    def get_weighted_note_degrees(
+        self, relation_weights: dict[str, float],
+    ) -> dict[str, float]:
+        """Undirected weighted degree per note from note_connections."""
+        from collections import defaultdict
+
+        degrees: dict[str, float] = defaultdict(float)
+        rows = self._fetchall(
+            "SELECT source_note_id, target_note_id, relation_type FROM note_connections",
+        )
+        for row in rows:
+            rel = row.get("relation_type") or "related"
+            weight = relation_weights.get(rel, relation_weights.get("related", 0.5))
+            degrees[row["source_note_id"]] += weight
+            degrees[row["target_note_id"]] += weight
+        return dict(degrees)
+
+    def list_permanent_note_ids(self) -> set[str]:
+        """Note IDs whose vault path is under 30_Permanent/."""
+        rows = self._fetchall("SELECT note_id, path FROM notes WHERE path IS NOT NULL")
+        permanent: set[str] = set()
+        for row in rows:
+            path = (row.get("path") or "").replace("\\", "/")
+            if "30_Permanent" in path:
+                permanent.add(row["note_id"])
+        return permanent
+
+    def find_moc_by_hub_note_id(self, hub_note_id: str) -> Optional[dict]:
+        """Find hub_pipeline MOC anchored on hub_note_id (from frontmatter_json)."""
+        import json
+
+        for moc in self.list_mocs():
+            if moc.get("origin") != "hub_pipeline":
+                continue
+            raw = moc.get("frontmatter_json")
+            if not raw:
+                continue
+            try:
+                meta = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if meta.get("hub_note_id") == hub_note_id:
+                return moc
+        return None
+
+    def list_hub_anchor_note_ids(self) -> set[str]:
+        """hub_note_id values from existing hub_pipeline MOCs."""
+        import json
+
+        anchors: set[str] = set()
+        for moc in self.list_mocs():
+            if moc.get("origin") != "hub_pipeline":
+                continue
+            raw = moc.get("frontmatter_json")
+            if not raw:
+                continue
+            try:
+                meta = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            hub_id = meta.get("hub_note_id")
+            if hub_id:
+                anchors.add(hub_id)
+        return anchors
+
     # ── Assets (images) ────────────────────────────────────────────────
 
     def upsert_asset(
