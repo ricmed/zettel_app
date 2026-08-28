@@ -8,8 +8,8 @@ from zettel.config import AppConfig, LiteratureReviewConfig
 from zettel.harvester import run_set_paging
 from zettel.state import StateDB
 from zettel.vault import (
-    draft_chunk_filename,
-    literature_chunk_dirname,
+    literature_chunk_filename,
+    literature_source_dirname,
     safe_write_note,
 )
 
@@ -35,7 +35,7 @@ def test_run_set_paging_updates_book_and_drops_pending(tmp_path: Path):
     for d in (
         cfg.vault_path / "10_Sources",
         cfg.vault_path / "20_Literature",
-        cfg.vault_path / "00_Inbox" / "Review" / "@TestBook",
+        cfg.vault_path / "00_Inbox" / "Review" / "TestBook",
     ):
         d.mkdir(parents=True)
 
@@ -66,12 +66,18 @@ def test_run_set_paging_updates_book_and_drops_pending(tmp_path: Path):
         status="pending",
     )
     # Content awaiting_review — pages updated, kept
+    fname = literature_chunk_filename(
+        "TestBook",
+        chunk_index=1,
+        page_in_file=40,
+        page_in_book=40,
+    )
     draft = (
         cfg.vault_path
         / "00_Inbox"
         / "Review"
-        / literature_chunk_dirname("TestBook")
-        / draft_chunk_filename(1)
+        / literature_source_dirname("TestBook")
+        / fname
     )
     safe_write_note(
         draft,
@@ -107,6 +113,15 @@ def test_run_set_paging_updates_book_and_drops_pending(tmp_path: Path):
     assert db.get_chunk("@TestBook::ch000::aaaa") is None
     kept = db.get_chunk("@TestBook::ch001::bbbb")
     assert kept["page_in_book"] == 15  # 40 - 35 + 10
+    renamed = literature_chunk_filename(
+        "TestBook",
+        chunk_index=1,
+        page_in_file=40,
+        page_in_book=15,
+    )
+    new_path = draft.parent / renamed
+    assert new_path.exists()
+    assert kept["literature_note_path"] == str(new_path)
     src = db.get_source("@TestBook")
     assert src["content_start_file_page"] == 35
     assert src["content_start_book_page"] == 10

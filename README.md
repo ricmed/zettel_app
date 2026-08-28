@@ -13,7 +13,7 @@ Texto extraído → Chunks (com pagina) → SRC + indice LIT
     ↓ extract
 Drafts de LIT granular (1 por chunk) em 00_Inbox/Review
     ↓ review
-LIT aprovadas em 20_Literature/@Citekey/ + literature_notes no Chroma
+LIT aprovadas em 20_Literature/{Citekey}/ + literature_notes no Chroma
     ↓ connect
 Notas Permanentes (ZTL) com links e backlinks
     ↓ garden
@@ -83,7 +83,7 @@ zettel_app/
 │   ├── 00_Inbox/
 │   │   └── Review/          # Drafts de LIT granular (aguardando aprovacao)
 │   ├── 10_Sources/          # Notas bibliográficas (SRC)
-│   ├── 20_Literature/       # Indice LIT + pasta @Citekey/chunk_NNNN.md (aprovadas)
+│   ├── 20_Literature/       # Indice LIT + pasta Citekey/LIT - AuthorYear - pNNN - topico.md
 │   ├── 30_Permanent/        # Notas permanentes (ZTL)
 │   ├── 40_MOCs/             # Mapas de Conteúdo
 │   └── 90_Assets/           # Imagens extraídas de PDFs/Markdown (nome por hash)
@@ -566,7 +566,7 @@ python -m zettel run-all --dry-run
    - Em modo não-interativo (`--yes`), bibliografia completa é aceita sem prompt; incompleta **pula o arquivo**, salvo `--skip-biblio` (segue com parcial + aviso)
    - Persiste `document_type`, `bibliography_json` e `abnt_reference` no SQLite; a nota **SRC** recebe os campos separados no frontmatter **e** a string `abnt_reference` pronta para citar
 5. Gera **citekey** determinístico: `@SobrenomeAnoTituloSlug` (a partir dos metadados já enriquecidos)
-6. Grava nota **SRC** em `10_Sources/` e o **índice LIT** (`LIT - @Citekey - …-index.md`) em `20_Literature/` **antes** do chunking/embeddings (que podem demorar minutos); `processing_status=in_progress`
+6. Grava nota **SRC** (`SRC - AuthorYear - slug.md`) em `10_Sources/` e o **índice LIT** (`LIT - AuthorYear - slug.md`) em `20_Literature/` **antes** do chunking/embeddings (que podem demorar minutos); `processing_status=in_progress`. Pastas e arquivos **nao** usam `@` (o `@` fica so em `source_id` / CLI). Layout antigo (`@Citekey/`, `chunk_NNNN.md`, `*-index.md`) nao e lido; reescreva notas `pipeline` com `zettel rebuild --force` e apague leftovers a mao.
 7. Se `images.enabled`, registra imagens já extraídas em `90_Assets/`
 8. Resolve **inicio da paginacao** (HITL ou `--content-start-file` / `--content-start-book` / `--skip-paging`): pagina do PDF onde o conteudo comeca e o numero impresso nessa pagina; paginas anteriores nao geram chunks
 9. Divide o texto em **capitulos**/secoes, indexa chunks no ChromaDB e no SQLite com `page_in_book = page_in_file - start_file + start_book` (chunk multi-pagina usa a primeira pagina)
@@ -577,7 +577,7 @@ python -m zettel run-all --dry-run
 
 0. Descreve imagens pendentes com LLM multimodal (cache determinístico)
 1. Para cada chunk `pending`, chama o LLM com o **Prompt 1**; localizador preferencial = `p.{page_in_book} / {section_path}`
-2. Escreve um **draft** em `00_Inbox/Review/@Citekey/chunk_NNNN_draft.md` (resumo, conceitos, candidatos, imagens)
+2. Escreve um **draft** em `00_Inbox/Review/{Citekey}/LIT - AuthorYear - pNNN - topico-NNNN.md` (resumo, conceitos, candidatos, **trecho integral da fonte**, imagens; mesmo basename da nota aprovada)
 3. Checkpoint no SQLite após **cada** chunk: `status=awaiting_review`, `summary_json`, `review_confidence`, `literature_note_path`
 4. Concepts ficam em `awaiting_review` (não elegíveis ao `connect` ainda)
 5. Filtragem estrutural de qualidade (relevance_score, tese, definição, âncora) — igual à versão anterior
@@ -586,7 +586,7 @@ python -m zettel run-all --dry-run
 ### Fase 2b — Review (aprovacao seletiva)
 
 1. `zettel review` lista drafts `awaiting_review` (modo lote por limiar ou nota a nota)
-2. **Approve**: move para `20_Literature/@Citekey/chunk_NNNN.md`, indexa na coleção Chroma **`literature_notes`**, atualiza o índice LIT, promove concepts para dedupe → `approved`
+2. **Approve**: move para `20_Literature/{Citekey}/LIT - AuthorYear - pNNN - topico-NNNN.md`, indexa na coleção Chroma **`literature_notes`**, atualiza o índice LIT (wikilinks com rótulo `p. N — tópico`), promove concepts para dedupe → `approved`
 3. **Reject**: apaga draft, `status=rejected`, concepts rejeitados — **nunca** entram em `literature_notes`
 4. Deduplicação semântica contra permanentes roda **após** a aprovação (não no extract)
 
@@ -712,8 +712,8 @@ tokens_embedding: 85000
 
 KAHNEMAN, Daniel. Thinking, Fast and Slow. 1. ed. New York: Farrar, Straus and Giroux, 2011.
 
-## Nota de Literatura
-[[LIT - @Kahneman2011ThinkingFast - thinking-fast-and-slow]]
+## Indice de Literatura
+[[LIT - Kahneman2011 - thinking-fast-and-slow]]
 ```
 
 Tipos suportados e campos obrigatórios principais:
@@ -740,36 +740,55 @@ Cada chamada LLM (via `call_llm`) e cada upsert/query de embedding registra toke
 - Ollama / modelos locais = `$0` (tokens ainda contados). Valores estimados são list price, não a fatura do provedor.
 ### Nota de Literatura (LIT)
 
+Indice por fonte (`20_Literature/LIT - Kahneman2011 - thinking-fast-and-slow.md`):
+
 ```markdown
 ---
-type: literature
+type: literature_index
 source_id: "@Kahneman2011ThinkingFast"
+citekey: Kahneman2011ThinkingFast
 language: pt-BR
 origin: pipeline
 ---
 
-# Thinking, Fast and Slow
+# Thinking, Fast and Slow — Indice de Literatura
+
+← [[SRC - Kahneman2011 - thinking-fast-and-slow]]
+
+## Notas de Literatura aprovadas
+
+<!-- zettel:auto-lit-index:start -->
+- [[Kahneman2011ThinkingFast/LIT - Kahneman2011 - p020 - sistema-1-0001|p. 20 — Sistema 1]]
+<!-- zettel:auto-lit-index:end -->
+```
+
+Nota granular (`20_Literature/Kahneman2011ThinkingFast/LIT - Kahneman2011 - p020 - sistema-1-0001.md`):
+
+```markdown
+---
+type: literature
+source_id: "@Kahneman2011ThinkingFast"
+citekey: Kahneman2011ThinkingFast
+chunk_id: "@Kahneman2011ThinkingFast::ch001::abc12345"
+chunk_index: 1
+status: approved
+language: pt-BR
+origin: pipeline
+---
+
+# Sistema 1 (p. 20)
 
 ## Resumo
-...
+O Sistema 1 opera de forma automatica e rapida...
 
 ## Conceitos-chave
-...
+#heuristicas #vieses-cognitivos
 
-## Imagens
-<!-- zettel:auto-imagens:start -->
-![[90_Assets/img-a1b2c3d4e5f6.png]]
+## Trecho da fonte
 
-Gráfico de barras comparando o tempo de resposta do Sistema 1 e do Sistema 2.
-<!-- zettel:auto-imagens:end -->
-
-<!-- zettel:auto-chunks-log:start -->
-### Chunk: @Kahneman2011::ch001::abc12345
-**Resumo**: O Sistema 1 opera de forma automática e rápida...
-**Conceitos**: heurísticas, vieses cognitivos
-**Candidatos a notas permanentes**:
-- Heurísticas cognitivas são atalhos mentais automáticos
-<!-- zettel:auto-chunks-log:end -->
+<!-- zettel:auto-source-excerpt:start -->
+The System 1 operates automatically and quickly, with little or no effort...
+<!-- zettel:auto-source-excerpt:end -->
 ```
 
 ### Nota Permanente (ZTL)
@@ -779,7 +798,7 @@ Gráfico de barras comparando o tempo de resposta do Sistema 1 e do Sistema 2.
 type: permanent
 note_id: "01HXYZ..."
 source_id: "@Kahneman2011ThinkingFast"
-literature_ref: "[[LIT - @Kahneman2011ThinkingFast - thinking-fast-and-slow]]"
+literature_ref: "[[Kahneman2011ThinkingFast/LIT - Kahneman2011 - p020 - sistema-1-0001]]"
 source_locator: "p.20-25 / Capítulo 1"
 tags: [heurísticas, cognição, sistema-1]
 origin: pipeline
@@ -811,7 +830,7 @@ Diagrama do Sistema 1 versus Sistema 2 (quando o candidato marca a imagem como e
 
 ## Fonte
 
-- Ref. literatura: [[LIT - @Kahneman2011ThinkingFast - thinking-fast-and-slow]]
+- Ref. literatura: [[Kahneman2011ThinkingFast/LIT - Kahneman2011 - p020 - sistema-1-0001]]
 - Localizador: p.20-25 / Capítulo 1
 
 ## Conexões

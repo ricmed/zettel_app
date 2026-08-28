@@ -34,13 +34,15 @@ from zettel.index import (
 )
 from zettel.state import StateDB
 from zettel.vault import (
-    approved_chunk_filename,
     build_literature_chunk_note,
     build_source_note,
     compose_note,
-    literature_chunk_dirname,
+    literature_chunk_filename_for_row,
     literature_index_filename,
+    literature_source_dirname,
     note_filename,
+    safe_update_managed_blocks,
+    source_note_filename,
 )
 
 logger = logging.getLogger(__name__)
@@ -303,7 +305,7 @@ def run_rebuild_vault(
             tokens_completion=src.get("tokens_completion"),
             tokens_embedding=src.get("tokens_embedding"),
         )
-        src_path = cfg.vault_path / "10_Sources" / note_filename("SRC", f"@{citekey}", title)
+        src_path = cfg.vault_path / "10_Sources" / source_note_filename(citekey, title)
         if _write(src_path, compose_note(src_meta, src_body), origin):
             stats["sources"] += 1
 
@@ -321,13 +323,18 @@ def run_rebuild_vault(
             if chunk.get("status") not in ("approved", "persisted"):
                 continue
             dest = (
-                cfg.vault_path / "20_Literature" / literature_chunk_dirname(citekey)
-                / approved_chunk_filename(int(chunk.get("chunk_index") or 0))
+                cfg.vault_path / "20_Literature" / literature_source_dirname(citekey)
+                / literature_chunk_filename_for_row(citekey, chunk)
             )
             if chunk.get("literature_note_path") and Path(chunk["literature_note_path"]).exists():
                 content = Path(chunk["literature_note_path"]).read_text(encoding="utf-8")
                 if _write(dest, content, origin):
                     stats["literature"] += 1
+                    if not dry_run and dest.exists():
+                        excerpt = (chunk.get("text") or "").strip() or "_Trecho nao disponivel._"
+                        safe_update_managed_blocks(
+                            dest, {"auto-source-excerpt": excerpt}
+                        )
                 continue
             summary_data: dict[str, Any] = {}
             if chunk.get("summary_json"):
@@ -345,6 +352,8 @@ def run_rebuild_vault(
                 summary=summary_data.get("summary", ""),
                 key_concepts=summary_data.get("key_concepts") or [],
                 candidates=summary_data.get("candidates") or [],
+                section_path=chunk.get("section_path") or "",
+                source_text=chunk.get("text") or "",
                 page_in_file=chunk.get("page_in_file"),
                 page_in_book=chunk.get("page_in_book"),
                 page_confidence=chunk.get("page_confidence") or "unknown",

@@ -42,8 +42,8 @@ from zettel.schemas import (
 from zettel.state import StateDB
 from zettel.vault import (
     build_literature_chunk_note,
-    draft_chunk_filename,
-    literature_chunk_dirname,
+    literature_chunk_filename,
+    literature_source_dirname,
     safe_write_note,
 )
 
@@ -357,6 +357,7 @@ def _write_literature_draft(
     citekey = source["citekey"]
     title = source["title"]
     chunk_index = int(chunk_row.get("chunk_index") or 0)
+    section_path = chunk_row.get("section_path") or ""
 
     images = _images_for_chunk(db, chunk_row)
     meta, body = build_literature_chunk_note(
@@ -370,6 +371,8 @@ def _write_literature_draft(
         key_concepts=output.key_concepts,
         candidates=[c.model_dump() for c in candidates],
         images=images,
+        section_path=section_path,
+        source_text=chunk_row.get("text") or "",
         page_in_file=chunk_row.get("page_in_file"),
         page_in_book=chunk_row.get("page_in_book"),
         page_confidence=chunk_row.get("page_confidence") or "unknown",
@@ -380,9 +383,16 @@ def _write_literature_draft(
     )
 
     draft_root = cfg.vault_path / cfg.literature_review.drafts_subdir
-    draft_dir = draft_root / literature_chunk_dirname(citekey)
+    draft_dir = draft_root / literature_source_dirname(citekey)
     draft_dir.mkdir(parents=True, exist_ok=True)
-    path = draft_dir / draft_chunk_filename(chunk_index)
+    path = draft_dir / literature_chunk_filename(
+        citekey,
+        chunk_index=chunk_index,
+        page_in_book=chunk_row.get("page_in_book"),
+        page_in_file=chunk_row.get("page_in_file"),
+        section_path=section_path,
+        summary=output.summary,
+    )
     safe_write_note(path, meta, body)
     return path
 

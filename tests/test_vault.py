@@ -1,13 +1,22 @@
 """Tests for vault I/O operations."""
 
+from zettel.hashing import extract_embeddable_text
 from zettel.vault import (
+    author_year_label,
+    build_literature_chunk_note,
     compose_note,
+    literature_chunk_filename,
+    literature_chunk_wikilink,
+    literature_index_filename,
+    literature_index_link_label,
+    literature_source_dirname,
     parse_frontmatter,
     read_managed_block,
     upsert_managed_block,
     _slug,
     note_filename,
     permanent_wikilink,
+    source_note_filename,
 )
 
 
@@ -85,6 +94,124 @@ def test_slug():
 def test_note_filename():
     name = note_filename("ZTL", "ABC123", "My Great Note")
     assert name == "ZTL - ABC123 - my-great-note.md"
+
+
+def test_source_note_filename_uses_author_year():
+    name = source_note_filename("Negro2026KnowledgeGraphs", "Knowledge Graphs and LLMs in Action")
+    assert name == "SRC - Negro2026 - knowledge-graphs-and-llms-in-action.md"
+
+
+def test_author_year_label():
+    assert author_year_label("Negro2026KnowledgeGraphs") == "Negro2026"
+    assert author_year_label("@Negro2026KnowledgeGraphs") == "Negro2026"
+    assert author_year_label("Book2024") == "Book2024"
+    assert author_year_label("UntitledOnly") == "UntitledOnly"
+
+
+def test_literature_source_dirname_strips_at():
+    assert literature_source_dirname("@Negro2026KnowledgeGraphs") == "Negro2026KnowledgeGraphs"
+    assert literature_source_dirname("Negro2026KnowledgeGraphs") == "Negro2026KnowledgeGraphs"
+
+
+def test_literature_index_filename_no_at_no_index_suffix():
+    name = literature_index_filename(
+        "Negro2026KnowledgeGraphs", "Knowledge Graphs and LLMs in Action"
+    )
+    assert name == "LIT - Negro2026 - knowledge-graphs-and-llms-in-action.md"
+
+
+def test_literature_chunk_filename_page_and_section():
+    name = literature_chunk_filename(
+        "Negro2026KnowledgeGraphs",
+        chunk_index=7,
+        page_in_book=42,
+        section_path="Cap 2 > Sistema 1 > Intuicao",
+    )
+    assert name == "LIT - Negro2026 - p042 - intuicao-0007.md"
+
+
+def test_literature_chunk_filename_same_section_differs_by_index():
+    kwargs = dict(
+        citekey="Negro2026KnowledgeGraphs",
+        page_in_book=42,
+        section_path="Cap 2 > Sistema 1",
+    )
+    a = literature_chunk_filename(chunk_index=7, **kwargs)
+    b = literature_chunk_filename(chunk_index=8, **kwargs)
+    assert a != b
+    assert a.endswith("-0007.md")
+    assert b.endswith("-0008.md")
+
+
+def test_literature_chunk_filename_falls_back_to_summary_slug():
+    name = literature_chunk_filename(
+        "Book2024",
+        chunk_index=3,
+        page_in_book=10,
+        section_path="Documento completo",
+        summary="Um resumo sobre vies de confirmacao",
+    )
+    assert name == "LIT - Book2024 - p010 - um-resumo-sobre-vies-de-confirmacao-0003.md"
+
+
+def test_literature_chunk_wikilink_is_path_qualified():
+    link = literature_chunk_wikilink(
+        "Negro2026KnowledgeGraphs",
+        chunk_index=7,
+        page_in_book=42,
+        section_path="Cap 2 > Sistema 1",
+        alias="p. 42 — Sistema 1",
+    )
+    assert link.startswith("[[Negro2026KnowledgeGraphs/LIT - Negro2026 - p042 - sistema-1-0007|")
+    assert "p. 42 — Sistema 1" in link
+
+
+def test_literature_index_link_label():
+    label = literature_index_link_label(
+        page_in_book=42,
+        section_path="Cap 2 > Sistema 1",
+    )
+    assert label == "p. 42 — Sistema 1"
+
+
+def test_literature_chunk_note_includes_source_excerpt():
+    source = "Paragrafo integral do chunk sobre Sistema 1 e intuicao."
+    _, body = build_literature_chunk_note(
+        source_id="@S",
+        citekey="Book2024",
+        title="Livro",
+        chunk_id="@S::ch::abc",
+        chunk_index=1,
+        literature_id="lit1",
+        summary="Resumo gerado pelo LLM.",
+        key_concepts=["intuicao"],
+        candidates=[],
+        section_path="Cap > Sistema 1",
+        source_text=source,
+        page_in_book=20,
+    )
+    assert "## Trecho da fonte" in body
+    assert "zettel:auto-source-excerpt:start" in body
+    assert source in body
+    embeddable = extract_embeddable_text(compose_note({"type": "literature"}, body))
+    assert source not in embeddable
+    assert "Resumo gerado pelo LLM." in embeddable
+
+
+def test_literature_chunk_note_empty_source_placeholder():
+    _, body = build_literature_chunk_note(
+        source_id="@S",
+        citekey="Book2024",
+        title="Livro",
+        chunk_id="@S::ch::abc",
+        chunk_index=1,
+        literature_id="lit1",
+        summary="Resumo.",
+        key_concepts=[],
+        candidates=[],
+        source_text="",
+    )
+    assert "_Trecho nao disponivel._" in body
 
 
 def test_permanent_wikilink_prefers_path_stem():

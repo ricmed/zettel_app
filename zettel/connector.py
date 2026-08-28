@@ -85,27 +85,12 @@ def _literature_ref_for_chunk(
     chunk_id: str | None,
 ) -> str:
     """Wikilink to the approved granular LIT for this chunk (fallback: index)."""
-    from zettel.vault import (
-        approved_chunk_filename,
-        literature_chunk_dirname,
-        literature_index_stem,
-    )
+    from zettel.vault import literature_chunk_wikilink_for_row, literature_index_stem
+
     if chunk_id:
         chunk = db.get_chunk(chunk_id)
         if chunk and chunk.get("status") in ("approved", "persisted"):
-            idx_n = int(chunk.get("chunk_index") or 0)
-            stem = (
-                f"{literature_chunk_dirname(citekey)}/"
-                f"{approved_chunk_filename(idx_n).removesuffix('.md')}"
-            )
-            return f"[[{stem}]]"
-        if chunk and chunk.get("literature_note_path"):
-            p = Path(chunk["literature_note_path"])
-            try:
-                rel = p.relative_to(cfg.vault_path).with_suffix("").as_posix()
-                return f"[[{rel}]]"
-            except ValueError:
-                pass
+            return literature_chunk_wikilink_for_row(citekey, chunk)
     return f"[[{literature_index_stem(citekey, title_src)}]]"
 
 

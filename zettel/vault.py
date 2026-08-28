@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import shutil
@@ -138,10 +139,48 @@ def init_vault(vault_path: Path) -> None:
     logger.info("Vault inicializado em: %s", vault_path)
 
 
+_AUTHOR_YEAR = re.compile(r"^([A-Za-z]+\d{4})")
+_GENERIC_SECTION_TOPICS = frozenset({"documento completo", ""})
+_TOPIC_SLUG_MAX = 40
+
+
+def _slug(text: str, max_len: int = 100) -> str:
+    """Create a URL-safe slug from text."""
+    s = text.lower().strip()
+    s = re.sub(r"[^\w\s-]", "", s)
+    s = re.sub(r"[\s_]+", "-", s)
+    return s[:max_len].rstrip("-")
+
+
+def author_year_label(citekey: str) -> str:
+    """Short display key used in SRC/LIT filenames.
+
+    Inverse of harvester ``_generate_citekey``: ``{surname}{year}{TitleSlug}``
+    becomes ``{surname}{year}``. Citekeys without that prefix are returned
+    unchanged (after stripping a leading ``@``).
+    """
+    key = citekey.lstrip("@")
+    match = _AUTHOR_YEAR.match(key)
+    return match.group(1) if match else key
+
+
+def literature_source_dirname(citekey: str) -> str:
+    """Per-source folder under ``20_Literature/`` or ``00_Inbox/Review/`` (no ``@``)."""
+    return citekey.lstrip("@")
+
+
+def source_note_filename(citekey: str, title: str) -> str:
+    return note_filename("SRC", author_year_label(citekey), title)
+
+
+def source_note_stem(citekey: str, title: str) -> str:
+    return source_note_filename(citekey, title).removesuffix(".md")
+
+
 def literature_index_filename(citekey: str, title: str = "") -> str:
     """Filename for the per-source literature index note."""
     slug = _slug(title) if title else "index"
-    return f"LIT - @{citekey} - {slug}-index.md" if title else f"LIT - @{citekey} - index.md"
+    return f"LIT - {author_year_label(citekey)} - {slug}.md"
 
 
 def literature_index_stem(citekey: str, title: str = "") -> str:
@@ -149,16 +188,155 @@ def literature_index_stem(citekey: str, title: str = "") -> str:
     return literature_index_filename(citekey, title).removesuffix(".md")
 
 
-def literature_chunk_dirname(citekey: str) -> str:
-    return citekey if citekey.startswith("@") else f"@{citekey}"
+def _page_token(
+    page_in_book: int | None,
+    page_in_file: int | None,
+    chunk_index: int,
+) -> str:
+    page = page_in_book if page_in_book is not None else page_in_file
+    if page is not None:
+        return f"p{int(page):03d}"
+    return f"c{int(chunk_index):04d}"
 
 
-def draft_chunk_filename(chunk_index: int) -> str:
-    return f"chunk_{chunk_index:04d}_draft.md"
+def _section_topic(section_path: str | None) -> str:
+    if not section_path:
+        return ""
+    last = section_path.split(">")[-1].strip()
+    if last.lower() in _GENERIC_SECTION_TOPICS:
+        return ""
+    return last
 
 
-def approved_chunk_filename(chunk_index: int) -> str:
-    return f"chunk_{chunk_index:04d}.md"
+def literature_chunk_topic(
+    section_path: str | None = None,
+    summary: str | None = None,
+) -> str:
+    """Human topic for H1 headings and index link aliases."""
+    topic = _section_topic(section_path)
+    if topic:
+        return topic
+    if summary and summary.strip():
+        words = summary.strip().split()
+        return " ".join(words[:8]) if words else "nota"
+    return "nota"
+
+
+def _topic_slug(section_path: str | None, summary: str | None) -> str:
+    topic = _section_topic(section_path)
+    if topic:
+        slug = _slug(topic, max_len=_TOPIC_SLUG_MAX)
+        if slug:
+            return slug
+    if summary and summary.strip():
+        slug = _slug(summary, max_len=_TOPIC_SLUG_MAX)
+        if slug:
+            return slug
+    return "nota"
+
+
+def literature_chunk_filename(
+    citekey: str,
+    *,
+    chunk_index: int,
+    page_in_book: int | None = None,
+    page_in_file: int | None = None,
+    section_path: str | None = None,
+    summary: str | None = None,
+) -> str:
+    """Basename for a granular LIT (same name in Review and 20_Literature)."""
+    label = author_year_label(citekey)
+    page = _page_token(page_in_book, page_in_file, chunk_index)
+    topic = _topic_slug(section_path, summary)
+    return f"LIT - {label} - {page} - {topic}-{int(chunk_index):04d}.md"
+
+
+def _summary_from_chunk(chunk: dict[str, Any]) -> str:
+    raw = chunk.get("summary_json")
+    if not raw:
+        return ""
+    if isinstance(raw, dict):
+        return str(raw.get("summary") or "")
+    try:
+        data = json.loads(raw)
+        return str(data.get("summary") or "")
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        return ""
+
+
+def literature_chunk_filename_for_row(citekey: str, chunk: dict[str, Any]) -> str:
+    return literature_chunk_filename(
+        citekey,
+        chunk_index=int(chunk.get("chunk_index") or 0),
+        page_in_book=chunk.get("page_in_book"),
+        page_in_file=chunk.get("page_in_file"),
+        section_path=chunk.get("section_path") or "",
+        summary=_summary_from_chunk(chunk),
+    )
+
+
+def literature_chunk_wikilink(
+    citekey: str,
+    *,
+    chunk_index: int,
+    page_in_book: int | None = None,
+    page_in_file: int | None = None,
+    section_path: str | None = None,
+    summary: str | None = None,
+    alias: str | None = None,
+) -> str:
+    """Path-qualified wikilink to a granular LIT (unique even if stems collide)."""
+    dirname = literature_source_dirname(citekey)
+    stem = literature_chunk_filename(
+        citekey,
+        chunk_index=chunk_index,
+        page_in_book=page_in_book,
+        page_in_file=page_in_file,
+        section_path=section_path,
+        summary=summary,
+    ).removesuffix(".md")
+    target = f"{dirname}/{stem}"
+    if alias:
+        return f"[[{target}|{alias}]]"
+    return f"[[{target}]]"
+
+
+def literature_index_link_label(
+    *,
+    page_in_book: int | None = None,
+    page_in_file: int | None = None,
+    section_path: str | None = None,
+    summary: str | None = None,
+) -> str:
+    page = page_in_book if page_in_book is not None else page_in_file
+    topic = literature_chunk_topic(section_path, summary)
+    if page is not None:
+        return f"p. {page} — {topic}"
+    return topic
+
+
+def literature_chunk_wikilink_for_row(
+    citekey: str, chunk: dict[str, Any], *, with_alias: bool = False
+) -> str:
+    summary = _summary_from_chunk(chunk)
+    section_path = chunk.get("section_path") or ""
+    alias = None
+    if with_alias:
+        alias = literature_index_link_label(
+            page_in_book=chunk.get("page_in_book"),
+            page_in_file=chunk.get("page_in_file"),
+            section_path=section_path,
+            summary=summary,
+        )
+    return literature_chunk_wikilink(
+        citekey,
+        chunk_index=int(chunk.get("chunk_index") or 0),
+        page_in_book=chunk.get("page_in_book"),
+        page_in_file=chunk.get("page_in_file"),
+        section_path=section_path,
+        summary=summary,
+        alias=alias,
+    )
 
 
 # ── Note Builders ─────────────────────────────────────────────────────
@@ -285,7 +463,6 @@ def build_source_note(
     if abnt_reference:
         body += f"## Referencia ABNT\n\n{abnt_reference}\n\n"
     body += f"## Indice de Literatura\n\n{lit_link}\n"
-    body += f"\nPasta de notas granulares: `20_Literature/{literature_chunk_dirname(citekey)}/`\n"
     return meta, body
 
 
@@ -296,7 +473,7 @@ def sync_source_costs_to_vault(cfg: Any, db: Any, source_id: str) -> bool:
         return False
     citekey = row.get("citekey") or source_id.lstrip("@")
     title = row.get("title") or citekey
-    src_name = note_filename("SRC", f"@{citekey}", title)
+    src_name = source_note_filename(citekey, title)
     path = cfg.vault_path / "10_Sources" / src_name
     if not path.exists():
         # Fallback: scan for source_id in frontmatter
@@ -345,7 +522,7 @@ def build_literature_index_note(
         "updated_at": now,
     }
     body = f"# {title} — Indice de Literatura\n\n"
-    body += f"← [[SRC - {_slug(title)}]]\n\n"
+    body += f"← [[{source_note_stem(citekey, title)}]]\n\n"
     body += "## Notas de Literatura aprovadas\n\n"
     body += "<!-- zettel:auto-lit-index:start -->\n"
     if approved_links:
@@ -368,6 +545,8 @@ def build_literature_chunk_note(
     key_concepts: list[str],
     candidates: list[dict[str, Any]],
     images: list[dict[str, Any]] | None = None,
+    section_path: str = "",
+    source_text: str = "",
     page_in_file: int | None = None,
     page_in_book: int | None = None,
     page_confidence: str = "unknown",
@@ -403,9 +582,12 @@ def build_literature_chunk_note(
         meta["llm_model"] = llm_model
     if processing_time_ms is not None:
         meta["processing_time_ms"] = processing_time_ms
+    if section_path:
+        meta["section_path"] = section_path
 
     index_stem = literature_index_stem(citekey, title)
-    body = f"# {title} — Chunk {chunk_index} ({page_str})\n\n"
+    topic = literature_chunk_topic(section_path, summary)
+    body = f"# {topic} ({page_str})\n\n"
     body += "## Resumo\n\n"
     body += f"{summary.strip() or '_Sem resumo._'}\n\n"
     body += "## Conceitos-chave\n\n"
@@ -423,6 +605,11 @@ def build_literature_chunk_note(
         body += "\n"
     else:
         body += "_Nenhum candidato._\n\n"
+    excerpt = (source_text or "").strip() or "_Trecho nao disponivel._"
+    body += "## Trecho da fonte\n\n"
+    body += "<!-- zettel:auto-source-excerpt:start -->\n"
+    body += f"{excerpt}\n"
+    body += "<!-- zettel:auto-source-excerpt:end -->\n\n"
     body += "## Imagens Relacionadas\n\n"
     if images:
         for img in images:
@@ -493,19 +680,9 @@ def build_permanent_note_body(
     return "\n".join(parts)
 
 
-def _slug(text: str, max_len: int = 100) -> str:
-    """Create a URL-safe slug from text."""
-    s = text.lower().strip()
-    s = re.sub(r"[^\w\s-]", "", s)
-    s = re.sub(r"[\s_]+", "-", s)
-    return s[:max_len].rstrip("-")
-
-
 def note_filename(prefix: str, identifier: str, title: str) -> str:
     """Build a standardized filename: PREFIX - ID - slug.md"""
     slug = _slug(title)
-    if prefix == "SRC":
-        return f"{prefix} - {slug}.md"
     return f"{prefix} - {identifier} - {slug}.md"
 
 

@@ -13,11 +13,12 @@ from zettel.llm import get_llm
 from zettel.schemas import PermanentNoteCandidate
 from zettel.state import StateDB
 from zettel.vault import (
-    approved_chunk_filename,
     build_literature_index_note,
     compose_note,
-    literature_chunk_dirname,
+    literature_chunk_filename_for_row,
+    literature_chunk_wikilink_for_row,
     literature_index_filename,
+    literature_source_dirname,
     parse_frontmatter,
     safe_update_managed_blocks,
     safe_write_note,
@@ -197,10 +198,10 @@ def approve_chunk(
     draft_path = Path(draft_path_str) if draft_path_str else None
 
     dest_dir = (
-        cfg.vault_path / "20_Literature" / literature_chunk_dirname(citekey)
+        cfg.vault_path / "20_Literature" / literature_source_dirname(citekey)
     )
     dest_dir.mkdir(parents=True, exist_ok=True)
-    dest_path = dest_dir / approved_chunk_filename(chunk_index)
+    dest_path = dest_dir / literature_chunk_filename_for_row(citekey, chunk)
 
     if draft_path and draft_path.exists():
         content = draft_path.read_text(encoding="utf-8")
@@ -231,6 +232,8 @@ def approve_chunk(
             summary=summary_data.get("summary", ""),
             key_concepts=summary_data.get("key_concepts") or [],
             candidates=summary_data.get("candidates") or [],
+            section_path=chunk.get("section_path") or "",
+            source_text=chunk.get("text") or "",
             page_in_file=chunk.get("page_in_file"),
             page_in_book=chunk.get("page_in_book"),
             page_confidence=chunk.get("page_confidence") or "unknown",
@@ -239,7 +242,10 @@ def approve_chunk(
         )
         safe_write_note(dest_path, meta, body)
 
-    # Embed literature note (summary + concepts)
+    excerpt = (chunk.get("text") or "").strip() or "_Trecho nao disponivel._"
+    safe_update_managed_blocks(dest_path, {"auto-source-excerpt": excerpt})
+
+    # Embed literature note (summary + concepts; source excerpt is a managed block)
     embed_text = _literature_embed_text(dest_path)
     lit_id = chunk.get("literature_id") or chunk_id
     idx.upsert_literature_note(
@@ -299,11 +305,12 @@ def reject_chunk(
 
 
 def _literature_embed_text(path: Path) -> str:
+    from zettel.hashing import extract_embeddable_text
+
     content = path.read_text(encoding="utf-8")
-    meta, body = parse_frontmatter(content)
+    meta, _ = parse_frontmatter(content)
     title = meta.get("chunk_id", path.stem)
-    # Prefer resumo section
-    return f"{title}\n\n{body[:3000]}"
+    return f"{title}\n\n{extract_embeddable_text(content)}"
 
 
 def _refresh_literature_index(cfg: AppConfig, db: StateDB, source_id: str) -> None:
@@ -317,21 +324,14 @@ def _refresh_literature_index(cfg: AppConfig, db: StateDB, source_id: str) -> No
         if c.get("status") in ("approved", "persisted")
     ]
     approved.sort(key=lambda c: c.get("chunk_index") or 0)
-    links: list[str] = []
-    for c in approved:
-        idx_n = int(c.get("chunk_index") or 0)
-        stem = f"{literature_chunk_dirname(citekey)}/{approved_chunk_filename(idx_n).removesuffix('.md')}"
-        page = c.get("page_in_book") or c.get("page_in_file")
-        label = f"Chunk {idx_n}" + (f" (p. {page})" if page is not None else "")
-        links.append(f"[[{stem}|{label}]]")
+    links = [
+        literature_chunk_wikilink_for_row(citekey, c, with_alias=True)
+        for c in approved
+    ]
 
     lit_dir = cfg.vault_path / "20_Literature"
-    # Prefer existing index file
-    matches = list(lit_dir.glob(f"LIT - @{citekey}*index.md"))
-    if not matches:
-        matches = list(lit_dir.glob(f"LIT - @{citekey}*"))
-    if matches:
-        lit_path = matches[0]
+    lit_path = lit_dir / literature_index_filename(citekey, title)
+    if lit_path.exists():
         block = "\n".join(f"- {link}" for link in links) if links else "_Nenhuma nota granular aprovada ainda._\n"
         safe_update_managed_blocks(lit_path, {"auto-lit-index": block})
         try:
@@ -340,7 +340,6 @@ def _refresh_literature_index(cfg: AppConfig, db: StateDB, source_id: str) -> No
             pass
     else:
         meta, body = build_literature_index_note(source_id, citekey, title, approved_links=links)
-        lit_path = lit_dir / literature_index_filename(citekey, title)
         safe_write_note(lit_path, meta, body)
         db.update_source_texts(source_id, lit_body=compose_note(meta, body))
 

@@ -72,8 +72,17 @@ def test_manual_source_is_adopted(cfg, db):
 
 
 def test_manual_literature_links_and_persists_body(cfg, db):
-    lit = cfg.vault_path / "20_Literature" / "LIT - @Autor2023 - artigo.md"
-    _write(lit, {"type": "literature", "title": "Artigo"}, "Resumo manual do artigo.")
+    lit = cfg.vault_path / "20_Literature" / "LIT - Autor2023 - artigo.md"
+    _write(
+        lit,
+        {
+            "type": "literature_index",
+            "title": "Artigo",
+            "source_id": "@Autor2023",
+            "citekey": "Autor2023",
+        },
+        "Resumo manual do artigo.",
+    )
     idx = FakeIndex()
     stats = run_sync_manual(cfg, db, idx)
 

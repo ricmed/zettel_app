@@ -1,14 +1,18 @@
 """Tests for granular literature review approve/reject."""
 
 import json
-from pathlib import Path
 
 import pytest
 
 from zettel.config import AppConfig
-from zettel.review import approve_chunk, reject_chunk
+from zettel.review import _literature_embed_text, approve_chunk, reject_chunk
 from zettel.state import StateDB
-from zettel.vault import build_literature_chunk_note, safe_write_note
+from zettel.vault import (
+    build_literature_chunk_note,
+    literature_chunk_filename_for_row,
+    literature_source_dirname,
+    safe_write_note,
+)
 
 
 class _FakeLitIndex:
@@ -44,6 +48,7 @@ def env(tmp_path):
         "texto do chunk", "ck",
         chunk_index=3, page_in_file=20, page_in_book=10, page_confidence="inferred",
         status="awaiting_review",
+        section_path="Ch1 > Intro",
         literature_id="lit123",
         summary_json=json.dumps({
             "summary": "Um resumo",
@@ -55,17 +60,21 @@ def env(tmp_path):
         }),
         review_confidence=0.9,
     )
-    # draft file
-    draft_dir = cfg.vault_path / "00_Inbox" / "Review" / "@Book2024"
+    chunk_row = db.get_chunk("@Book2024::ch000::abc")
+    fname = literature_chunk_filename_for_row("Book2024", chunk_row)
+    draft_dir = (
+        cfg.vault_path / "00_Inbox" / "Review" / literature_source_dirname("Book2024")
+    )
     draft_dir.mkdir(parents=True, exist_ok=True)
     meta, body = build_literature_chunk_note(
         source_id="@Book2024", citekey="Book2024", title="Livro Teste",
         chunk_id="@Book2024::ch000::abc", chunk_index=3, literature_id="lit123",
         summary="Um resumo", key_concepts=["conceito"], candidates=[],
+        section_path="Ch1 > Intro",
         page_in_file=20, page_in_book=10, status="awaiting_review",
         review_confidence=0.9,
     )
-    draft_path = draft_dir / "chunk_0003_draft.md"
+    draft_path = draft_dir / fname
     safe_write_note(draft_path, meta, body)
     db.update_chunk_review(
         "@Book2024::ch000::abc",
@@ -90,9 +99,20 @@ def test_approve_moves_draft_and_embeds(env):
     assert ok
     chunk = db.get_chunk("@Book2024::ch000::abc")
     assert chunk["status"] == "persisted"
-    dest = cfg.vault_path / "20_Literature" / "@Book2024" / "chunk_0003.md"
+    fname = literature_chunk_filename_for_row("Book2024", db.get_chunk("@Book2024::ch000::abc"))
+    dest = (
+        cfg.vault_path / "20_Literature" / literature_source_dirname("Book2024") / fname
+    )
     assert dest.exists()
-    assert not (cfg.vault_path / "00_Inbox" / "Review" / "@Book2024" / "chunk_0003_draft.md").exists()
+    dest_text = dest.read_text(encoding="utf-8")
+    assert "texto do chunk" in dest_text
+    assert "zettel:auto-source-excerpt:start" in dest_text
+    embed = _literature_embed_text(dest)
+    assert "texto do chunk" not in embed
+    assert "Um resumo" in embed
+    assert not (
+        cfg.vault_path / "00_Inbox" / "Review" / literature_source_dirname("Book2024") / fname
+    ).exists()
     assert len(idx.upserts) == 1
     concepts = db.get_concepts_for_chunk("@Book2024::ch000::abc")
     assert concepts[0]["status"] == "extracted"
@@ -104,6 +124,10 @@ def test_reject_deletes_draft(env):
     assert ok
     chunk = db.get_chunk("@Book2024::ch000::abc")
     assert chunk["status"] == "rejected"
-    assert not (cfg.vault_path / "00_Inbox" / "Review" / "@Book2024" / "chunk_0003_draft.md").exists()
+    chunk = db.get_chunk("@Book2024::ch000::abc")
+    fname = literature_chunk_filename_for_row("Book2024", chunk)
+    assert not (
+        cfg.vault_path / "00_Inbox" / "Review" / literature_source_dirname("Book2024") / fname
+    ).exists()
     concepts = db.get_concepts_for_chunk("@Book2024::ch000::abc")
     assert concepts[0]["status"] == "rejected"

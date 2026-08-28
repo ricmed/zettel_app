@@ -35,7 +35,7 @@ from zettel.vault import (
     build_literature_index_note,
     build_source_note,
     literature_index_filename,
-    note_filename,
+    source_note_filename,
     safe_write_note,
 )
 
@@ -210,9 +210,7 @@ def run_set_paging(
     frontmatter page fields in the vault.
     """
     from zettel.vault import (
-        approved_chunk_filename,
-        draft_chunk_filename,
-        literature_chunk_dirname,
+        literature_chunk_filename_for_row,
         parse_frontmatter,
         safe_write_note,
     )
@@ -271,44 +269,36 @@ def run_set_paging(
         )
         stats["updated"] += 1
 
-        # Patch vault note frontmatter when a literature path exists
         lit_path_str = chunk.get("literature_note_path")
-        paths: list[Path] = []
-        if lit_path_str:
-            paths.append(Path(lit_path_str))
+        if not lit_path_str:
+            continue
+        path = Path(lit_path_str)
+        if not path.exists():
+            continue
         citekey = src["citekey"]
-        idx_n = chunk.get("chunk_index")
-        if idx_n is not None:
-            draft = (
-                cfg.vault_path
-                / cfg.literature_review.drafts_subdir
-                / literature_chunk_dirname(citekey)
-                / draft_chunk_filename(int(idx_n))
-            )
-            approved = (
-                cfg.vault_path
-                / "20_Literature"
-                / literature_chunk_dirname(citekey)
-                / approved_chunk_filename(int(idx_n))
-            )
-            paths.extend([draft, approved])
-
-        seen: set[str] = set()
-        for path in paths:
-            key = str(path.resolve()) if path.exists() else ""
-            if not key or key in seen:
-                continue
-            seen.add(key)
+        updated_row = dict(chunk)
+        updated_row["page_in_book"] = page_book
+        new_path = path.parent / literature_chunk_filename_for_row(citekey, updated_row)
+        if new_path != path:
             try:
-                meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+                new_path.parent.mkdir(parents=True, exist_ok=True)
+                path.replace(new_path)
+                path = new_path
             except OSError:
                 continue
-            meta["page_in_file"] = page_file
-            meta["page_in_book"] = page_book
-            if chunk.get("page_confidence"):
-                meta["page_confidence"] = chunk["page_confidence"]
-            safe_write_note(path, meta, body)
-            stats["notes_patched"] += 1
+            db.update_chunk_review(
+                chunk["chunk_id"], literature_note_path=str(path)
+            )
+        try:
+            meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        meta["page_in_file"] = page_file
+        meta["page_in_book"] = page_book
+        if chunk.get("page_confidence"):
+            meta["page_confidence"] = chunk["page_confidence"]
+        safe_write_note(path, meta, body)
+        stats["notes_patched"] += 1
 
     if drop_ids:
         # Remove draft files for dropped chunks when present
@@ -324,23 +314,6 @@ def run_set_paging(
                     Path(lit).unlink(missing_ok=True)
                 except OSError:
                     pass
-            citekey = src["citekey"]
-            idx_n = ch.get("chunk_index")
-            if idx_n is not None:
-                for path in (
-                    cfg.vault_path
-                    / cfg.literature_review.drafts_subdir
-                    / literature_chunk_dirname(citekey)
-                    / draft_chunk_filename(int(idx_n)),
-                    cfg.vault_path
-                    / "20_Literature"
-                    / literature_chunk_dirname(citekey)
-                    / approved_chunk_filename(int(idx_n)),
-                ):
-                    try:
-                        path.unlink(missing_ok=True)
-                    except OSError:
-                        pass
         db.delete_chunks(drop_ids)
         idx.delete_chunks(drop_ids)
 
@@ -393,6 +366,8 @@ def run_set_paging(
         tokens_completion=src.get("tokens_completion"),
         tokens_embedding=src.get("tokens_embedding"),
     )
+    from zettel.review import _refresh_literature_index
+    _refresh_literature_index(cfg, db, source_id)
     logger.info(
         "set-paging %s: updated=%d dropped_pending=%d dropped_other=%d notes=%d remaining=%d",
         source_id,
@@ -1875,7 +1850,7 @@ def _create_vault_notes(
         tokens_completion=tokens_completion,
         tokens_embedding=tokens_embedding,
     )
-    src_filename = note_filename("SRC", f"@{citekey}", title)
+    src_filename = source_note_filename(citekey, title)
     safe_write_note(vault / "10_Sources" / src_filename, src_meta, src_body)
 
     lit_meta, lit_body = build_literature_index_note(source_id, citekey, title)

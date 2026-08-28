@@ -28,9 +28,6 @@ from zettel.vault import _block_pattern, parse_frontmatter, safe_update_managed_
 
 logger = logging.getLogger(__name__)
 
-# Citekey embedded in a SRC/LIT filename, e.g. "LIT - @Author2024Slug - titulo.md".
-_CITEKEY_IN_NAME = re.compile(r"-\s*@?([A-Za-z0-9]+)\s*-")
-
 # A ZTL wikilink target: ULID is Crockford base32 (no I, L, O, U), 26 chars.
 _ZTL_WIKILINK = re.compile(r"\[\[ZTL - ([0-9A-HJKMNP-TV-Z]{26})")
 
@@ -78,11 +75,6 @@ def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, 
     return stats
 
 
-def _citekey_from_filename(file_path: Path) -> str | None:
-    m = _CITEKEY_IN_NAME.search(file_path.stem)
-    return m.group(1) if m else None
-
-
 def _sync_single_note(
     cfg: AppConfig, db: StateDB, idx: VectorIndex,
     file_path: Path, note_type: str,
@@ -118,7 +110,7 @@ def _sync_source(
     if source_id:
         citekey = source_id.lstrip("@")
     else:
-        citekey = _citekey_from_filename(file_path) or _generate_citekey(
+        citekey = _generate_citekey(
             db, meta.get("author") or meta.get("authors") or [], meta.get("year"),
             meta.get("title", file_path.stem),
         )
@@ -176,9 +168,8 @@ def _sync_literature(
 ) -> str:
     """Adopt a hand-created LIT note (index or granular chunk).
 
-    Index notes (type=literature_index or filename *-index.md) snapshot into
-    sources.lit_body. Granular notes (type=literature with chunk_id) update the
-    matching chunk row and may be embedded if status=approved.
+    Index notes (type=literature_index) snapshot into sources.lit_body.
+    Granular notes (type=literature with chunk_id) update the matching chunk row.
     """
     from zettel.harvester import _generate_citekey
 
@@ -187,14 +178,13 @@ def _sync_literature(
     if "00_Inbox" in file_path.parts or "Review" in file_path.parts:
         return "skipped"
 
-    source_id = meta.get("source_id") or meta.get("literature_id")
-    citekey = None
+    source_id = meta.get("source_id")
+    citekey = meta.get("citekey")
     if source_id and "::" not in str(source_id):
-        citekey = str(source_id).lstrip("@")
-    else:
-        citekey = _citekey_from_filename(file_path)
-        if citekey:
-            source_id = f"@{citekey}"
+        citekey = citekey or str(source_id).lstrip("@")
+    elif citekey:
+        source_id = f"@{str(citekey).lstrip('@')}"
+        citekey = str(citekey).lstrip("@")
 
     if not source_id or "::" in str(source_id):
         citekey = _generate_citekey(db, [], meta.get("year"), meta.get("title", file_path.stem))
