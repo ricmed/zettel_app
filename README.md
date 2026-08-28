@@ -438,10 +438,10 @@ python -m zettel run-all
 ### Comandos individuais
 
 ```bash
-# Inicializar vault e dependências
+# Recria o vault vazio (apaga ./vault). State DB, Chroma e cache permanecem
 python -m zettel init
 
-# Apaga os banco de dados, mas não apaga o vault
+# Alem do vault, apaga State DB, ChromaDB e cache (pede confirmacao)
 python -m zettel init --reset
 
 # Escanear inbox e processar arquivos → SRC + indice LIT + chunks (com paginas)
