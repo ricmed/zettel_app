@@ -3,6 +3,7 @@
 Commands:
   init        — Initialize vault, database, and vector store
   harvest     — Scan inbox, extract text, create SRC + LIT index, chunk (+ pages)
+  dump-chunks — Export persisted chunks as markdown for chunking inspection
   extract     — Process chunks with LLM (Prompt 1), write LIT drafts
   review      — Approve/reject granular literature notes
   connect     — Generate permanent notes from approved candidates (Prompt 2)
@@ -261,6 +262,14 @@ def harvest(
         False, "--skip-paging",
         help="Nao perguntar paginacao; processa desde p.1 do arquivo (livro = arquivo)",
     ),
+    dump_chunks: bool = typer.Option(
+        False, "--dump-chunks",
+        help="Salvar markdown com todos os chunks da fonte para inspecao",
+    ),
+    dump_dir: Optional[str] = typer.Option(
+        None, "--dump-dir",
+        help="Diretorio do dump de chunks (implica --dump-chunks; default: cache/chunk-dumps)",
+    ),
 ):
     """Escanear inbox, extrair texto, criar SRC + indice LIT e chunks."""
     cfg = _load_deps(config)
@@ -268,6 +277,7 @@ def harvest(
     idx = _get_idx(cfg, db=db, yes=yes)
 
     interactive, duplicate_action = _resolve_duplicate_flags(yes, skip_duplicates, force)
+    chunk_dump_dir = _resolve_chunk_dump_dir(cfg, dump_chunks, dump_dir)
 
     from zettel.harvester import run_harvest
     if interactive:
@@ -282,6 +292,7 @@ def harvest(
             content_start_file=content_start_file,
             content_start_book=content_start_book,
             skip_paging=skip_paging,
+            dump_dir=chunk_dump_dir,
         )
     else:
         console.print(f"[dim]Modo nao-interativo — duplicatas suspeitas: '{duplicate_action}'[/dim]")
@@ -293,12 +304,15 @@ def harvest(
             content_start_file=content_start_file,
             content_start_book=content_start_book,
             skip_paging=skip_paging or True,
+            dump_dir=chunk_dump_dir,
         )
 
     if new_sources:
         console.print(f"[green]Fontes processadas: {len(new_sources)}[/green]")
         for sid in new_sources:
             console.print(f"  - {sid}")
+        if chunk_dump_dir:
+            console.print(f"[dim]Dump de chunks gravado em: {chunk_dump_dir}[/dim]")
     else:
         console.print("[yellow]Nenhum arquivo novo encontrado no inbox.[/yellow]")
 
@@ -339,6 +353,18 @@ def _resolve_duplicate_flags(
     if yes:
         return False, None
     return True, None
+
+
+def _resolve_chunk_dump_dir(
+    cfg, dump_chunks: bool, dump_dir: Optional[str]
+) -> Optional[Path]:
+    """Resolve --dump-chunks / --dump-dir into a directory, or None when dump is off."""
+    if dump_dir:
+        return Path(dump_dir).expanduser().resolve()
+    if dump_chunks:
+        from zettel.chunk_dump import default_dump_dir
+        return default_dump_dir(cfg)
+    return None
 
 
 # ── extract ───────────────────────────────────────────────────────────
@@ -569,6 +595,14 @@ def rechunk(
         False, "--yes", "-y",
         help="Confirmar automaticamente o reprocessamento se o embedding mudou",
     ),
+    dump_chunks: bool = typer.Option(
+        False, "--dump-chunks",
+        help="Salvar markdown com todos os chunks da fonte para inspecao",
+    ),
+    dump_dir: Optional[str] = typer.Option(
+        None, "--dump-dir",
+        help="Diretorio do dump de chunks (implica --dump-chunks; default: cache/chunk-dumps)",
+    ),
 ):
     """Re-chunkar fontes a partir do texto extraido persistido (aplica config atual)."""
     if not source_id and not all_sources:
@@ -578,20 +612,64 @@ def rechunk(
     cfg = _load_deps(config)
     db = _get_db(cfg)
     idx = _get_idx(cfg, db=db, yes=yes)
+    chunk_dump_dir = _resolve_chunk_dump_dir(cfg, dump_chunks, dump_dir)
 
     from zettel.harvester import run_rechunk
     with console.status("[bold blue]Re-chunkando fontes...", spinner="dots"):
-        stats = run_rechunk(cfg, db, idx, source_id if source_id else None)
+        stats = run_rechunk(
+            cfg, db, idx, source_id if source_id else None, dump_dir=chunk_dump_dir,
+        )
 
     console.print(
         f"[green]Rechunk concluido:[/green] {stats['sources']} fonte(s), "
         f"{stats['chunks']} chunk(s), {stats['skipped']} pulada(s)."
     )
+    if chunk_dump_dir and stats["sources"]:
+        console.print(f"[dim]Dump de chunks gravado em: {chunk_dump_dir}[/dim]")
     if stats["skipped"]:
         console.print(
             "[yellow]Fontes puladas nao tem texto extraido persistido (anteriores a Fase 0). "
             "Reprocesse o arquivo original via harvest.[/yellow]"
         )
+    db.close()
+
+
+# ── dump-chunks ───────────────────────────────────────────────────────
+
+
+@app.command(name="dump-chunks")
+def dump_chunks_cmd(
+    source_id: Optional[str] = typer.Option(None, "--source-id", help="Exportar apenas esta fonte"),
+    all_sources: bool = typer.Option(False, "--all", help="Exportar todas as fontes"),
+    dump_dir: Optional[str] = typer.Option(
+        None, "--dump-dir",
+        help="Diretorio de saida (default: cache/chunk-dumps)",
+    ),
+    config: Optional[str] = typer.Option(None, "--config", "-c"),
+):
+    """Exportar chunks persistidos como markdown para inspecionar o chunking."""
+    if not source_id and not all_sources:
+        console.print("[red]Informe --source-id <id> ou --all.[/red]")
+        raise typer.Exit(1)
+
+    cfg = _load_deps(config)
+    db = _get_db(cfg)
+    dest = Path(dump_dir).expanduser().resolve() if dump_dir else None
+
+    from zettel.chunk_dump import default_dump_dir, run_dump_chunks
+    dest = dest or default_dump_dir(cfg)
+    try:
+        stats = run_dump_chunks(
+            cfg, db, source_id if source_id else None, dump_dir=dest,
+        )
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        db.close()
+        raise typer.Exit(1)
+
+    console.print(
+        f"[green]Dump concluido:[/green] {stats['sources']} fonte(s) em {dest}"
+    )
     db.close()
 
 

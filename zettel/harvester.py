@@ -20,14 +20,6 @@ from zettel.hashing import (
     short_hash,
 )
 from zettel.index import VectorIndex
-from zettel.state import StateDB
-from zettel.vault import (
-    build_literature_index_note,
-    build_source_note,
-    literature_index_filename,
-    note_filename,
-    safe_write_note,
-)
 from zettel.paging import (
     ContentPaging,
     apply_page_inference,
@@ -37,6 +29,14 @@ from zettel.paging import (
     extract_page_hint,
     lookup_page_for_chunk,
     suggest_content_start,
+)
+from zettel.state import StateDB
+from zettel.vault import (
+    build_literature_index_note,
+    build_source_note,
+    literature_index_filename,
+    note_filename,
+    safe_write_note,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,6 +61,7 @@ def run_harvest(
     content_start_file: int | None = None,
     content_start_book: int | None = None,
     skip_paging: bool = False,
+    dump_dir: Path | None = None,
 ) -> list[str]:
     """Scan inbox, extract text, create SRC + LIT index, chunk. Returns new source_ids.
 
@@ -75,6 +76,7 @@ def run_harvest(
         content_start_file: PDF/file page (1-based) where content processing starts.
         content_start_book: printed page number on that first content page (default 1).
         skip_paging: skip HITL; process from file page 1 with book page = file page.
+        dump_dir: if set, write a markdown dump of persisted chunks per new source.
     """
     new_sources: list[str] = []
     inbox = cfg.inbox_path
@@ -118,6 +120,7 @@ def run_harvest(
                 total_stats["text_len"] += stats.get("text_len", 0)
                 total_stats["chapters"] += stats.get("chapters", 0)
                 total_stats["chunks"] += stats.get("chunks", 0)
+                _maybe_dump_chunks(cfg, db, sid, dump_dir)
     except HarvestAborted as e:
         logger.warning("Harvest abortado pelo usuario: %s", e)
         run_status = "aborted"
@@ -134,7 +137,11 @@ def run_harvest(
 
 
 def run_rechunk(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, source_id: str | None = None
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    source_id: str | None = None,
+    dump_dir: Path | None = None,
 ) -> dict[str, int]:
     """Re-chunk sources from their persisted extracted_text, without touching files.
 
@@ -178,6 +185,7 @@ def run_rechunk(
             cfg, db, idx, sid, chapters, page_map=page_map, paging=paging,
         )
         _finalize_source_chunking(db, idx, sid, chapters)
+        _maybe_dump_chunks(cfg, db, sid, dump_dir)
         stats["sources"] += 1
         stats["chunks"] += n
         logger.info("Rechunk %s: %d chunks (%d capitulos)", sid, n, len(chapters))
@@ -431,6 +439,16 @@ def _chapters_fully_persisted(
         return True
     actual = {c["chapter_id"] for c in db.get_chapters_for_source(source_id)}
     return expected <= actual
+
+
+def _maybe_dump_chunks(
+    cfg: AppConfig, db: StateDB, source_id: str, dump_dir: Path | None,
+) -> None:
+    """Write a markdown chunk dump when ``dump_dir`` is set (harvest/rechunk opt-in)."""
+    if dump_dir is None:
+        return
+    from zettel.chunk_dump import dump_source_chunks
+    dump_source_chunks(cfg, db, source_id, dump_dir)
 
 
 def _finalize_source_chunking(
@@ -884,8 +902,8 @@ def _resolve_duplicate_decision(
         return action
 
     from rich.console import Console
-    from rich.table import Table
     from rich.prompt import Prompt
+    from rich.table import Table
 
     console = Console(stderr=True)
     table = Table(title=f"Possivel duplicata: {file_path.name}")
@@ -1152,12 +1170,13 @@ def _extract_pdf(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str, Any]]:
 def _extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str, Any]]:
     """Extract text from PDF using Docling, with GPU acceleration when available."""
     try:
-        from docling.document_converter import DocumentConverter
-        from docling.datamodel.pipeline_options import (
-            PdfPipelineOptions, AcceleratorDevice, AcceleratorOptions,
-        )
         from docling.datamodel.base_models import InputFormat
-        from docling.document_converter import PdfFormatOption
+        from docling.datamodel.pipeline_options import (
+            AcceleratorDevice,
+            AcceleratorOptions,
+            PdfPipelineOptions,
+        )
+        from docling.document_converter import DocumentConverter, PdfFormatOption
 
         from zettel.config import detect_device
         device = detect_device(cfg.device)

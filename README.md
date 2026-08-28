@@ -46,6 +46,7 @@ zettel_app/
 │   ├── index.py             # ChromaDB — índice vetorial
 │   ├── bibliography.py      # Metadados bibliograficos ABNT (tipos, inferencia, formatacao)
 │   ├── harvester.py         # Fase 1: ingestão, paginas, chunking estrutural (+ rechunk)
+│   ├── chunk_dump.py        # Dump markdown opt-in dos chunks (inspecao de chunking)
 │   ├── paging.py            # Inferencia de pagina arquivo/livro + inicio do conteudo
 │   ├── extractor.py         # Fase 2: Prompt 1 → drafts LIT granulares
 │   ├── review.py            # Fase 2b: aprovacao seletiva de LIT antes do vetorial
@@ -75,7 +76,7 @@ zettel_app/
 ├── data/
 │   ├── inbox/               # Arquivos para processar (drop zone)
 │   ├── processed/           # Arquivos já processados
-│   ├── cache/               # Cache intermediário
+│   ├── cache/               # Cache intermediário (checkpointer article, dump de chunks)
 │   ├── chroma/              # ChromaDB (persistente)
 │   └── state.db             # SQLite (estado do pipeline)
 ├── vault/                   # Vault do Obsidian (criado pelo init)
@@ -448,6 +449,8 @@ python -m zettel harvest
 python -m zettel harvest --yes --skip-biblio --skip-paging
 python -m zettel harvest --content-start-file 35 --content-start-book 10
 # arquivo p.35 = impressa p.10; paginas anteriores nao geram chunks
+python -m zettel harvest --dump-chunks
+python -m zettel harvest --dump-chunks --dump-dir ./tmp/chunks
 python -m zettel set-paging --source-id @Citekey --content-start-file 35 --content-start-book 10
 
 # Extrair conceitos → drafts LIT granulares em 00_Inbox/Review
@@ -500,6 +503,11 @@ python -m zettel sync-manual --rebuild-graph
 # Tambem completa harvest interrompido e re-resolve o chapter_id das imagens.
 python -m zettel rechunk --all
 python -m zettel rechunk --source-id @AutorAnoTitulo
+python -m zettel rechunk --source-id @AutorAnoTitulo --dump-chunks
+
+# Exportar chunks ja persistidos como markdown (inspecao, sem reprocessar)
+python -m zettel dump-chunks --source-id @AutorAnoTitulo
+python -m zettel dump-chunks --all --dump-dir ./tmp/chunks
 
 # Reconstruir o ChromaDB a partir do SQLite (sem chamadas de LLM).
 # Apos troca de embedding, use --force (obrigatorio para regenerar sources/chunks).
@@ -918,7 +926,8 @@ Como consequência:
 
 - **`zettel reindex`** reconstrói o ChromaDB inteiro a partir do SQLite, sem nenhuma chamada de LLM e sem reescrever o vault. O índice vetorial passa a ser um cache descartável. Um `reindex` completo também reconstrói o índice lexical FTS5 (`fts_notes`/`fts_chunks`), igualmente descartável. Após trocar `embedding.provider`/`model`, use **`--force`** (o CLI também detecta o drift e força o reset sob confirmação).
 - **`zettel rebuild --what vault`** recria os arquivos `.md` do vault a partir dos corpos persistidos, também sem LLM. Nunca sobrescreve um arquivo existente sem `--force`, e nunca sobrescreve uma nota `origin: manual` (mesmo com `--force`).
-- **`zettel rechunk`** re-aplica a configuração de chunking atual a partir do texto extraído persistido, sem reprocessar o arquivo original; completa capítulos faltantes após harvest interrompido e re-vincula imagens aos capítulos corretos.
+- **`zettel rechunk`** re-aplica a configuração de chunking atual a partir do texto extraído persistido, sem reprocessar o arquivo original; completa capítulos faltantes após harvest interrompido e re-vincula imagens aos capítulos corretos. Com `--dump-chunks`, grava um markdown com todos os chunks (texto + metadados) em `data/cache/chunk-dumps/` (ou `--dump-dir`).
+- **`zettel dump-chunks`** reexporta os chunks já persistidos no SQLite como markdown, sem rechunkar nem chamar o LLM. Use para inspecionar cortes, `section_path`, páginas e overlap antes de mudar `chunk_size` / `chunk_overlap` / `min_section_chars`.
 
 ## Notas manuais e proveniência
 
