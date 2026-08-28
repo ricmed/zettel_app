@@ -40,9 +40,12 @@ def test_inverse_relation_unknown_falls_back():
 
 
 def test_resolve_connections_with_known_note():
-    """When note exists in DB, wiki-link includes slug of title."""
+    """When the note has a path, wiki-link uses the file stem (not a title slug)."""
     db = _FakeDB({
-        "ABC123": {"title": "Gradient Descent Adaptativo", "path": "/vault/note.md"},
+        "ABC123": {
+            "title": "Gradient Descent Adaptativo",
+            "path": "/vault/30_Permanent/ZTL - ABC123 - gradient-descent-adaptativo.md",
+        },
     })
     connections = [
         RelationshipResult(
@@ -197,7 +200,7 @@ def test_build_rag_context_two_groups():
             via=[{"from": "AAA", "relation_type": "contradicts", "description": ""}],
         ),
     ]
-    ctx = _build_rag_context(hits)
+    ctx = _build_rag_context(_FakeDB({}), hits)
     assert "### Similares por embedding" in ctx
     assert "### Vizinhas por conexao no grafo" in ctx
     assert "[[ZTL - AAA - nota-semente]]" in ctx
@@ -208,13 +211,13 @@ def test_build_rag_context_two_groups():
 
 def test_build_rag_context_only_seeds_no_graph_heading():
     hits = [RetrievedNote(note_id="AAA", score=0.9, title="So Semente", hop=0)]
-    ctx = _build_rag_context(hits)
+    ctx = _build_rag_context(_FakeDB({}), hits)
     assert "### Similares por embedding" in ctx
     assert "### Vizinhas por conexao no grafo" not in ctx
 
 
 def test_build_rag_context_empty():
-    assert _build_rag_context([]) == "Nenhuma nota existente encontrada."
+    assert _build_rag_context(_FakeDB({}), []) == "Nenhuma nota existente encontrada."
 
 
 def test_fallback_image_ids_from_chunk_text(tmp_path):
