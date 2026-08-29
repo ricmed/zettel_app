@@ -22,9 +22,15 @@ from zettel.state import StateDB
 logger = logging.getLogger(__name__)
 
 
+class UserFacingError(RuntimeError):
+    """Expected operational failure whose message is safe for the browser."""
+
+
 def safe_error(exc: BaseException) -> str:
     """Return a useful, non-sensitive message for a browser response."""
     text = str(exc).replace("\n", " ").strip()
+    if isinstance(exc, UserFacingError):
+        return text[:300]
     if not text:
         return "A operação falhou. Consulte os logs do servidor."
     # Never echo host paths, API keys or provider response bodies to the UI.
@@ -235,6 +241,18 @@ class WebWorker:
                 selected_file=file_path,
                 observer=progress,
             )
+            if not sources:
+                existing = db.get_file(str(file_path)) if file_path else None
+                if existing and existing.get("source_id"):
+                    return {
+                        "sources": [existing["source_id"]],
+                        "skipped": "Documento já ingerido; nenhuma alteração necessária.",
+                    }
+                raise UserFacingError(
+                    "Nenhuma fonte foi criada. Verifique se o documento contém texto "
+                    "extraível, se não é uma duplicata e se as opções bibliográficas "
+                    "estão corretas."
+                )
             return {"sources": sources}
         if operation == "extract":
             from zettel.extractor import run_extract

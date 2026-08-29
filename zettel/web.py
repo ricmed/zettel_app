@@ -125,6 +125,18 @@ def _auth(request: Request) -> bool:
     return _session(request) is not None
 
 
+def _llm_ready(cfg: Any) -> bool:
+    provider = str(cfg.llm.provider).lower()
+    env_names = {
+        "openai": ("OPENAI_API_KEY",),
+        "openrouter": ("OPENROUTER_API_KEY", "OPENAI_API_KEY"),
+        "anthropic": ("ANTHROPIC_API_KEY",),
+        "gemini": ("GOOGLE_API_KEY",),
+    }
+    required = env_names.get(provider)
+    return True if required is None else any(os.getenv(name) for name in required)
+
+
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     return Response(status_code=204)
@@ -283,20 +295,49 @@ async def pipeline(request: Request):
         stats = db.get_stats()
     finally:
         db.close()
-    return _render(request, "pipeline.html", page="pipeline", stats=stats)
+    return _render(
+        request,
+        "pipeline.html",
+        page="pipeline",
+        stats=stats,
+        llm_ready=_llm_ready(_service(request).cfg),
+    )
 
 
 @app.post("/pipeline/{operation}")
 async def pipeline_action(request: Request, operation: str, csrf: str = Form("")):
     if operation not in {"extract", "connect", "garden", "garden_hubs", "sync", "retry_chunks", "retry_assets"}:
         return HTMLResponse("Operação indisponível", status_code=404)
-    if operation == "connect":
-        db = _service(request).db()
-        try:
+    if not _auth(request):
+        return _redirect_login()
+    if not _csrf_ok(request, csrf):
+        return HTMLResponse("CSRF inválido", status_code=403)
+    db = _service(request).db()
+    try:
+        stats = db.get_stats()
+        if operation == "extract" and not stats.get("chunks_pending"):
+            return HTMLResponse(
+                "Não há chunks pendentes. Execute um harvest válido primeiro.",
+                status_code=409,
+            )
+        if operation == "connect":
             if not db.get_concepts_by_status("approved", without_notes=True):
                 return HTMLResponse("Nenhum candidato aprovado aguardando connect.", status_code=409)
-        finally:
-            db.close()
+        if operation in {"garden", "garden_hubs"} and not stats.get("notes"):
+            return HTMLResponse("Não há notas permanentes para jardinagem.", status_code=409)
+        if operation == "retry_chunks" and not stats.get("chunks_failed"):
+            return HTMLResponse("Não há chunks com falha para reprocessar.", status_code=409)
+        if (
+            operation in {"extract", "connect", "garden", "garden_hubs"}
+            and not _llm_ready(_service(request).cfg)
+        ):
+            return HTMLResponse(
+                "O provedor LLM não possui credencial configurada. "
+                "Verifique Configuração / saúde.",
+                status_code=409,
+            )
+    finally:
+        db.close()
     return _post_job(request, "garden" if operation == "garden_hubs" else operation,
                      {"hubs": operation == "garden_hubs"}, csrf)
 
@@ -453,8 +494,13 @@ async def settings(request: Request):
     cfg = service.cfg
     db = service.db()
     try:
-        health = {"fts5": db.fts_enabled, "state_db": cfg.state_db_path.exists(),
-                  "vault": cfg.vault_path.exists(), "inbox": cfg.inbox_path.exists()}
+        health = {
+            "fts5": db.fts_enabled,
+            "state_db": cfg.state_db_path.exists(),
+            "vault": cfg.vault_path.exists(),
+            "inbox": cfg.inbox_path.exists(),
+            "llm": _llm_ready(cfg),
+        }
     finally:
         db.close()
     from zettel.index import peek_stored_embedding_identity

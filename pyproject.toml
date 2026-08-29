@@ -24,6 +24,7 @@ dependencies = [
     "uvicorn>=0.30.0",
     "jinja2>=3.1.0",
     "python-multipart>=0.0.9",
+    "PyMuPDF>=1.24.0",
     "scikit-learn>=1.8.0",
     "typer>=0.21.1",
     "typer-slim==0.21.1",

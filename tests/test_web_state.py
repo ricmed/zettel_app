@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from zettel.state import StateDB
+from zettel.web_app import UserFacingError, safe_error
 
 
 def test_web_queue_enforces_mutual_exclusion_and_transitions(tmp_path: Path):
@@ -55,3 +56,8 @@ def test_progress_events_and_dashboard_are_persisted(tmp_path: Path):
         assert dashboard["relations"] == []
     finally:
         db.close()
+
+
+def test_expected_operational_error_is_safe_and_useful():
+    error = UserFacingError("Nenhuma fonte foi criada.")
+    assert safe_error(error) == "Nenhuma fonte foi criada."

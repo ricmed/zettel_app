@@ -125,6 +125,19 @@ def test_navigation_and_retry_job_flow(web_client):
     assert payload["job"]["state"] == "succeeded"
     assert payload["job"]["result"] == {"assets_reset": 0}
     assert payload["events"]
+    detail = client.get(f"/jobs/{job_id}")
+    assert 'id="job-state"' in detail.text
+    assert "succeeded" in detail.text
+    assert 'id="job-result"' in detail.text
+    assert "Concluído" in detail.text
+
+
+def test_pipeline_blocks_extract_without_harvest_output(web_client):
+    client, _ = web_client
+    csrf = _login(client)
+    response = client.post("/pipeline/extract", data={"csrf": csrf})
+    assert response.status_code == 409
+    assert "Não há chunks pendentes" in response.text
 
 
 def test_unknown_details_do_not_expose_arbitrary_files(web_client):
