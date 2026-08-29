@@ -14,6 +14,7 @@ wheels/
 data/chroma/
 data/cache/*
 data/inbox/*
+data/arquivos_para_testes/*
 data/state.db
 data/zettel.db
 data/processed/
