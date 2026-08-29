@@ -96,4 +96,6 @@ Shared helpers live in `llm.py` (`get_llm` / `call_llm` / `load_prompt_parts` / 
 - IDs: sources use `@citekey`, chunks use `source_id::chapter_id::short_hash`, notes/mocs use ULID.
 - ChromaDB metadata only accepts str/int/float/bool — lists are joined with `", "` via `_sanitize_metadata()`.
 - Windows cp1252 console: avoid Unicode arrows/special chars in CLI help strings (causes UnicodeEncodeError).
-- This project uses UV for manemegent dependecies
+- This project uses UV for management dependencies
+- When asked to create a GitHub commit, do so in a professional and semantic manner, taking into account the changes or implementations made during the current chat session. Do not include files modified outside of this session.
+- Do not create backward compatibility with legacy code. Do not write junk code. Implement changes in an organized and concise manner.
