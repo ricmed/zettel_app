@@ -284,6 +284,8 @@ def test_note_and_moc_details_render_sanitized_markdown(web_client):
         "> citação\n\n"
         "[seguro](https://example.com)\n\n"
         "URL direta: https://docs.example.com/guia\n\n"
+        "[[ZTL - note-target - nota-relacionada]]\n\n"
+        "![[figura-local.png]]\n\n"
         "<script>alert('xss')</script>\n\n"
         "[perigoso](javascript:alert('xss'))"
     )
@@ -295,8 +297,20 @@ def test_note_and_moc_details_render_sanitized_markdown(web_client):
         db.upsert_note(
             "note-target", None, None, title="Nota relacionada", body="# Destino",
         )
+        db.upsert_note(
+            "note-target-2", None, None, title="Outra nota relacionada", body="# Outro destino",
+        )
+        db.upsert_note(
+            "note-target-3", None, None, title="Nota de apoio", body="# Apoio",
+        )
         db.upsert_note_connection(
             "note-markdown", "note-target", "extends", "Amplia o assunto",
+        )
+        db.upsert_note_connection(
+            "note-markdown", "note-target-2", "extends", "Amplia outro aspecto",
+        )
+        db.upsert_note_connection(
+            "note-markdown", "note-target-3", "supports", "Sustenta a tese",
         )
         db.upsert_moc(
             "moc-markdown", "Mapa formatado", body="## Seção\n\n`código`",
@@ -311,12 +325,19 @@ def test_note_and_moc_details_render_sanitized_markdown(web_client):
     assert "<blockquote>" in note.text
     assert 'href="https://example.com"' in note.text
     assert 'href="https://docs.example.com/guia"' in note.text
+    assert 'href="/notes/note-target"' in note.text
+    assert "![[figura-local.png]]" in note.text
     assert "<script>" not in note.text
     assert 'href="javascript:' not in note.text
     assert "Nota relacionada" in note.text
-    assert 'href="/notes/note-target"' in note.text
     assert "note-target" in note.text
     assert "Amplia o assunto" in note.text
+    assert "Outra nota relacionada" in note.text
+    assert 'href="/notes/note-target-2"' in note.text
+    assert "Amplia outro aspecto" in note.text
+    assert "Nota de apoio" in note.text
+    assert 'href="/notes/note-target-3"' in note.text
+    assert note.text.count("connection-row") == 3
 
     moc = client.get("/mocs/moc-markdown")
     assert moc.status_code == 200
