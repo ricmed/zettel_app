@@ -12,6 +12,7 @@ from zettel.vault import (
     literature_source_dirname,
     parse_frontmatter,
     read_managed_block,
+    safe_update_managed_blocks,
     upsert_managed_block,
     _slug,
     note_filename,
@@ -83,6 +84,47 @@ def test_upsert_managed_block_replace():
     result = upsert_managed_block(content, "auto-backlinks", "- new link")
     assert "old link" not in result
     assert "- new link" in result
+
+
+def test_safe_update_managed_blocks_bumps_updated_at(tmp_path):
+    path = tmp_path / "note.md"
+    path.write_text(
+        compose_note(
+            {
+                "type": "permanent",
+                "note_id": "abc",
+                "updated_at": "2020-01-01T00:00:00",
+            },
+            "# Title\n\nBody\n",
+        ),
+        encoding="utf-8",
+    )
+    safe_update_managed_blocks(path, {"auto-connections": "- [[Other]]"})
+    meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+    assert meta["updated_at"] > "2020-01-01T00:00:00"
+    assert "[[Other]]" in body
+    assert "<!-- zettel:auto-connections:start -->" in body
+
+
+def test_safe_update_managed_blocks_idempotent_keeps_updated_at(tmp_path):
+    path = tmp_path / "note.md"
+    initial = compose_note(
+        {
+            "type": "permanent",
+            "note_id": "abc",
+            "updated_at": "2020-01-01T00:00:00",
+        },
+        (
+            "# Title\n\n"
+            "<!-- zettel:auto-connections:start -->\n"
+            "- [[Other]]\n"
+            "<!-- zettel:auto-connections:end -->\n"
+        ),
+    )
+    path.write_text(initial, encoding="utf-8")
+    safe_update_managed_blocks(path, {"auto-connections": "- [[Other]]"})
+    meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+    assert meta["updated_at"] == "2020-01-01T00:00:00"
 
 
 def test_slug():

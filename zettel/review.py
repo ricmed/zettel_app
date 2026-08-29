@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -404,7 +405,7 @@ def approve_chunk(
         content = draft_path.read_text(encoding="utf-8")
         meta, body = parse_frontmatter(content)
         meta["status"] = "approved"
-        meta["updated_at"] = meta.get("updated_at")
+        meta["updated_at"] = datetime.now().isoformat()
         safe_write_note(dest_path, meta, body)
         try:
             draft_path.unlink()

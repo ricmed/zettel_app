@@ -99,14 +99,26 @@ def safe_write_note(path: Path, metadata: dict[str, Any], body: str) -> None:
 
 
 def safe_update_managed_blocks(path: Path, blocks: dict[str, str]) -> None:
-    """Update only the managed blocks in an existing note, preserving manual edits."""
+    """Update only the managed blocks in an existing note, preserving manual edits.
+
+    When the file content actually changes, bumps ``updated_at`` in frontmatter
+    (if present). Idempotent upserts that leave the body unchanged are a no-op.
+    """
     if not path.exists():
         logger.warning("Arquivo não encontrado para atualização: %s", path)
         return
 
-    content = path.read_text(encoding="utf-8")
+    original = path.read_text(encoding="utf-8")
+    content = original
     for block_name, inner in blocks.items():
         content = upsert_managed_block(content, block_name, inner)
+    if content == original:
+        return
+
+    meta, body = parse_frontmatter(content)
+    if meta:
+        meta["updated_at"] = datetime.now().isoformat()
+        content = compose_note(meta, body)
     path.write_text(content, encoding="utf-8")
     logger.debug("Blocos gerenciados atualizados em: %s", path)
 
