@@ -103,6 +103,37 @@ select {
   text-underline-offset: 2px;
 }
 
+.connection-row {
+  align-items: flex-start;
+  gap: 18px;
+}
+
+.connection-type {
+  flex: 0 0 90px;
+  color: var(--muted);
+}
+
+.connection-target {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  min-width: 0;
+}
+
+.connection-link {
+  font-weight: 600;
+}
+
+.connection-target code {
+  overflow-wrap: anywhere;
+}
+
+.connection-target small {
+  flex-basis: 100%;
+}
+
 .markdown-body table {
   display: block;
   overflow: auto;

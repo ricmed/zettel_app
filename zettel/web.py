@@ -69,6 +69,32 @@ def _redirect_login() -> RedirectResponse:
     return RedirectResponse("/login", status_code=303)
 
 
+def _decorate_connections(db: Any, note_id: str) -> list[dict]:
+    """Add the related note title and existence flag for the detail template."""
+
+    decorated = []
+    for edge in db.get_note_connections(note_id):
+        related_id = (
+            edge["target_note_id"]
+            if edge["source_note_id"] == note_id
+            else edge["source_note_id"]
+        )
+        related_note = db.get_note(related_id)
+        decorated.append(
+            {
+                **edge,
+                "related_note_id": related_id,
+                "related_title": (
+                    related_note.get("title") or "Nota sem título"
+                    if related_note
+                    else "Nota não encontrada"
+                ),
+                "related_note_exists": related_note is not None,
+            }
+        )
+    return decorated
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     service = WebApplication(getattr(app.state, "config_path", None) or os.environ.get("ZETTEL_CONFIG"))
@@ -486,7 +512,7 @@ async def note_detail(request: Request, note_id: str):
     db = _service(request).db()
     try:
         note = db.get_note(note_id)
-        connections = db.get_note_connections(note_id) if note else []
+        connections = _decorate_connections(db, note_id) if note else []
     finally:
         db.close()
     if not note:

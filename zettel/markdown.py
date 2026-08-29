@@ -6,7 +6,9 @@ import bleach
 from markdown_it import MarkdownIt
 
 
-_MARKDOWN = MarkdownIt("commonmark", {"html": False, "linkify": False}).enable("table")
+_MARKDOWN = MarkdownIt("commonmark", {"html": False, "linkify": True}).enable(
+    ["table", "linkify"]
+)
 _ALLOWED_TAGS = set(bleach.sanitizer.ALLOWED_TAGS) | {
     "h1", "h2", "h3", "h4", "h5", "h6",
     "p", "pre", "code", "blockquote",

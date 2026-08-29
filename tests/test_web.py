@@ -283,6 +283,7 @@ def test_note_and_moc_details_render_sanitized_markdown(web_client):
         "- segundo\n\n"
         "> citação\n\n"
         "[seguro](https://example.com)\n\n"
+        "URL direta: https://docs.example.com/guia\n\n"
         "<script>alert('xss')</script>\n\n"
         "[perigoso](javascript:alert('xss'))"
     )
@@ -290,6 +291,12 @@ def test_note_and_moc_details_render_sanitized_markdown(web_client):
     try:
         db.upsert_note(
             "note-markdown", None, None, title="Nota formatada", body=markdown,
+        )
+        db.upsert_note(
+            "note-target", None, None, title="Nota relacionada", body="# Destino",
+        )
+        db.upsert_note_connection(
+            "note-markdown", "note-target", "extends", "Amplia o assunto",
         )
         db.upsert_moc(
             "moc-markdown", "Mapa formatado", body="## Seção\n\n`código`",
@@ -303,8 +310,13 @@ def test_note_and_moc_details_render_sanitized_markdown(web_client):
     assert "<li>primeiro</li>" in note.text
     assert "<blockquote>" in note.text
     assert 'href="https://example.com"' in note.text
+    assert 'href="https://docs.example.com/guia"' in note.text
     assert "<script>" not in note.text
     assert 'href="javascript:' not in note.text
+    assert "Nota relacionada" in note.text
+    assert 'href="/notes/note-target"' in note.text
+    assert "note-target" in note.text
+    assert "Amplia o assunto" in note.text
 
     moc = client.get("/mocs/moc-markdown")
     assert moc.status_code == 200
