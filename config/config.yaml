@@ -40,7 +40,11 @@ embedding:
   # model: text-embedding-3-small
   provider: ollama
   model: qwen3-embedding
-  base_url: null             # opcional; ollama default http://localhost:11434/v1
+  # MRL: truncar vetor. null = nativo (qwen3-embedding 8B = 4096).
+  # ollama: langchain_ollama (API nativa). openai: text-embedding-3-* via EF Chroma.
+  # 1024 = bom custo-beneficio. Trocar dimensions exige zettel reindex --force.
+  dimensions: 1024
+  base_url: null             # ollama: default http://localhost:11434 (sem /v1)
   allow_fallback: false      # true = default Chroma 384-d (mistura espacos — evite)
 
 # ── Chunking ────────────────────────────────────────────────────────────

@@ -20,12 +20,104 @@ COL_LITERATURE = "literature_notes"
 
 _ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS, COL_LITERATURE]
 
-_DEFAULT_OLLAMA_URL = "http://localhost:11434/v1"
+_DEFAULT_OLLAMA_URL = "http://localhost:11434"
 _SUPPORTED_PROVIDERS = ("openai", "sentence-transformers", "ollama")
 
 
+def _normalize_ollama_base_url(url: str | None) -> str:
+    """Native Ollama host (no /v1). Strips legacy OpenAI-compatible suffix."""
+    base = (url or _DEFAULT_OLLAMA_URL).rstrip("/")
+    if base.endswith("/v1"):
+        base = base[:-3].rstrip("/")
+    return base or _DEFAULT_OLLAMA_URL
+
+
+class _LangChainOllamaChromaEF:
+    """Adapt langchain_ollama.OllamaEmbeddings to Chroma's EmbeddingFunction protocol."""
+
+    def __init__(self, embeddings: Any):
+        self._emb = embeddings
+        self.dimensions = getattr(embeddings, "dimensions", None)
+        self.model_name = getattr(embeddings, "model", None)
+        self.base_url = getattr(embeddings, "base_url", None) or _DEFAULT_OLLAMA_URL
+
+    def __call__(self, input: Any) -> Any:
+        import numpy as np
+
+        if not input:
+            return []
+        texts = list(input)
+        vectors = self._emb.embed_documents(texts)
+        return [np.array(v, dtype=np.float32) for v in vectors]
+
+    def embed_query(self, input: Any) -> Any:
+        return self(input)
+
+    @staticmethod
+    def name() -> str:
+        return "ollama"
+
+    def is_legacy(self) -> bool:
+        return False
+
+    def get_config(self) -> dict[str, Any]:
+        return {
+            "model": self.model_name,
+            "dimensions": self.dimensions,
+            "base_url": self.base_url,
+        }
+
+    @staticmethod
+    def build_from_config(config: dict[str, Any]) -> "_LangChainOllamaChromaEF":
+        from langchain_ollama import OllamaEmbeddings
+
+        model = config.get("model")
+        if not model:
+            raise ValueError("config ollama exige 'model'")
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "base_url": _normalize_ollama_base_url(config.get("base_url")),
+        }
+        dims = config.get("dimensions")
+        if dims is not None:
+            kwargs["dimensions"] = int(dims)
+        return _LangChainOllamaChromaEF(OllamaEmbeddings(**kwargs))
+
+    def validate_config_update(
+        self, old_config: dict[str, Any], new_config: dict[str, Any]
+    ) -> None:
+        if "model" in new_config and new_config["model"] != old_config.get("model"):
+            raise ValueError(
+                "O modelo de embedding ollama nao pode ser alterado apos a colecao ser criada."
+            )
+
+    @staticmethod
+    def validate_config(config: dict[str, Any]) -> None:
+        if not config.get("model"):
+            raise ValueError("config ollama exige 'model'")
+
+    def default_space(self) -> str:
+        return "cosine"
+
+    def supported_spaces(self) -> list[str]:
+        return ["cosine", "l2", "ip"]
+
+
+def _register_ollama_chroma_ef() -> None:
+    """Register adapter under name 'ollama' so Chroma can reconstruct collections."""
+    try:
+        from chromadb.utils.embedding_functions import register_embedding_function
+
+        register_embedding_function(_LangChainOllamaChromaEF)
+    except Exception as e:
+        logger.debug("Nao foi possivel registrar EF ollama no Chroma: %s", e)
+
+
+_register_ollama_chroma_ef()
+
+
 class EmbeddingSpaceMismatch(Exception):
-    """Raised when config embedding provider/model differs from Chroma collection metadata."""
+    """Raised when config embedding provider/model/dims differs from Chroma metadata."""
 
     def __init__(
         self,
@@ -33,29 +125,51 @@ class EmbeddingSpaceMismatch(Exception):
         stored_model: str | None,
         current_provider: str,
         current_model: str,
+        stored_dimensions: int | None = None,
+        current_dimensions: int | None = None,
     ):
         self.stored_provider = stored_provider
         self.stored_model = stored_model
+        self.stored_dimensions = stored_dimensions
         self.current_provider = current_provider
         self.current_model = current_model
+        self.current_dimensions = current_dimensions
+        stored = _format_space_id(stored_provider, stored_model, stored_dimensions)
+        current = _format_space_id(current_provider, current_model, current_dimensions)
         super().__init__(
-            f"Espaco vetorial incompativel: Chroma tem "
-            f"{stored_provider}/{stored_model}, config pede "
-            f"{current_provider}/{current_model}. "
+            f"Espaco vetorial incompativel: Chroma tem {stored}, config pede {current}. "
             f"Rode 'zettel reindex --force' (ou confirme o reprocessamento)."
         )
 
 
+def _format_space_id(
+    provider: str | None, model: str | None, dimensions: int | None,
+) -> str:
+    base = f"{provider}/{model}"
+    if dimensions is not None:
+        return f"{base}@{dimensions}d"
+    return base
+
+
+def _parse_dimensions(raw: Any) -> int | None:
+    if raw is None or raw == "":
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def peek_stored_embedding_identity(
     chroma_path: Path,
-) -> tuple[str | None, str | None]:
-    """Read embedding provider/model markers from an existing Chroma store.
+) -> tuple[str | None, str | None, int | None]:
+    """Read embedding provider/model/dimensions markers from an existing Chroma store.
 
-    Returns ``(None, None)`` when the path is missing, empty, or collections
+    Returns ``(None, None, None)`` when the path is missing, empty, or collections
     have no markers yet (fresh / legacy store).
     """
     if not chroma_path.exists():
-        return None, None
+        return None, None, None
     try:
         client = chromadb.PersistentClient(
             path=str(chroma_path),
@@ -63,12 +177,12 @@ def peek_stored_embedding_identity(
         )
     except Exception as e:
         logger.debug("Nao foi possivel abrir Chroma em %s: %s", chroma_path, e)
-        return None, None
+        return None, None, None
     return _identity_from_client(client)
 
 
-def _identity_from_client(client: Any) -> tuple[str | None, str | None]:
-    for name in (COL_PERMANENT, COL_CHUNKS, COL_SOURCES, COL_MOCS):
+def _identity_from_client(client: Any) -> tuple[str | None, str | None, int | None]:
+    for name in (COL_PERMANENT, COL_CHUNKS, COL_SOURCES, COL_MOCS, COL_LITERATURE):
         try:
             col = client.get_collection(name)
         except Exception:
@@ -76,12 +190,14 @@ def _identity_from_client(client: Any) -> tuple[str | None, str | None]:
         meta = col.metadata or {}
         provider = meta.get("embedding_provider")
         model = meta.get("embedding_model")
-        if provider is not None or model is not None:
+        dims = _parse_dimensions(meta.get("embedding_dimensions"))
+        if provider is not None or model is not None or dims is not None:
             return (
                 str(provider) if provider is not None else None,
                 str(model) if model is not None else None,
+                dims,
             )
-    return None, None
+    return None, None, None
 
 
 class VectorIndex:
@@ -95,6 +211,7 @@ class VectorIndex:
         device: str = "auto",
         allow_fallback: bool = False,
         base_url: str | None = None,
+        dimensions: int | None = None,
         reset_mismatched: bool = False,
     ):
         self.chroma_path = chroma_path
@@ -102,6 +219,7 @@ class VectorIndex:
         self.device = device
         self.embedding_provider = embedding_provider
         self.embedding_model = embedding_model
+        self.dimensions = int(dimensions) if dimensions is not None else None
         self.allow_fallback = allow_fallback
         self.base_url = base_url
         self.reset_mismatched = reset_mismatched
@@ -117,15 +235,19 @@ class VectorIndex:
         if not self.embedding_space_matches(stored):
             if reset_mismatched:
                 logger.warning(
-                    "Resetando colecoes Chroma por troca de embedding: %s/%s -> %s/%s",
-                    stored[0], stored[1],
-                    self.embedding_provider, self.embedding_model,
+                    "Resetando colecoes Chroma por troca de embedding: %s -> %s",
+                    _format_space_id(stored[0], stored[1], stored[2]),
+                    _format_space_id(
+                        self.embedding_provider, self.embedding_model, self.dimensions,
+                    ),
                 )
                 self._delete_all_collections()
             else:
                 raise EmbeddingSpaceMismatch(
                     stored[0], stored[1],
                     self.embedding_provider, self.embedding_model,
+                    stored_dimensions=stored[2],
+                    current_dimensions=self.dimensions,
                 )
 
         self._ensure_collections()
@@ -173,53 +295,23 @@ class VectorIndex:
         """
         try:
             if provider == "openai":
-                import os
-                from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
-                # ChromaDB procura CHROMA_OPENAI_API_KEY; fallback para OPENAI_API_KEY
-                api_key = os.environ.get("CHROMA_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
-                if not api_key and not self.allow_fallback:
-                    raise RuntimeError(
-                        "Sem API key para embeddings OpenAI (defina OPENAI_API_KEY). "
-                        "Para usar o embedding local padrao do ChromaDB, ajuste "
-                        "embedding.allow_fallback: true no config.yaml."
-                    )
-                kwargs: dict[str, Any] = {"model_name": model, "api_key": api_key}
-                if self.base_url:
-                    kwargs["api_base"] = self.base_url
-                return OpenAIEmbeddingFunction(**kwargs)
-            elif provider == "sentence-transformers":
-                from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
-                from zettel.config import detect_device
-                device = detect_device(self.device)
-                logger.info("SentenceTransformers usando dispositivo: %s", device.upper())
-                return SentenceTransformerEmbeddingFunction(
-                    model_name=model, device=device,
+                return self._build_openai_ef(model)
+            if provider == "sentence-transformers":
+                return self._build_sentence_transformers_ef(model)
+            if provider == "ollama":
+                return self._build_ollama_ef(model)
+            if not self.allow_fallback:
+                raise ValueError(
+                    f"Embedding provider desconhecido: '{provider}'. "
+                    f"Use {', '.join(repr(p) for p in _SUPPORTED_PROVIDERS)}, "
+                    f"ou ajuste embedding.allow_fallback: true para usar o default "
+                    f"do ChromaDB."
                 )
-            elif provider == "ollama":
-                # API OpenAI-compatible do Ollama — evita depender do pacote `ollama`.
-                from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
-                url = self.base_url or _DEFAULT_OLLAMA_URL
-                if not url.rstrip("/").endswith("/v1"):
-                    url = url.rstrip("/") + "/v1"
-                logger.info("Ollama embeddings (OpenAI-compatible) em %s (modelo=%s)", url, model)
-                return OpenAIEmbeddingFunction(
-                    model_name=model,
-                    api_key="ollama",  # Ollama nao valida a key
-                    api_base=url,
-                )
-            else:
-                if not self.allow_fallback:
-                    raise ValueError(
-                        f"Embedding provider desconhecido: '{provider}'. "
-                        f"Use {', '.join(repr(p) for p in _SUPPORTED_PROVIDERS)}, "
-                        f"ou ajuste embedding.allow_fallback: true para usar o default "
-                        f"do ChromaDB."
-                    )
-                logger.warning(
-                    "Embedding provider '%s' desconhecido, usando default do ChromaDB",
-                    provider,
-                )
-                return None
+            logger.warning(
+                "Embedding provider '%s' desconhecido, usando default do ChromaDB",
+                provider,
+            )
+            return None
         except ImportError as e:
             if not self.allow_fallback:
                 raise
@@ -229,27 +321,86 @@ class VectorIndex:
             )
             return None
 
+    def _build_openai_ef(self, model: str) -> Any:
+        import os
+
+        from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
+
+        api_key = os.environ.get("CHROMA_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        if not api_key and not self.allow_fallback:
+            raise RuntimeError(
+                "Sem API key para embeddings OpenAI (defina OPENAI_API_KEY). "
+                "Para usar o embedding local padrao do ChromaDB, ajuste "
+                "embedding.allow_fallback: true no config.yaml."
+            )
+        kwargs: dict[str, Any] = {"model_name": model, "api_key": api_key}
+        if self.base_url:
+            kwargs["api_base"] = self.base_url
+        if self.dimensions is not None:
+            kwargs["dimensions"] = self.dimensions
+        return OpenAIEmbeddingFunction(**kwargs)
+
+    def _build_sentence_transformers_ef(self, model: str) -> Any:
+        from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+        from zettel.config import detect_device
+
+        device = detect_device(self.device)
+        logger.info("SentenceTransformers usando dispositivo: %s", device.upper())
+        if self.dimensions is not None:
+            logger.warning(
+                "embedding.dimensions=%s ignorado para sentence-transformers "
+                "(suportado em openai e ollama)",
+                self.dimensions,
+            )
+        return SentenceTransformerEmbeddingFunction(model_name=model, device=device)
+
+    def _build_ollama_ef(self, model: str) -> Any:
+        try:
+            from langchain_ollama import OllamaEmbeddings
+        except ImportError as e:
+            raise RuntimeError(
+                "Provider ollama exige langchain-ollama "
+                "(instale com: uv add langchain-ollama / pip install langchain-ollama)."
+            ) from e
+
+        base_url = _normalize_ollama_base_url(self.base_url)
+        logger.info(
+            "Ollama embeddings (langchain_ollama) em %s (modelo=%s dims=%s)",
+            base_url, model, self.dimensions,
+        )
+        kwargs: dict[str, Any] = {"model": model, "base_url": base_url}
+        if self.dimensions is not None:
+            kwargs["dimensions"] = self.dimensions
+        return _LangChainOllamaChromaEF(OllamaEmbeddings(**kwargs))
+
     def _collection_metadata(self) -> dict[str, Any]:
         """Provider marker stored on each collection to detect embedding-space drift."""
-        return {
+        meta: dict[str, Any] = {
             "embedding_provider": self.embedding_provider,
             "embedding_model": self.embedding_model,
         }
+        if self.dimensions is not None:
+            meta["embedding_dimensions"] = int(self.dimensions)
+        return meta
 
-    def get_stored_embedding_identity(self) -> tuple[str | None, str | None]:
-        """Return ``(provider, model)`` markers from existing collections, if any."""
+    def get_stored_embedding_identity(self) -> tuple[str | None, str | None, int | None]:
+        """Return ``(provider, model, dimensions)`` markers from existing collections."""
         return _identity_from_client(self.client)
 
     def embedding_space_matches(
-        self, stored: tuple[str | None, str | None] | None = None,
+        self, stored: tuple[str | None, str | None, int | None] | None = None,
     ) -> bool:
-        """True when there is no stored marker, or it equals the current provider/model."""
+        """True when there is no stored marker, or it equals the current space."""
         if stored is None:
             stored = self.get_stored_embedding_identity()
-        sp, sm = stored
-        if sp is None and sm is None:
+        sp, sm, sd = stored
+        if sp is None and sm is None and sd is None:
             return True
-        return sp == self.embedding_provider and sm == self.embedding_model
+        return (
+            sp == self.embedding_provider
+            and sm == self.embedding_model
+            and sd == self.dimensions
+        )
 
     def _delete_all_collections(self) -> None:
         for name in _ALL_COLLECTIONS:
@@ -270,14 +421,19 @@ class VectorIndex:
             existing = self.client.get_collection(name)
             meta = existing.metadata or {}
             sp, sm = meta.get("embedding_provider"), meta.get("embedding_model")
-            if (sp is not None or sm is not None) and (
-                sp != self.embedding_provider or sm != self.embedding_model
+            sd = _parse_dimensions(meta.get("embedding_dimensions"))
+            if (sp is not None or sm is not None or sd is not None) and (
+                sp != self.embedding_provider
+                or sm != self.embedding_model
+                or sd != self.dimensions
             ):
                 raise EmbeddingSpaceMismatch(
                     str(sp) if sp is not None else None,
                     str(sm) if sm is not None else None,
                     self.embedding_provider,
                     self.embedding_model,
+                    stored_dimensions=sd,
+                    current_dimensions=self.dimensions,
                 )
         except EmbeddingSpaceMismatch:
             raise

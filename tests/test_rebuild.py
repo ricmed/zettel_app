@@ -110,7 +110,7 @@ def test_reindex_force_after_embedding_swap(db, tmp_path, monkeypatch):
     idx_a = VectorIndex(chroma, "provider-invalido", "modelo-a", allow_fallback=True)
     run_reindex(cfg, db, idx_a, force=True)
     assert idx_a.chunks.count() == 1
-    assert idx_a.get_stored_embedding_identity() == ("provider-invalido", "modelo-a")
+    assert idx_a.get_stored_embedding_identity() == ("provider-invalido", "modelo-a", None)
 
     with pytest.raises(EmbeddingSpaceMismatch):
         VectorIndex(chroma, "provider-invalido", "modelo-b", allow_fallback=True)
@@ -122,7 +122,7 @@ def test_reindex_force_after_embedding_swap(db, tmp_path, monkeypatch):
     stats = run_reindex(cfg, db, idx_b, force=True)
     assert stats["chunks"] == 1
     assert stats["sources"] == 1
-    assert idx_b.get_stored_embedding_identity() == ("provider-invalido", "modelo-b")
+    assert idx_b.get_stored_embedding_identity() == ("provider-invalido", "modelo-b", None)
     assert idx_b.chunks.count() == 1
 
 
@@ -137,9 +137,18 @@ def test_embedding_config_rejects_unknown_provider():
 def test_embedding_config_accepts_ollama():
     from zettel.config import EmbeddingConfig
 
-    cfg = EmbeddingConfig(provider="ollama", model="qwen3-embedding")
+    cfg = EmbeddingConfig(provider="ollama", model="qwen3-embedding", dimensions=1024)
     assert cfg.provider == "ollama"
     assert cfg.base_url is None
+    assert cfg.dimensions == 1024
+
+
+def test_embedding_config_rejects_non_positive_dimensions():
+    from pydantic import ValidationError
+    from zettel.config import EmbeddingConfig
+
+    with pytest.raises(ValidationError):
+        EmbeddingConfig(provider="ollama", model="qwen3-embedding", dimensions=0)
 
 
 def test_rebuild_vault_writes_from_db(db, tmp_path):
