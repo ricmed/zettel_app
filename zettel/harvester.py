@@ -62,6 +62,7 @@ def run_harvest(
     content_start_book: int | None = None,
     skip_paging: bool = False,
     dump_dir: Path | None = None,
+    extraction_dump_dir: Path | None = None,
 ) -> list[str]:
     """Scan inbox, extract text, create SRC + LIT index, chunk. Returns new source_ids.
 
@@ -77,6 +78,8 @@ def run_harvest(
         content_start_book: printed page number on that first content page (default 1).
         skip_paging: skip HITL; process from file page 1 with book page = file page.
         dump_dir: if set, write a markdown dump of persisted chunks per new source.
+        extraction_dump_dir: if set, write the persisted extraction Markdown
+            (Docling/MD) as soon as ``extracted_text`` is saved.
     """
     new_sources: list[str] = []
     inbox = cfg.inbox_path
@@ -114,6 +117,7 @@ def run_harvest(
                 content_start_file=content_start_file,
                 content_start_book=content_start_book,
                 skip_paging=skip_paging,
+                extraction_dump_dir=extraction_dump_dir,
             )
             if sid:
                 new_sources.append(sid)
@@ -426,6 +430,16 @@ def _maybe_dump_chunks(
     dump_source_chunks(cfg, db, source_id, dump_dir)
 
 
+def _maybe_dump_extraction(
+    cfg: AppConfig, db: StateDB, source_id: str, dump_dir: Path | None,
+) -> None:
+    """Write extraction Markdown when ``dump_dir`` is set (harvest opt-in)."""
+    if dump_dir is None:
+        return
+    from zettel.extraction_dump import dump_source_extraction
+    dump_source_extraction(cfg, db, source_id, dump_dir)
+
+
 def _finalize_source_chunking(
     db: StateDB,
     idx: VectorIndex,
@@ -506,6 +520,7 @@ def _process_file(
     content_start_file: int | None = None,
     content_start_book: int | None = None,
     skip_paging: bool = False,
+    extraction_dump_dir: Path | None = None,
 ) -> tuple[str | None, dict[str, int]]:
     """Process a single file: extract, chunk, persist. Returns (source_id, stats) or (None, {})."""
     empty_stats: dict[str, int] = {}
@@ -671,6 +686,7 @@ def _process_file(
         docling_config_hash=config_hash,
     )
     db.update_source_texts(source_id, extracted_text=text)
+    _maybe_dump_extraction(cfg, db, source_id, extraction_dump_dir)
 
     # Grava SRC + indice LIT ANTES dos embeddings (podem demorar minutos).
     logger.info(

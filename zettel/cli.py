@@ -4,6 +4,7 @@ Commands:
   init        — Initialize vault, database, and vector store
   harvest     — Scan inbox, extract text, create SRC + LIT index, chunk (+ pages)
   dump-chunks — Export persisted chunks as markdown for chunking inspection
+  dump-extraction — Export persisted extraction Markdown (Docling/MD headings)
   extract     — Process chunks with LLM (Prompt 1), write LIT drafts
   review      — Approve/reject granular literature notes
   connect     — Generate permanent notes from approved candidates (Prompt 2)
@@ -270,6 +271,14 @@ def harvest(
         None, "--dump-dir",
         help="Diretorio do dump de chunks (implica --dump-chunks; default: cache/chunk-dumps)",
     ),
+    dump_extraction: bool = typer.Option(
+        False, "--dump-extraction",
+        help="Salvar Markdown extraido (Docling/MD, headings H1-H6) para inspecao",
+    ),
+    dump_extraction_dir: Optional[str] = typer.Option(
+        None, "--dump-extraction-dir",
+        help="Diretorio do dump de extracao (implica --dump-extraction; default: cache/extraction-dumps)",
+    ),
 ):
     """Escanear inbox, extrair texto, criar SRC + indice LIT e chunks."""
     cfg = _load_deps(config)
@@ -278,6 +287,9 @@ def harvest(
 
     interactive, duplicate_action = _resolve_duplicate_flags(yes, skip_duplicates, force)
     chunk_dump_dir = _resolve_chunk_dump_dir(cfg, dump_chunks, dump_dir)
+    extraction_dump_dir = _resolve_extraction_dump_dir(
+        cfg, dump_extraction, dump_extraction_dir,
+    )
 
     from zettel.harvester import run_harvest
     if interactive:
@@ -293,6 +305,7 @@ def harvest(
             content_start_book=content_start_book,
             skip_paging=skip_paging,
             dump_dir=chunk_dump_dir,
+            extraction_dump_dir=extraction_dump_dir,
         )
     else:
         console.print(f"[dim]Modo nao-interativo — duplicatas suspeitas: '{duplicate_action}'[/dim]")
@@ -305,6 +318,7 @@ def harvest(
             content_start_book=content_start_book,
             skip_paging=skip_paging or True,
             dump_dir=chunk_dump_dir,
+            extraction_dump_dir=extraction_dump_dir,
         )
 
     if new_sources:
@@ -313,6 +327,8 @@ def harvest(
             console.print(f"  - {sid}")
         if chunk_dump_dir:
             console.print(f"[dim]Dump de chunks gravado em: {chunk_dump_dir}[/dim]")
+        if extraction_dump_dir:
+            console.print(f"[dim]Dump de extracao gravado em: {extraction_dump_dir}[/dim]")
     else:
         console.print("[yellow]Nenhum arquivo novo encontrado no inbox.[/yellow]")
 
@@ -363,6 +379,18 @@ def _resolve_chunk_dump_dir(
         return Path(dump_dir).expanduser().resolve()
     if dump_chunks:
         from zettel.chunk_dump import default_dump_dir
+        return default_dump_dir(cfg)
+    return None
+
+
+def _resolve_extraction_dump_dir(
+    cfg, dump_extraction: bool, dump_extraction_dir: Optional[str]
+) -> Optional[Path]:
+    """Resolve --dump-extraction / --dump-extraction-dir, or None when dump is off."""
+    if dump_extraction_dir:
+        return Path(dump_extraction_dir).expanduser().resolve()
+    if dump_extraction:
+        from zettel.extraction_dump import default_dump_dir
         return default_dump_dir(cfg)
     return None
 
@@ -670,6 +698,49 @@ def dump_chunks_cmd(
     console.print(
         f"[green]Dump concluido:[/green] {stats['sources']} fonte(s) em {dest}"
     )
+    db.close()
+
+
+# ── dump-extraction ───────────────────────────────────────────────────
+
+
+@app.command(name="dump-extraction")
+def dump_extraction_cmd(
+    source_id: Optional[str] = typer.Option(None, "--source-id", help="Exportar apenas esta fonte"),
+    all_sources: bool = typer.Option(False, "--all", help="Exportar todas as fontes"),
+    dump_dir: Optional[str] = typer.Option(
+        None, "--dump-dir",
+        help="Diretorio de saida (default: cache/extraction-dumps)",
+    ),
+    config: Optional[str] = typer.Option(None, "--config", "-c"),
+):
+    """Exportar o Markdown extraido (Docling/MD) para inspecionar headings H1-H6."""
+    if not source_id and not all_sources:
+        console.print("[red]Informe --source-id <id> ou --all.[/red]")
+        raise typer.Exit(1)
+
+    cfg = _load_deps(config)
+    db = _get_db(cfg)
+    dest = Path(dump_dir).expanduser().resolve() if dump_dir else None
+
+    from zettel.extraction_dump import default_dump_dir, run_dump_extraction
+    dest = dest or default_dump_dir(cfg)
+    try:
+        stats = run_dump_extraction(
+            cfg, db, source_id if source_id else None, dump_dir=dest,
+        )
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        db.close()
+        raise typer.Exit(1)
+
+    console.print(
+        f"[green]Dump concluido:[/green] {stats['sources']} fonte(s) em {dest}"
+    )
+    if stats.get("skipped"):
+        console.print(
+            f"[yellow]{stats['skipped']} fonte(s) pulada(s) sem texto extraido persistido.[/yellow]"
+        )
     db.close()
 
 
