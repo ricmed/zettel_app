@@ -100,7 +100,7 @@ images:
 # ── Gardener (MOCs taxonomicos; zettel garden) ─────────────────────────
 gardener:
   min_cluster_size: 5                  # notas minimas para tentar clusterizar
-  min_notes_for_moc: 3                 # cluster menor que isso nao vira MOC
+  min_notes_for_moc: 10                 # cluster menor que isso nao vira MOC
   domain: "Ciencia de Dados"           # preenchido nos prompts de MOC
   strict_topics: true                  # rejeitar topic fora das categorias de moc_topics.yaml
   topics_path: ./config/moc_topics.yaml  # pilar > categoria > topicos; categorias = whitelist
