@@ -377,6 +377,13 @@ def approve_high_confidence(
     return n
 
 
+def finalize_approved_concepts(
+    cfg: AppConfig, db: StateDB, idx: VectorIndex, source_id: str | None = None
+) -> None:
+    """Run post-approval deduplication after granular web review actions."""
+    _dedupe_approved_concepts(cfg, db, idx, source_id)
+
+
 def approve_chunk(
     cfg: AppConfig, db: StateDB, idx: VectorIndex, chunk_id: str
 ) -> bool:
@@ -478,7 +485,8 @@ def reject_chunk(
     cfg: AppConfig, db: StateDB, idx: VectorIndex, chunk_id: str
 ) -> bool:
     chunk = db.get_chunk(chunk_id)
-    if not chunk:
+    if not chunk or chunk.get("status") != "awaiting_review":
+        logger.warning("Chunk %s nao esta awaiting_review", chunk_id)
         return False
     draft_path_str = chunk.get("literature_note_path")
     if draft_path_str:

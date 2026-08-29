@@ -25,15 +25,19 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python -m zettel --help"
+args = "uvicorn zettel.web:app --host 0.0.0.0 --port 5000"
 
 [workflows.workflow.metadata]
-outputType = "console"
+outputType = "webview"
 
 [deployment]
 deploymentTarget = "vm"
-run = ["python", "-m", "zettel", "--help"]
+run = ["uvicorn", "zettel.web:app", "--host", "0.0.0.0", "--port", "5000"]
 
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 120000
+
+[[ports]]
+localPort = 5000
+externalPort = 80

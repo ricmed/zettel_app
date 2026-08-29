@@ -153,6 +153,13 @@ def test_reject_deletes_draft(env):
     assert concepts[0]["status"] == "rejected"
 
 
+def test_reject_refuses_chunk_outside_review(env):
+    cfg, db, idx = env
+    assert approve_chunk(cfg, db, idx, "@Book2024::ch000::abc")
+    assert not reject_chunk(cfg, db, idx, "@Book2024::ch000::abc")
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "persisted"
+
+
 def test_confidence_band_counts():
     limiar = 0.85
     chunks = [

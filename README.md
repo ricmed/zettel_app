@@ -421,6 +421,44 @@ Sem `--force` após uma troca de modelo, sources/chunks já indexados **não** s
 
 Depois da troca, se a qualidade da busca degradar, recalibre `retrieval.relevance_floor.min_vector_similarity` e os limiares de dedupe (`linking.dedupe_threshold`, `harvest.duplicate_chunk_threshold`) — são dependentes do modelo. O `zettel doctor` também reporta drift de embedding.
 
+## Interface web
+
+A interface FastAPI é server-rendered e não exige Node, bundler ou acesso direto
+do navegador ao SQLite/ChromaDB.
+
+```bash
+# Defina um segredo longo na área Secrets do Replit (não no config.yaml)
+# SESSION_SECRET=...
+
+uvicorn zettel.web:app --host 0.0.0.0 --port "${PORT:-5000}"
+```
+
+Abra o preview e entre com o valor de `SESSION_SECRET`. A navegação oferece:
+
+- **Visão geral**: KPIs, funil, confiança, custos, runs, duplicatas e qualidade do grafo;
+- **Documentos**: upload de PDF/Markdown/TXT (até 25 MB), decisões de duplicidade,
+  bibliografia e paginação, e harvest do arquivo escolhido;
+- **Pipeline**: extract, connect, garden taxonômico, garden por hubs, sincronização
+  manual e repetição segura de chunks/assets com falha;
+- **Revisão**: filtros por fonte/confiança, trecho, candidatos e ações explícitas
+  de aprovação/rejeição em lote;
+- **Execuções**: estado persistente, progresso, eventos, resultado e erro sanitizado;
+- **Configuração / saúde**: FTS5, diretórios e identidade do embedding, sem segredos.
+
+### Persistência, concorrência e recuperação
+
+- A implantação é de **instância única** e executa no máximo um trabalho mutante
+  por vez. Não use múltiplos processos/workers Uvicorn.
+- Preserve `data/` e `vault/` em armazenamento persistente. `data/state.db` contém
+  a fila e os eventos; `data/chroma/` contém vetores; `vault/` contém as notas.
+- Recarregar ou fechar a página não interrompe o trabalho. Ao reiniciar o servidor,
+  jobs que estavam `running` viram `interrupted`; jobs ainda `queued` são retomados.
+- Chamadas LLM/PDF em curso não são canceladas à força. A recuperação ocorre entre
+  checkpoints seguros, executando novamente a fase quando necessário.
+- Operações destrutivas (`init --reset`, purge, rebuild, reindex e garden recreate)
+  não são expostas na primeira versão web e continuam disponíveis somente na CLI.
+- A CLI permanece compatível e continua usando a apresentação Rich normalmente.
+
 ## Uso
 
 ### Fluxo básico

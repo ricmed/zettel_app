@@ -98,7 +98,7 @@ def _literature_ref_for_chunk(
 
 
 def run_connect(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, candidates: list[dict]
+    cfg: AppConfig, db: StateDB, idx: VectorIndex, candidates: list[dict], *, observer=None,
 ) -> list[str]:
     """Generate permanent notes from approved candidates. Returns created note_ids."""
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn
@@ -115,6 +115,8 @@ def run_connect(
 
     created_ids: list[str] = []
     total = len(candidates)
+    from zettel.progress import report
+    report(observer, "connect", f"{total} candidato(s) aprovado(s).", total_items=total)
 
     with Progress(
         SpinnerColumn(),
@@ -128,6 +130,10 @@ def run_connect(
             cand: PermanentNoteCandidate = cand_dict["candidate"]
             set_source(cand_dict.get("source_id"))
             progress.update(task, description=f"nota {i}/{total}", advance=1)
+            report(
+                observer, "connect", f"Gerando nota {i}/{total}.",
+                current_item=cand.thesis[:80], current_index=i, total_items=total,
+            )
             logger.info("Gerando nota %d/%d: %s", i, total, cand.thesis[:50])
 
             note_id = _process_candidate(
