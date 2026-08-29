@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from ulid import ULID
 
-from zettel.config import AppConfig, DEFAULT_RELATION_WEIGHTS, HubMocsConfig
+from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, HubMocsConfig
 from zettel.graph import expand_notes
 from zettel.hashing import sha256_hex
 from zettel.index import VectorIndex
@@ -363,7 +363,7 @@ def _create_new_hub_moc(
     topic = moc_output.topic
     now = datetime.now().isoformat()
     meta = {
-        "type": "moc",
+        "type": "hub_moc",
         "moc_id": moc_id,
         "topic": topic,
         "cluster_signature": cluster_signature,
