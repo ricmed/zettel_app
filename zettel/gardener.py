@@ -58,7 +58,7 @@ class _GardenStats:
 
 
 def run_garden(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, *, recreate: bool = False,
+    cfg: AppConfig, db: StateDB, idx: VectorIndex, *, recreate: bool = False, observer=None,
 ) -> list[str]:
     """Cluster permanent notes and generate/update MOCs. Returns moc_ids."""
     from zettel.usage import begin_run, finish_pipeline_run
@@ -83,6 +83,8 @@ def run_garden(
         raise
 
     note_count = idx.count_permanent_notes()
+    from zettel.progress import report
+    report(observer, "garden", f"Analisando {note_count} nota(s).", total_items=note_count)
     if note_count < cfg.gardener.min_cluster_size:
         logger.info(
             "Poucas notas para clusterização (%d < %d)", note_count, cfg.gardener.min_cluster_size
@@ -148,7 +150,11 @@ def run_garden(
     llm = get_llm(cfg)
     moc_ids: list[str] = []
 
-    for category, cluster_ids in cluster_pairs:
+    for cluster_index, (category, cluster_ids) in enumerate(cluster_pairs, 1):
+        report(
+            observer, "garden", f"Processando cluster {cluster_index}/{len(cluster_pairs)}.",
+            current_item=category, current_index=cluster_index, total_items=len(cluster_pairs),
+        )
         moc_id = _process_cluster(cfg, db, idx, llm, category, cluster_ids, stats)
         if moc_id:
             moc_ids.append(moc_id)
@@ -165,9 +171,14 @@ def run_garden(
 
 def purge_pipeline_mocs(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
     """Delete pipeline MOCs from SQLite, ChromaDB and the vault. Returns count removed."""
+    from zettel.moc_backrefs import clear_moc_backrefs
+
     removed = db.delete_pipeline_mocs()
     if not removed:
         return 0
+
+    for moc in removed:
+        clear_moc_backrefs(db, moc)
 
     idx.delete_mocs([m["moc_id"] for m in removed])
 
@@ -369,6 +380,10 @@ def _create_new_moc(
     filename = note_filename("MOC", moc_id, topic)
     moc_path = cfg.vault_path / "40_MOCs" / filename
     safe_write_note(moc_path, meta, body)
+
+    from zettel.moc_backrefs import sync_moc_backrefs
+
+    sync_moc_backrefs(db, moc_id, topic, moc_path)
 
     db.upsert_moc(
         moc_id, topic, str(moc_path), cluster_signature,
@@ -629,7 +644,7 @@ def _apply_incremental_placements(
 ) -> None:
     """Reconstruct and write the MOC file with new notes placed into subsections."""
     content = moc_path.read_text(encoding="utf-8")
-    meta, _ = parse_frontmatter(content)
+    meta, previous_body = parse_frontmatter(content)
 
     from datetime import datetime
     meta["updated_at"] = datetime.now().isoformat()
@@ -698,6 +713,14 @@ def _apply_incremental_placements(
         body += "\n"
 
     safe_write_note(moc_path, meta, body)
+
+    moc_id = meta.get("moc_id", "")
+    if moc_id:
+        from zettel.moc_backrefs import sync_moc_backrefs
+
+        sync_moc_backrefs(
+            db, moc_id, meta.get("topic", ""), moc_path, previous_body=previous_body,
+        )
 
 
 # ── Helpers ───────────────────────────────────────────────────────────

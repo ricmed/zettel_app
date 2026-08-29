@@ -1,2 +1,3 @@
 - [Zettelkasten pipeline architecture](zettelkasten-arch.md) — shared LLM helpers live in `zettel/llm.py`; all phases import from it.
 - [ChromaDB version lock](chromadb-version.md) — pinned to 0.5.20; Replit package firewall blocks 1.x.
+- [Markdown automatic links](markdown-links.md) — MarkdownIt rules must be enabled as one list; separate positional names silently leave linkify disabled.

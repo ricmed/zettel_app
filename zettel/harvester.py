@@ -63,6 +63,8 @@ def run_harvest(
     skip_paging: bool = False,
     dump_dir: Path | None = None,
     extraction_dump_dir: Path | None = None,
+    selected_file: Path | None = None,
+    observer=None,
 ) -> list[str]:
     """Scan inbox, extract text, create SRC + LIT index, chunk. Returns new source_ids.
 
@@ -102,15 +104,29 @@ def run_harvest(
         finish_pipeline_run(db, run_id, run_status)
         return new_sources
 
-    files = [
-        f for f in inbox.rglob("*")
-        if f.suffix.lower() in SUPPORTED_EXTENSIONS and f.is_file()
-    ]
+    if selected_file is not None:
+        selected_file = selected_file.resolve()
+        try:
+            selected_file.relative_to(inbox.resolve())
+        except ValueError as exc:
+            raise ValueError("O arquivo selecionado deve estar dentro do inbox") from exc
+        files = [selected_file] if selected_file.is_file() else []
+    else:
+        files = [
+            f for f in inbox.rglob("*")
+            if f.suffix.lower() in SUPPORTED_EXTENSIONS and f.is_file()
+        ]
     logger.info("Encontrados %d arquivos no inbox", len(files))
+    from zettel.progress import report
+    report(observer, "harvest", f"{len(files)} arquivo(s) encontrado(s).", total_items=len(files))
 
     total_stats = {"text_len": 0, "chapters": 0, "chunks": 0}
     try:
-        for file_path in files:
+        for item_index, file_path in enumerate(files, 1):
+            report(
+                observer, "harvest", f"Processando {file_path.name}.",
+                current_item=file_path.name, current_index=item_index, total_items=len(files),
+            )
             sid, stats = _process_file(
                 cfg, db, idx, file_path, run_id, interactive, duplicate_action,
                 skip_biblio=skip_biblio,

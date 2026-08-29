@@ -181,7 +181,7 @@ def get_neighbor_graph_context(
 
 
 def run_garden_hubs(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, *, recreate: bool = False,
+    cfg: AppConfig, db: StateDB, idx: VectorIndex, *, recreate: bool = False, observer=None,
 ) -> list[str]:
     """Generate/update hub-anchored MOCs. Returns moc_ids."""
     from zettel.usage import begin_run, finish_pipeline_run
@@ -197,6 +197,8 @@ def run_garden_hubs(
     stats = _HubGardenStats()
 
     ranked = rank_note_hubs(db, hcfg)
+    from zettel.progress import report
+    report(observer, "garden_hubs", f"{len(ranked)} hub(s) candidato(s).", total_items=len(ranked))
     if not ranked:
         logger.info("Nenhum hub encontrado no grafo")
         finish_pipeline_run(db, run_id)
@@ -230,7 +232,11 @@ def run_garden_hubs(
     moc_ids: list[str] = []
     degree_by_hub = dict(ranked)
 
-    for hub_id, note_ids in cluster_pairs:
+    for hub_index, (hub_id, note_ids) in enumerate(cluster_pairs, 1):
+        report(
+            observer, "garden_hubs", f"Processando hub {hub_index}/{len(cluster_pairs)}.",
+            current_item=hub_id, current_index=hub_index, total_items=len(cluster_pairs),
+        )
         moc_id = _process_hub_cluster(
             cfg, db, idx, llm, hub_id, note_ids,
             degree_by_hub.get(hub_id, 0.0), stats,
@@ -252,10 +258,14 @@ def run_garden_hubs(
 def purge_hub_pipeline_mocs(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
     """Delete hub_pipeline MOCs from SQLite, ChromaDB and the vault."""
     from zettel.gardener import _moc_vault_path
+    from zettel.moc_backrefs import clear_moc_backrefs
 
     removed = db.delete_hub_pipeline_mocs()
     if not removed:
         return 0
+
+    for moc in removed:
+        clear_moc_backrefs(db, moc)
 
     idx.delete_mocs([m["moc_id"] for m in removed])
 
@@ -382,6 +392,10 @@ def _create_new_hub_moc(
     filename = note_filename("HUB", moc_id, topic)
     moc_path = cfg.vault_path / "40_MOCs" / filename
     safe_write_note(moc_path, meta, body)
+
+    from zettel.moc_backrefs import sync_moc_backrefs
+
+    sync_moc_backrefs(db, moc_id, topic, moc_path)
 
     db.upsert_moc(
         moc_id, topic, str(moc_path), cluster_signature,

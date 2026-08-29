@@ -5,6 +5,9 @@ A Python CLI tool that reads PDF and Markdown files and automatically generates 
 ## How to Run
 
 ```bash
+# Start the authenticated web UI
+uvicorn zettel.web:app --host 0.0.0.0 --port 5000
+
 # Initialize vault and database
 python -m zettel init
 
@@ -24,10 +27,14 @@ python -m zettel doctor     # Check config and dependencies
 
 ## Setup
 
-1. Set the `OPENAI_API_KEY` environment variable (required for LLM features)
+1. Set `SESSION_SECRET` for web login and the provider API key required by the configured LLM
 2. Drop PDF or Markdown files in `data/inbox/`
 3. Run `python -m zettel run-all`
 4. Open the `vault/` folder in Obsidian
+
+The web app is single-instance: one serialized mutating job at a time. Keep
+`data/` and `vault/` persistent. Browser reloads are safe; running jobs are
+marked interrupted after a server restart and queued jobs resume.
 
 ## Configuration
 

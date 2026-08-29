@@ -58,7 +58,15 @@ zettel_app/
 │   ├── ask.py               # Comando `ask`: QA sobre o vault com citações
 │   ├── assets.py            # Extração e descrição multimodal de imagens
 │   ├── rebuild.py           # Reconstrução do Chroma (reindex) e do vault (rebuild) a partir do SQLite
-│   └── sync.py              # Sincronização de notas manuais (SRC/LIT/ZTL/MOC)
+│   ├── sync.py              # Sincronização de notas manuais (SRC/LIT/ZTL/MOC)
+│   ├── new_note.py          # Scaffold de notas manuais (zettel new-note)
+│   ├── purge_source.py      # Remoção completa de fonte (zettel delete-source)
+│   ├── moc_backrefs.py      # Bloco auto-moc-backrefs em notas permanentes
+│   ├── progress.py          # Protocolo ProgressObserver (CLI + web)
+│   ├── web.py               # Interface web FastAPI (rotas, auth, templates)
+│   ├── web_app.py           # Fila de jobs web e dispatch do pipeline
+│   ├── templates/           # Jinja2 server-rendered (14 páginas)
+│   └── static/              # CSS (app.css, mobile.css)
 ├── config/
 │   ├── config.yaml          # Fonte operacional (todos os knobs do schema)
 │   └── moc_topics.yaml      # Taxonomia hierarquica de topicos para MOCs
@@ -421,6 +429,53 @@ Sem `--force` após uma troca de modelo, sources/chunks já indexados **não** s
 
 Depois da troca, se a qualidade da busca degradar, recalibre `retrieval.relevance_floor.min_vector_similarity` e os limiares de dedupe (`linking.dedupe_threshold`, `harvest.duplicate_chunk_threshold`) — são dependentes do modelo. O `zettel doctor` também reporta drift de embedding.
 
+## Interface web
+
+A interface FastAPI é server-rendered e não exige Node, bundler ou acesso direto
+do navegador ao SQLite/ChromaDB.
+
+```bash
+# Segredo de instância (Replit Secrets, .env ou variável do processo — não vai no config.yaml)
+# SESSION_SECRET=...
+
+uvicorn zettel.web:app --host 0.0.0.0 --port "${PORT:-5000}"
+```
+
+Não há subcomando `zettel web`; a UI é um app FastAPI separado. Testes: `pytest tests/test_web.py tests/test_web_state.py -v`. Config alternativo: env `ZETTEL_CONFIG=/caminho/config.yaml`.
+
+Abra o preview e entre com o valor de `SESSION_SECRET`. A navegação oferece:
+
+- **Visão geral**: KPIs, funil, confiança, custos, runs, duplicatas e qualidade do grafo;
+- **Documentos**: upload de PDF/Markdown/TXT (até 25 MB), decisões de duplicidade,
+  bibliografia e paginação, e harvest **de um arquivo por vez** (não inbox inteiro);
+- **Pipeline**: extract, connect, garden taxonômico, garden por hubs, sincronização
+  manual e repetição segura de chunks/assets com falha;
+- **Revisão**: filtros por fonte/confiança, trecho, candidatos e aprovação/rejeição
+  em lote (sem auto-approve por limiar — use a CLI para `--yes` / bandas interativas);
+- **Notas / MOCs**: listagem read-only e detalhes de notas permanentes, MOCs e fontes;
+- **Execuções**: estado persistente, progresso (polling em `/api/jobs/{id}`), eventos,
+  resultado e erro sanitizado;
+- **Configuração / saúde**: FTS5, diretórios, identidade LLM/embedding (incl. drift
+  de `dimensions`) — sem segredos.
+
+### Persistência, concorrência e recuperação
+
+- A implantação é de **instância única** e executa no máximo um trabalho mutante
+  por vez. Não use múltiplos processos/workers Uvicorn.
+- Preserve `data/` e `vault/` em armazenamento persistente. `data/state.db` contém
+  a fila e os eventos; `data/chroma/` contém vetores; `vault/` contém as notas.
+- Recarregar ou fechar a página não interrompe o trabalho. Ao reiniciar o servidor,
+  jobs que estavam `running` viram `interrupted`; jobs ainda `queued` são retomados.
+- Chamadas LLM/PDF em curso não são canceladas à força. A recuperação ocorre entre
+  checkpoints seguros, executando novamente a fase quando necessário.
+- Operações destrutivas (`init --reset`, `delete-source`, purge, rebuild, reindex e
+  garden recreate) não são expostas na primeira versão web e continuam disponíveis
+  somente na CLI.
+- Também só na CLI: `new-note`, `ask`, `article`, `run-all`, harvest de inbox inteiro,
+  resolução interativa de duplicatas semânticas, `set-paging`, `rechunk`, dumps e
+  `doctor`.
+- A CLI permanece compatível e continua usando a apresentação Rich normalmente.
+
 ## Uso
 
 ### Fluxo básico
@@ -502,11 +557,24 @@ python -m zettel article "Tecnicas de Prompt Engineering" --style blog
 python -m zettel article "Grafos de conhecimento" --style academic --personality serious_academic --save
 python -m zettel article "RAG" --outline-only             # so o outline, sem redigir
 
+# Criar esqueleto de nota manual no vault (indexar depois com sync-manual)
+python -m zettel new-note ztl "Minha tese sobre RAG"
+python -m zettel new-note src "Artigo sobre grafos" -a "Silva, João" -y 2024
+python -m zettel new-note lit "Resumo do capitulo 3" -k Autor2024 -a Autor --granular -p 42
+python -m zettel new-note moc "Mapa de recuperacao hibrida"
+python -m zettel new-note ztl "Titulo" --force   # sobrescreve arquivo existente
+
 # Sincronizar notas manuais do vault com o índice (SRC, LIT, ZTL e MOCs)
 python -m zettel sync-manual
 
 # Re-derivar arestas do grafo a partir dos wikilinks no corpo das notas manuais
 python -m zettel sync-manual --rebuild-graph
+
+# Apagar uma fonte por completo (vault + SQLite + Chroma; irreversivel)
+python -m zettel delete-source @Citekey
+python -m zettel delete-source @Citekey --yes              # sem confirmacao
+python -m zettel delete-source @Citekey --delete-permanent # apaga ZTL ligadas
+python -m zettel delete-source @Citekey --no-compact        # sem VACUUM
 
 # Re-chunkar fontes com a config atual (a partir do texto ja extraido, sem reprocessar o arquivo).
 # Tambem completa harvest interrompido e re-resolve o chapter_id das imagens.
@@ -622,6 +690,8 @@ python -m zettel run-all --dry-run
    ```
 6. Indexa no ChromaDB e registra no SQLite, **persistindo o corpo e o frontmatter completos** (`notes.body`/`frontmatter_json`) — o que permite recriar o `.md` sem reprocessar o LLM. O re-embedding é pulado quando o conteúdo semântico e o modelo não mudaram (`embedding_input_hash`). A chamada do Prompt 2 também é cacheada.
 
+Quando uma nota permanente entra ou sai de um MOC, o pipeline atualiza o bloco **`auto-moc-backrefs`** na ZTL (ver Fase 4 e [Notas manuais](#notas-manuais-e-proveniencia)).
+
 ### Fase 4 — Garden (Jardim)
 
 Pipeline **hibrido** (taxonomia → cluster por categoria → grafo → roteamento LLM):
@@ -655,7 +725,7 @@ Parametros hibridos em `config.yaml` (`gardener.*`):
 | `umap_n_neighbors` | `null` = auto |
 | `hdbscan_min_samples` | Opcional; ajuste fino do HDBSCAN |
 
-`zettel garden --recreate` apaga MOCs gerados pelo pipeline (`origin='pipeline'`) e regenera do zero, preservando MOCs manuais.
+`zettel garden --recreate` apaga MOCs gerados pelo pipeline (`origin='pipeline'`) e regenera do zero, preservando MOCs manuais. Antes de apagar cada MOC, **`clear_moc_backrefs`** remove os links dele dos blocos `auto-moc-backrefs` das notas permanentes. Ao criar ou atualizar um MOC, **`sync_moc_backrefs`** adiciona/remove wikilinks do MOC nas ZTL listadas no corpo do mapa.
 
 ### Fase 4b — Garden Hub (porta de entrada tematica)
 
@@ -685,7 +755,7 @@ python -m zettel garden --hubs --recreate -y
 | `min_neighbor_weight` | Filtra vizinhos fracos pos-BFS |
 | `dedup_subset_threshold` | Descarta hub menor se vizinhanca >= N% contida em outra |
 
-`garden --hubs --recreate` apaga apenas MOCs `origin='hub_pipeline'`; MOCs taxonomicos (`pipeline`) e manuais permanecem intactos.
+`garden --hubs --recreate` apaga apenas MOCs `origin='hub_pipeline'`; MOCs taxonomicos (`pipeline`) e manuais permanecem intactos. A limpeza dos blocos `auto-moc-backrefs` segue a mesma logica do `--recreate` taxonomico.
 
 ## Estrutura das notas geradas
 
@@ -855,6 +925,10 @@ Diagrama do Sistema 1 versus Sistema 2 (quando o candidato marca a imagem como e
 <!-- zettel:auto-backlinks:start -->
 - [[ZTL - 01HDEF... - racionalidade-limitada]]
 <!-- zettel:auto-backlinks:end -->
+
+<!-- zettel:auto-moc-backrefs:start -->
+- [[MOC - 01HJKL... - heuristicas-e-vieses]]
+<!-- zettel:auto-moc-backrefs:end -->
 ```
 
 ## Estratégia anti-drift
@@ -887,6 +961,18 @@ Atualizações automáticas ficam dentro de marcadores HTML:
 <!-- zettel:auto-backlinks:end -->
 ```
 Tudo fora desses blocos é preservado — edições manuais nunca são sobrescritas.
+
+Blocos usados pelo pipeline:
+
+| Bloco | Onde | Atualizado por |
+|-------|------|----------------|
+| `auto-backlinks` | ZTL alvo de conexoes | `connect` |
+| `auto-connections` | ZTL (sugestoes) | `sync-manual` |
+| `auto-lit-index` | indice LIT | `review` |
+| `auto-source-excerpt` | LIT granular | `extract` |
+| `auto-moc-backrefs` | ZTL listada em MOCs | `garden`, `garden --hubs`, `sync-manual`; removido em `garden --recreate` / `garden --hubs --recreate` |
+
+O bloco **`auto-moc-backrefs`** lista os MOCs (taxonomicos, hub ou manuais) que referenciam a nota permanente no corpo do mapa. Quando um MOC e editado, links obsoletos saem e novos entram; ao purgar MOCs com `--recreate`, o bloco e limpo antes do arquivo ser apagado. Esses blocos sao ignorados ao extrair wikilinks manuais para o grafo (`sync-manual`).
 
 ## Recuperação: busca híbrida + GraphRAG leve
 
@@ -950,7 +1036,9 @@ Flags: `--personality`, `--style-notes`, `--skip-context-review`, `--skip-judge`
 
 ### Fechando o ciclo do grafo (notas manuais)
 
-Notas escritas à mão no Obsidian também alimentam o grafo: no `sync-manual`, os `[[wikilinks]]` presentes **no corpo** de uma nota permanente (fora dos blocos gerenciados `auto-connections`/`auto-backlinks`, que são sugestões automáticas, não conexões aceitas) são persistidos como arestas `related`. Uma aresta já tipada nunca é rebaixada. Use `zettel sync-manual --rebuild-graph` para re-derivar essas arestas de todo o vault a partir dos corpos já persistidos no SQLite.
+Notas escritas à mão no Obsidian também alimentam o grafo: no `sync-manual`, os `[[wikilinks]]` presentes **no corpo** de uma nota permanente (fora dos blocos gerenciados `auto-connections`, `auto-backlinks` e `auto-moc-backrefs`, que são gerados automaticamente) são persistidos como arestas `related`. Uma aresta já tipada nunca é rebaixada. Use `zettel sync-manual --rebuild-graph` para re-derivar essas arestas de todo o vault a partir dos corpos já persistidos no SQLite.
+
+MOCs manuais ou editados no Obsidian tambem disparam **`sync_moc_backrefs`**: notas permanentes linkadas no corpo do MOC ganham (ou perdem) entradas no bloco `auto-moc-backrefs`.
 
 ## Retenção e reconstrução
 
@@ -971,6 +1059,59 @@ Notas criadas à mão no Obsidian são adotadas pelo pipeline com **`zettel sync
 - Notas sem `note_id`/`moc_id`/`source_id` recebem um id/citekey gerado, injetado no frontmatter.
 - Cada nota ganha uma flag de proveniência `origin: manual | pipeline` (no frontmatter e no banco), permitindo distinguir o que foi escrito à mão do que foi gerado.
 - SRC e LIT manuais deixam de ficar órfãos: são registrados no SQLite (e SRC é indexado no Chroma); uma LIT sem fonte resolvível cria uma fonte manual mínima para se vincular.
+
+### Scaffold com `zettel new-note`
+
+Para criar notas manuais com frontmatter e corpo padronizados (sem indexar ainda), use **`zettel new-note`**. O comando so grava o `.md` no vault com `origin: manual`; rode **`zettel sync-manual`** em seguida para registrar no SQLite/Chroma, sugerir conexoes e sincronizar backrefs de MOC.
+
+Tipos aceitos: `ztl`, `lit`, `src`, `moc` (aliases `permanent`, `literature`, `source`).
+
+| Tipo | Destino | Comportamento |
+|------|---------|---------------|
+| `ztl` | `30_Permanent/` | ULID novo, secoes ZTL vazias + bloco `auto-connections` placeholder; `--source-id`/`-s` ou `--citekey`/`-k` vincula a uma SRC |
+| `src` | `10_Sources/` | Citekey via `--citekey`/`-k` ou derivado de autor/ano/titulo; campos ABNT opcionais; secao no corpo para vincular ZTL |
+| `lit` | `20_Literature/` | Indice na raiz (padrao) ou granular em `{Citekey}/` com `--granular` |
+| `moc` | `40_MOCs/` | ULID novo, secoes vazias para preencher links |
+
+Flags uteis:
+
+- **`--citekey` / `-k`**, **`--author` / `-a`** (repita para varios autores), **`--year` / `-y`**: metadados de SRC/LIT
+- **`--source-id` / `-s`**: citekey explicito para SRC (alias de `-k`) ou vinculo de ZTL a uma SRC existente
+- **`--document-type` / `-t`**, **`--abnt-reference`**, **`--publisher`**, **`--place`**, **`--doi`**, **`--url`**, **`--journal`**, **`--edition`**, **`--institution`**, **`--pages`**: campos bibliograficos da SRC; para ZTL, `-k` equivale a `--source-id`
+- **`--source-id` / `-s`**: citekey da fonte (`@` opcional) para ZTL — preenche `source_id` no frontmatter e wikilink SRC na secao **Fonte**
+- **`--granular`**: LIT por chunk em `20_Literature/{Citekey}/` (nao indice)
+- **`--chunk-index`**, **`--page` / `-p`**: indice e pagina impressa da LIT granular
+- **`--force`**: sobrescreve arquivo existente no mesmo caminho (padrao: erro se ja existir)
+
+Exemplo de fluxo:
+
+```bash
+python -m zettel new-note ztl "Heuristicas como atalhos mentais"
+python -m zettel new-note ztl "Recuperacao hibrida" -s @Kahneman2011ThinkingFast
+python -m zettel new-note src "Thinking, Fast and Slow" -a Kahneman -y 2011
+python -m zettel new-note lit "Sistema 1" -k Kahneman2011ThinkingFast --granular -p 20
+# Edite no Obsidian, depois:
+python -m zettel sync-manual
+```
+
+### Remover fonte com `zettel delete-source`
+
+Comando **irreversivel** que apaga uma fonte harvestada por `@Citekey` do vault, SQLite e Chroma. Diferente de `purge-rejected` (so chunks rejeitados na revisao), remove a fonte inteira.
+
+**Removido:**
+
+- Vault: nota **SRC**, **indice LIT**, pasta **LIT granulares** (`20_Literature/{Citekey}/`), **drafts** em `00_Inbox/Review/{Citekey}/`, **assets** em `90_Assets/` ligados a fonte
+- SQLite: fonte, capitulos, chunks, concepts, assets, arquivos (`files`) — cascade completo
+- Chroma: collection `sources`, chunks da fonte, entradas `literature_notes` dos chunks/indice
+
+**Mantido por padrao (sem `--delete-permanent`):**
+
+- Notas **permanentes (ZTL)** geradas a partir da fonte — o campo `source_id` e limpo no banco e wikilinks mortos para SRC/LIT removidos sao stripados de **todo** o vault (incluindo MOCs e outras ZTL)
+- MOCs, notas de outras fontes e o restante do acervo
+
+**Com `--delete-permanent`:** apaga tambem as ZTL ligadas a fonte (vault + SQLite + Chroma `permanent_notes`).
+
+Por padrao roda **`VACUUM`** em `state.db` e `chroma.sqlite3` apos a exclusao (como `purge-rejected`); use **`--no-compact`** para pular. Confirme com **`--yes`** / **`-y`** em scripts.
 
 ## Testes
 

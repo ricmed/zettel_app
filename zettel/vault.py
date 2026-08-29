@@ -44,6 +44,47 @@ def compose_note(metadata: dict[str, Any], body: str) -> str:
     return render_frontmatter(metadata) + "\n" + body
 
 
+_WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
+
+
+def _wikilink_target_matches(target: str, link_targets: set[str]) -> bool:
+    norm = target.replace("\\", "/").strip()
+    if norm in link_targets:
+        return True
+    base = norm.rsplit("/", 1)[-1]
+    return base in link_targets
+
+
+def strip_matching_wikilinks(text: str, link_targets: set[str]) -> str:
+    """Remove ``[[wikilinks]]`` whose target matches any entry in ``link_targets``.
+
+    Targets may be bare stems or path-qualified (``Citekey/LIT - ...``).
+    Cleans empty list bullets left behind. Safe to run on managed blocks.
+    """
+    if not link_targets or not text:
+        return text
+
+    def repl(match: re.Match[str]) -> str:
+        if _wikilink_target_matches(match.group(1), link_targets):
+            return ""
+        return match.group(0)
+
+    cleaned = _WIKILINK_RE.sub(repl, text)
+    lines: list[str] = []
+    for line in cleaned.splitlines():
+        stripped = line.strip()
+        if stripped in ("-", "- ()", "←", "← "):
+            continue
+        if re.match(r"^-\s*Ref\. literatura:\s*$", stripped):
+            line = re.sub(
+                r"Ref\. literatura:\s*$",
+                "Ref. literatura: _fonte removida_",
+                line,
+            )
+        lines.append(line.rstrip())
+    return "\n".join(lines)
+
+
 # ── Managed Blocks ─────────────────────────────────────────────────────
 
 
@@ -646,6 +687,7 @@ def build_permanent_note_body(
     limits: str,
     connections: list[dict] | None = None,
     literature_ref: str = "",
+    source_ref: str = "",
     source_locator: str = "",
     images: list[dict] | None = None,
 ) -> str:
@@ -671,6 +713,8 @@ def build_permanent_note_body(
             fig_lines.append(f"{embed}\n\n{desc}\n" if desc else f"{embed}\n")
         parts.append("## Figuras\n\n" + "\n".join(fig_lines))
     parts.append(f"## Fonte\n\n- Ref. literatura: {literature_ref}")
+    if source_ref:
+        parts.append(f"- Fonte (SRC): {source_ref}")
     if source_locator:
         parts.append(f"- Localizador: {source_locator}")
     parts.append("")

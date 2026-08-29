@@ -1,0 +1,168 @@
+.grid-2 > *,
+.panel,
+.stack {
+  min-width: 0;
+}
+
+input[type="file"],
+select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.pipeline-launch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.pipeline-launch h2 {
+  margin-bottom: 8px;
+}
+
+.pipeline-launch p {
+  margin: 0 0 8px;
+}
+
+.pipeline-launch form {
+  flex-shrink: 0;
+}
+
+.markdown-body {
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+
+.markdown-body > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  font-family: Georgia, serif;
+  line-height: 1.25;
+  margin: 1.5em 0 0.55em;
+}
+
+.markdown-body h1 { font-size: 30px; }
+.markdown-body h2 { font-size: 24px; }
+.markdown-body h3 { font-size: 20px; }
+
+.markdown-body p {
+  margin: 0 0 1em;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 1.5em;
+}
+
+.markdown-body li + li {
+  margin-top: 0.35em;
+}
+
+.markdown-body blockquote {
+  margin: 1.2em 0;
+  padding: 0.7em 1em;
+  border-left: 3px solid var(--accent);
+  background: #fffaf8;
+  color: #4c5560;
+}
+
+.markdown-body pre {
+  padding: 15px;
+  overflow: auto;
+  background: #20262e;
+  color: #f3f4f6;
+  border-radius: 7px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.markdown-body pre code {
+  color: inherit;
+}
+
+.markdown-body code {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #f1f0eb;
+}
+
+.markdown-body a {
+  color: var(--accent-dark);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.connection-row {
+  align-items: flex-start;
+  gap: 18px;
+}
+
+.connection-type {
+  flex: 0 0 90px;
+  color: var(--muted);
+}
+
+.connection-target {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  min-width: 0;
+}
+
+.connection-link {
+  font-weight: 600;
+}
+
+.connection-target code {
+  overflow-wrap: anywhere;
+}
+
+.connection-target small {
+  flex-basis: 100%;
+}
+
+.markdown-body table {
+  display: block;
+  overflow: auto;
+  margin: 1.2em 0;
+}
+
+.markdown-body th {
+  background: #f7f6f1;
+}
+
+.markdown-body th,
+.markdown-body td {
+  min-width: 110px;
+}
+
+.markdown-body hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 1.7em 0;
+}
+
+@media (max-width: 800px) {
+  .pipeline-launch {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .pipeline-launch form,
+  .pipeline-launch button {
+    width: 100%;
+  }
+}

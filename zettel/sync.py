@@ -33,7 +33,7 @@ _ZTL_WIKILINK = re.compile(r"\[\[ZTL - ([0-9A-HJKMNP-TV-Z]{26})")
 
 # Managed blocks whose wikilinks are auto-generated (suggestions / backlinks) and
 # must NOT be treated as user-accepted connections.
-_AUTO_BLOCKS_TO_SKIP = ("auto-connections", "auto-backlinks")
+_AUTO_BLOCKS_TO_SKIP = ("auto-connections", "auto-backlinks", "auto-moc-backrefs")
 
 
 def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, int]:
@@ -299,12 +299,18 @@ def _sync_moc(
         return "skipped"
 
     origin = _manual_origin(meta)
+    previous_body = existing.get("body") if existing else None
     db.upsert_moc(
         moc_id, topic, str(file_path), semantic_checksum,
         body=body, frontmatter_json=json.dumps(meta, ensure_ascii=False), origin=origin,
     )
     # Unified MOC embedding text (matches gardener + reindex).
     idx.upsert_moc(moc_id, _moc_embeddable(topic, _moc_summary_from_body(body)), {"topic": topic})
+    from zettel.moc_backrefs import sync_moc_backrefs
+
+    sync_moc_backrefs(
+        db, moc_id, topic, file_path, previous_body=previous_body, new_body=body,
+    )
     return "new" if not existing else "updated"
 
 

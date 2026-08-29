@@ -596,6 +596,16 @@ class VectorIndex:
             self.literature.delete(ids=literature_ids)
             logger.debug("Index: %d literature_notes removidos", len(literature_ids))
 
+    def delete_sources(self, source_ids: list[str]) -> None:
+        if source_ids:
+            self.sources.delete(ids=source_ids)
+            logger.debug("Index: %d sources removidos", len(source_ids))
+
+    def delete_permanent_notes(self, note_ids: list[str]) -> None:
+        if note_ids:
+            self.permanent.delete(ids=note_ids)
+            logger.debug("Index: %d notas permanentes removidas", len(note_ids))
+
     def delete_mocs(self, moc_ids: list[str]) -> None:
         if moc_ids:
             self.mocs_col.delete(ids=moc_ids)

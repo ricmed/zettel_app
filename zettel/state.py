@@ -226,6 +226,37 @@ CREATE TABLE IF NOT EXISTS runs (
     llm_calls           INTEGER NOT NULL DEFAULT 0,
     cache_hits          INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS web_jobs (
+    job_id          TEXT PRIMARY KEY,
+    operation       TEXT NOT NULL,
+    payload_json    TEXT NOT NULL DEFAULT '{}',
+    state           TEXT NOT NULL DEFAULT 'queued',
+    phase           TEXT NOT NULL DEFAULT 'queued',
+    current_item    TEXT,
+    current_index   INTEGER,
+    total_items     INTEGER,
+    message         TEXT NOT NULL DEFAULT '',
+    result_json     TEXT,
+    error_message   TEXT,
+    run_id          INTEGER,
+    created_at      TEXT NOT NULL,
+    started_at      TEXT,
+    finished_at     TEXT,
+    FOREIGN KEY (run_id) REFERENCES runs(run_id)
+);
+
+CREATE TABLE IF NOT EXISTS web_job_events (
+    event_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id          TEXT NOT NULL,
+    phase           TEXT NOT NULL,
+    current_item    TEXT,
+    current_index   INTEGER,
+    total_items     INTEGER,
+    message         TEXT NOT NULL DEFAULT '',
+    created_at      TEXT NOT NULL,
+    FOREIGN KEY (job_id) REFERENCES web_jobs(job_id) ON DELETE CASCADE
+);
 """
 
 # Indexes are created after schema migration, since some reference columns added by
@@ -655,6 +686,83 @@ class StateDB:
             (page_in_file, page_in_book, page_confidence, chunk_id),
         )
         self.conn.commit()
+
+    def get_notes_for_source(self, source_id: str) -> list[dict]:
+        return self._fetchall(
+            "SELECT * FROM notes WHERE source_id=? ORDER BY created_at ASC",
+            (source_id,),
+        )
+
+    def get_note_ids_for_source(self, source_id: str) -> list[str]:
+        """Permanent note ids linked via notes.source_id or concepts.note_id."""
+        ids: list[str] = []
+        for row in self.get_notes_for_source(source_id):
+            ids.append(row["note_id"])
+        for row in self._fetchall(
+            "SELECT DISTINCT note_id FROM concepts WHERE source_id=? AND note_id IS NOT NULL",
+            (source_id,),
+        ):
+            ids.append(row["note_id"])
+        return list(dict.fromkeys(ids))
+
+    def delete_note(self, note_id: str) -> bool:
+        """Delete a permanent note row (+ FTS + graph edges). Returns True if removed."""
+        cur = self.conn.execute("DELETE FROM notes WHERE note_id=?", (note_id,))
+        if not cur.rowcount:
+            return False
+        if self.fts_enabled:
+            self.conn.execute("DELETE FROM fts_notes WHERE note_id=?", (note_id,))
+        self.conn.execute(
+            "DELETE FROM note_connections WHERE source_note_id=? OR target_note_id=?",
+            (note_id, note_id),
+        )
+        self.conn.commit()
+        return True
+
+    def clear_source_id_on_notes(self, source_id: str) -> int:
+        """Detach surviving permanent notes from a deleted source."""
+        cur = self.conn.execute(
+            "UPDATE notes SET source_id=NULL, updated_at=? WHERE source_id=?",
+            (self._now(), source_id),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def delete_source_cascade(self, source_id: str) -> dict[str, int]:
+        """Remove a source and all dependent rows (not permanent notes).
+
+        Deletes chunks (+ concepts per chunk + FTS), chapters, orphan concepts,
+        assets, files rows, and the sources row.
+        """
+        chunks = self.get_chunks_for_source(source_id)
+        chunk_ids = [c["chunk_id"] for c in chunks]
+        removed_chunks = self.delete_chunks(chunk_ids) if chunk_ids else 0
+
+        chapters = self.get_chapters_for_source(source_id)
+        for ch in chapters:
+            self.conn.execute("DELETE FROM chapters WHERE chapter_id=?", (ch["chapter_id"],))
+
+        cur_concepts = self.conn.execute(
+            "DELETE FROM concepts WHERE source_id=?", (source_id,)
+        )
+        cur_assets = self.conn.execute(
+            "DELETE FROM assets WHERE source_id=?", (source_id,)
+        )
+        cur_files = self.conn.execute(
+            "DELETE FROM files WHERE source_id=?", (source_id,)
+        )
+        cur_source = self.conn.execute(
+            "DELETE FROM sources WHERE source_id=?", (source_id,)
+        )
+        self.conn.commit()
+        return {
+            "chunks": removed_chunks,
+            "chapters": len(chapters),
+            "concepts": cur_concepts.rowcount,
+            "assets": cur_assets.rowcount,
+            "files": cur_files.rowcount,
+            "sources": cur_source.rowcount,
+        }
 
     def get_source(self, source_id: str) -> Optional[dict]:
         return self._fetchone("SELECT * FROM sources WHERE source_id=?", (source_id,))
@@ -1401,6 +1509,192 @@ class StateDB:
 
     def get_last_run(self) -> Optional[dict]:
         return self._fetchone("SELECT * FROM runs ORDER BY run_id DESC LIMIT 1")
+
+    # ── Web job queue ──────────────────────────────────────────────────
+
+    def recover_web_jobs(self) -> int:
+        """Mark jobs left running by a process restart as interrupted.
+
+        Queued work remains queued and is picked up by the new worker.
+        """
+        cur = self.conn.execute(
+            "UPDATE web_jobs SET state='interrupted', phase='interrupted', "
+            "message='Interrompido pela reinicializacao da aplicacao', finished_at=? "
+            "WHERE state='running'",
+            (self._now(),),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def create_web_job(self, job_id: str, operation: str, payload: dict) -> bool:
+        """Atomically enqueue a job, allowing one mutating operation at a time."""
+        now = self._now()
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+            active = self.conn.execute(
+                "SELECT job_id FROM web_jobs WHERE state IN ('queued','running') LIMIT 1"
+            ).fetchone()
+            if active:
+                self.conn.rollback()
+                return False
+            self.conn.execute(
+                "INSERT INTO web_jobs "
+                "(job_id, operation, payload_json, state, phase, created_at) "
+                "VALUES (?, ?, ?, 'queued', 'queued', ?)",
+                (job_id, operation, json.dumps(payload), now),
+            )
+            self.conn.commit()
+            return True
+        except Exception:
+            self.conn.rollback()
+            raise
+
+    def claim_web_job(self, job_id: str) -> bool:
+        cur = self.conn.execute(
+            "UPDATE web_jobs SET state='running', phase='starting', started_at=? "
+            "WHERE job_id=? AND state='queued'",
+            (self._now(), job_id),
+        )
+        self.conn.commit()
+        return cur.rowcount == 1
+
+    def get_web_job(self, job_id: str) -> Optional[dict]:
+        row = self._fetchone("SELECT * FROM web_jobs WHERE job_id=?", (job_id,))
+        if row:
+            row["payload"] = json.loads(row.pop("payload_json") or "{}")
+            for key in ("result_json",):
+                raw = row.get(key)
+                row[key[:-5]] = json.loads(raw) if raw else None
+        return row
+
+    def list_web_jobs(self, limit: int = 50) -> list[dict]:
+        rows = self._fetchall(
+            "SELECT * FROM web_jobs ORDER BY created_at DESC LIMIT ?", (max(1, min(limit, 200)),)
+        )
+        for row in rows:
+            raw = row.pop("payload_json", "{}")
+            row["payload"] = json.loads(raw or "{}")
+            result = row.pop("result_json", None)
+            row["result"] = json.loads(result) if result else None
+        return rows
+
+    def update_web_job(
+        self,
+        job_id: str,
+        *,
+        state: str | None = None,
+        phase: str | None = None,
+        current_item: str | None = None,
+        current_index: int | None = None,
+        total_items: int | None = None,
+        message: str | None = None,
+        result: dict | None = None,
+        error_message: str | None = None,
+        run_id: int | None = None,
+        finished: bool = False,
+    ) -> None:
+        row = self._fetchone("SELECT * FROM web_jobs WHERE job_id=?", (job_id,))
+        if not row:
+            return
+        self.conn.execute(
+            "UPDATE web_jobs SET state=COALESCE(?,state), phase=COALESCE(?,phase), "
+            "current_item=COALESCE(?,current_item), current_index=COALESCE(?,current_index), "
+            "total_items=COALESCE(?,total_items), message=COALESCE(?,message), "
+            "result_json=COALESCE(?,result_json), error_message=COALESCE(?,error_message), "
+            "run_id=COALESCE(?,run_id), finished_at=CASE WHEN ? THEN ? ELSE finished_at END "
+            "WHERE job_id=?",
+            (
+                state, phase, current_item, current_index, total_items, message,
+                json.dumps(result) if result is not None else None,
+                error_message, run_id, finished, self._now() if finished else None, job_id,
+            ),
+        )
+        self.conn.commit()
+
+    def add_web_job_event(
+        self, job_id: str, phase: str, *, current_item: str | None = None,
+        current_index: int | None = None, total_items: int | None = None,
+        message: str = "",
+    ) -> None:
+        self.conn.execute(
+            "INSERT INTO web_job_events "
+            "(job_id,phase,current_item,current_index,total_items,message,created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (job_id, phase, current_item, current_index, total_items, message, self._now()),
+        )
+        self.conn.commit()
+
+    def list_web_job_events(self, job_id: str, after_id: int = 0) -> list[dict]:
+        return self._fetchall(
+            "SELECT * FROM web_job_events WHERE job_id=? AND event_id>? ORDER BY event_id",
+            (job_id, after_id),
+        )
+
+    def get_web_dashboard(self) -> dict[str, Any]:
+        """Return aggregate operational metrics without loading note bodies."""
+        stats = self.get_stats()
+        count = lambda sql, params=(): int(
+            self.conn.execute(sql, params).fetchone()["c"]  # type: ignore[index]
+        )
+        stats.update({
+            "lit_index": count("SELECT COUNT(*) c FROM sources"),
+            "lit_drafts": count("SELECT COUNT(*) c FROM chunks WHERE status='awaiting_review'"),
+            "lit_approved": count("SELECT COUNT(*) c FROM chunks WHERE status IN ('approved','persisted')"),
+            "permanent_notes": count("SELECT COUNT(*) c FROM notes WHERE path LIKE '%30_Permanent/%'"),
+            "manual_notes": count("SELECT COUNT(*) c FROM notes WHERE origin='manual'"),
+            "isolated_notes": count(
+                "SELECT COUNT(*) c FROM notes n WHERE NOT EXISTS "
+                "(SELECT 1 FROM note_connections c WHERE c.source_note_id=n.note_id OR c.target_note_id=n.note_id)"
+            ),
+            "incomplete_sources": count(
+                "SELECT COUNT(*) c FROM sources WHERE COALESCE(document_type,'')='' "
+                "OR COALESCE(abnt_reference,'')=''"
+            ),
+        })
+        confidence = self._fetchall(
+            "SELECT CASE WHEN review_confidence IS NULL THEN 'sem avaliacao' "
+            "WHEN review_confidence < 0.4 THEN 'baixa' "
+            "WHEN review_confidence < ? THEN 'media' ELSE 'alta' END band, COUNT(*) c "
+            "FROM chunks WHERE review_confidence IS NOT NULL GROUP BY band",
+            (0.85,),
+        )
+        relations = self._fetchall(
+            "SELECT relation_type, COUNT(*) c FROM note_connections "
+            "GROUP BY relation_type ORDER BY c DESC"
+        )
+        origins = self._fetchall(
+            "SELECT origin, COUNT(*) c FROM notes GROUP BY origin ORDER BY c DESC"
+        )
+        documents = self._fetchall(
+            "SELECT COALESCE(document_type,'incompleto') document_type, COUNT(*) c "
+            "FROM sources GROUP BY document_type ORDER BY c DESC"
+        )
+        sources_cost = self._fetchall(
+            "SELECT source_id, title, cost_usd_total, tokens_prompt, tokens_completion "
+            "FROM sources ORDER BY cost_usd_total DESC LIMIT 20"
+        )
+        from zettel.config import DEFAULT_RELATION_WEIGHTS
+        note_titles = {row["note_id"]: row["title"] for row in self._fetchall(
+            "SELECT note_id,title FROM notes"
+        )}
+        hubs = [
+            {"note_id": note_id, "title": note_titles.get(note_id, note_id), "degree": degree}
+            for note_id, degree in sorted(
+                self.get_weighted_note_degrees(DEFAULT_RELATION_WEIGHTS).items(),
+                key=lambda item: item[1], reverse=True,
+            )[:10]
+        ]
+        return {
+            "counts": stats, "confidence": confidence, "relations": relations,
+            "origins": origins, "documents": documents, "sources_cost": sources_cost,
+            "hubs": hubs,
+            "runs": self._fetchall(
+                "SELECT run_id,pipeline_signature,started_at,finished_at,status,"
+                "cost_usd_total,tokens_prompt,tokens_completion,cache_hits,"
+                "duplicate_file_count,duplicate_content_count,duplicate_semantic_count "
+                "FROM runs ORDER BY run_id DESC LIMIT 10"
+            ),
+        }
 
     # ── Stats ──────────────────────────────────────────────────────────
 
