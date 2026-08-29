@@ -36,8 +36,21 @@ class EmbeddingConfig(BaseModel):
 
     provider: Literal["openai", "sentence-transformers", "ollama"] = "openai"
     model: str = "text-embedding-3-small"
-    base_url: str | None = None       # ollama: http://localhost:11434/v1; None = default
+    # ollama: host nativo (http://localhost:11434); sufixo /v1 legado e removido
+    base_url: str | None = None
     allow_fallback: bool = False      # False = erro se faltar key (evita Chroma 384-d)
+    # MRL: ollama (langchain_ollama) e openai text-embedding-3-* (EF Chroma).
+    # null = dimensao nativa do modelo. Trocar exige reindex --force.
+    dimensions: int | None = None
+
+    @field_validator("dimensions")
+    @classmethod
+    def _dimensions_positive(cls, v: int | None) -> int | None:
+        if v is None:
+            return None
+        if int(v) < 1:
+            raise ValueError("embedding.dimensions deve ser >= 1 (ou null)")
+        return int(v)
 
 
 class ChunkingConfig(BaseModel):

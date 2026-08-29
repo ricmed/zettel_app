@@ -71,6 +71,13 @@ def _load_approved_candidates(db) -> list[dict]:
     return candidates
 
 
+def _fmt_embedding_id(provider: str | None, model: str | None, dimensions: int | None) -> str:
+    base = f"{provider}/{model}"
+    if dimensions is not None:
+        return f"{base}@{dimensions}d"
+    return base
+
+
 def _idx_kwargs(cfg, *, reset_mismatched: bool = False) -> dict:
     return {
         "chroma_path": cfg.chroma_path,
@@ -79,16 +86,23 @@ def _idx_kwargs(cfg, *, reset_mismatched: bool = False) -> dict:
         "device": cfg.device,
         "allow_fallback": cfg.embedding.allow_fallback,
         "base_url": cfg.embedding.base_url,
+        "dimensions": cfg.embedding.dimensions,
         "reset_mismatched": reset_mismatched,
     }
 
 
 def _warn_embedding_mismatch(exc) -> None:
     """Print a clear warning when the configured embedding differs from Chroma."""
+    stored = _fmt_embedding_id(
+        exc.stored_provider, exc.stored_model, getattr(exc, "stored_dimensions", None),
+    )
+    current = _fmt_embedding_id(
+        exc.current_provider, exc.current_model, getattr(exc, "current_dimensions", None),
+    )
     console.print(Panel(
         f"[yellow]O modelo de embedding mudou.[/yellow]\n\n"
-        f"  Chroma (atual): [bold]{exc.stored_provider}/{exc.stored_model}[/bold]\n"
-        f"  Config (novo):  [bold]{exc.current_provider}/{exc.current_model}[/bold]\n\n"
+        f"  Chroma (atual): [bold]{stored}[/bold]\n"
+        f"  Config (novo):  [bold]{current}[/bold]\n\n"
         f"Os vetores existentes sao incompativeis com o novo espaco. "
         f"E necessario regenerar TODOS os embeddings a partir do SQLite "
         f"([bold]zettel reindex --force[/bold]).\n"
@@ -929,12 +943,18 @@ def reindex(
 
     stored = peek_stored_embedding_identity(cfg.chroma_path)
     drift = (
-        (stored[0] is not None or stored[1] is not None)
-        and (stored[0] != cfg.embedding.provider or stored[1] != cfg.embedding.model)
+        any(x is not None for x in stored)
+        and (
+            stored[0] != cfg.embedding.provider
+            or stored[1] != cfg.embedding.model
+            or stored[2] != cfg.embedding.dimensions
+        )
     )
     if drift:
         exc = EmbeddingSpaceMismatch(
             stored[0], stored[1], cfg.embedding.provider, cfg.embedding.model,
+            stored_dimensions=stored[2],
+            current_dimensions=cfg.embedding.dimensions,
         )
         _warn_embedding_mismatch(exc)
         if not force and not _confirm_embedding_reprocess(yes):
@@ -1626,25 +1646,29 @@ def doctor(
 
     # Embedding space: config vs Chroma collection markers
     from zettel.index import peek_stored_embedding_identity
-    stored_p, stored_m = peek_stored_embedding_identity(cfg.chroma_path)
-    cfg_p, cfg_m = cfg.embedding.provider, cfg.embedding.model
-    if stored_p is None and stored_m is None:
+    stored_p, stored_m, stored_d = peek_stored_embedding_identity(cfg.chroma_path)
+    cfg_p, cfg_m, cfg_d = (
+        cfg.embedding.provider, cfg.embedding.model, cfg.embedding.dimensions,
+    )
+    cfg_label = _fmt_embedding_id(cfg_p, cfg_m, cfg_d)
+    if stored_p is None and stored_m is None and stored_d is None:
         checks.append((
             "Embedding space",
             True,
-            f"config={cfg_p}/{cfg_m} (Chroma sem marcador ou vazio)",
+            f"config={cfg_label} (Chroma sem marcador ou vazio)",
         ))
-    elif stored_p == cfg_p and stored_m == cfg_m:
+    elif stored_p == cfg_p and stored_m == cfg_m and stored_d == cfg_d:
         checks.append((
             "Embedding space",
             True,
-            f"{cfg_p}/{cfg_m}",
+            cfg_label,
         ))
     else:
+        stored_label = _fmt_embedding_id(stored_p, stored_m, stored_d)
         checks.append((
             "Embedding space",
             False,
-            f"drift: Chroma={stored_p}/{stored_m} -> config={cfg_p}/{cfg_m}; "
+            f"drift: Chroma={stored_label} -> config={cfg_label}; "
             f"rode `zettel reindex --force`",
         ))
 
