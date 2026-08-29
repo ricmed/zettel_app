@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "bleach>=6.4.0",
     "chromadb==1.5.9",
     "docling>=2.71.0",
     "hdbscan==0.8.44",
@@ -34,6 +35,7 @@ dependencies = [
     "torchvision>=0.25.0; sys_platform == 'win32' or sys_platform == 'linux'",
     "langchain-ollama>=1.0.1",
     "litellm>=1.95.0",
+    "markdown-it-py>=4.2.0",
     "ruff>=0.16.5",
     "langchain-chroma>=1.1.0",
 ]

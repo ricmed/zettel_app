@@ -227,6 +227,46 @@ class WebWorker:
 
         from zettel.index import VectorIndex
         idx = VectorIndex(**_idx_kwargs(cfg))
+        if operation == "run_all":
+            from zettel.connector import run_connect
+            from zettel.extractor import run_extract
+            from zettel.gardener import run_garden
+            from zettel.harvester import run_harvest
+            from zettel.review import run_review
+
+            progress.emit(ProgressEvent("harvest", "Fase 1/5 — iniciando harvest."))
+            sources = run_harvest(
+                cfg, db, idx, interactive=False,
+                duplicate_action=payload.get("duplicate_action", "skip"),
+                skip_biblio=bool(payload.get("skip_biblio", False)),
+                skip_paging=bool(payload.get("skip_paging", True)),
+                observer=progress,
+            )
+
+            progress.emit(ProgressEvent("extract", "Fase 2/5 — iniciando extract."))
+            drafts = run_extract(cfg, db, idx, auto_approve=False, observer=progress)
+
+            progress.emit(ProgressEvent("review", "Fase 3/5 — aprovando drafts elegíveis."))
+            review_stats = run_review(
+                cfg, db, idx, auto_approve=True, interactive=False,
+            )
+
+            approved = _load_candidates(db)
+            progress.emit(ProgressEvent(
+                "connect", f"Fase 4/5 — gerando {len(approved)} nota(s).",
+                total_items=len(approved),
+            ))
+            note_ids = run_connect(cfg, db, idx, approved, observer=progress)
+
+            progress.emit(ProgressEvent("garden", "Fase 5/5 — atualizando mapas de conteúdo."))
+            moc_ids = run_garden(cfg, db, idx, observer=progress)
+            return {
+                "sources": sources,
+                "drafts": len(drafts),
+                "review": review_stats,
+                "notes": note_ids,
+                "mocs": moc_ids,
+            }
         if operation == "harvest":
             from zettel.harvester import run_harvest
             selected = payload.get("selected_file")

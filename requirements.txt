@@ -46,3 +46,5 @@ torch
 typer[all]
 pytest
 PyMuPDF>=1.24.0
+bleach
+markdown-it-py

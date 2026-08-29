@@ -19,6 +19,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from zettel.hashing import file_sha256
+from zettel.markdown import render_markdown
 from zettel.web_app import WebApplication, safe_error
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -137,6 +139,42 @@ def _llm_ready(cfg: Any) -> bool:
     return True if required is None else any(os.getenv(name) for name in required)
 
 
+def _file_needs_harvest(db: Any, file_path: Path) -> bool:
+    """Return whether a file is new, changed, or incompletely ingested."""
+
+    record = db.get_file(str(file_path.resolve()))
+    if not record or not record.get("source_id"):
+        return True
+    source_id = record["source_id"]
+    source = db.get_source(source_id)
+    if not source or source.get("processing_status") != "completed":
+        return True
+    from zettel.harvester import source_chunking_incomplete
+    if source_chunking_incomplete(db, source_id):
+        return True
+    try:
+        return file_sha256(file_path) != record.get("file_checksum")
+    except OSError:
+        return True
+
+
+def _list_pending_inbox(db: Any, cfg: Any) -> list[dict[str, Any]]:
+    """List inbox files that still need a harvest or a retry."""
+
+    if not cfg.inbox_path.exists():
+        return []
+    pending = []
+    for file_path in sorted(cfg.inbox_path.rglob("*")):
+        if file_path.is_file() and file_path.suffix.lower() in ALLOWED_EXTENSIONS:
+            if _file_needs_harvest(db, file_path):
+                pending.append({
+                    "name": file_path.name,
+                    "relative": file_path.relative_to(cfg.inbox_path).as_posix(),
+                    "size": file_path.stat().st_size,
+                })
+    return pending
+
+
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     return Response(status_code=204)
@@ -195,15 +233,14 @@ async def documents(request: Request):
     db = _service(request).db()
     try:
         sources = db.list_sources()
-        inbox = []
         cfg = _service(request).cfg
-        if cfg.inbox_path.exists():
-            inbox = [{"name": f.name, "relative": f.relative_to(cfg.inbox_path).as_posix(),
-                      "size": f.stat().st_size} for f in cfg.inbox_path.rglob("*")
-                     if f.is_file() and f.suffix.lower() in ALLOWED_EXTENSIONS]
+        inbox = _list_pending_inbox(db, cfg)
     finally:
         db.close()
-    return _render(request, "documents.html", page="documents", sources=sources, inbox=inbox)
+    return _render(
+        request, "documents.html", page="documents", sources=sources, inbox=inbox,
+        llm_ready=_llm_ready(cfg),
+    )
 
 
 @app.post("/documents/upload", response_class=HTMLResponse)
@@ -277,6 +314,15 @@ async def harvest(request: Request, selected_file: str = Form(""), duplicate_act
             return HTMLResponse("Arquivo inválido", status_code=400)
         if not selected.is_file() or selected.suffix.lower() not in ALLOWED_EXTENSIONS:
             return HTMLResponse("Arquivo não encontrado", status_code=404)
+        db = _service(request).db()
+        try:
+            if not _file_needs_harvest(db, selected):
+                return HTMLResponse(
+                    "Este documento já foi processado e não precisa de novo harvest.",
+                    status_code=409,
+                )
+        finally:
+            db.close()
         selected_file = str(selected)
     if duplicate_action not in {"skip", "continue", "abort"}:
         duplicate_action = "skip"
@@ -284,6 +330,28 @@ async def harvest(request: Request, selected_file: str = Form(""), duplicate_act
         "duplicate_action": duplicate_action, "skip_biblio": bool(skip_biblio),
         "skip_paging": bool(skip_paging), "content_start_file": content_start_file,
         "content_start_book": content_start_book}, csrf)
+
+
+@app.post("/documents/run-all")
+async def documents_run_all(request: Request, csrf: str = Form("")):
+    """Queue a safe, non-interactive execution of every pipeline phase."""
+
+    if not _auth(request):
+        return _redirect_login()
+    if not _csrf_ok(request, csrf):
+        return HTMLResponse("CSRF inválido", status_code=403)
+    if not _llm_ready(_service(request).cfg):
+        return HTMLResponse(
+            "O provedor LLM não possui credencial configurada. "
+            "Verifique Configuração / saúde.",
+            status_code=409,
+        )
+    return _post_job(
+        request,
+        "run_all",
+        {"duplicate_action": "skip", "skip_biblio": False, "skip_paging": True},
+        csrf,
+    )
 
 
 @app.get("/pipeline", response_class=HTMLResponse)
@@ -423,7 +491,10 @@ async def note_detail(request: Request, note_id: str):
         db.close()
     if not note:
         return HTMLResponse("Nota não encontrada", status_code=404)
-    return _render(request, "note_detail.html", page="notes", note=note, connections=connections)
+    return _render(
+        request, "note_detail.html", page="notes", note=note,
+        rendered_body=render_markdown(note.get("body")), connections=connections,
+    )
 
 
 @app.get("/mocs/{moc_id}", response_class=HTMLResponse)
@@ -437,7 +508,10 @@ async def moc_detail(request: Request, moc_id: str):
         db.close()
     if not moc:
         return HTMLResponse("MOC não encontrado", status_code=404)
-    return _render(request, "moc_detail.html", page="notes", moc=moc)
+    return _render(
+        request, "moc_detail.html", page="notes", moc=moc,
+        rendered_body=render_markdown(moc.get("body")),
+    )
 
 
 @app.get("/runs", response_class=HTMLResponse)
