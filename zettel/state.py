@@ -687,6 +687,83 @@ class StateDB:
         )
         self.conn.commit()
 
+    def get_notes_for_source(self, source_id: str) -> list[dict]:
+        return self._fetchall(
+            "SELECT * FROM notes WHERE source_id=? ORDER BY created_at ASC",
+            (source_id,),
+        )
+
+    def get_note_ids_for_source(self, source_id: str) -> list[str]:
+        """Permanent note ids linked via notes.source_id or concepts.note_id."""
+        ids: list[str] = []
+        for row in self.get_notes_for_source(source_id):
+            ids.append(row["note_id"])
+        for row in self._fetchall(
+            "SELECT DISTINCT note_id FROM concepts WHERE source_id=? AND note_id IS NOT NULL",
+            (source_id,),
+        ):
+            ids.append(row["note_id"])
+        return list(dict.fromkeys(ids))
+
+    def delete_note(self, note_id: str) -> bool:
+        """Delete a permanent note row (+ FTS + graph edges). Returns True if removed."""
+        cur = self.conn.execute("DELETE FROM notes WHERE note_id=?", (note_id,))
+        if not cur.rowcount:
+            return False
+        if self.fts_enabled:
+            self.conn.execute("DELETE FROM fts_notes WHERE note_id=?", (note_id,))
+        self.conn.execute(
+            "DELETE FROM note_connections WHERE source_note_id=? OR target_note_id=?",
+            (note_id, note_id),
+        )
+        self.conn.commit()
+        return True
+
+    def clear_source_id_on_notes(self, source_id: str) -> int:
+        """Detach surviving permanent notes from a deleted source."""
+        cur = self.conn.execute(
+            "UPDATE notes SET source_id=NULL, updated_at=? WHERE source_id=?",
+            (self._now(), source_id),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def delete_source_cascade(self, source_id: str) -> dict[str, int]:
+        """Remove a source and all dependent rows (not permanent notes).
+
+        Deletes chunks (+ concepts per chunk + FTS), chapters, orphan concepts,
+        assets, files rows, and the sources row.
+        """
+        chunks = self.get_chunks_for_source(source_id)
+        chunk_ids = [c["chunk_id"] for c in chunks]
+        removed_chunks = self.delete_chunks(chunk_ids) if chunk_ids else 0
+
+        chapters = self.get_chapters_for_source(source_id)
+        for ch in chapters:
+            self.conn.execute("DELETE FROM chapters WHERE chapter_id=?", (ch["chapter_id"],))
+
+        cur_concepts = self.conn.execute(
+            "DELETE FROM concepts WHERE source_id=?", (source_id,)
+        )
+        cur_assets = self.conn.execute(
+            "DELETE FROM assets WHERE source_id=?", (source_id,)
+        )
+        cur_files = self.conn.execute(
+            "DELETE FROM files WHERE source_id=?", (source_id,)
+        )
+        cur_source = self.conn.execute(
+            "DELETE FROM sources WHERE source_id=?", (source_id,)
+        )
+        self.conn.commit()
+        return {
+            "chunks": removed_chunks,
+            "chapters": len(chapters),
+            "concepts": cur_concepts.rowcount,
+            "assets": cur_assets.rowcount,
+            "files": cur_files.rowcount,
+            "sources": cur_source.rowcount,
+        }
+
     def get_source(self, source_id: str) -> Optional[dict]:
         return self._fetchone("SELECT * FROM sources WHERE source_id=?", (source_id,))
 

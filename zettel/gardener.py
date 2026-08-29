@@ -171,9 +171,14 @@ def run_garden(
 
 def purge_pipeline_mocs(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
     """Delete pipeline MOCs from SQLite, ChromaDB and the vault. Returns count removed."""
+    from zettel.moc_backrefs import clear_moc_backrefs
+
     removed = db.delete_pipeline_mocs()
     if not removed:
         return 0
+
+    for moc in removed:
+        clear_moc_backrefs(db, moc)
 
     idx.delete_mocs([m["moc_id"] for m in removed])
 
@@ -375,6 +380,10 @@ def _create_new_moc(
     filename = note_filename("MOC", moc_id, topic)
     moc_path = cfg.vault_path / "40_MOCs" / filename
     safe_write_note(moc_path, meta, body)
+
+    from zettel.moc_backrefs import sync_moc_backrefs
+
+    sync_moc_backrefs(db, moc_id, topic, moc_path)
 
     db.upsert_moc(
         moc_id, topic, str(moc_path), cluster_signature,
@@ -635,7 +644,7 @@ def _apply_incremental_placements(
 ) -> None:
     """Reconstruct and write the MOC file with new notes placed into subsections."""
     content = moc_path.read_text(encoding="utf-8")
-    meta, _ = parse_frontmatter(content)
+    meta, previous_body = parse_frontmatter(content)
 
     from datetime import datetime
     meta["updated_at"] = datetime.now().isoformat()
@@ -704,6 +713,14 @@ def _apply_incremental_placements(
         body += "\n"
 
     safe_write_note(moc_path, meta, body)
+
+    moc_id = meta.get("moc_id", "")
+    if moc_id:
+        from zettel.moc_backrefs import sync_moc_backrefs
+
+        sync_moc_backrefs(
+            db, moc_id, meta.get("topic", ""), moc_path, previous_body=previous_body,
+        )
 
 
 # ── Helpers ───────────────────────────────────────────────────────────

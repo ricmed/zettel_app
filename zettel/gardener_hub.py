@@ -258,10 +258,14 @@ def run_garden_hubs(
 def purge_hub_pipeline_mocs(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
     """Delete hub_pipeline MOCs from SQLite, ChromaDB and the vault."""
     from zettel.gardener import _moc_vault_path
+    from zettel.moc_backrefs import clear_moc_backrefs
 
     removed = db.delete_hub_pipeline_mocs()
     if not removed:
         return 0
+
+    for moc in removed:
+        clear_moc_backrefs(db, moc)
 
     idx.delete_mocs([m["moc_id"] for m in removed])
 
@@ -388,6 +392,10 @@ def _create_new_hub_moc(
     filename = note_filename("HUB", moc_id, topic)
     moc_path = cfg.vault_path / "40_MOCs" / filename
     safe_write_note(moc_path, meta, body)
+
+    from zettel.moc_backrefs import sync_moc_backrefs
+
+    sync_moc_backrefs(db, moc_id, topic, moc_path)
 
     db.upsert_moc(
         moc_id, topic, str(moc_path), cluster_signature,

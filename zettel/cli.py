@@ -8,10 +8,12 @@ Commands:
   extract     — Process chunks with LLM (Prompt 1), write LIT drafts
   review      — Approve/reject granular literature notes
   purge-rejected — Delete rejected chunks from SQLite + Chroma
+  delete-source — Delete a source completely from vault + databases
   connect     — Generate permanent notes from approved candidates (Prompt 2)
   garden      — Cluster notes and generate/update MOCs
   ask         — QA over the vault (hybrid retrieval + graph)
   article     — LangGraph long-form article (blog/academic + HITL + judge)
+  new-note    — Scaffold a manual note in the vault (sync-manual indexes later)
   sync-manual — Sync manual notes from vault to index
   run-all     — Execute harvest → extract → review → connect → garden
   status      — Show pipeline statistics
@@ -542,6 +544,104 @@ def purge_rejected_cmd(
     db.close()
 
 
+@app.command(name="delete-source")
+def delete_source_cmd(
+    source_id: str = typer.Argument(..., help="Fonte a apagar (ex. @Citekey)"),
+    config: Optional[str] = typer.Option(None, "--config", "-c"),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Confirmar exclusao permanente sem prompt",
+    ),
+    delete_permanent: bool = typer.Option(
+        False, "--delete-permanent",
+        help="Apagar tambem notas permanentes (ZTL) ligadas a fonte",
+    ),
+    no_compact: bool = typer.Option(
+        False, "--no-compact",
+        help="Nao rodar VACUUM apos a exclusao (nao recupera espaco em disco)",
+    ),
+):
+    """Apagar uma fonte por completo do vault, SQLite e Chroma (irreversivel).
+
+    Remove SRC, indice LIT, notas granulares e drafts em Review. Por padrao
+    mantem notas permanentes (ZTL) mas limpa wikilinks mortos no restante do
+    vault. Use --delete-permanent para remover ZTL ligadas a fonte.
+    """
+    from zettel.purge_source import normalize_source_id, purge_source
+
+    cfg = _load_deps(config)
+    db = _get_db(cfg)
+    sid = normalize_source_id(source_id)
+    source = db.get_source(sid)
+    if not source:
+        console.print(f"[red]Fonte nao encontrada: {sid}[/red]")
+        db.close()
+        raise typer.Exit(1)
+
+    chunks = db.get_chunks_for_source(sid)
+    permanent = db.get_note_ids_for_source(sid)
+    console.print(
+        f"[yellow]Fonte {sid} ({source.get('title') or source.get('citekey')}):[/yellow] "
+        f"{len(chunks)} chunk(s), {len(permanent)} nota(s) permanente(s) ligada(s)."
+    )
+    if delete_permanent and permanent:
+        console.print(
+            f"[red]{len(permanent)} nota(s) permanente(s) serao apagadas.[/red]"
+        )
+    elif permanent:
+        console.print(
+            "[dim]Notas permanentes serao mantidas; wikilinks mortos serao limpos.[/dim]"
+        )
+    if not no_compact:
+        console.print(
+            "[dim]Apos a exclusao, VACUUM compactara state.db e chroma.sqlite3.[/dim]"
+        )
+    if not yes and not typer.confirm("Excluir fonte permanentemente?", default=False):
+        console.print("[dim]Exclusao cancelada.[/dim]")
+        db.close()
+        return
+
+    idx = _get_idx(cfg, db=db, yes=yes)
+    result = purge_source(
+        cfg, db, idx, sid,
+        delete_permanent=delete_permanent,
+        compact=not no_compact,
+    )
+    vault = result["vault"]
+    console.print(
+        f"[green]Fonte {sid} removida:[/green] "
+        f"SRC={vault['src']}, LIT index={vault['lit_index']}, "
+        f"granulares={vault['lit_granular']}, drafts={vault['review_drafts']}, "
+        f"assets={vault['assets']}."
+    )
+    sqlite = result["sqlite"]
+    console.print(
+        f"[green]SQLite:[/green] {sqlite.get('chunks', 0)} chunks, "
+        f"{sqlite.get('chapters', 0)} chapters, "
+        f"{sqlite.get('concepts', 0)} concepts."
+    )
+    console.print(
+        f"[green]Chroma:[/green] {result['chunks_chroma']} chunks, "
+        f"{result['literature_chroma']} literature_notes, 1 source."
+    )
+    if result["permanent_deleted"]:
+        console.print(
+            f"[green]Permanentes apagadas:[/green] {result['permanent_deleted']}"
+        )
+    if result["wikilinks_cleaned"]:
+        console.print(
+            f"[green]Wikilinks limpos em {result['wikilinks_cleaned']} arquivo(s).[/green]"
+        )
+    if result.get("compacted"):
+        console.print(
+            f"[green]Compactado: state.db "
+            f"{result['state_mb_before']}->{result['state_mb_after']} MB; "
+            f"chroma.sqlite3 "
+            f"{result['chroma_mb_before']}->{result['chroma_mb_after']} MB.[/green]"
+        )
+    db.close()
+
+
 # ── connect ───────────────────────────────────────────────────────────
 
 
@@ -870,6 +970,118 @@ def set_paging_cmd(
         f"  notas LIT patchadas: {stats['notes_patched']}"
     )
     db.close()
+
+
+# ── new-note ──────────────────────────────────────────────────────────
+
+
+@app.command(name="new-note")
+def new_note(
+    note_type: str = typer.Argument(
+        ...,
+        help="Tipo: ztl|lit|src|moc (ou permanent|literature|source)",
+    ),
+    title: str = typer.Argument(..., help="Titulo da nota"),
+    config: Optional[str] = typer.Option(None, "--config", "-c"),
+    citekey: Optional[str] = typer.Option(
+        None, "--citekey", "-k",
+        help="Citekey para SRC/LIT (sem @); alias de --source-id para SRC/ZTL",
+    ),
+    source_id: Optional[str] = typer.Option(
+        None, "--source-id", "-s",
+        help="source_id (@Citekey) explicito para SRC ou vinculo de ZTL a uma SRC",
+    ),
+    author: Optional[list[str]] = typer.Option(
+        None, "--author", "-a",
+        help="Autor(es) para SRC/LIT (repita a opcao para varios)",
+    ),
+    year: Optional[int] = typer.Option(None, "--year", "-y", help="Ano para SRC/LIT"),
+    document_type: Optional[str] = typer.Option(
+        None, "--document-type", "-t",
+        help="Tipo documental ABNT para SRC (ex.: livro, artigo_periodico)",
+    ),
+    abnt_reference: Optional[str] = typer.Option(
+        None, "--abnt-reference",
+        help="Referencia ABNT pronta para copiar (SRC)",
+    ),
+    publisher: Optional[str] = typer.Option(None, "--publisher", help="Editora (SRC)"),
+    place: Optional[str] = typer.Option(None, "--place", help="Local de publicacao (SRC)"),
+    doi: Optional[str] = typer.Option(None, "--doi", help="DOI (SRC)"),
+    url: Optional[str] = typer.Option(None, "--url", help="URL (SRC)"),
+    journal: Optional[str] = typer.Option(None, "--journal", help="Periodico (SRC)"),
+    edition: Optional[str] = typer.Option(None, "--edition", help="Edicao (SRC)"),
+    institution: Optional[str] = typer.Option(None, "--institution", help="Instituicao (SRC)"),
+    pages: Optional[str] = typer.Option(None, "--pages", help="Paginas (SRC)"),
+    granular: bool = typer.Option(
+        False, "--granular",
+        help="LIT granular em 20_Literature/{citekey}/ (padrao: indice na raiz)",
+    ),
+    chunk_index: int = typer.Option(
+        1, "--chunk-index",
+        help="Indice do chunk para LIT granular (padrao: 1)",
+    ),
+    page: Optional[int] = typer.Option(
+        None, "--page", "-p",
+        help="Pagina impressa para LIT granular",
+    ),
+    force: bool = typer.Option(
+        False, "--force",
+        help="Sobrescrever arquivo existente no mesmo caminho",
+    ),
+):
+    """Criar esqueleto de nota manual no vault (indexar depois com sync-manual)."""
+    cfg = _load_deps(config)
+
+    from zettel.new_note import normalize_note_type, scaffold_manual_note
+
+    try:
+        normalized = normalize_note_type(note_type)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    effective_source_id = source_id
+    if not effective_source_id and citekey and normalized == "permanent":
+        effective_source_id = citekey
+    if not effective_source_id and citekey and normalized == "source":
+        effective_source_id = citekey
+
+    try:
+        result = scaffold_manual_note(
+            cfg,
+            note_type,
+            title,
+            citekey=citekey,
+            source_id=effective_source_id,
+            authors=list(author or []),
+            year=year,
+            document_type=document_type,
+            abnt_reference=abnt_reference,
+            place=place,
+            publisher=publisher,
+            doi=doi,
+            url=url,
+            journal=journal,
+            edition=edition,
+            institution=institution,
+            pages=pages,
+            granular=granular,
+            chunk_index=chunk_index,
+            page=page,
+            force=force,
+        )
+    except FileExistsError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    console.print(f"[green]Nota criada:[/green] {result.path}")
+    if result.warnings:
+        for warning in result.warnings:
+            console.print(f"[yellow]Aviso:[/yellow] {warning}")
+    console.print("[dim]Indexe com: zettel sync-manual[/dim]")
 
 
 # ── sync-manual ───────────────────────────────────────────────────────
