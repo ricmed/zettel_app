@@ -130,6 +130,41 @@ class VectorIndex:
 
         self._ensure_collections()
 
+    def close(self) -> None:
+        """Release the PersistentClient so chroma.sqlite3 can be VACUUMed on Windows."""
+        self.sources = None  # type: ignore[assignment]
+        self.chunks = None  # type: ignore[assignment]
+        self.permanent = None  # type: ignore[assignment]
+        self.mocs_col = None  # type: ignore[assignment]
+        self.literature = None  # type: ignore[assignment]
+        self.client = None  # type: ignore[assignment]
+        self.embedding_fn = None  # type: ignore[assignment]
+
+    def vacuum(self) -> Path | None:
+        """VACUUM ``chroma.sqlite3`` after closing the client. Returns DB path or None.
+
+        Reclaims free pages in Chroma's SQLite metadata store. HNSW segment
+        directories on disk are not rebuilt (would need external tooling).
+        Safe for logical content — does not delete remaining embeddings.
+        """
+        import gc
+        import sqlite3
+
+        self.close()
+        gc.collect()
+        db_path = self.chroma_path / "chroma.sqlite3"
+        if not db_path.exists():
+            return None
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.execute("VACUUM")
+            conn.commit()
+        finally:
+            conn.close()
+        logger.info("Chroma VACUUM concluido: %s", db_path)
+        return db_path
+
     def _build_embedding_fn(self, provider: str, model: str) -> Any:
         """Build the embedding function, failing fast unless allow_fallback is set.
 

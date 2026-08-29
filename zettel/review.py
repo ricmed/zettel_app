@@ -26,6 +26,135 @@ from zettel.vault import (
 
 logger = logging.getLogger(__name__)
 
+# Faixa "baixissima": confianca inclusiva ate este valor.
+_LOW_CONFIDENCE_MAX = 0.4
+
+BAND_VERY_LOW = "very_low"
+BAND_MEDIUM = "medium"
+BAND_HIGH = "high"
+BAND_ALL = "all"
+
+_BAND_LABELS = {
+    BAND_VERY_LOW: "Baixissima",
+    BAND_MEDIUM: "Media",
+    BAND_HIGH: "Alta",
+    BAND_ALL: "todas as faixas",
+}
+
+_REJECT_SCOPE_ALIASES = {
+    "t": BAND_ALL,
+    "todos": BAND_ALL,
+    "b": BAND_VERY_LOW,
+    "baixissima": BAND_VERY_LOW,
+    "m": BAND_MEDIUM,
+    "media": BAND_MEDIUM,
+    "h": BAND_HIGH,
+    "alta": BAND_HIGH,
+    "c": "cancel",
+    "cancelar": "cancel",
+}
+
+_DECISION_ALIASES = {
+    "a": "aprovar",
+    "aprovar": "aprovar",
+    "r": "rejeitar",
+    "rejeitar": "rejeitar",
+    "p": "pular",
+    "pular": "pular",
+    "q": "sair",
+    "sair": "sair",
+}
+
+
+def chunk_confidence_band(conf: float, limiar: float) -> str:
+    """Classifica uma confianca em very_low / medium / high."""
+    if conf <= _LOW_CONFIDENCE_MAX:
+        return BAND_VERY_LOW
+    if conf < limiar:
+        return BAND_MEDIUM
+    return BAND_HIGH
+
+
+def filter_chunks_by_band(
+    chunks: list[dict], band: str, limiar: float
+) -> list[dict]:
+    """Filtra chunks pela faixa; band=all devolve a lista inteira."""
+    if band == BAND_ALL:
+        return list(chunks)
+    return [
+        c for c in chunks
+        if chunk_confidence_band(float(c.get("review_confidence") or 0), limiar) == band
+    ]
+
+
+def confidence_band_counts(
+    chunks: list[dict], limiar: float
+) -> dict[str, int]:
+    """Conta drafts por faixa de review_confidence.
+
+    Faixas:
+    - very_low: 0 <= conf <= 0.4
+    - medium: 0.4 < conf < limiar
+    - high: conf >= limiar
+    """
+    very_low = medium = high = 0
+    for chunk in chunks:
+        band = chunk_confidence_band(float(chunk.get("review_confidence") or 0), limiar)
+        if band == BAND_VERY_LOW:
+            very_low += 1
+        elif band == BAND_MEDIUM:
+            medium += 1
+        else:
+            high += 1
+    return {
+        BAND_VERY_LOW: very_low,
+        BAND_MEDIUM: medium,
+        BAND_HIGH: high,
+        "total": len(chunks),
+    }
+
+
+def format_confidence_report(bands: dict[str, int], limiar: float) -> str:
+    """Texto PT-BR do relatorio de faixas (sem markup Rich)."""
+    low_max = _LOW_CONFIDENCE_MAX
+    return (
+        f"Total aguardando: {bands['total']} | Limiar: {limiar:.2f}\n"
+        f"  Baixissima (0.00-{low_max:.2f}): {bands[BAND_VERY_LOW]}\n"
+        f"  Media ({low_max:.2f} < conf < {limiar:.2f}): {bands[BAND_MEDIUM]}\n"
+        f"  Alta (conf >= {limiar:.2f}): {bands[BAND_HIGH]}"
+    )
+
+
+def normalize_reject_scope(raw: str) -> str | None:
+    """Mapeia atalho/palavra para faixa de rejeicao ou cancel."""
+    key = (raw or "").strip().lower()
+    return _REJECT_SCOPE_ALIASES.get(key)
+
+
+def normalize_review_decision(raw: str) -> str | None:
+    """Mapeia atalho ou palavra completa para aprovar/rejeitar/pular/sair."""
+    key = (raw or "").strip().lower()
+    return _DECISION_ALIASES.get(key)
+
+
+def ask_review_decision(console, *, conf: float, limiar: float) -> str:
+    """Prompt HITL um-a-um com atalhos a/r/p/q e palavras completas."""
+    from rich.prompt import Prompt
+
+    default = "a" if conf >= limiar else "p"
+    while True:
+        # Colchetes escapados: Rich trata [...] como markup e engole o texto.
+        raw = Prompt.ask(
+            r"Decisao \[a=aprovar/r=rejeitar/p=pular/q=sair\]",
+            choices=list(_DECISION_ALIASES.keys()),
+            default=default,
+            show_choices=False,
+            console=console,
+        )
+        choice = normalize_review_decision(raw)
+        if choice is not None:
+            return choice
+
 
 def run_review(
     cfg: AppConfig,
@@ -69,12 +198,8 @@ def run_review(
                     stats["approved"] += 1
                 else:
                     stats["skipped"] += 1
-            elif auto_approve:
-                # auto_approve mode: reject low confidence? Keep awaiting unless --yes force
-                stats["skipped"] += 1
             else:
                 stats["skipped"] += 1
-        # Deduplicate newly approved concepts
         _dedupe_approved_concepts(cfg, db, idx, source_id)
         finish_pipeline_run(db, run_id)
         return stats
@@ -106,63 +231,135 @@ def run_review(
             summary,
         )
     console.print(table)
+
+    bands = confidence_band_counts(chunks, limiar)
+    report = format_confidence_report(bands, limiar)
+    console.print(f"[cyan]{report}[/cyan]")
     console.print(
-        f"[cyan]Limiar auto-approve: {limiar}. "
-        "Comandos: a=aprovar todos >= limiar, r=revisar um a um, q=sair[/cyan]"
+        "[cyan]Comandos: a=aprovar >= limiar, d=reprovar (todos ou por faixa), "
+        "r=revisar um a um, q=sair[/cyan]"
     )
-    mode = Prompt.ask("Modo", choices=["a", "r", "q"], default="a", console=console)
-    if mode == "q":
-        finish_pipeline_run(db, run_id)
-        return stats
-    if mode == "a":
-        for chunk in chunks:
+
+    while True:
+        mode = Prompt.ask(
+            "Modo",
+            choices=["a", "d", "r", "q"],
+            default="a",
+            console=console,
+        )
+        if mode == "q":
+            finish_pipeline_run(db, run_id)
+            return stats
+
+        if mode == "d":
+            bands = confidence_band_counts(chunks, limiar)
+            report = format_confidence_report(bands, limiar)
+            console.print(f"[yellow]{report}[/yellow]")
+            scope_raw = Prompt.ask(
+                r"Reprovar \[t=todos/b=baixissima/m=media/h=alta/c=cancelar\]",
+                choices=list(_REJECT_SCOPE_ALIASES.keys()),
+                default="c",
+                show_choices=False,
+                console=console,
+            )
+            scope = normalize_reject_scope(scope_raw)
+            if scope is None or scope == "cancel":
+                console.print("[dim]Rejeicao em lote cancelada.[/dim]")
+                continue
+
+            targets = filter_chunks_by_band(chunks, scope, limiar)
+            if not targets:
+                console.print(
+                    f"[dim]Nenhum draft na faixa "
+                    f"{_BAND_LABELS[scope]}.[/dim]"
+                )
+                continue
+
+            label = _BAND_LABELS[scope]
+            confirm = Prompt.ask(
+                f"Confirmar rejeicao de {len(targets)} drafts ({label})?",
+                choices=["s", "n"],
+                default="n",
+                console=console,
+            )
+            if confirm != "s":
+                console.print("[dim]Rejeicao em lote cancelada.[/dim]")
+                continue
+
+            rejected_ids: set[str] = set()
+            for chunk in targets:
+                if reject_chunk(cfg, db, idx, chunk["chunk_id"]):
+                    stats["rejected"] += 1
+                    rejected_ids.add(chunk["chunk_id"])
+                else:
+                    stats["skipped"] += 1
+
+            chunks = [c for c in chunks if c["chunk_id"] not in rejected_ids]
+            if not chunks:
+                finish_pipeline_run(db, run_id)
+                return stats
+
+            sample = chunks[: cfg.literature_review.batch_sample_size]
+            bands = confidence_band_counts(chunks, limiar)
+            report = format_confidence_report(bands, limiar)
+            console.print(
+                f"[green]Rejeitados {len(rejected_ids)} ({label}). "
+                f"Restam {len(chunks)} aguardando.[/green]"
+            )
+            console.print(f"[cyan]{report}[/cyan]")
+            continue
+
+        if mode == "a":
+            below = 0
+            for chunk in chunks:
+                conf = chunk.get("review_confidence") or 0
+                if conf >= limiar:
+                    if approve_chunk(cfg, db, idx, chunk["chunk_id"]):
+                        stats["approved"] += 1
+                    else:
+                        stats["skipped"] += 1
+                else:
+                    below += 1
+                    stats["skipped"] += 1
+            console.print(
+                f"[green]Aprovados {stats['approved']} (>= limiar); "
+                f"abaixo do limiar {below} (permanecem awaiting_review)[/green]"
+            )
+            _dedupe_approved_concepts(cfg, db, idx, source_id)
+            finish_pipeline_run(db, run_id)
+            return stats
+
+        # mode == "r"
+        for chunk in sample:
             conf = chunk.get("review_confidence") or 0
-            if conf >= limiar:
+            summary = ""
+            if chunk.get("summary_json"):
+                try:
+                    summary = json.loads(chunk["summary_json"]).get("summary") or ""
+                except json.JSONDecodeError:
+                    pass
+            console.print(
+                f"\n[bold]{chunk['chunk_id']}[/bold] conf={conf:.2f}\n{summary[:300]}"
+            )
+            choice = ask_review_decision(console, conf=conf, limiar=limiar)
+            if choice == "sair":
+                break
+            if choice == "aprovar":
                 if approve_chunk(cfg, db, idx, chunk["chunk_id"]):
                     stats["approved"] += 1
                 else:
                     stats["skipped"] += 1
+            elif choice == "rejeitar":
+                if reject_chunk(cfg, db, idx, chunk["chunk_id"]):
+                    stats["rejected"] += 1
+                else:
+                    stats["skipped"] += 1
             else:
                 stats["skipped"] += 1
+
         _dedupe_approved_concepts(cfg, db, idx, source_id)
         finish_pipeline_run(db, run_id)
         return stats
-
-    for chunk in sample:
-        conf = chunk.get("review_confidence") or 0
-        summary = ""
-        if chunk.get("summary_json"):
-            try:
-                summary = json.loads(chunk["summary_json"]).get("summary") or ""
-            except json.JSONDecodeError:
-                pass
-        console.print(
-            f"\n[bold]{chunk['chunk_id']}[/bold] conf={conf:.2f}\n{summary[:300]}"
-        )
-        choice = Prompt.ask(
-            "Decisao",
-            choices=["aprovar", "rejeitar", "pular", "sair"],
-            default="aprovar" if conf >= limiar else "pular",
-            console=console,
-        )
-        if choice == "sair":
-            break
-        if choice == "aprovar":
-            if approve_chunk(cfg, db, idx, chunk["chunk_id"]):
-                stats["approved"] += 1
-            else:
-                stats["skipped"] += 1
-        elif choice == "rejeitar":
-            if reject_chunk(cfg, db, idx, chunk["chunk_id"]):
-                stats["rejected"] += 1
-            else:
-                stats["skipped"] += 1
-        else:
-            stats["skipped"] += 1
-
-    _dedupe_approved_concepts(cfg, db, idx, source_id)
-    finish_pipeline_run(db, run_id)
-    return stats
 
 
 def approve_high_confidence(
@@ -302,6 +499,89 @@ def reject_chunk(
     db.update_concepts_status_for_chunk(chunk_id, "rejected")
     logger.info("[CHUNK=%s] REJECTED → descartado, nao indexado", chunk_id)
     return True
+
+
+def purge_rejected(
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    *,
+    source_id: str | None = None,
+    compact: bool = True,
+) -> dict[str, int | float | bool]:
+    """Remove permanently chunks with status=rejected from SQLite and Chroma.
+
+    Deletes:
+    - SQLite ``chunks`` rows (+ FTS) and related ``concepts``
+    - Chroma ``chunks`` embeddings (harvest index)
+    - Chroma ``literature_notes`` ids, if any (normally absent — reject runs
+      before approve)
+
+    When ``compact`` is True and something was deleted, runs SQLite VACUUM on
+    ``state.db`` and ``chroma.sqlite3`` to reclaim disk (no logical data change).
+
+    Does not touch permanent notes, MOCs, or approved/persisted literature.
+    """
+    rows = db.get_chunks_by_status("rejected", source_id=source_id)
+    if not rows:
+        return {
+            "chunks": 0,
+            "literature_notes": 0,
+            "compacted": False,
+            "state_mb_before": 0.0,
+            "state_mb_after": 0.0,
+            "chroma_mb_before": 0.0,
+            "chroma_mb_after": 0.0,
+        }
+
+    chunk_ids = [r["chunk_id"] for r in rows]
+    lit_ids = [
+        r["literature_id"] for r in rows
+        if r.get("literature_id")
+    ]
+
+    removed_sqlite = db.delete_chunks(chunk_ids)
+    idx.delete_chunks(chunk_ids)
+    if lit_ids:
+        try:
+            idx.delete_literature_notes(lit_ids)
+        except Exception as e:
+            logger.warning("Falha ao limpar literature_notes no Chroma: %s", e)
+
+    logger.info(
+        "Purge rejected: %d chunks SQLite, %d literature_ids Chroma",
+        removed_sqlite, len(lit_ids),
+    )
+
+    result: dict[str, int | float | bool] = {
+        "chunks": removed_sqlite,
+        "literature_notes": len(lit_ids),
+        "compacted": False,
+        "state_mb_before": 0.0,
+        "state_mb_after": 0.0,
+        "chroma_mb_before": 0.0,
+        "chroma_mb_after": 0.0,
+    }
+    if compact and removed_sqlite:
+        state_path = Path(db.db_path)
+        chroma_db = Path(cfg.chroma_path) / "chroma.sqlite3"
+        result["state_mb_before"] = round(state_path.stat().st_size / 1e6, 2)
+        result["chroma_mb_before"] = (
+            round(chroma_db.stat().st_size / 1e6, 2) if chroma_db.exists() else 0.0
+        )
+        db.vacuum()
+        idx.vacuum()
+        result["state_mb_after"] = round(state_path.stat().st_size / 1e6, 2)
+        result["chroma_mb_after"] = (
+            round(chroma_db.stat().st_size / 1e6, 2) if chroma_db.exists() else 0.0
+        )
+        result["compacted"] = True
+        logger.info(
+            "Compactacao: state %.2f→%.2f MB, chroma.sqlite3 %.2f→%.2f MB",
+            result["state_mb_before"], result["state_mb_after"],
+            result["chroma_mb_before"], result["chroma_mb_after"],
+        )
+    return result
 
 
 def _literature_embed_text(path: Path) -> str:

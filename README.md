@@ -462,8 +462,14 @@ python -m zettel extract --auto-approve   # aprova drafts com confianca >= limia
 
 # Revisar/aprovar LIT granulares (obrigatorio antes do connect, salvo auto-approve)
 python -m zettel review
-python -m zettel review --yes             # aprova todos >= limiar
+# Interativo: relatorio por faixa de confianca; a=aprovar >= limiar,
+# d=reprovar (t=todos / b=baixissima / m=media / h=alta, com confirmacao),
+# r=um a um (atalhos a/r/p/q), q=sair
+python -m zettel review --yes             # aprova todos >= limiar (nao-interativo)
 python -m zettel review --low-confidence-only
+python -m zettel purge-rejected           # apaga rejected + VACUUM state.db/chroma.sqlite3
+python -m zettel purge-rejected --yes     # sem confirmacao
+python -m zettel purge-rejected --no-compact  # so apaga, sem compactar disco
 
 # Gerar notas permanentes a partir dos conceitos aprovados
 python -m zettel connect
@@ -592,10 +598,12 @@ python -m zettel run-all --dry-run
 
 ### Fase 2b — Review (aprovacao seletiva)
 
-1. `zettel review` lista drafts `awaiting_review` (modo lote por limiar ou nota a nota)
-2. **Approve**: move para `20_Literature/{Citekey}/LIT - AuthorYear - pNNN - topico-NNNN.md`, indexa na coleção Chroma **`literature_notes`**, atualiza o índice LIT (wikilinks com rótulo `p. N — tópico`), promove concepts para dedupe → `approved`
-3. **Reject**: apaga draft, `status=rejected`, concepts rejeitados — **nunca** entram em `literature_notes`
-4. Deduplicação semântica contra permanentes roda **após** a aprovação (não no extract)
+1. `zettel review` lista drafts `awaiting_review` e um **relatorio de faixas** de `review_confidence` (baixissima `<=0.4`, media ate o limiar, alta `>= limiar`)
+2. Modo interativo: `a` aprova lote `>= limiar` (abaixo do limiar permanecem pendentes); `d` abre submenu para rejeitar `t=todos` ou por faixa (`b`/`m`/`h`) apos confirmacao `s/n` (rejeicao parcial volta ao menu); `r` revisa um a um com atalhos `a/r/p/q`; `q` sai
+3. **Approve**: move para `20_Literature/{Citekey}/LIT - AuthorYear - pNNN - topico-NNNN.md`, indexa na coleção Chroma **`literature_notes`**, atualiza o índice LIT (wikilinks com rótulo `p. N — tópico`), promove concepts para dedupe → `approved`
+4. **Reject**: apaga draft, `status=rejected`, concepts rejeitados — **nunca** entram em `literature_notes` (o chunk permanece no SQLite/Chroma `chunks` ate `zettel purge-rejected`)
+5. Deduplicação semântica contra permanentes roda **após** a aprovação (não no extract)
+6. `zettel purge-rejected`: remove permanentemente chunks `rejected` (SQLite chunks+concepts+FTS, Chroma `chunks` e `literature_notes` se houver) e por padrao roda `VACUUM` em `state.db` e `chroma.sqlite3` (recupera disco; nao altera dados restantes; `--no-compact` pula)
 
 ### Fase 3 — Connect (Conexão)
 

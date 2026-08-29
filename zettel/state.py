@@ -428,6 +428,17 @@ class StateDB:
     def close(self) -> None:
         self.conn.close()
 
+    def vacuum(self) -> None:
+        """Reclaim free pages after bulk deletes (does not change logical data).
+
+        Runs WAL checkpoint then VACUUM. Needs exclusive access; may use
+        temporary disk space roughly the size of the DB file.
+        """
+        self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        self.conn.execute("VACUUM")
+        # VACUUM recreates the DB file; ensure subsequent writes still commit.
+        self.conn.commit()
+
     # ── Generic helpers ────────────────────────────────────────────────
 
     def _now(self) -> str:
@@ -612,16 +623,16 @@ class StateDB:
         self.conn.commit()
 
     def delete_chunks(self, chunk_ids: list[str]) -> int:
-        """Delete chunks by id (SQLite + FTS). Returns how many were removed."""
+        """Delete chunks by id (SQLite + FTS + concepts). Returns how many were removed."""
         if not chunk_ids:
             return 0
         removed = 0
         for cid in chunk_ids:
+            self.conn.execute("DELETE FROM concepts WHERE chunk_id=?", (cid,))
             cur = self.conn.execute("DELETE FROM chunks WHERE chunk_id=?", (cid,))
             if cur.rowcount:
                 removed += 1
                 self._fts_delete_chunk(cid)
-                self.conn.execute("DELETE FROM concepts WHERE chunk_id=?", (cid,))
         if removed:
             self.conn.commit()
         return removed
@@ -753,11 +764,8 @@ class StateDB:
             "SELECT chunk_id FROM chunks WHERE chapter_id=?", (chapter_id,)
         )
         removed = [r["chunk_id"] for r in rows if r["chunk_id"] not in keep_ids]
-        for cid in removed:
-            self.conn.execute("DELETE FROM chunks WHERE chunk_id=?", (cid,))
-            self._fts_delete_chunk(cid)
         if removed:
-            self.conn.commit()
+            self.delete_chunks(removed)
         return removed
 
     def get_pending_chunks(self, source_id: str | None = None) -> list[dict]:
@@ -787,9 +795,8 @@ class StateDB:
             "SELECT chunk_id FROM chunks WHERE chapter_id=?", (chapter_id,)
         )
         removed = [r["chunk_id"] for r in rows]
-        for cid in removed:
-            self.conn.execute("DELETE FROM chunks WHERE chunk_id=?", (cid,))
-            self._fts_delete_chunk(cid)
+        if removed:
+            self.delete_chunks(removed)
         self.conn.execute("DELETE FROM chapters WHERE chapter_id=?", (chapter_id,))
         self.conn.commit()
         return removed

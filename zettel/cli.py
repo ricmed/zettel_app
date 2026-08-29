@@ -7,6 +7,7 @@ Commands:
   dump-extraction — Export persisted extraction Markdown (Docling/MD headings)
   extract     — Process chunks with LLM (Prompt 1), write LIT drafts
   review      — Approve/reject granular literature notes
+  purge-rejected — Delete rejected chunks from SQLite + Chroma
   connect     — Generate permanent notes from approved candidates (Prompt 2)
   garden      — Cluster notes and generate/update MOCs
   ask         — QA over the vault (hybrid retrieval + graph)
@@ -463,6 +464,67 @@ def review(
         f"[red]Rejeitados: {stats['rejected']}[/red] | "
         f"[yellow]Pulados: {stats['skipped']}[/yellow]"
     )
+    db.close()
+
+
+@app.command(name="purge-rejected")
+def purge_rejected_cmd(
+    config: Optional[str] = typer.Option(None, "--config", "-c"),
+    source_id: Optional[str] = typer.Option(None, "--source-id", help="Filtrar por fonte"),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Confirmar exclusao permanente sem prompt",
+    ),
+    no_compact: bool = typer.Option(
+        False, "--no-compact",
+        help="Nao rodar VACUUM apos o purge (nao recupera espaco em disco)",
+    ),
+):
+    """Apagar chunks rejeitados do SQLite e do Chroma (irreversivel).
+
+    Remove linhas em chunks/concepts, embeddings em Chroma chunks e
+    literature_notes associados. Por padrao compacta state.db e chroma.sqlite3
+    com VACUUM (nao altera dados logicos restantes). Nao afeta notas permanentes
+    nem LITs aprovadas.
+    """
+    cfg = _load_deps(config)
+    db = _get_db(cfg)
+    pending = db.get_chunks_by_status("rejected", source_id=source_id)
+    n = len(pending)
+    if n == 0:
+        console.print("[yellow]Nenhum chunk rejected para purge.[/yellow]")
+        db.close()
+        return
+
+    console.print(
+        f"[yellow]{n} chunk(s) rejected serao apagados do SQLite e do Chroma.[/yellow]"
+    )
+    if not no_compact:
+        console.print(
+            "[dim]Apos a exclusao, VACUUM compactara state.db e chroma.sqlite3 "
+            "(seguro para o conteudo restante; pode levar alguns minutos).[/dim]"
+        )
+    if not yes and not typer.confirm("Excluir permanentemente?", default=False):
+        console.print("[dim]Purge cancelado.[/dim]")
+        db.close()
+        return
+
+    idx = _get_idx(cfg, db=db, yes=yes)
+    from zettel.review import purge_rejected
+    result = purge_rejected(
+        cfg, db, idx, source_id=source_id, compact=not no_compact,
+    )
+    console.print(
+        f"[green]Removidos: {result['chunks']} chunks "
+        f"({result['literature_notes']} literature_ids no Chroma).[/green]"
+    )
+    if result.get("compacted"):
+        console.print(
+            f"[green]Compactado: state.db "
+            f"{result['state_mb_before']}→{result['state_mb_after']} MB; "
+            f"chroma.sqlite3 "
+            f"{result['chroma_mb_before']}→{result['chroma_mb_after']} MB.[/green]"
+        )
     db.close()
 
 

@@ -1,11 +1,27 @@
 """Tests for granular literature review approve/reject."""
 
 import json
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from zettel.config import AppConfig
-from zettel.review import _literature_embed_text, approve_chunk, reject_chunk
+from zettel.review import (
+    BAND_HIGH,
+    BAND_MEDIUM,
+    BAND_VERY_LOW,
+    _literature_embed_text,
+    approve_chunk,
+    ask_review_decision,
+    chunk_confidence_band,
+    confidence_band_counts,
+    filter_chunks_by_band,
+    format_confidence_report,
+    normalize_reject_scope,
+    normalize_review_decision,
+    reject_chunk,
+    run_review,
+)
 from zettel.state import StateDB
 from zettel.vault import (
     build_literature_chunk_note,
@@ -19,12 +35,16 @@ class _FakeLitIndex:
     def __init__(self):
         self.upserts = []
         self.deletes = []
+        self.chunk_deletes = []
 
     def upsert_literature_note(self, lit_id, text, meta):
         self.upserts.append((lit_id, text, meta))
 
     def delete_literature_notes(self, ids):
         self.deletes.extend(ids)
+
+    def delete_chunks(self, chunk_ids):
+        self.chunk_deletes.extend(chunk_ids)
 
 
 @pytest.fixture
@@ -131,3 +151,274 @@ def test_reject_deletes_draft(env):
     ).exists()
     concepts = db.get_concepts_for_chunk("@Book2024::ch000::abc")
     assert concepts[0]["status"] == "rejected"
+
+
+def test_confidence_band_counts():
+    limiar = 0.85
+    chunks = [
+        {"review_confidence": 0.1},
+        {"review_confidence": 0.4},
+        {"review_confidence": 0.5},
+        {"review_confidence": 0.84},
+        {"review_confidence": 0.85},
+        {"review_confidence": 0.9},
+        {"review_confidence": None},
+    ]
+    bands = confidence_band_counts(chunks, limiar)
+    assert bands == {
+        "very_low": 3,  # 0.1, 0.4, None→0
+        "medium": 2,    # 0.5, 0.84
+        "high": 2,      # 0.85, 0.9
+        "total": 7,
+    }
+    report = format_confidence_report(bands, limiar)
+    assert "Baixissima" in report
+    assert "3" in report
+    assert "0.85" in report
+
+    assert chunk_confidence_band(0.1, limiar) == BAND_VERY_LOW
+    assert chunk_confidence_band(0.5, limiar) == BAND_MEDIUM
+    assert chunk_confidence_band(0.9, limiar) == BAND_HIGH
+    assert len(filter_chunks_by_band(chunks, BAND_VERY_LOW, limiar)) == 3
+    assert len(filter_chunks_by_band(chunks, BAND_MEDIUM, limiar)) == 2
+    assert len(filter_chunks_by_band(chunks, BAND_HIGH, limiar)) == 2
+    assert len(filter_chunks_by_band(chunks, "all", limiar)) == 7
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("t", "all"),
+        ("todos", "all"),
+        ("b", BAND_VERY_LOW),
+        ("baixissima", BAND_VERY_LOW),
+        ("m", BAND_MEDIUM),
+        ("media", BAND_MEDIUM),
+        ("h", BAND_HIGH),
+        ("alta", BAND_HIGH),
+        ("c", "cancel"),
+        ("cancelar", "cancel"),
+        ("x", None),
+    ],
+)
+def test_normalize_reject_scope(raw, expected):
+    assert normalize_reject_scope(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("a", "aprovar"),
+        ("aprovar", "aprovar"),
+        ("r", "rejeitar"),
+        ("rejeitar", "rejeitar"),
+        ("p", "pular"),
+        ("pular", "pular"),
+        ("q", "sair"),
+        ("sair", "sair"),
+        ("A", "aprovar"),
+        ("  r  ", "rejeitar"),
+        ("x", None),
+        ("", None),
+    ],
+)
+def test_normalize_review_decision(raw, expected):
+    assert normalize_review_decision(raw) == expected
+
+
+def test_ask_review_decision_accepts_shortcut():
+    console = MagicMock()
+    with patch("rich.prompt.Prompt.ask", return_value="r") as ask:
+        choice = ask_review_decision(console, conf=0.1, limiar=0.85)
+    assert choice == "rejeitar"
+    assert ask.call_args.kwargs["default"] == "p"
+    assert ask.call_args.kwargs["show_choices"] is False
+
+
+def test_ask_review_decision_default_approve_when_high_conf():
+    console = MagicMock()
+    with patch("rich.prompt.Prompt.ask", return_value="a") as ask:
+        choice = ask_review_decision(console, conf=0.9, limiar=0.85)
+    assert choice == "aprovar"
+    assert ask.call_args.kwargs["default"] == "a"
+
+
+def _seed_awaiting_chunk(cfg, db, chunk_id, chunk_index, confidence, lit_id):
+    text = f"texto {chunk_id}"
+    db.upsert_chunk(
+        chunk_id, "@Book2024", "@Book2024::ch000",
+        text, f"ck{chunk_index}",
+        chunk_index=chunk_index, page_in_file=20, page_in_book=10,
+        page_confidence="inferred",
+        status="awaiting_review",
+        section_path="Ch1",
+        literature_id=lit_id,
+        summary_json=json.dumps({"summary": f"resumo {chunk_index}", "key_concepts": [], "candidates": []}),
+        review_confidence=confidence,
+    )
+    chunk_row = db.get_chunk(chunk_id)
+    fname = literature_chunk_filename_for_row("Book2024", chunk_row)
+    draft_dir = (
+        cfg.vault_path / "00_Inbox" / "Review" / literature_source_dirname("Book2024")
+    )
+    draft_dir.mkdir(parents=True, exist_ok=True)
+    meta, body = build_literature_chunk_note(
+        source_id="@Book2024", citekey="Book2024", title="Livro Teste",
+        chunk_id=chunk_id, chunk_index=chunk_index, literature_id=lit_id,
+        summary=f"resumo {chunk_index}", key_concepts=[], candidates=[],
+        section_path="Ch1",
+        page_in_file=20, page_in_book=10, status="awaiting_review",
+        review_confidence=confidence,
+    )
+    draft_path = draft_dir / fname
+    safe_write_note(draft_path, meta, body)
+    db.update_chunk_review(
+        chunk_id,
+        literature_note_path=str(draft_path),
+        status="awaiting_review",
+        review_confidence=confidence,
+    )
+
+
+def test_run_review_mode_a_respects_threshold(env):
+    cfg, db, idx = env
+    # env already has one chunk at 0.9; add two below limiar
+    _seed_awaiting_chunk(cfg, db, "@Book2024::ch000::low1", 4, 0.1, "lit-low1")
+    _seed_awaiting_chunk(cfg, db, "@Book2024::ch000::med1", 5, 0.5, "lit-med1")
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("zettel.review._dedupe_approved_concepts"),
+        patch("rich.prompt.Prompt.ask", return_value="a"),
+    ):
+        stats = run_review(cfg, db, idx, interactive=True)
+
+    assert stats["approved"] == 1
+    assert stats["skipped"] == 2
+    assert stats["rejected"] == 0
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "persisted"
+    assert db.get_chunk("@Book2024::ch000::low1")["status"] == "awaiting_review"
+    assert db.get_chunk("@Book2024::ch000::med1")["status"] == "awaiting_review"
+
+
+def test_run_review_mode_d_confirm_rejects_all(env):
+    cfg, db, idx = env
+    _seed_awaiting_chunk(cfg, db, "@Book2024::ch000::low1", 4, 0.1, "lit-low1")
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("rich.prompt.Prompt.ask", side_effect=["d", "t", "s"]),
+    ):
+        stats = run_review(cfg, db, idx, interactive=True)
+
+    assert stats["rejected"] == 2
+    assert stats["approved"] == 0
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "rejected"
+    assert db.get_chunk("@Book2024::ch000::low1")["status"] == "rejected"
+
+
+def test_run_review_mode_d_reject_band_keeps_others(env):
+    cfg, db, idx = env
+    # fixture chunk is 0.9 (high); add very_low + medium
+    _seed_awaiting_chunk(cfg, db, "@Book2024::ch000::low1", 4, 0.1, "lit-low1")
+    _seed_awaiting_chunk(cfg, db, "@Book2024::ch000::med1", 5, 0.5, "lit-med1")
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("rich.prompt.Prompt.ask", side_effect=["d", "b", "s", "q"]),
+    ):
+        stats = run_review(cfg, db, idx, interactive=True)
+
+    assert stats["rejected"] == 1
+    assert db.get_chunk("@Book2024::ch000::low1")["status"] == "rejected"
+    assert db.get_chunk("@Book2024::ch000::med1")["status"] == "awaiting_review"
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "awaiting_review"
+
+
+def test_run_review_mode_d_cancel_returns_to_menu_then_quit(env):
+    cfg, db, idx = env
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("rich.prompt.Prompt.ask", side_effect=["d", "c", "q"]),
+    ):
+        stats = run_review(cfg, db, idx, interactive=True)
+
+    assert stats == {"approved": 0, "rejected": 0, "skipped": 0}
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "awaiting_review"
+
+
+def test_run_review_auto_approve_respects_threshold(env):
+    cfg, db, idx = env
+    _seed_awaiting_chunk(cfg, db, "@Book2024::ch000::low1", 4, 0.1, "lit-low1")
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("zettel.review._dedupe_approved_concepts"),
+    ):
+        stats = run_review(cfg, db, idx, auto_approve=True, interactive=False)
+
+    assert stats["approved"] == 1
+    assert stats["skipped"] == 1
+    assert db.get_chunk("@Book2024::ch000::low1")["status"] == "awaiting_review"
+
+
+def test_purge_rejected_removes_sqlite_and_chroma(env):
+    from zettel.review import purge_rejected
+
+    cfg, db, idx = env
+    reject_chunk(cfg, db, idx, "@Book2024::ch000::abc")
+    _seed_awaiting_chunk(cfg, db, "@Book2024::ch000::keep", 4, 0.9, "lit-keep")
+
+    result = purge_rejected(cfg, db, idx, compact=False)
+    assert result["chunks"] == 1
+    assert result["literature_notes"] == 1
+    assert result["compacted"] is False
+    assert db.get_chunk("@Book2024::ch000::abc") is None
+    assert db.get_concepts_for_chunk("@Book2024::ch000::abc") == []
+    assert db.get_chunk("@Book2024::ch000::keep") is not None
+    assert "lit123" in idx.deletes
+    assert idx.chunk_deletes == ["@Book2024::ch000::abc"]
+
+
+def test_purge_rejected_empty(env):
+    from zettel.review import purge_rejected
+
+    cfg, db, idx = env
+    # fixture chunk is awaiting_review, not rejected
+    result = purge_rejected(cfg, db, idx)
+    assert result["chunks"] == 0
+    assert result["literature_notes"] == 0
+    assert result["compacted"] is False
+    assert db.get_chunk("@Book2024::ch000::abc") is not None
+
+
+def test_state_vacuum_reclaims_freelist(tmp_path):
+    db = StateDB(tmp_path / "state.db")
+    # DELETE journal so page counts live in the main file (WAL hides size until checkpoint).
+    db.conn.execute("PRAGMA journal_mode=DELETE")
+    db.upsert_source("@S", "S", "T", ["A"], 2020, "h", "/x.pdf", "pdf")
+    db.upsert_chapter("@S::ch", "@S", "Ch", "chh")
+    for i in range(20):
+        db.upsert_chunk(
+            f"@S::ch::{i:03d}", "@S", "@S::ch",
+            "texto " * 200, f"ck{i}",
+            status="rejected",
+        )
+    ids = [f"@S::ch::{i:03d}" for i in range(20)]
+    db.delete_chunks(ids)
+    path = tmp_path / "state.db"
+    before = path.stat().st_size
+    freelist_before = db.conn.execute("PRAGMA freelist_count").fetchone()[0]
+    assert freelist_before > 0
+    db.vacuum()
+    after = path.stat().st_size
+    freelist_after = db.conn.execute("PRAGMA freelist_count").fetchone()[0]
+    assert freelist_after == 0
+    assert after < before
+    db.close()
