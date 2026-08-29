@@ -100,6 +100,7 @@ def _idx_kwargs(cfg: AppConfig) -> dict[str, Any]:
         "device": cfg.device,
         "allow_fallback": cfg.embedding.allow_fallback,
         "base_url": cfg.embedding.base_url,
+        "dimensions": cfg.embedding.dimensions,
     }
 
 

@@ -19,9 +19,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # Check dependencies and config integrity
 .venv/Scripts/python.exe -m zettel doctor
+
+# Run the web UI (not a Typer subcommand — separate FastAPI app)
+uvicorn zettel.web:app --host 0.0.0.0 --port 5000
+
+# Web UI tests
+.venv/Scripts/python.exe -m pytest tests/test_web.py tests/test_web_state.py -v
 ```
 
-Python 3.12, venv at `.venv/`, dependencies managed via `requirements.txt`. Environment variables loaded from `.env` (python-dotenv) — not system env vars.
+Python 3.12, venv at `.venv/`, dependencies managed via `requirements.txt`. Environment variables loaded from `.env` (python-dotenv) — not system env vars. **`SESSION_SECRET`** (web login) is read from the process environment at startup (`os.environ`), not from `config.yaml`; set it in `.env` or the host secrets (e.g. Replit). Optional **`ZETTEL_CONFIG`** points `create_app()` / `WebApplication` at an alternate YAML (used in tests).
 
 ## Architecture
 
@@ -44,6 +50,18 @@ harvest → extract → review → connect → garden
 **Phase 4b (gardener_hub.py)**: Complementary hub-anchored MOCs via `zettel garden --hubs` — ranks permanent notes by weighted graph degree, expands neighborhoods with BFS (`expand_notes`), deduplicates overlapping neighborhoods, then routes through `_process_hub_cluster` (incremental if `hub_note_id` already has a MOC; else `moc_hub_generation` with LLM-derived topic). Persists `origin='hub_pipeline'` with `hub_note_id` in frontmatter. `garden --hubs --recreate` purges only hub MOCs; taxonomy pipeline MOCs (`origin='pipeline'`) are untouched.
 
 **sync.py**: Not part of the linear pipeline — scans `10_Sources/`, `20_Literature/` (including citekey subfolders), `30_Permanent/`, `40_MOCs/` for manually-created or hand-edited notes (via `zettel sync-manual`), assigns IDs/checksums if missing, indexes them into ChromaDB/StateDB, and writes suggested connections into an `auto-connections` managed block. It also closes the graph loop: `_extract_body_edges` persists `[[wikilinks]]` found in a note's body (outside the auto-generated managed blocks) as `related` edges in `note_connections`, never downgrading an already-typed edge. `zettel sync-manual --rebuild-graph` (`rebuild_manual_edges`) backfills these edges for the whole vault from bodies already in SQLite.
+
+### Web UI (`web.py`, `web_app.py`, `templates/`, `static/`)
+
+Server-rendered FastAPI app — no Node/bundler. Entry point: `uvicorn zettel.web:app` (see README § Interface web for user-facing docs).
+
+- **`web.py`**: HTTP routes, Jinja2 templates, auth (HMAC-signed `zettel_session` cookie + CSRF on all POSTs), upload validation, job enqueue redirects. Pages: dashboard, documents, pipeline, review, notes/MOCs (+ read-only detail views for sources/notes/MOCs), runs/jobs, settings/health.
+- **`web_app.py`**: `WebApplication` service — daemon worker thread, SQLite-backed job queue (`web_jobs`, `web_job_events` in `state.py`), dispatches pipeline ops via the same modules as CLI. **`_idx_kwargs` must mirror `cli._idx_kwargs`** (including `embedding.dimensions`) when opening `VectorIndex`.
+- **`progress.py`**: shared `ProgressObserver` protocol; web worker emits checkpoints through `JobProgress`.
+- **Auth**: `SESSION_SECRET` env var; login compares instance secret with `hmac.compare_digest`. Without it, no session is issued.
+- **Concurrency**: single Uvicorn worker, at most one mutating job (`queued`/`running`) at a time; second submit → 409. On server restart, `running` jobs → `interrupted`; `queued` jobs resume.
+- **Enqueued operations**: `harvest` (one inbox file, `interactive=False`), `extract` (`auto_approve=False`), `review` (batch approve/reject only — no CLI auto-approve/bands), `connect`, `garden`, `garden`+hubs, `sync`, `retry_chunks`, `retry_assets`.
+- **Not exposed in web** (CLI only): `ask`, `article`, `run-all`, interactive duplicate resolution, `purge-rejected`, `reindex`/`rebuild`, `garden --recreate`, `init --reset`, `set-paging`, `rechunk`, dumps, `doctor`, `status`, harvest-all-inbox.
 
 ### Hybrid retrieval + GraphRAG (retrieval.py, graph.py, ask.py, article.py)
 
@@ -71,7 +89,7 @@ Every decision is recorded via `db.record_duplicate(run_id, layer)` and surfaced
 ### Key shared infrastructure
 
 - **config.py (`AppConfig` / `load_config`)**: schema Pydantic + fallback de fabrica. Fonte operacional: `config/config.yaml` (toda chave do schema deve estar no YAML, exceto `gardener.allowed_topics`). `load_config` faz `AppConfig(**yaml)`; chave ausente usa o Field default. Segredos ficam no `.env`.
-- **state.py (StateDB)**: SQLite with WAL mode. Tables: files, sources, chapters, chunks, concepts, notes, mocs, assets, llm_cache, note_connections, runs, plus FTS5 virtual tables fts_notes/fts_chunks. `runs` and `sources` store estimated LLM/embedding cost and token totals. All pipeline modules receive a `StateDB` instance for incremental processing.
+- **state.py (StateDB)**: SQLite with WAL mode. Tables: files, sources, chapters, chunks, concepts, notes, mocs, assets, llm_cache, note_connections, runs, **`web_jobs`**, **`web_job_events`**, plus FTS5 virtual tables fts_notes/fts_chunks. `runs` and `sources` store estimated LLM/embedding cost and token totals. `get_web_dashboard()` feeds the web overview. All pipeline modules receive a `StateDB` instance for incremental processing.
 - **index.py (VectorIndex)**: ChromaDB wrapper with 5 collections (sources, chunks, permanent_notes, mocs, **literature_notes**). Embedding provider configurable (OpenAI/SentenceTransformers/Ollama). Literature notes are embedded only after `review` approval. Upserts record estimated embedding usage on the active `CostTracker`.
 - **vault.py**: Obsidian I/O — YAML frontmatter parse/render, managed blocks (`<!-- zettel:auto-backlinks:start/end -->`), safe file writes that never overwrite manual edits outside managed blocks. Builders for SRC, literature **index**, and granular literature chunk notes. `sync_source_costs_to_vault` mirrors SQLite cost fields onto SRC frontmatter.
 - **pricing.py / usage.py**: LiteLLM `cost_per_token` as price calculator only (not an LLM client); `CostTracker` aggregates per run/source via contextvars. Instrumented from `call_llm` and embedding upserts.

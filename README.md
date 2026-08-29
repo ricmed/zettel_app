@@ -58,7 +58,12 @@ zettel_app/
 │   ├── ask.py               # Comando `ask`: QA sobre o vault com citações
 │   ├── assets.py            # Extração e descrição multimodal de imagens
 │   ├── rebuild.py           # Reconstrução do Chroma (reindex) e do vault (rebuild) a partir do SQLite
-│   └── sync.py              # Sincronização de notas manuais (SRC/LIT/ZTL/MOC)
+│   ├── sync.py              # Sincronização de notas manuais (SRC/LIT/ZTL/MOC)
+│   ├── progress.py          # Protocolo ProgressObserver (CLI + web)
+│   ├── web.py               # Interface web FastAPI (rotas, auth, templates)
+│   ├── web_app.py           # Fila de jobs web e dispatch do pipeline
+│   ├── templates/           # Jinja2 server-rendered (14 páginas)
+│   └── static/              # CSS (app.css, mobile.css)
 ├── config/
 │   ├── config.yaml          # Fonte operacional (todos os knobs do schema)
 │   └── moc_topics.yaml      # Taxonomia hierarquica de topicos para MOCs
@@ -427,23 +432,28 @@ A interface FastAPI é server-rendered e não exige Node, bundler ou acesso dire
 do navegador ao SQLite/ChromaDB.
 
 ```bash
-# Defina um segredo longo na área Secrets do Replit (não no config.yaml)
+# Segredo de instância (Replit Secrets, .env ou variável do processo — não vai no config.yaml)
 # SESSION_SECRET=...
 
 uvicorn zettel.web:app --host 0.0.0.0 --port "${PORT:-5000}"
 ```
 
+Não há subcomando `zettel web`; a UI é um app FastAPI separado. Testes: `pytest tests/test_web.py tests/test_web_state.py -v`. Config alternativo: env `ZETTEL_CONFIG=/caminho/config.yaml`.
+
 Abra o preview e entre com o valor de `SESSION_SECRET`. A navegação oferece:
 
 - **Visão geral**: KPIs, funil, confiança, custos, runs, duplicatas e qualidade do grafo;
 - **Documentos**: upload de PDF/Markdown/TXT (até 25 MB), decisões de duplicidade,
-  bibliografia e paginação, e harvest do arquivo escolhido;
+  bibliografia e paginação, e harvest **de um arquivo por vez** (não inbox inteiro);
 - **Pipeline**: extract, connect, garden taxonômico, garden por hubs, sincronização
   manual e repetição segura de chunks/assets com falha;
-- **Revisão**: filtros por fonte/confiança, trecho, candidatos e ações explícitas
-  de aprovação/rejeição em lote;
-- **Execuções**: estado persistente, progresso, eventos, resultado e erro sanitizado;
-- **Configuração / saúde**: FTS5, diretórios e identidade do embedding, sem segredos.
+- **Revisão**: filtros por fonte/confiança, trecho, candidatos e aprovação/rejeição
+  em lote (sem auto-approve por limiar — use a CLI para `--yes` / bandas interativas);
+- **Notas / MOCs**: listagem read-only e detalhes de notas permanentes, MOCs e fontes;
+- **Execuções**: estado persistente, progresso (polling em `/api/jobs/{id}`), eventos,
+  resultado e erro sanitizado;
+- **Configuração / saúde**: FTS5, diretórios, identidade LLM/embedding (incl. drift
+  de `dimensions`) — sem segredos.
 
 ### Persistência, concorrência e recuperação
 
@@ -457,6 +467,8 @@ Abra o preview e entre com o valor de `SESSION_SECRET`. A navegação oferece:
   checkpoints seguros, executando novamente a fase quando necessário.
 - Operações destrutivas (`init --reset`, purge, rebuild, reindex e garden recreate)
   não são expostas na primeira versão web e continuam disponíveis somente na CLI.
+- Também só na CLI: `ask`, `article`, `run-all`, harvest de inbox inteiro, resolução
+  interativa de duplicatas semânticas, `set-paging`, `rechunk`, dumps e `doctor`.
 - A CLI permanece compatível e continua usando a apresentação Rich normalmente.
 
 ## Uso

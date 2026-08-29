@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from zettel.config import AppConfig, EmbeddingConfig
 from zettel.state import StateDB
-from zettel.web_app import UserFacingError, safe_error
+from zettel.web_app import UserFacingError, _idx_kwargs, safe_error
 
 
 def test_web_queue_enforces_mutual_exclusion_and_transitions(tmp_path: Path):
@@ -61,3 +62,8 @@ def test_progress_events_and_dashboard_are_persisted(tmp_path: Path):
 def test_expected_operational_error_is_safe_and_useful():
     error = UserFacingError("Nenhuma fonte foi criada.")
     assert safe_error(error) == "Nenhuma fonte foi criada."
+
+
+def test_idx_kwargs_forwards_embedding_dimensions():
+    cfg = AppConfig(embedding=EmbeddingConfig(provider="ollama", model="qwen3-embedding", dimensions=1024))
+    assert _idx_kwargs(cfg)["dimensions"] == 1024

@@ -503,14 +503,21 @@ async def settings(request: Request):
         }
     finally:
         db.close()
-    from zettel.index import peek_stored_embedding_identity
-    stored_provider, stored_model = peek_stored_embedding_identity(cfg.chroma_path)
+    from zettel.index import _format_space_id, peek_stored_embedding_identity
+    stored_p, stored_m, stored_d = peek_stored_embedding_identity(cfg.chroma_path)
+    cfg_p, cfg_m, cfg_d = (
+        cfg.embedding.provider, cfg.embedding.model, cfg.embedding.dimensions,
+    )
+    has_stored = stored_p is not None or stored_m is not None or stored_d is not None
     embedding = {
-        "stored": f"{stored_provider}/{stored_model}" if stored_provider or stored_model else "ainda não gravado",
-        "configured": f"{cfg.embedding.provider}/{cfg.embedding.model}",
-        "drift": bool(stored_provider and stored_model and (
-            stored_provider != cfg.embedding.provider or stored_model != cfg.embedding.model
-        )),
+        "stored": (
+            _format_space_id(stored_p, stored_m, stored_d)
+            if has_stored else "ainda não gravado"
+        ),
+        "configured": _format_space_id(cfg_p, cfg_m, cfg_d),
+        "drift": has_stored and (
+            stored_p != cfg_p or stored_m != cfg_m or stored_d != cfg_d
+        ),
     }
     return _render(request, "settings.html", page="settings", cfg=cfg, health=health,
                    embedding=embedding)
