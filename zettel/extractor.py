@@ -59,6 +59,7 @@ def run_extract(
     idx: VectorIndex,
     *,
     auto_approve: bool = False,
+    observer=None,
 ) -> list[dict]:
     """Process pending chunks into literature drafts. Returns awaiting-review candidates.
 
@@ -74,7 +75,7 @@ def run_extract(
     begin_run(run_id)
 
     from zettel.assets import describe_pending_assets
-    described = describe_pending_assets(cfg, db)
+    described = describe_pending_assets(cfg, db, observer=observer)
     if described:
         logger.info("Imagens descritas nesta execucao: %d", described)
 
@@ -85,6 +86,8 @@ def run_extract(
     pending = db.get_pending_chunks()
     total = len(pending)
     logger.info("Chunks pendentes para extracao: %d", total)
+    from zettel.progress import report
+    report(observer, "extract", f"{total} chunk(s) pendente(s).", total_items=total)
 
     all_candidates: list[dict] = []
 
@@ -101,6 +104,10 @@ def run_extract(
             source_id = chunk_row["source_id"]
             set_source(source_id)
             progress.update(task, description=f"chunk {i}/{total}", advance=1)
+            report(
+                observer, "extract", f"Extraindo chunk {i}/{total}.",
+                current_item=chunk_id, current_index=i, total_items=total,
+            )
 
             page_file = chunk_row.get("page_in_file")
             page_book = chunk_row.get("page_in_book")

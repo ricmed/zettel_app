@@ -58,7 +58,7 @@ class _GardenStats:
 
 
 def run_garden(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, *, recreate: bool = False,
+    cfg: AppConfig, db: StateDB, idx: VectorIndex, *, recreate: bool = False, observer=None,
 ) -> list[str]:
     """Cluster permanent notes and generate/update MOCs. Returns moc_ids."""
     from zettel.usage import begin_run, finish_pipeline_run
@@ -83,6 +83,8 @@ def run_garden(
         raise
 
     note_count = idx.count_permanent_notes()
+    from zettel.progress import report
+    report(observer, "garden", f"Analisando {note_count} nota(s).", total_items=note_count)
     if note_count < cfg.gardener.min_cluster_size:
         logger.info(
             "Poucas notas para clusterização (%d < %d)", note_count, cfg.gardener.min_cluster_size
@@ -148,7 +150,11 @@ def run_garden(
     llm = get_llm(cfg)
     moc_ids: list[str] = []
 
-    for category, cluster_ids in cluster_pairs:
+    for cluster_index, (category, cluster_ids) in enumerate(cluster_pairs, 1):
+        report(
+            observer, "garden", f"Processando cluster {cluster_index}/{len(cluster_pairs)}.",
+            current_item=category, current_index=cluster_index, total_items=len(cluster_pairs),
+        )
         moc_id = _process_cluster(cfg, db, idx, llm, category, cluster_ids, stats)
         if moc_id:
             moc_ids.append(moc_id)

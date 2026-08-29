@@ -329,7 +329,7 @@ def _rate_limit_wait_seconds(
     return min(backoff_max, (2 ** attempt) * 1.0)
 
 
-def describe_pending_assets(cfg: AppConfig, db: StateDB) -> int:
+def describe_pending_assets(cfg: AppConfig, db: StateDB, *, observer=None) -> int:
     """Describe all pending assets with a multimodal LLM. Returns count described.
 
     Idempotent: each call is keyed by (prompt, image bytes, context, model) in the
@@ -364,10 +364,15 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB) -> int:
     total_images = len(pending)
 
     from zettel.usage import clear_progress, set_progress
+    from zettel.progress import report
 
     for idx, asset in enumerate(pending):
         step = idx + 1
         set_progress(step, total_images, "imagem")
+        report(
+            observer, "assets", f"Descrevendo asset {step}/{total_images}.",
+            current_item=asset["asset_id"], current_index=step, total_items=total_images,
+        )
         img_file = cfg.vault_path / asset["path"]
         if not img_file.exists():
             db.update_asset_description(asset["asset_id"], "", "", status="failed")

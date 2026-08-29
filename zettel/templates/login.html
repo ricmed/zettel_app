@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% block title %}Entrar · Zettelkasten{% endblock %}
+{% block content %}<section class="login-card"><div class="eyebrow">workspace local</div><h1>Seu acervo, em fluxo.</h1>
+<p>Entre com o segredo da instância para operar ingestão, revisão e jardinagem sem expor o banco ao navegador.</p>
+<form method="post" action="/login"><input type="hidden" name="login_csrf" value="{{ login_csrf }}"><input type="text" name="username" value="zettel" autocomplete="username" hidden><label>Segredo da instância<input type="password" name="instance_secret" autocomplete="current-password" required autofocus></label><button class="primary">Entrar</button></form>
+<small>O segredo é validado apenas no servidor e nunca é armazenado no acervo.</small></section>{% endblock %}

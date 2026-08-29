@@ -1,0 +1,20 @@
+@media (max-width: 800px) {
+  .topbar nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 2px;
+    overflow: visible;
+    padding: 8px 12px;
+  }
+
+  .topbar nav a {
+    padding: 6px 3px;
+    text-align: center;
+    white-space: normal;
+    font-size: 11px;
+  }
+
+  .shell {
+    padding-top: 112px;
+  }
+}
