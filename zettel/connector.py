@@ -15,7 +15,7 @@ from typing import Any
 
 from ulid import ULID
 
-from zettel.config import AppConfig
+from zettel.config import AppConfig, llm_phase
 from zettel.hashing import (
     compute_embedding_input_hash,
     compute_llm_call_checksum,
@@ -109,7 +109,7 @@ def run_connect(
     run_id = db.start_run("connect")
     begin_run(run_id)
 
-    llm = get_llm(cfg)
+    llm = get_llm(cfg, "connect")
     prompt_parts = load_prompt_parts(cfg.prompts_path / "permanent_note.md")
     retriever = Retriever(cfg, db, idx)
 
@@ -233,10 +233,11 @@ def _process_candidate(
     # preenchido (tese/definicao/RAG/etc.), entao um re-connect apos falha nao paga de novo.
     from zettel.usage import get_tracker
 
+    spec = llm_phase(cfg, "connect")
     prompt_hash = sha256_hex(prompt_parts.full_template)
     filled_hash = sha256_hex(normalize_text_for_hash(filled_for_hash))
     call_checksum = compute_llm_call_checksum(
-        prompt_hash, filled_hash, cfg.llm.model, cfg.llm.temperature, cfg.language,
+        prompt_hash, filled_hash, spec.model, cfg.llm.temperature, cfg.language,
     )
     tracker = get_tracker()
     snap = tracker.summary().as_dict() if tracker else {}
@@ -246,7 +247,7 @@ def _process_candidate(
         if cached is not None:
             logger.debug("Cache hit (Prompt 2) para conceito %s", concept_id)
             from zettel.usage import record_cache_hit
-            record_cache_hit(label=f"connect:{concept_id}", model=cfg.llm.model)
+            record_cache_hit(label=f"connect:{concept_id}", model=spec.model)
             response_text = cached
             cache_hit = True
         else:
@@ -257,7 +258,7 @@ def _process_candidate(
                 label=f"connect:{concept_id}",
                 step=step,
                 total=total,
-                provider=cfg.llm.provider,
+                provider=spec.provider,
                 prompt_cache=cfg.llm.prompt_cache,
             )
             db.cache_llm_response(
@@ -607,11 +608,12 @@ def _apply_ptbr_guard(
         mapping = {"text": note_json}
         system = fill_template(guard_parts.system, mapping) if guard_parts.system else ""
         user = fill_template(guard_parts.user_template, mapping)
+        spec = llm_phase(cfg, "connect")
         corrected_raw = call_llm(
             llm,
             user,
             system=system or None,
-            provider=cfg.llm.provider,
+            provider=spec.provider,
             prompt_cache=cfg.llm.prompt_cache,
         )
         corrected_data = json.loads(extract_json(corrected_raw))

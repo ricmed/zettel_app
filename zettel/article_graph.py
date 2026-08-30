@@ -18,6 +18,7 @@ from langgraph.types import Command, interrupt
 
 from . import article as art
 from . import graph as note_graph
+from .config import llm_phase
 from .retrieval import Retriever
 from .schemas import ArticleOutline
 
@@ -392,7 +393,7 @@ def node_assemble(state: ArticleGraphState, config: RunnableConfig) -> dict:
     )
     frontmatter.update(
         {
-            "llm_model": rt.cfg.llm.model,
+            "llm_model": llm_phase(rt.cfg, "article").model,
             "topic": state["topic"],
             "style": state["style"],
             "origin": "article",
@@ -591,7 +592,7 @@ def _result_from_state(
         outline=outline,
         warnings=list(state.get("warnings") or []),
         llm_called=bool(state.get("llm_called") or rt.llm_called),
-        llm_model=rt.cfg.llm.model,
+        llm_model=llm_phase(rt.cfg, "article").model,
         note_ids=list(state.get("used_note_ids") or (
             list(rt.catalog.notes.keys()) if rt.catalog else []
         )),

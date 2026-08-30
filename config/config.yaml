@@ -18,16 +18,46 @@ cache_path: ./data/cache            # cache intermediario (ex. checkpointer arti
 prompts_path: ./prompts             # templates .md dos prompts
 
 # ── LLM ─────────────────────────────────────────────────────────────────
+# Knobs de amostragem sao globais. Cada fase declara provider + model + base_url
+# (sem heranca de um modelo unico). Embedding continua no bloco `embedding:`.
+# Providers: openai | anthropic | ollama | gemini | openrouter | opencode
 llm:
-  provider: openai          # openai | anthropic | ollama | gemini | openrouter | opencode
-  model: gpt-4o-mini        # modelo de extracao/geracao (nao e o de embedding)
-  #provider: ollama
-  #model: qwen3.5:4b
   temperature: 0.15         # 0 = mais deterministico; >0 aumenta variacao
   top_p: 0.5                # nucleus sampling encaminhado a get_llm (LangChain)
   max_retries: 2            # retries do client LangChain em falha HTTP
-  base_url: null            # gateways OpenAI-compatible (OpenRouter, OpenCode, vLLM, …)
   prompt_cache: true        # layout System+Human + hints Anthropic; ≠ llm_cache SQLite
+  harvest:
+    provider: openai
+    model: gpt-4o-mini      # bibliografia ABNT no harvest
+    base_url: null
+  extract:
+    provider: openai
+    model: gpt-4o-mini      # notas de literatura (Prompt 1)
+    base_url: null
+  review:
+    provider: openai
+    model: gpt-4o-mini      # dedupe de conceitos pos-aprovacao
+    base_url: null
+  connect:
+    provider: openai
+    model: gpt-4o-mini      # notas permanentes (Prompt 2)
+    base_url: null
+  garden:
+    provider: openai
+    model: gpt-4o-mini      # MOCs taxonomicos e hub
+    base_url: null
+  ask:
+    provider: openai
+    model: gpt-4o-mini      # zettel ask
+    base_url: null
+  article:
+    provider: openai
+    model: gpt-4o-mini      # zettel article (todos os nos)
+    base_url: null
+  images:
+    provider: openai
+    model: gpt-4o-mini      # descricao multimodal (precisa ser vision)
+    base_url: null
 
 # ── Embeddings ──────────────────────────────────────────────────────────
 # Providers: openai | sentence-transformers | ollama
@@ -94,7 +124,7 @@ images:
   min_width: 64              # descarta imagens menores (icones/logos)
   min_height: 64
   context_chars: 600         # caracteres ao redor da imagem usados como contexto
-  model: ""                  # vazio = usa llm.model (precisa ser multimodal)
+  # Identidade vision: llm.images (provider + model + base_url)
   # Visao consome TPM rapido; pacing + retry evitam marcar 429 como failed:
   min_interval_seconds: 0.7  # pausa minima entre chamadas de descricao
   rate_limit_max_retries: 8  # tentativas por imagem em rate limit

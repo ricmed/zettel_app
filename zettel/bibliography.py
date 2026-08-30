@@ -10,7 +10,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from zettel.config import AppConfig
+from zettel.config import AppConfig, llm_phase
 from zettel.hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
 from zettel.llm import call_llm, extract_json, fill_template, get_llm, load_prompt_parts
 from zettel.state import StateDB
@@ -748,10 +748,11 @@ def enrich_with_llm(
         seed.model_dump(), sort_keys=True, ensure_ascii=False,
     )))
 
+    spec = llm_phase(cfg, "harvest")
     call_checksum = compute_llm_call_checksum(
         prompt_hash,
         sample_checksum,
-        cfg.llm.model,
+        spec.model,
         cfg.llm.temperature,
         cfg.language,
         rag_context_checksum=seed_checksum,
@@ -759,7 +760,7 @@ def enrich_with_llm(
     cached = db.get_cached_llm_response(call_checksum)
     if cached:
         from zettel.usage import record_cache_hit
-        record_cache_hit(label=f"biblio:{filename}", model=cfg.llm.model)
+        record_cache_hit(label=f"biblio:{filename}", model=spec.model)
         response_text = cached
     else:
         mapping = {
@@ -771,12 +772,12 @@ def enrich_with_llm(
         system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
         user = fill_template(prompt_parts.user_template, mapping)
         try:
-            llm = get_llm(cfg)
+            llm = get_llm(cfg, "harvest")
             response_text = call_llm(
                 llm,
                 user,
                 system=system or None,
-                provider=cfg.llm.provider,
+                provider=spec.provider,
                 prompt_cache=cfg.llm.prompt_cache,
             )
             db.cache_llm_response(

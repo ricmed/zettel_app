@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+from .config import llm_phase
 from .hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
 from .llm import call_llm, fill_template, get_llm, load_prompt_parts
 from .retrieval import RetrievedNote, Retriever
@@ -117,6 +118,7 @@ def run_ask(
         "graph_max_neighbors": graph_cfg.max_neighbors,
     }
 
+    spec = llm_phase(cfg, "ask")
     result = AskResult(
         question=question,
         answer="",
@@ -124,7 +126,7 @@ def run_ask(
         candidates=[_to_ask_source(db, h) for h in result_pool.candidates],
         mode=mode,
         graph_expansion=bool(use_graph),
-        llm_model=cfg.llm.model,
+        llm_model=spec.model,
         retrieval_params=retrieval_params,
     )
 
@@ -150,21 +152,21 @@ def run_ask(
     prompt_hash = sha256_hex(prompt_parts.full_template)
     filled_hash = sha256_hex(normalize_text_for_hash(filled_for_hash))
     call_checksum = compute_llm_call_checksum(
-        prompt_hash, filled_hash, cfg.llm.model, cfg.llm.temperature, cfg.language,
+        prompt_hash, filled_hash, spec.model, cfg.llm.temperature, cfg.language,
     )
     cached = db.get_cached_llm_response(call_checksum)
     if cached is not None:
         logger.debug("Cache hit (ask) para pergunta")
         from zettel.usage import record_cache_hit
-        record_cache_hit(label="ask", model=cfg.llm.model)
+        record_cache_hit(label="ask", model=spec.model)
         result.answer = cached
     else:
-        llm = get_llm(cfg)
+        llm = get_llm(cfg, "ask")
         answer = call_llm(
             llm,
             user,
             system=system or None,
-            provider=cfg.llm.provider,
+            provider=spec.provider,
             prompt_cache=cfg.llm.prompt_cache,
         )
         db.cache_llm_response(

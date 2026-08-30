@@ -154,15 +154,21 @@ def _auth(request: Request) -> bool:
 
 
 def _llm_ready(cfg: Any) -> bool:
-    provider = str(cfg.llm.provider).lower()
+    from zettel.config import LLM_PHASES, llm_phase
+    from zettel.llm import normalize_llm_provider
+
     env_names = {
         "openai": ("OPENAI_API_KEY",),
         "openrouter": ("OPENROUTER_API_KEY", "OPENAI_API_KEY"),
         "anthropic": ("ANTHROPIC_API_KEY",),
         "gemini": ("GOOGLE_API_KEY",),
     }
-    required = env_names.get(provider)
-    return True if required is None else any(os.getenv(name) for name in required)
+    for phase in LLM_PHASES:
+        provider = normalize_llm_provider(llm_phase(cfg, phase).provider)
+        required = env_names.get(provider)
+        if required is not None and not any(os.getenv(name) for name in required):
+            return False
+    return True
 
 
 def _file_needs_harvest(db: Any, file_path: Path) -> bool:
@@ -619,5 +625,17 @@ async def settings(request: Request):
             stored_p != cfg_p or stored_m != cfg_m or stored_d != cfg_d
         ),
     }
-    return _render(request, "settings.html", page="settings", cfg=cfg, health=health,
-                   embedding=embedding)
+    return _render(
+        request, "settings.html", page="settings", cfg=cfg, health=health,
+        embedding=embedding, llm_phases=_llm_phase_rows(cfg),
+    )
+
+
+def _llm_phase_rows(cfg: Any) -> list[dict[str, str]]:
+    from zettel.config import LLM_PHASES, llm_phase
+
+    rows = []
+    for phase in LLM_PHASES:
+        spec = llm_phase(cfg, phase)
+        rows.append({"phase": phase, "provider": spec.provider, "model": spec.model})
+    return rows

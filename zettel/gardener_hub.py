@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from ulid import ULID
 
-from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, HubMocsConfig
+from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, HubMocsConfig, llm_phase
 from zettel.graph import expand_notes
 from zettel.hashing import sha256_hex
 from zettel.index import VectorIndex
@@ -228,7 +228,7 @@ def run_garden_hubs(
         len(cluster_pairs), stats.skipped_dedup,
     )
 
-    llm = get_llm(cfg)
+    llm = get_llm(cfg, "garden")
     moc_ids: list[str] = []
     degree_by_hub = dict(ranked)
 
@@ -357,11 +357,12 @@ def _create_new_hub_moc(
     user = fill_template(prompt_parts.user_template, mapping)
 
     try:
+        spec = llm_phase(cfg, "garden")
         response = call_llm(
             llm,
             user,
             system=system or None,
-            provider=cfg.llm.provider,
+            provider=spec.provider,
             prompt_cache=cfg.llm.prompt_cache,
         )
         moc_output = _parse_hub_moc_output(response)
@@ -477,11 +478,12 @@ def _update_hub_moc(
     user = fill_template(prompt_parts.user_template, mapping)
 
     try:
+        spec = llm_phase(cfg, "garden")
         response = call_llm(
             llm,
             user,
             system=system or None,
-            provider=cfg.llm.provider,
+            provider=spec.provider,
             prompt_cache=cfg.llm.prompt_cache,
         )
         incremental_output = _parse_incremental_output(response)

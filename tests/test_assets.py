@@ -141,7 +141,7 @@ def test_describe_pending_assets_uses_cache(tmp_path, db, monkeypatch):
                 content = "Um grafico de barras comparando modelos."
             return R()
 
-    monkeypatch.setattr("zettel.assets._get_multimodal_llm", lambda cfg, model: FakeLLM())
+    monkeypatch.setattr("zettel.assets.get_llm", lambda *a, **k: FakeLLM())
 
     n1 = describe_pending_assets(cfg, db)
     assert n1 == 1
@@ -190,7 +190,7 @@ def test_describe_retries_rate_limit_then_succeeds(tmp_path, db, monkeypatch):
 
             return R()
 
-    monkeypatch.setattr("zettel.assets._get_multimodal_llm", lambda cfg, model: FakeLLM())
+    monkeypatch.setattr("zettel.assets.get_llm", lambda *a, **k: FakeLLM())
     monkeypatch.setattr("zettel.assets.time.sleep", lambda s: sleeps.append(s))
 
     n = describe_pending_assets(cfg, db)
@@ -218,7 +218,7 @@ def test_describe_rate_limit_exhausted_keeps_pending(tmp_path, db, monkeypatch):
                 "Error code: 429 - {'error': {'code': 'rate_limit_exceeded'}}"
             )
 
-    monkeypatch.setattr("zettel.assets._get_multimodal_llm", lambda cfg, model: Always429())
+    monkeypatch.setattr("zettel.assets.get_llm", lambda *a, **k: Always429())
     monkeypatch.setattr("zettel.assets.time.sleep", lambda s: sleeps.append(s))
 
     n = describe_pending_assets(cfg, db)
@@ -234,7 +234,7 @@ def test_describe_non_rate_limit_error_marks_failed(tmp_path, db, monkeypatch):
         def invoke(self, messages):
             raise RuntimeError("connection reset by peer")
 
-    monkeypatch.setattr("zettel.assets._get_multimodal_llm", lambda cfg, model: Boom())
+    monkeypatch.setattr("zettel.assets.get_llm", lambda *a, **k: Boom())
     monkeypatch.setattr("zettel.assets.time.sleep", lambda s: None)
 
     n = describe_pending_assets(cfg, db)
@@ -261,7 +261,7 @@ def test_describe_aborts_batch_after_consecutive_rate_limits(tmp_path, db, monke
         def invoke(self, messages):
             raise RuntimeError("Error code: 429 - rate_limit_exceeded")
 
-    monkeypatch.setattr("zettel.assets._get_multimodal_llm", lambda cfg, model: Always429())
+    monkeypatch.setattr("zettel.assets.get_llm", lambda *a, **k: Always429())
     monkeypatch.setattr("zettel.assets.time.sleep", lambda s: None)
 
     n = describe_pending_assets(cfg, db)

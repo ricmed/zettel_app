@@ -28,6 +28,7 @@ _OPENAI_COMPAT_PROVIDERS = frozenset({
     "azure",
     "compatible",
 })
+_CHAT_PROVIDERS = _OPENAI_COMPAT_PROVIDERS | frozenset({"anthropic", "ollama", "gemini"})
 
 
 def clip_text(text: str, max_len: int = 72) -> str:
@@ -47,29 +48,40 @@ def is_openai_compatible(provider: str | None) -> bool:
     return normalize_llm_provider(provider) in _OPENAI_COMPAT_PROVIDERS
 
 
-def get_llm(cfg: Any, temperature: float | None = None) -> Any:
-    """Instantiate the configured LLM from AppConfig.
+def is_supported_llm_provider(provider: str | None) -> bool:
+    return normalize_llm_provider(provider) in _CHAT_PROVIDERS
 
-    ``temperature`` overrides ``cfg.llm.temperature`` when provided (used by
-    article enricher/judge/personality nodes that need cooler or warmer draws).
-    ``cfg.llm.top_p`` is always forwarded to the LangChain client.
 
-    OpenAI-compatible gateways (``openrouter``, ``opencode``, ``azure``,
-    ``compatible``) use ``ChatOpenAI`` with optional ``llm.base_url``.
+def get_llm(
+    cfg: Any,
+    phase: str,
+    *,
+    temperature: float | None = None,
+    max_retries: int | None = None,
+) -> Any:
+    """Instantiate the LLM configured for ``phase``.
+
+    Identity (provider, model, base_url) comes from ``llm.<phase>``. Sampling
+    knobs come from ``cfg.llm`` unless ``temperature`` / ``max_retries`` are
+    passed (article node temps; vision sets ``max_retries=0`` because assets
+    owns 429 pacing).
     """
+    from zettel.config import llm_phase
+
+    spec = llm_phase(cfg, phase)
     temp = cfg.llm.temperature if temperature is None else temperature
-    provider = normalize_llm_provider(cfg.llm.provider)
-    base_url = getattr(cfg.llm, "base_url", None)
-    max_retries = cfg.llm.max_retries
+    retries = cfg.llm.max_retries if max_retries is None else max_retries
+    provider = normalize_llm_provider(spec.provider)
+    base_url = spec.base_url
     top_p = getattr(cfg.llm, "top_p", 1)
 
     if is_openai_compatible(provider):
         from langchain_openai import ChatOpenAI
         kwargs: dict[str, Any] = {
-            "model": cfg.llm.model,
+            "model": spec.model,
             "temperature": temp,
             "top_p": top_p,
-            "max_retries": max_retries,
+            "max_retries": retries,
         }
         if base_url:
             kwargs["base_url"] = base_url
@@ -78,16 +90,16 @@ def get_llm(cfg: Any, temperature: float | None = None) -> Any:
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(
-            model=cfg.llm.model,
+            model=spec.model,
             temperature=temp,
             top_p=top_p,
-            max_retries=max_retries,
+            max_retries=retries,
         )
 
     if provider == "ollama":
         from langchain_ollama import ChatOllama
         kwargs = {
-            "model": cfg.llm.model,
+            "model": spec.model,
             "temperature": temp,
             "top_p": top_p,
         }
@@ -98,13 +110,13 @@ def get_llm(cfg: Any, temperature: float | None = None) -> Any:
     if provider == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(
-            model=cfg.llm.model,
+            model=spec.model,
             temperature=temp,
             top_p=top_p,
-            max_retries=max_retries,
+            max_retries=retries,
         )
 
-    raise ValueError(f"LLM provider não suportado: {cfg.llm.provider}")
+    raise ValueError(f"LLM provider não suportado: {spec.provider}")
 
 
 def _resolve_model_name(llm: Any, model: Optional[str]) -> str:

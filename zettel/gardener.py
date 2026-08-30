@@ -16,7 +16,7 @@ from typing import Any
 import numpy as np
 from ulid import ULID
 
-from zettel.config import AppConfig, DEFAULT_RELATION_WEIGHTS
+from zettel.config import AppConfig, DEFAULT_RELATION_WEIGHTS, llm_phase
 from zettel.gardener_assign import (
     assign_notes_to_categories,
     build_embeddings_by_id,
@@ -147,7 +147,7 @@ def run_garden(
 
     logger.info("Clusters encontrados: %d", len(cluster_pairs))
 
-    llm = get_llm(cfg)
+    llm = get_llm(cfg, "garden")
     moc_ids: list[str] = []
 
     for cluster_index, (category, cluster_ids) in enumerate(cluster_pairs, 1):
@@ -335,11 +335,12 @@ def _create_new_moc(
     user = fill_template(prompt_parts.user_template, mapping)
 
     try:
+        spec = llm_phase(cfg, "garden")
         response = call_llm(
             llm,
             user,
             system=system or None,
-            provider=cfg.llm.provider,
+            provider=spec.provider,
             prompt_cache=cfg.llm.prompt_cache,
         )
         moc_output = _parse_moc_output(response)
@@ -589,11 +590,12 @@ def _update_existing_moc(
     user = fill_template(prompt_parts.user_template, mapping)
 
     try:
+        spec = llm_phase(cfg, "garden")
         response = call_llm(
             llm,
             user,
             system=system or None,
-            provider=cfg.llm.provider,
+            provider=spec.provider,
             prompt_cache=cfg.llm.prompt_cache,
         )
         incremental_output = _parse_incremental_output(response)

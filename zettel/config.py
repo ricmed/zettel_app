@@ -12,23 +12,55 @@ from typing import Any, Literal
 
 import yaml
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CONFIG_PATH = Path("config/config.yaml")
 
 
-class LLMConfig(BaseModel):
-    """Fallback de fabrica. Valores operacionais: config/config.yaml -> llm."""
+LLM_PHASES: tuple[str, ...] = (
+    "harvest",
+    "extract",
+    "review",
+    "connect",
+    "garden",
+    "ask",
+    "article",
+    "images",
+)
+
+
+class LLMPhaseConfig(BaseModel):
+    """Identidade de um consumidor de LLM. Knobs de amostragem ficam em LLMConfig."""
+
+    model_config = ConfigDict(extra="forbid")
 
     provider: str = "openai"
     model: str = "gpt-4o-mini"
+    base_url: str | None = None       # gateways OpenAI-compatible / Ollama; None = default do provider
+
+
+class LLMConfig(BaseModel):
+    """Fallback de fabrica. Valores operacionais: config/config.yaml -> llm.
+
+    Amostragem e retries sao globais. Cada fase declara provider + model + base_url.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
     temperature: float = 0
     top_p: float = 1                  # nucleus sampling; encaminhado em get_llm
     max_retries: int = 2
-    base_url: str | None = None       # gateways OpenAI-compatible; None = default do provider
     prompt_cache: bool = True         # prefix cache do provedor; ≠ llm_cache SQLite
+    harvest: LLMPhaseConfig = Field(default_factory=LLMPhaseConfig)
+    extract: LLMPhaseConfig = Field(default_factory=LLMPhaseConfig)
+    review: LLMPhaseConfig = Field(default_factory=LLMPhaseConfig)
+    connect: LLMPhaseConfig = Field(default_factory=LLMPhaseConfig)
+    garden: LLMPhaseConfig = Field(default_factory=LLMPhaseConfig)
+    ask: LLMPhaseConfig = Field(default_factory=LLMPhaseConfig)
+    article: LLMPhaseConfig = Field(default_factory=LLMPhaseConfig)
+    images: LLMPhaseConfig = Field(default_factory=LLMPhaseConfig)
 
 
 class EmbeddingConfig(BaseModel):
@@ -98,7 +130,6 @@ class ImagesConfig(BaseModel):
     min_width: int = 64              # descarta imagens menores (icones/logos)
     min_height: int = 64
     context_chars: int = 600         # caracteres ao redor da imagem usados como contexto
-    model: str = ""                  # vazio = usa llm.model (deve ser multimodal)
     # Pacing + resiliencia a TPM (visao estoura tokens/min bem mais rapido que texto):
     min_interval_seconds: float = 0.4       # pausa minima entre chamadas LLM de imagem
     rate_limit_max_retries: int = 8         # tentativas por imagem em 429
@@ -298,6 +329,25 @@ def load_config(path: Path | str | None = None) -> AppConfig:
         logger.warning("Arquivo de config não encontrado: %s — usando defaults", config_path)
 
     return AppConfig(**data)
+
+
+def llm_phase(cfg: Any, phase: str) -> LLMPhaseConfig:
+    """Return the LLM identity for a pipeline/QA/vision consumer.
+
+    ``phase`` must be one of ``LLM_PHASES``. Unknown names raise ``ValueError``
+    rather than falling back to another phase.
+    """
+    if phase not in LLM_PHASES:
+        raise ValueError(
+            f"Fase LLM desconhecida: {phase!r}. "
+            f"Valores validos: {', '.join(LLM_PHASES)}"
+        )
+    spec = getattr(cfg.llm, phase)
+    if not isinstance(spec, LLMPhaseConfig):
+        raise TypeError(
+            f"llm.{phase} deve ser LLMPhaseConfig, obtido {type(spec).__name__}"
+        )
+    return spec
 
 
 def setup_logging(level: str = "INFO") -> None:

@@ -663,7 +663,7 @@ def _dedupe_approved_concepts(
         return
 
     from zettel.extractor import deduplicate_candidates
-    llm = get_llm(cfg)
+    llm = get_llm(cfg, "review")
     approved = deduplicate_candidates(cfg, db, idx, llm, candidates)
     logger.info(
         "Dedupe pos-review: %d / %d candidatos aprovados para connect",

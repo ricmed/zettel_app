@@ -20,8 +20,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from zettel.config import AppConfig
+from zettel.config import AppConfig, llm_phase
 from zettel.hashing import normalize_text_for_hash, sha256_hex, short_hash
+from zettel.llm import get_llm
 from zettel.state import StateDB
 
 logger = logging.getLogger(__name__)
@@ -350,8 +351,9 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB, *, observer=None) -> in
 
     prompt_parts = load_prompt_parts(cfg.prompts_path / "image_description.md")
     prompt_hash = sha256_hex(prompt_parts.full_template)
-    model = cfg.images.model or cfg.llm.model
-    llm = _get_multimodal_llm(cfg, model)
+    spec = llm_phase(cfg, "images")
+    model = spec.model
+    llm = get_llm(cfg, "images", max_retries=0)
 
     min_interval = max(0.0, float(cfg.images.min_interval_seconds))
     max_retries = max(0, int(cfg.images.rate_limit_max_retries))
@@ -407,7 +409,7 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB, *, observer=None) -> in
                 backoff_max=backoff_max,
                 step=step,
                 total=total_images,
-                provider=cfg.llm.provider,
+                provider=spec.provider,
                 prompt_cache=cfg.llm.prompt_cache,
             )
             last_llm_call_at = time.monotonic()
@@ -479,41 +481,6 @@ def _describe_with_rate_limit_retry(
             )
             time.sleep(wait)
     raise RateLimitExhausted(f"esgotadas {attempts} tentativas para {asset_id}")
-
-
-def _get_multimodal_llm(cfg: AppConfig, model: str) -> Any:
-    """Instantiate a chat model for image description (provider from cfg.llm)."""
-    from zettel.llm import is_openai_compatible, normalize_llm_provider
-
-    provider = normalize_llm_provider(cfg.llm.provider)
-    base_url = getattr(cfg.llm, "base_url", None)
-    # Retries de 429 sao tratados em _describe_with_rate_limit_retry (com pacing
-    # e wait hint da API). max_retries=0 evita double-retry curto do SDK.
-    if is_openai_compatible(provider):
-        from langchain_openai import ChatOpenAI
-        kwargs: dict[str, Any] = {
-            "model": model,
-            "temperature": cfg.llm.temperature,
-            "max_retries": 0,
-        }
-        if base_url:
-            kwargs["base_url"] = base_url
-        return ChatOpenAI(**kwargs)
-    if provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(model=model, temperature=cfg.llm.temperature, max_retries=0)
-    if provider == "ollama":
-        from langchain_ollama import ChatOllama
-        kwargs = {"model": model, "temperature": cfg.llm.temperature}
-        if base_url:
-            kwargs["base_url"] = base_url
-        return ChatOllama(**kwargs)
-    if provider == "gemini":
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(
-            model=model, temperature=cfg.llm.temperature, max_retries=0,
-        )
-    raise ValueError(f"Provider nao suportado para descricao de imagem: {cfg.llm.provider}")
 
 
 def _describe_one(

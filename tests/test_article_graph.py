@@ -117,7 +117,7 @@ def test_graph_judge_reject_then_approve(tmp_path, monkeypatch):
         article_mod, "call_llm", lambda llm, prompt, **kwargs: responses.pop(0)
     )
     monkeypatch.setattr(
-        article_mod, "get_llm", lambda cfg, temperature=None: object()
+        article_mod, "get_llm", lambda *a, **k: object()
     )
 
     root = Path(__file__).resolve().parents[1]
@@ -195,7 +195,7 @@ def test_graph_context_enrich_loop(tmp_path, monkeypatch):
         article_mod, "call_llm", lambda llm, prompt, **kwargs: responses.pop(0)
     )
     monkeypatch.setattr(
-        article_mod, "get_llm", lambda cfg, temperature=None: object()
+        article_mod, "get_llm", lambda *a, **k: object()
     )
 
     root = Path(__file__).resolve().parents[1]

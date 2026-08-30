@@ -187,14 +187,17 @@ vault_path: ./vault
 inbox_path: ./data/inbox
 
 # LLM
+# Knobs de amostragem sao globais. Cada fase declara provider + model + base_url.
 llm:
-  provider: openai           # openai | anthropic | ollama | gemini | openrouter | opencode
-  model: gpt-4o-mini
   temperature: 0             # 0 = deterministico (reduz drift)
   top_p: 1                   # nucleus sampling (encaminhado a get_llm)
   max_retries: 2
-  base_url: null             # gateways OpenAI-compatible
   prompt_cache: true         # prefix cache do provedor (System+Human)
+  extract:
+    provider: openai         # openai | anthropic | ollama | gemini | openrouter | opencode
+    model: gpt-4o-mini
+    base_url: null           # gateways OpenAI-compatible / Ollama
+  # harvest, review, connect, garden, ask, article, images: mesmo formato
 
 # Embeddings
 embedding:
@@ -216,7 +219,6 @@ images:
   min_width: 64              # descarta imagens menores (icones/logos)
   min_height: 64
   context_chars: 600         # caracteres ao redor da imagem usados como contexto
-  model: ""                  # vazio = usa llm.model (precisa ser multimodal, ex. gpt-4o-mini)
   min_interval_seconds: 0.4  # pacing entre descricoes (evita estourar TPM)
   rate_limit_max_retries: 8  # retries por imagem em 429 (nao marca failed)
   rate_limit_backoff_max: 60 # teto de espera (s)
@@ -333,8 +335,10 @@ device: auto                 # auto | cpu | cuda
 **OpenAI** (padrão):
 ```yaml
 llm:
-  provider: openai
-  model: gpt-4o-mini    # ou gpt-4o, gpt-4-turbo
+  extract:
+    provider: openai
+    model: gpt-4o-mini    # ou gpt-4o, gpt-4-turbo
+    base_url: null
   prompt_cache: true
 ```
 Requer: `OPENAI_API_KEY`
@@ -342,18 +346,21 @@ Requer: `OPENAI_API_KEY`
 **Gateways OpenAI-compatible** (OpenRouter, OpenCode, vLLM, LM Studio, Azure-compatible):
 ```yaml
 llm:
-  provider: openrouter   # ou opencode | compatible | azure
-  model: openai/gpt-4o-mini
-  base_url: https://openrouter.ai/api/v1
+  extract:
+    provider: openrouter   # ou opencode | compatible | azure
+    model: openai/gpt-4o-mini
+    base_url: https://openrouter.ai/api/v1
   prompt_cache: true
 ```
-Usa `ChatOpenAI` com `base_url`. A chave segue o que o gateway espera (ex.: `OPENAI_API_KEY`).
+Usa `ChatOpenAI` com `base_url` da fase. A chave segue o que o gateway espera (ex.: `OPENAI_API_KEY`).
 
 **Anthropic**:
 ```yaml
 llm:
-  provider: anthropic
-  model: claude-sonnet-4-20250514
+  extract:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    base_url: null
   prompt_cache: true
 ```
 Requer: `ANTHROPIC_API_KEY` e `pip install langchain-anthropic`
@@ -361,8 +368,10 @@ Requer: `ANTHROPIC_API_KEY` e `pip install langchain-anthropic`
 **Gemini**:
 ```yaml
 llm:
-  provider: gemini
-  model: gemini-2.0-flash
+  extract:
+    provider: gemini
+    model: gemini-2.0-flash
+    base_url: null
   prompt_cache: true
 ```
 Requer: `GOOGLE_API_KEY` (ou equivalente do SDK) e `pip install langchain-google-genai`
@@ -370,10 +379,14 @@ Requer: `GOOGLE_API_KEY` (ou equivalente do SDK) e `pip install langchain-google
 **Ollama (local)**:
 ```yaml
 llm:
-  provider: ollama
-  model: llama3.1        # ou qualquer modelo local
+  extract:
+    provider: ollama
+    model: llama3.1        # ou qualquer modelo local
+    base_url: null         # default nativo do Ollama
 ```
 Requer: Ollama rodando localmente e `pip install langchain-ollama`
+
+Cada fase (`harvest`, `extract`, `review`, `connect`, `garden`, `ask`, `article`, `images`) declara o próprio `provider` / `model` / `base_url`. Dá para misturar, por exemplo extract na nuvem e garden no Ollama. Identidade vision fica em `llm.images` (não há mais `images.model`).
 
 ### Prompt caching do provedor vs cache SQLite
 
@@ -571,10 +584,10 @@ python -m zettel sync-manual
 python -m zettel sync-manual --rebuild-graph
 
 # Apagar uma fonte por completo (vault + SQLite + Chroma; irreversivel)
-python -m zettel delete-source @Citekey
-python -m zettel delete-source @Citekey --yes              # sem confirmacao
-python -m zettel delete-source @Citekey --delete-permanent # apaga ZTL ligadas
-python -m zettel delete-source @Citekey --no-compact        # sem VACUUM
+python -m zettel delete-source '@Citekey'
+python -m zettel delete-source '@Citekey' --yes              # sem confirmacao
+python -m zettel delete-source '@Citekey' --delete-permanent # apaga ZTL ligadas
+python -m zettel delete-source '@Citekey' --no-compact        # sem VACUUM
 
 # Re-chunkar fontes com a config atual (a partir do texto ja extraido, sem reprocessar o arquivo).
 # Tambem completa harvest interrompido e re-resolve o chapter_id das imagens.

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Literal, Optional
 
 from .bibliography import display_author_natural, format_abnt_in_text
+from .config import llm_phase
 from .hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
 from .llm import call_llm, clip_text, extract_json, fill_template, get_llm, load_prompt_parts
 from .retrieval import RetrievedNote
@@ -805,6 +806,7 @@ def _cached_llm(
     step: int | None = None,
     total: int | None = None,
 ) -> tuple[str, bool]:
+    spec = llm_phase(cfg, "article")
     temp = cfg.llm.temperature if temperature is None else temperature
     user_text = user or filled
     system_text = system or ""
@@ -812,7 +814,7 @@ def _cached_llm(
     prompt_hash = sha256_hex(prompt_template)
     filled_hash = sha256_hex(normalize_text_for_hash(filled_for_hash))
     call_checksum = compute_llm_call_checksum(
-        prompt_hash, filled_hash, cfg.llm.model, temp, cfg.language,
+        prompt_hash, filled_hash, spec.model, temp, cfg.language,
     )
     cached = db.get_cached_llm_response(call_checksum)
     if cached is not None:
@@ -824,9 +826,9 @@ def _cached_llm(
         else:
             logger.debug("Cache hit (article)")
         from zettel.usage import record_cache_hit
-        record_cache_hit(label=label or "article", model=cfg.llm.model)
+        record_cache_hit(label=label or "article", model=spec.model)
         return cached, False
-    llm = get_llm(cfg, temperature=temp)
+    llm = get_llm(cfg, "article", temperature=temp)
     answer = call_llm(
         llm,
         user_text,
@@ -834,7 +836,7 @@ def _cached_llm(
         label=label,
         step=step,
         total=total,
-        provider=cfg.llm.provider,
+        provider=spec.provider,
         prompt_cache=cfg.llm.prompt_cache,
     )
     db.cache_llm_response(

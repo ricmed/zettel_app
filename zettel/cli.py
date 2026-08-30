@@ -1840,6 +1840,16 @@ def doctor(
 
     checks.append(("Device config", True, f"device: {cfg.device}"))
 
+    from zettel.config import LLM_PHASES, llm_phase
+    from zettel.llm import is_supported_llm_provider
+    for phase in LLM_PHASES:
+        spec = llm_phase(cfg, phase)
+        ok = is_supported_llm_provider(spec.provider)
+        detail = f"{spec.provider} / {spec.model}"
+        if not ok:
+            detail = f"provider nao suportado: {detail}"
+        checks.append((f"LLM {phase}", ok, detail))
+
     # MOC taxonomy YAML
     topics_path = cfg.gardener.topics_path
     if topics_path is None:

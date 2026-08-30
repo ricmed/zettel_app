@@ -319,7 +319,7 @@ def test_run_article_no_evidence(db, monkeypatch):
         lambda llm, prompt, **kwargs: json.dumps({"queries": ["tema inexistente"]}),
     )
     monkeypatch.setattr(
-        article_mod, "get_llm", lambda cfg, temperature=None: object()
+        article_mod, "get_llm", lambda *a, **k: object()
     )
 
     prompts = Path(__file__).resolve().parents[1] / "prompts"
@@ -392,7 +392,7 @@ def test_run_article_full_mock(db, seeded, monkeypatch, tmp_path):
 
     monkeypatch.setattr(article_mod, "call_llm", fake_llm)
     monkeypatch.setattr(
-        article_mod, "get_llm", lambda cfg, temperature=None: object()
+        article_mod, "get_llm", lambda *a, **k: object()
     )
 
     prompts = Path(__file__).resolve().parents[1] / "prompts"

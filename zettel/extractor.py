@@ -16,7 +16,7 @@ from typing import Any
 
 from ulid import ULID
 
-from zettel.config import AppConfig
+from zettel.config import AppConfig, llm_phase
 from zettel.hashing import (
     compute_llm_call_checksum,
     normalize_text_for_hash,
@@ -79,7 +79,7 @@ def run_extract(
     if described:
         logger.info("Imagens descritas nesta execucao: %d", described)
 
-    llm = get_llm(cfg)
+    llm = get_llm(cfg, "extract")
     prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
     prompt_hash = sha256_hex(prompt_parts.full_template)
 
@@ -189,15 +189,16 @@ def _process_chunk(
         sha256_hex(normalize_text_for_hash(images_context)) if images_context else ""
     )
 
+    spec = llm_phase(cfg, "extract")
     call_checksum = compute_llm_call_checksum(
-        prompt_hash, chunk_checksum, cfg.llm.model, cfg.llm.temperature, cfg.language,
+        prompt_hash, chunk_checksum, spec.model, cfg.llm.temperature, cfg.language,
         rag_context_checksum=images_ctx_checksum,
     )
     cached = db.get_cached_llm_response(call_checksum)
     if cached:
         logger.debug("Cache hit para chunk %s", chunk_id)
         from zettel.usage import record_cache_hit
-        record_cache_hit(label=f"extract:{chunk_id}", model=cfg.llm.model)
+        record_cache_hit(label=f"extract:{chunk_id}", model=spec.model)
         response_text = cached
     else:
         source = db.get_source(source_id)
@@ -227,7 +228,7 @@ def _process_chunk(
                 label=f"extract:{chunk_id}",
                 step=step,
                 total=total,
-                provider=cfg.llm.provider,
+                provider=spec.provider,
                 prompt_cache=cfg.llm.prompt_cache,
             )
             db.cache_llm_response(
@@ -237,7 +238,7 @@ def _process_chunk(
             )
             logger.info(
                 "[SOURCE=%s] [CHUNK=%s] [LLM_CALL model=%s] → resposta recebida",
-                source_id, chunk_id, cfg.llm.model,
+                source_id, chunk_id, spec.model,
             )
         except Exception as e:
             logger.error("Erro no LLM para chunk %s: %s", chunk_id, e)
@@ -262,7 +263,7 @@ def _process_chunk(
                 label=f"extract-retry:{chunk_id}",
                 step=step,
                 total=total,
-                provider=cfg.llm.provider,
+                provider=spec.provider,
                 prompt_cache=False,
             )
             output = _parse_literature_output(response_text)
@@ -385,7 +386,7 @@ def _write_literature_draft(
         page_confidence=chunk_row.get("page_confidence") or "unknown",
         status="awaiting_review",
         review_confidence=confidence,
-        llm_model=cfg.llm.model,
+        llm_model=spec.model,
         processing_time_ms=elapsed_ms,
     )
 
@@ -530,6 +531,7 @@ def deduplicate_candidates(
     if not candidates:
         return []
 
+    spec = llm_phase(cfg, "review")
     dedupe_parts = load_prompt_parts(cfg.prompts_path / "dedupe_decision.md")
     approved: list[dict] = []
     total = len(candidates)
@@ -573,7 +575,7 @@ def deduplicate_candidates(
                     llm,
                     user,
                     system=system or None,
-                    provider=cfg.llm.provider,
+                    provider=spec.provider,
                     prompt_cache=cfg.llm.prompt_cache,
                 )
                 result = _parse_dedupe_result(response)

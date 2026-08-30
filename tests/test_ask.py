@@ -33,7 +33,7 @@ def test_run_ask_empty_vault_no_llm(db, monkeypatch):
         raise AssertionError("LLM nao deveria ser chamado")
 
     monkeypatch.setattr(ask_mod, "call_llm", _boom)
-    monkeypatch.setattr(ask_mod, "get_llm", lambda cfg: object())
+    monkeypatch.setattr(ask_mod, "get_llm", lambda *a, **k: object())
 
     result = run_ask(AppConfig(), db, FakeIndex(), "o que e um grafo?")
     assert result.answer == ask_mod._NO_EVIDENCE
@@ -67,7 +67,7 @@ def test_run_ask_passes_wikilinks_to_prompt(db, tmp_path, monkeypatch):
 
     monkeypatch.setattr("zettel.retrieval.Retriever.search_notes", _fake_search)
     monkeypatch.setattr(ask_mod, "call_llm", _fake_llm_call)
-    monkeypatch.setattr(ask_mod, "get_llm", lambda cfg: object())
+    monkeypatch.setattr(ask_mod, "get_llm", lambda *a, **k: object())
 
     cfg = AppConfig()
     cfg.prompts_path = tmp_path  # write a minimal prompt template
@@ -101,7 +101,7 @@ def test_run_ask_below_floor_shows_candidates_but_no_llm_call(db, monkeypatch):
 
     monkeypatch.setattr("zettel.retrieval.Retriever.search_notes", _fake_search)
     monkeypatch.setattr(ask_mod, "call_llm", _boom)
-    monkeypatch.setattr(ask_mod, "get_llm", lambda cfg: object())
+    monkeypatch.setattr(ask_mod, "get_llm", lambda *a, **k: object())
 
     result = run_ask(AppConfig(), db, FakeIndex(), "pergunta fora do tema")
     assert result.answer == ask_mod._NO_EVIDENCE
