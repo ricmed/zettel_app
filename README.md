@@ -515,9 +515,14 @@ python -m zettel init --reset
 
 # Escanear inbox e processar arquivos → SRC + indice LIT + chunks (com paginas)
 python -m zettel harvest
+python -m zettel harvest --yes --skip-biblio
+# --yes aplica a heuristica de paginacao (sem prompt): cap. 1, cabecalho/rodape, ou pages: 200-210
 python -m zettel harvest --yes --skip-biblio --skip-paging
+# --skip-paging forca arquivo p.1 = impressa p.1 (nao detecta miolo/revista)
 python -m zettel harvest --content-start-file 35 --content-start-book 10
-# arquivo p.35 = impressa p.10; paginas anteriores nao geram chunks
+# livro: arquivo p.35 = impressa p.10; paginas anteriores nao geram chunks
+python -m zettel harvest --content-start-file 1 --content-start-book 200
+# artigo de revista: PDF comeca em p.1, numero impresso na revista e 200
 python -m zettel harvest --dump-chunks
 python -m zettel harvest --dump-chunks --dump-dir ./tmp/chunks
 python -m zettel harvest --dump-extraction
@@ -599,7 +604,7 @@ python -m zettel rechunk --source-id @AutorAnoTitulo --dump-chunks
 python -m zettel dump-chunks --source-id @AutorAnoTitulo
 python -m zettel dump-chunks --all --dump-dir ./tmp/chunks
 
-# Exportar o Markdown extraido (Docling/MD, headings H1-H6 intactos; sem reprocessar)
+# Exportar o Markdown extraido (Docling/MD, headings H1-H6; PDF pode ter <!-- zettel:page-break -->)
 python -m zettel dump-extraction --source-id @AutorAnoTitulo
 python -m zettel dump-extraction --all --dump-dir ./tmp/extraction
 
@@ -630,7 +635,7 @@ python -m zettel doctor
 # Usar arquivo de configuração alternativo
 python -m zettel run-all --config ./minha_config.yaml
 
-# Flags de harvest tambem valem em run-all
+# Flags de harvest tambem valem em run-all (--yes aplica heuristica de paginacao)
 python -m zettel run-all --yes --skip-biblio
 
 # Ajustar top-k de notas similares
@@ -662,10 +667,34 @@ python -m zettel run-all --dry-run
 5. Gera **citekey** determinístico: `@SobrenomeAnoTituloSlug` (a partir dos metadados já enriquecidos)
 6. Grava nota **SRC** (`SRC - AuthorYear - slug.md`) em `10_Sources/` e o **índice LIT** (`LIT - AuthorYear - slug.md`) em `20_Literature/` **antes** do chunking/embeddings (que podem demorar minutos); `processing_status=in_progress`. Pastas e arquivos **nao** usam `@` (o `@` fica so em `source_id` / CLI). Layout antigo (`@Citekey/`, `chunk_NNNN.md`, `*-index.md`) nao e lido; reescreva notas `pipeline` com `zettel rebuild --force` e apague leftovers a mao.
 7. Se `images.enabled`, registra imagens já extraídas em `90_Assets/`
-8. Resolve **inicio da paginacao** (HITL ou `--content-start-file` / `--content-start-book` / `--skip-paging`): pagina do PDF onde o conteudo comeca e o numero impresso nessa pagina; paginas anteriores nao geram chunks
-9. Divide o texto em **capitulos**/secoes, indexa chunks no ChromaDB e no SQLite com `page_in_book = page_in_file - start_file + start_book` (chunk multi-pagina usa a primeira pagina)
+8. Resolve **inicio da paginacao** (detalhes na secao seguinte): pagina do **arquivo PDF** onde o conteudo comeca e o **numero impresso** nessa pagina; paginas anteriores nao geram chunks. Markdown nativo nao tem pagina.
+9. Divide o texto em **capitulos**/secoes. Infere `page_in_file` pelo mapa Docling (marcadores de quebra de pagina no mesmo Markdown dos chunks; PyMuPDF so como fallback) e grava `page_in_book = page_in_file - start_file + start_book` (chunk multi-pagina usa a **primeira** pagina). Indexa chunks no ChromaDB e no SQLite.
 10. Atualiza a SRC com inicio de conteudo/paginas/`total_chunks` e `processing_status=completed`
 11. **Cobertura de capítulos**: harvest interrompido é completado no próximo `harvest` ou via `zettel rechunk`
+
+### Paginacao: arquivo vs impressa
+
+O numero que o leitor ve no livro/revista (`page_in_book`) e o que vai para LIT/ZTL, nomes `pNNN` e citacao ABNT. O indice do PDF (`page_in_file`) e so o deslocamento interno. Formula:
+
+`page_in_book = page_in_file - content_start_file + content_start_book`
+
+| Tipo de fonte | O que acontece |
+|---|---|
+| Livro com miolo (capa, sumario, prefacio) | Detecta Capitulo 1 / Introduction (pula pagina de sumario). Paginas anteriores ao inicio nao viram chunk. Numero impresso nessa pagina: cabecalho/rodape, senao 1. |
+| Artigo de revista (PDF p.1 = revista p.200) | Sem marcador de capitulo; usa o numero isolado no cabecalho/rodape da p.1, ou o intervalo bibliografico `pages: 200-210`. |
+| Apostila, tutorial, artigo que comeca em 1 | arquivo p.1 = impressa p.1 |
+| Markdown (anotacoes de curso, etc.) | Sem pagina. Localizador = `section_path`. Digitos no texto nao viram pagina. |
+
+Como o inicio e resolvido:
+
+- Interativo: prompt HITL (sugestao da heuristica como default)
+- `--content-start-file` / `--content-start-book`: valor explicito (ganha de tudo)
+- `--yes` / web / `run-all` sem flags: aplica a heuristica em silencio
+- `--skip-paging`: forca arquivo p.1 = impressa p.1 (nao detecta miolo nem revista)
+
+O mapa de `page_in_file` vem do **Docling** (`export_to_markdown` com `page_break_placeholder`, comentarios `<!-- zettel:page-break -->` no texto extraido — o mesmo Markdown dos chunks). `prov.page_no` do Docling e o indice do arquivo, nao o numero impresso. PyMuPDF so entra se o mapa Docling vier vazio. Regex no corpo do chunk so roda quando nao ha mapa e a fonte nao e Markdown.
+
+Para corrigir fonte ja harvestada: `zettel set-paging --source-id @Citekey --content-start-file N --content-start-book M` (recalcula o numero impresso sem LLM). Se `page_in_file` estiver errado ou vazio (harvest antigo, antes do mapa Docling), re-processe o PDF (`zettel harvest`) ou `zettel rechunk` se o `extracted_text` ja tiver os marcadores de quebra.
 
 ### Fase 2 — Extract (Extracao → drafts granulares)
 
@@ -1061,9 +1090,9 @@ Como consequência:
 
 - **`zettel reindex`** reconstrói o ChromaDB inteiro a partir do SQLite, sem nenhuma chamada de LLM e sem reescrever o vault. O índice vetorial passa a ser um cache descartável. Um `reindex` completo também reconstrói o índice lexical FTS5 (`fts_notes`/`fts_chunks`), igualmente descartável. Após trocar `embedding.provider`/`model`, use **`--force`** (o CLI também detecta o drift e força o reset sob confirmação).
 - **`zettel rebuild --what vault`** recria os arquivos `.md` do vault a partir dos corpos persistidos, também sem LLM. Nunca sobrescreve um arquivo existente sem `--force`, e nunca sobrescreve uma nota `origin: manual` (mesmo com `--force`).
-- **`zettel rechunk`** re-aplica a configuração de chunking atual a partir do texto extraído persistido, sem reprocessar o arquivo original; completa capítulos faltantes após harvest interrompido e re-vincula imagens aos capítulos corretos. Com `--dump-chunks`, grava um markdown com todos os chunks (texto + metadados) em `data/cache/chunk-dumps/` (ou `--dump-dir`).
+- **`zettel rechunk`** re-aplica a configuração de chunking atual a partir do texto extraído persistido, sem reprocessar o arquivo original; completa capítulos faltantes após harvest interrompido e re-vincula imagens aos capítulos corretos. Se o texto extraído tiver marcadores `<!-- zettel:page-break -->`, o mapa de paginas e reconstruido a partir deles; senao cai no PyMuPDF. Com `--dump-chunks`, grava um markdown com todos os chunks (texto + metadados) em `data/cache/chunk-dumps/` (ou `--dump-dir`).
 - **`zettel dump-chunks`** reexporta os chunks já persistidos no SQLite como markdown, sem rechunkar nem chamar o LLM. Use para inspecionar cortes, `section_path`, páginas e overlap antes de mudar `chunk_size` / `chunk_overlap` / `min_section_chars`.
-- **`zettel dump-extraction`** reexporta o Markdown extraído (`sources.extracted_text`: saída do Docling em PDF, ou o corpo MD nativo) com headings H1–H6 intactos, sem rerodar o extrator. `harvest --dump-extraction` grava o mesmo arquivo assim que o texto é persistido (antes dos embeddings). Default: `data/cache/extraction-dumps/` (ou `--dump-extraction-dir` / `--dump-dir` no comando dedicado).
+- **`zettel dump-extraction`** reexporta o Markdown extraído (`sources.extracted_text`: saída do Docling em PDF, ou o corpo MD nativo) com headings H1–H6 intactos, sem rerodar o extrator. Em PDF, o texto pode incluir comentarios `<!-- zettel:page-break -->` (fronteiras de pagina do arquivo). `harvest --dump-extraction` grava o mesmo arquivo assim que o texto é persistido (antes dos embeddings). Default: `data/cache/extraction-dumps/` (ou `--dump-extraction-dir` / `--dump-dir` no comando dedicado).
 
 ## Notas manuais e proveniência
 

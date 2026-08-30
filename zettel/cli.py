@@ -278,7 +278,7 @@ def harvest(
     ),
     skip_paging: bool = typer.Option(
         False, "--skip-paging",
-        help="Nao perguntar paginacao; processa desde p.1 do arquivo (livro = arquivo)",
+        help="Nao detectar paginacao; arquivo p.1 = impressa p.1 (ignora heuristica)",
     ),
     dump_chunks: bool = typer.Option(
         False, "--dump-chunks",
@@ -333,7 +333,7 @@ def harvest(
             skip_biblio=skip_biblio,
             content_start_file=content_start_file,
             content_start_book=content_start_book,
-            skip_paging=skip_paging or True,
+            skip_paging=skip_paging,
             dump_dir=chunk_dump_dir,
             extraction_dump_dir=extraction_dump_dir,
         )
@@ -1283,7 +1283,7 @@ def run_all(
     new_sources = run_harvest(
         cfg, db, idx, interactive=interactive, duplicate_action=duplicate_action,
         skip_biblio=skip_biblio,
-        skip_paging=not interactive,
+        skip_paging=False,
     )
     console.print(f"  Fontes: {len(new_sources)}")
     last_run = db.get_last_run()

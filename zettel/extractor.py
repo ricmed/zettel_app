@@ -298,6 +298,7 @@ def _process_chunk(
     draft_path = _write_literature_draft(
         cfg, db, chunk_row, output, literature_id, confidence, elapsed_ms,
         candidates=approved_cands,
+        llm_model=spec.model,
     )
 
     summary_payload = {
@@ -358,6 +359,7 @@ def _write_literature_draft(
     confidence: float,
     elapsed_ms: int,
     candidates: list[PermanentNoteCandidate],
+    llm_model: str = "",
 ) -> Path | None:
     source = db.get_source(chunk_row["source_id"])
     if not source:
@@ -386,7 +388,7 @@ def _write_literature_draft(
         page_confidence=chunk_row.get("page_confidence") or "unknown",
         status="awaiting_review",
         review_confidence=confidence,
-        llm_model=spec.model,
+        llm_model=llm_model,
         processing_time_ms=elapsed_ms,
     )
 

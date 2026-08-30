@@ -1,18 +1,24 @@
 """Tests for page inference helpers."""
 
+from zettel.config import AppConfig
+from zettel.harvester import _resolve_content_paging
 from zettel.paging import (
+    PAGE_BREAK_MARKER,
     ContentPaging,
+    PageHint,
     apply_page_inference,
+    compute_docling_config_hash,
     compute_page_in_book,
+    detect_printed_page_from_regions,
     extract_page_hint,
     format_source_locator,
     infer_missing_page,
     lookup_page_for_chunk,
+    page_map_from_marked_markdown,
+    parse_biblio_start_page,
+    strip_page_break_markers,
     suggest_content_start,
-    PageHint,
 )
-from zettel.config import AppConfig
-from zettel.paging import compute_docling_config_hash
 
 
 def test_extract_page_hint_from_meta():
@@ -106,3 +112,121 @@ def test_compute_docling_config_hash_stable():
     h2 = compute_docling_config_hash(cfg)
     assert h1 == h2
     assert len(h1) == 16
+
+
+def test_page_map_from_marked_markdown():
+    marked = (
+        f"# Cover\n\n{PAGE_BREAK_MARKER}\n\n"
+        f"# Chapter 1\n\nOnce upon a unique graph story."
+    )
+    page_map = page_map_from_marked_markdown(marked)
+    assert [p for p, _ in page_map] == [1, 2]
+    assert "Cover" in page_map[0][1]
+    assert "Chapter 1" in page_map[1][1]
+    assert PAGE_BREAK_MARKER not in strip_page_break_markers(marked)
+    assert page_map_from_marked_markdown("sem marcador") == []
+
+
+def test_lookup_page_normalizes_markdown_headings():
+    page_map = [
+        (7, "# Unique heading about latent spaces\n\nParagraph on embeddings."),
+    ]
+    chunk = "## Unique heading about latent spaces\n\nParagraph on embeddings."
+    assert lookup_page_for_chunk(chunk, page_map) == 7
+
+
+def test_suggest_content_start_skips_toc_then_finds_chapter():
+    toc = "\n".join(
+        f"Chapter {i} ........ {i * 10}" for i in range(1, 12)
+    )
+    page_map = [
+        (3, toc),
+        (21, "# Chapter 1\n\nThe real beginning of the argument with enough text."),
+    ]
+    result = suggest_content_start(page_map)
+    assert result["content_start_file_page"] == 21
+    assert result["content_start_book_page"] == 1
+
+
+def test_suggest_content_start_journal_from_printed_page():
+    page_map = [
+        (1, "# Abstract\n\nThis paper discusses unique methods."),
+        (2, "Continuation of the article body."),
+    ]
+    result = suggest_content_start(page_map, printed_by_file_page={1: 200})
+    assert result["content_start_file_page"] == 1
+    assert result["content_start_book_page"] == 200
+    assert result["confidence"] == "heuristic"
+
+
+def test_suggest_content_start_journal_from_biblio_range():
+    page_map = [(1, "Abstract of a specialized journal article about widgets.")]
+    result = suggest_content_start(page_map, biblio_pages="200-210")
+    assert result["content_start_book_page"] == 200
+    assert result["confidence"] == "heuristic"
+
+
+def test_suggest_content_start_book_uses_printed_number_on_chapter_page():
+    page_map = [
+        (1, "Cover"),
+        (35, "# Chapter 1\n\nGetting started with graphs and knowledge."),
+    ]
+    result = suggest_content_start(page_map, printed_by_file_page={35: 1})
+    assert result["content_start_file_page"] == 35
+    assert result["content_start_book_page"] == 1
+
+
+def test_parse_biblio_start_page():
+    assert parse_biblio_start_page("200-210") == 200
+    assert parse_biblio_start_page("p. 45–60") == 45
+    assert parse_biblio_start_page("320") is None
+    assert parse_biblio_start_page("320 p.") is None
+    assert parse_biblio_start_page(None) is None
+
+
+def test_detect_printed_page_from_header_footer():
+    assert detect_printed_page_from_regions("Journal Name\n200\n", "", 1) == 200
+    assert detect_printed_page_from_regions("", "1", 35) == 1
+    assert detect_printed_page_from_regions("2024", "", 1) is None
+    # Prefer printed number that differs from the file index
+    assert detect_printed_page_from_regions("35\n1", "", 35) == 1
+
+
+def test_resolve_content_paging_noninteractive_uses_heuristic():
+    page_map = [(35, "# Chapter 1\n\nGetting started with graphs.")]
+    paging = _resolve_content_paging(
+        page_map,
+        interactive=False,
+        content_start_file=None,
+        content_start_book=None,
+        skip_paging=False,
+    )
+    assert paging.content_start_file_page == 35
+    assert paging.content_start_book_page == 1
+    assert paging.confidence == "heuristic"
+
+
+def test_resolve_content_paging_skip_paging_ignores_heuristic():
+    page_map = [(35, "# Chapter 1\n\nGetting started with graphs.")]
+    paging = _resolve_content_paging(
+        page_map,
+        interactive=False,
+        content_start_file=None,
+        content_start_book=None,
+        skip_paging=True,
+    )
+    assert paging.content_start_file_page == 1
+    assert paging.content_start_book_page == 1
+    assert paging.confidence == "skipped"
+
+
+def test_resolve_content_paging_explicit_flags_win():
+    paging = _resolve_content_paging(
+        [(1, "x")],
+        interactive=False,
+        content_start_file=1,
+        content_start_book=200,
+        skip_paging=True,
+        printed_by_file_page={1: 199},
+    )
+    assert paging == ContentPaging(1, 200, "confirmed")

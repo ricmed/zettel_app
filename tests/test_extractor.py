@@ -108,3 +108,49 @@ def test_filter_candidates_all_pass():
     approved, rejected = _filter_candidates(candidates, cfg)
     assert len(approved) == 2
     assert len(rejected) == 0
+
+
+def test_write_literature_draft_records_llm_model(tmp_path):
+    """Draft frontmatter gets llm_model from the caller, not a missing spec."""
+    from zettel.extractor import _write_literature_draft
+    from zettel.schemas import LiteratureChunkOutput
+    from zettel.state import StateDB
+    from zettel.vault import parse_frontmatter
+
+    cfg = AppConfig(
+        vault_path=tmp_path / "vault",
+        cache_path=tmp_path / "cache",
+        state_db_path=tmp_path / "state.db",
+        chroma_path=tmp_path / "chroma",
+        prompts_path=tmp_path / "prompts",
+    )
+    (cfg.vault_path / "00_Inbox" / "Review").mkdir(parents=True)
+    db = StateDB(cfg.state_db_path)
+    db.upsert_source(
+        "@Book2024", "Book2024", "Livro", ["Autor"], 2024,
+        "h", "/x.pdf", "pdf",
+    )
+    db.upsert_chapter("@Book2024::ch000", "@Book2024", "Ch1", "chh")
+    db.upsert_chunk(
+        "@Book2024::ch000::abc", "@Book2024", "@Book2024::ch000",
+        "texto do chunk com conteudo suficiente", "ck",
+        chunk_index=0, page_in_file=1, page_in_book=145,
+        status="pending",
+    )
+    chunk_row = db.get_chunk("@Book2024::ch000::abc")
+    output = LiteratureChunkOutput(
+        chunk_status="ok",
+        rejection_reason="",
+        rejection_category="",
+        summary="Resumo do trecho",
+        key_concepts=["conceito"],
+        candidates=[],
+    )
+    path = _write_literature_draft(
+        cfg, db, chunk_row, output, "01HTESTLITID00000000000000",
+        0.8, 12, candidates=[], llm_model="gpt-4o-mini",
+    )
+    assert path is not None and path.is_file()
+    meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+    assert meta["llm_model"] == "gpt-4o-mini"
+    db.close()

@@ -153,10 +153,15 @@ def extract_docling_images(
         relpath = _save_image(cfg.vault_path, data, ".png")
         ref = f"![Imagem]({relpath})"
         context_pos = idx if idx != -1 else len(text)
+        page_in_file = None
+        provs = getattr(pic, "prov", None) or []
+        if provs:
+            page_in_file = getattr(provs[0], "page_no", None)
         images.append({
             "checksum": checksum,
             "path": relpath,
             "context_snippet": _context_snippet(text, context_pos, cfg.images.context_chars),
+            "page_in_file": page_in_file,
         })
         if idx != -1:
             text = text[:idx] + ref + text[idx + len(_DOCLING_PLACEHOLDER):]

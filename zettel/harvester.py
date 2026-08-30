@@ -21,13 +21,17 @@ from zettel.hashing import (
 )
 from zettel.index import VectorIndex
 from zettel.paging import (
+    PAGE_BREAK_MARKER,
     ContentPaging,
     apply_page_inference,
     build_page_map_from_texts,
     compute_docling_config_hash,
     compute_page_in_book,
+    detect_printed_page_from_regions,
     extract_page_hint,
     lookup_page_for_chunk,
+    page_map_from_marked_markdown,
+    strip_page_break_markers,
     suggest_content_start,
 )
 from zettel.state import StateDB
@@ -193,16 +197,10 @@ def run_rechunk(
             content_start_book_page=int(src.get("content_start_book_page") or 1),
             confidence=src.get("page_offset_confidence") or "skipped",
         )
-        # Prefer rebuilding page_map from origin PDF when available
-        page_map: list[tuple[int, str]] = []
-        origin = src.get("origin_path")
-        if origin and Path(origin).suffix.lower() == ".pdf" and Path(origin).exists():
-            try:
-                page_map = _pymupdf_page_map(Path(origin))
-            except Exception as e:
-                logger.debug("Page map indisponivel no rechunk de %s: %s", sid, e)
+        page_map = _page_map_for_source(src)
         n = _chunk_and_persist(
             cfg, db, idx, sid, chapters, page_map=page_map, paging=paging,
+            origin_type=src.get("origin_type") or "",
         )
         _finalize_source_chunking(db, idx, sid, chapters)
         _maybe_dump_chunks(cfg, db, sid, dump_dir)
@@ -503,15 +501,10 @@ def _complete_incomplete_source(
         content_start_book_page=int(src.get("content_start_book_page") or 1),
         confidence=src.get("page_offset_confidence") or "skipped",
     )
-    page_map: list[tuple[int, str]] = []
-    origin = src.get("origin_path")
-    if origin and Path(origin).suffix.lower() == ".pdf" and Path(origin).exists():
-        try:
-            page_map = _pymupdf_page_map(Path(origin))
-        except Exception as e:
-            logger.debug("Page map indisponivel ao completar %s: %s", source_id, e)
+    page_map = _page_map_for_source(src)
     n = _chunk_and_persist(
         cfg, db, idx, source_id, chapters, page_map=page_map, paging=paging,
+        origin_type=src.get("origin_type") or "",
     )
     _finalize_source_chunking(db, idx, source_id, chapters)
     return source_id, {
@@ -668,13 +661,17 @@ def _process_file(
 
     total_pages_file = metadata.get("total_pages_file")
     page_map = metadata.get("_page_map") or []
+    if origin_type == "md":
+        page_map = []
 
     paging = _resolve_content_paging(
         page_map,
         interactive=interactive,
         content_start_file=content_start_file,
         content_start_book=content_start_book,
-        skip_paging=skip_paging,
+        skip_paging=skip_paging or origin_type == "md",
+        printed_by_file_page=metadata.get("_printed_page_hints") or {},
+        biblio_pages=getattr(biblio, "pages", None),
     )
     logger.info(
         "[SOURCE=%s] Paginacao: arquivo p.%d = impressa p.%d (offset derivado=%d, %s)",
@@ -748,6 +745,7 @@ def _process_file(
         cfg, db, idx, source_id, chapters,
         page_map=page_map,
         paging=paging,
+        origin_type=origin_type,
     )
     _finalize_source_chunking(db, idx, source_id, chapters)
 
@@ -1208,7 +1206,12 @@ def _extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str
         )
 
         result = converter.convert(str(file_path))
-        text = result.document.export_to_markdown()
+        # Page-break comments keep file-page provenance in the same Markdown
+        # dialect as the chunked text. export_to_markdown() without them
+        # drops page boundaries; matching that text against PyMuPDF fails.
+        text = result.document.export_to_markdown(
+            page_break_placeholder=f"\n\n{PAGE_BREAK_MARKER}\n\n",
+        )
 
         images: list[dict[str, Any]] = []
         if cfg.images.enabled:
@@ -1235,20 +1238,37 @@ def _extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str
         if not metadata["authors"] or not metadata["year"]:
             _enrich_metadata_from_pymupdf(file_path, metadata)
 
-        num_pages = getattr(result.document, "num_pages", None)
-        if isinstance(num_pages, int):
+        num_pages = _docling_num_pages(result.document)
+        if num_pages:
             metadata["total_pages_file"] = num_pages
-        # Page map from PyMuPDF (Docling markdown loses page boundaries).
+
+        page_map = page_map_from_marked_markdown(text)
+        if not page_map:
+            page_map = _docling_page_map_by_export(result.document, num_pages)
+        if page_map:
+            metadata["_page_map"] = page_map
+            if "total_pages_file" not in metadata:
+                metadata["total_pages_file"] = len(page_map)
+            logger.info("Mapa de paginas (Docling): %d paginas do arquivo", len(page_map))
+        else:
+            try:
+                logger.info("Mapa Docling vazio; fallback PyMuPDF para inferencia de pagina...")
+                page_map = _pymupdf_page_map(file_path)
+                if page_map:
+                    metadata["_page_map"] = page_map
+                    if "total_pages_file" not in metadata:
+                        metadata["total_pages_file"] = len(page_map)
+                    logger.info("Mapa de paginas (PyMuPDF): %d paginas do arquivo", len(page_map))
+            except Exception as e:
+                logger.debug("Page map PyMuPDF indisponivel: %s", e)
+
         try:
-            logger.info("Montando mapa de paginas via PyMuPDF para inferencia de pagina...")
-            page_map = _pymupdf_page_map(file_path)
-            if page_map:
-                metadata["_page_map"] = page_map
-                if "total_pages_file" not in metadata:
-                    metadata["total_pages_file"] = len(page_map)
-                logger.info("Mapa de paginas: %d paginas do arquivo", len(page_map))
+            printed = _scan_printed_page_numbers(file_path)
+            if printed:
+                metadata["_printed_page_hints"] = printed
+                logger.info("Numeros impressos detectados em %d pagina(s) de margem", len(printed))
         except Exception as e:
-            logger.debug("Page map PyMuPDF indisponivel: %s", e)
+            logger.debug("Varredura de numeros impressos indisponivel: %s", e)
 
         logger.info(
             "Docling: Conversao concluida - %s (%d caracteres, %s paginas)",
@@ -1289,6 +1309,12 @@ def _extract_pdf_pymupdf(file_path: Path) -> tuple[str, dict[str, Any]]:
         }
         num_pages = doc.page_count
         doc.close()
+        try:
+            printed = _scan_printed_page_numbers(file_path)
+            if printed:
+                metadata["_printed_page_hints"] = printed
+        except Exception as e:
+            logger.debug("Varredura de numeros impressos indisponivel: %s", e)
 
         logger.info(
             "PyMuPDF: Extracao concluida - %s (%d caracteres, %d paginas)",
@@ -1311,6 +1337,82 @@ def _pymupdf_page_map(file_path: Path) -> list[tuple[int, str]]:
     finally:
         doc.close()
     return build_page_map_from_texts(pages)
+
+
+def _docling_num_pages(document: Any) -> int | None:
+    raw = getattr(document, "num_pages", None)
+    if callable(raw):
+        try:
+            raw = raw()
+        except Exception:
+            raw = None
+    if isinstance(raw, int) and raw > 0:
+        return raw
+    pages = getattr(document, "pages", None)
+    if isinstance(pages, dict) and pages:
+        try:
+            return max(int(k) for k in pages)
+        except (TypeError, ValueError):
+            return len(pages)
+    return None
+
+
+def _docling_page_map_by_export(document: Any, num_pages: int | None) -> list[tuple[int, str]]:
+    """Per-page Markdown export when page-break placeholders were not emitted."""
+    n = num_pages or _docling_num_pages(document) or 0
+    if n <= 0:
+        return []
+    if n == 1:
+        md = document.export_to_markdown()
+        return [(1, md)] if md else []
+    page_map: list[tuple[int, str]] = []
+    for page_no in range(1, n + 1):
+        try:
+            md = document.export_to_markdown(page_no=page_no)
+        except TypeError:
+            return []
+        page_map.append((page_no, md or ""))
+    return page_map
+
+
+def _scan_printed_page_numbers(file_path: Path) -> dict[int, int]:
+    """Read header/footer bands via PyMuPDF and guess printed page numbers."""
+    import pymupdf
+    hints: dict[int, int] = {}
+    doc = pymupdf.open(str(file_path))
+    try:
+        for i, page in enumerate(doc):
+            rect = page.rect
+            band = rect.height * 0.12
+            header = page.get_text(
+                "text",
+                clip=pymupdf.Rect(rect.x0, rect.y0, rect.x1, rect.y0 + band),
+            )
+            footer = page.get_text(
+                "text",
+                clip=pymupdf.Rect(rect.x0, rect.y1 - band, rect.x1, rect.y1),
+            )
+            printed = detect_printed_page_from_regions(header, footer, i + 1)
+            if printed is not None:
+                hints[i + 1] = printed
+    finally:
+        doc.close()
+    return hints
+
+
+def _page_map_for_source(src: dict[str, Any]) -> list[tuple[int, str]]:
+    """Rebuild a page map for rechunk / resume from persisted text or the PDF."""
+    text = src.get("extracted_text") or ""
+    marked = page_map_from_marked_markdown(text)
+    if marked:
+        return marked
+    origin = src.get("origin_path")
+    if origin and Path(origin).suffix.lower() == ".pdf" and Path(origin).exists():
+        try:
+            return _pymupdf_page_map(Path(origin))
+        except Exception as e:
+            logger.debug("Page map indisponivel para %s: %s", src.get("source_id"), e)
+    return []
 
 
 def _enrich_metadata_from_pymupdf(file_path: Path, metadata: dict[str, Any]) -> None:
@@ -1456,6 +1558,7 @@ def _generate_citekey(db: StateDB, authors: list[str], year: int | None, title: 
 
 def _split_into_chapters(text: str, origin_type: str) -> list[dict[str, str]]:
     """Split text into chapters/sections (Level 1 hierarchy)."""
+    text = strip_page_break_markers(text or "")
     chapters: list[dict[str, str]] = []
 
     heading_pattern = re.compile(r"^(#{1,2})\s+(.+)$", re.MULTILINE)
@@ -1592,6 +1695,7 @@ def _chunk_and_persist(
     source_id: str, chapters: list[dict[str, str]],
     page_map: list[tuple[int, str]] | None = None,
     paging: ContentPaging | None = None,
+    origin_type: str = "",
 ) -> int:
     """Split chapters into structural chunks and persist to state + index.
 
@@ -1604,7 +1708,10 @@ def _chunk_and_persist(
     """
     page_map = page_map or []
     paging = paging or ContentPaging()
-    allow_regex = not bool(page_map)
+    # Regex on body digits is a last resort for PDFs with no page map. Native
+    # Markdown has no pages — never invent them from stray numbers.
+    is_markdown = (origin_type or "").lower() in {"md", "markdown", "txt"}
+    allow_regex = not page_map and not is_markdown
     start_file = paging.content_start_file_page
     start_book = paging.content_start_book_page
 
@@ -1640,6 +1747,7 @@ def _chunk_and_persist(
         keep_ids: set[str] = set()
         chapter_specs: list[dict[str, Any]] = []
         for section_path, chunk_text in chunk_pairs:
+            chunk_text = strip_page_break_markers(chunk_text)
             chunk_norm = normalize_text_for_hash(chunk_text)
             chunk_checksum = sha256_hex(chunk_norm)
             chunk_id = f"{source_id}::{chapter_id}::{short_hash(chunk_checksum)}"
@@ -1765,28 +1873,41 @@ def _resolve_content_paging(
     content_start_file: int | None,
     content_start_book: int | None,
     skip_paging: bool,
+    printed_by_file_page: dict[int, int] | None = None,
+    biblio_pages: str | None = None,
 ) -> ContentPaging:
-    """Resolve content-start file/book pages before chunking."""
+    """Resolve content-start file/book pages before chunking.
+
+    Precedence: explicit CLI/web flags > ``--skip-paging`` > interactive HITL >
+    non-interactive heuristic (chapter-1 / printed header / biblio range) >
+    file page 1 = printed page 1.
+    """
     if skip_paging and content_start_file is None:
         return ContentPaging(1, 1, "skipped")
 
-    suggested = suggest_content_start(page_map)
+    suggested = suggest_content_start(
+        page_map,
+        printed_by_file_page=printed_by_file_page,
+        biblio_pages=biblio_pages,
+    )
     sug_file = int(suggested.get("content_start_file_page") or 1)
     sug_book = int(suggested.get("content_start_book_page") or 1)
 
     if content_start_file is not None:
         start_file = int(content_start_file)
-        start_book = int(content_start_book) if content_start_book is not None else 1
+        start_book = (
+            int(content_start_book) if content_start_book is not None else sug_book
+        )
         return ContentPaging(start_file, start_book, "confirmed")
 
-    if skip_paging or not interactive:
-        conf = "skipped" if skip_paging else (
-            "heuristic" if suggested.get("confidence") == "heuristic" else "skipped"
-        )
-        if not interactive and not skip_paging:
-            # Non-interactive without flags: process all pages (file==book).
-            return ContentPaging(1, 1, "skipped")
-        return ContentPaging(sug_file if conf == "heuristic" else 1, sug_book if conf == "heuristic" else 1, conf)
+    if not interactive:
+        if suggested.get("confidence") == "heuristic":
+            logger.info(
+                "Paginacao heuristica (nao-interativo): arquivo p.%d = impressa p.%d",
+                sug_file, sug_book,
+            )
+            return ContentPaging(sug_file, sug_book, "heuristic")
+        return ContentPaging(1, 1, "skipped")
 
     from rich.console import Console
     from rich.prompt import Prompt
@@ -1801,10 +1922,16 @@ def _resolve_content_paging(
     else:
         console.print(
             "[cyan]Nao detectei Capitulo 1 / Introduction no mapa de paginas. "
-            "Padrao: processar desde p.1 do arquivo (numeracao = pagina do arquivo).[/cyan]"
+            "Padrao: arquivo p.1. Se for artigo de revista, o numero impresso "
+            "pode ser 200 mesmo com o PDF comecando em 1.[/cyan]"
         )
     console.print(
-        "[dim]Paginas do arquivo anteriores ao inicio serao ignoradas no chunking/extract. "
+        "[dim]Livro: p.arquivo do cap. 1 + numero impresso nessa pagina "
+        "(geralmente 1). "
+        "Artigo de revista: arquivo p.1 = primeira pagina impressa na revista. "
+        "Apostila/tutorial que comeca em 1: aceite os padroes. "
+        "Markdown nativo nao tem pagina. "
+        "Paginas do arquivo anteriores ao inicio sao ignoradas. "
         "Chunk que cruza paginas usa a pagina do inicio do trecho.[/dim]"
     )
 

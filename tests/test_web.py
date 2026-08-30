@@ -371,6 +371,6 @@ def test_documents_can_queue_full_pipeline(web_client, monkeypatch):
         "payload": {
             "duplicate_action": "skip",
             "skip_biblio": False,
-            "skip_paging": True,
+            "skip_paging": False,
         },
     }

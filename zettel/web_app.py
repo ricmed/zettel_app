@@ -239,7 +239,7 @@ class WebWorker:
                 cfg, db, idx, interactive=False,
                 duplicate_action=payload.get("duplicate_action", "skip"),
                 skip_biblio=bool(payload.get("skip_biblio", False)),
-                skip_paging=bool(payload.get("skip_paging", True)),
+                skip_paging=bool(payload.get("skip_paging", False)),
                 observer=progress,
             )
 

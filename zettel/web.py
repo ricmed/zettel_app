@@ -381,7 +381,7 @@ async def documents_run_all(request: Request, csrf: str = Form("")):
     return _post_job(
         request,
         "run_all",
-        {"duplicate_action": "skip", "skip_biblio": False, "skip_paging": True},
+        {"duplicate_action": "skip", "skip_biblio": False, "skip_paging": False},
         csrf,
     )
 
