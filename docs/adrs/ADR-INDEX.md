@@ -1,0 +1,308 @@
+# zettel_app ADR Index (26 Decisions)
+
+**Last Updated**: 2026-08-31  
+**Status**: Complete — 26 formal ADRs across 9 modules, 37 relationships mapped
+
+---
+
+## Quick Navigation
+
+| Module | Count | ADRs |
+|--------|-------|------|
+| **INFRA** | 8 | [001–008](#infra-core-infrastructure) |
+| **RETRIEVAL** | 2 | [009–010](#retrieval-hybrid-search--graph) |
+| **HARVEST** | 4 | [011–014](#harvest-ingestion--paging) |
+| **EXTRACT** | 1 | [015](#extract-literature-notes) |
+| **REVIEW** | 1 | [016](#review-approval-gate) |
+| **GARDEN** | 3 | [019–021](#garden-moc-generation) |
+| **WEB** | 2 | [022–023](#web-ui--job-queue) |
+| **LLM** | 2 | [024–025](#llm-provider--caching) |
+| **CLI** | 1 | [026](#cli-orchestration) |
+
+---
+
+## INFRA — Core Infrastructure
+
+### ADR-001: SQLite with WAL Mode and FTS5 as Primary Persistence Layer
+
+- **Status**: Accepted
+- **Date**: 2025-02 (foundational, stable ~18 months)
+- **Summary**: SQLite with Write-Ahead Logging and FTS5 virtual tables as the sole relational store, chosen for single-VM deployment, concurrent read access during LLM calls, and co-located BM25 search without external infrastructure.
+- **Link**: [`ADR-001-sqlite-wal-fts5-primary-persistence.md`](./generated/INFRA/ADR-001-sqlite-wal-fts5-primary-persistence.md)
+
+---
+
+### ADR-002: ChromaDB Embedded Client as Vector Store
+
+- **Status**: Accepted
+- **Date**: 2025-03-01
+- **Summary**: ChromaDB in embedded `PersistentClient` mode (no server component) for local-first vector storage, chosen to keep all vectors on-disk, avoid third-party data exposure, and sidestep the known FastAPI server RCE surface.
+- **Link**: [`ADR-002-chromadb-embedded-vector-store.md`](./generated/INFRA/ADR-002-chromadb-embedded-vector-store.md)
+
+---
+
+### ADR-003: Hybrid Dense+BM25 Retrieval with RRF Fusion and Absolute Relevance Floor
+
+- **Status**: Accepted
+- **Date**: 2024-08-30
+- **Summary**: Reciprocal Rank Fusion combining ChromaDB embeddings and SQLite FTS5, gated by an absolute relevance floor, chosen to rescue jargon that dense-only search underrates while preventing confidently-ranked but off-topic results from passing as "relevant."
+- **Link**: [`ADR-003-hybrid-dense-bm25-retrieval.md`](./generated/INFRA/ADR-003-hybrid-dense-bm25-retrieval.md)
+
+---
+
+### ADR-004: YAML-First Configuration with Pydantic Fallback
+
+- **Status**: Accepted
+- **Date**: 2025-02-01
+- **Summary**: `config/config.yaml` as the operational source of truth; Pydantic Field defaults exist only as test scaffolding. Secrets stay in `.env`, separate from this contract.
+- **Link**: [`ADR-004-yaml-first-configuration.md`](./generated/INFRA/ADR-004-yaml-first-configuration.md)
+
+---
+
+### ADR-005: Dual-Store Persistence Without Cross-Store Transactions
+
+- **Status**: Accepted
+- **Date**: 2025-03-01
+- **Summary**: SQLite and ChromaDB operate independently with no cross-store transaction guarantee; mitigated via phase-based checkpointing and manual reconciliation commands (`zettel reindex`, `zettel sync-manual`). This is a known risk accepted for architectural simplicity.
+- **Link**: [`ADR-005-dual-store-persistence.md`](./generated/INFRA/ADR-005-dual-store-persistence.md)
+
+---
+
+### ADR-006: Pydantic v2 for Configuration Schema and LLM-Backed DTOs
+
+- **Status**: Accepted
+- **Date**: 2024-08-30
+- **Summary**: Pydantic v2 chosen as the single validation mechanism for both operational configuration (15+ nested classes) and LLM structured outputs (5+ DTO classes across all pipeline phases).
+- **Link**: [`ADR-006-pydantic-v2-config-dtos.md`](./generated/INFRA/ADR-006-pydantic-v2-config-dtos.md)
+
+---
+
+### ADR-007: Layered Hashing Strategy for Deterministic Caching and Drift Detection
+
+- **Status**: Accepted
+- **Date**: 2025-02-28
+- **Summary**: Six-layer SHA-256 checksums over canonically normalized text (file → extraction → chapter → chunk → LLM call → note semantic), enabling deterministic LLM caching, dedup at multiple granularities, and cross-format equivalence detection.
+- **Link**: [`ADR-007-layered-hashing-strategy.md`](./generated/INFRA/ADR-007-layered-hashing-strategy.md)
+
+---
+
+### ADR-008: Repository Pattern for Data Access (StateDB and VectorIndex)
+
+- **Status**: Accepted
+- **Date**: 2024-08-30
+- **Summary**: Two dedicated repository classes — `StateDB` for SQLite, `VectorIndex` for ChromaDB — abstract the different APIs behind consistent gateways, keeping business logic decoupled from storage technology.
+- **Link**: [`ADR-008-repository-pattern-data-access.md`](./generated/INFRA/ADR-008-repository-pattern-data-access.md)
+
+---
+
+## RETRIEVAL — Hybrid Search & Graph
+
+### ADR-009: Graph-Based Note Discovery with Weighted BFS Expansion
+
+- **Status**: Accepted
+- **Date**: 2026-07-18
+- **Summary**: Breadth-first search over `note_connections` (undirected, weighted by relation type, exponential hop decay) enriches RRF retrieval results with conceptually-opposite notes that embeddings structurally cannot find (e.g., `contradicts` edges).
+- **Link**: [`ADR-009-graph-based-note-discovery-weighted-bfs.md`](./generated/RETRIEVAL/ADR-009-graph-based-note-discovery-weighted-bfs.md)
+
+---
+
+### ADR-010: Retrieval Result Transparency (Hits vs Candidates)
+
+- **Status**: Accepted
+- **Date**: 2026-07-18
+- **Summary**: `NoteSearchResult` carries both `hits` (results cleared the relevance floor) and `candidates` (raw RRF-ranked pool before the floor), each with provenance fields (`floor_reason`, `vector_rank`, `bm25_rank`), making filtering transparent rather than opaque.
+- **Link**: [`ADR-010-retrieval-result-transparency-hits-vs-candidates.md`](./generated/RETRIEVAL/ADR-010-retrieval-result-transparency-hits-vs-candidates.md)
+
+---
+
+## HARVEST — Ingestion & Paging
+
+### ADR-011: Three-Layer Duplicate Detection Strategy for Source Ingestion
+
+- **Status**: Accepted
+- **Date**: 2026-07-04
+- **Summary**: Sequential file hash → extraction hash → semantic similarity checks before accepting a source as new, chosen to catch byte-identical copies, cross-format re-exports, and reformatted near-duplicates with cost-effective cheap-to-expensive ordering.
+- **Link**: [`ADR-011-three-layer-duplicate-detection.md`](./generated/HARVEST/ADR-011-three-layer-duplicate-detection.md)
+
+---
+
+### ADR-012: Docling as Primary PDF Extractor (PyMuPDF Removed)
+
+- **Status**: Accepted (2026-08-31)
+- **Date**: 2024-08-30, Resolved 2026-08-31
+- **Summary**: Docling is now the sole PDF extractor; PyMuPDF fallback removed to eliminate AGPL-3.0 licensing risk. Docling version is pinned for reproducibility. Harvest fails explicitly if Docling unavailable.
+- **Link**: [`ADR-012-docling-pdf-extraction-pymupdf-fallback.md`](./generated/HARVEST/ADR-012-docling-pdf-extraction-pymupdf-fallback.md)
+
+---
+
+### ADR-013: Three-Layer Page Inference Strategy for Chunk Page Metadata
+
+- **Status**: Accepted
+- **Date**: 2024-08-30
+- **Summary**: Explicit PDF metadata → text-pattern matching → interpolation (cascaded layers) to assign `page_in_file` to chunks, with each layer recorded as a confidence level (`explicit`, `inferred`, `unknown`), chosen to maximize page coverage across PDFs, Markdown, and OCR-derived sources.
+- **Link**: [`ADR-013-three-layer-page-inference-strategy.md`](./generated/HARVEST/ADR-013-three-layer-page-inference-strategy.md)
+
+---
+
+### ADR-014: Hybrid Structural Chunking (H1-H6 Boundaries + Recursive Splitter)
+
+- **Status**: Accepted
+- **Date**: Unknown (foundational, predates tracked history)
+- **Summary**: Two-stage: split at H1/H2 chapter boundaries, then at H3-H6 subsections, with recursive character-based splitter as fallback when a structural unit exceeds max size. Overlap preserves context across cuts.
+- **Link**: [`ADR-014-hybrid-structural-chunking-strategy.md`](./generated/HARVEST/ADR-014-hybrid-structural-chunking-strategy.md)
+
+---
+
+## EXTRACT — Literature Notes
+
+### ADR-015: Granular Per-Chunk Literature Notes with Readable Filenames
+
+- **Status**: Accepted
+- **Date**: 2026-08-28
+- **Summary**: Each chunk generates its own draft note (not a monolithic per-source index) with human-readable filename (`LIT - AuthorYear - pNNN - topic-NNNN.md`), chosen to enable per-chunk confidence tracking, individual approval, and human comparison of LLM interpretation against source excerpts.
+- **Link**: [`ADR-015-granular-literature-notes-readable-filenames.md`](./generated/EXTRACT/ADR-015-granular-literature-notes-readable-filenames.md)
+
+---
+
+## REVIEW — Approval Gate
+
+### ADR-016: Post-Approval Concept Deduplication Timing
+
+- **Status**: Accepted
+- **Date**: 2026-08-29
+- **Summary**: Semantic concept deduplication runs once after chunk approval (not during extraction or later during connection), avoiding LLM cost on rejected drafts while guaranteeing CONNECT never reads unmerged duplicates.
+- **Link**: [`ADR-016-post-approval-concept-deduplication-timing.md`](./generated/REVIEW/ADR-016-post-approval-concept-deduplication-timing.md)
+
+---
+
+### ADR-017: Confidence-Band Human-in-the-Loop Approval Gate
+
+- **Status**: Accepted (2026-08-31)
+- **Date**: 2026-08-29, Resolved 2026-08-31
+- **Summary**: Interactive REVIEW mode groups drafts by confidence band (≤0.4 / 0.4–limiar / ≥limiar), allowing batch approve-all-above-threshold or selective rejection per band. Thresholds (0.4, 0.7) are initial heuristics, tunable based on real-world impact.
+- **Link**: [`ADR-017-confidence-band-hitl-approval-gate.md`](./generated/REVIEW/ADR-017-confidence-band-hitl-approval-gate.md)
+
+---
+
+### ADR-018: Web/CLI Validation Asymmetry (Server-Side Enforcement)
+
+- **Status**: Accepted (2026-08-31)
+- **Date**: 2026-08-29, Resolved 2026-08-31
+- **Summary**: Threshold validation is now enforced server-side on both CLI and web paths, eliminating bypass vector. The configuration `literature_review.auto_approve_min_confidence` is now a uniform gate. Future override capability (if needed) must be explicit and audited.
+- **Link**: [`ADR-018-web-cli-validation-asymmetry.md`](./generated/REVIEW/ADR-018-web-cli-validation-asymmetry.md)
+
+---
+
+## GARDEN — MOC Generation
+
+### ADR-019: Taxonomy-First MOC Clustering with UMAP+HDBSCAN
+
+- **Status**: Accepted
+- **Date**: 2026-08-26
+- **Summary**: Embed category labels from `moc_topics.yaml`, assign notes to highest-similarity category first, then cluster within each bucket using UMAP+HDBSCAN (with KMeans fallback when optional dependencies are missing). Anchors MOCs to user-defined domains rather than emergent clustering alone.
+- **Link**: [`ADR-019-taxonomy-first-moc-clustering.md`](./generated/GARDEN/ADR-019-taxonomy-first-moc-clustering.md)
+
+---
+
+### ADR-020: Hub-Anchored MOC Generation as a Complementary Clustering Strategy
+
+- **Status**: Accepted
+- **Date**: 2026-08-27
+- **Summary**: Complementary pipeline (opt-in via `--hubs`): rank notes by weighted graph degree, expand neighborhoods via BFS, deduplicate overlaps, generate MOCs. Surfaces connectivity-based organization taxonomy-first clustering cannot detect.
+- **Link**: [`ADR-020-hub-anchored-moc-pipeline.md`](./generated/GARDEN/ADR-020-hub-anchored-moc-pipeline.md)
+
+---
+
+### ADR-021: Single LLM Call Per Cluster with Intelligent Routing
+
+- **Status**: Accepted
+- **Date**: 2026-08-26
+- **Summary**: Five-step decision tree (signature match → overlap → category → cohesion gate → generation) ensures at most one LLM call per cluster. Reuses existing MOCs when overlap ≥ threshold, preserves user edits on incremental updates.
+- **Link**: [`ADR-021-single-llm-call-per-cluster-routing.md`](./generated/GARDEN/ADR-021-single-llm-call-per-cluster-routing.md)
+
+---
+
+## WEB — UI & Job Queue
+
+### ADR-022: FastAPI Server-Rendered Web Interface (No SPA)
+
+- **Status**: Accepted
+- **Date**: 2026-08-29
+- **Summary**: 23 endpoints serving complete HTML via Jinja2 templates, no separate frontend build; forms submit via standard POST/GET with server-side validation. SSE streams job progress without stateful client.
+- **Link**: [`ADR-022-fastapi-server-rendered-jinja2.md`](./generated/WEB/ADR-022-fastapi-server-rendered-jinja2.md)
+
+---
+
+### ADR-023: SQLite-Backed Persistent Job Queue with Single Worker Thread
+
+- **Status**: Accepted
+- **Date**: 2026-08-29
+- **Summary**: `web_jobs` and `web_job_events` tables + one in-process daemon thread, chosen to avoid external broker infrastructure, persist state across restarts, and serialize mutations to prevent concurrent races on StateDB/vault.
+- **Link**: [`ADR-023-sqlite-backed-job-queue-single-worker.md`](./generated/WEB/ADR-023-sqlite-backed-job-queue-single-worker.md)
+
+---
+
+## LLM — Provider & Caching
+
+### ADR-024: Pluggable Multi-Provider LLM Strategy
+
+- **Status**: Accepted
+- **Date**: 2026-07-02
+- **Summary**: `get_llm()` gateway instantiates LangChain chat clients (OpenAI, Anthropic, Gemini, Ollama) from `cfg.llm.provider`, making provider choice configurable at runtime without touching call sites.
+- **Link**: [`ADR-024-multi-provider-llm-strategy.md`](./generated/LLM/ADR-024-multi-provider-llm-strategy.md)
+
+---
+
+### ADR-025: System+Human Prompt Split for Provider-Agnostic Prompt Caching
+
+- **Status**: Accepted
+- **Date**: 2026-08-13
+- **Summary**: Every prompt file split via `<!-- zettel:user -->` marker into stable system instructions and per-call user payload, enabling implicit prefix reuse on OpenAI/Gemini/Ollama and explicit `cache_control` hints on Anthropic.
+- **Link**: [`ADR-025-prompt-caching-system-human-split.md`](./generated/LLM/ADR-025-prompt-caching-system-human-split.md)
+
+---
+
+## CLI — Orchestration
+
+### ADR-026: Typer and Rich as CLI Framework
+
+- **Status**: Accepted
+- **Date**: 2026-02-01
+- **Summary**: 24 commands as decorated Typer functions with Rich for tables, panels, progress spinners, and interactive confirmations. Chosen for type-hint-driven argument parsing and polished terminal UI without adding frontend build infrastructure.
+- **Link**: [`ADR-026-typer-rich-cli-framework.md`](./generated/CLI/ADR-026-typer-rich-cli-framework.md)
+
+---
+
+## Statistics
+
+| Category | Count |
+|----------|-------|
+| **Total ADRs** | 26 |
+| **Accepted** | 26 |
+| **Needs Input** | 0 |
+| **Total Relationships** | 37 |
+| **Modules Covered** | 9 |
+
+---
+
+## Status Update (2026-08-31)
+
+✅ **All 26 ADRs now Accepted** — No needs-input remain. Three ADRs (012, 017, 018) were resolved on 2026-08-31 via team decision. See [RESOLUTION-LOG-2026-08-31.md](./RESOLUTION-LOG-2026-08-31.md) for details.
+
+---
+
+## Ungenerated Potential ADRs (8 of 34 identified, reserved for future decisions)
+
+- **CONNECT** (2): RAG context handling, permanent note generation routing
+- **QA-WRITING** (2): Q&A short-circuiting, article fallback degradation
+- **Consider-Priority** (4): Various lower-priority architectural observations across modules
+
+These remain documented in `docs/adrs/potential-adrs/` for later formalization if circumstances change.
+
+---
+
+## Next Steps
+
+- Review all 26 formal ADRs in the [generated/ directory](./generated/)
+- Consult the [relationship report](./reports/) for dependency graphs and temporal evolution
+- Use this index as a reference when making changes to architecture-sensitive modules
