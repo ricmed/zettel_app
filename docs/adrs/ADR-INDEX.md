@@ -1,7 +1,7 @@
-# zettel_app ADR Index (26 Decisions)
+# zettel_app ADR Index (27 Decisions)
 
 **Last Updated**: 2026-08-31  
-**Status**: Complete — 26 formal ADRs across 9 modules, 37 relationships mapped
+**Status**: Complete — 27 formal ADRs across 9 modules, 37 relationships mapped
 
 ---
 
@@ -11,7 +11,7 @@
 |--------|-------|------|
 | **INFRA** | 8 | [001–008](#infra-core-infrastructure) |
 | **RETRIEVAL** | 2 | [009–010](#retrieval-hybrid-search--graph) |
-| **HARVEST** | 4 | [011–014](#harvest-ingestion--paging) |
+| **HARVEST** | 5 | [011–014, 027](#harvest-ingestion--paging) |
 | **EXTRACT** | 1 | [015](#extract-literature-notes) |
 | **REVIEW** | 1 | [016](#review-approval-gate) |
 | **GARDEN** | 3 | [019–021](#garden-moc-generation) |
@@ -150,6 +150,15 @@
 - **Date**: Unknown (foundational, predates tracked history)
 - **Summary**: Two-stage: split at H1/H2 chapter boundaries, then at H3-H6 subsections, with recursive character-based splitter as fallback when a structural unit exceeds max size. Overlap preserves context across cuts.
 - **Link**: [`ADR-014-hybrid-structural-chunking-strategy.md`](./generated/HARVEST/ADR-014-hybrid-structural-chunking-strategy.md)
+
+---
+
+### ADR-027: Harvest Phase as Python Package (Module Extraction from Monolith)
+
+- **Status**: Accepted (2026-08-31)
+- **Date**: 2026-08-31
+- **Summary**: Extract monolithic `harvester.py` (1776 lines) into 8-module package (`extract.py`, `chunking.py`, `duplicates.py`, `biblio_hitl.py`, `citekey.py`, `pipeline.py`, `set_paging.py`, `__init__.py`) to improve testability, agent context window efficiency, and code readability. Public API maintained; no behavior changes.
+- **Link**: [`ADR-027-harvest-phase-as-python-package.md`](./generated/HARVEST/ADR-027-harvest-phase-as-python-package.md)
 
 ---
 

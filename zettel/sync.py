@@ -103,14 +103,14 @@ def _sync_source(
     cfg: AppConfig, db: StateDB, idx: VectorIndex, file_path: Path, meta: dict, body: str,
 ) -> str:
     """Adopt a hand-created SRC note: register the source in the DB + index."""
-    from zettel.harvester import _generate_citekey
+    from zettel.harvester.citekey import generate_citekey
 
     source_id = meta.get("source_id")
     citekey = None
     if source_id:
         citekey = source_id.lstrip("@")
     else:
-        citekey = _generate_citekey(
+        citekey = generate_citekey(
             db, meta.get("author") or meta.get("authors") or [], meta.get("year"),
             meta.get("title", file_path.stem),
         )
@@ -187,7 +187,7 @@ def _sync_literature(
         citekey = str(citekey).lstrip("@")
 
     if not source_id or "::" in str(source_id):
-        citekey = _generate_citekey(db, [], meta.get("year"), meta.get("title", file_path.stem))
+        citekey = generate_citekey(db, [], meta.get("year"), meta.get("title", file_path.stem))
         source_id = f"@{citekey}"
 
     if not db.get_source(source_id):
