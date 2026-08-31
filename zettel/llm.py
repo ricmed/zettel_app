@@ -31,6 +31,25 @@ _OPENAI_COMPAT_PROVIDERS = frozenset({
 _CHAT_PROVIDERS = _OPENAI_COMPAT_PROVIDERS | frozenset({"anthropic", "ollama", "gemini"})
 
 
+def _message_text(content: Any) -> str:
+    """Plain text from ``AIMessage.content`` (str, or Gemini 3+ list of blocks)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        texts = [
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        ]
+        joined = "\n".join(t for t in texts if t)
+        if joined:
+            return joined
+        strs = [b for b in content if isinstance(b, str) and b]
+        if strs:
+            return "\n".join(strs)
+    return "" if content is None else str(content)
+
+
 def clip_text(text: str, max_len: int = 72) -> str:
     """One-line preview for progress logs (collapses whitespace)."""
     one = " ".join((text or "").split())
@@ -337,9 +356,7 @@ def call_llm(
     )
 
     response = llm.invoke(messages, **invoke_kwargs)
-    content = response.content
-    if not isinstance(content, str):
-        content = str(content)
+    content = _message_text(response.content)
 
     model_name = _resolve_model_name(llm, model)
     usage = _extract_usage(response)

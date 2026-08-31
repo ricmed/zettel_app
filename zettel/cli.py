@@ -80,6 +80,61 @@ def _fmt_embedding_id(provider: str | None, model: str | None, dimensions: int |
     return base
 
 
+def _fmt_usd(value: object) -> str:
+    return f"{float(value or 0):.6f}"
+
+
+def _print_cost_by_phase(db, *, title: str = "Custo por fase") -> None:
+    """Print one row per phase of the latest pipeline session, then a total."""
+    from zettel.usage import (
+        latest_pipeline_session,
+        pipeline_phase_name,
+        sum_run_usage,
+        usage_from_run,
+    )
+
+    session = latest_pipeline_session(db.get_recent_runs())
+    if not session:
+        return
+    table = Table(title=title)
+    table.add_column("Fase", style="bold")
+    table.add_column("USD total", justify="right")
+    table.add_column("USD LLM", justify="right")
+    table.add_column("USD embeddings", justify="right")
+    table.add_column("Tokens prompt", justify="right")
+    table.add_column("Tokens completion", justify="right")
+    table.add_column("Tokens embedding", justify="right")
+    table.add_column("LLM calls", justify="right")
+    table.add_column("Cache hits", justify="right")
+    for row in session:
+        u = usage_from_run(row)
+        table.add_row(
+            pipeline_phase_name(row.get("pipeline_signature")),
+            _fmt_usd(u.cost_usd_total),
+            _fmt_usd(u.cost_usd_llm),
+            _fmt_usd(u.cost_usd_embedding),
+            str(u.tokens_prompt),
+            str(u.tokens_completion),
+            str(u.tokens_embedding),
+            str(u.llm_calls),
+            str(u.cache_hits),
+        )
+    total = sum_run_usage(session)
+    table.add_row(
+        "Total",
+        _fmt_usd(total.cost_usd_total),
+        _fmt_usd(total.cost_usd_llm),
+        _fmt_usd(total.cost_usd_embedding),
+        str(total.tokens_prompt),
+        str(total.tokens_completion),
+        str(total.tokens_embedding),
+        str(total.llm_calls),
+        str(total.cache_hits),
+        style="bold",
+    )
+    console.print(table)
+
+
 def _idx_kwargs(cfg, *, reset_mismatched: bool = False) -> dict:
     return {
         "chroma_path": cfg.chroma_path,
@@ -433,8 +488,9 @@ def extract(
     idx = _get_idx(cfg, db=db, yes=yes)
 
     from zettel.extractor import run_extract
-    with console.status("[bold blue]Extraindo conceitos dos chunks...", spinner="dots"):
-        candidates = run_extract(cfg, db, idx, auto_approve=auto_approve)
+    # Nao usar console.status: o Progress interno de run_extract disputa o mesmo
+    # stdout (dois Rich Live) e a barra Extract chunk i/N pisca. Ver #21.
+    candidates = run_extract(cfg, db, idx, auto_approve=auto_approve)
 
     console.print(
         f"[green]Candidatos em awaiting_review: {len(candidates)}[/green] "
@@ -675,8 +731,9 @@ def connect(
         raise typer.Exit(1)
 
     from zettel.connector import run_connect
-    with console.status("[bold blue]Gerando notas permanentes...", spinner="dots"):
-        note_ids = run_connect(cfg, db, idx, candidates)
+    # Nao usar console.status: o Progress interno de run_connect disputa o mesmo
+    # stdout (dois Rich Live) e a barra Connect nota i/N pisca. Ver #21.
+    note_ids = run_connect(cfg, db, idx, candidates)
 
     console.print(f"[green]Notas permanentes criadas: {len(note_ids)}[/green]")
     for nid in note_ids:
@@ -1317,6 +1374,7 @@ def run_all(
 
     if dry_run:
         console.print("[yellow]Dry run — parando antes da geracao de notas.[/yellow]")
+        _print_cost_by_phase(db, title="Custo por fase desta execucao")
         db.close()
         return
 
@@ -1334,6 +1392,7 @@ def run_all(
     console.print(f"  MOCs: {len(moc_ids)}")
 
     console.rule("[bold green]Pipeline completo!")
+    _print_cost_by_phase(db, title="Custo por fase desta execucao")
     db.close()
 
 
@@ -1702,35 +1761,45 @@ def status(
             f"{', '.join(incomplete)}. Rode `zettel rechunk` para completar.[/yellow]"
         )
 
-    last_run = db.get_last_run()
-    if last_run:
+    from zettel.usage import latest_pipeline_session, pipeline_phase_name
+
+    recent_runs = db.get_recent_runs()
+    session = latest_pipeline_session(recent_runs)
+    harvest_run = next(
+        (
+            row for row in reversed(session)
+            if pipeline_phase_name(row.get("pipeline_signature")) == "harvest"
+        ),
+        None,
+    )
+    if harvest_run is None:
+        harvest_run = next(
+            (
+                row for row in recent_runs
+                if pipeline_phase_name(row.get("pipeline_signature")) == "harvest"
+            ),
+            None,
+        )
+    if harvest_run:
         dup_table = Table(title="Duplicatas — Ultima Execucao do Harvest")
         dup_table.add_column("Tipo", style="bold")
         dup_table.add_column("Quantidade", justify="right")
         dup_table.add_row(
-            "Por hash de arquivo (copia renomeada)", str(last_run.get("duplicate_file_count", 0))
+            "Por hash de arquivo (copia renomeada)",
+            str(harvest_run.get("duplicate_file_count", 0)),
         )
         dup_table.add_row(
-            "Por conteudo extraido (cross-formato)", str(last_run.get("duplicate_content_count", 0))
+            "Por conteudo extraido (cross-formato)",
+            str(harvest_run.get("duplicate_content_count", 0)),
         )
         dup_table.add_row(
-            "Por similaridade semantica", str(last_run.get("duplicate_semantic_count", 0))
+            "Por similaridade semantica",
+            str(harvest_run.get("duplicate_semantic_count", 0)),
         )
-        dup_table.add_row("Status da execução", str(last_run.get("status", "-")))
+        dup_table.add_row("Status da execução", str(harvest_run.get("status", "-")))
         console.print(dup_table)
 
-        cost_table = Table(title="Custo — Ultimo Run")
-        cost_table.add_column("Metrica", style="bold")
-        cost_table.add_column("Valor", justify="right")
-        cost_table.add_row("USD total", f"{float(last_run.get('cost_usd_total') or 0):.6f}")
-        cost_table.add_row("USD LLM", f"{float(last_run.get('cost_usd_llm') or 0):.6f}")
-        cost_table.add_row("USD embeddings", f"{float(last_run.get('cost_usd_embedding') or 0):.6f}")
-        cost_table.add_row("Tokens prompt", str(last_run.get("tokens_prompt", 0) or 0))
-        cost_table.add_row("Tokens completion", str(last_run.get("tokens_completion", 0) or 0))
-        cost_table.add_row("Tokens embedding", str(last_run.get("tokens_embedding", 0) or 0))
-        cost_table.add_row("LLM calls", str(last_run.get("llm_calls", 0) or 0))
-        cost_table.add_row("Cache hits", str(last_run.get("cache_hits", 0) or 0))
-        console.print(cost_table)
+    _print_cost_by_phase(db)
 
     db.close()
 

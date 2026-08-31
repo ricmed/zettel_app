@@ -506,6 +506,7 @@ def _describe_one(
         _resolve_model_name,
         apply_prompt_cache_hints,
         fill_template,
+        _message_text,
     )
     from zettel.pricing import estimate_llm_cost
     from zettel.usage import record_llm
@@ -528,9 +529,7 @@ def _describe_one(
         provider, messages, enabled=prompt_cache,
     )
     response = llm.invoke(messages, **invoke_kwargs)
-    content = response.content
-    if not isinstance(content, str):
-        content = str(content)
+    content = _message_text(response.content)
 
     model_name = _resolve_model_name(llm, None)
     usage = _extract_usage(response)

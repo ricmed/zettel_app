@@ -1510,6 +1510,13 @@ class StateDB:
     def get_last_run(self) -> Optional[dict]:
         return self._fetchone("SELECT * FROM runs ORDER BY run_id DESC LIMIT 1")
 
+    def get_recent_runs(self, limit: int = 30) -> list[dict]:
+        """Newest-first run rows, including cost/token columns."""
+        return self._fetchall(
+            "SELECT * FROM runs ORDER BY run_id DESC LIMIT ?",
+            (max(1, int(limit)),),
+        )
+
     # ── Web job queue ──────────────────────────────────────────────────
 
     def recover_web_jobs(self) -> int:

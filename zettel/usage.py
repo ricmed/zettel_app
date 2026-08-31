@@ -5,7 +5,21 @@ from __future__ import annotations
 import logging
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Optional
+
+# Named pipeline phases in run-all order. Harvest uses a JSON config checksum as
+# pipeline_signature; ``pipeline_phase_name`` maps that blob back to "harvest".
+_PHASE_ORDER: dict[str, int] = {
+    "harvest": 0,
+    "extract": 1,
+    "review": 2,
+    "connect": 3,
+    "garden": 4,
+    "garden_hubs": 5,
+}
+_STANDALONE_PHASES = frozenset({"ask", "article"})
+_SESSION_MAX_GAP_SECONDS = 4 * 3600
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +80,95 @@ class UsageSummary:
         self.embed_calls += other.embed_calls
         self.prompt_cache_read_tokens += other.prompt_cache_read_tokens
         self.prompt_cache_write_tokens += other.prompt_cache_write_tokens
+
+
+def pipeline_phase_name(signature: str | None) -> str:
+    """Map a ``runs.pipeline_signature`` to a short phase label."""
+    sig = (signature or "").strip()
+    if sig in _PHASE_ORDER or sig in _STANDALONE_PHASES:
+        return sig
+    if sig.startswith("{") or sig.startswith("["):
+        return "harvest"
+    return sig[:40] or "run"
+
+
+def usage_from_run(row: dict[str, Any]) -> UsageSummary:
+    """Build a ``UsageSummary`` from a ``runs`` row."""
+    return UsageSummary(
+        cost_usd_total=float(row.get("cost_usd_total") or 0),
+        cost_usd_llm=float(row.get("cost_usd_llm") or 0),
+        cost_usd_embedding=float(row.get("cost_usd_embedding") or 0),
+        tokens_prompt=int(row.get("tokens_prompt") or 0),
+        tokens_completion=int(row.get("tokens_completion") or 0),
+        tokens_embedding=int(row.get("tokens_embedding") or 0),
+        llm_calls=int(row.get("llm_calls") or 0),
+        cache_hits=int(row.get("cache_hits") or 0),
+        embed_calls=int(row.get("embed_calls") or 0),
+        prompt_cache_read_tokens=int(row.get("prompt_cache_read_tokens") or 0),
+        prompt_cache_write_tokens=int(row.get("prompt_cache_write_tokens") or 0),
+    )
+
+
+def sum_run_usage(runs: list[dict[str, Any]]) -> UsageSummary:
+    total = UsageSummary()
+    for row in runs:
+        total.add(usage_from_run(row))
+    return total
+
+
+def _parse_started_at(value: Any) -> datetime | None:
+    if not value:
+        return None
+    text = str(value).replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def latest_pipeline_session(
+    runs_newest_first: list[dict[str, Any]],
+    *,
+    max_gap_seconds: float = _SESSION_MAX_GAP_SECONDS,
+) -> list[dict[str, Any]]:
+    """Return the newest pipeline session, oldest phase first.
+
+    Walking newest→oldest, keep going while each older run is an earlier
+    pipeline phase (harvest < extract < … < garden). A repeated phase, a
+    jump forward, ask/article, or a gap larger than ``max_gap_seconds``
+    starts a different session.
+    """
+    if not runs_newest_first:
+        return []
+    first_name = pipeline_phase_name(runs_newest_first[0].get("pipeline_signature"))
+    if first_name in _STANDALONE_PHASES:
+        return [runs_newest_first[0]]
+
+    selected: list[dict[str, Any]] = []
+    prev_order: int | None = None
+    prev_started: datetime | None = None
+    for row in runs_newest_first:
+        name = pipeline_phase_name(row.get("pipeline_signature"))
+        order = _PHASE_ORDER.get(name)
+        if order is None:
+            break
+        started = _parse_started_at(row.get("started_at"))
+        if prev_order is None:
+            selected.append(row)
+            prev_order = order
+            prev_started = started
+            continue
+        if order >= prev_order:
+            break
+        if prev_started is not None and started is not None:
+            gap = (prev_started - started).total_seconds()
+            if gap > max_gap_seconds:
+                break
+        selected.append(row)
+        prev_order = order
+        prev_started = started
+    selected.reverse()
+    return selected
 
 
 def format_progress(
