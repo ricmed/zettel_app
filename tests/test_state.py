@@ -147,6 +147,18 @@ def test_run_duplicate_tracking(db):
         db.record_duplicate(run_id, "unknown-kind")
 
 
+def test_get_recent_runs_newest_first(db):
+    first = db.start_run("extract")
+    db.finish_run(first, "completed", {"cost_usd_total": 0.1, "llm_calls": 2})
+    second = db.start_run("garden")
+    db.finish_run(second, "completed", {"cost_usd_total": 0.2, "llm_calls": 1})
+
+    rows = db.get_recent_runs(10)
+    assert [r["run_id"] for r in rows] == [second, first]
+    assert rows[0]["pipeline_signature"] == "garden"
+    assert float(rows[0]["cost_usd_total"]) == 0.2
+
+
 # ── Fase 0 — retenção máxima no SQLite ─────────────────────────────────
 
 

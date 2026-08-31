@@ -68,3 +68,81 @@ def test_cache_hit_is_zero_cost():
     assert s.cache_hits == 1
     assert s.cost_usd_total == 0.0
     assert s.llm_calls == 0
+
+
+def test_pipeline_phase_name_maps_harvest_json():
+    from zettel.usage import pipeline_phase_name
+
+    assert pipeline_phase_name('{"chunking": {}}') == "harvest"
+    assert pipeline_phase_name("extract") == "extract"
+    assert pipeline_phase_name("garden_hubs") == "garden_hubs"
+
+
+def test_latest_pipeline_session_groups_run_all():
+    from zettel.usage import latest_pipeline_session, pipeline_phase_name, sum_run_usage
+
+    previous_garden = {
+        "pipeline_signature": "garden",
+        "started_at": "2026-08-01T10:00:00",
+        "cost_usd_total": 9.0,
+        "tokens_prompt": 9000,
+        "llm_calls": 90,
+    }
+    harvest = {
+        "pipeline_signature": '{"harvest": true}',
+        "started_at": "2026-08-31T12:00:00",
+        "cost_usd_total": 0.01,
+        "cost_usd_llm": 0.01,
+        "tokens_prompt": 100,
+        "llm_calls": 2,
+    }
+    extract = {
+        "pipeline_signature": "extract",
+        "started_at": "2026-08-31T12:10:00",
+        "cost_usd_total": 0.20,
+        "cost_usd_llm": 0.20,
+        "tokens_prompt": 2000,
+        "llm_calls": 20,
+    }
+    garden = {
+        "pipeline_signature": "garden",
+        "started_at": "2026-08-31T12:40:00",
+        "cost_usd_total": 0.000646,
+        "cost_usd_llm": 0.000646,
+        "tokens_prompt": 2146,
+        "llm_calls": 1,
+    }
+    newest_first = [garden, extract, harvest, previous_garden]
+    session = latest_pipeline_session(newest_first)
+    assert [pipeline_phase_name(r["pipeline_signature"]) for r in session] == [
+        "harvest", "extract", "garden",
+    ]
+    total = sum_run_usage(session)
+    assert abs(total.cost_usd_total - 0.210646) < 1e-9
+    assert total.llm_calls == 23
+
+
+def test_latest_pipeline_session_isolated_extract_is_not_merged():
+    from zettel.usage import latest_pipeline_session, pipeline_phase_name
+
+    extract = {
+        "pipeline_signature": "extract",
+        "started_at": "2026-08-31T15:00:00",
+        "cost_usd_total": 0.05,
+    }
+    garden = {
+        "pipeline_signature": "garden",
+        "started_at": "2026-08-31T12:40:00",
+        "cost_usd_total": 0.001,
+    }
+    session = latest_pipeline_session([extract, garden])
+    assert [pipeline_phase_name(r["pipeline_signature"]) for r in session] == ["extract"]
+
+
+def test_latest_pipeline_session_ask_is_standalone():
+    from zettel.usage import latest_pipeline_session
+
+    ask = {"pipeline_signature": "ask", "started_at": "2026-08-31T16:00:00"}
+    garden = {"pipeline_signature": "garden", "started_at": "2026-08-31T12:40:00"}
+    session = latest_pipeline_session([ask, garden])
+    assert session == [ask]

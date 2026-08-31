@@ -156,3 +156,35 @@ def test_get_llm_openai_compatible_aliases():
     assert is_openai_compatible("OpenAI")
     assert normalize_llm_provider(" Gemini ") == "gemini"
     assert not is_openai_compatible("anthropic")
+
+
+def test_message_text_uses_gemini_text_blocks():
+    from zettel.llm import _message_text
+
+    blocks = [
+        {"type": "thinking", "thinking": "vou montar o json"},
+        {"type": "text", "text": '{"chunk_status": "accepted"}'},
+    ]
+    assert _message_text(blocks) == '{"chunk_status": "accepted"}'
+    assert _message_text("plain") == "plain"
+
+
+def test_call_llm_uses_gemini_text_block():
+    begin_run(1)
+
+    class _GeminiShape:
+        model = "gemini-3.5-flash-lite"
+
+        def invoke(self, messages, **kwargs):
+            return SimpleNamespace(
+                content=[
+                    {"type": "thinking", "thinking": "rascunho"},
+                    {"type": "text", "text": '{"hi": 1}'},
+                ],
+                usage_metadata={"input_tokens": 1, "output_tokens": 1},
+                response_metadata={},
+            )
+
+    with patch("zettel.pricing.estimate_llm_cost", return_value=0.0):
+        text = call_llm(_GeminiShape(), "user", provider="gemini")
+    assert text == '{"hi": 1}'
