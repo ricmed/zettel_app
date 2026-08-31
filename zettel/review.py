@@ -126,6 +126,33 @@ def format_confidence_report(bands: dict[str, int], limiar: float) -> str:
     )
 
 
+def _summary_from_chunk(chunk: dict) -> str:
+    raw = chunk.get("summary_json")
+    if not raw:
+        return ""
+    try:
+        return (json.loads(raw).get("summary") or "").strip()
+    except json.JSONDecodeError:
+        return ""
+
+
+def format_review_item(chunk: dict) -> str:
+    """Card PT-BR do review um-a-um: cabecalho, resumo do LLM e trecho da fonte."""
+    conf = float(chunk.get("review_confidence") or 0)
+    page = chunk.get("page_in_book") or chunk.get("page_in_file") or "?"
+    section = (chunk.get("section_path") or "").strip()
+    header = f"{chunk['chunk_id']} conf={conf:.2f}  p.{page}"
+    if section:
+        header += f"  {section}"
+    summary = _summary_from_chunk(chunk) or "_Sem resumo._"
+    excerpt = (chunk.get("text") or "").strip() or "_Trecho nao disponivel._"
+    return (
+        f"{header}\n\n"
+        f"Resumo\n{summary}\n\n"
+        f"Trecho\n{excerpt}"
+    )
+
+
 def normalize_reject_scope(raw: str) -> str | None:
     """Mapeia atalho/palavra para faixa de rejeicao ou cancel."""
     key = (raw or "").strip().lower()
@@ -218,12 +245,7 @@ def run_review(
     table.add_column("Conf")
     table.add_column("Resumo")
     for i, c in enumerate(sample, 1):
-        summary = ""
-        if c.get("summary_json"):
-            try:
-                summary = (json.loads(c["summary_json"]).get("summary") or "")[:60]
-            except json.JSONDecodeError:
-                pass
+        summary = _summary_from_chunk(c)[:200]
         table.add_row(
             str(i),
             c["chunk_id"][-24:],
@@ -333,15 +355,8 @@ def run_review(
         # mode == "r"
         for chunk in sample:
             conf = chunk.get("review_confidence") or 0
-            summary = ""
-            if chunk.get("summary_json"):
-                try:
-                    summary = json.loads(chunk["summary_json"]).get("summary") or ""
-                except json.JSONDecodeError:
-                    pass
-            console.print(
-                f"\n[bold]{chunk['chunk_id']}[/bold] conf={conf:.2f}\n{summary[:300]}"
-            )
+            console.print()
+            console.print(format_review_item(chunk), markup=False)
             choice = ask_review_decision(console, conf=conf, limiar=limiar)
             if choice == "sair":
                 break

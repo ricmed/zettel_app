@@ -17,6 +17,7 @@ from zettel.review import (
     confidence_band_counts,
     filter_chunks_by_band,
     format_confidence_report,
+    format_review_item,
     normalize_reject_scope,
     normalize_review_decision,
     reject_chunk,
@@ -250,6 +251,37 @@ def test_ask_review_decision_default_approve_when_high_conf():
     assert ask.call_args.kwargs["default"] == "a"
 
 
+def test_format_review_item_includes_summary_and_chunk_text():
+    chunk = {
+        "chunk_id": "@Duan2026::ch002::7c9b6704",
+        "review_confidence": 0.10,
+        "page_in_book": 3,
+        "page_in_file": 3,
+        "section_path": "1 Introduction",
+        "summary_json": json.dumps({
+            "summary": "O trecho apresenta o sumario do relatorio tecnico.",
+        }),
+        "text": "This report is organized as follows. Section 1 introduces GLM-OCR.",
+    }
+    card = format_review_item(chunk)
+    assert "@Duan2026::ch002::7c9b6704 conf=0.10  p.3  1 Introduction" in card
+    assert "Resumo\nO trecho apresenta o sumario do relatorio tecnico." in card
+    assert "Trecho\nThis report is organized as follows. Section 1 introduces GLM-OCR." in card
+
+
+def test_format_review_item_fallbacks_when_empty():
+    chunk = {
+        "chunk_id": "@X::ch::1",
+        "review_confidence": None,
+        "text": "   ",
+        "summary_json": "not-json",
+    }
+    card = format_review_item(chunk)
+    assert "conf=0.00  p.?" in card
+    assert "_Sem resumo._" in card
+    assert "_Trecho nao disponivel._" in card
+
+
 def _seed_awaiting_chunk(cfg, db, chunk_id, chunk_index, confidence, lit_id):
     text = f"texto {chunk_id}"
     db.upsert_chunk(
@@ -342,6 +374,34 @@ def test_run_review_mode_d_reject_band_keeps_others(env):
     assert stats["rejected"] == 1
     assert db.get_chunk("@Book2024::ch000::low1")["status"] == "rejected"
     assert db.get_chunk("@Book2024::ch000::med1")["status"] == "awaiting_review"
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "awaiting_review"
+
+
+def test_run_review_mode_r_prints_chunk_text(env):
+    cfg, db, idx = env
+    printed: list[str] = []
+
+    def _capture(msg="", *args, **kwargs):
+        printed.append(str(msg))
+
+    fake_console = MagicMock()
+    fake_console.print.side_effect = _capture
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("zettel.review._dedupe_approved_concepts"),
+        patch("rich.console.Console", return_value=fake_console),
+        patch("rich.prompt.Prompt.ask", side_effect=["r", "q"]),
+    ):
+        stats = run_review(cfg, db, idx, interactive=True)
+
+    card = "\n".join(printed)
+    assert "Resumo" in card
+    assert "Um resumo" in card
+    assert "Trecho" in card
+    assert "texto do chunk" in card
+    assert stats["skipped"] == 0
     assert db.get_chunk("@Book2024::ch000::abc")["status"] == "awaiting_review"
 
 
