@@ -31,8 +31,8 @@ llm:
     model: gpt-4o-mini      # bibliografia ABNT no harvest
     base_url: null
   extract:
-    provider: openai
-    model: gpt-4o-mini      # notas de literatura (Prompt 1)
+    provider: gemini
+    model: gemini-3.5-flash-lite      # notas de literatura (Prompt 1)
     base_url: null
   review:
     provider: openai
