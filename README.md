@@ -238,6 +238,8 @@ harvest:
   biblio_text_sample_chars: 5000           # amostra inicial (capa/folha de rosto) enviada ao LLM
 
 # Literature review (aprovacao seletiva de LIT por chunk)
+# Limiares sao heuristicas iniciais (ADR-017), nao calibracao empirica.
+# Fonte operacional: este YAML. Corte muito baixo 0.4 esta em review.py.
 literature_review:
   auto_approve_min_confidence: 0.85
   batch_sample_size: 20
@@ -534,6 +536,7 @@ python -m zettel review
 # Interativo: relatorio por faixa de confianca; a=aprovar >= limiar,
 # d=reprovar (t=todos / b=baixissima / m=media / h=alta, com confirmacao),
 # r=um a um (atalhos a/r/p/q), q=sair
+# Limiar = literature_review.auto_approve_min_confidence (heuristica, ADR-017)
 python -m zettel review --yes             # aprova todos >= limiar (nao-interativo)
 python -m zettel review --low-confidence-only
 python -m zettel purge-rejected           # apaga rejected + VACUUM state.db/chroma.sqlite3
@@ -704,7 +707,7 @@ Para corrigir fonte ja harvestada: `zettel set-paging --source-id @Citekey --con
 
 ### Fase 2b — Review (aprovacao seletiva)
 
-1. `zettel review` lista drafts `awaiting_review` e um **relatorio de faixas** de `review_confidence` (baixissima `<=0.4`, media ate o limiar, alta `>= limiar`)
+1. `zettel review` lista drafts `awaiting_review` e um **relatorio de faixas** de `review_confidence` (baixissima `<=0.4`, media ate o limiar, alta `>= limiar`). Os cortes (`0.4` em `review.py`; limiar em `literature_review.auto_approve_min_confidence`) sao **heuristicas tunaveis** ([ADR-017](docs/adrs/generated/REVIEW/ADR-017-confidence-band-hitl-approval-gate.md)), nao valores calibrados empiricamente — o YAML e a fonte operacional (pode divergir do default historico `0.7` da ADR). Monitorar o volume por faixa apos harvest/extract e propor ajuste via issue se a carga ficar desbalanceada; calibracao formal so apos evidencia ou mudanca significativa de modelo no extract (ver [RUNBOOK](docs/adrs/RUNBOOK.md))
 2. Modo interativo: `a` aprova lote `>= limiar` (abaixo do limiar permanecem pendentes); `d` abre submenu para rejeitar `t=todos` ou por faixa (`b`/`m`/`h`) apos confirmacao `s/n` (rejeicao parcial volta ao menu); `r` revisa um a um com atalhos `a/r/p/q`; `q` sai
 3. **Approve**: move para `20_Literature/{Citekey}/LIT - AuthorYear - pNNN - topico-NNNN.md`, indexa na coleção Chroma **`literature_notes`**, atualiza o índice LIT (wikilinks com rótulo `p. N — tópico`), promove concepts para dedupe → `approved`
 4. **Reject**: apaga draft, `status=rejected`, concepts rejeitados — **nunca** entram em `literature_notes` (o chunk permanece no SQLite/Chroma `chunks` ate `zettel purge-rejected`)
