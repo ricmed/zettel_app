@@ -17,7 +17,7 @@ When the user defines a task to track, **do not** recreate GraphQL/`gh` by hand.
 Run if the user:
 
 - asks to criar/registrar/adicionar uma issue ou tarefa no Project / board
-- defines a low, medium, high, or critical (or similar) backlog item “para o GitHub”
+- defines a `Low`, `Medium`, `High`, or `Critical` backlog item “para o GitHub”
 - says “adicione ao Zettel Board”
 
 Do **not** run for implementation scratch TODOs, drive-by refactors, or “we should maybe…” unless they confirm they want a GitHub issue.
@@ -47,8 +47,8 @@ Omit empty sections. Infer:
 | --- | --- | --- |
 | `--priority` | `Low`…`Critical` | user uses low, medium, high, or critical |
 | `--area` | `cli` `extract` `harvest` `ask` `evals` | module touched |
-| `--parent` | default `#id` | epic ['nome do epic'](https://github.com/ricmed/zettel_app/issues/#id); `--no-parent` if they say it is a new epic or unrelated |
-| `--milestone` | default `Agent Skills & progressive disclosure` | `--no-milestone` if unrelated to that roadmap |
+| `--parent` | default `#id` | create a epic name; `--no-parent` if they say it is a new epic or unrelated |
+| `--milestone` | None. Create one. | `--no-milestone` if unrelated to that roadmap |
 
 Always keep type label `enhancement` unless they ask for `bug`.
 
