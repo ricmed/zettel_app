@@ -2,7 +2,7 @@
 
 **Purpose**: Answer "Which ADRs should I read?" for common tasks  
 **How to use**: Search by task type, then consult linked ADRs  
-**Updated**: 2026-08-31
+**Updated**: 2026-09-01
 
 ---
 
@@ -439,7 +439,7 @@ Recommended:
 
 | Module | Key ADRs | Governance |
 |--------|----------|-----------|
-| **harvester.py** | 011, 012, 013, 014 | Extraction strategy, chunking, dedup, paging |
+| **harvester/** (package) | 011, 012, 013, 014, 027 | Extraction strategy, chunking, dedup, paging, package layout |
 | **extractor.py** | 015, 016, 025 | Literature note format, dedup timing, prompting |
 | **review.py** | 016, 017, 018 | Approval gate, thresholds, validation |
 | **connector.py** | 003, 009, 010, 025 | Retrieval (RAG), graph expansion, prompting |
@@ -451,6 +451,9 @@ Recommended:
 | **state.py** | 001, 005, 007, 008 | SQLite persistence, hashing, repository pattern |
 | **index.py** | 002, 008 | ChromaDB, repository pattern |
 | **llm.py** | 024, 025 | Multi-provider, prompt caching |
+| **article.py** | 028, 003, 009, 010, 024, 025 | Article domain helpers: catalog, outline, drafting, assembly, judge |
+| **article_graph/** (package) | 028, 029 | LangGraph orchestration (13 nodes, HITL interrupts, judge loop), package layout |
+| **ask.py** | 003, 009, 010 | Hybrid retrieval, relevance floor, graph expansion |
 | **cli.py** | 026 | Typer/Rich framework (all commands routed through) |
 
 ---
@@ -497,11 +500,19 @@ You should open a GitHub issue for a new ADR if you find yourself:
 
 **Don't** open an ADR for:
 - Bug fixes (document in PR)
-- Refactoring (document in commit message)
+- Behavior-preserving refactoring inside a module (document in commit message)
 - One-off feature tweaks
+
+**Exception — structural refactors do get an ADR.** When a refactor changes module boundaries or the
+public import surface (splitting a monolith into a package, moving a public API), record it: future
+readers need to know why the layout is what it is, and the import rules are a pattern future code
+follows. Precedents: [ADR-027](./generated/HARVEST/ADR-027-harvest-phase-as-python-package.md)
+(`harvester.py` → `harvester/`) and
+[ADR-029](./generated/QA-WRITING/ADR-029-article-graph-as-python-package.md)
+(`article_graph.py` → `article_graph/`).
 
 ---
 
-**Last updated**: 2026-08-31  
+**Last updated**: 2026-09-01  
 **Maintained by**: Architecture team  
 **Related documents**: [ADR-INDEX.md](./ADR-INDEX.md), [ACTION-PLAN-2026-08-31.md](./ACTION-PLAN-2026-08-31.md)

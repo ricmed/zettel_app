@@ -1,7 +1,7 @@
-# zettel_app ADR Index (27 Decisions)
+# zettel_app ADR Index (29 Decisions)
 
-**Last Updated**: 2026-08-31  
-**Status**: Complete — 27 formal ADRs across 9 modules, 37 relationships mapped
+**Last Updated**: 2026-09-01  
+**Status**: Complete — 29 formal ADRs across 10 modules, 37 relationships mapped
 
 ---
 
@@ -18,6 +18,7 @@
 | **WEB** | 2 | [022–023](#web-ui--job-queue) |
 | **LLM** | 2 | [024–025](#llm-provider--caching) |
 | **CLI** | 1 | [026](#cli-orchestration) |
+| **QA-WRITING** | 2 | [028–029](#qa-writing--article-pipeline) |
 
 ---
 
@@ -282,15 +283,41 @@
 
 ---
 
+## QA-WRITING — Article Pipeline
+
+### ADR-028: LangGraph StateGraph for Article Orchestration
+
+- **Status**: Accepted
+- **Date**: 2026-09-01
+- **Summary**: `zettel article` is orchestrated by a LangGraph `StateGraph` (13 nodes, 3 conditional routers) instead of the SQLite-status staged pipeline used by harvest through garden, because the article flow needs loops (judge redraft), conditional re-entry (context enrichment) and two human-in-the-loop pauses via `interrupt()` / `Command(resume=...)`. Per-run `MemorySaver`; CLI-only, not exposed in web.
+- **Link**: [`ADR-028-langgraph-stategraph-article-orchestration.md`](./generated/QA-WRITING/ADR-028-langgraph-stategraph-article-orchestration.md)
+
+---
+
+### ADR-029: Article Graph as Python Package
+
+- **Status**: Accepted (2026-09-01)
+- **Date**: 2026-09-01
+- **Summary**: Extract monolithic `article_graph.py` (716 lines) into a 5-file package (`runtime.py`, `search.py`, `nodes.py`, `graph.py`, `__init__.py`), applying the ADR-027 precedent. Retrieval logic leaves `node_vector_search_merge` as four pure functions. Public API, graph topology and behavior unchanged; all LLM calls stay routed through `zettel/article.py`.
+- **Link**: [`ADR-029-article-graph-as-python-package.md`](./generated/QA-WRITING/ADR-029-article-graph-as-python-package.md)
+
+---
+
 ## Statistics
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 26 |
-| **Accepted** | 26 |
+| **Total ADRs** | 29 |
+| **Accepted** | 29 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 37 |
-| **Modules Covered** | 9 |
+| **Modules Covered** | 10 |
+
+---
+
+## Status Update (2026-09-01)
+
+✅ **ADR-028 and ADR-029 added** — the article pipeline (QA-WRITING) now has formal coverage: ADR-028 records the LangGraph orchestration choice (promoted from `potential-adrs/`), ADR-029 records the package extraction of `article_graph.py` following the ADR-027 precedent.
 
 ---
 
@@ -300,10 +327,10 @@
 
 ---
 
-## Ungenerated Potential ADRs (8 of 34 identified, reserved for future decisions)
+## Ungenerated Potential ADRs (7 of 34 identified, reserved for future decisions)
 
 - **CONNECT** (2): RAG context handling, permanent note generation routing
-- **QA-WRITING** (2): Q&A short-circuiting, article fallback degradation
+- **QA-WRITING** (1): ABNT bibliography citation formatting
 - **Consider-Priority** (4): Various lower-priority architectural observations across modules
 
 These remain documented in `docs/adrs/potential-adrs/` for later formalization if circumstances change.
@@ -312,6 +339,6 @@ These remain documented in `docs/adrs/potential-adrs/` for later formalization i
 
 ## Next Steps
 
-- Review all 26 formal ADRs in the [generated/ directory](./generated/)
+- Review all 29 formal ADRs in the [generated/ directory](./generated/)
 - Consult the [relationship report](./reports/) for dependency graphs and temporal evolution
 - Use this index as a reference when making changes to architecture-sensitive modules

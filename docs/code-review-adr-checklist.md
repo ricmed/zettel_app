@@ -9,7 +9,7 @@
 
 | Module Changed | Read These ADRs | Verify |
 |---|---|---|
-| **harvester.py** | ADR-011, 012, 013, 014 | Dedup still works? Paging logic? Chunking strategy? |
+| **harvester/** (package) | ADR-011, 012, 013, 014, 027 | Dedup still works? Paging logic? Chunking strategy? Package import rules? |
 | **extractor.py** | ADR-015, 016, 025 | Literature note format? Dedup timing? Prompting? |
 | **review.py** | ADR-016, 017, 018 | Approval flow? Thresholds? Validation? |
 | **retrieval.py** | ADR-003, 009, 010 | RRF fusion? Relevance floor? Graph expansion? |
@@ -20,6 +20,9 @@
 | **state.py, index.py** | ADR-001, 002, 005, 008 | Persistence? Dual-store? Repository pattern? |
 | **config.py** | ADR-004, 006 | YAML-first? Pydantic? |
 | **llm.py** | ADR-024, 025 | Multi-provider? Prompt caching? |
+| **article.py** | ADR-028, 003, 009, 010, 024, 025 | Catalog/outline/draft/judge helpers? `call_llm`/`get_llm` still module globals (test seam)? |
+| **article_graph/** (package) | ADR-028, 029 | Graph topology unchanged? HITL interrupt contract? Package import rules (no direct `zettel.llm` import)? |
+| **ask.py** | ADR-003, 009, 010 | Relevance floor? Candidates exposed? Graph expansion? |
 | **cli.py** | ADR-026 | Typer/Rich framework? |
 
 ---

@@ -2,13 +2,13 @@
 
 **Generated**: 2026-08-31  
 **Status**: Phase 4 Complete — Index & Relationship Mapping + Resolution of All Needs-Input (2026-08-31)  
-**Coverage**: 26 formal ADRs (100% Accepted, 0 Needs-Input) across 9 architectural modules, 37 documented relationships, 8 reserved for future consideration
+**Coverage**: 29 formal ADRs (100% Accepted, 0 Needs-Input) across 10 architectural modules, 37 documented relationships, 7 reserved for future consideration
 
 ---
 
 ## Executive Summary
 
-The zettel_app project has captured **26 formal architectural decisions** spanning core infrastructure, retrieval, ingestion, extraction, review, MOC generation, web UI, LLM integration, and CLI orchestration. **All 26 are now Accepted as of 2026-08-31**, with no remaining needs-input. These decisions represent a stable, coherent architecture that has evolved incrementally over 18+ months without fundamental rework, indicating sound structural choices. The codebase is dominated by a **dual-store persistence model** (SQLite + ChromaDB) with a **hybrid retrieval layer** (RRF fusion + relevance floor + graph expansion), feeding **multiple frontends** (CLI via Typer/Rich, web via FastAPI/Jinja2) that orchestrate a **linear five-phase pipeline** (harvest → extract → review → connect → garden) plus **two complementary MOC strategies** (taxonomy-first and hub-anchored clustering).
+The zettel_app project has captured **29 formal architectural decisions** spanning core infrastructure, retrieval, ingestion, extraction, review, MOC generation, web UI, LLM integration, and CLI orchestration. **All 29 are now Accepted** (26 as of 2026-08-31; ADR-027 added 2026-08-31, ADR-028 and ADR-029 added 2026-09-01), with no remaining needs-input. These decisions represent a stable, coherent architecture that has evolved incrementally over 18+ months without fundamental rework, indicating sound structural choices. The codebase is dominated by a **dual-store persistence model** (SQLite + ChromaDB) with a **hybrid retrieval layer** (RRF fusion + relevance floor + graph expansion), feeding **multiple frontends** (CLI via Typer/Rich, web via FastAPI/Jinja2) that orchestrate a **linear five-phase pipeline** (harvest → extract → review → connect → garden) plus **two complementary MOC strategies** (taxonomy-first and hub-anchored clustering).
 
 Three decisions were formally resolved on 2026-08-31:
 - **ADR-012** (Docling): Remove PyMuPDF, make Docling mandatory, pin version
@@ -32,11 +32,12 @@ RETRIEVAL (2 ADRs)
 ├─ ADR-009 (Graph expansion)
 └─ ADR-010 (Result transparency)
 
-HARVEST (4 ADRs + 1 needs-input)
+HARVEST (5 ADRs)
 ├─ ADR-011 (3-layer duplicate detection)
-├─ ADR-012 (Docling + PyMuPDF) [NEEDS-INPUT]
+├─ ADR-012 (Docling mandatory PDF extractor)
 ├─ ADR-013 (3-layer page inference)
-└─ ADR-014 (Hybrid structural chunking)
+├─ ADR-014 (Hybrid structural chunking)
+└─ ADR-027 (harvester.py → harvester/ package)
 
 EXTRACT (1 ADR)
 └─ ADR-015 (Granular chunk-per-note)
@@ -61,6 +62,10 @@ LLM (2 ADRs)
 
 CLI (1 ADR)
 └─ ADR-026 (Typer + Rich framework)
+
+QA-WRITING (2 ADRs)
+├─ ADR-028 (LangGraph StateGraph article orchestration)
+└─ ADR-029 (article_graph.py → article_graph/ package)
 ```
 
 ---
@@ -110,6 +115,9 @@ CLI (1 ADR)
 | **ADR-024** | Multi-provider LLM | ADR-004 | ADR-025 |
 | **ADR-025** | System+Human split | ADR-024, ADR-007, ADR-003 | (all LLM calls) |
 | **ADR-026** | Typer+Rich CLI | ADR-008 | (all commands) |
+| **ADR-027** | Harvest package | ADR-011, 012, 013, 014 | (harvest module layout) |
+| **ADR-028** | LangGraph article orchestration | ADR-003, 009, 010, 024, 025 | ADR-029 |
+| **ADR-029** | Article graph package | ADR-028, ADR-027 | (article module layout) |
 
 ---
 
@@ -275,12 +283,12 @@ CLI         ████         (1 ADR, orchestration)
 
 ## Ungenerated Potential ADRs (Stored for Later)
 
-Eight additional potential ADRs were identified but deferred as lower-priority or still-evolving:
+Seven additional potential ADRs remain identified but deferred as lower-priority or still-evolving (the LangGraph article orchestration candidate was promoted to ADR-028 on 2026-09-01):
 
 | Module | Count | Candidates | Rationale |
 |--------|-------|-----------|-----------|
 | **CONNECT** | 2 | RAG context design, note-generation orchestration | Defer pending connector refactor |
-| **QA-WRITING** | 2 | ask short-circuit on no-evidence, article fallback on empty retrieval | Defer pending user feedback |
+| **QA-WRITING** | 1 | ABNT bibliography citation formatting | Defer pending user feedback |
 | **Consider-Priority** | 4 | Various observability, resilience, migration ideas | Low-impact optimizations |
 
 These remain documented in `docs/adrs/potential-adrs/` as a backlog for future phases if priorities shift.
@@ -309,7 +317,7 @@ These remain documented in `docs/adrs/potential-adrs/` as a backlog for future p
 
 ## Next Steps
 
-1. **Review all 26 ADRs** in [`docs/adrs/generated/`](./generated/) for full rationale and options
+1. **Review all 29 ADRs** in [`docs/adrs/generated/`](./generated/) for full rationale and options
 2. **Resolve 3 needs-input ADRs** (012, 017, 018) with team discussion
 3. **Monitor relationship stability** — if a pattern in the Tier 1 foundation changes, a cascade of decisions is affected
 4. **Consider periodic review** — every 6 months, check whether the top 5 load-bearing decisions (ADR-001, 003, 007, 008, 024) are still optimal given project growth
