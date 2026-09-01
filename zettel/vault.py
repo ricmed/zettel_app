@@ -45,6 +45,13 @@ def compose_note(metadata: dict[str, Any], body: str) -> str:
 
 
 _WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
+# Crockford base32 ULID (no I, L, O, U), 26 chars — same alphabet as sync/article.
+_NOTE_ULID_RE = re.compile(r"[0-9A-HJKMNP-TV-Z]{26}")
+_ZTL_PREFIX_RE = re.compile(r"^(?:ZTL\s*-\s*)+", re.IGNORECASE)
+# ``[[ZTL - ULID]]`` or ``[[ZTL - ZTL - ULID]]`` with no slug after the id.
+_BARE_PERMANENT_WIKILINK_RE = re.compile(
+    r"\[\[(?:ZTL\s*-\s*)+([0-9A-HJKMNP-TV-Z]{26})\]\]"
+)
 
 
 def _wikilink_target_matches(target: str, link_targets: set[str]) -> bool:
@@ -740,6 +747,58 @@ def note_filename(prefix: str, identifier: str, title: str) -> str:
     """Build a standardized filename: PREFIX - ID - slug.md"""
     slug = _slug(title)
     return f"{prefix} - {identifier} - {slug}.md"
+
+
+def normalize_note_id(raw: str) -> str | None:
+    """Extract a canonical note_id from LLM / wikilink noise.
+
+    Accepts a bare ULID, ``ZTL - ULID``, ``ZTL - ULID - slug``, ``[[...]]``,
+    and a repeated ``ZTL -`` prefix. If no ULID is present, returns the token
+    after stripping those wrappers (so short test/legacy ids still resolve).
+    Returns None when nothing usable remains.
+    """
+    if not raw:
+        return None
+    token = str(raw).strip()
+    if token.startswith("[[") and "]]" in token:
+        token = token[2:token.index("]]")]
+    token = token.split("|", 1)[0].strip()
+    if not token:
+        return None
+
+    match = _NOTE_ULID_RE.search(token)
+    if match:
+        return match.group(0)
+
+    stripped = _ZTL_PREFIX_RE.sub("", token).strip()
+    if not stripped:
+        return None
+    head = stripped.split(" - ", 1)[0].strip()
+    if head and " " not in head and "/" not in head:
+        return head
+    return None
+
+
+def rewrite_bare_permanent_wikilinks(
+    text: str,
+    lookup_path: Any,
+) -> str:
+    """Rewrite ``[[ZTL - ULID]]`` / ``[[ZTL - ZTL - ULID]]`` to the file stem.
+
+    ``lookup_path(note_id)`` returns a filesystem path (or None). Links whose
+    target is missing are left unchanged.
+    """
+    if not text:
+        return text
+
+    def repl(match: re.Match[str]) -> str:
+        note_id = match.group(1)
+        path = lookup_path(note_id)
+        if not path:
+            return match.group(0)
+        return permanent_wikilink(note_id, path=path)
+
+    return _BARE_PERMANENT_WIKILINK_RE.sub(repl, text)
 
 
 def permanent_wikilink(

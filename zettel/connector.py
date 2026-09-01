@@ -38,9 +38,11 @@ from zettel.state import StateDB
 from zettel.vault import (
     build_permanent_note_body,
     note_filename,
+    normalize_note_id,
+    permanent_wikilink,
+    read_managed_block,
     safe_update_managed_blocks,
     safe_write_note,
-    permanent_wikilink,
 )
 
 logger = logging.getLogger(__name__)
@@ -384,7 +386,7 @@ def _process_candidate(
         })
         db.update_note_embedding(note_id, emb_hash, cfg.embedding.model)
 
-    _persist_and_backlink(cfg, db, note_id, title, connections)
+    _persist_and_backlink(cfg, db, note_id, title, resolved_connections)
 
     clear_progress()
     return note_id
@@ -437,21 +439,46 @@ def _build_candidate_images_context(db: StateDB, cand: PermanentNoteCandidate) -
     )
 
 
+def _note_on_disk(record: dict | None) -> bool:
+    """True when the note row points at a file that still exists."""
+    if not record or not record.get("path"):
+        return False
+    return Path(record["path"]).is_file()
+
+
 def _resolve_connections(db: StateDB, connections: list[RelationshipResult]) -> list[dict]:
-    """Resolve note_ids into wiki-links for vault rendering."""
+    """Resolve LLM note_ids into wiki-links for vault rendering.
+
+    Drops connections whose target is missing from SQLite or whose file is gone.
+    Canonicalizes ``related_note_id`` (strips ``ZTL -`` / wikilink wrappers).
+    """
     resolved: list[dict] = []
+    seen: set[str] = set()
     for conn in connections:
-        note_record = db.get_note(conn.related_note_id)
-        if note_record:
-            wiki_link = permanent_wikilink(
+        note_id = normalize_note_id(conn.related_note_id)
+        if not note_id:
+            logger.warning(
+                "Conexao descartada: related_note_id=%r nao e um id utilizavel",
                 conn.related_note_id,
-                note_record.get("title", ""),
-                path=note_record.get("path"),
             )
-        else:
-            wiki_link = permanent_wikilink(conn.related_note_id)
+            continue
+        if note_id in seen:
+            continue
+        note_record = db.get_note(note_id)
+        if not _note_on_disk(note_record):
+            logger.warning(
+                "Conexao descartada: related_note_id=%r (canonico=%s) nao existe no vault",
+                conn.related_note_id, note_id,
+            )
+            continue
+        seen.add(note_id)
+        wiki_link = permanent_wikilink(
+            note_id,
+            note_record.get("title", ""),
+            path=note_record.get("path"),
+        )
         resolved.append({
-            "related_note_id": conn.related_note_id,
+            "related_note_id": note_id,
             "wiki_link": wiki_link,
             "relation_type": _relation_type_value(conn.relation_type),
             "description": conn.description,
@@ -488,7 +515,7 @@ def _build_rag_context(db: StateDB, similar_notes: list[RetrievedNote]) -> str:
                 n.note_id, title, path=row.get("path") if row else None,
             )
             parts.append(
-                f"- **{wiki}**: {doc}... (tags: {tags})"
+                f"- note_id: {n.note_id} | **{wiki}**: {doc}... (tags: {tags})"
             )
 
     if graph_hits:
@@ -502,13 +529,13 @@ def _build_rag_context(db: StateDB, similar_notes: list[RetrievedNote]) -> str:
             if n.via:
                 rel = n.via[-1].get("relation_type", "related")
                 anchor = n.via[-1].get("from", "")
-            anchor_txt = f" a partir de [[ZTL - {anchor}]]" if anchor else ""
+            anchor_txt = f" a partir de note_id: {anchor}" if anchor else ""
             row = db.get_note(n.note_id)
             wiki = permanent_wikilink(
                 n.note_id, title, path=row.get("path") if row else None,
             )
             parts.append(
-                f"- **{wiki}** "
+                f"- note_id: {n.note_id} | **{wiki}** "
                 f"(relacao: {rel}{anchor_txt}): {doc}..."
             )
 
@@ -523,54 +550,61 @@ def _persist_and_backlink(
     db: StateDB,
     new_note_id: str,
     new_title: str,
-    connections: list[RelationshipResult],
+    connections: list[dict],
 ) -> None:
-    """Persist connections to DB and update backlinks on related notes."""
+    """Persist resolved connections to DB and rebuild auto-backlinks from the graph."""
     for conn in connections:
-        target_id = conn.related_note_id
-        relation_type = _relation_type_value(conn.relation_type)
-
+        target_id = conn["related_note_id"]
         db.upsert_note_connection(
             source_note_id=new_note_id,
             target_note_id=target_id,
-            relation_type=relation_type,
-            description=conn.description,
+            relation_type=conn.get("relation_type") or "related",
+            description=conn.get("description") or "",
         )
+        rebuild_auto_backlinks(db, target_id)
+    rebuild_auto_backlinks(db, new_note_id)
 
-        target_record = db.get_note(target_id)
-        if not target_record or not target_record.get("path"):
+
+def rebuild_auto_backlinks(db: StateDB, note_id: str) -> bool:
+    """Replace ``auto-backlinks`` with incoming graph edges whose source file exists.
+
+    Returns True when the vault file was written (including clearing a stale block).
+    """
+    record = db.get_note(note_id)
+    if not _note_on_disk(record):
+        return False
+    path = Path(record["path"])
+    incoming = [
+        edge for edge in db.get_note_connections(note_id)
+        if edge["target_note_id"] == note_id and edge["source_note_id"] != note_id
+    ]
+
+    lines: list[str] = []
+    for edge in incoming:
+        source = db.get_note(edge["source_note_id"])
+        if not _note_on_disk(source):
             continue
-
-        target_path = Path(target_record["path"])
-        if not target_path.exists():
-            continue
-
-        inverse = _inverse_relation(relation_type)
-        new_record = db.get_note(new_note_id)
-        new_wiki = permanent_wikilink(
-            new_note_id,
-            new_title,
-            path=new_record.get("path") if new_record else None,
+        wiki = permanent_wikilink(
+            edge["source_note_id"],
+            source.get("title") or "",
+            path=source.get("path"),
         )
-        new_link = f"- {new_wiki} ({inverse})"
-        if conn.description:
-            new_link += f" -- {conn.description}"
+        inverse = _inverse_relation(edge.get("relation_type") or "related")
+        line = f"- {wiki} ({inverse})"
+        description = edge.get("description") or ""
+        if description:
+            line += f" -- {description}"
+        lines.append(line)
 
-        safe_update_managed_blocks(target_path, {
-            "auto-backlinks": _merge_backlink(target_path, new_link),
-        })
-
-
-def _merge_backlink(path: Path, new_link: str) -> str:
-    """Merge a new backlink into the existing backlinks block."""
-    from zettel.vault import read_managed_block
     content = path.read_text(encoding="utf-8")
     existing = read_managed_block(content, "auto-backlinks")
-    if existing and new_link.strip() in existing:
-        return existing
-    if existing:
-        return existing + "\n" + new_link
-    return new_link
+    inner = "\n".join(lines)
+    if not lines and not existing:
+        return False
+    if existing is not None and existing.strip() == inner.strip():
+        return False
+    safe_update_managed_blocks(path, {"auto-backlinks": inner})
+    return True
 
 
 # ── PT-BR Guard ───────────────────────────────────────────────────────

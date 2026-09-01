@@ -1,17 +1,21 @@
 """Tests for connector: typed connections, inverse relations, note body rendering."""
 
+from pathlib import Path
+
 from zettel.connector import (
     _build_rag_context,
     _fallback_image_ids,
     _inverse_relation,
+    _persist_and_backlink,
     _relation_type_value,
     _resolve_connections,
     _resolve_images,
+    rebuild_auto_backlinks,
 )
 from zettel.retrieval import RetrievedNote
 from zettel.schemas import RelationType, RelationshipResult
 from zettel.state import StateDB
-from zettel.vault import build_permanent_note_body
+from zettel.vault import build_permanent_note_body, read_managed_block
 
 
 class _FakeDB:
@@ -22,6 +26,12 @@ class _FakeDB:
 
     def get_note(self, note_id: str):
         return self._notes.get(note_id)
+
+
+def _write_note(path: Path, body: str = "corpo") -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body, encoding="utf-8")
+    return path
 
 
 def test_inverse_relation_mapping():
@@ -39,12 +49,15 @@ def test_inverse_relation_unknown_falls_back():
     assert _inverse_relation("unknown_type") == "relacionado"
 
 
-def test_resolve_connections_with_known_note():
-    """When the note has a path, wiki-link uses the file stem (not a title slug)."""
+def test_resolve_connections_with_known_note(tmp_path):
+    """When the note has a path on disk, wiki-link uses the file stem."""
+    note_path = _write_note(
+        tmp_path / "ZTL - ABC123 - gradient-descent-adaptativo.md"
+    )
     db = _FakeDB({
         "ABC123": {
             "title": "Gradient Descent Adaptativo",
-            "path": "/vault/30_Permanent/ZTL - ABC123 - gradient-descent-adaptativo.md",
+            "path": str(note_path),
         },
     })
     connections = [
@@ -59,10 +72,45 @@ def test_resolve_connections_with_known_note():
     assert "[[ZTL - ABC123 - gradient-descent-adaptativo]]" == resolved[0]["wiki_link"]
     assert resolved[0]["relation_type"] == "extends"
     assert resolved[0]["description"] == "Amplia o conceito base"
+    assert resolved[0]["related_note_id"] == "ABC123"
+
+
+def test_resolve_connections_normalizes_prefixed_ulid(tmp_path):
+    ulid = "01HAAAAAAAAAAAAAAAAAAAAAAA"
+    note_path = _write_note(tmp_path / f"ZTL - {ulid} - analise-de-series-temporais.md")
+    db = _FakeDB({
+        ulid: {"title": "Analise de series temporais", "path": str(note_path)},
+    })
+    connections = [
+        RelationshipResult(
+            related_note_id=f"ZTL - ZTL - {ulid}",
+            relation_type="extends",
+            description="Contexto mais amplo",
+        ),
+    ]
+    resolved = _resolve_connections(db, connections)
+    assert len(resolved) == 1
+    assert resolved[0]["related_note_id"] == ulid
+    assert resolved[0]["wiki_link"] == f"[[ZTL - {ulid} - analise-de-series-temporais]]"
+
+
+def test_resolve_connections_normalizes_wikilink_with_slug(tmp_path):
+    ulid = "01HAAAAAAAAAAAAAAAAAAAAAAA"
+    note_path = _write_note(tmp_path / f"ZTL - {ulid} - analise.md")
+    db = _FakeDB({ulid: {"title": "Analise", "path": str(note_path)}})
+    connections = [
+        RelationshipResult(
+            related_note_id=f"[[ZTL - {ulid} - analise]]",
+            relation_type="related",
+        ),
+    ]
+    resolved = _resolve_connections(db, connections)
+    assert resolved[0]["related_note_id"] == ulid
+    assert resolved[0]["wiki_link"] == f"[[ZTL - {ulid} - analise]]"
 
 
 def test_resolve_connections_with_unknown_note():
-    """When note is not in DB, wiki-link uses just the ID."""
+    """When the note is not in DB, the connection is dropped (no phantom wikilink)."""
     db = _FakeDB({})
     connections = [
         RelationshipResult(
@@ -72,8 +120,20 @@ def test_resolve_connections_with_unknown_note():
         ),
     ]
     resolved = _resolve_connections(db, connections)
-    assert len(resolved) == 1
-    assert "[[ZTL - UNKNOWN]]" == resolved[0]["wiki_link"]
+    assert resolved == []
+
+
+def test_resolve_connections_drops_missing_file(tmp_path):
+    db = _FakeDB({
+        "ABC123": {
+            "title": "Fantasma",
+            "path": str(tmp_path / "nao-existe.md"),
+        },
+    })
+    connections = [
+        RelationshipResult(related_note_id="ABC123", relation_type="related"),
+    ]
+    assert _resolve_connections(db, connections) == []
 
 
 def test_relation_type_value_from_enum():
@@ -85,10 +145,11 @@ def test_relation_type_value_from_enum():
     assert f"{RelationType.SUPPORTS}" == "RelationType.SUPPORTS"
 
 
-def test_resolve_connections_normalizes_enum_relation_type():
+def test_resolve_connections_normalizes_enum_relation_type(tmp_path):
     """Pydantic may leave relation_type as RelationType; vault needs plain str."""
+    note_path = _write_note(tmp_path / "note.md")
     db = _FakeDB({
-        "ABC123": {"title": "Nota Alvo", "path": "/vault/note.md"},
+        "ABC123": {"title": "Nota Alvo", "path": str(note_path)},
     })
     connections = [
         RelationshipResult(
@@ -205,8 +266,10 @@ def test_build_rag_context_two_groups():
     assert "### Vizinhas por conexao no grafo" in ctx
     assert "[[ZTL - AAA - nota-semente]]" in ctx
     assert "[[ZTL - BBB - nota-vizinha]]" in ctx
-    # Neighbour line carries the relation type and its anchor.
-    assert "relacao: contradicts a partir de [[ZTL - AAA]]" in ctx
+    assert "note_id: AAA" in ctx
+    assert "note_id: BBB" in ctx
+    # Neighbour line carries the relation type and its anchor as a raw id.
+    assert "relacao: contradicts a partir de note_id: AAA" in ctx
 
 
 def test_build_rag_context_only_seeds_no_graph_heading():
@@ -244,5 +307,84 @@ def test_fallback_image_ids_empty_when_no_paths(tmp_path):
         db.upsert_chunk("c1", "@S", "@S::ch000", "sem imagens", "h1")
         db.upsert_asset("@S::img::fig", "@S", "90_Assets/img-fig.png", "ckfig")
         assert _fallback_image_ids(db, {"chunk_id": "c1", "source_id": "@S"}) == []
+    finally:
+        db.close()
+
+
+def test_rebuild_auto_backlinks_drops_missing_source(tmp_path):
+    db = StateDB(tmp_path / "s.db")
+    try:
+        target = tmp_path / "ZTL - TGT - alvo.md"
+        source = tmp_path / "ZTL - SRC - origem.md"
+        _write_note(target, "## Conexoes\n")
+        _write_note(source, "## Conexoes\n")
+        db.upsert_note("TGT", "@S", str(target), "Alvo", body="x")
+        db.upsert_note("SRC", "@S", str(source), "Origem", body="x")
+        db.upsert_note("GONE", "@S", str(tmp_path / "missing.md"), "Gone", body="x")
+        db.upsert_note_connection("SRC", "TGT", "related", "ainda existe")
+        db.upsert_note_connection("GONE", "TGT", "related", "fantasma")
+        from zettel.vault import safe_update_managed_blocks
+        safe_update_managed_blocks(target, {
+            "auto-backlinks": "- [[ZTL - GONE - gone]] (relacionado) -- fantasma",
+        })
+        assert rebuild_auto_backlinks(db, "TGT") is True
+        block = read_managed_block(target.read_text(encoding="utf-8"), "auto-backlinks")
+        assert "SRC" in block
+        assert "ainda existe" in block
+        assert "GONE" not in block
+    finally:
+        db.close()
+
+
+def test_rebuild_auto_backlinks_uses_current_stem(tmp_path):
+    db = StateDB(tmp_path / "s.db")
+    try:
+        target = tmp_path / "ZTL - TGT - alvo.md"
+        source = tmp_path / "ZTL - SRC - slug-novo.md"
+        _write_note(target, "## Conexoes\n")
+        _write_note(source, "## Conexoes\n")
+        db.upsert_note("TGT", "@S", str(target), "Alvo", body="x")
+        db.upsert_note("SRC", "@S", str(source), "Origem", body="x")
+        db.upsert_note_connection("SRC", "TGT", "extends", "amplia")
+        from zettel.vault import safe_update_managed_blocks
+        safe_update_managed_blocks(target, {
+            "auto-backlinks": "- [[ZTL - SRC - slug-antigo]] (estendido por) -- amplia",
+        })
+        assert rebuild_auto_backlinks(db, "TGT") is True
+        block = read_managed_block(target.read_text(encoding="utf-8"), "auto-backlinks")
+        assert "slug-novo" in block
+        assert "slug-antigo" not in block
+        assert "estendido por" in block
+    finally:
+        db.close()
+
+
+def test_persist_and_backlink_writes_inverse_on_target(tmp_path):
+    from zettel.config import AppConfig
+
+    db = StateDB(tmp_path / "s.db")
+    try:
+        src = tmp_path / "ZTL - NEW - nova.md"
+        tgt = tmp_path / "ZTL - OLD - velha.md"
+        _write_note(src)
+        _write_note(tgt)
+        db.upsert_note("NEW", "@S", str(src), "Nova")
+        db.upsert_note("OLD", "@S", str(tgt), "Velha")
+        _persist_and_backlink(
+            AppConfig(vault_path=tmp_path),
+            db, "NEW", "Nova",
+            [{
+                "related_note_id": "OLD",
+                "relation_type": "extends",
+                "description": "amplia",
+            }],
+        )
+        edges = db.get_note_connections("NEW")
+        assert len(edges) == 1
+        assert edges[0]["target_note_id"] == "OLD"
+        block = read_managed_block(tgt.read_text(encoding="utf-8"), "auto-backlinks")
+        assert "estendido por" in block
+        assert "ZTL - NEW - nova" in block
+        assert "amplia" in block
     finally:
         db.close()

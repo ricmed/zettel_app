@@ -5,7 +5,12 @@ import yaml
 
 from zettel.config import AppConfig
 from zettel.state import StateDB
-from zettel.sync import _extract_body_edges, rebuild_manual_edges, run_sync_manual
+from zettel.sync import (
+    _extract_body_edges,
+    rebuild_manual_edges,
+    repair_permanent_links,
+    run_sync_manual,
+)
 
 
 class FakeIndex:
@@ -223,3 +228,42 @@ def test_edited_moc_returns_updated(cfg, db):
            "# Topico\n\nResumo bem diferente agora.\n\n## Sub\n\n- a\n- b")
     stats = run_sync_manual(cfg, db, idx)
     assert stats["updated"] >= 1
+
+
+def test_repair_permanent_links_rewrites_double_prefix_and_rebuilds_backlinks(cfg, db):
+    _A = "01HAAAAAAAAAAAAAAAAAAAAAAA"
+    _B = "01HBBBBBBBBBBBBBBBBBBBBBBB"
+    path_a = cfg.vault_path / "30_Permanent" / f"ZTL - {_A} - analise-de-series-temporais.md"
+    path_b = cfg.vault_path / "30_Permanent" / f"ZTL - {_B} - sazonalidade.md"
+    _write(
+        path_a,
+        {"type": "permanent", "note_id": _A, "title": "Analise"},
+        f"## Conexoes\n\n- [[ZTL - ZTL - {_B}]] (extends) -- contexto\n",
+    )
+    _write(
+        path_b,
+        {"type": "permanent", "note_id": _B, "title": "Sazonalidade"},
+        (
+            "## Conexoes\n\n"
+            "<!-- zettel:auto-backlinks:start -->\n"
+            "- [[ZTL - GHOST - fantasma]] (relacionado) -- morto\n"
+            "<!-- zettel:auto-backlinks:end -->\n"
+        ),
+    )
+    db.upsert_note(_A, "@S", str(path_a), "Analise", body="x")
+    db.upsert_note(_B, "@S", str(path_b), "Sazonalidade", body="x")
+    db.upsert_note_connection(_A, _B, "extends", "contexto")
+
+    stats = repair_permanent_links(db)
+    assert stats["wikilinks_rewritten"] >= 1
+
+    body_a = path_a.read_text(encoding="utf-8")
+    assert f"[[ZTL - {_B} - sazonalidade]]" in body_a
+    assert f"ZTL - ZTL - {_B}" not in body_a
+
+    from zettel.vault import read_managed_block
+    block = read_managed_block(path_b.read_text(encoding="utf-8"), "auto-backlinks")
+    assert block is not None
+    assert "GHOST" not in block
+    assert f"ZTL - {_A} - analise-de-series-temporais" in block
+    assert "estendido por" in block

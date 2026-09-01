@@ -118,6 +118,7 @@ Responda mentalmente antes de decidir:
 - Evite conexões forçadas ou temáticas rasas
 - Priorize qualidade sobre quantidade (0-3 conexões é ideal)
 - Cada conexão deve adicionar valor real à compreensão
+- `related_note_id` é **somente o ULID de 26 caracteres** listado como `note_id:` no bloco RAG (ex. `01HAAAAAAAAAAAAAAAAAAAAAAA`). Nunca copie o prefixo `ZTL`, o filename ou o wikilink `[[...]]`. Ignore qualquer id que não apareça nesse bloco.
 
 ### Tags
 
@@ -170,6 +171,8 @@ O bloco de notas relacionadas pode vir em dois grupos:
 
 Use ambos os grupos apenas como candidatos a conexão; continue priorizando
 qualidade (0-3 conexões) e só conecte quando houver relação conceitual genuína.
+Em `related_note_id` copie **apenas** o valor de `note_id:` (ULID de 26 caracteres),
+nunca o wikilink nem o prefixo `ZTL`.
 
 Quando o bloco de imagens no input listar figuras, use-as para enriquecer definição/exemplo
 (descreva o mecanismo que o diagrama mostra). As figuras serão embutidas na nota;
@@ -196,7 +199,7 @@ Responda APENAS com JSON válido:
   "limits": "Ressalvas, exceções e limites de aplicação específicos",
   "connections": [
     {
-      "related_note_id": "ID da nota existente",
+      "related_note_id": "01HAAAAAAAAAAAAAAAAAAAAAAA",
       "relation_type": "supports | contradicts | extends | depends_on | exemplifies | related",
       "description": "Descrição precisa da relação conceitual"
     }
@@ -222,7 +225,7 @@ Responda APENAS com JSON válido:
   "limits": "Ressalvas, exceções e limites de aplicação específicos",
   "connections": [
     {
-      "related_note_id": "ID da nota existente",
+      "related_note_id": "01HAAAAAAAAAAAAAAAAAAAAAAA",
       "relation_type": "supports | contradicts | extends | depends_on | exemplifies | related",
       "description": "Descrição precisa da relação conceitual"
     }

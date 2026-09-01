@@ -10,14 +10,16 @@ from zettel.vault import (
     literature_index_filename,
     literature_index_link_label,
     literature_source_dirname,
+    normalize_note_id,
+    note_filename,
     parse_frontmatter,
+    permanent_wikilink,
     read_managed_block,
+    rewrite_bare_permanent_wikilinks,
     safe_update_managed_blocks,
+    source_note_filename,
     upsert_managed_block,
     _slug,
-    note_filename,
-    permanent_wikilink,
-    source_note_filename,
 )
 
 
@@ -269,3 +271,47 @@ def test_permanent_wikilink_prefers_path_stem():
 def test_permanent_wikilink_falls_back_to_title():
     link = permanent_wikilink("01ABC", "Hello World")
     assert link == "[[ZTL - 01ABC - hello-world]]"
+
+
+def test_normalize_note_id_bare_ulid():
+    ulid = "01HAAAAAAAAAAAAAAAAAAAAAAA"
+    assert normalize_note_id(ulid) == ulid
+
+
+def test_normalize_note_id_strips_ztl_prefix_and_wikilink():
+    ulid = "01HAAAAAAAAAAAAAAAAAAAAAAA"
+    assert normalize_note_id(f"ZTL - {ulid}") == ulid
+    assert normalize_note_id(f"ZTL - ZTL - {ulid}") == ulid
+    assert normalize_note_id(f"[[ZTL - {ulid} - algum-slug]]") == ulid
+    assert normalize_note_id(f"[[ZTL - ZTL - {ulid}]]") == ulid
+
+
+def test_normalize_note_id_rejects_prose():
+    assert normalize_note_id("análise de séries temporais") is None
+    assert normalize_note_id("") is None
+    assert normalize_note_id("   ") is None
+
+
+def test_normalize_note_id_legacy_short_id():
+    assert normalize_note_id("ABC123") == "ABC123"
+    assert normalize_note_id("ZTL - ABC123 - um-slug") == "ABC123"
+
+
+def test_rewrite_bare_permanent_wikilinks_uses_file_stem():
+    ulid = "01HAAAAAAAAAAAAAAAAAAAAAAA"
+    path = "/vault/30_Permanent/ZTL - 01HAAAAAAAAAAAAAAAAAAAAAAA - analise.md"
+
+    def lookup(note_id: str):
+        return path if note_id == ulid else None
+
+    text = (
+        f"- [[ZTL - ZTL - {ulid}]] (extends) -- desc\n"
+        f"- [[ZTL - {ulid}]] (related)\n"
+        f"- [[ZTL - {ulid} - analise]] (keeps slug form)\n"
+    )
+    out = rewrite_bare_permanent_wikilinks(text, lookup)
+    assert f"[[ZTL - {ulid} - analise]] (extends)" in out
+    assert f"[[ZTL - {ulid} - analise]] (related)" in out
+    # Already-slugged wikilink is not a "bare" target, so it stays as written.
+    assert f"[[ZTL - {ulid} - analise]] (keeps slug form)" in out
+    assert "ZTL - ZTL" not in out

@@ -24,7 +24,13 @@ from zettel.hashing import (
 from zettel.index import VectorIndex
 from zettel.retrieval import Retriever
 from zettel.state import StateDB
-from zettel.vault import _block_pattern, parse_frontmatter, safe_update_managed_blocks, permanent_wikilink
+from zettel.vault import (
+    _block_pattern,
+    parse_frontmatter,
+    permanent_wikilink,
+    rewrite_bare_permanent_wikilinks,
+    safe_update_managed_blocks,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,13 +72,69 @@ def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, 
             if result in ("new", "updated"):
                 stats[counter] += 1
 
+    repair = repair_permanent_links(db)
+    stats.update(repair)
+
     logger.info(
         "Sync manual: %d novas, %d atualizadas, %d sem alteração "
-        "(sources=%d, literature=%d, permanent=%d, mocs=%d)",
+        "(sources=%d, literature=%d, permanent=%d, mocs=%d) "
+        "(wikilinks_reparados=%d, backlinks_reconstruidos=%d)",
         stats["new"], stats["updated"], stats["skipped"],
         stats["sources"], stats["literature"], stats["permanent"], stats["mocs"],
+        stats.get("wikilinks_rewritten", 0), stats.get("backlinks_rebuilt", 0),
     )
     return stats
+
+
+def repair_permanent_links(db: StateDB) -> dict[str, int]:
+    """Fix malformed ZTL wikilinks and rebuild auto-backlinks from the graph.
+
+    Rewrites ``[[ZTL - ZTL - ULID]]`` / ``[[ZTL - ULID]]`` (no slug) to the
+    current file stem when the target note exists on disk, then replaces each
+    note's ``auto-backlinks`` block from live ``note_connections``.
+    """
+    from zettel.connector import rebuild_auto_backlinks
+
+    def lookup_path(note_id: str) -> Path | None:
+        row = db.get_note(note_id)
+        if not row or not row.get("path"):
+            return None
+        path = Path(row["path"])
+        return path if path.is_file() else None
+
+    wikilinks_rewritten = 0
+    backlinks_rebuilt = 0
+    for note in db.list_notes():
+        raw_path = note.get("path")
+        if not raw_path:
+            continue
+        path = Path(raw_path)
+        if not path.is_file():
+            continue
+        content = path.read_text(encoding="utf-8")
+        rewritten = rewrite_bare_permanent_wikilinks(content, lookup_path)
+        if rewritten != content:
+            path.write_text(rewritten, encoding="utf-8")
+            meta, body = parse_frontmatter(rewritten)
+            embeddable = extract_embeddable_text(body)
+            semantic_checksum = sha256_hex(normalize_text_for_hash(embeddable))
+            db.upsert_note(
+                note_id=note["note_id"],
+                source_id=note.get("source_id"),
+                path=str(path),
+                title=meta.get("title") or note.get("title") or "",
+                note_semantic_checksum=semantic_checksum,
+                body=body,
+                frontmatter_json=json.dumps(meta, ensure_ascii=False) if meta else note.get("frontmatter_json"),
+                origin=note.get("origin") or "pipeline",
+            )
+            wikilinks_rewritten += 1
+        if rebuild_auto_backlinks(db, note["note_id"]):
+            backlinks_rebuilt += 1
+    return {
+        "wikilinks_rewritten": wikilinks_rewritten,
+        "backlinks_rebuilt": backlinks_rebuilt,
+    }
 
 
 def _sync_single_note(
