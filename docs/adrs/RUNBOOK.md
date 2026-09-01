@@ -69,22 +69,34 @@ Before changing:
 
 ### Literature Notes & Review
 
-#### "Confidence thresholds (0.4 / 0.7) seem wrong"
+#### "Confidence thresholds (0.4 / auto-approve) seem wrong"
 ```
 Read ADRs:
   1. ADR-017 (Confidence-band HITL approval gate)
      → Thresholds are initial heuristic estimates, not empirically calibrated
+     → YAML is the operational source for auto_approve_min_confidence
+       (may differ from the ADR historical default 0.7)
   2. ADR-016 (Post-approval dedup timing)
      → Dedup happens after approval, not before
 
+Also see:
+  - CLAUDE.md Phase 2b (review.py) — same heuristic intent
+  - config/config.yaml literature_review.auto_approve_min_confidence
+  - review.py _LOW_CONFIDENCE_MAX = 0.4 (hard-coded very-low cut)
+
 Action:
-  - Monitor real-world impact: how many drafts fall into each band?
-  - If imbalanced (too many in "medium" band?):
+  - Monitor real-world impact: how many drafts fall into each band
+    after harvest/extract?
+  - If imbalanced (too many in "medium"? too many auto-approved FP?):
     → Propose new thresholds via GitHub issue
-  - Document why change is needed (e.g., "extraction model improved, now 80% are high-conf")
+  - Document why change is needed (e.g., "extraction model improved,
+    now 80% are high-conf")
+  - Significant extract-model change → schedule a formal calibration
+    pass (future phase; do not retune in code without evidence)
 
 Example:
-  Current: 0.4 (very-low) | 0.4-0.7 (medium) | 0.7+ (high)
+  Current (illustrative): 0.4 (very-low, review.py) | 0.4–limiar (medium)
+                          | limiar+ (high; read the YAML, not ADR 0.7)
   Proposed: 0.3 (very-low) | 0.3-0.8 (medium) | 0.8+ (high)
   Reason: New extractor model has higher overall confidence distribution
 ```
@@ -318,8 +330,11 @@ Read ADRs:
 
 To adjust:
   - Edit config/config.yaml: literature_review.auto_approve_min_confidence
-  - Both CLI and web will enforce new threshold
+  - The new number is still a heuristic (ADR-017), not a calibrated contract
+  - Both CLI and web will enforce the new threshold
   - No bypass path (security by design)
+  - Changing the 0.4 very-low cut requires a code change in review.py
+    (propose via GitHub issue; see "Confidence thresholds" above)
 ```
 
 ---
