@@ -284,7 +284,6 @@ class AppConfig(BaseModel):
 
     language: str = "pt-BR"
     log_level: str = "INFO"
-    pdf_extractor: str = "docling"
     device: str = "auto"  # auto | cpu | cuda
 
     @field_validator(

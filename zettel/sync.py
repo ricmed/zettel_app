@@ -171,7 +171,7 @@ def _sync_literature(
     Index notes (type=literature_index) snapshot into sources.lit_body.
     Granular notes (type=literature with chunk_id) update the matching chunk row.
     """
-    from zettel.harvester import _generate_citekey
+    from zettel.harvester.citekey import generate_citekey
 
     note_type = meta.get("type") or "literature"
     # Skip drafts under Review

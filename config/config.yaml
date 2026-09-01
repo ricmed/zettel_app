@@ -217,8 +217,5 @@ language: pt-BR
 # ── Logging (raiz do pipeline; httpx/openai ficam em WARNING) ──────────
 log_level: INFO
 
-# ── PDF (harvest) ──────────────────────────────────────────────────────
-pdf_extractor: docling       # docling | pymupdf
-
 # ── Dispositivo (Docling + sentence-transformers) ──────────────────────
 device: cuda                 # auto | cpu | cuda

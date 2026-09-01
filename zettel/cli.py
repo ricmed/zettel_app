@@ -1869,6 +1869,7 @@ def doctor(
         ("chromadb", "chromadb"),
         ("langchain_core", "langchain-core"),
         ("langchain_text_splitters", "langchain-text-splitters"),
+        ("docling", "docling"),
     ]
     for module, package in deps:
         try:
@@ -1881,8 +1882,6 @@ def doctor(
     opt_deps = [
         ("langchain_openai", "langchain-openai"),
         ("langchain_anthropic", "langchain-anthropic"),
-        ("docling", "docling"),
-        ("pymupdf", "pymupdf"),
         ("umap", "umap-learn"),
         ("hdbscan", "hdbscan"),
         ("sklearn", "scikit-learn"),

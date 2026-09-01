@@ -1,6 +1,6 @@
 """The Harvester — file detection, text extraction, chunking, SRC/LIT creation.
 
-Supports: PDF (Docling / PyMuPDF), Markdown.
+Supports: PDF (Docling, mandatory), Markdown.
 """
 
 from .biblio_hitl import resolve_bibliography
@@ -19,19 +19,16 @@ from .duplicates import (
     sample_chunk_texts,
 )
 from .extract import (
+    PdfExtractionError,
     docling_num_pages,
     docling_page_map_by_export,
-    enrich_metadata_from_pymupdf,
     extract_markdown,
     extract_pdf,
     extract_pdf_docling,
-    extract_pdf_pymupdf,
     extract_text,
     extract_year_from_pdf_date,
     extract_year_from_string,
     page_map_for_source,
-    pymupdf_page_map,
-    scan_printed_page_numbers,
 )
 from .pipeline import (
     list_incomplete_sources,
@@ -44,6 +41,7 @@ from .set_paging import run_set_paging
 __all__ = [
     # Exceptions
     "HarvestAborted",
+    "PdfExtractionError",
     # Public API (pipeline)
     "run_harvest",
     "run_rechunk",
@@ -61,15 +59,11 @@ __all__ = [
     "extract_pdf",
     "extract_markdown",
     "extract_pdf_docling",
-    "extract_pdf_pymupdf",
     "extract_year_from_pdf_date",
     "extract_year_from_string",
-    "pymupdf_page_map",
     "docling_num_pages",
     "docling_page_map_by_export",
-    "enrich_metadata_from_pymupdf",
     "page_map_for_source",
-    "scan_printed_page_numbers",
     # Bibliography
     "resolve_bibliography",
     # Citekey

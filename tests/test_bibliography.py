@@ -18,7 +18,8 @@ from zettel.bibliography import (
     required_fields,
 )
 from zettel.config import AppConfig, HarvestConfig
-from zettel.harvester import _process_file, _resolve_bibliography
+from zettel.harvester import resolve_bibliography as _resolve_bibliography
+from zettel.harvester.pipeline import _process_file
 from zettel.state import StateDB
 from zettel.vault import build_source_note, compose_note, parse_frontmatter
 

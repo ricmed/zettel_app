@@ -7,11 +7,11 @@ import pytest
 from zettel.config import AppConfig, HarvestConfig
 from zettel.harvester import (
     HarvestAborted,
-    _find_semantic_duplicate_candidates,
-    _process_file,
-    _resolve_duplicate_decision,
-    _sample_chunk_texts,
+    find_semantic_duplicate_candidates as _find_semantic_duplicate_candidates,
+    resolve_duplicate_decision as _resolve_duplicate_decision,
+    sample_chunk_texts as _sample_chunk_texts,
 )
+from zettel.harvester.pipeline import _process_file
 from zettel.hashing import normalize_text_for_hash, sha256_hex
 from zettel.state import StateDB
 

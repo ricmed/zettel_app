@@ -1,7 +1,6 @@
 """Tests for page inference helpers."""
 
 from zettel.config import AppConfig
-from zettel.harvester import _resolve_content_paging
 from zettel.paging import (
     PAGE_BREAK_MARKER,
     ContentPaging,
@@ -9,13 +8,13 @@ from zettel.paging import (
     apply_page_inference,
     compute_docling_config_hash,
     compute_page_in_book,
-    detect_printed_page_from_regions,
     extract_page_hint,
     format_source_locator,
     infer_missing_page,
     lookup_page_for_chunk,
     page_map_from_marked_markdown,
     parse_biblio_start_page,
+    resolve_content_paging as _resolve_content_paging,
     strip_page_break_markers,
     suggest_content_start,
 )
@@ -182,14 +181,6 @@ def test_parse_biblio_start_page():
     assert parse_biblio_start_page("320") is None
     assert parse_biblio_start_page("320 p.") is None
     assert parse_biblio_start_page(None) is None
-
-
-def test_detect_printed_page_from_header_footer():
-    assert detect_printed_page_from_regions("Journal Name\n200\n", "", 1) == 200
-    assert detect_printed_page_from_regions("", "1", 35) == 1
-    assert detect_printed_page_from_regions("2024", "", 1) is None
-    # Prefer printed number that differs from the file index
-    assert detect_printed_page_from_regions("35\n1", "", 35) == 1
 
 
 def test_resolve_content_paging_noninteractive_uses_heuristic():

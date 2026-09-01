@@ -15,7 +15,11 @@ from zettel.hashing import (
     sha256_hex,
 )
 from zettel.index import VectorIndex
-from zettel.paging import ContentPaging, compute_docling_config_hash
+from zettel.paging import (
+    ContentPaging,
+    compute_docling_config_hash,
+    resolve_content_paging,
+)
 from zettel.state import StateDB
 from zettel.vault import build_source_note, safe_write_note
 
@@ -55,7 +59,6 @@ def run_harvest(
         "chunking": cfg.chunking.model_dump(),
         "harvest": cfg.harvest.model_dump(),
         "images": cfg.images.model_dump(),
-        "pdf_extractor": cfg.pdf_extractor,
         "docling_config_hash": compute_docling_config_hash(cfg),
     })
     run_id = db.start_run(signature)
@@ -329,7 +332,6 @@ def _process_file(
     if origin_type == "md":
         page_map = []
 
-    from zettel.paging import resolve_content_paging
     paging = resolve_content_paging(
         page_map,
         interactive=interactive,
@@ -435,20 +437,10 @@ def _process_file(
         docling_config_hash=config_hash,
     )
 
-    cost_kwargs: dict = {}
     tracker = get_tracker()
     if tracker:
         delta = tracker.summary_for_source(source_id).as_dict()
         db.add_source_usage(source_id, delta)
-        row = db.get_source(source_id) or {}
-        cost_kwargs = {
-            "cost_usd_total": row.get("cost_usd_total"),
-            "cost_usd_llm": row.get("cost_usd_llm"),
-            "cost_usd_embedding": row.get("cost_usd_embedding"),
-            "tokens_prompt": row.get("tokens_prompt"),
-            "tokens_completion": row.get("tokens_completion"),
-            "tokens_embedding": row.get("tokens_embedding"),
-        }
 
     _create_vault_notes(
         cfg, source_id, citekey, title, authors, year,
@@ -466,7 +458,6 @@ def _process_file(
         total_chunks=chunk_count,
         docling_config_hash=config_hash,
         db=db,
-        **cost_kwargs,
     )
     set_source(None)
 
@@ -609,12 +600,6 @@ def _create_vault_notes(
     total_chunks: int | None = None,
     docling_config_hash: str | None = None,
     db: StateDB | None = None,
-    cost_usd_total: float | None = None,
-    cost_usd_llm: float | None = None,
-    cost_usd_embedding: float | None = None,
-    tokens_prompt: int | None = None,
-    tokens_completion: int | None = None,
-    tokens_embedding: int | None = None,
 ) -> None:
     """Write SRC and LIT index notes to the vault."""
     from zettel.vault import (
@@ -625,7 +610,7 @@ def _create_vault_notes(
     )
 
     # Write SRC note
-    src_note = build_source_note(
+    src_meta, src_body = build_source_note(
         source_id, citekey, title, authors, year, origin_path, origin_type, file_checksum,
         document_type=document_type,
         biblio_fields=biblio_fields,
@@ -640,24 +625,16 @@ def _create_vault_notes(
         total_chunks=total_chunks,
         docling_config_hash=docling_config_hash,
     )
-    src_path = cfg.vault_path / "10_Sources" / source_note_filename(citekey)
+    src_path = cfg.vault_path / "10_Sources" / source_note_filename(citekey, title)
     src_path.parent.mkdir(parents=True, exist_ok=True)
-    safe_write_note(src_path, src_note["frontmatter"], src_note["body"])
+    safe_write_note(src_path, src_meta, src_body)
 
     # Write LIT index note
-    lit_index_note = build_literature_index_note(source_id, citekey, title, authors, year)
+    lit_meta, lit_body = build_literature_index_note(source_id, citekey, title)
     lit_path = cfg.vault_path / "20_Literature" / citekey / literature_index_filename(citekey)
     lit_path.parent.mkdir(parents=True, exist_ok=True)
-    safe_write_note(lit_path, lit_index_note["frontmatter"], lit_index_note["body"])
+    safe_write_note(lit_path, lit_meta, lit_body)
 
-    # Sync costs if provided
-    if db and cost_usd_total is not None:
-        sync_source_costs_to_vault(
-            db, source_id,
-            cost_usd_total=cost_usd_total,
-            cost_usd_llm=cost_usd_llm,
-            cost_usd_embedding=cost_usd_embedding,
-            tokens_prompt=tokens_prompt,
-            tokens_completion=tokens_completion,
-            tokens_embedding=tokens_embedding,
-        )
+    # Sync costs accumulated in SQLite onto the SRC frontmatter
+    if db:
+        sync_source_costs_to_vault(cfg, db, source_id)

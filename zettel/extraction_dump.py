@@ -1,4 +1,4 @@
-"""Markdown dump of persisted extraction text (Docling / PyMuPDF / MD nativo).
+"""Markdown dump of persisted extraction text (Docling / MD nativo).
 
 Opt-in diagnostic: writes one file per source under ``cache/extraction-dumps/``
 (or a caller-supplied directory). The body is ``sources.extracted_text`` — the
@@ -52,7 +52,7 @@ def render_extraction_dump(
         "title": source.get("title") or "",
         "origin_path": source.get("origin_path") or "",
         "origin_type": source.get("origin_type") or "",
-        "pdf_extractor": cfg.pdf_extractor,
+        "extractor": "docling" if source.get("origin_type") == "pdf" else "md nativo",
         "chars": len(text),
     }
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from zettel.config import AppConfig
-from zettel.harvester import _chunk_and_persist
+from zettel.harvester import chunk_and_persist as _chunk_and_persist
 from zettel.paging import ContentPaging
 from zettel.state import StateDB
 

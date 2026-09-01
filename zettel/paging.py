@@ -1,8 +1,8 @@
 """Page inference: file page vs book page, content-start paging, interpolation.
 
 Three layers for ``page_in_file``:
-1. Explicit metadata (Docling page-break map, else PyMuPDF) — preferred; uses
-   the **first** page of the chunk when content spans multiple pages
+1. Explicit metadata (Docling page-break map) — preferred; uses the **first**
+   page of the chunk when content spans multiple pages
 2. Regex on chunk head/tail (fallback only when no page map exists; never for
    native Markdown sources, which have no pages)
 3. Interpolation between neighbouring explicit pages
@@ -13,7 +13,8 @@ Book/journal pages use content-start bounds:
 Docling ``prov.page_no`` and page-break markers are the PDF *file* index
 (1-based), not the printed number. Printed numbers (book p.1 after front
 matter, journal article starting at p.200) come from the content-start offset,
-optionally seeded by header/footer detection or a bibliographic page range.
+seeded by HITL (``--content-start-*``) or a bibliographic page range (``pages:``
+frontmatter) — there is no automated header/footer scan (ADR-012, no PyMuPDF).
 """
 
 from __future__ import annotations
@@ -59,10 +60,6 @@ PLAIN_CHAPTER_START_PATTERNS = [
 
 CHAPTER_START_PATTERNS = MARKDOWN_CHAPTER_START_PATTERNS + PLAIN_CHAPTER_START_PATTERNS
 
-_ISOLATED_PAGE_LINE = re.compile(
-    r"^(?:[—–\-–]\s*)?(\d{1,4})(?:\s*[—–\-–])?$"
-)
-_YEAR_LIKE = re.compile(r"^(?:19|20)\d{2}$")
 _BIBLIO_PAGE_RANGE = re.compile(
     r"(?<!\d)(\d{1,4})\s*[-–—]\s*(\d{1,4})(?!\d)"
 )
@@ -197,18 +194,13 @@ def strip_page_break_markers(text: str) -> str:
 def page_map_from_marked_markdown(text: str) -> list[tuple[int, str]]:
     """Split markdown that contains ``PAGE_BREAK_MARKER`` into a file-page map.
 
-    Empty (marker-less) input returns ``[]`` so callers fall back to a
-    single-page map or PyMuPDF.
+    Empty (marker-less) input returns ``[]`` so callers fall back to the
+    regex/interpolation layers in this module.
     """
     if not text or PAGE_BREAK_MARKER not in text:
         return []
     parts = text.split(PAGE_BREAK_MARKER)
     return [(i + 1, part.strip()) for i, part in enumerate(parts)]
-
-
-def build_page_map_from_texts(page_texts: Sequence[str]) -> list[tuple[int, str]]:
-    """Build [(page_no_1based, text), ...] from per-page extraction (PyMuPDF)."""
-    return [(i + 1, t) for i, t in enumerate(page_texts)]
 
 
 def parse_biblio_start_page(pages: str | None) -> int | None:
@@ -225,54 +217,6 @@ def parse_biblio_start_page(pages: str | None) -> int | None:
         return None
     start = int(match.group(1))
     return start if start >= 1 else None
-
-
-def detect_printed_page_from_regions(
-    header: str,
-    footer: str,
-    file_page: int,
-) -> int | None:
-    """Guess the printed page number from header/footer text of one PDF page.
-
-    Isolated numbers on their own line win. When several candidates exist,
-    prefer a value that differs from the file-page index (journal p.200 on
-    file p.1; book p.1 on file p.35). Years (1900-2099) are ignored.
-    """
-    isolated: list[int] = []
-    other: list[int] = []
-    for region in (header or "", footer or ""):
-        for raw_line in region.splitlines():
-            line = raw_line.strip()
-            if not line:
-                continue
-            isolated_match = _ISOLATED_PAGE_LINE.fullmatch(line)
-            if isolated_match:
-                n = int(isolated_match.group(1))
-                if _is_plausible_printed_page(n):
-                    isolated.append(n)
-                continue
-            for token in re.findall(r"\b(\d{1,4})\b", line):
-                n = int(token)
-                if _is_plausible_printed_page(n):
-                    other.append(n)
-    return _pick_printed_number(isolated or other, file_page)
-
-
-def _is_plausible_printed_page(n: int) -> bool:
-    if n < 1 or n > 9999:
-        return False
-    return _YEAR_LIKE.fullmatch(str(n)) is None
-
-
-def _pick_printed_number(candidates: Sequence[int], file_page: int) -> int | None:
-    unique: list[int] = []
-    for n in candidates:
-        if n not in unique:
-            unique.append(n)
-    if not unique:
-        return None
-    shifted = [n for n in unique if n != file_page]
-    return shifted[0] if shifted else unique[0]
 
 
 def _looks_like_toc(head: str) -> bool:
@@ -358,6 +302,98 @@ def suggest_content_start(
     }
 
 
+def resolve_content_paging(
+    page_map: Sequence[tuple[int, str]],
+    *,
+    interactive: bool,
+    content_start_file: int | None,
+    content_start_book: int | None,
+    skip_paging: bool,
+    printed_by_file_page: dict[int, int] | None = None,
+    biblio_pages: str | None = None,
+) -> ContentPaging:
+    """Resolve content-start file/book pages before chunking.
+
+    Precedence: explicit CLI/web flags > ``--skip-paging`` > interactive HITL >
+    non-interactive heuristic (chapter-1 / biblio range) > file page 1 =
+    printed page 1.
+    """
+    if skip_paging and content_start_file is None:
+        return ContentPaging(1, 1, "skipped")
+
+    suggested = suggest_content_start(
+        page_map,
+        printed_by_file_page=printed_by_file_page,
+        biblio_pages=biblio_pages,
+    )
+    sug_file = int(suggested.get("content_start_file_page") or 1)
+    sug_book = int(suggested.get("content_start_book_page") or 1)
+
+    if content_start_file is not None:
+        start_file = int(content_start_file)
+        start_book = (
+            int(content_start_book) if content_start_book is not None else sug_book
+        )
+        return ContentPaging(start_file, start_book, "confirmed")
+
+    if not interactive:
+        if suggested.get("confidence") == "heuristic":
+            logger.info(
+                "Paginacao heuristica (nao-interativo): arquivo p.%d = impressa p.%d",
+                sug_file, sug_book,
+            )
+            return ContentPaging(sug_file, sug_book, "heuristic")
+        return ContentPaging(1, 1, "skipped")
+
+    from rich.console import Console
+    from rich.prompt import Prompt
+
+    console = Console(stderr=True)
+    anchor = suggested.get("anchor_page_in_file")
+    if anchor is not None:
+        console.print(
+            f"[cyan]Detectei inicio de conteudo na pagina {anchor} do arquivo. "
+            f"Sugestao: arquivo p.{sug_file} = impressa p.{sug_book}.[/cyan]"
+        )
+    else:
+        console.print(
+            "[cyan]Nao detectei Capitulo 1 / Introduction no mapa de paginas. "
+            "Padrao: arquivo p.1. Se for artigo de revista, o numero impresso "
+            "pode ser 200 mesmo com o PDF comecando em 1.[/cyan]"
+        )
+    console.print(
+        "[dim]Livro: p.arquivo do cap. 1 + numero impresso nessa pagina "
+        "(geralmente 1). "
+        "Artigo de revista: arquivo p.1 = primeira pagina impressa na revista. "
+        "Apostila/tutorial que comeca em 1: aceite os padroes. "
+        "Markdown nativo nao tem pagina. "
+        "Paginas do arquivo anteriores ao inicio sao ignoradas. "
+        "Chunk que cruza paginas usa a pagina do inicio do trecho.[/dim]"
+    )
+
+    file_answer = Prompt.ask(
+        "Pagina do arquivo (PDF) onde o conteudo comeca",
+        default=str(sug_file),
+        console=console,
+    )
+    book_answer = Prompt.ask(
+        "Numero impresso nessa primeira pagina de conteudo",
+        default=str(sug_book),
+        console=console,
+    )
+    try:
+        start_file = max(1, int(file_answer.strip()))
+    except ValueError:
+        logger.warning("Inicio de arquivo invalido '%s'; usando %d", file_answer, sug_file)
+        start_file = sug_file
+    try:
+        start_book = max(1, int(book_answer.strip()))
+    except ValueError:
+        logger.warning("Inicio impresso invalido '%s'; usando %d", book_answer, sug_book)
+        start_book = sug_book
+    return ContentPaging(start_file, start_book, "confirmed")
+
+
 def _normalize_for_page_lookup(text: str) -> str:
     """Collapse whitespace and heading hashes so Docling MD matches page slices."""
     stripped = strip_page_break_markers(text or "")
@@ -375,8 +411,7 @@ def lookup_page_for_chunk(
     Uses only the beginning of the chunk (~120 chars) so a chunk that crosses a
     page boundary is attributed to the page where it begins. Both sides are
     normalized (heading hashes stripped, whitespace collapsed) so Docling
-    markdown chunks match a Docling per-page map — and still have a chance
-    against a PyMuPDF fallback map.
+    markdown chunks match the Docling per-page map.
     """
     needle = _normalize_for_page_lookup(chunk_text[:400])
     if len(needle) < 20 or not page_map:
@@ -398,7 +433,6 @@ def lookup_page_for_chunk(
 def compute_docling_config_hash(cfg: AppConfig) -> str:
     """Stable hash of ingestion knobs that invalidate mid-flight resume."""
     payload = {
-        "pdf_extractor": cfg.pdf_extractor,
         "chunk_size": cfg.chunking.chunk_size,
         "chunk_overlap": cfg.chunking.chunk_overlap,
         "min_section_chars": cfg.chunking.min_section_chars,

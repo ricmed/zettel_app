@@ -181,12 +181,6 @@ def run_set_paging(
         total_chunks=remaining,
         docling_config_hash=src.get("docling_config_hash"),
         db=db,
-        cost_usd_total=src.get("cost_usd_total"),
-        cost_usd_llm=src.get("cost_usd_llm"),
-        cost_usd_embedding=src.get("cost_usd_embedding"),
-        tokens_prompt=src.get("tokens_prompt"),
-        tokens_completion=src.get("tokens_completion"),
-        tokens_embedding=src.get("tokens_embedding"),
     )
 
     from zettel.review import _refresh_literature_index

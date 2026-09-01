@@ -13,7 +13,7 @@ from zettel.extraction_dump import (
     run_dump_extraction,
     write_extraction_dump,
 )
-from zettel.harvester import _process_file
+from zettel.harvester.pipeline import _process_file
 from zettel.state import StateDB
 
 
@@ -77,14 +77,14 @@ def test_list_headings_collects_h1_to_h6():
 
 
 def test_render_includes_frontmatter_outline_and_raw_text():
-    md = render_extraction_dump(_source(), RAW_MD, _cfg(pdf_extractor="docling"))
+    md = render_extraction_dump(_source(), RAW_MD, _cfg())
     assert md.startswith("---\n")
     assert "source_id: '@Smith2020'" in md or "source_id: @Smith2020" in md
     assert "citekey: Smith2020" in md
     assert "title: Um ensaio" in md
     assert "origin_path:" in md
     assert "origin_type: pdf" in md
-    assert "pdf_extractor: docling" in md
+    assert "extractor: docling" in md
     assert f"chars: {len(RAW_MD)}" in md
     assert "## Headings detectados" in md
     assert "- H1 Titulo do paper" in md

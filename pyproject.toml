@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "bleach>=6.4.0",
     "chromadb==1.5.9",
-    "docling>=2.71.0",
+    "docling==2.123.1",
     "hdbscan==0.8.44",
     "hf-xet==1.2.0",
     "langchain-core>=1.2.7",
@@ -25,7 +25,6 @@ dependencies = [
     "uvicorn>=0.30.0",
     "jinja2>=3.1.0",
     "python-multipart>=0.0.9",
-    "PyMuPDF>=1.24.0",
     "scikit-learn>=1.8.0",
     "typer>=0.21.1",
     "typer-slim==0.21.1",

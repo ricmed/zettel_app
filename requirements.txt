@@ -24,8 +24,7 @@ litellm>=1.40.0                  # Pricing map only (cost_per_token); not used a
 chromadb>=0.5.0
 
 # ── PDF Extraction ──────────────────────────────────────────────────────
-docling>=2.0.0                   # Extrator principal de PDF
-# pymupdf>=1.24.0               # Fallback para PDF (descomente se preferir)
+docling==2.123.1                 # Extrator obrigatorio de PDF (sem fallback, ADR-012)
 
 # ── Clustering / MOCs (opcional) ────────────────────────────────────────
 numpy>=1.24.0
@@ -45,7 +44,6 @@ scikit-learn
 torch
 typer[all]
 pytest
-PyMuPDF>=1.24.0
 bleach
 markdown-it-py
 linkify-it-py

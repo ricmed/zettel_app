@@ -4,12 +4,12 @@ import pytest
 
 from zettel.config import AppConfig
 from zettel.harvester import (
-    _chunk_and_persist,
-    _merge_small_sections,
-    _split_chapter_into_chunks,
-    _split_chapter_into_sections,
-    _split_into_chapters,
+    chunk_and_persist as _chunk_and_persist,
+    merge_small_sections as _merge_small_sections,
     run_rechunk,
+    split_chapter_into_chunks as _split_chapter_into_chunks,
+    split_chapter_into_sections as _split_chapter_into_sections,
+    split_into_chapters as _split_into_chapters,
 )
 from zettel.state import StateDB
 

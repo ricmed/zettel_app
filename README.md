@@ -169,7 +169,6 @@ Descomente no `requirements.txt` conforme necessário:
 | `langchain-anthropic` | Usar Claude como LLM |
 | `langchain-google-genai` | Usar Gemini como LLM |
 | `langchain-ollama` | Usar modelos locais via Ollama |
-| `pymupdf` | Extração PDF alternativa (mais leve que Docling) |
 | `umap-learn` | Clusterização avançada para MOCs |
 | `hdbscan` | Clusterização densa para MOCs |
 
@@ -321,9 +320,6 @@ hub_mocs:
   decay: 0.5
   min_neighbor_weight: 0.3
   dedup_subset_threshold: 0.8
-
-# PDF
-pdf_extractor: docling       # docling | pymupdf
 
 language: pt-BR
 log_level: INFO
@@ -668,7 +664,7 @@ python -m zettel run-all --dry-run
 6. Grava nota **SRC** (`SRC - AuthorYear - slug.md`) em `10_Sources/` e o **índice LIT** (`LIT - AuthorYear - slug.md`) em `20_Literature/` **antes** do chunking/embeddings (que podem demorar minutos); `processing_status=in_progress`. Pastas e arquivos **nao** usam `@` (o `@` fica so em `source_id` / CLI). Layout antigo (`@Citekey/`, `chunk_NNNN.md`, `*-index.md`) nao e lido; reescreva notas `pipeline` com `zettel rebuild --force` e apague leftovers a mao.
 7. Se `images.enabled`, registra imagens já extraídas em `90_Assets/`
 8. Resolve **inicio da paginacao** (detalhes na secao seguinte): pagina do **arquivo PDF** onde o conteudo comeca e o **numero impresso** nessa pagina; paginas anteriores nao geram chunks. Markdown nativo nao tem pagina.
-9. Divide o texto em **capitulos**/secoes. Infere `page_in_file` pelo mapa Docling (marcadores de quebra de pagina no mesmo Markdown dos chunks; PyMuPDF so como fallback) e grava `page_in_book = page_in_file - start_file + start_book` (chunk multi-pagina usa a **primeira** pagina). Indexa chunks no ChromaDB e no SQLite.
+9. Divide o texto em **capitulos**/secoes. Infere `page_in_file` pelo mapa Docling (marcadores de quebra de pagina no mesmo Markdown dos chunks) e grava `page_in_book = page_in_file - start_file + start_book` (chunk multi-pagina usa a **primeira** pagina). Indexa chunks no ChromaDB e no SQLite.
 10. Atualiza a SRC com inicio de conteudo/paginas/`total_chunks` e `processing_status=completed`
 11. **Cobertura de capítulos**: harvest interrompido é completado no próximo `harvest` ou via `zettel rechunk`
 
@@ -692,7 +688,7 @@ Como o inicio e resolvido:
 - `--yes` / web / `run-all` sem flags: aplica a heuristica em silencio
 - `--skip-paging`: forca arquivo p.1 = impressa p.1 (nao detecta miolo nem revista)
 
-O mapa de `page_in_file` vem do **Docling** (`export_to_markdown` com `page_break_placeholder`, comentarios `<!-- zettel:page-break -->` no texto extraido — o mesmo Markdown dos chunks). `prov.page_no` do Docling e o indice do arquivo, nao o numero impresso. PyMuPDF so entra se o mapa Docling vier vazio. Regex no corpo do chunk so roda quando nao ha mapa e a fonte nao e Markdown.
+O mapa de `page_in_file` vem do **Docling** (`export_to_markdown` com `page_break_placeholder`, comentarios `<!-- zettel:page-break -->` no texto extraido — o mesmo Markdown dos chunks). `prov.page_no` do Docling e o indice do arquivo, nao o numero impresso. Docling e obrigatorio — nao ha fallback para outro extrator (ADR-012). Regex no corpo do chunk so roda quando nao ha mapa e a fonte nao e Markdown.
 
 Para corrigir fonte ja harvestada: `zettel set-paging --source-id @Citekey --content-start-file N --content-start-book M` (recalcula o numero impresso sem LLM). Se `page_in_file` estiver errado ou vazio (harvest antigo, antes do mapa Docling), re-processe o PDF (`zettel harvest`) ou `zettel rechunk` se o `extracted_text` ja tiver os marcadores de quebra.
 
@@ -1090,7 +1086,7 @@ Como consequência:
 
 - **`zettel reindex`** reconstrói o ChromaDB inteiro a partir do SQLite, sem nenhuma chamada de LLM e sem reescrever o vault. O índice vetorial passa a ser um cache descartável. Um `reindex` completo também reconstrói o índice lexical FTS5 (`fts_notes`/`fts_chunks`), igualmente descartável. Após trocar `embedding.provider`/`model`, use **`--force`** (o CLI também detecta o drift e força o reset sob confirmação).
 - **`zettel rebuild --what vault`** recria os arquivos `.md` do vault a partir dos corpos persistidos, também sem LLM. Nunca sobrescreve um arquivo existente sem `--force`, e nunca sobrescreve uma nota `origin: manual` (mesmo com `--force`).
-- **`zettel rechunk`** re-aplica a configuração de chunking atual a partir do texto extraído persistido, sem reprocessar o arquivo original; completa capítulos faltantes após harvest interrompido e re-vincula imagens aos capítulos corretos. Se o texto extraído tiver marcadores `<!-- zettel:page-break -->`, o mapa de paginas e reconstruido a partir deles; senao cai no PyMuPDF. Com `--dump-chunks`, grava um markdown com todos os chunks (texto + metadados) em `data/cache/chunk-dumps/` (ou `--dump-dir`).
+- **`zettel rechunk`** re-aplica a configuração de chunking atual a partir do texto extraído persistido, sem reprocessar o arquivo original; completa capítulos faltantes após harvest interrompido e re-vincula imagens aos capítulos corretos. Se o texto extraído tiver marcadores `<!-- zettel:page-break -->`, o mapa de paginas e reconstruido a partir deles; senao fica sem mapa de paginas (sem fallback de extrator — ADR-012). Com `--dump-chunks`, grava um markdown com todos os chunks (texto + metadados) em `data/cache/chunk-dumps/` (ou `--dump-dir`).
 - **`zettel dump-chunks`** reexporta os chunks já persistidos no SQLite como markdown, sem rechunkar nem chamar o LLM. Use para inspecionar cortes, `section_path`, páginas e overlap antes de mudar `chunk_size` / `chunk_overlap` / `min_section_chars`.
 - **`zettel dump-extraction`** reexporta o Markdown extraído (`sources.extracted_text`: saída do Docling em PDF, ou o corpo MD nativo) com headings H1–H6 intactos, sem rerodar o extrator. Em PDF, o texto pode incluir comentarios `<!-- zettel:page-break -->` (fronteiras de pagina do arquivo). `harvest --dump-extraction` grava o mesmo arquivo assim que o texto é persistido (antes dos embeddings). Default: `data/cache/extraction-dumps/` (ou `--dump-extraction-dir` / `--dump-dir` no comando dedicado).
 
@@ -1168,11 +1164,11 @@ python -m pytest tests/test_hashing.py -v
 ## Resolução de problemas
 
 ### "Docling não instalado"
+Docling é obrigatório para harvest de PDF — não há extrator alternativo (ADR-012, removido por licenciamento AGPL-3.0 do PyMuPDF).
 ```bash
+uv sync
+# ou
 pip install docling
-# Ou use PyMuPDF como alternativa:
-pip install pymupdf
-# E altere no config.yaml: pdf_extractor: pymupdf
 ```
 
 ### "Nenhum cluster encontrado" no garden
