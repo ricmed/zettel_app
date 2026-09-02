@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2025-02-01
-**Used by:** [ADR-XXX: Pluggable Multi-Provider LLM Strategy](../LLM/ADR-XXX-pluggable-multi-provider-llm-strategy.md)
+**Used by:** [ADR-XXX: Pluggable Multi-Provider LLM Strategy](../LLM/ADR-024-multi-provider-llm-strategy.md)
 **Related to:** [ADR-XXX: Pydantic v2 for Configuration Schema and LLM-Backed DTOs](./ADR-006-pydantic-v2-config-dtos.md)
 
 ## Context and Problem Statement

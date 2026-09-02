@@ -4,7 +4,7 @@
 **Date:** 2026-02-01
 **Related to:**
 - [ADR-XXX: Repository Pattern for Data Access (StateDB and VectorIndex)](../INFRA/ADR-008-repository-pattern-data-access.md)
-- [ADR-XXX: FastAPI Server-Rendered Web Interface (No SPA)](../WEB/ADR-022-fastapi-server-rendered-jinja2-no-spa.md)
+- [ADR-XXX: FastAPI Server-Rendered Web Interface (No SPA)](../WEB/ADR-022-fastapi-server-rendered-jinja2.md)
 
 ## Context and Problem Statement
 

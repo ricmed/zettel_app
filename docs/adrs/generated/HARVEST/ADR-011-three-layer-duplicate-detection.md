@@ -3,7 +3,7 @@
 **Date:** 2026-07-04
 **Depends on:**
 - [ADR-XXX: Layered Hashing Strategy for Deterministic Caching and Drift Detection](../INFRA/ADR-007-layered-hashing-strategy.md)
-- [ADR-XXX: Docling as Primary PDF Extractor with PyMuPDF Fallback](./needs-input/ADR-XXX-docling-primary-pdf-extractor-pymupdf-fallback.md)
+- [ADR-XXX: Docling as Primary PDF Extractor with PyMuPDF Fallback](./ADR-012-docling-pdf-extraction-pymupdf-fallback.md)
 
 **Related to:** [ADR-XXX: Hybrid Dense+BM25 Retrieval with RRF Fusion and Absolute Relevance Floor](../INFRA/ADR-003-hybrid-dense-bm25-retrieval.md)
 

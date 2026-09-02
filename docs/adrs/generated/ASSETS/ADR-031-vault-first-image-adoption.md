@@ -6,7 +6,7 @@
 
 **Related to:**
 - [ADR-XXX: Granular Per-Chunk Literature Notes with Readable Filenames](../EXTRACT/ADR-015-granular-literature-notes-readable-filenames.md)
-- [ADR-XXX: Layered Checksums for Incremental Processing](../INFRA/ADR-007-layered-checksums.md)
+- [ADR-XXX: Layered Checksums for Incremental Processing](../INFRA/ADR-007-layered-hashing-strategy.md)
 
 ## Context and Problem Statement
 

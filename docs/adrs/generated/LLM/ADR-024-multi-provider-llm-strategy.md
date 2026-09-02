@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-02
 **Depends on:** [ADR-XXX: YAML-First Configuration with Pydantic Fallback](../INFRA/ADR-004-yaml-first-configuration.md)
-**Used by:** [ADR-XXX: System+Human Prompt Split for Provider-Agnostic Prompt Caching](./ADR-XXX-system-human-prompt-split-for-provider-agnostic-caching.md)
+**Used by:** [ADR-XXX: System+Human Prompt Split for Provider-Agnostic Prompt Caching](./ADR-025-prompt-caching-system-human-split.md)
 
 ## Context and Problem Statement
 

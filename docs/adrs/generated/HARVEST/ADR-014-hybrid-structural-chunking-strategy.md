@@ -1,7 +1,7 @@
 # ADR-XXX: Hybrid Structural Chunking (H1-H6 Boundaries + Recursive Splitter)
 **Status:** Accepted
 **Date:** Unknown (foundational; predates tracked history)
-**Depends on:** [ADR-XXX: Docling as Primary PDF Extractor with PyMuPDF Fallback](./needs-input/ADR-XXX-docling-primary-pdf-extractor-pymupdf-fallback.md)
+**Depends on:** [ADR-XXX: Docling as Primary PDF Extractor with PyMuPDF Fallback](./ADR-012-docling-pdf-extraction-pymupdf-fallback.md)
 **Related to:**
 - [ADR-XXX: Layered Hashing Strategy for Deterministic Caching and Drift Detection](../INFRA/ADR-007-layered-hashing-strategy.md)
 - [ADR-XXX: Three-Layer Page Inference Strategy for Chunk Page Metadata](./ADR-013-three-layer-page-inference-strategy.md)

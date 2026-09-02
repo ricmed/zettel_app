@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-08-28
-**Used by:** [ADR-XXX: Confidence-Band Human-in-the-Loop Approval Gate](../REVIEW/needs-input/ADR-017-confidence-band-hitl-approval-gate.md)
+**Used by:** [ADR-XXX: Confidence-Band Human-in-the-Loop Approval Gate](../REVIEW/ADR-017-confidence-band-hitl-approval-gate.md)
 **Related to:**
 - [ADR-XXX: ChromaDB Embedded Client as Vector Store](../INFRA/ADR-002-chromadb-embedded-vector-store.md)
 - [ADR-XXX: Dual-Store Persistence Without Cross-Store Transactions](../INFRA/ADR-005-dual-store-persistence.md)

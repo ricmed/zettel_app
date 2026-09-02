@@ -5,9 +5,9 @@
 **Related to:**
 - [ADR-XXX: Hybrid Dense+BM25 Retrieval with RRF Fusion and Absolute Relevance Floor](./ADR-003-hybrid-dense-bm25-retrieval.md)
 - [ADR-XXX: Hybrid Structural Chunking (H1-H6 Boundaries + Recursive Splitter)](../HARVEST/ADR-014-hybrid-structural-chunking-strategy.md)
-- [ADR-XXX: Docling as Primary PDF Extractor with PyMuPDF Fallback](../HARVEST/needs-input/ADR-XXX-docling-primary-pdf-extractor-pymupdf-fallback.md)
+- [ADR-XXX: Docling as Primary PDF Extractor with PyMuPDF Fallback](../HARVEST/ADR-012-docling-pdf-extraction-pymupdf-fallback.md)
 - [ADR-XXX: Single LLM Call Per Cluster with Intelligent Routing](../GARDEN/ADR-021-single-llm-call-per-cluster-routing.md)
-- [ADR-XXX: System+Human Prompt Split for Provider-Agnostic Prompt Caching](../LLM/ADR-XXX-system-human-prompt-split-for-provider-agnostic-caching.md)
+- [ADR-XXX: System+Human Prompt Split for Provider-Agnostic Prompt Caching](../LLM/ADR-025-prompt-caching-system-human-split.md)
 
 <!-- NOTE: Related-to count (5) exceeds the recommended max of 3 — all five are manual/reciprocal-manual relationships preserved per the manual-relationship exception. -->
 
