@@ -63,73 +63,81 @@
 
 ---
 
-## High Priority ADRs (must-document/)
+## High Priority ADRs (score >= 100)
+
+> All 22 items below were promoted to formal ADRs and now live under
+> `potential-adrs/done/`. The `must-document/` folder they were classified into
+> during analysis no longer exists.
 
 ### Infrastructure (INFRA)
 
 | Title | Category | Score | File |
 |-------|----------|-------|------|
-| SQLite with WAL Mode and FTS5 as Primary Persistence Layer | Infrastructure Service | 145 | [sqlite-with-wal-and-fts5.md](./potential-adrs/must-document/INFRA/sqlite-with-wal-and-fts5.md) |
-| ChromaDB Embedded Client as Vector Store | Infrastructure Service | 145 | [chromadb-embedded-vector-store.md](./potential-adrs/must-document/INFRA/chromadb-embedded-vector-store.md) |
-| Hybrid Dense+BM25 Retrieval with RRF Fusion and Absolute Relevance Floor | API Protocol / Retrieval Architecture | 145 | [hybrid-dense-bm25-retrieval.md](./potential-adrs/must-document/INFRA/hybrid-dense-bm25-retrieval.md) |
-| YAML-First Configuration with Pydantic Fallback | Configuration Architecture | 125 | [yaml-first-configuration.md](./potential-adrs/must-document/INFRA/yaml-first-configuration.md) |
-| Dual-Store Persistence (SQLite + ChromaDB) with No Cross-Store Transactions | Infrastructure / Data Architecture | 145 | [dual-store-persistence.md](./potential-adrs/must-document/INFRA/dual-store-persistence.md) |
-| Pydantic v2 for Configuration Schema and LLM-Backed DTOs | Primary Framework / Data Validation | 140 | [pydantic-v2-config-dtos.md](./potential-adrs/must-document/INFRA/pydantic-v2-config-dtos.md) |
-| Layered Hashing Strategy for Deterministic LLM Caching and Drift Detection | Data Architecture / Caching Strategy | 120 | [layered-hashing-strategy.md](./potential-adrs/must-document/INFRA/layered-hashing-strategy.md) |
-| Repository Pattern for Data Access (StateDB and VectorIndex) | Architectural Pattern | 115 | [repository-pattern-data-access.md](./potential-adrs/must-document/INFRA/repository-pattern-data-access.md) |
+| SQLite with WAL Mode and FTS5 as Primary Persistence Layer | Infrastructure Service | 145 | [sqlite-with-wal-and-fts5.md](./potential-adrs/done/INFRA/sqlite-with-wal-and-fts5.md) |
+| ChromaDB Embedded Client as Vector Store | Infrastructure Service | 145 | [chromadb-embedded-vector-store.md](./potential-adrs/done/INFRA/chromadb-embedded-vector-store.md) |
+| Hybrid Dense+BM25 Retrieval with RRF Fusion and Absolute Relevance Floor | API Protocol / Retrieval Architecture | 145 | [hybrid-dense-bm25-retrieval.md](./potential-adrs/done/INFRA/hybrid-dense-bm25-retrieval.md) |
+| YAML-First Configuration with Pydantic Fallback | Configuration Architecture | 125 | [yaml-first-configuration.md](./potential-adrs/done/INFRA/yaml-first-configuration.md) |
+| Dual-Store Persistence (SQLite + ChromaDB) with No Cross-Store Transactions | Infrastructure / Data Architecture | 145 | [dual-store-persistence.md](./potential-adrs/done/INFRA/dual-store-persistence.md) |
+| Pydantic v2 for Configuration Schema and LLM-Backed DTOs | Primary Framework / Data Validation | 140 | [pydantic-v2-config-dtos.md](./potential-adrs/done/INFRA/pydantic-v2-config-dtos.md) |
+| Layered Hashing Strategy for Deterministic LLM Caching and Drift Detection | Data Architecture / Caching Strategy | 120 | [layered-hashing-strategy.md](./potential-adrs/done/INFRA/layered-hashing-strategy.md) |
+| Repository Pattern for Data Access (StateDB and VectorIndex) | Architectural Pattern | 115 | [repository-pattern-data-access.md](./potential-adrs/done/INFRA/repository-pattern-data-access.md) |
 
 ### Retrieval (RETRIEVAL)
 
 | Title | Category | File |
 |-------|----------|------|
-| Graph-Based Note Discovery with Weighted BFS Expansion | Retrieval Architecture / Knowledge Graph | [graph-based-note-discovery-weighted-bfs.md](./potential-adrs/must-document/RETRIEVAL/graph-based-note-discovery-weighted-bfs.md) |
-| Retrieval Result Transparency (Hits vs Candidates) | Retrieval Architecture / API Design | [retrieval-result-transparency-hits-vs-candidates.md](./potential-adrs/must-document/RETRIEVAL/retrieval-result-transparency-hits-vs-candidates.md) |
+| Graph-Based Note Discovery with Weighted BFS Expansion | Retrieval Architecture / Knowledge Graph | [graph-based-note-discovery-weighted-bfs.md](./potential-adrs/done/RETRIEVAL/graph-based-note-discovery-weighted-bfs.md) |
+| Retrieval Result Transparency (Hits vs Candidates) | Retrieval Architecture / API Design | [retrieval-result-transparency-hits-vs-candidates.md](./potential-adrs/done/RETRIEVAL/retrieval-result-transparency-hits-vs-candidates.md) |
 
 ### Harvest (HARVEST)
 
 | Title | Category | Score | File |
 |-------|----------|-------|------|
-| Three-Layer Duplicate Detection Strategy for Source Ingestion | Data Architecture / Deduplication Strategy | 145 | [three-layer-duplicate-detection.md](./potential-adrs/must-document/HARVEST/three-layer-duplicate-detection.md) |
-| Docling as Primary PDF Extractor with PyMuPDF Fallback | Infrastructure Service / Document Processing | 145 | [docling-pdf-extraction-with-pymupdf-fallback.md](./potential-adrs/must-document/HARVEST/docling-pdf-extraction-with-pymupdf-fallback.md) |
-| Three-Layer Page Inference Strategy (Metadata → Regex → Interpolation) | Data Architecture / Page Locator Strategy | 135 | [three-layer-page-inference-strategy.md](./potential-adrs/must-document/HARVEST/three-layer-page-inference-strategy.md) |
-| Hybrid Structural Chunking (H3-H6 Sections + LangChain Splitter) | Data Architecture / Document Segmentation Strategy | 140 | [structural-chunking-strategy.md](./potential-adrs/must-document/HARVEST/structural-chunking-strategy.md) |
+| Three-Layer Duplicate Detection Strategy for Source Ingestion | Data Architecture / Deduplication Strategy | 145 | [three-layer-duplicate-detection.md](./potential-adrs/done/HARVEST/three-layer-duplicate-detection.md) |
+| Docling as Primary PDF Extractor with PyMuPDF Fallback | Infrastructure Service / Document Processing | 145 | [docling-pdf-extraction-with-pymupdf-fallback.md](./potential-adrs/done/HARVEST/docling-pdf-extraction-with-pymupdf-fallback.md) |
+| Three-Layer Page Inference Strategy (Metadata → Regex → Interpolation) | Data Architecture / Page Locator Strategy | 135 | [three-layer-page-inference-strategy.md](./potential-adrs/done/HARVEST/three-layer-page-inference-strategy.md) |
+| Hybrid Structural Chunking (H3-H6 Sections + LangChain Splitter) | Data Architecture / Document Segmentation Strategy | 140 | [structural-chunking-strategy.md](./potential-adrs/done/HARVEST/structural-chunking-strategy.md) |
 
 ### Extract (EXTRACT)
 
 | Title | Category | Score | File |
 |-------|----------|-------|------|
-| Granular Literature Notes with Readable Names and Source Excerpts | Data Architecture / Vault Structure | 115 | [granular-literature-notes-readable-names-source-excerpts.md](./potential-adrs/must-document/EXTRACT/granular-literature-notes-readable-names-source-excerpts.md) |
+| Granular Literature Notes with Readable Names and Source Excerpts | Data Architecture / Vault Structure | 115 | [granular-literature-notes-readable-names-source-excerpts.md](./potential-adrs/done/EXTRACT/granular-literature-notes-readable-names-source-excerpts.md) |
 
 ### Garden (GARDEN)
 
 | Title | Category | Score | File |
 |-------|----------|-------|------|
-| Taxonomy-First MOC Clustering with UMAP+HDBSCAN | Clustering Strategy / Knowledge Organization | 150 | [taxonomy-first-moc-clustering.md](./potential-adrs/must-document/GARDEN/taxonomy-first-moc-clustering.md) |
-| Hub-Anchored MOC Pipeline as Complementary Strategy | Clustering Strategy / Knowledge Graph Organization | 135 | [hub-anchored-moc-pipeline.md](./potential-adrs/must-document/GARDEN/hub-anchored-moc-pipeline.md) |
-| Single LLM Call Per Cluster with Intelligent Routing | Cost Optimization / Generation Strategy | 130 | [single-llm-call-cluster-routing.md](./potential-adrs/must-document/GARDEN/single-llm-call-cluster-routing.md) |
+| Taxonomy-First MOC Clustering with UMAP+HDBSCAN | Clustering Strategy / Knowledge Organization | 150 | [taxonomy-first-moc-clustering.md](./potential-adrs/done/GARDEN/taxonomy-first-moc-clustering.md) |
+| Hub-Anchored MOC Pipeline as Complementary Strategy | Clustering Strategy / Knowledge Graph Organization | 135 | [hub-anchored-moc-pipeline.md](./potential-adrs/done/GARDEN/hub-anchored-moc-pipeline.md) |
+| Single LLM Call Per Cluster with Intelligent Routing | Cost Optimization / Generation Strategy | 130 | [single-llm-call-cluster-routing.md](./potential-adrs/done/GARDEN/single-llm-call-cluster-routing.md) |
 
 ### Web (WEB)
 
 | Title | Category | Score | File |
 |-------|----------|-------|------|
-| FastAPI + Server-Rendered Jinja2 Templates (No SPA/JS Build) | Primary Framework / Presentation Layer | 145 | [fastapi-server-rendered-jinja2.md](./potential-adrs/must-document/WEB/fastapi-server-rendered-jinja2.md) |
+| FastAPI + Server-Rendered Jinja2 Templates (No SPA/JS Build) | Primary Framework / Presentation Layer | 145 | [fastapi-server-rendered-jinja2.md](./potential-adrs/done/WEB/fastapi-server-rendered-jinja2.md) |
 
 ### LLM (LLM Integration Gateway)
 
 | Title | Category | Score | File |
 |-------|----------|-------|------|
-| Multi-Provider LLM Strategy with Pluggable Gateway | Primary Framework / Provider Abstraction Strategy | 140 | [multi-provider-llm-strategy.md](./potential-adrs/must-document/LLM/multi-provider-llm-strategy.md) |
-| System+Human Prompt Split for Provider-Agnostic Prompt Caching | API Protocol / LLM Prompt Architecture | 135 | [prompt-caching-system-human-split.md](./potential-adrs/must-document/LLM/prompt-caching-system-human-split.md) |
+| Multi-Provider LLM Strategy with Pluggable Gateway | Primary Framework / Provider Abstraction Strategy | 140 | [multi-provider-llm-strategy.md](./potential-adrs/done/LLM/multi-provider-llm-strategy.md) |
+| System+Human Prompt Split for Provider-Agnostic Prompt Caching | API Protocol / LLM Prompt Architecture | 135 | [prompt-caching-system-human-split.md](./potential-adrs/done/LLM/prompt-caching-system-human-split.md) |
 
 ### CLI (Command-Line Interface)
 
 | Title | Category | Score | File |
 |-------|----------|-------|------|
-| Typer + Rich as CLI Framework | Primary Framework / CLI Orchestration | 150 | [typer-rich-cli-framework.md](./potential-adrs/must-document/CLI/typer-rich-cli-framework.md) |
+| Typer + Rich as CLI Framework | Primary Framework / CLI Orchestration | 150 | [typer-rich-cli-framework.md](./potential-adrs/done/CLI/typer-rich-cli-framework.md) |
 
 ---
 
-## Medium Priority ADRs (consider/)
+## Medium Priority ADRs (score 75-99)
+
+> Five of these were promoted as well and moved to `potential-adrs/done/`
+> (REVIEW x3, QA-WRITING x1, WEB x1). The rest are still awaiting a decision
+> under `potential-adrs/consider/`.
 
 ### Infrastructure (INFRA)
 
@@ -166,22 +174,22 @@
 
 | Title | Category | Score | File |
 |-------|----------|-------|------|
-| Confidence-Scored HITL Approval with Band-Based UX | Pipeline Architecture / HITL Strategy | 78 | [confidence-scored-hitl-approval.md](./potential-adrs/consider/REVIEW/confidence-scored-hitl-approval.md) |
-| Post-Approval Concept Deduplication Timing | Pipeline Architecture / Deduplication Strategy | 76 | [post-approval-concept-deduplication.md](./potential-adrs/consider/REVIEW/post-approval-concept-deduplication.md) |
-| Web/CLI Validation Asymmetry in Auto-Approve Threshold Enforcement | Security / Validation / Web/CLI Parity | 75 | [web-cli-validation-asymmetry.md](./potential-adrs/consider/REVIEW/web-cli-validation-asymmetry.md) |
+| Confidence-Scored HITL Approval with Band-Based UX | Pipeline Architecture / HITL Strategy | 78 | [confidence-scored-hitl-approval.md](./potential-adrs/done/REVIEW/confidence-scored-hitl-approval.md) |
+| Post-Approval Concept Deduplication Timing | Pipeline Architecture / Deduplication Strategy | 76 | [post-approval-concept-deduplication.md](./potential-adrs/done/REVIEW/post-approval-concept-deduplication.md) |
+| Web/CLI Validation Asymmetry in Auto-Approve Threshold Enforcement | Security / Validation / Web/CLI Parity | 75 | [web-cli-validation-asymmetry.md](./potential-adrs/done/REVIEW/web-cli-validation-asymmetry.md) |
 
 ### QA-Writing (QA-WRITING)
 
 | Title | Category | Score | File |
 |-------|----------|-------|------|
-| LangGraph StateGraph for Multi-Stage Article Orchestration | Orchestration Architecture / State Management | 65 | [langgraph-statgraph-article-orchestration.md](./potential-adrs/consider/QA-WRITING/langgraph-statgraph-article-orchestration.md) |
+| LangGraph StateGraph for Multi-Stage Article Orchestration | Orchestration Architecture / State Management | 65 | [langgraph-statgraph-article-orchestration.md](./potential-adrs/done/QA-WRITING/langgraph-statgraph-article-orchestration.md) |
 | Bibliography ABNT Citation Formatting with Optional LLM-Merge | Data Architecture / Citation Management | 62 | [bibliography-abnt-citation-formatting.md](./potential-adrs/consider/QA-WRITING/bibliography-abnt-citation-formatting.md) |
 
 ### Web (WEB)
 
 | Title | Category | Score | File |
 |-------|----------|-------|------|
-| SQLite-Backed Persistent Job Queue with Single Worker Thread | Architecture / Concurrency | 65 | [sqlite-backed-job-queue-single-worker.md](./potential-adrs/consider/WEB/sqlite-backed-job-queue-single-worker.md) |
+| SQLite-Backed Persistent Job Queue with Single Worker Thread | Architecture / Concurrency | 65 | [sqlite-backed-job-queue-single-worker.md](./potential-adrs/done/WEB/sqlite-backed-job-queue-single-worker.md) |
 
 ---
 
