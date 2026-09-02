@@ -58,7 +58,7 @@ Because the structural stage runs first and the recursive splitter only engages 
 
 ## Consequences
 
-Chunk boundaries are effectively permanent once a source is harvested: any change to `min_chars_per_chunk`, `max_chars_per_chunk`, or `chunk_overlap` requires the `rechunk` workflow to regenerate chunks from the already-extracted text and re-index them, since there is no fine-grained way to invalidate only the chunks affected by a parameter change. This makes chunking configuration a decision with corpus-wide reprocessing cost attached to any later revision.
+Chunk boundaries are effectively permanent once a source is harvested: any change to `chunk_size`, `chunk_overlap`, or `min_section_chars` requires the `rechunk` workflow to regenerate chunks from the already-extracted text and re-index them, since there is no fine-grained way to invalidate only the chunks affected by a parameter change. This makes chunking configuration a decision with corpus-wide reprocessing cost attached to any later revision.
 
 The overlap that preserves context across forced cuts also means the same text can appear, verbatim, in more than one chunk; downstream deduplication and layer-3 semantic duplicate detection (ADR-XXX, Layered Hashing Strategy) must tolerate this rather than treat overlapping chunks as erroneous duplicates. Documents lacking H3-H6 markup fall back to whole-chapter chunks subject only to the recursive splitter, so their chunk metadata carries no meaningful section path — a gap for any future feature that depends on section-level navigation or search. [NEEDS INPUT: Is there an accepted target or ceiling for the overlap-driven embedding cost overshoot, or is the current ~10-15% considered acceptable indefinitely?]
 
@@ -80,10 +80,14 @@ Consistent with the migration cost already described in *Consequences*, this cha
 
 ## References
 
-* `zettel/harvester/chunking.py` — `iter_fenced_spans` (fence scanner), `_headings_outside_fences` (heading filter), `_split_preserving_fences` (atomic fence in the size split)
-* `tests/test_harvester_sections.py` — fence atomicity, info-string/marker-family rules, unclosed fence, oversized fence
-* `zettel/harvester.py:1400-1450` — chapter splitting on H1/H2 boundaries
-* `zettel/harvester.py:1570-1635` — hybrid chunk splitting (H3-H6 boundaries, recursive-splitter fallback)
-* `zettel/config.py` — chunking configuration schema (min/max chars, overlap)
-* `config/config.yaml` — operational chunking defaults
-* `zettel/paging.py:128-143` — heading-path tracking used in chunk metadata
+Paths refreshed 2026-09-02. The original references pointed into the monolithic
+`zettel/harvester.py`, which ADR-027 split into a package; symbols are cited instead of
+line ranges, since the line ranges are what rotted.
+
+* `zettel/harvester/chunking.py` — `split_into_chapters` (H1/H2 chapter boundaries), `split_chapter_into_sections` (H3-H6 sub-sections; builds the `section_path` carried in chunk metadata), `merge_small_sections` (`min_section_chars` folding), `split_chapter_into_chunks` (recursive-splitter fallback), `chunk_and_persist` (persistence and indexing)
+* `zettel/harvester/chunking.py` — addendum: `iter_fenced_spans` (fence scanner), `_headings_outside_fences` (heading filter), `_split_preserving_fences` (atomic fence in the size split)
+* `tests/test_harvester_sections.py` — section splitting and merge rules; addendum: fence atomicity, info-string/marker-family rules, unclosed fence, oversized fence
+* `zettel/config.py` — `ChunkingConfig`: `chunk_size`, `chunk_overlap`, `min_section_chars`
+* `config/config.yaml` — operational chunking defaults (`chunking.*`)
+* `zettel/paging.py` — page-inference helpers consumed by `chunk_and_persist` (see ADR-013); the heading path itself is built in `chunking.py`, not here
+* [ADR-027: Harvest Phase as Python Package](./ADR-027-harvest-phase-as-python-package.md) — the module extraction that moved this code
