@@ -1,7 +1,7 @@
 # ADR-XXX: System+Human Prompt Split for Provider-Agnostic Prompt Caching
 **Status:** Accepted
 **Date:** 2026-08-13
-**Depends on:** [ADR-XXX: Pluggable Multi-Provider LLM Strategy](./ADR-XXX-pluggable-multi-provider-llm-strategy.md)
+**Depends on:** [ADR-XXX: Pluggable Multi-Provider LLM Strategy](./ADR-024-multi-provider-llm-strategy.md)
 **Related to:**
 - [ADR-XXX: Layered Hashing Strategy for Deterministic Caching and Drift Detection](../INFRA/ADR-007-layered-hashing-strategy.md)
 - [ADR-XXX: Hybrid Dense+BM25 Retrieval with RRF Fusion and Absolute Relevance Floor](../INFRA/ADR-003-hybrid-dense-bm25-retrieval.md)

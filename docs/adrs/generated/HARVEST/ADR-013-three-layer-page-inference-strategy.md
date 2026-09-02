@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2024-08-30
-**Depends on:** [ADR-XXX: Docling as Primary PDF Extractor with PyMuPDF Fallback](./needs-input/ADR-XXX-docling-primary-pdf-extractor-pymupdf-fallback.md)
+**Depends on:** [ADR-XXX: Docling as Primary PDF Extractor with PyMuPDF Fallback](./ADR-012-docling-pdf-extraction-pymupdf-fallback.md)
 **Related to:** [ADR-XXX: Hybrid Structural Chunking (H1-H6 Boundaries + Recursive Splitter)](./ADR-014-hybrid-structural-chunking-strategy.md)
 
 ## Context and Problem Statement

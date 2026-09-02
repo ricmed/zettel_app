@@ -2,7 +2,7 @@
 **Status:** Accepted
 **Date:** 2026-08-29
 **Depends on:** [ADR-XXX: SQLite with WAL Mode and FTS5 as Primary Persistence Layer](../INFRA/ADR-001-sqlite-wal-fts5-primary-persistence.md)
-**Related to:** [ADR-XXX: FastAPI Server-Rendered Web Interface (No SPA)](./ADR-022-fastapi-server-rendered-jinja2-no-spa.md)
+**Related to:** [ADR-XXX: FastAPI Server-Rendered Web Interface (No SPA)](./ADR-022-fastapi-server-rendered-jinja2.md)
 
 ## Context and Problem Statement
 

@@ -6,11 +6,11 @@
 > stability — six documents and several ADRs point at it. The fallback itself was
 > removed on 2026-08-31; the title above is the decision in force.
 **Used by:**
-- [ADR-XXX: Hybrid Structural Chunking (H1-H6 Boundaries + Recursive Splitter)](../ADR-014-hybrid-structural-chunking-strategy.md)
-- [ADR-XXX: Three-Layer Page Inference Strategy for Chunk Page Metadata](../ADR-013-three-layer-page-inference-strategy.md)
-- [ADR-XXX: Three-Layer Duplicate Detection Strategy for Source Ingestion](../ADR-011-three-layer-duplicate-detection.md)
+- [ADR-XXX: Hybrid Structural Chunking (H1-H6 Boundaries + Recursive Splitter)](./ADR-014-hybrid-structural-chunking-strategy.md)
+- [ADR-XXX: Three-Layer Page Inference Strategy for Chunk Page Metadata](./ADR-013-three-layer-page-inference-strategy.md)
+- [ADR-XXX: Three-Layer Duplicate Detection Strategy for Source Ingestion](./ADR-011-three-layer-duplicate-detection.md)
 
-**Related to:** [ADR-XXX: Layered Hashing Strategy for Deterministic Caching and Drift Detection](../../INFRA/ADR-007-layered-hashing-strategy.md)
+**Related to:** [ADR-XXX: Layered Hashing Strategy for Deterministic Caching and Drift Detection](../INFRA/ADR-007-layered-hashing-strategy.md)
 
 ## Context and Problem Statement
 

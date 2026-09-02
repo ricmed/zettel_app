@@ -4,7 +4,7 @@
 **Date:** 2024-08-30 (approximate; see gap below)
 **Related to:**
 - [ADR-XXX: SQLite with WAL Mode and FTS5 as Primary Persistence Layer](./ADR-001-sqlite-wal-fts5-primary-persistence.md)
-- [ADR-XXX: FastAPI Server-Rendered Web Interface (No SPA)](../WEB/ADR-022-fastapi-server-rendered-jinja2-no-spa.md)
+- [ADR-XXX: FastAPI Server-Rendered Web Interface (No SPA)](../WEB/ADR-022-fastapi-server-rendered-jinja2.md)
 - [ADR-XXX: Typer and Rich as CLI Framework](../CLI/ADR-026-typer-rich-cli-framework.md)
 
 ## Context and Problem Statement

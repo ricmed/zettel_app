@@ -2,12 +2,12 @@
 
 **Status:** Accepted
 **Date:** 2026-08-29, Resolved 2026-08-31
-**Depends on:** [ADR-XXX: Granular Per-Chunk Literature Notes with Readable Filenames](../../EXTRACT/ADR-015-granular-literature-notes-readable-filenames.md)
+**Depends on:** [ADR-XXX: Granular Per-Chunk Literature Notes with Readable Filenames](../EXTRACT/ADR-015-granular-literature-notes-readable-filenames.md)
 **Used by:**
-- [ADR-XXX: Post-Approval Concept Deduplication Timing](../ADR-016-post-approval-concept-deduplication-timing.md)
-- [ADR-XXX: Web/CLI Auto-Approve Threshold Validation Asymmetry](./ADR-XXX-web-cli-auto-approve-threshold-validation-asymmetry.md)
+- [ADR-XXX: Post-Approval Concept Deduplication Timing](./ADR-016-post-approval-concept-deduplication-timing.md)
+- [ADR-XXX: Web/CLI Auto-Approve Threshold Validation Asymmetry](./ADR-018-web-cli-validation-asymmetry.md)
 
-**Related to:** [ADR-XXX: Dual-Store Persistence Without Cross-Store Transactions](../../INFRA/ADR-005-dual-store-persistence.md)
+**Related to:** [ADR-XXX: Dual-Store Persistence Without Cross-Store Transactions](../INFRA/ADR-005-dual-store-persistence.md)
 
 ## Context and Problem Statement
 

@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-08-29, Resolved 2026-08-31
 **Depends on:** [ADR-XXX: Confidence-Band Human-in-the-Loop Approval Gate](./ADR-017-confidence-band-hitl-approval-gate.md)
-**Related to:** [ADR-XXX: Dual-Store Persistence Without Cross-Store Transactions](../../INFRA/ADR-005-dual-store-persistence.md)
+**Related to:** [ADR-XXX: Dual-Store Persistence Without Cross-Store Transactions](../INFRA/ADR-005-dual-store-persistence.md)
 
 ## Context and Problem Statement
 

@@ -4,8 +4,8 @@
 **Date:** 2025-03-01
 **Related to:**
 - [ADR-XXX: Granular Per-Chunk Literature Notes with Readable Filenames](../EXTRACT/ADR-015-granular-literature-notes-readable-filenames.md)
-- [ADR-XXX: Web/CLI Auto-Approve Threshold Validation Asymmetry](../REVIEW/needs-input/ADR-XXX-web-cli-auto-approve-threshold-validation-asymmetry.md)
-- [ADR-XXX: Confidence-Band Human-in-the-Loop Approval Gate](../REVIEW/needs-input/ADR-017-confidence-band-hitl-approval-gate.md)
+- [ADR-XXX: Web/CLI Auto-Approve Threshold Validation Asymmetry](../REVIEW/ADR-018-web-cli-validation-asymmetry.md)
+- [ADR-XXX: Confidence-Band Human-in-the-Loop Approval Gate](../REVIEW/ADR-017-confidence-band-hitl-approval-gate.md)
 
 ## Context and Problem Statement
 

@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-08-29
-**Depends on:** [ADR-XXX: Confidence-Band Human-in-the-Loop Approval Gate](./needs-input/ADR-017-confidence-band-hitl-approval-gate.md)
+**Depends on:** [ADR-XXX: Confidence-Band Human-in-the-Loop Approval Gate](./ADR-017-confidence-band-hitl-approval-gate.md)
 
 ## Context and Problem Statement
 

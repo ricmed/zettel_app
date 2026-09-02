@@ -8,7 +8,7 @@
 **Related to:**
 - [ADR-XXX: Layered Hashing Strategy for Deterministic Caching and Drift Detection](./ADR-007-layered-hashing-strategy.md)
 - [ADR-XXX: Three-Layer Duplicate Detection Strategy for Source Ingestion](../HARVEST/ADR-011-three-layer-duplicate-detection.md)
-- [ADR-XXX: System+Human Prompt Split for Provider-Agnostic Prompt Caching](../LLM/ADR-XXX-system-human-prompt-split-for-provider-agnostic-caching.md)
+- [ADR-XXX: System+Human Prompt Split for Provider-Agnostic Prompt Caching](../LLM/ADR-025-prompt-caching-system-human-split.md)
 
 ## Context and Problem Statement
 
