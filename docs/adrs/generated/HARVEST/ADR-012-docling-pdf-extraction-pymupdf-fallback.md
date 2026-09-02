@@ -1,6 +1,10 @@
-# ADR-XXX: Docling as Primary PDF Extractor with PyMuPDF Fallback
+# ADR-XXX: Docling as Sole PDF Extractor (PyMuPDF Fallback Removed)
 **Status:** Accepted
 **Date:** 2024-08-30, Resolved 2026-08-31
+
+> The basename of this file still reads `pymupdf-fallback`. It is kept for link
+> stability — six documents and several ADRs point at it. The fallback itself was
+> removed on 2026-08-31; the title above is the decision in force.
 **Used by:**
 - [ADR-XXX: Hybrid Structural Chunking (H1-H6 Boundaries + Recursive Splitter)](../ADR-014-hybrid-structural-chunking-strategy.md)
 - [ADR-XXX: Three-Layer Page Inference Strategy for Chunk Page Metadata](../ADR-013-three-layer-page-inference-strategy.md)
@@ -12,7 +16,7 @@
 
 The HARVEST module ingests PDF files from the inbox and must turn them into text suitable for structural chunking, page-locator inference, and downstream literature-note generation. PDFs make up the majority of typical inbox files, so the extraction strategy chosen here directly determines whether headings, page structure, and embedded images survive into the rest of the pipeline, or whether only plain, unstructured text is available.
 
-The system uses a two-tier extraction strategy selected by configuration: Docling runs as the primary extractor, optionally GPU-accelerated, producing Markdown-formatted text with heading hierarchy preserved and an optional image-extraction path for multimodal assets. PyMuPDF (`fitz`) serves as the fallback extractor when Docling is not selected, returning plain text with no layout information; it is also reused independently to build a page-to-heading map used for content-start paging inference, regardless of which extractor produced the chunked text.
+Until 2026-08-31 the system used a two-tier extraction strategy selected by configuration: Docling ran as the primary extractor, optionally GPU-accelerated, producing Markdown-formatted text with heading hierarchy preserved and an optional image-extraction path for multimodal assets. PyMuPDF (`fitz`) served as the fallback extractor when Docling was not selected, returning plain text with no layout information; it was also reused independently to build a page-to-heading map for content-start paging inference, regardless of which extractor produced the chunked text. Neither role survives today — the page map now comes from Docling itself (see ADR-013).
 
 Both extractors were historically wired in with fallback; however, a decision was made on 2026-08-31 to make Docling the primary and only extractor, eliminating the PyMuPDF fallback entirely to remove the AGPL-3.0 licensing risk that would block distribution beyond personal/local use. This choice prioritizes distribution flexibility over the robustness of an automatic plain-text fallback.
 
@@ -20,10 +24,14 @@ Both extractors were historically wired in with fallback; however, a decision wa
 
 * The majority of inbox source files are PDFs, so extraction quality here sets a ceiling on chunking and page-inference quality for most of the corpus.
 * Docling's Markdown output with heading hierarchy is a prerequisite for structural (H1-H6) chunking and for accurate content-start page inference.
-* A fallback extractor is needed so harvest does not hard-fail when Docling is unavailable, misconfigured, or GPU acceleration cannot be used.
-* PyMuPDF's page-to-heading map is used for paging regardless of which extractor produced the chunked text, making its accuracy a shared dependency for both paths.
+* PyMuPDF's AGPL-3.0 license imposes a viral obligation that would block distributing zettel_app commercially, or exposing its web UI beyond personal/local use — the driver that decided the 2026-08-31 revision.
 * Local, self-hosted extraction avoids per-document API cost and external service dependency compared to a cloud/LLM-based alternative.
 * GPU acceleration is detected at runtime rather than required at startup, so extraction quality can silently degrade on machines without a usable GPU.
+
+Historical drivers (2024-08-30), superseded on 2026-08-31 by the licensing driver above:
+
+* ~~A fallback extractor is needed so harvest does not hard-fail when Docling is unavailable, misconfigured, or GPU acceleration cannot be used.~~ Harvest now fails explicitly with `PdfExtractionError` rather than degrading to plain text — the robustness was traded for distribution freedom.
+* ~~PyMuPDF's page-to-heading map is used for paging regardless of which extractor produced the chunked text, making its accuracy a shared dependency for both paths.~~ No longer true: the page map comes from Docling (`docling_page_map_by_export`, `<!-- zettel:page-break -->` markers) — see ADR-013.
 
 ## Considered Options
 
