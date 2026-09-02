@@ -1032,13 +1032,40 @@ def set_paging_cmd(
 # ── new-note ──────────────────────────────────────────────────────────
 
 
+def _new_note_from_literature(
+    cfg, ref: str, *, use_llm: bool, thesis: Optional[str], force: bool,
+) -> None:
+    """Create a permanent note out of a literature note (LLM or hand-written)."""
+    from zettel.manual_lit import create_permanent_from_literature
+
+    db = _get_db(cfg)
+    idx = _get_idx(cfg, db=db)
+    try:
+        path, via_llm = create_permanent_from_literature(
+            cfg, db, idx, ref, use_llm=use_llm, thesis=thesis, force=force,
+        )
+    except (FileNotFoundError, FileExistsError, ValueError, RuntimeError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    finally:
+        db.close()
+
+    console.print(f"[green]Nota permanente criada:[/green] {path}")
+    if via_llm:
+        console.print("[dim]Gerada com LLM e ja indexada (conexoes e backlinks aplicados).[/dim]")
+    else:
+        console.print("[dim]Preencha a nota e indexe com: zettel sync-manual[/dim]")
+
+
 @app.command(name="new-note")
 def new_note(
     note_type: str = typer.Argument(
         ...,
         help="Tipo: ztl|lit|src|moc (ou permanent|literature|source)",
     ),
-    title: str = typer.Argument(..., help="Titulo da nota"),
+    title: str = typer.Argument(
+        "", help="Titulo da nota (dispensavel com --from-lit: vem da tese)",
+    ),
     config: Optional[str] = typer.Option(None, "--config", "-c"),
     citekey: Optional[str] = typer.Option(
         None, "--citekey", "-k",
@@ -1081,6 +1108,18 @@ def new_note(
         None, "--page", "-p",
         help="Pagina impressa para LIT granular",
     ),
+    from_lit: Optional[str] = typer.Option(
+        None, "--from-lit",
+        help="ZTL a partir de uma nota de literatura (caminho do .md ou chunk_id)",
+    ),
+    use_llm: bool = typer.Option(
+        False, "--llm",
+        help="Com --from-lit: gerar o conteudo da ZTL com o LLM (Prompt 2 + RAG)",
+    ),
+    thesis: Optional[str] = typer.Option(
+        None, "--thesis",
+        help="Com --from-lit: tese explicita (padrao: deduzida da nota de literatura)",
+    ),
     force: bool = typer.Option(
         False, "--force",
         help="Sobrescrever arquivo existente no mesmo caminho",
@@ -1097,10 +1136,23 @@ def new_note(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
 
+    if from_lit:
+        if normalized != "permanent":
+            console.print("[red]--from-lit so vale para notas permanentes (ztl).[/red]")
+            raise typer.Exit(1)
+        _new_note_from_literature(
+            cfg, from_lit, use_llm=use_llm, thesis=thesis, force=force,
+        )
+        return
+    if use_llm or thesis:
+        console.print("[red]--llm e --thesis exigem --from-lit.[/red]")
+        raise typer.Exit(1)
+    if not title.strip():
+        console.print("[red]Informe o titulo da nota (ou use --from-lit).[/red]")
+        raise typer.Exit(1)
+
     effective_source_id = source_id
-    if not effective_source_id and citekey and normalized == "permanent":
-        effective_source_id = citekey
-    if not effective_source_id and citekey and normalized == "source":
+    if not effective_source_id and citekey and normalized in ("permanent", "source", "literature"):
         effective_source_id = citekey
 
     try:

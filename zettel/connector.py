@@ -100,9 +100,14 @@ def _literature_ref_for_chunk(
 
 
 def run_connect(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, candidates: list[dict], *, observer=None,
+    cfg: AppConfig, db: StateDB, idx: VectorIndex, candidates: list[dict], *,
+    observer=None, origin: str = "pipeline",
 ) -> list[str]:
-    """Generate permanent notes from approved candidates. Returns created note_ids."""
+    """Generate permanent notes from approved candidates. Returns created note_ids.
+
+    ``origin`` is stamped on every note produced: the manual LIT-to-ZTL path reuses
+    this same machinery but must stay distinguishable from pipeline output.
+    """
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn
 
     from zettel.usage import begin_run, finish_pipeline_run, get_tracker, set_source
@@ -140,7 +145,7 @@ def run_connect(
 
             note_id = _process_candidate(
                 cfg, db, idx, llm, cand_dict, prompt_parts, retriever,
-                step=i, total=total,
+                step=i, total=total, origin=origin,
             )
             if note_id:
                 created_ids.append(note_id)
@@ -172,6 +177,7 @@ def _process_candidate(
     *,
     step: int | None = None,
     total: int | None = None,
+    origin: str = "pipeline",
 ) -> str | None:
     """Process a single candidate into a permanent note."""
     from zettel.usage import clear_progress, set_progress
@@ -345,7 +351,7 @@ def _process_candidate(
         "literature_ref": literature_ref,
         "source_locator": cand.source_locator or "",
         "tags": tags,
-        "origin": "pipeline",
+        "origin": origin,
         "created_at": now,
         "updated_at": now,
         "llm_cost_usd": round(note_cost, 6),
@@ -368,7 +374,7 @@ def _process_candidate(
         title=title, note_semantic_checksum=semantic_checksum,
         embedding_model=cfg.embedding.model,
         body=body, frontmatter_json=json.dumps(meta, ensure_ascii=False),
-        origin="pipeline",
+        origin=origin,
     )
     db.upsert_concept(
         concept_id, source_id, cand_dict["chunk_id"], note_id=note_id, status="noted",

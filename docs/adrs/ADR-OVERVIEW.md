@@ -2,13 +2,13 @@
 
 **Generated**: 2026-08-31  
 **Status**: Phase 4 Complete — Index & Relationship Mapping + Resolution of All Needs-Input (2026-08-31)  
-**Coverage**: 29 formal ADRs (100% Accepted, 0 Needs-Input) across 10 architectural modules, 37 documented relationships, 7 reserved for future consideration
+**Coverage**: 31 formal ADRs (100% Accepted, 0 Needs-Input) across 12 architectural modules, 42 documented relationships, 7 reserved for future consideration
 
 ---
 
 ## Executive Summary
 
-The zettel_app project has captured **29 formal architectural decisions** spanning core infrastructure, retrieval, ingestion, extraction, review, MOC generation, web UI, LLM integration, and CLI orchestration. **All 29 are now Accepted** (26 as of 2026-08-31; ADR-027 added 2026-08-31, ADR-028 and ADR-029 added 2026-09-01), with no remaining needs-input. These decisions represent a stable, coherent architecture that has evolved incrementally over 18+ months without fundamental rework, indicating sound structural choices. The codebase is dominated by a **dual-store persistence model** (SQLite + ChromaDB) with a **hybrid retrieval layer** (RRF fusion + relevance floor + graph expansion), feeding **multiple frontends** (CLI via Typer/Rich, web via FastAPI/Jinja2) that orchestrate a **linear five-phase pipeline** (harvest → extract → review → connect → garden) plus **two complementary MOC strategies** (taxonomy-first and hub-anchored clustering).
+The zettel_app project has captured **31 formal architectural decisions** spanning core infrastructure, retrieval, ingestion, extraction, review, MOC generation, web UI, LLM integration, and CLI orchestration. **All 31 are now Accepted** (26 as of 2026-08-31; ADR-027 added 2026-08-31, ADR-028 and ADR-029 added 2026-09-01, ADR-030 and ADR-031 added 2026-09-02), with no remaining needs-input. These decisions represent a stable, coherent architecture that has evolved incrementally over 18+ months without fundamental rework, indicating sound structural choices. The codebase is dominated by a **dual-store persistence model** (SQLite + ChromaDB) with a **hybrid retrieval layer** (RRF fusion + relevance floor + graph expansion), feeding **multiple frontends** (CLI via Typer/Rich, web via FastAPI/Jinja2) that orchestrate a **linear five-phase pipeline** (harvest → extract → review → connect → garden) plus **two complementary MOC strategies** (taxonomy-first and hub-anchored clustering).
 
 Three decisions were formally resolved on 2026-08-31:
 - **ADR-012** (Docling): Remove PyMuPDF, make Docling mandatory, pin version
@@ -66,11 +66,17 @@ CLI (1 ADR)
 QA-WRITING (2 ADRs)
 ├─ ADR-028 (LangGraph StateGraph article orchestration)
 └─ ADR-029 (article_graph.py → article_graph/ package)
+
+MANUAL (1 ADR)
+└─ ADR-030 (Manual notes adopted at sync, no review gate)
+
+ASSETS (1 ADR)
+└─ ADR-031 (Vault-first image adoption for manual notes)
 ```
 
 ---
 
-## Relationship Matrix (37 Total Connections)
+## Relationship Matrix (42 Total Connections)
 
 ### Tier 1: Foundation (Everything builds on these)
 
@@ -117,6 +123,8 @@ QA-WRITING (2 ADRs)
 | **ADR-026** | Typer+Rich CLI | ADR-008 | (all commands) |
 | **ADR-027** | Harvest package | ADR-011, 012, 013, 014 | (harvest module layout) |
 | **ADR-028** | LangGraph article orchestration | ADR-003, 009, 010, 024, 025 | ADR-029 |
+| **ADR-030** | Manual notes adopted at sync, no review gate | ADR-015, 016, 017, 005 | ADR-031 |
+| **ADR-031** | Vault-first image adoption | ADR-030, 015, 007 | — |
 | **ADR-029** | Article graph package | ADR-028, ADR-027 | (article module layout) |
 
 ---
@@ -317,7 +325,7 @@ These remain documented in `docs/adrs/potential-adrs/` as a backlog for future p
 
 ## Next Steps
 
-1. **Review all 29 ADRs** in [`docs/adrs/generated/`](./generated/) for full rationale and options
+1. **Review all 31 ADRs** in [`docs/adrs/generated/`](./generated/) for full rationale and options
 2. **Resolve 3 needs-input ADRs** (012, 017, 018) with team discussion
 3. **Monitor relationship stability** — if a pattern in the Tier 1 foundation changes, a cascade of decisions is affected
 4. **Consider periodic review** — every 6 months, check whether the top 5 load-bearing decisions (ADR-001, 003, 007, 008, 024) are still optimal given project growth

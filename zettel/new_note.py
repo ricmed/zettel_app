@@ -192,6 +192,26 @@ def _append_src_ztl_hints(
     )
 
 
+def _write_literature_index(
+    cfg: AppConfig, source_id: str, citekey: str, title: str, *, force: bool = False,
+) -> Path:
+    """Create the source's literature index note, mirroring what harvest writes.
+
+    Without it the SRC note's `## Indice de Literatura` wikilink is born dead. An
+    index that already exists is left alone: it carries the `auto-lit-index` block
+    that review/sync maintain.
+    """
+    path = cfg.vault_path / "20_Literature" / literature_index_filename(citekey, title)
+    if path.exists() and not force:
+        return path
+    meta, body = build_literature_index_note(
+        source_id=source_id, citekey=citekey, title=title, origin="manual",
+    )
+    _ensure_parent(path)
+    safe_write_note(path, meta, body)
+    return path
+
+
 def scaffold_manual_note(
     cfg: AppConfig,
     note_type: str,
@@ -259,19 +279,29 @@ def scaffold_manual_note(
             body, source_id=sid, citekey=ck, title=title, path=path,
         )
         _write_scaffold(path, meta, body, force=force)
+        _write_literature_index(cfg, sid, ck, title, force=force)
         return NewNoteResult(path=path, note_type=normalized, meta=meta)
 
     if normalized == "literature":
-        ck = _resolve_citekey(citekey, author_list, year, title)
-        source_id = f"@{ck}"
+        if source_id or citekey:
+            sid = normalize_source_id(source_id or citekey or "")
+            ck = sid.lstrip("@")
+        else:
+            ck = _resolve_citekey(None, author_list, year, title)
+            sid = f"@{ck}"
+        source_id = sid
         if granular:
             lit_id = f"{source_id}::manual-{int(chunk_index):04d}"
             chunk_id = f"{source_id}::manual::{int(chunk_index):04d}"
+            # `title` here is the topic of this note; the source's own title drives
+            # the backlink to the literature index, so recover it from the SRC note.
+            src_path, src_meta = resolve_src_in_vault(cfg, source_id)
+            source_title = str((src_meta or {}).get("title") or "") or title
             filename = literature_chunk_filename(
                 ck,
                 chunk_index=chunk_index,
                 page_in_book=page,
-                summary=title,
+                section_path=title,
             )
             path = (
                 cfg.vault_path
@@ -282,13 +312,14 @@ def scaffold_manual_note(
             meta, body = build_literature_chunk_note(
                 source_id=source_id,
                 citekey=ck,
-                title=title,
+                title=source_title,
                 chunk_id=chunk_id,
                 chunk_index=chunk_index,
                 literature_id=lit_id,
                 summary="_Preencha o resumo._",
                 key_concepts=[],
                 candidates=[],
+                section_path=title,
                 source_text="_Cole o trecho da fonte aqui._",
                 page_in_book=page,
                 status="approved",

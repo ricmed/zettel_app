@@ -148,7 +148,7 @@ def _sync_single_note(
     if note_type == "source":
         return _sync_source(cfg, db, idx, file_path, meta, body)
     if note_type == "literature":
-        return _sync_literature(cfg, db, file_path, meta, body)
+        return _sync_literature(cfg, db, idx, file_path, meta, body)
     if note_type == "permanent":
         return _sync_permanent(cfg, db, idx, file_path, meta, body)
     if note_type == "moc":
@@ -226,12 +226,17 @@ def _sync_source(
 
 
 def _sync_literature(
-    cfg: AppConfig, db: StateDB, file_path: Path, meta: dict, body: str,
+    cfg: AppConfig, db: StateDB, idx: VectorIndex, file_path: Path, meta: dict, body: str,
 ) -> str:
     """Adopt a hand-created LIT note (index or granular chunk).
 
     Index notes (type=literature_index) snapshot into sources.lit_body.
-    Granular notes (type=literature with chunk_id) update the matching chunk row.
+    Granular notes (type=literature with chunk_id) are adopted through
+    ``manual_lit.adopt_manual_literature`` when they are the user's own content:
+    that synthesizes the chunk row a hand-written note never had, so the note
+    reaches ``literature_notes`` and the source index like an approved one.
+    Pipeline-authored granular notes keep the lightweight path (their chunk row
+    already carries the real extracted text and checksum).
     """
     from zettel.harvester.citekey import generate_citekey
 
@@ -262,6 +267,11 @@ def _sync_literature(
     # Granular chunk LIT
     if note_type == "literature" and meta.get("chunk_id"):
         chunk_id = meta["chunk_id"]
+        meta["source_id"] = source_id
+        if _manual_origin(meta) == "manual":
+            from zettel.manual_lit import adopt_manual_literature
+
+            return adopt_manual_literature(cfg, db, idx, file_path, meta, body)
         chunk = db.get_chunk(chunk_id)
         status = meta.get("status") or "approved"
         if chunk:
@@ -300,6 +310,8 @@ def _sync_permanent(
         meta.setdefault("origin", "manual")
         _rewrite_frontmatter(file_path, meta, body)
 
+    body = _adopt_note_images(cfg, db, file_path, meta, body)
+
     embeddable = extract_embeddable_text(body)
     semantic_checksum = sha256_hex(normalize_text_for_hash(embeddable))
 
@@ -334,6 +346,31 @@ def _sync_permanent(
     _extract_body_edges(db, note_id, body)
     _suggest_connections(cfg, db, idx, note_id, embeddable, file_path)
     return "new" if not existing else "updated"
+
+
+def _adopt_note_images(
+    cfg: AppConfig, db: StateDB, file_path: Path, meta: dict, body: str,
+) -> str:
+    """Adopt images pasted into a note whose frontmatter names a known source.
+
+    Assets are keyed by source (``assets.source_id`` is NOT NULL with an FK), so a
+    note with no resolvable ``source_id`` keeps its references untouched.
+    """
+    from zettel.assets import adopt_vault_images
+    from zettel.manual_lit import ensure_manual_chapter
+
+    source_id = str(meta.get("source_id") or "")
+    if not source_id or not db.get_source(source_id):
+        return body
+
+    chapter_id = ensure_manual_chapter(db, source_id)
+    new_body, adopted = adopt_vault_images(
+        cfg, db, source_id, chapter_id, file_path, body,
+    )
+    if adopted and new_body != body:
+        _rewrite_frontmatter(file_path, meta, new_body)
+        return new_body
+    return body
 
 
 def _sync_moc(

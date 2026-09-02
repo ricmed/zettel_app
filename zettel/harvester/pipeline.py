@@ -629,11 +629,13 @@ def _create_vault_notes(
     src_path.parent.mkdir(parents=True, exist_ok=True)
     safe_write_note(src_path, src_meta, src_body)
 
-    # Write LIT index note
+    # Write LIT index note. Flat, title-slugged path: this is where every generated
+    # wikilink points and where review/rebuild/purge look for it.
     lit_meta, lit_body = build_literature_index_note(source_id, citekey, title)
-    lit_path = cfg.vault_path / "20_Literature" / citekey / literature_index_filename(citekey)
+    lit_path = cfg.vault_path / "20_Literature" / literature_index_filename(citekey, title)
     lit_path.parent.mkdir(parents=True, exist_ok=True)
-    safe_write_note(lit_path, lit_meta, lit_body)
+    if not lit_path.exists():
+        safe_write_note(lit_path, lit_meta, lit_body)
 
     # Sync costs accumulated in SQLite onto the SRC frontmatter
     if db:

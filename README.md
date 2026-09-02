@@ -1100,6 +1100,8 @@ Notas criadas à mão no Obsidian são adotadas pelo pipeline com **`zettel sync
 - Notas sem `note_id`/`moc_id`/`source_id` recebem um id/citekey gerado, injetado no frontmatter.
 - Cada nota ganha uma flag de proveniência `origin: manual | pipeline` (no frontmatter e no banco), permitindo distinguir o que foi escrito à mão do que foi gerado.
 - SRC e LIT manuais deixam de ficar órfãos: são registrados no SQLite (e SRC é indexado no Chroma); uma LIT sem fonte resolvível cria uma fonte manual mínima para se vincular.
+- **LIT granular manual é adotada por completo** (ADR-030): o sync cria a linha de `chunks` que uma nota escrita à mão nunca teve (mais um capítulo sintético `Manual` por fonte), embeda a nota em `literature_notes` e a adiciona ao bloco `auto-lit-index` do índice da fonte. A partir daí ela é indistinguível de uma LIT aprovada pelo pipeline: aparece em `ask`/`article` e pode virar uma ZTL. Notas manuais **não passam pelo portão de aprovação** — entram como `persisted` direto, porque o portão existe para conteúdo gerado por LLM.
+- **Imagens coladas no Obsidian são adotadas no sync** (ADR-031): cole ou arraste a imagem na nota (`![[figura.png]]` ou `![alt](pasta/figura.png)`) e o `sync-manual` copia o arquivo para `90_Assets/` com nome por hash de conteúdo, reescreve a referência para o caminho canônico e registra a linha em `assets` — a mesma que o harvest cria. Duas ressalvas: o arquivo original **não é apagado** (fica uma cópia onde você o colocou), e a **descrição multimodal não roda no sync** — o asset fica `pending` e é descrito depois por `zettel extract` (ou pelo botão *retry assets* na web), respeitando `images.enabled`.
 
 ### Scaffold com `zettel new-note`
 
@@ -1110,8 +1112,8 @@ Tipos aceitos: `ztl`, `lit`, `src`, `moc` (aliases `permanent`, `literature`, `s
 | Tipo | Destino | Comportamento |
 |------|---------|---------------|
 | `ztl` | `30_Permanent/` | ULID novo, secoes ZTL vazias + bloco `auto-connections` placeholder; `--source-id`/`-s` ou `--citekey`/`-k` vincula a uma SRC |
-| `src` | `10_Sources/` | Citekey via `--citekey`/`-k` ou derivado de autor/ano/titulo; campos ABNT opcionais; secao no corpo para vincular ZTL |
-| `lit` | `20_Literature/` | Indice na raiz (padrao) ou granular em `{Citekey}/` com `--granular` |
+| `src` | `10_Sources/` | Citekey via `--citekey`/`-k` ou derivado de autor/ano/titulo; campos ABNT opcionais; secao no corpo para vincular ZTL. Cria tambem o **indice de literatura** da fonte, como o harvest faz |
+| `lit` | `20_Literature/` | Indice na raiz (padrao) ou granular em `{Citekey}/` com `--granular`; `-s`/`-k` vincula a uma SRC existente |
 | `moc` | `40_MOCs/` | ULID novo, secoes vazias para preencher links |
 
 Flags uteis:
@@ -1122,6 +1124,9 @@ Flags uteis:
 - **`--source-id` / `-s`**: citekey da fonte (`@` opcional) para ZTL — preenche `source_id` no frontmatter e wikilink SRC na secao **Fonte**
 - **`--granular`**: LIT por chunk em `20_Literature/{Citekey}/` (nao indice)
 - **`--chunk-index`**, **`--page` / `-p`**: indice e pagina impressa da LIT granular
+- **`--from-lit`** (so para `ztl`): cria a nota permanente **a partir de uma nota de literatura** — aceita o caminho do `.md` ou o `chunk_id`. Preenche `source_id`, `literature_ref` (apontando para a LIT granular, nao para o indice) e `source_locator` automaticamente
+- **`--llm`** (com `--from-lit`): gera o conteudo com o LLM reusando o **Prompt 2 do connector** — mesmo RAG hibrido, mesma tipagem de relacoes, mesmos backlinks — e ja indexa a nota (`origin: manual`). Sem `--llm`, voce recebe um scaffold pre-preenchido para escrever e adotar depois com `sync-manual`. Nenhum dos dois caminhos passa por aprovacao
+- **`--thesis`** (com `--from-lit`): tese explicita. Por padrao ela e deduzida da nota de literatura, nesta ordem: primeiro item de `## Candidatos a Nota Permanente`, senao o primeiro paragrafo de `## Resumo`
 - **`--force`**: sobrescreve arquivo existente no mesmo caminho (padrao: erro se ja existir)
 
 Exemplo de fluxo:
@@ -1130,10 +1135,16 @@ Exemplo de fluxo:
 python -m zettel new-note ztl "Heuristicas como atalhos mentais"
 python -m zettel new-note ztl "Recuperacao hibrida" -s @Kahneman2011ThinkingFast
 python -m zettel new-note src "Thinking, Fast and Slow" -a Kahneman -y 2011
-python -m zettel new-note lit "Sistema 1" -k Kahneman2011ThinkingFast --granular -p 20
-# Edite no Obsidian, depois:
+python -m zettel new-note lit "Sistema 1" -s @Kahneman2011ThinkingFast --granular -p 20
+# Edite a LIT no Obsidian (resumo, conceitos, trecho, imagens), depois:
 python -m zettel sync-manual
+
+# Da LIT para uma nota permanente:
+python -m zettel new-note ztl --from-lit "vault/20_Literature/Kahneman2011ThinkingFast/LIT - Kahneman2011 - p020 - sistema-1-0001.md"
+python -m zettel new-note ztl --from-lit "@Kahneman2011ThinkingFast::manual::0001" --llm
 ```
+
+> Com `--from-lit` o titulo posicional e dispensavel: ele vem da tese derivada da nota de literatura (ou de `--thesis`).
 
 ### Remover fonte com `zettel delete-source`
 

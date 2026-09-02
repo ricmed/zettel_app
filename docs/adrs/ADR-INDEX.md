@@ -1,7 +1,7 @@
-# zettel_app ADR Index (29 Decisions)
+# zettel_app ADR Index (31 Decisions)
 
-**Last Updated**: 2026-09-01  
-**Status**: Complete — 29 formal ADRs across 10 modules, 37 relationships mapped
+**Last Updated**: 2026-09-02  
+**Status**: Complete — 31 formal ADRs across 12 modules, 42 relationships mapped
 
 ---
 
@@ -19,6 +19,8 @@
 | **LLM** | 2 | [024–025](#llm-provider--caching) |
 | **CLI** | 1 | [026](#cli-orchestration) |
 | **QA-WRITING** | 2 | [028–029](#qa-writing--article-pipeline) |
+| **MANUAL** | 1 | [030](#manual-hand-written-notes) |
+| **ASSETS** | 1 | [031](#assets-images) |
 
 ---
 
@@ -303,15 +305,43 @@
 
 ---
 
+## MANUAL — Hand-Written Notes
+
+### ADR-030: Manual Notes Are Adopted at Sync Time and Bypass the Review Gate
+
+- **Status**: Accepted
+- **Date**: 2026-09-02
+- **Summary**: A hand-written granular LIT note had no `chunks` row, so it was invisible to SQLite, `literature_notes`, the source index and `connect`. `sync-manual` now synthesizes that row (plus a per-source `::ch000` "Manual" chapter, required by the NOT NULL FK) and reuses the post-approval steps verbatim. Manual notes land as `persisted` and never enter the confidence-band gate, which is hereby scoped to LLM-generated content. `new-note ztl --from-lit [--llm]` derives a candidate from the note's own sections and reuses `connector.run_connect(..., origin="manual")` — same Prompt 2, RAG, relation typing and backlinks. CLI only; web deferred to phase 2.
+- **Link**: [`ADR-030-manual-notes-adopted-at-sync-without-review-gate.md`](./generated/MANUAL/ADR-030-manual-notes-adopted-at-sync-without-review-gate.md)
+
+---
+
+## ASSETS — Images
+
+### ADR-031: Vault-First Image Adoption for Manual Notes
+
+- **Status**: Accepted
+- **Date**: 2026-09-02
+- **Summary**: Attaching a figure to a manual note is the Obsidian gesture the user already makes: paste the image, run `sync-manual`. Adoption handles `![[...]]` embeds and `![alt](...)` refs, resolves vault-relative / note-relative / by basename, copies content-addressed into `90_Assets/` and registers an `assets` row identical to harvest's. Deliberately **not** gated on `images.enabled` (that flag governs LLM cost, and defaults to false) and deliberately **never** calls the LLM: the asset stays `pending` for `describe_pending_assets`. A dedicated `attach-image` command and a web upload page were considered and rejected for this round.
+- **Link**: [`ADR-031-vault-first-image-adoption.md`](./generated/ASSETS/ADR-031-vault-first-image-adoption.md)
+
+---
+
 ## Statistics
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 29 |
-| **Accepted** | 29 |
+| **Total ADRs** | 31 |
+| **Accepted** | 31 |
 | **Needs Input** | 0 |
-| **Total Relationships** | 37 |
-| **Modules Covered** | 10 |
+| **Total Relationships** | 42 |
+| **Modules Covered** | 12 |
+
+---
+
+## Status Update (2026-09-02)
+
+✅ **ADR-030 and ADR-031 added** — the manual note flow gets formal coverage. ADR-030 (new MANUAL module) records that hand-written notes are adopted at sync time and skip the approval gate; ADR-031 (new ASSETS module, previously uncovered) records vault-first image adoption. ADR-030 supersedes the DISCARD verdict for "Decision 4: Manual Note Adoption Pattern" in [SYNC-module-analysis.md](./SYNC-module-analysis.md).
 
 ---
 

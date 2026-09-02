@@ -378,6 +378,12 @@ def literature_index_link_label(
 def literature_chunk_wikilink_for_row(
     citekey: str, chunk: dict[str, Any], *, with_alias: bool = False
 ) -> str:
+    """Wikilink to a granular LIT, preferring the file that is actually on disk.
+
+    Recomputing the stem from the row only matches for notes the pipeline named;
+    a hand-written or hand-renamed note would get a link to a file that does not
+    exist. ``literature_note_path`` is authoritative whenever it still resolves.
+    """
     summary = _summary_from_chunk(chunk)
     section_path = chunk.get("section_path") or ""
     alias = None
@@ -388,6 +394,12 @@ def literature_chunk_wikilink_for_row(
             section_path=section_path,
             summary=summary,
         )
+    on_disk = chunk.get("literature_note_path")
+    if on_disk:
+        path = Path(on_disk)
+        if path.is_file():
+            target = f"{path.parent.name}/{path.stem}"
+            return f"[[{target}|{alias}]]" if alias else f"[[{target}]]"
     return literature_chunk_wikilink(
         citekey,
         chunk_index=int(chunk.get("chunk_index") or 0),

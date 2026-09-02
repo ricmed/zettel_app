@@ -268,6 +268,131 @@ def _resolve_chapter_id(
     return None
 
 
+# ── Vault image adoption (manual notes) ───────────────────────
+
+
+_WIKI_IMAGE_RE = re.compile(r"!\[\[([^\]|]+?)(\|[^\]]*)?\]\]")
+_IMAGE_SUFFIXES = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg",
+    ".tif", ".tiff", ".avif",
+}
+
+
+def _is_canonical_asset(ref: str) -> bool:
+    """True when ref already points at a content-addressed file under 90_Assets/."""
+    norm = ref.replace("\\", "/").lstrip("./")
+    return norm.startswith(f"{ASSETS_DIR}/img-")
+
+
+def _resolve_vault_image(vault_path: Path, note_path: Path, ref: str) -> Path | None:
+    """Locate an image referenced by a note: vault-relative, note-relative, or by name.
+
+    The last fallback mirrors Obsidian's "shortest path" links, where the body only
+    carries the file name and the attachment lives anywhere in the vault.
+    """
+    candidates = [vault_path / ref, note_path.parent / ref]
+    for cand in candidates:
+        try:
+            if cand.is_file():
+                return cand
+        except OSError:
+            continue
+    name = Path(ref).name
+    if not name:
+        return None
+    try:
+        return next((p for p in vault_path.rglob(name) if p.is_file()), None)
+    except OSError:
+        return None
+
+
+def adopt_vault_images(
+    cfg: AppConfig,
+    db: StateDB,
+    source_id: str,
+    chapter_id: str | None,
+    note_path: Path,
+    body: str,
+    page_in_file: int | None = None,
+) -> tuple[str, int]:
+    """Adopt images a hand-written note references into 90_Assets + the assets table.
+
+    Handles both Obsidian embeds (``![[img.png]]``) and Markdown refs
+    (``![alt](path/img.png)``), keeping whichever syntax the author used. Files are
+    copied content-addressed (identical images dedup, re-running is a no-op) and the
+    reference is rewritten to the canonical vault-relative path so
+    :func:`asset_ids_in_text` can resolve the figure later.
+
+    Deliberately NOT gated on ``cfg.images.enabled``: that flag governs the cost of
+    multimodal extraction/description, while adoption is pure vault bookkeeping. The
+    asset is left ``status='pending'`` so ``extract`` describes it if and when images
+    are enabled. The original file is never deleted.
+
+    Returns ``(new_body, adopted_count)``.
+    """
+    from urllib.parse import unquote
+
+    vault_path = cfg.vault_path
+    adopted = 0
+
+    scanned = body
+
+    def _handle(ref_raw: str, pos: int) -> str | None:
+        """Return the canonical relpath for ref_raw, or None to leave it untouched."""
+        nonlocal adopted
+        ref = unquote(ref_raw.strip())
+        if not ref or ref.startswith(("http://", "https://")):
+            return None
+        if Path(ref).suffix.lower() not in _IMAGE_SUFFIXES:
+            return None
+
+        img_path = _resolve_vault_image(vault_path, note_path, ref)
+        if img_path is None:
+            return None
+        try:
+            data = img_path.read_bytes()
+        except OSError:
+            return None
+
+        checksum = sha256_hex_bytes(data)
+        if _is_canonical_asset(ref) and (vault_path / ref).is_file():
+            relpath = ref.replace("\\", "/").lstrip("./")
+        else:
+            relpath = _save_image(vault_path, data, img_path.suffix or ".png")
+
+        db.upsert_asset(
+            asset_id=asset_id_for(source_id, checksum),
+            source_id=source_id,
+            path=relpath,
+            image_checksum=checksum,
+            chapter_id=chapter_id,
+            context_snippet=_context_snippet(scanned, pos, cfg.images.context_chars),
+            page_in_file=page_in_file,
+        )
+        adopted += 1
+        return relpath
+
+    def _replace_wiki(match: re.Match) -> str:
+        relpath = _handle(match.group(1), match.start())
+        return match.group(0) if relpath is None else f"![[{relpath}]]"
+
+    def _replace_md(match: re.Match) -> str:
+        relpath = _handle(match.group(1), match.start())
+        if relpath is None:
+            return match.group(0)
+        alt = match.group(0)[2:match.group(0).index("](")]
+        return f"![{alt}]({relpath})"
+
+    new_body = _WIKI_IMAGE_RE.sub(_replace_wiki, body)
+    scanned = new_body
+    new_body = _MD_IMAGE_RE.sub(_replace_md, new_body)
+    if adopted:
+        logger.info(
+            "[SOURCE=%s] %d imagem(ns) adotada(s) de %s", source_id, adopted, note_path.name,
+        )
+    return new_body, adopted
+
+
 # ── Multimodal description ─────────────────────────────────────────────
 
 

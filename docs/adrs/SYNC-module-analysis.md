@@ -219,8 +219,10 @@ def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, 
 | **Base Score** | 0 | Not a Step 0 category |
 | **TOTAL** | **42 / 150** | **BELOW THRESHOLD** |
 
-**Verdict**: DISCARD  
-**Rationale**: While this is an intentional design pattern, it is localized to two modules and relatively simple once the async two-phase pattern is understood. The complexity is low; the decision is incremental (not fundamental). Does not rise to system-architecture significance.
+**Verdict**: DISCARD — **superseded 2026-09-02 by [ADR-030](./generated/MANUAL/ADR-030-manual-notes-adopted-at-sync-without-review-gate.md)**  
+**Rationale (original)**: While this is an intentional design pattern, it is localized to two modules and relatively simple once the async two-phase pattern is understood. The complexity is low; the decision is incremental (not fundamental). Does not rise to system-architecture significance.
+
+**Why the verdict was reversed**: the scoring above evaluated the pattern as it stood — a folder convention plus ID assignment across two modules. Extending manual notes to full parity with the pipeline changed the scope substantially: adoption now synthesizes `chapters` and `chunks` rows, writes to the `literature_notes` collection, refreshes the source's literature index, deliberately scopes the [ADR-017](./generated/REVIEW/ADR-017-confidence-band-hitl-approval-gate.md) approval gate to LLM-generated content only, and reuses `connector.run_connect` for a LIT-to-ZTL path. That touches REVIEW, EXTRACT, CONNECT, ASSETS and INFRA, and the "manual content needs no approval" boundary is precisely the kind of rule a future contributor cannot re-derive from the code.
 
 ---
 
