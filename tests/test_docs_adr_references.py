@@ -100,3 +100,20 @@ def test_adr_relative_links_resolve(adr: Path):
         f"{adr.relative_to(REPO_ROOT)} tem link(s) relativo(s) quebrado(s): "
         f"{', '.join(broken)}. O caminho e relativo a pasta da propria ADR."
     )
+
+
+def test_potential_adrs_index_links_resolve():
+    """The inventory index must point at where the potential ADRs actually live.
+
+    27 of its 34 links rotted when triaged items moved out of `must-document/`
+    into `done/` (issue #95). The indexed files themselves stay out of this
+    guard: `potential-adrs/**` is the historical record of the analysis phase and
+    should keep showing what was seen at the time.
+    """
+    index = REPO_ROOT / "docs" / "adrs" / "potential-adrs-index.md"
+    assert index.exists(), f"indice nao encontrado: {index}"
+    broken = [t for t in _relative_links(index) if not (index.parent / t).exists()]
+    assert not broken, (
+        f"potential-adrs-index.md tem link(s) relativo(s) quebrado(s): "
+        f"{', '.join(broken)}. Itens triados mudam de pasta (must-document -> done)."
+    )
