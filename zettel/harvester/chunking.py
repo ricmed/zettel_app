@@ -22,6 +22,67 @@ from zettel.state import StateDB
 logger = logging.getLogger(__name__)
 
 
+# ── Fenced code scanner (CommonMark) ──────────────────────────────────
+
+# Opening/closing fence line: up to 3 spaces of indent, 3+ backticks or tildes,
+# optional info string. Indented code, tables and HTML are out of scope.
+_FENCE_LINE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+
+
+def iter_fenced_spans(text: str) -> list[tuple[int, int]]:
+    """Return character spans of CommonMark fenced code blocks.
+
+    A fence closes only with the same marker family (backtick never closes tilde),
+    a marker at least as long as the opening one and no info string. An unclosed
+    fence spans to EOF. Spans are returned in order and never overlap.
+    """
+    spans: list[tuple[int, int]] = []
+    open_char = ""
+    open_len = 0
+    start = 0
+    pos = 0
+
+    for line in (text or "").splitlines(keepends=True):
+        line_start = pos
+        pos += len(line)
+        m = _FENCE_LINE_RE.match(line.rstrip("\r\n"))
+        if not m:
+            continue
+        marker, info = m.group(1), m.group(2)
+
+        if open_char:
+            # Closing fence: same family, at least as long, no info string.
+            if marker[0] == open_char and len(marker) >= open_len and not info.strip():
+                spans.append((start, pos))
+                open_char = ""
+            continue
+
+        # Backtick fences cannot carry a backtick in the info string.
+        if marker[0] == "`" and "`" in info:
+            continue
+        open_char = marker[0]
+        open_len = len(marker)
+        start = line_start
+
+    if open_char:
+        spans.append((start, len(text or "")))
+    return spans
+
+
+def _offset_is_fenced(offset: int, spans: list[tuple[int, int]]) -> bool:
+    return any(start <= offset < end for start, end in spans)
+
+
+def _headings_outside_fences(
+    pattern: re.Pattern[str], text: str
+) -> list[re.Match[str]]:
+    """Headings of `pattern` whose offset does not fall inside a fenced block."""
+    spans = iter_fenced_spans(text)
+    if not spans:
+        return list(pattern.finditer(text))
+    return [m for m in pattern.finditer(text) if not _offset_is_fenced(m.start(), spans)]
+
+
 # ── Chapter Splitting ─────────────────────────────────────────────────
 
 
@@ -31,7 +92,7 @@ def split_into_chapters(text: str, origin_type: str) -> list[dict[str, str]]:
     chapters: list[dict[str, str]] = []
 
     heading_pattern = re.compile(r"^(#{1,2})\s+(.+)$", re.MULTILINE)
-    matches = list(heading_pattern.finditer(text))
+    matches = _headings_outside_fences(heading_pattern, text)
 
     if not matches:
         return [{"title": "Documento completo", "text": text.strip(), "locator": ""}]
@@ -66,7 +127,7 @@ def split_chapter_into_sections(
     forward to avoid crumb-sized chunks.
     """
     heading_re = re.compile(r"^(#{3,6})\s+(.+)$", re.MULTILINE)
-    matches = list(heading_re.finditer(chapter_text))
+    matches = _headings_outside_fences(heading_re, chapter_text)
     if not matches:
         return [{"section_path": chapter_title, "text": chapter_text.strip()}]
 
@@ -125,13 +186,43 @@ def merge_small_sections(
     return merged
 
 
+def _split_preserving_fences(text: str, splitter: Any, chunk_size: int) -> list[str]:
+    """Split `text` by size while keeping each fenced block atomic.
+
+    Prose between fences goes through the generic splitter; every fence is emitted
+    whole, even when it is longer than `chunk_size` (documented oversized-chunk
+    exception to ADR-014 — cutting a template/code block is worse than one big chunk).
+    """
+    spans = iter_fenced_spans(text)
+    if not spans:
+        return splitter.split_text(text)
+
+    def _prose(segment: str) -> list[str]:
+        segment = segment.strip()
+        if not segment:
+            return []
+        return [segment] if len(segment) <= chunk_size else splitter.split_text(segment)
+
+    pieces: list[str] = []
+    cursor = 0
+    for start, end in spans:
+        pieces.extend(_prose(text[cursor:start]))
+        fence = text[start:end].strip()
+        if fence:
+            pieces.append(fence)
+        cursor = end
+    pieces.extend(_prose(text[cursor:]))
+    return pieces
+
+
 def split_chapter_into_chunks(
     cfg: AppConfig, chapter: dict[str, str]
 ) -> list[tuple[str, str]]:
     """Return (section_path, chunk_text) pairs for one chapter.
 
     Sections that fit in chunk_size become a single chunk; larger ones are further
-    split by the generic RecursiveCharacterTextSplitter (fallback within a section).
+    split by the generic RecursiveCharacterTextSplitter (fallback within a section),
+    which is applied only to the prose between fenced blocks — a fence is never cut.
     """
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -149,7 +240,10 @@ def split_chapter_into_chunks(
         text = sec["text"]
         if not text:
             continue
-        pieces = [text] if len(text) <= cfg.chunking.chunk_size else splitter.split_text(text)
+        if len(text) <= cfg.chunking.chunk_size:
+            pieces = [text]
+        else:
+            pieces = _split_preserving_fences(text, splitter, cfg.chunking.chunk_size)
         for piece in pieces:
             if piece.strip():
                 pairs.append((sec["section_path"], piece))

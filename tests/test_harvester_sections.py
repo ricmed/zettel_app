@@ -5,6 +5,7 @@ import pytest
 from zettel.config import AppConfig
 from zettel.harvester import (
     chunk_and_persist as _chunk_and_persist,
+    iter_fenced_spans as _iter_fenced_spans,
     merge_small_sections as _merge_small_sections,
     run_rechunk,
     split_chapter_into_chunks as _split_chapter_into_chunks,
@@ -234,3 +235,151 @@ def test_incomplete_chunking_detected_and_rechunk_completes(tmp_path):
         assert "img-late.png" in joined
     finally:
         db.close()
+
+
+# ── Fenced code blocks as atomic units ────────────────────────────────
+
+# Template like the one in data/cache/chunk-dumps/chunks-DesignEArquitetura.md:
+# a single ```markdown fence whose internal headings are illustrative, not structure.
+HLD_FENCE = (
+    "```markdown\n"
+    "# Objetivo tecnico\n\n"
+    "Descreva o objetivo do sistema em uma frase.\n\n"
+    "## Arquitetura geral\n\n"
+    "Liste os componentes e como se comunicam.\n\n"
+    "### Decisoes\n\n"
+    "Justifique cada escolha relevante.\n\n"
+    "#### Riscos\n\n"
+    "Enumere os riscos conhecidos e mitigacoes.\n"
+    "```"
+)
+
+
+def _filler(n: int) -> str:
+    return ("prosa real do documento fora de qualquer fence. " * n).strip()
+
+
+def test_iter_fenced_spans_basic_backtick_fence():
+    text = f"antes\n\n{HLD_FENCE}\n\ndepois\n"
+    spans = _iter_fenced_spans(text)
+    assert len(spans) == 1
+    start, end = spans[0]
+    assert text[start:end].strip() == HLD_FENCE
+
+
+def test_iter_fenced_spans_tilde_family_and_indent():
+    text = "intro\n\n   ~~~~\ncorpo ``` nao fecha\n   ~~~~\n\nfim\n"
+    spans = _iter_fenced_spans(text)
+    assert len(spans) == 1
+    assert "corpo" in text[spans[0][0]:spans[0][1]]
+
+
+def test_iter_fenced_spans_shorter_marker_does_not_close():
+    text = "````\ncorpo\n```\nainda dentro\n````\nfora\n"
+    spans = _iter_fenced_spans(text)
+    assert len(spans) == 1
+    body = text[spans[0][0]:spans[0][1]]
+    assert "ainda dentro" in body
+    assert "fora" not in body
+
+
+def test_info_string_does_not_close_outer_fence():
+    """```json inside ```markdown is content, not a closing fence."""
+    text = (
+        "```markdown\n"
+        "# Titulo interno\n\n"
+        "```json\n"
+        '{"a": 1}\n'
+        "```\n"
+    )
+    spans = _iter_fenced_spans(text)
+    # The ```json line has an info string, so it cannot close; the bare ``` does.
+    assert len(spans) == 1
+    assert '{"a": 1}' in text[spans[0][0]:spans[0][1]]
+    assert _split_into_chapters(text, "md")[0]["title"] == "Documento completo"
+
+
+def test_unclosed_fence_spans_to_eof_and_hides_headings():
+    text = f"## Capitulo real\n\n{_filler(3)}\n\n```markdown\n# Nao e capitulo\n\n{_filler(2)}\n"
+    spans = _iter_fenced_spans(text)
+    assert len(spans) == 1
+    assert spans[0][1] == len(text)
+
+    chapters = _split_into_chapters(text, "md")
+    assert [c["title"] for c in chapters] == ["Capitulo real"]
+    assert "# Nao e capitulo" in chapters[0]["text"]
+
+
+def test_headings_inside_fence_do_not_create_chapters():
+    text = f"# Documento HLD\n\n{_filler(2)}\n\n{HLD_FENCE}\n"
+    chapters = _split_into_chapters(text, "md")
+    assert [c["title"] for c in chapters] == ["Documento HLD"]
+    assert "#### Riscos" in chapters[0]["text"]
+
+
+def test_headings_inside_fence_do_not_create_sections():
+    chapter_text = f"{_filler(2)}\n\n{HLD_FENCE}"
+    sections = _split_chapter_into_sections("Cap", chapter_text, min_section_chars=200)
+    assert len(sections) == 1
+    assert sections[0]["section_path"] == "Cap"
+    assert "### Decisoes" in sections[0]["text"]
+
+
+def test_real_headings_outside_fence_still_split():
+    chapter_text = (
+        f"### Secao verdadeira\n\n{_filler(3)}\n\n{HLD_FENCE}\n\n"
+        f"### Outra secao\n\n{_filler(3)}"
+    )
+    sections = _split_chapter_into_sections("Cap", chapter_text, min_section_chars=50)
+    paths = [s["section_path"] for s in sections]
+    assert paths == ["Cap > Secao verdadeira", "Cap > Outra secao"]
+    assert HLD_FENCE in sections[0]["text"]
+
+
+def test_fence_is_never_cut_by_the_size_splitter():
+    cfg = _cfg(chunk_size=200, chunk_overlap=20, min_section_chars=50)
+    chapter = {
+        "title": "Cap",
+        "text": f"{_filler(6)}\n\n{HLD_FENCE}\n\n{_filler(6)}",
+        "locator": "Cap",
+    }
+    pairs = _split_chapter_into_chunks(cfg, chapter)
+    texts = [t for _, t in pairs]
+    assert HLD_FENCE in texts                      # emitted whole, exactly once
+    assert texts.count(HLD_FENCE) == 1
+    assert all(path == "Cap" for path, _ in pairs)  # no path from fenced headings
+    assert len(pairs) > 1                           # prose around it still splits
+
+
+def test_oversized_fence_becomes_a_single_chunk():
+    fence = "```text\n" + "linha de template do HLD\n" * 40 + "```"
+    assert len(fence) > 200
+    cfg = _cfg(chunk_size=200, chunk_overlap=20, min_section_chars=50)
+    chapter = {"title": "Cap", "text": f"{_filler(6)}\n\n{fence}", "locator": "Cap"}
+    texts = [t for _, t in _split_chapter_into_chunks(cfg, chapter)]
+    assert fence in texts
+    assert len(fence) > cfg.chunking.chunk_size  # documented oversized-chunk exception
+
+
+def test_multiple_fences_are_independent_atoms():
+    fence_a = "```python\n" + "print('a')\n" * 12 + "```"
+    fence_b = "~~~sql\n" + "select 1;\n" * 12 + "~~~"
+    cfg = _cfg(chunk_size=200, chunk_overlap=20, min_section_chars=50)
+    chapter = {
+        "title": "Cap",
+        "text": f"{fence_a}\n\n{_filler(8)}\n\n{fence_b}",
+        "locator": "Cap",
+    }
+    texts = [t for _, t in _split_chapter_into_chunks(cfg, chapter)]
+    assert fence_a in texts
+    assert fence_b in texts
+    prose_pieces = [t for t in texts if t not in {fence_a, fence_b}]
+    assert len(prose_pieces) > 1  # prose between the fences is still sliced
+
+
+def test_long_prose_without_fence_still_splits():
+    cfg = _cfg(chunk_size=200, chunk_overlap=20, min_section_chars=50)
+    chapter = {"title": "Cap", "text": _filler(30), "locator": "Cap"}
+    pairs = _split_chapter_into_chunks(cfg, chapter)
+    assert len(pairs) > 1
+    assert all(len(t) <= cfg.chunking.chunk_size for _, t in pairs)
