@@ -512,7 +512,8 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB, *, observer=None) -> in
 
         context = asset.get("context_snippet", "")
         call_checksum = sha256_hex(
-            f"{prompt_hash}|{asset['image_checksum']}|{sha256_hex(normalize_text_for_hash(context))}|{model}"
+            f"{prompt_hash}|{asset['image_checksum']}|"
+            f"{sha256_hex(normalize_text_for_hash(context))}|{model}|{cfg.language}"
         )
         cached = db.get_cached_llm_response(call_checksum)
         if cached is not None:
@@ -537,6 +538,7 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB, *, observer=None) -> in
                 asset_id=asset["asset_id"],
                 max_retries=max_retries,
                 backoff_max=backoff_max,
+                language=cfg.language,
                 step=step,
                 total=total_images,
                 provider=spec.provider,
@@ -585,6 +587,7 @@ def _describe_with_rate_limit_retry(
     asset_id: str,
     max_retries: int,
     backoff_max: float,
+    language: str,
     step: int | None = None,
     total: int | None = None,
     provider: str | None = None,
@@ -596,7 +599,7 @@ def _describe_with_rate_limit_retry(
         try:
             return _describe_one(
                 llm, prompt_parts, img_file, context,
-                step=step, total=total,
+                language=language, step=step, total=total,
                 provider=provider, prompt_cache=prompt_cache,
             )
         except Exception as e:
@@ -619,6 +622,7 @@ def _describe_one(
     img_file: Path,
     context: str,
     *,
+    language: str,
     step: int | None = None,
     total: int | None = None,
     provider: str | None = None,
@@ -637,7 +641,10 @@ def _describe_one(
     from zettel.usage import record_llm
 
     b64 = base64.b64encode(img_file.read_bytes()).decode("ascii")
-    mapping = {"context": context or "(sem contexto textual)"}
+    mapping = {
+        "language": language,
+        "context": context or "(sem contexto textual)",
+    }
     system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
     user_text = fill_template(prompt_parts.user_template, mapping)
 

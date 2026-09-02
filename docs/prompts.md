@@ -11,16 +11,25 @@ Como personalizar o que o LLM recebe: os templates em `prompts/` e a taxonomia d
 Os prompts em [`prompts/`](../prompts) são templates Markdown com placeholders `{variavel}`. Você pode editá-los para ajustar:
 
 - **Estilo das notas**: mais academico, mais informal, etc.
-- **Idioma**: altere para outro idioma (ajuste tambem `language` no config)
+- **Idioma**: `{language}` ja e preenchido a partir de `language` no config em `ask.md`, `article_*.md`, `literature_note.md`, `permanent_note.md` e `image_description.md` — altere o config, nao o texto do prompt
 - **Profundidade**: mais ou menos detalhes por nota
 - **Tags**: criterios para sugestao de tags
 - **Seletividade**: regras de relevancia e filtragem em `literature_note.md`
 - **Imagens → candidatos/ZTL**: criterios de `relevant_image_ids` e extracao a partir de diagramas em `literature_note.md`; tom da descricao em `image_description.md`; uso de figuras no Prompt 2 em `permanent_note.md`
 - **Taxonomia de MOCs**: edite `config/moc_topics.yaml` (pilares, categorias e topicos)
-- **Dominio e categorias**: ajuste `{domain}` e `{allowed_topics_section}` em `moc_generation.md` (preenchidos automaticamente a partir do YAML)
+- **Dominio e categorias**: `{domain}` vem de `gardener.domain` e chega a `moc_generation.md`, `moc_hub_generation.md`, `literature_note.md` e `permanent_note.md`; `{allowed_topics_section}` em `moc_generation.md` vem do YAML da taxonomia
 - **Classificacao incremental**: edite `moc_incremental.md` para ajustar como novas notas sao classificadas em MOCs existentes
 
 O sistema detecta automaticamente quando um prompt muda (via `llm_call_checksum`) e reprocessa apenas os artefatos afetados.
+
+> **Contrato prompt <-> codigo.** `tests/test_prompts.py` trava, sem chamar LLM, o que o
+> editor de prompt nao pode quebrar: todo template tem o split `<!-- zettel:user -->`
+> (menos o fragmento `article_anti_ai.md`), os placeholders usados sao exatamente as
+> chaves que o caller passa (lidas do proprio `mapping` via `ast`), nenhum payload
+> por chamada vive no lado system (quebraria o cache do provedor), e os exemplos JSON
+> validam nos schemas Pydantic que os parsers usam. Rode
+> `.venv/Scripts/python.exe -m pytest tests/test_prompts.py -v` depois de editar
+> qualquer arquivo de `prompts/`.
 
 ### Quem usa qual prompt
 
@@ -31,7 +40,7 @@ O sistema detecta automaticamente quando um prompt muda (via `llm_call_checksum`
 | `dedupe_decision.md` | `review` — decisão de deduplicação de conceitos |
 | `permanent_note.md` | `connect` — Prompt 2 (nota permanente + tipos de relação) |
 | `ptbr_guard.md` | `connect` — guardrail de idioma |
-| `image_description.md` | `extract` — descrição multimodal de imagens |
+| `image_description.md` | `extract` — descrição multimodal de imagens (`llm.images`) |
 | `moc_generation.md`, `moc_incremental.md` | `garden` (taxonômico) |
 | `moc_hub_generation.md`, `moc_hub_incremental.md` | `garden --hubs` |
 | `ask.md` | `ask` |

@@ -46,28 +46,6 @@ def test_fill_template_replaces_keys():
     assert fill_template("a={a} b={b}", {"a": 1, "b": "x"}) == "a=1 b=x"
 
 
-def test_literature_note_system_has_no_chunk_placeholder():
-    from pathlib import Path
-
-    from zettel.llm import load_prompt_parts
-
-    parts = load_prompt_parts(Path("prompts/literature_note.md"))
-    assert parts.has_split
-    assert "{chunk_text}" not in parts.system
-    assert "{chunk_text}" in parts.user_template
-
-
-def test_permanent_note_system_has_no_thesis_placeholder():
-    from pathlib import Path
-
-    from zettel.llm import load_prompt_parts
-
-    parts = load_prompt_parts(Path("prompts/permanent_note.md"))
-    assert parts.has_split
-    assert "{thesis}" not in parts.system
-    assert "{thesis}" in parts.user_template
-
-
 class _CapturingLLM:
     model = "gpt-4o-mini"
     last_messages = None

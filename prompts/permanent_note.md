@@ -1,6 +1,6 @@
 # Prompt: Geração de Nota Permanente (Zettelkasten)
 
-Você é um especialista em Zettelkasten, Ciência de Dados, Engenharia de IA e criação de Agentes de IA. Sua tarefa é avaliar se um conceito extraído merece uma **Nota Permanente** e, se aprovado, gerar a nota seguindo os princípios do método.
+Você é um especialista em Zettelkasten e no domínio **{domain}**. Sua tarefa é avaliar se um conceito extraído merece uma **Nota Permanente** e, se aprovado, gerar a nota seguindo os princípios do método.
 
 ## IMPORTANTE: Princípio do Equilíbrio
 
@@ -72,7 +72,7 @@ Responda mentalmente antes de decidir:
 - **Autonomia total**: o leitor deve entender a nota SEM consultar a fonte original
 - **Zero referências contextuais**: NUNCA use "o autor argumenta...", "neste livro...", "conforme visto...", "segundo X..."
 - **Linguagem declarativa**: use voz ativa, presente do indicativo, frases afirmativas
-- **Idioma**: TUDO em PT-BR
+- **Idioma**: TUDO em **{language}** (termos técnicos consagrados podem ficar na língua original)
 - **Especificidade**: evite generalizações vazias; seja preciso e específico
 
 ### Estrutura da Tese
@@ -190,7 +190,7 @@ Responda APENAS com JSON válido:
 {
   "status": "accepted",
   "reason": "Descrição específica do motivo da aceitação",
-  "category": "promotional | generic | vague | context_dependent | redundant | low_density",
+  "category": "",
   "title": "Título declarativo curto (máx 100 chars)",
   "thesis": "Uma frase-tese clara e completa",
   "definition": "Explicação autônoma, detalhada e compreensível por si só (mínimo 3-4 frases substantivas)",
@@ -210,29 +210,18 @@ Responda APENAS com JSON válido:
 
 ### Caso 2: Conceito REJEITADO
 
-Responda APENAS com JSON válido:
+Responda APENAS com JSON válido, contendo **somente estes três campos** — não escreva
+título, tese, definição, conexões nem tags para um conceito rejeitado:
 
 ```json
 {
   "status": "rejected",
   "reason": "Descrição específica do motivo da rejeição",
-  "category": "promotional | generic | vague | context_dependent | redundant | low_density",
-  "title": "Título declarativo curto (máx 80 chars)",
-  "thesis": "Uma frase-tese clara e completa",
-  "definition": "Explicação autônoma, detalhada e compreensível por si só (mínimo 3-4 frases substantivas)",
-  "intuition": "Analogia, metáfora ou exemplo cotidiano que ilumina o conceito",
-  "example": "Exemplo prático de aplicação",
-  "limits": "Ressalvas, exceções e limites de aplicação específicos",
-  "connections": [
-    {
-      "related_note_id": "01HAAAAAAAAAAAAAAAAAAAAAAA",
-      "relation_type": "supports | contradicts | extends | depends_on | exemplifies | related",
-      "description": "Descrição precisa da relação conceitual"
-    }
-  ],
-  "tags": ["tag1", "tag2", "tag3"]
+  "category": "promotional | generic | vague | context_dependent | redundant | low_density"
 }
 ```
+
+No caso **accepted**, `category` não carrega motivo de rejeição: devolva string vazia.
 
 **Categorias de rejeição:**
 - `promotional`: conteúdo comercial ou propaganda

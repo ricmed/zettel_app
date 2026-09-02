@@ -203,16 +203,19 @@ def _process_chunk(
     else:
         source = db.get_source(source_id)
         source_title = source["title"] if source else "Desconhecido"
+        section_path = chunk_row.get("section_path") or chunk_row.get("locator") or ""
         locator = format_source_locator(
             chunk_row.get("page_in_book"),
-            chunk_row.get("section_path") or chunk_row.get("locator") or "",
+            section_path,
             chunk_row.get("page_in_file"),
         ) or chunk_row.get("locator", "")
 
         mapping = {
+            "language": cfg.language,
+            "domain": cfg.gardener.domain or "Geral",
             "source_id": source_id,
             "source_title": source_title,
-            "chapter_title": chunk_row.get("locator", ""),
+            "section_path": section_path,
             "locator": locator,
             "images_context": images_context,
             "chunk_text": chunk_text,

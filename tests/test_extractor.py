@@ -154,3 +154,68 @@ def test_write_literature_draft_records_llm_model(tmp_path):
     meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
     assert meta["llm_model"] == "gpt-4o-mini"
     db.close()
+
+
+def test_process_chunk_payload_carries_section_language_and_domain(tmp_path, monkeypatch):
+    """Prompt 1 gets the section path, the formatted locator, and config identity.
+
+    `section_path` used to be sent as `chapter_title` filled with `locator`, so the
+    model saw the citation string twice and never the heading trail.
+    """
+    import json
+    from pathlib import Path
+
+    from zettel.extractor import _process_chunk
+    from zettel.llm import load_prompt_parts
+    from zettel.state import StateDB
+
+    cfg = AppConfig(
+        vault_path=tmp_path / "vault",
+        cache_path=tmp_path / "cache",
+        state_db_path=tmp_path / "state.db",
+        chroma_path=tmp_path / "chroma",
+        prompts_path=Path(__file__).resolve().parents[1] / "prompts",
+    )
+    cfg.language = "pt-BR"
+    cfg.gardener.domain = "Ciencia de Dados"
+    (cfg.vault_path / "00_Inbox" / "Review").mkdir(parents=True)
+
+    db = StateDB(cfg.state_db_path)
+    db.upsert_source("@Book2024", "Book2024", "Livro", ["Autor"], 2024, "h", "/x.pdf", "pdf")
+    db.upsert_chapter("@Book2024::ch000", "@Book2024", "Ch1", "chh")
+    db.upsert_chunk(
+        "@Book2024::ch000::abc", "@Book2024", "@Book2024::ch000",
+        "texto do chunk com conteudo suficiente", "ck",
+        locator="Ch1", section_path="3 Retrieval > 3.2 Reranking",
+        chunk_index=0, page_in_file=12, page_in_book=145, status="pending",
+    )
+    chunk_row = db.get_chunk("@Book2024::ch000::abc")
+
+    captured: dict[str, str] = {}
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        captured["user"] = user
+        captured["system"] = system or ""
+        return json.dumps({
+            "chunk_status": "rejected",
+            "rejection_reason": "sem conceito",
+            "rejection_category": "narrative",
+            "summary": "Trecho de transicao.",
+            "key_concepts": [],
+            "candidates": [],
+        })
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+    db.close()
+
+    assert "3 Retrieval > 3.2 Reranking" in captured["user"]
+    assert "p.145" in captured["user"]
+    assert "pt-BR" in captured["system"]
+    assert "Ciencia de Dados" in captured["system"]
+    # No orphan placeholder survived fill_template on either half.
+    for half in captured.values():
+        assert "{language}" not in half and "{domain}" not in half
+        assert "{section_path}" not in half and "{chunk_text}" not in half

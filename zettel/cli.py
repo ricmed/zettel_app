@@ -1885,6 +1885,8 @@ def doctor(
         "dedupe_decision.md",
         "moc_generation.md",
         "moc_incremental.md",
+        "moc_hub_generation.md",
+        "moc_hub_incremental.md",
         "ptbr_guard.md",
         "image_description.md",
         "ask.md",

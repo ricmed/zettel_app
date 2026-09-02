@@ -157,13 +157,19 @@ class ArticleOutline(BaseModel):
 
 
 class PermanentNoteLLMOutput(BaseModel):
-    """Structured output from Prompt 2 — the permanent note body."""
+    """Structured output from Prompt 2 — the permanent note body.
+
+    A rejected concept carries only ``status``/``reason``/``category``: the prompt
+    does not ask for a note body that would be thrown away. The body fields are
+    therefore optional here and validated by the connector when ``status`` is
+    ``accepted``.
+    """
     status: str = Field(description="Status da nota")
-    reason: str = Field(description="Motivo da rejeição")
-    category: str = Field(description="Categoria da nota")
-    title: str = Field(description="Título declarativo da nota")
-    thesis: str = Field(description="Tese principal (blockquote)")
-    definition: str = Field(description="Definição/explicação autônoma")
+    reason: str = Field(default="", description="Motivo da rejeição")
+    category: str = Field(default="", description="Categoria da rejeição (vazio se aceita)")
+    title: str = Field(default="", description="Título declarativo da nota")
+    thesis: str = Field(default="", description="Tese principal (blockquote)")
+    definition: str = Field(default="", description="Definição/explicação autônoma")
     intuition: str = Field(default="", description="Intuição ou analogia")
     example: str = Field(default="", description="Exemplo prático")
     limits: str = Field(default="", description="Limites e ressalvas")

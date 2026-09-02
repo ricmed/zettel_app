@@ -388,3 +388,65 @@ def test_persist_and_backlink_writes_inverse_on_target(tmp_path):
         assert "amplia" in block
     finally:
         db.close()
+
+
+def test_parse_permanent_note_accepts_minimal_rejection():
+    """A rejected concept answers with status/reason/category only (no note body)."""
+    from zettel.connector import _parse_permanent_note_output
+
+    out = _parse_permanent_note_output(
+        '{"status": "rejected", "reason": "propaganda", "category": "promotional"}'
+    )
+    assert out.status == "rejected"
+    assert out.category == "promotional"
+    assert out.title == "" and out.thesis == "" and out.definition == ""
+
+
+def test_parse_permanent_note_rejects_accepted_without_body():
+    """An accepted answer missing the body is a broken response, not an empty note."""
+    import pytest
+
+    from zettel.connector import _parse_permanent_note_output
+
+    with pytest.raises(ValueError, match="obrigatorios"):
+        _parse_permanent_note_output('{"status": "accepted", "reason": "ok"}')
+
+
+def test_ptbr_guard_roundtrips_the_json_object(monkeypatch, tmp_path):
+    """The guard sends 5 keys as JSON and must get the same object back.
+
+    The prompt used to ask for "apenas o texto corrigido"; `json.loads` then raised
+    and the `except` swallowed it, turning the guard into a silent no-op.
+    """
+    import json
+
+    from zettel.config import AppConfig
+    from zettel.connector import _apply_ptbr_guard
+    from zettel.schemas import PermanentNoteLLMOutput
+
+    cfg = AppConfig(
+        vault_path=tmp_path / "vault",
+        prompts_path=Path(__file__).resolve().parents[1] / "prompts",
+    )
+    output = PermanentNoteLLMOutput(
+        status="accepted", reason="ok", category="", title="T",
+        thesis="The model learns from data",
+        definition="This definition is in English and should be translated",
+        intuition="Like a student", example="An example", limits="Some limits",
+    )
+
+    sent: dict[str, str] = {}
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        sent["user"] = user
+        payload = json.loads(user[user.index("{"):user.rindex("}") + 1])
+        assert set(payload) == {"thesis", "definition", "intuition", "example", "limits"}
+        return json.dumps({k: f"[ptbr] {v}" for k, v in payload.items()})
+
+    monkeypatch.setattr("zettel.connector.call_llm", fake_call_llm)
+    fixed = _apply_ptbr_guard(cfg, object(), output)
+
+    assert fixed.thesis == "[ptbr] The model learns from data"
+    assert fixed.definition.startswith("[ptbr] ")
+    assert fixed.example == "[ptbr] An example"
+    assert "{text}" not in sent["user"]

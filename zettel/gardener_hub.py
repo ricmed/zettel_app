@@ -427,6 +427,7 @@ def _update_hub_moc(
         _build_note_alias_map,
         _build_notes_list,
         _moc_embeddable,
+        _note_wikilink,
         _parse_incremental_output,
         _parse_moc_structure,
         _snapshot_moc_file,
@@ -462,6 +463,10 @@ def _update_hub_moc(
         sub_parts.append(f"#### {sub['title']}")
         if sub["description"]:
             sub_parts.append(sub["description"])
+        for nid in sub["note_ids"]:
+            link = _note_wikilink(db, nid)
+            if link:
+                sub_parts.append(link.rstrip())
         sub_parts.append("")
 
     hub_note = db.get_note(hub_id)

@@ -208,3 +208,64 @@ def test_process_hub_cluster_routes_to_incremental(tmp_path):
     assert llm.invoke.call_count == 1
     assert stats.incremental == 1
     db.close()
+
+
+def test_hub_incremental_lists_notes_already_in_the_moc(tmp_path):
+    """Existing subsections carry the wikilinks, like the taxonomy incremental.
+
+    Without them the model only sees subsection titles and re-files notes that are
+    already placed.
+    """
+    db = _setup_graph_db(tmp_path)
+    cfg = AppConfig(vault_path=tmp_path / "vault")
+    moc_dir = cfg.vault_path / "40_MOCs"
+    moc_dir.mkdir(parents=True, exist_ok=True)
+    moc_file = moc_dir / "MOC - MOC002 - tema-hub.md"
+
+    meta = {
+        "type": "moc",
+        "moc_id": "MOC002",
+        "topic": "Tema Hub",
+        "hub_note_id": "HUB",
+        "origin": "hub_pipeline",
+    }
+    body = (
+        "# Tema Hub\n\nResumo.\n\n"
+        "## Porta de entrada\n\n"
+        "- [[ZTL - HUB - nota-central]]\n\n"
+        "## Vizinhos\n\n"
+        "- [[ZTL - A - nota-a]]\n"
+    )
+    safe_write_note(moc_file, meta, body)
+    db.upsert_moc(
+        "MOC002", "Tema Hub", str(moc_file), "old_sig",
+        body=body, frontmatter_json=json.dumps(meta), origin="hub_pipeline",
+    )
+
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir()
+    (prompts_dir / "moc_hub_incremental.md").write_text(
+        "Hub: {hub_note_title} {moc_topic} {moc_summary}\n"
+        "SUBSECOES:\n{existing_subsections}\nNOVAS:\n{new_notes_list}",
+        encoding="utf-8",
+    )
+    cfg.prompts_path = prompts_dir
+
+    response = MagicMock()
+    response.content = json.dumps({"placements": [], "new_subsections": []})
+    llm = MagicMock()
+    llm.invoke.return_value = response
+
+    from zettel.gardener_hub import _update_hub_moc
+
+    _update_hub_moc(
+        cfg, db, MagicMock(), llm,
+        {"moc_id": "MOC002", "topic": "Tema Hub", "path": str(moc_file)},
+        "HUB", ["B", "C"], "new_sig",
+    )
+
+    sent = str(llm.invoke.call_args[0][0][-1].content)
+    subsections = sent.split("SUBSECOES:")[1].split("NOVAS:")[0]
+    assert "[[ZTL - HUB - nota-central]]" in subsections
+    assert "[[ZTL - A - nota-a]]" in subsections
+    db.close()

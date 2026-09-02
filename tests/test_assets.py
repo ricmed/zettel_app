@@ -283,3 +283,27 @@ def test_parse_retry_after_seconds():
     assert _parse_retry_after_seconds(RuntimeError("try again in 392ms")) == pytest.approx(0.392)
     assert _parse_retry_after_seconds(RuntimeError("try again in 1.5s")) == pytest.approx(1.5)
     assert _parse_retry_after_seconds(RuntimeError("no hint")) is None
+
+
+def test_describe_uses_configured_language(tmp_path, db, monkeypatch):
+    """`image_description.md` takes {language} from config, not a hardcoded PT-BR."""
+    from pathlib import Path
+
+    cfg = _cfg(tmp_path)
+    cfg.prompts_path = Path(__file__).resolve().parents[1] / "prompts"
+    cfg.language = "en-US"
+    _pending_asset(tmp_path, db, cfg)
+
+    captured: dict[str, str] = {}
+
+    class FakeLLM:
+        def invoke(self, messages):
+            captured["system"] = str(messages[0].content)
+            class R:
+                content = "A bar chart comparing models."
+            return R()
+
+    monkeypatch.setattr("zettel.assets.get_llm", lambda *a, **k: FakeLLM())
+    assert describe_pending_assets(cfg, db) == 1
+    assert "en-US" in captured["system"]
+    assert "{language}" not in captured["system"]

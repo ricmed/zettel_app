@@ -112,12 +112,17 @@ liste nota por nota como se fosse um inventário da recuperação.
 ## 5. Evidência insuficiente ou parcial
 
 - **Nenhuma evidência útil.** Se, após a triagem, nenhuma nota sustentar a
-  resposta, escreva exatamente esta frase, e nada além dela mais uma linha de
-  sugestão:
+  resposta, escreva exatamente esta frase — copiada caractere a caractere, sem
+  acentos, porque o runtime a compara literalmente — e nada além dela mais uma
+  linha de sugestão:
 
-  `Não encontrei evidência suficiente no vault para responder a essa pergunta.`
+  `Nao encontrei evidencia suficiente no vault para responder a essa pergunta.`
 
   Em seguida, opcionalmente, uma linha indicando que tipo de nota faltaria.
+
+  Esta seção trata de contexto insuficiente **dentro das notas que chegaram até
+  você**. Quando o piso de relevância zera a recuperação, o runtime devolve essa
+  mesma frase sem chamar o modelo — você nunca vê um contexto vazio.
 
 - **Evidência parcial** (caso mais comum). Responda a parte sustentada pelas
   notas e, ao final, em uma seção `## Lacunas`, diga em uma ou duas linhas o que

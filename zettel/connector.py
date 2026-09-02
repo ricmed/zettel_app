@@ -223,6 +223,8 @@ def _process_candidate(
     # is expected, to reduce prompt-injection risk.
     images_context = _build_candidate_images_context(db, cand)
     mapping = {
+        "language": cfg.language,
+        "domain": cfg.gardener.domain or "Geral",
         "thesis": cand.thesis,
         "definition": cand.definition,
         "intuition": cand.intuition or "",
@@ -671,7 +673,22 @@ def _apply_ptbr_guard(
 
 
 def _parse_permanent_note_output(text: str) -> PermanentNoteLLMOutput:
-    """Parse LLM response into PermanentNoteLLMOutput."""
+    """Parse LLM response into PermanentNoteLLMOutput.
+
+    The body fields are optional in the schema because a rejected concept answers
+    with ``status``/``reason``/``category`` only. An *accepted* answer without a
+    body is a broken response, not an empty note — reject it here.
+    """
     json_text = extract_json(text)
     data = json.loads(json_text)
-    return PermanentNoteLLMOutput(**data)
+    output = PermanentNoteLLMOutput(**data)
+    if output.status != "rejected":
+        missing = [
+            f for f in ("title", "thesis", "definition")
+            if not getattr(output, f).strip()
+        ]
+        if missing:
+            raise ValueError(
+                f"Nota aceita sem campos obrigatorios: {', '.join(missing)}"
+            )
+    return output
