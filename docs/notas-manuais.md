@@ -10,7 +10,7 @@ Módulos: [`sync.py`](../zettel/sync.py), [`new_note.py`](../zettel/new_note.py)
 
 ## `zettel sync-manual`
 
-Notas criadas à mão no Obsidian são adotadas pelo pipeline com **`zettel sync-manual`**, que varre as quatro pastas (`10_Sources`, `20_Literature`, `30_Permanent`, `40_MOCs`):
+Notas criadas à mão no Obsidian são adotadas pelo pipeline com **`zettel sync-manual`**, que varre as quatro pastas (`10_Sources`, `20_Literature`, `30_Permanent`, `40_MOCs`). Arquivos `origin: pipeline` **inalterados** entram como `skipped` (não reindexam nem recontam como `updated`); uma ZTL/MOC de pipeline só é reindexada se o checksum semântico mudou (edição real no vault):
 
 - Notas sem `note_id`/`moc_id`/`source_id` recebem um id/citekey gerado, injetado no frontmatter.
 - Cada nota ganha uma flag de proveniência `origin: manual | pipeline` (no frontmatter e no banco), permitindo distinguir o que foi escrito à mão do que foi gerado.
@@ -30,7 +30,7 @@ python -m zettel sync-manual
 python -m zettel sync-manual --rebuild-graph   # re-deriva as arestas de todo o vault
 ```
 
-> Nota importante sobre o dispatch: `sync._sync_literature` só encaminha para a adoção completa quando a nota tem `origin: manual`. LITs granulares do pipeline continuam no caminho leve (`update_chunk_review`), para que o texto extraído real nunca seja sobrescrito.
+> Nota importante sobre o dispatch: `sync._sync_literature` só encaminha para a adoção completa quando a nota tem `origin: manual`. LITs granulares do pipeline continuam no caminho leve: se o caminho e o `literature_id` já batem com o chunk, a nota é `skipped`; se o arquivo foi movido, só o path no SQLite é atualizado. O `status: approved` do frontmatter **não** é copiado para `chunks.status` — depois do `review` essa linha é `persisted`.
 
 ---
 

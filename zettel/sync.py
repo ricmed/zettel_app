@@ -236,7 +236,9 @@ def _sync_literature(
     that synthesizes the chunk row a hand-written note never had, so the note
     reaches ``literature_notes`` and the source index like an approved one.
     Pipeline-authored granular notes keep the lightweight path (their chunk row
-    already carries the real extracted text and checksum).
+    already carries the real extracted text and checksum): skip when path and
+    literature_id already match, and never copy frontmatter ``status: approved``
+    onto ``chunks.status`` (review persists that row as ``persisted``).
     """
     from zettel.harvester.citekey import generate_citekey
 
@@ -272,16 +274,7 @@ def _sync_literature(
             from zettel.manual_lit import adopt_manual_literature
 
             return adopt_manual_literature(cfg, db, idx, file_path, meta, body)
-        chunk = db.get_chunk(chunk_id)
-        status = meta.get("status") or "approved"
-        if chunk:
-            db.update_chunk_review(
-                chunk_id,
-                status=status if status in ("approved", "persisted", "awaiting_review") else "approved",
-                literature_note_path=str(file_path),
-                literature_id=meta.get("literature_id"),
-            )
-        return "updated" if chunk else "skipped"
+        return _sync_pipeline_granular_literature(db, file_path, meta, chunk_id)
 
     # Index / legacy monolithic LIT → lit_body
     if source_id != meta.get("source_id"):
@@ -296,6 +289,32 @@ def _sync_literature(
         return "skipped"
     db.update_source_texts(source_id, lit_body=full)
     return "new" if not (existing and existing.get("lit_body")) else "updated"
+
+
+def _sync_pipeline_granular_literature(
+    db: StateDB, file_path: Path, meta: dict, chunk_id: str,
+) -> str:
+    """Keep a pipeline granular LIT's SQLite path in sync without re-adopting it.
+
+    The vault frontmatter uses ``status: approved`` after review; the chunk row
+    is ``persisted``. Never copy the YAML status back onto the row. Skip when
+    path and literature_id already match so a no-op run is not counted updated.
+    """
+    chunk = db.get_chunk(chunk_id)
+    if not chunk:
+        return "skipped"
+    path_str = str(file_path)
+    literature_id = meta.get("literature_id")
+    same_path = chunk.get("literature_note_path") == path_str
+    same_id = not literature_id or chunk.get("literature_id") == literature_id
+    if same_path and same_id:
+        return "skipped"
+    db.update_chunk_review(
+        chunk_id,
+        literature_note_path=path_str,
+        literature_id=literature_id,
+    )
+    return "updated"
 
 
 def _sync_permanent(

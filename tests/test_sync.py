@@ -136,6 +136,73 @@ def test_resync_unchanged_is_skipped(cfg, db):
     assert stats2["permanent"] == 0
 
 
+def _seed_pipeline_granular_lit(cfg, db, *, path=None):
+    """Approved pipeline LIT: vault says status:approved, chunk row is persisted."""
+    source_id = "@Pipe2024"
+    chunk_id = f"{source_id}::ch000::abcd"
+    lit_id = "lit-pipe-1"
+    db.upsert_source(
+        source_id, "Pipe2024", "Paper", ["Autor"], 2024,
+        "h", "/x.pdf", "pdf", origin="pipeline",
+    )
+    db.upsert_chapter(f"{source_id}::ch000", source_id, "Ch1", "chh")
+    lit_dir = cfg.vault_path / "20_Literature" / "Pipe2024"
+    lit_dir.mkdir(parents=True, exist_ok=True)
+    lit = path or (lit_dir / "LIT - Pipe2024 - p001 - topic-0001.md")
+    _write(
+        lit,
+        {
+            "type": "literature",
+            "origin": "pipeline",
+            "source_id": source_id,
+            "citekey": "Pipe2024",
+            "chunk_id": chunk_id,
+            "literature_id": lit_id,
+            "status": "approved",
+        },
+        "Resumo gerado pelo pipeline.",
+    )
+    db.upsert_chunk(
+        chunk_id, source_id, f"{source_id}::ch000",
+        "excerpt", "ck",
+        status="persisted",
+        literature_note_path=str(lit),
+        literature_id=lit_id,
+    )
+    return chunk_id, lit
+
+
+def test_pipeline_granular_lit_unchanged_is_skipped(cfg, db):
+    chunk_id, _ = _seed_pipeline_granular_lit(cfg, db)
+    idx = FakeIndex()
+    stats = run_sync_manual(cfg, db, idx)
+    assert stats["literature"] == 0
+    assert stats["skipped"] >= 1
+    assert db.get_chunk(chunk_id)["status"] == "persisted"
+
+
+def test_pipeline_granular_lit_does_not_overwrite_persisted_status(cfg, db):
+    chunk_id, lit = _seed_pipeline_granular_lit(cfg, db)
+    # Simulate the old bug: path already matches, frontmatter says approved.
+    idx = FakeIndex()
+    run_sync_manual(cfg, db, idx)
+    assert db.get_chunk(chunk_id)["status"] == "persisted"
+    assert db.get_chunk(chunk_id)["literature_note_path"] == str(lit)
+
+
+def test_pipeline_granular_lit_moved_updates_path(cfg, db):
+    chunk_id, old = _seed_pipeline_granular_lit(cfg, db)
+    new = old.with_name("LIT - Pipe2024 - p001 - topic-renomeado.md")
+    old.rename(new)
+    db.update_chunk_review(chunk_id, literature_note_path=str(old))
+    idx = FakeIndex()
+    stats = run_sync_manual(cfg, db, idx)
+    assert stats["literature"] == 1
+    row = db.get_chunk(chunk_id)
+    assert row["literature_note_path"] == str(new)
+    assert row["status"] == "persisted"
+
+
 # ── Graph edges from manual wikilinks (Etapa 6) ────────────────────────
 
 # Valid ULID-shaped ids (Crockford base32, 26 chars).
