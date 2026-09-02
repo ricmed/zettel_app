@@ -9,7 +9,7 @@
 
 ## Context and Problem Statement
 
-The pipeline persists state across two independent stores: SQLite (`data/state.db`) for relational metadata, pipeline status tracking, and FTS5 lexical search, and ChromaDB (`data/chroma/`) for vector embeddings across five collections. Every data-modifying phase (harvest, extract, review, connect, garden, sync, and web job dispatch) writes to both stores, but the two writes are not part of a single transaction. During harvest, for example, a chunk is first inserted into SQLite with a `pending` status and only afterward embedded and upserted into ChromaDB (`zettel/harvester.py:1722` and `:1737`). If the process crashes between these two calls, the stores diverge: SQLite may reference chunks with no corresponding embedding, or vice versa.
+The pipeline persists state across two independent stores: SQLite (`data/state.db`) for relational metadata, pipeline status tracking, and FTS5 lexical search, and ChromaDB (`data/chroma/`) for vector embeddings across five collections. Every data-modifying phase (harvest, extract, review, connect, garden, sync, and web job dispatch) writes to both stores, but the two writes are not part of a single transaction. During harvest, for example, a chunk is first inserted into SQLite with a `pending` status and only afterward embedded and upserted into ChromaDB (`chunk_and_persist` in `zettel/harvester/chunking.py`). If the process crashes between these two calls, the stores diverge: SQLite may reference chunks with no corresponding embedding, or vice versa.
 
 This coupling is architectural rather than incidental — it exists because SQLite and ChromaDB serve different, non-overlapping needs (normalized relational state plus BM25 search versus approximate nearest-neighbor vector search) and neither store natively provides both. The two stores have coexisted since the project's early architecture (18+ months prior to this writing) and have only grown additively (new SQLite tables such as `web_jobs`, new ChromaDB collections such as `literature_notes`) without a cross-store transactional guarantee ever being added.
 
@@ -82,7 +82,7 @@ The single-writer job queue in the web UI (rejecting a second mutating job with 
 
 ## References
 
-* `zettel/harvester.py:1722` and `:1737` — sequential, independent SQLite and ChromaDB writes during chunk ingestion
-* `zettel/state.py:818` — SQLite-side `upsert_chunk`
-* `zettel/index.py:497` — ChromaDB-side `upsert_chunk`
+* `zettel/harvester/chunking.py` — `chunk_and_persist`, sequential and independent SQLite and ChromaDB writes during chunk ingestion
+* `zettel/state.py` — SQLite-side `upsert_chunk`
+* `zettel/index.py` — ChromaDB-side `upsert_chunk`
 * `CLAUDE.md` — documents the dual-store architecture and the absence of a cross-store transaction guarantee

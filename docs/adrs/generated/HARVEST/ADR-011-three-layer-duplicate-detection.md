@@ -67,8 +67,7 @@ The three-layer path is stable and fully test-covered, so it functions as a fixe
 
 ## References
 
-* `zettel/harvester.py:527-599` — `_process_file()`, orchestrates all three layers in sequence
-* `zettel/harvester.py:841-887` — `_find_semantic_duplicate_candidates()`, Layer 3 embedding query and candidate ranking
-* `zettel/harvester.py:890-930` — `_resolve_duplicate_decision()`, interactive/non-interactive decision routing
+* `zettel/harvester/pipeline.py` — `_process_file`, orchestrates all three layers in sequence
+* `zettel/harvester/duplicates.py` — `find_semantic_duplicate_candidates`, Layer 3 embedding query and candidate ranking; `resolve_duplicate_decision`, interactive/non-interactive decision routing; `sample_chunk_texts`, the chunk sample Layer 3 queries with; `HarvestAborted`, raised by the `abort` action
 * `zettel/state.py` — `get_file_by_checksum`, `get_source_by_extraction_checksum`, `record_duplicate`
 * `config/config.yaml` — `harvest.duplicate_chunk_threshold`, `harvest.duplicate_sample_size`, `harvest.non_interactive_duplicate_action`

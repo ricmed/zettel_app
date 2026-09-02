@@ -68,8 +68,8 @@ Because the vector store choice is fixed while the embedding provider is pluggab
 
 ## References
 
-- `zettel/index.py:1` — pinned dependency (`chromadb == 1.5.9`)
-- `zettel/index.py:14-21` — five collection definitions (sources, chunks, permanent_notes, mocs, literature_notes)
-- `zettel/index.py:150` — `PersistentClient` instantiation (embedded mode)
-- `zettel/retrieval.py` — consumes ChromaDB dense search results in hybrid RRF fusion
-- `zettel/harvester.py` — semantic layer-3 duplicate detection queries ChromaDB directly
+- `pyproject.toml` — pinned dependency (`chromadb == 1.5.9`)
+- `zettel/index.py` — `COL_SOURCES`, `COL_CHUNKS`, `COL_PERMANENT`, `COL_MOCS`, `COL_LITERATURE` and `_ALL_COLLECTIONS`, the five collection definitions
+- `zettel/index.py` — `VectorIndex`, which instantiates `chromadb.PersistentClient` (embedded mode)
+- `zettel/retrieval.py` — `Retriever`, consumes ChromaDB dense search results in hybrid RRF fusion
+- `zettel/harvester/duplicates.py` — `find_semantic_duplicate_candidates`, semantic layer-3 duplicate detection queries ChromaDB directly

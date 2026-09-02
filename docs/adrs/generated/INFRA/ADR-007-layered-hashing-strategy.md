@@ -64,8 +64,9 @@ The `top_p` gap in `llm_call_checksum` is a live cache-correctness edge case rat
 
 ## References
 
-* `zettel/hashing.py` (114 lines) — `normalize_text_for_hash`, `sha256_hex`, `compute_llm_call_checksum`, `compute_embedding_input_hash`
-* `zettel/harvester.py:543,585,1624-1637` — file, extraction, and chapter checksum computation and comparison during harvest
-* `zettel/extractor.py:189-196` — `llm_call_checksum` construction for deterministic response caching
-* `zettel/connector.py:238-241,376-379` — `llm_call_checksum` and `compute_embedding_input_hash` (embed-skip) usage
-* `zettel/state.py:195` — `llm_cache` table storing checksum-keyed cached responses
+* `zettel/hashing.py` — `normalize_text_for_hash`, `sha256_hex`, `file_sha256`, `short_hash`, `compute_llm_call_checksum`, `compute_embedding_input_hash`
+* `zettel/harvester/pipeline.py` — `_process_file`, file checksum (`file_sha256`) and extraction checksum computation and comparison during harvest
+* `zettel/harvester/chunking.py` — `chunk_and_persist`, chapter and chunk checksums (the chapter checksum is what skips unchanged chapters)
+* `zettel/extractor.py` — `compute_llm_call_checksum` construction for deterministic response caching
+* `zettel/connector.py` — `compute_llm_call_checksum` and `compute_embedding_input_hash` (embed-skip) usage
+* `zettel/state.py` — `llm_cache` table storing checksum-keyed cached responses; `get_cached_llm_response` / `cache_llm_response`

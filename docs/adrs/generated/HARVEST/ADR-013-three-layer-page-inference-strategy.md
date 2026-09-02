@@ -67,8 +67,9 @@ The interpolation layer's linear assumption means inference quality tracks how u
 
 ## References
 
-* `zettel/paging.py:67-93` — dispatcher that prefers explicit page metadata and falls back to text-pattern matching
-* `zettel/paging.py:96-126` — interpolation used to fill remaining gaps between chunks with a known page
-* `zettel/paging.py:26-31` — text-pattern definitions used as the fallback detection layer
-* `zettel/harvester.py:1687-1710` — per-chunk page assignment and file-to-book page offset computation
-* `zettel/harvester.py:1761-1831` — content-start offset resolution consumed by the offset computation
+* `zettel/paging.py` — `extract_page_hint`, the dispatcher that prefers explicit page metadata and falls back to text-pattern matching; `lookup_page_for_chunk`, the Docling page-map lookup that supplies that metadata
+* `zettel/paging.py` — `infer_missing_page` and `apply_page_inference`, the interpolation that fills remaining gaps between chunks with a known page
+* `zettel/paging.py` — `PAGE_PATTERNS`, the text-pattern definitions used as the fallback detection layer; `PAGE_BREAK_MARKER` / `page_map_from_marked_markdown`, the Docling page-break map that made the regex layer a last resort
+* `zettel/harvester/chunking.py` — `chunk_and_persist`, per-chunk page assignment and the file-to-book offset (`compute_page_in_book`)
+* `zettel/paging.py` — `resolve_content_paging` and `suggest_content_start`, content-start offset resolution consumed by the offset computation
+* `zettel/harvester/set_paging.py` — `run_set_paging`, repairs the printed offset on an existing source without re-extracting
