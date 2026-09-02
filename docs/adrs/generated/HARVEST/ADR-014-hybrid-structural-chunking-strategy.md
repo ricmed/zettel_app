@@ -78,6 +78,21 @@ Amendment:
 
 Consistent with the migration cost already described in *Consequences*, this changes boundaries only for sources chunked after the amendment: already-harvested sources keep their old chunks until the operator runs `zettel rechunk`. There is no silent re-chunking.
 
+## Addendum (2026-09-02): Heading ATX on the first chunk of each section
+
+**Status:** Accepted amendment — does not replace the decision above. Complements the fence addendum.
+
+The structural stage used H1–H6 as split markers and stored the path in `section_path` metadata, but **did not** copy the heading line into the persisted chunk `text`. The extract prompt already receives `section_path` as locator, yet the embedding, the chunk dump, and the LIT source excerpt saw only the body. A section whose body is a fenced template or diagram (heading + ` ```mermaid ` with no surrounding prose) was therefore an orphan in the vector: the words that named the section never entered the hash or the embedding.
+
+Amendment:
+
+* Each section carries the original ATX line(s) in a `headings` list. The size/fence splitter still runs on **body only**.
+* After pieces are produced, the heading(s) are prefixed onto **the first piece only** (`heading + "\n\n" + piece`). Continuations of the same section stay body-only.
+* Prefixing happens **after** fence atomization. Prefixing before the fence split would turn a fence-only section into two chunks (title + fence).
+* H1/H2 is restored on the first chunk of the chapter (preamble or first subsection). Synthetic chapters (`Documento completo`, `Introdução`) do not invent a `#`.
+* Forward merge of a short section concatenates `headings` onto the surviving section (all appear on that unit's first chunk). Trailing merge injects the carried heading at the join in `text`; a heading-only piece is glued onto the following piece so it cannot detach from a fence.
+* `chunk_id` is a hash of `text`, so the prefix is part of identity: identical bodies under **different** headings no longer collapse. Already-harvested sources keep old chunks until `zettel rechunk`.
+
 ## References
 
 Paths refreshed 2026-09-02. The original references pointed into the monolithic
@@ -85,8 +100,8 @@ Paths refreshed 2026-09-02. The original references pointed into the monolithic
 line ranges, since the line ranges are what rotted.
 
 * `zettel/harvester/chunking.py` — `split_into_chapters` (H1/H2 chapter boundaries), `split_chapter_into_sections` (H3-H6 sub-sections; builds the `section_path` carried in chunk metadata), `merge_small_sections` (`min_section_chars` folding), `split_chapter_into_chunks` (recursive-splitter fallback), `chunk_and_persist` (persistence and indexing)
-* `zettel/harvester/chunking.py` — addendum: `iter_fenced_spans` (fence scanner), `_headings_outside_fences` (heading filter), `_split_preserving_fences` (atomic fence in the size split)
-* `tests/test_harvester_sections.py` — section splitting and merge rules; addendum: fence atomicity, info-string/marker-family rules, unclosed fence, oversized fence
+* `zettel/harvester/chunking.py` — addendum: `iter_fenced_spans` (fence scanner), `_headings_outside_fences` (heading filter), `_split_preserving_fences` (atomic fence in the size split); heading-prefix addendum: `_glue_orphan_heading`, `headings` on section records, prefix on first piece in `split_chapter_into_chunks`
+* `tests/test_harvester_sections.py` — section splitting and merge rules; addendum: fence atomicity, info-string/marker-family rules, unclosed fence, oversized fence; heading prefix on first chunk, fence-only section, merge heading placement, checksum identity
 * `zettel/config.py` — `ChunkingConfig`: `chunk_size`, `chunk_overlap`, `min_section_chars`
 * `config/config.yaml` — operational chunking defaults (`chunking.*`)
 * `zettel/paging.py` — page-inference helpers consumed by `chunk_and_persist` (see ADR-013); the heading path itself is built in `zettel/harvester/chunking.py`, not here

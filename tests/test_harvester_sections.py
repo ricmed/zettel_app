@@ -62,24 +62,28 @@ def test_no_headings_yields_single_section():
 
 def test_small_sections_are_merged_forward():
     sections = [
-        {"section_path": "C > A", "text": "curto"},
-        {"section_path": "C > B", "text": "x" * 300},
+        {"section_path": "C > A", "text": "curto", "headings": ["### A"]},
+        {"section_path": "C > B", "text": "x" * 300, "headings": ["### B"]},
     ]
     merged = _merge_small_sections(sections, min_section_chars=200)
     assert len(merged) == 1
     assert merged[0]["section_path"] == "C > B"
     assert "curto" in merged[0]["text"]
+    assert merged[0]["headings"] == ["### A", "### B"]
+    assert "### A" not in merged[0]["text"]
 
 
 def test_trailing_small_section_merges_into_previous():
     sections = [
-        {"section_path": "C > A", "text": "y" * 300},
-        {"section_path": "C > B", "text": "curto"},
+        {"section_path": "C > A", "text": "y" * 300, "headings": ["### A"]},
+        {"section_path": "C > B", "text": "curto", "headings": ["### B"]},
     ]
     merged = _merge_small_sections(sections, min_section_chars=200)
     assert len(merged) == 1
     assert merged[0]["section_path"] == "C > A"
     assert "curto" in merged[0]["text"]
+    assert merged[0]["headings"] == ["### A"]
+    assert "### B" in merged[0]["text"]
 
 
 def test_large_section_is_subdivided():
@@ -100,6 +104,9 @@ def test_chunk_pairs_carry_section_path():
     pairs = _split_chapter_into_chunks(cfg, chapter)
     paths = {path for path, _ in pairs}
     assert paths == {"Cap > Alpha", "Cap > Beta"}
+    by_path = {path: text for path, text in pairs}
+    assert by_path["Cap > Alpha"].startswith("### Alpha")
+    assert by_path["Cap > Beta"].startswith("### Beta")
 
 
 def test_split_into_chapters_regression_no_headings():
@@ -127,8 +134,8 @@ def test_chunk_and_persist_writes_section_path(tmp_path):
         db.close()
 
 
-def test_chunk_and_persist_collapses_identical_content(tmp_path):
-    """Same normalized text in two sections shares one content-addressed chunk_id."""
+def test_chunk_and_persist_distinct_headings_keep_identical_bodies(tmp_path):
+    """Same body under different headings is two chunks — the prefix is in the hash."""
     db = StateDB(tmp_path / "s.db")
     try:
         db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
@@ -141,10 +148,34 @@ def test_chunk_and_persist_collapses_identical_content(tmp_path):
         }]
         n = _chunk_and_persist(_cfg(min_section_chars=20), db, idx, "@S", chapters)
         chunks = db.get_chunks_for_source("@S")
+        assert n == 2
+        assert len(chunks) == 2
+        paths = {c["section_path"] for c in chunks}
+        assert paths == {"Cap > Alpha", "Cap > Beta"}
+        texts = {c["section_path"]: c["text"] for c in chunks}
+        assert texts["Cap > Alpha"].startswith("### Alpha")
+        assert texts["Cap > Beta"].startswith("### Beta")
+        assert idx.chunks_store == {c["chunk_id"] for c in chunks}
+    finally:
+        db.close()
+
+
+def test_chunk_and_persist_still_collapses_identical_heading_and_body(tmp_path):
+    db = StateDB(tmp_path / "s.db")
+    try:
+        db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
+        idx = _FakeIdx()
+        same = "Conteudo identico suficientemente longo para virar chunk unico."
+        chapters = [{
+            "title": "Cap",
+            "text": f"### Alpha\n\n{same}\n\n### Alpha\n\n{same}",
+            "locator": "Cap",
+        }]
+        n = _chunk_and_persist(_cfg(min_section_chars=20), db, idx, "@S", chapters)
+        chunks = db.get_chunks_for_source("@S")
         assert n == 1
         assert len(chunks) == 1
         assert chunks[0]["section_path"] == "Cap > Alpha"
-        assert idx.chunks_store == {chunks[0]["chunk_id"]}
     finally:
         db.close()
 
@@ -383,3 +414,117 @@ def test_long_prose_without_fence_still_splits():
     pairs = _split_chapter_into_chunks(cfg, chapter)
     assert len(pairs) > 1
     assert all(len(t) <= cfg.chunking.chunk_size for _, t in pairs)
+
+
+# ── Heading prefix on the first chunk of each section ─────────────────
+
+
+def test_heading_prefixed_only_on_first_chunk_of_section():
+    cfg = _cfg(chunk_size=80, chunk_overlap=0, min_section_chars=20)
+    body = "palavra " * 80
+    chapter = {
+        "title": "Cap",
+        "heading": "## Cap",
+        "text": f"### Alpha\n\n{body}",
+        "locator": "Cap",
+    }
+    pairs = _split_chapter_into_chunks(cfg, chapter)
+    assert len(pairs) > 1
+    assert all(path == "Cap > Alpha" for path, _ in pairs)
+    first = pairs[0][1]
+    assert first.startswith("## Cap")
+    assert "### Alpha" in first
+    for _, text in pairs[1:]:
+        assert not text.startswith("## Cap")
+        assert not text.startswith("### Alpha")
+
+
+def test_heading_glued_to_fence_only_section():
+    """Section whose body is a single fence stays one chunk: heading + fence (case 088)."""
+    fence = "```mermaid\nflowchart LR\n    A --> B\n```"
+    cfg = _cfg(chunk_size=50, chunk_overlap=0, min_section_chars=10)
+    chapter = {
+        "title": "Cap",
+        "text": f"### 4.3 Esqueleto Flowchart\n\n{fence}",
+        "locator": "Cap",
+    }
+    pairs = _split_chapter_into_chunks(cfg, chapter)
+    assert len(pairs) == 1
+    path, text = pairs[0]
+    assert path == "Cap > 4.3 Esqueleto Flowchart"
+    assert text.startswith("### 4.3 Esqueleto Flowchart")
+    assert fence in text
+
+
+def test_chapter_heading_on_first_chunk_without_subsections():
+    cfg = _cfg(chunk_size=2000, chunk_overlap=0, min_section_chars=20)
+    chapter = {
+        "title": "Cap",
+        "heading": "# Cap",
+        "text": "prosa do capitulo sem subsecao. " * 5,
+        "locator": "Cap",
+    }
+    pairs = _split_chapter_into_chunks(cfg, chapter)
+    assert len(pairs) == 1
+    assert pairs[0][1].startswith("# Cap")
+
+
+def test_synthetic_chapter_does_not_invent_heading():
+    cfg = _cfg(chunk_size=2000, chunk_overlap=0, min_section_chars=20)
+    chapter = {
+        "title": "Documento completo",
+        "text": "Apenas texto plano sem heading de capitulo.",
+        "locator": "",
+    }
+    pairs = _split_chapter_into_chunks(cfg, chapter)
+    assert len(pairs) == 1
+    assert not pairs[0][1].startswith("#")
+
+
+def test_forward_merge_prefixes_both_headings_on_first_chunk():
+    cfg = _cfg(chunk_size=2000, chunk_overlap=0, min_section_chars=200)
+    chapter = {
+        "title": "C",
+        "text": "### A\n\ncurto\n\n### B\n\n" + ("x" * 300),
+        "locator": "C",
+    }
+    pairs = _split_chapter_into_chunks(cfg, chapter)
+    assert len(pairs) == 1
+    assert pairs[0][0] == "C > B"
+    text = pairs[0][1]
+    assert text.startswith("### A")
+    assert "### B" in text
+    assert "curto" in text
+
+
+def test_trailing_merge_injects_heading_at_join():
+    cfg = _cfg(chunk_size=2000, chunk_overlap=0, min_section_chars=200)
+    chapter = {
+        "title": "C",
+        "text": "### A\n\n" + ("y" * 300) + "\n\n### B\n\ncurto",
+        "locator": "C",
+    }
+    pairs = _split_chapter_into_chunks(cfg, chapter)
+    assert len(pairs) == 1
+    text = pairs[0][1]
+    assert text.startswith("### A")
+    join = text.index("### B")
+    assert "y" * 10 in text[:join]
+    assert "curto" in text[join:]
+
+
+def test_trailing_heading_glues_to_following_fence():
+    fence = "```text\nlinha de template\n```"
+    cfg = _cfg(chunk_size=80, chunk_overlap=0, min_section_chars=200)
+    chapter = {
+        "title": "C",
+        "text": f"### A\n\n{_filler(8)}\n\n### B\n\n{fence}",
+        "locator": "C",
+    }
+    pairs = _split_chapter_into_chunks(cfg, chapter)
+    joined = "\n".join(t for _, t in pairs)
+    assert "### B" in joined
+    assert fence in joined
+    for _, text in pairs:
+        if text.strip() == "### B":
+            raise AssertionError("heading-only piece was not glued to the next chunk")

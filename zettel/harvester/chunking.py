@@ -87,7 +87,12 @@ def _headings_outside_fences(
 
 
 def split_into_chapters(text: str, origin_type: str) -> list[dict[str, str]]:
-    """Split text into chapters/sections (Level 1 hierarchy)."""
+    """Split text into chapters/sections (Level 1 hierarchy).
+
+    Real H1/H2 chapters carry ``heading`` (the original ATX line) so the first
+    chunk of the chapter can restore it in the persisted text. Synthetic
+    chapters (``Documento completo``, ``Introdução``) omit ``heading``.
+    """
     text = strip_page_break_markers(text or "")
     chapters: list[dict[str, str]] = []
 
@@ -108,7 +113,12 @@ def split_into_chapters(text: str, origin_type: str) -> list[dict[str, str]]:
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         chapter_text = text[start:end].strip()
         if chapter_text:
-            chapters.append({"title": title, "text": chapter_text, "locator": title})
+            chapters.append({
+                "title": title,
+                "text": chapter_text,
+                "locator": title,
+                "heading": m.group(0).strip(),
+            })
 
     return chapters
 
@@ -116,26 +126,78 @@ def split_into_chapters(text: str, origin_type: str) -> list[dict[str, str]]:
 # ── Section Splitting (structural, H3-H6) ─────────────────────────────
 
 
+def _headings_of(sec: dict[str, Any]) -> list[str]:
+    raw = sec.get("headings")
+    if isinstance(raw, list):
+        return [h for h in raw if h]
+    heading = str(sec.get("heading") or "").strip()
+    return [heading] if heading else []
+
+
+def _join_headings(headings: list[str]) -> str:
+    return "\n\n".join(h.strip() for h in headings if h and str(h).strip())
+
+
+def _section_record(
+    section_path: str, text: str, headings: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "section_path": section_path,
+        "text": text,
+        "headings": [h for h in (headings or []) if h],
+    }
+
+
+_ORPHAN_HEADING_RE = re.compile(r"^#{1,6}\s+\S")
+
+
+def _is_orphan_heading(piece: str) -> bool:
+    """True when ``piece`` is a single ATX heading line (no body)."""
+    lines = [ln.strip() for ln in (piece or "").strip().splitlines() if ln.strip()]
+    return len(lines) == 1 and bool(_ORPHAN_HEADING_RE.match(lines[0]))
+
+
+def _glue_orphan_heading(pieces: list[str]) -> list[str]:
+    """Stick a heading-only piece onto the following piece (heading + fence)."""
+    glued: list[str] = []
+    i = 0
+    while i < len(pieces):
+        piece = pieces[i]
+        if _is_orphan_heading(piece) and i + 1 < len(pieces):
+            glued.append(piece.rstrip() + "\n\n" + pieces[i + 1])
+            i += 2
+            continue
+        glued.append(piece)
+        i += 1
+    return glued
+
+
 def split_chapter_into_sections(
-    chapter_title: str, chapter_text: str, min_section_chars: int
-) -> list[dict[str, str]]:
+    chapter_title: str,
+    chapter_text: str,
+    min_section_chars: int,
+    chapter_heading: str = "",
+) -> list[dict[str, Any]]:
     """Split a chapter's text into sub-sections by H3-H6 headings.
 
-    Returns [{"section_path": "Cap > Sub > Subsub", "text": ...}]. Text before the
-    first sub-heading (and chapters without any H3+) yields a single section whose
-    path is the chapter title. Sections shorter than `min_section_chars` are merged
-    forward to avoid crumb-sized chunks.
+    Returns [{"section_path": "Cap > Sub > Subsub", "text": ..., "headings": [...]}].
+    The heading line stays in ``headings`` (not in ``text``) so the size/fence
+    splitter cannot tear it off a following fence. Text before the first
+    sub-heading (and chapters without any H3+) yields a single section whose
+    path is the chapter title. Sections shorter than `min_section_chars` are
+    merged forward to avoid crumb-sized chunks.
     """
     heading_re = re.compile(r"^(#{3,6})\s+(.+)$", re.MULTILINE)
     matches = _headings_outside_fences(heading_re, chapter_text)
+    chapter_heads = [chapter_heading] if chapter_heading else []
     if not matches:
-        return [{"section_path": chapter_title, "text": chapter_text.strip()}]
+        return [_section_record(chapter_title, chapter_text.strip(), chapter_heads)]
 
-    raw: list[dict[str, str]] = []
+    raw: list[dict[str, Any]] = []
     if matches[0].start() > 0:
         preamble = chapter_text[: matches[0].start()].strip()
         if preamble:
-            raw.append({"section_path": chapter_title, "text": preamble})
+            raw.append(_section_record(chapter_title, preamble, chapter_heads))
 
     stack: list[tuple[int, str]] = []  # (heading level, title)
     for i, m in enumerate(matches):
@@ -150,39 +212,49 @@ def split_chapter_into_sections(
         end = matches[i + 1].start() if i + 1 < len(matches) else len(chapter_text)
         text = chapter_text[start:end].strip()
         if text:
-            raw.append({"section_path": section_path, "text": text})
+            raw.append(_section_record(section_path, text, [m.group(0).strip()]))
 
     return merge_small_sections(raw, min_section_chars)
 
 
 def merge_small_sections(
-    sections: list[dict[str, str]], min_section_chars: int
-) -> list[dict[str, str]]:
+    sections: list[dict[str, Any]], min_section_chars: int
+) -> list[dict[str, Any]]:
     """Merge sections shorter than min_section_chars into the following one.
 
     A trailing small section is appended to the previous kept section instead.
+    Forward merge concatenates ``headings`` onto the surviving section (prefix
+    on the first chunk). Trailing merge injects the carried heading at the
+    join in ``text`` so it appears where that subsection starts.
     """
     if not sections:
         return sections
 
-    merged: list[dict[str, str]] = []
-    carry: dict[str, str] | None = None
+    merged: list[dict[str, Any]] = []
+    carry: dict[str, Any] | None = None
     for sec in sections:
         if carry:
-            sec = {
-                "section_path": sec["section_path"],
-                "text": carry["text"] + "\n\n" + sec["text"],
-            }
+            sec = _section_record(
+                sec["section_path"],
+                carry["text"] + "\n\n" + sec["text"],
+                _headings_of(carry) + _headings_of(sec),
+            )
             carry = None
         if len(sec["text"]) < min_section_chars:
             carry = sec
         else:
-            merged.append(sec)
+            merged.append(_section_record(
+                sec["section_path"], sec["text"], _headings_of(sec),
+            ))
     if carry:
         if merged:
-            merged[-1]["text"] += "\n\n" + carry["text"]
+            block = _join_headings(_headings_of(carry))
+            suffix = f"\n\n{block}\n\n{carry['text']}" if block else f"\n\n{carry['text']}"
+            merged[-1]["text"] += suffix
         else:
-            merged.append(carry)
+            merged.append(_section_record(
+                carry["section_path"], carry["text"], _headings_of(carry),
+            ))
     return merged
 
 
@@ -223,6 +295,10 @@ def split_chapter_into_chunks(
     Sections that fit in chunk_size become a single chunk; larger ones are further
     split by the generic RecursiveCharacterTextSplitter (fallback within a section),
     which is applied only to the prose between fenced blocks — a fence is never cut.
+
+    After that split, the original ATX heading(s) of the section are prefixed onto
+    the first piece only (continuations stay body-only). Prefixing happens *after*
+    fence atomization so a section that is only a fence stays one chunk.
     """
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -233,9 +309,18 @@ def split_chapter_into_chunks(
     )
 
     pairs: list[tuple[str, str]] = []
+    chapter_heading = (chapter.get("heading") or "").strip()
     sections = split_chapter_into_sections(
-        chapter["title"], chapter["text"], cfg.chunking.min_section_chars
+        chapter["title"],
+        chapter["text"],
+        cfg.chunking.min_section_chars,
+        chapter_heading=chapter_heading,
     )
+    if sections and chapter_heading:
+        first_heads = _headings_of(sections[0])
+        if chapter_heading not in first_heads:
+            sections[0]["headings"] = [chapter_heading] + first_heads
+
     for sec in sections:
         text = sec["text"]
         if not text:
@@ -244,9 +329,18 @@ def split_chapter_into_chunks(
             pieces = [text]
         else:
             pieces = _split_preserving_fences(text, splitter, cfg.chunking.chunk_size)
+        pieces = _glue_orphan_heading(pieces)
+        prefix = _join_headings(_headings_of(sec))
+        prefixed = False
         for piece in pieces:
-            if piece.strip():
-                pairs.append((sec["section_path"], piece))
+            if not piece.strip():
+                continue
+            if not prefixed and prefix:
+                piece = prefix + "\n\n" + piece
+                prefixed = True
+            else:
+                prefixed = True
+            pairs.append((sec["section_path"], piece))
     return pairs
 
 

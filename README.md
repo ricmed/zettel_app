@@ -113,7 +113,7 @@ python -m zettel garden       # atualiza os mapas de conteúdo
 
 Todas as flags de cada comando: [docs/cli.md](docs/cli.md).
 
-> **Chunking e fences.** No `harvest`, um bloco cercado CommonMark (```` ``` ````/`~~~`) é uma **unidade atômica**: nunca é cortado, e os headings dentro dele não viram `section_path`. Fence maior que `chunk_size` gera um chunk *oversized* de propósito. Fontes antigas só mudam com `zettel rechunk`. Detalhes em [docs/pipeline.md](docs/pipeline.md#chunking) e [ADR-014](docs/adrs/generated/HARVEST/ADR-014-hybrid-structural-chunking-strategy.md).
+> **Chunking e fences.** No `harvest`, um bloco cercado CommonMark (```` ``` ````/`~~~`) é uma **unidade atômica**: nunca é cortado, e os headings dentro dele não viram `section_path`. Fence maior que `chunk_size` gera um chunk *oversized* de propósito. O heading ATX da seção entra **só no primeiro chunk** daquela seção (depois do split por fences); as continuações seguem só com o corpo. Fontes antigas só mudam com `zettel rechunk`. Detalhes em [docs/pipeline.md](docs/pipeline.md#chunking) e [ADR-014](docs/adrs/generated/HARVEST/ADR-014-hybrid-structural-chunking-strategy.md).
 
 ---
 

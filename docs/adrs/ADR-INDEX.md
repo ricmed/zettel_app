@@ -151,7 +151,7 @@
 
 - **Status**: Accepted
 - **Date**: Unknown (foundational, predates tracked history)
-- **Summary**: Two-stage: split at H1/H2 chapter boundaries, then at H3-H6 subsections, with recursive character-based splitter as fallback when a structural unit exceeds max size. Overlap preserves context across cuts. Amended 2026-09-02: CommonMark fenced blocks are atomic — headings inside a fence do not partition, and a fence larger than `chunk_size` is emitted as a single oversized chunk.
+- **Summary**: Two-stage: split at H1/H2 chapter boundaries, then at H3-H6 subsections, with recursive character-based splitter as fallback when a structural unit exceeds max size. Overlap preserves context across cuts. Amended 2026-09-02: CommonMark fenced blocks are atomic — headings inside a fence do not partition, and a fence larger than `chunk_size` is emitted as a single oversized chunk. Amended 2026-09-02: the original ATX heading is prefixed onto the first chunk of each section only (after fence split); continuations stay body-only.
 - **Link**: [`ADR-014-hybrid-structural-chunking-strategy.md`](./generated/HARVEST/ADR-014-hybrid-structural-chunking-strategy.md)
 
 ---
