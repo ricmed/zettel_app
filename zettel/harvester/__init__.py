@@ -6,6 +6,7 @@ Supports: PDF (Docling, mandatory), Markdown.
 from .biblio_hitl import resolve_bibliography
 from .chunking import (
     chunk_and_persist,
+    iter_fenced_spans,
     merge_small_sections,
     split_chapter_into_chunks,
     split_chapter_into_sections,
@@ -50,6 +51,7 @@ __all__ = [
     "source_chunking_incomplete",
     # Chunking (used by tests, duplicates, other modules)
     "split_into_chapters",
+    "iter_fenced_spans",
     "split_chapter_into_sections",
     "merge_small_sections",
     "chunk_and_persist",

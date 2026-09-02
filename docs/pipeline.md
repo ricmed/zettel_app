@@ -57,6 +57,8 @@ As flags `--yes`, `--skip-duplicates` e `--force` controlam o comportamento não
 
 Chunking híbrido ([ADR-014](adrs/generated/HARVEST/ADR-014-hybrid-structural-chunking-strategy.md)): primeiro corta pela estrutura (headings H3–H6), fundindo seções menores que `chunking.min_section_chars` com a seguinte; depois aplica o splitter da LangChain com `chunk_size` / `chunk_overlap` (em **caracteres**, não tokens).
 
+**Fences são átomos.** Um bloco cercado CommonMark (```` ``` ```` ou `~~~`) nunca é cortado. Headings H1–H6 **dentro** do fence são ilustrativos — não viram capítulo nem entram no `section_path`; só headings fora do fence particionam. O splitter de tamanho age apenas na prosa entre fences. Se o fence for maior que `chunk_size`, sai um **chunk oversized** de propósito: fatiar um template ou um trecho de código em `\n\n` é pior que um chunk grande (isso não altera o `chunk_size` global). Fontes harvestadas antes dessa regra mantêm os chunks antigos até você rodar `zettel rechunk`. Fora do escopo do scanner: código indentado por 4 espaços, tabelas fora de fence e HTML.
+
 ---
 
 ## Paginação: arquivo vs impressa
