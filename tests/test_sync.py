@@ -116,13 +116,56 @@ def test_manual_permanent_gets_id_and_origin(cfg, db):
     assert idx.permanent == [fm["note_id"]]
 
 
-def test_pipeline_note_stays_pipeline(cfg, db):
+def test_pipeline_permanent_is_skipped(cfg, db):
     ztl = cfg.vault_path / "30_Permanent" / "ZTL - 01ABC - pipe.md"
     _write(ztl, {"type": "permanent", "note_id": "01ABC", "title": "Pipe", "origin": "pipeline"},
            "> **Tese**: gerada pelo pipeline\n\n## Definicao\n\ntexto")
     idx = FakeIndex()
-    run_sync_manual(cfg, db, idx)
-    assert db.get_note("01ABC")["origin"] == "pipeline"
+    stats = run_sync_manual(cfg, db, idx)
+    assert stats["permanent"] == 0
+    assert db.get_note("01ABC") is None
+    assert idx.permanent == []
+    assert _frontmatter(ztl)["origin"] == "pipeline"
+
+
+def test_pipeline_permanent_does_not_adopt_images_or_reembed(cfg, db):
+    source_id = "@Pipe2024"
+    note_id = "01HAAAAAAAAAAAAAAAAAAAAAAA"
+    db.upsert_source(
+        source_id, "Pipe2024", "Paper", ["Autor"], 2024,
+        "h", "/x.pdf", "pdf", origin="pipeline",
+    )
+    png = cfg.vault_path / "30_Permanent" / "figura.png"
+    png.write_bytes(
+        bytes.fromhex(
+            "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4"
+            "890000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082"
+        )
+    )
+    ztl = cfg.vault_path / "30_Permanent" / f"ZTL - {note_id} - pipe.md"
+    body = "> **Tese**: gerada pelo pipeline\n\n![[figura.png]]\n"
+    _write(
+        ztl,
+        {
+            "type": "permanent",
+            "note_id": note_id,
+            "title": "Pipe",
+            "origin": "pipeline",
+            "source_id": source_id,
+        },
+        body,
+    )
+    db.upsert_note(
+        note_id, source_id, str(ztl), "Pipe",
+        body=body, origin="pipeline", note_semantic_checksum="stale",
+    )
+    idx = FakeIndex()
+    stats = run_sync_manual(cfg, db, idx)
+    assert stats["permanent"] == 0
+    assert idx.permanent == []
+    assert "![[figura.png]]" in ztl.read_text(encoding="utf-8")
+    assert db.get_assets_for_source(source_id) == []
+    assert db.get_note(note_id)["origin"] == "pipeline"
 
 
 def test_resync_unchanged_is_skipped(cfg, db):

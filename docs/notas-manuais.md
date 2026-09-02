@@ -10,7 +10,7 @@ Módulos: [`sync.py`](../zettel/sync.py), [`new_note.py`](../zettel/new_note.py)
 
 ## `zettel sync-manual`
 
-Notas criadas à mão no Obsidian são adotadas pelo pipeline com **`zettel sync-manual`**, que varre as quatro pastas (`10_Sources`, `20_Literature`, `30_Permanent`, `40_MOCs`). Arquivos `origin: pipeline` **inalterados** entram como `skipped` (não reindexam nem recontam como `updated`); uma ZTL/MOC de pipeline só é reindexada se o checksum semântico mudou (edição real no vault):
+Notas criadas à mão no Obsidian são adotadas pelo pipeline com **`zettel sync-manual`**, que varre as quatro pastas (`10_Sources`, `20_Literature`, `30_Permanent`, `40_MOCs`). Arquivos com `origin: pipeline` ou `hub_pipeline` (ZTL do `connect`, MOC do `garden`) são **`skipped`**: não adotam imagem, não re-embedam e não geram `auto-connections`. Quem já passou pelo pipeline não entra neste comando — para reindexar o vault use `zettel reindex`. LIT granular de pipeline só atualiza o path no SQLite se o arquivo foi movido:
 
 - Notas sem `note_id`/`moc_id`/`source_id` recebem um id/citekey gerado, injetado no frontmatter.
 - Cada nota ganha uma flag de proveniência `origin: manual | pipeline` (no frontmatter e no banco), permitindo distinguir o que foi escrito à mão do que foi gerado.

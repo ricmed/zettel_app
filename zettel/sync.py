@@ -156,9 +156,17 @@ def _sync_single_note(
     return "skipped"
 
 
+_PIPELINE_ORIGINS = frozenset({"pipeline", "hub_pipeline"})
+
+
 def _manual_origin(meta: dict) -> str:
     """A note the pipeline created carries origin: pipeline; anything else is manual."""
     return meta.get("origin", "manual")
+
+
+def _is_pipeline_origin(meta: dict) -> bool:
+    """True when frontmatter says the pipeline (or hub garden) authored the note."""
+    return str(meta.get("origin") or "") in _PIPELINE_ORIGINS
 
 
 def _sync_source(
@@ -329,6 +337,11 @@ def _sync_permanent(
         meta.setdefault("origin", "manual")
         _rewrite_frontmatter(file_path, meta, body)
 
+    # connect already indexed these; adopting images here rewrites the body,
+    # bumps the checksum and re-embeds every pipeline ZTL that cites a figure.
+    if _is_pipeline_origin(meta):
+        return "skipped"
+
     body = _adopt_note_images(cfg, db, file_path, meta, body)
 
     embeddable = extract_embeddable_text(body)
@@ -406,6 +419,9 @@ def _sync_moc(
         meta["type"] = "moc"
         meta.setdefault("origin", "manual")
         _rewrite_frontmatter(file_path, meta, body)
+
+    if _is_pipeline_origin(meta):
+        return "skipped"
 
     topic = meta.get("topic", file_path.stem)
     embeddable = extract_embeddable_text(body)
