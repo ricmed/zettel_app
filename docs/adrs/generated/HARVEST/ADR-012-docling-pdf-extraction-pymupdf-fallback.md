@@ -78,8 +78,7 @@ Docling is now mandatory; if Docling extraction fails, harvest fails explicitly 
 
 ## References
 
-* `zettel/harvester.py:1170-1174` — PDF extraction dispatcher, routes by configured extractor
-* `zettel/harvester.py:1177-1232` — Docling extraction path (GPU acceleration, image extraction, Markdown output)
-* `zettel/harvester.py:1234-1255` — PyMuPDF fallback extraction path (plain text)
-* `zettel/harvester.py:1267-1290` — PyMuPDF page-to-heading map, used for content-start paging inference
-* `zettel/config.py` — PDF extractor selector, image-extraction settings, and device detection schema
+* `zettel/harvester/extract.py` — `extract_text`, extraction dispatcher routing by file type; `extract_pdf` / `extract_pdf_docling`, the Docling path (GPU acceleration, image extraction, Markdown output); `PdfExtractionError`, the hard failure that replaced the fallback
+* `zettel/harvester/extract.py` — `docling_page_map_by_export` and `docling_num_pages`, the Docling page map used for content-start paging inference (see ADR-013)
+* `zettel/config.py` — `ImagesConfig` (image-extraction settings) and `device`; there is no extractor selector any more, since Docling is the only path
+* `pyproject.toml` / `uv.lock` — the Docling version pin discussed in *Consequences*

@@ -89,5 +89,5 @@ line ranges, since the line ranges are what rotted.
 * `tests/test_harvester_sections.py` — section splitting and merge rules; addendum: fence atomicity, info-string/marker-family rules, unclosed fence, oversized fence
 * `zettel/config.py` — `ChunkingConfig`: `chunk_size`, `chunk_overlap`, `min_section_chars`
 * `config/config.yaml` — operational chunking defaults (`chunking.*`)
-* `zettel/paging.py` — page-inference helpers consumed by `chunk_and_persist` (see ADR-013); the heading path itself is built in `chunking.py`, not here
+* `zettel/paging.py` — page-inference helpers consumed by `chunk_and_persist` (see ADR-013); the heading path itself is built in `zettel/harvester/chunking.py`, not here
 * [ADR-027: Harvest Phase as Python Package](./ADR-027-harvest-phase-as-python-package.md) — the module extraction that moved this code
