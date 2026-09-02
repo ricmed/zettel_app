@@ -62,8 +62,26 @@ Chunk boundaries are effectively permanent once a source is harvested: any chang
 
 The overlap that preserves context across forced cuts also means the same text can appear, verbatim, in more than one chunk; downstream deduplication and layer-3 semantic duplicate detection (ADR-XXX, Layered Hashing Strategy) must tolerate this rather than treat overlapping chunks as erroneous duplicates. Documents lacking H3-H6 markup fall back to whole-chapter chunks subject only to the recursive splitter, so their chunk metadata carries no meaningful section path — a gap for any future feature that depends on section-level navigation or search. [NEEDS INPUT: Is there an accepted target or ceiling for the overlap-driven embedding cost overshoot, or is the current ~10-15% considered acceptable indefinitely?]
 
+## Addendum (2026-09-02): Fenced code blocks are atomic
+
+**Status:** Accepted amendment — does not replace the decision above, constrains where its two stages apply.
+
+The structural stage treated every `#`-prefixed line as document structure, including headings **inside** CommonMark fenced blocks. A document embedding a template or code sample (a HLD skeleton inside a ```` ```markdown ```` fence, for example) was therefore split into several chunks whose `section_path` was invented from the template's illustrative headings rather than from the document's own hierarchy, and each fragment landed above `min_section_chars` so `merge_small_sections` did not fold it back. Downstream, extract and review produced literature notes about fragments of a template instead of about the document.
+
+Amendment:
+
+* Headings H1–H6 whose offset falls inside a fenced span do **not** partition chapters (`split_into_chapters`) or sections (`split_chapter_into_sections`). Headings outside fences keep partitioning exactly as before.
+* Fences are located by a line-based scanner (`iter_fenced_spans`): an opening fence is up to 3 spaces of indent followed by 3+ backticks or tildes plus an optional info string; a closing fence must be the same marker family (a backtick fence never closes a tilde fence), at least as long as the opening marker, and carry no info string — so ```` ```json ```` cannot close ```` ```markdown ````. An unclosed fence spans to EOF.
+* In `split_chapter_into_chunks` the fence is an atom: the `RecursiveCharacterTextSplitter` is applied only to the prose between fences, never across a fence.
+* **Size exception:** when a fence is larger than `chunk_size` (1500 in the operational YAML), a single oversized chunk is emitted. Cutting a template or a code block at a `\n\n` boundary is worse than one large chunk, so the size ceiling asserted above is deliberately not enforced for fenced content. `chunk_size` itself is unchanged — the exception is per-fence, not a global relaxation.
+* Out of scope of the scanner, and therefore still able to affect boundaries: indented code blocks (4 spaces), Markdown tables outside fences, and raw HTML.
+
+Consistent with the migration cost already described in *Consequences*, this changes boundaries only for sources chunked after the amendment: already-harvested sources keep their old chunks until the operator runs `zettel rechunk`. There is no silent re-chunking.
+
 ## References
 
+* `zettel/harvester/chunking.py` — `iter_fenced_spans` (fence scanner), `_headings_outside_fences` (heading filter), `_split_preserving_fences` (atomic fence in the size split)
+* `tests/test_harvester_sections.py` — fence atomicity, info-string/marker-family rules, unclosed fence, oversized fence
 * `zettel/harvester.py:1400-1450` — chapter splitting on H1/H2 boundaries
 * `zettel/harvester.py:1570-1635` — hybrid chunk splitting (H3-H6 boundaries, recursive-splitter fallback)
 * `zettel/config.py` — chunking configuration schema (min/max chars, overlap)
