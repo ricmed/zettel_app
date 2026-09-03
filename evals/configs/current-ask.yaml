@@ -1,0 +1,37 @@
+# Replay de trajetorias gravadas — nao chama LLM e nao abre rede.
+#
+#   python -m zettel.evals.replay evals/configs/current-ask.yaml \
+#       --out evals/results/current-ask.json
+#
+# Sem segredos aqui: o manifesto e commitavel e recusa qualquer coisa que
+# pareca chave de API. Uma condition por run (o comparativo se faz entre
+# arquivos de resultado, nunca dentro de um).
+
+condition: current_ask
+fixture_dir: ../fixtures/sintetico-pt
+gold_file: questions.json
+trajectories_file: trajectories.json
+
+# Identidade do envelope: comparar dois runs so faz sentido com os mesmos
+# modelos e os mesmos limiares dos dois lados.
+llm_model: fixture/no-llm
+embedding_model: fixture/no-embedding
+
+# Tetos declarados para um runner ao vivo (fail-closed). O replay nao gasta
+# nada, mas o campo faz parte da identidade do run.
+max_calls: 0
+max_input_tokens: 0
+
+# Subconjunto de retrieval_params contra o qual a condition e julgada.
+retrieval_params:
+  mode: hybrid
+  topk: 8
+  rrf_k: 60
+  relevance_floor_enabled: true
+  min_vector_similarity: 0.70
+  absolute_min_similarity: 0.15
+  bm25_hit_bypasses_floor: true
+  bm25_bypass_max_rank: 5
+  topic_index_boost: true
+  graph_expansion_used: true
+  graph_max_hops: 1

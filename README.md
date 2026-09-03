@@ -56,7 +56,8 @@ MOCs (Mapas de Conteúdo) por clusterização semântica
 | [Operação](docs/operacao.md)                    | Retenção, `reindex`/`rebuild`/`rechunk`, dumps, purga, remoção de fonte, backup          |
 | [Solução de problemas](docs/troubleshooting.md) | Sintomas comuns e como sair deles                                                        |
 | [Prompts e taxonomia](docs/prompts.md)          | Personalizar `prompts/`, `moc_topics.yaml` e as personalidades do `article`              |
-| [ADRs](docs/adrs/ADR-INDEX.md)                  | 37 decisões de arquitetura, com contexto e alternativas                                  |
+| [Avaliação do `ask`](evals/README.md)         | Replay offline de trajetórias, veredictos e guardrail de afirmações       |
+| [ADRs](docs/adrs/ADR-INDEX.md)                  | 38 decisões de arquitetura, com contexto e alternativas                                  |
 
 
 Índice completo em [docs/INDICE.md](docs/INDICE.md).
@@ -214,6 +215,9 @@ uv run pytest tests/test_hashing.py::test_normalize_collapses_whitespace -v
 
 # Interface web
 uv run pytest tests/test_web.py tests/test_web_state.py -v
+
+# Avaliacao do ask (offline: sem LLM, sem rede)
+uv run pytest tests/evals/ -v
 ```
 
 Problemas conhecidos e diagnósticos: [docs/troubleshooting.md](docs/troubleshooting.md).

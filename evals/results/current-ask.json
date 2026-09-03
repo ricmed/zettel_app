@@ -1,0 +1,108 @@
+{
+  "counts": {
+    "answer_fail": 1,
+    "floor_reject": 1,
+    "ok": 2,
+    "routing_miss": 1,
+    "unknown": 0
+  },
+  "manifest": {
+    "commit_sha": "",
+    "condition": "current_ask",
+    "embedding_model": "fixture/no-embedding",
+    "fixture_hash": "ed1bcc1fa560157dcca05619a64e61202dec79931dbea56c7d7469dc16271256",
+    "llm_model": "fixture/no-llm",
+    "max_calls": 0,
+    "max_input_tokens": 0,
+    "question_set_hash": "0c3224250e98b036caebab0164e7dd22514f8467d0f7bd38248786a37af89b8f",
+    "retrieval_params": {
+      "absolute_min_similarity": 0.15,
+      "bm25_bypass_max_rank": 5,
+      "bm25_hit_bypasses_floor": true,
+      "graph_expansion_used": true,
+      "graph_max_hops": 1,
+      "min_vector_similarity": 0.7,
+      "mode": "hybrid",
+      "relevance_floor_enabled": true,
+      "rrf_k": 60,
+      "topic_index_boost": true,
+      "topk": 8
+    },
+    "schema_version": 1
+  },
+  "manifest_identity": "02f06b093df3720b94597cd130318ba88ab21b19fcfeb432b22dae692535d184",
+  "questions": [
+    {
+      "floor_reason": "similaridade 0.88 >= piso 0.70",
+      "llm_called": true,
+      "n_candidates": 2,
+      "n_hits": 1,
+      "question_id": "q01-hit",
+      "target_in_candidates": true,
+      "target_in_hits": true,
+      "target_note_id": "01HEVALAAAAAAAAAAAAAAAAAAA",
+      "target_passed_floor": true,
+      "tokens_input": 1200,
+      "tokens_output": 180,
+      "verdict": "ok"
+    },
+    {
+      "floor_reason": "similaridade 0.62 abaixo do piso (0.70)",
+      "llm_called": false,
+      "n_candidates": 2,
+      "n_hits": 0,
+      "question_id": "q02-floor-reject",
+      "target_in_candidates": true,
+      "target_in_hits": false,
+      "target_note_id": "01HEVALBBBBBBBBBBBBBBBBBBB",
+      "target_passed_floor": false,
+      "tokens_input": 0,
+      "tokens_output": 0,
+      "verdict": "floor_reject"
+    },
+    {
+      "floor_reason": "",
+      "llm_called": true,
+      "n_candidates": 2,
+      "n_hits": 1,
+      "question_id": "q03-routing-miss",
+      "target_in_candidates": false,
+      "target_in_hits": false,
+      "target_note_id": "01HEVALDDDDDDDDDDDDDDDDDDD",
+      "target_passed_floor": false,
+      "tokens_input": 1100,
+      "tokens_output": 90,
+      "verdict": "routing_miss"
+    },
+    {
+      "floor_reason": "",
+      "llm_called": false,
+      "n_candidates": 1,
+      "n_hits": 0,
+      "question_id": "q04-no-evidence",
+      "target_in_candidates": false,
+      "target_in_hits": false,
+      "target_note_id": "",
+      "target_passed_floor": false,
+      "tokens_input": 0,
+      "tokens_output": 0,
+      "verdict": "ok"
+    },
+    {
+      "floor_reason": "similaridade 0.91 >= piso 0.70",
+      "llm_called": true,
+      "n_candidates": 1,
+      "n_hits": 1,
+      "question_id": "q05-answer-fail",
+      "target_in_candidates": true,
+      "target_in_hits": true,
+      "target_note_id": "01HEVALCCCCCCCCCCCCCCCCCCC",
+      "target_passed_floor": true,
+      "tokens_input": 1000,
+      "tokens_output": 140,
+      "verdict": "answer_fail"
+    }
+  ],
+  "runner": "replay",
+  "schema_version": 1
+}
