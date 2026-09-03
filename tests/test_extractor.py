@@ -423,51 +423,45 @@ def test_process_chunk_persists_rejected_candidates_with_reason(tmp_path, monkey
     db.close()
 
 
-# ── #55: cache the response that parsed, not the one that failed ─────────
+# ── No draft file for chunks with nothing to review ──────────────────────
 
 
-def test_process_chunk_caches_repaired_response_not_broken_one(tmp_path, monkeypatch):
-    """A malformed first response is never cached; the repaired one is, under the same key."""
+def test_process_chunk_rejected_writes_no_draft_file(tmp_path, monkeypatch):
+    """chunk_status=rejected: no LIT draft file, but the chunk state is complete."""
     import json
 
     from zettel.extractor import _process_chunk
-    from zettel.hashing import compute_llm_call_checksum
     from zettel.llm import load_prompt_parts
 
     cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
 
-    good_response = json.dumps({
-        "chunk_status": "rejected",
-        "rejection_reason": "estrutural",
-        "rejection_category": "structural",
-        "summary": "Trecho estrutural.",
-        "key_concepts": [],
-        "candidates": [],
-    })
-    calls = {"n": 0}
-
     def fake_call_llm(llm, user, system=None, **kwargs):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            return "isto nao e json valido {{{"
-        return good_response
+        return json.dumps({
+            "chunk_status": "rejected",
+            "rejection_reason": "so uma referencia bibliografica",
+            "rejection_category": "structural",
+            "summary": "Trecho estrutural.",
+            "key_concepts": [],
+            "candidates": [],
+        })
 
     monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
     prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
     _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
 
-    assert calls["n"] == 2  # primary call + repair retry
-
-    checksum = compute_llm_call_checksum(
-        "prompthash", chunk_row["chunk_checksum"], cfg.llm.extract.model,
-        cfg.llm.temperature, cfg.language, rag_context_checksum="",
-    )
-    assert db.get_cached_llm_response(checksum) == good_response
+    row = db.get_chunk("@Book2024::ch000::abc")
+    assert row["literature_note_path"] is None
+    assert row["status"] == "awaiting_review"
+    assert json.loads(row["summary_json"])["rejection_category"] == "structural"
+    review_dir = cfg.vault_path / "00_Inbox" / "Review"
+    assert list(review_dir.rglob("*.md")) == []
     db.close()
 
 
-def test_process_chunk_validation_error_prompt_includes_error_message(tmp_path, monkeypatch):
-    """An out-of-range field (schema violation) gets a repair prompt citing the error."""
+def test_process_chunk_accepted_but_all_candidates_filtered_writes_no_draft_file(
+    tmp_path, monkeypatch,
+):
+    """chunk_status=accepted but the deterministic filter drops every candidate."""
     import json
 
     from zettel.extractor import _process_chunk
@@ -475,33 +469,24 @@ def test_process_chunk_validation_error_prompt_includes_error_message(tmp_path, 
 
     cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
 
-    invalid_response = json.dumps({
-        "chunk_status": "accepted",
-        "rejection_reason": "",
-        "rejection_category": "",
-        "summary": "Resumo valido com bastante conteudo para pontuar razoavelmente bem.",
-        "key_concepts": ["conceito"],
-        "candidates": [{
-            "thesis": "Uma tese qualquer com palavras suficientes para passar no filtro",
-            "definition": "Uma definicao qualquer com bastante texto explicativo sobre o tema",
-            "anchor_quote": "",
-            "relevance_score": 9,  # out of the 1-5 range -> ValidationError, not a filter rejection
-        }],
-    })
-    captured_retry_prompts: list[str] = []
+    low_relevance_candidate = {
+        "thesis": "Uma tese qualquer com palavras suficientes para passar no filtro de tamanho",
+        "definition": (
+            "Uma definicao qualquer com bastante texto explicativo sobre o tema tratado aqui"
+        ),
+        "anchor_quote": "",
+        "relevance_score": 1,
+    }
 
     def fake_call_llm(llm, user, system=None, **kwargs):
-        if kwargs.get("label", "").startswith("extract-retry"):
-            captured_retry_prompts.append(user)
-            return json.dumps({
-                "chunk_status": "accepted",
-                "rejection_reason": "",
-                "rejection_category": "",
-                "summary": "Resumo valido com bastante conteudo para pontuar razoavelmente bem.",
-                "key_concepts": ["conceito"],
-                "candidates": [],
-            })
-        return invalid_response
+        return json.dumps({
+            "chunk_status": "accepted",
+            "rejection_reason": "",
+            "rejection_category": "",
+            "summary": "Resumo com conteudo suficiente para pontuar bem no calculo de confianca.",
+            "key_concepts": ["conceito"],
+            "candidates": [low_relevance_candidate],
+        })
 
     monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
     prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
