@@ -56,7 +56,7 @@ MOCs (Mapas de Conteúdo) por clusterização semântica
 | [Operação](docs/operacao.md)                    | Retenção, `reindex`/`rebuild`/`rechunk`, dumps, purga, remoção de fonte, backup          |
 | [Solução de problemas](docs/troubleshooting.md) | Sintomas comuns e como sair deles                                                        |
 | [Prompts e taxonomia](docs/prompts.md)          | Personalizar `prompts/`, `moc_topics.yaml` e as personalidades do `article`              |
-| [ADRs](docs/adrs/ADR-INDEX.md)                  | 36 decisões de arquitetura, com contexto e alternativas                                  |
+| [ADRs](docs/adrs/ADR-INDEX.md)                  | 37 decisões de arquitetura, com contexto e alternativas                                  |
 
 
 Índice completo em [docs/INDICE.md](docs/INDICE.md).
@@ -125,6 +125,8 @@ python -m zettel garden       # atualiza os mapas de conteúdo
 ```
 
 Todas as flags de cada comando: [docs/cli.md](docs/cli.md).
+
+> **Pré-voo de custo.** Antes de gastar LLM, `extract`, `connect` e `article` mostram um painel com o modelo da fase, a contagem de itens, os tokens estimados e o custo em USD, e pedem confirmação. `--yes` ou stdin sem TTY (scripts, CI) seguem direto; recusar aborta **antes** de qualquer chamada. É estimativa e limite de ordem de grandeza, não teto de orçamento: o cache de respostas do SQLite não é descontado, então o número é um limite superior. Detalhes em [ADR-037](docs/adrs/generated/CLI/ADR-037-llm-cost-preflight-estimate.md).
 
 > **Índice de tópicos.** Cada índice LIT e cada MOC ganham um bloco `auto-topic-index` mapeando **termo → nota** (frameworks nomeados, depois tags, e a cabeça da tese como último recurso). É roteamento, não representação: quando a pergunta casa com um termo, a nota entra na busca do `ask` como semente extra **carregando distância vetorial real**, e passa pelo mesmo piso de relevância que qualquer outra — estar no índice não fura o piso. Desligue com `retrieval.topic_index_boost: false`. Detalhes em [ADR-036](docs/adrs/generated/RETRIEVAL/ADR-036-topic-index-routing-not-representation.md).
 

@@ -18,7 +18,7 @@ from typing import Annotated, Optional
 import typer
 
 from zettel.cli.app import app, console
-from zettel.cli.deps import get_db, get_idx, load_deps
+from zettel.cli.deps import get_db, get_idx, load_deps, preflight_gate
 from zettel.cli.options import ConfigOption, SourceFilterOption, YesOption
 
 
@@ -35,6 +35,9 @@ def extract(
     cfg = load_deps(config)
     db = get_db(cfg)
     idx = get_idx(cfg, db=db, yes=yes)
+
+    from zettel.preflight import estimate_extract
+    preflight_gate(estimate_extract(cfg, db), yes, db)
 
     from zettel.extractor import run_extract
     # Nao usar console.status: o Progress interno de run_extract disputa o mesmo

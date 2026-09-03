@@ -98,6 +98,7 @@ chunking:
 linking:
   topk: 5                    # default do Retriever e RAG de connect/sync (CLI pode sobrescrever)
   dedupe_threshold: 0.85     # similaridade; distancia L2 = 2 * (1 - threshold) no extract
+  preflight_output_tokens_per_note: 1200  # alvo de saida por nota no pre-voo de custo (nao e teto)
 
 # ── Harvest (Deduplicação de Arquivos + ABNT) ──────────────────────────
 harvest:
@@ -123,6 +124,7 @@ extraction:
   anchor_quote_min_ratio: 0.85   # cobertura minima na checagem fuzzy (tolera elipse editorial)
   anchor_quote_min_words: 10     # faixa de palavras que o prompt ja exige
   anchor_quote_max_words: 25
+  preflight_output_tokens_per_chunk: 800  # alvo de saida por chunk no pre-voo de custo (nao e teto)
 
 # ── Literature Review (aprovacao seletiva de LIT por chunk) ───────────
 # review_confidence foi recalibrada (issue #59) sobre o corpus real (117

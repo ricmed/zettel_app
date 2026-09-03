@@ -162,7 +162,9 @@ python -m zettel extract --auto-approve   # aprova drafts com confianca >= limia
 | Flag | Efeito |
 |---|---|
 | `--auto-approve` | Promove automaticamente drafts com `review_confidence >= literature_review.auto_approve_min_confidence`. |
-| `--yes` / `-y` | Confirma reprocessamento se o embedding mudou. |
+| `--yes` / `-y` | Confirma o pré-voo de custo e o reprocessamento se o embedding mudou. |
+
+> **Pré-voo de custo.** Antes de gastar LLM, o comando mostra um painel (modelo da fase, itens, tokens estimados, custo USD) e pede confirmação. `--yes` ou stdin sem TTY seguem direto; recusar aborta com código 1 **antes** de qualquer chamada. Estimativa, não teto: o cache de respostas do SQLite não é descontado ([ADR-037](adrs/generated/CLI/ADR-037-llm-cost-preflight-estimate.md)).
 
 ---
 
@@ -217,6 +219,8 @@ python -m zettel connect --dedupe-threshold 0.90 # limiar de deduplicacao
 ```
 
 Se não houver candidato aprovado, o comando falha pedindo `extract` + `review` primeiro.
+
+> **Pré-voo de custo.** Igual ao `extract`: painel com modelo, conceitos, tokens e USD antes de qualquer chamada. O contexto RAG entra na conta como `linking.topk + graph_expansion.max_neighbors` notas ([ADR-037](adrs/generated/CLI/ADR-037-llm-cost-preflight-estimate.md)).
 
 ---
 
@@ -299,6 +303,8 @@ python -m zettel article "RAG" --skip-context-review --skip-judge --no-save-prom
 | `--save` / `--save-to` / `--no-save-prompt` | Persistência do artigo (`00_Inbox/ART - ....md`). |
 
 Fluxo completo em [recuperacao.md](recuperacao.md#gerar-artigo-a-partir-do-vault-zettel-article).
+
+> **Pré-voo de custo.** O painel do `article` reporta um **piso**: enrich + outline + um draft por seção + assemble + o teto de ciclos do juiz. Revisões no HITL e a reescrita de personalidade só aumentam ([ADR-037](adrs/generated/CLI/ADR-037-llm-cost-preflight-estimate.md)).
 
 ---
 
