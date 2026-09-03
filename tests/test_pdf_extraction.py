@@ -108,6 +108,41 @@ def test_extract_pdf_docling_success_builds_text_and_page_map(monkeypatch, tmp_p
     ]
 
 
+class _HyphenatedConverter:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def convert(self, path):
+        marked = (
+            "# Capitulo 1\n\n"
+            "Uma pala-\nvra quebrada pelo layout do PDF, e outra bem-\nVinda mantida."
+        )
+        return _FakeResult(marked)
+
+
+def test_extract_pdf_docling_merges_lowercase_continuation_hyphenation(monkeypatch, tmp_path):
+    """A word split across a PDF line break ("pala-\\nvra") is merged before persistence."""
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    monkeypatch.setattr(
+        "docling.document_converter.DocumentConverter", _HyphenatedConverter
+    )
+    text, _metadata = extract_pdf_docling(_cfg(), pdf)
+    assert "palavra quebrada" in text
+    assert "pala-\nvra" not in text
+
+
+def test_extract_pdf_docling_preserves_uppercase_continuation_hyphenation(monkeypatch, tmp_path):
+    """An uppercase continuation is treated as a likely genuine compound and left alone."""
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    monkeypatch.setattr(
+        "docling.document_converter.DocumentConverter", _HyphenatedConverter
+    )
+    text, _metadata = extract_pdf_docling(_cfg(), pdf)
+    assert "bem-\nVinda" in text
+
+
 def test_extract_pdf_dispatches_only_to_docling(monkeypatch, tmp_path):
     """extract_pdf always uses Docling — there is no pdf_extractor config to select PyMuPDF."""
     pdf = tmp_path / "doc.pdf"

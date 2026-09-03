@@ -2,6 +2,7 @@
 
 from zettel.hashing import (
     compute_embedding_input_hash,
+    dehyphenate_pdf_linebreaks,
     extract_embeddable_text,
     fold_for_match,
     normalize_text_for_hash,
@@ -87,6 +88,36 @@ def test_normalize_dehyphenation():
     text = "experi-\nmental"
     result = normalize_text_for_hash(text)
     assert result == "experimental"
+
+
+def test_dehyphenate_pdf_linebreaks_merges_lowercase_continuation():
+    assert dehyphenate_pdf_linebreaks("pala-\nvra") == "palavra"
+
+
+def test_dehyphenate_pdf_linebreaks_preserves_uppercase_continuation():
+    text = "bem-\nVindo"
+    assert dehyphenate_pdf_linebreaks(text) == text
+
+
+def test_dehyphenate_pdf_linebreaks_tolerates_surrounding_whitespace():
+    assert dehyphenate_pdf_linebreaks("pala- \n vra") == "palavra"
+
+
+def test_dehyphenate_pdf_linebreaks_is_idempotent():
+    once = dehyphenate_pdf_linebreaks("experi-\nmental e outra pala-\nvra")
+    twice = dehyphenate_pdf_linebreaks(once)
+    assert once == twice == "experimental e outra palavra"
+
+
+def test_dehyphenate_pdf_linebreaks_leaves_unrelated_hyphens_alone():
+    text = "well-known e um hifen no meio da linha, nao no fim."
+    assert dehyphenate_pdf_linebreaks(text) == text
+
+
+def test_normalize_text_for_hash_preserves_uppercase_continuation_hyphen():
+    text = "bem-\nVindo ao capitulo"
+    result = normalize_text_for_hash(text)
+    assert "bem-\nVindo" in result
 
 
 def test_sha256_deterministic():

@@ -62,9 +62,23 @@ Normalization intentionally preserves PT-BR diacritics, which diverges from the 
 
 The `top_p` gap in `llm_call_checksum` is a live cache-correctness edge case rather than a hypothetical: any run that changes only `top_p` between calls will incorrectly serve a cached response computed under the old value.
 
+## Addendum (2026-09-03): PDF hyphenation repair moved into the extraction path
+
+**Status:** Accepted amendment — does not replace the decision above, extends where the repair runs.
+
+Until this amendment, `normalize_text_for_hash`'s hyphenation repair (`"word-\ncontinuation"` -> `"wordcontinuation"`) only ever ran at hash time, computed over `extraction_checksum`/`chapter_checksum`/`chunk_checksum` — never applied to the text actually persisted in `sources.extracted_text` / `chunks.text`. The broken hyphen reached the extraction LLM prompt, the embedding, and the `anchor_quote` field verbatim, which both hurt retrieval and polluted an `anchor_quote` that is supposed to be a literal copy of the source. It also meant two texts differing only by a hyphenated line break collided at `extraction_checksum` (harvest's layer-2 duplicate detection, [ADR-011](../HARVEST/ADR-011-three-layer-duplicate-detection.md)) while still producing different chunks and embeddings downstream — the checksum layer and the persisted content silently diverged on this one point.
+
+Amendment:
+
+* The regex moved out of `normalize_text_for_hash` and into a new public function, `hashing.dehyphenate_pdf_linebreaks`, called from **both** places: once by `extract_pdf_docling` (`zettel/harvester/extract.py`) right after the Docling markdown export, before the text is ever persisted or hashed; and once (idempotently) by `normalize_text_for_hash` itself, so the hashing path stays correct even for text that reaches it from elsewhere without going through PDF extraction first.
+* Refined while extracting: the original regex removed the hyphen unconditionally, silently merging a genuine hyphenated compound (`"bem-\nvindo"` -> `"bemvindo"`) exactly like a line-wrapped word tail (`"pala-\nvra"` -> `"palavra"`). The new function preserves the hyphen when the character after the break is uppercase — a cheap, deliberately weak signal of a genuine compound (a heading, a proper noun) rather than a split word tail. A genuine compound whose continuation happens to be lowercase is still merged incorrectly; there is no cheap fix for that short of a dictionary lookup, and none was attempted.
+* PDF-only by construction: the call site is inside `extract_pdf_docling`, never on the Markdown extraction path, so a native Markdown file's legitimate end-of-line hyphen is untouched.
+* `extraction_checksum` changes for a PDF re-harvested after this amendment (the persisted text itself is now different, not just the hash normalization of it). Already-harvested sources do not change on their own — the corpus needs an explicit re-harvest, not `rechunk`, since `extracted_text` is the origin data this addendum affects. No silent migration.
+
 ## References
 
-* `zettel/hashing.py` — `normalize_text_for_hash`, `sha256_hex`, `file_sha256`, `short_hash`, `compute_llm_call_checksum`, `compute_embedding_input_hash`
+* `zettel/hashing.py` — `normalize_text_for_hash`, `sha256_hex`, `file_sha256`, `short_hash`, `compute_llm_call_checksum`, `compute_embedding_input_hash`; addendum: `dehyphenate_pdf_linebreaks` (single implementation reused by both the extraction and the hashing path)
+* `zettel/harvester/extract.py` — addendum: `extract_pdf_docling` calls `dehyphenate_pdf_linebreaks` on the assembled text before returning it for persistence
 * `zettel/harvester/pipeline.py` — `_process_file`, file checksum (`file_sha256`) and extraction checksum computation and comparison during harvest
 * `zettel/harvester/chunking.py` — `chunk_and_persist`, chapter and chunk checksums (the chapter checksum is what skips unchanged chapters)
 * `zettel/extractor.py` — `compute_llm_call_checksum` construction for deterministic response caching

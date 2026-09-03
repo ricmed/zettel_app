@@ -130,7 +130,7 @@ Convenções de nomes e IDs:
 | [`vault.py`](../zettel/vault.py) | I/O do Obsidian: parse/render de frontmatter YAML, blocos gerenciados e escrita segura que nunca sobrescreve edição manual fora dos blocos. Builders de SRC, índice LIT e LIT granular. `sync_source_costs_to_vault` espelha os custos do SQLite no frontmatter da SRC. |
 | [`llm.py`](../zettel/llm.py) | `get_llm` / `call_llm` / `load_prompt_parts` / `fill_template`. Instancia o client por fase, aplica o split System/Human dos prompts, lê `usage_metadata` e registra custo. Veja [ADR-024](adrs/generated/LLM/ADR-024-multi-provider-llm-strategy.md) e [ADR-025](adrs/generated/LLM/ADR-025-prompt-caching-system-human-split.md). |
 | [`pricing.py`](../zettel/pricing.py) / [`usage.py`](../zettel/usage.py) | `cost_per_token` do LiteLLM como **calculadora de preço** (não como client de LLM); `CostTracker` agrega por run/fonte via contextvars. |
-| [`hashing.py`](../zettel/hashing.py) | Normalização canônica (NFKC, colapso de espaços, de-hifenização de PDF) antes de qualquer hash. |
+| [`hashing.py`](../zettel/hashing.py) | Normalização canônica (NFKC, colapso de espaços, de-hifenização de PDF) antes de qualquer hash. `dehyphenate_pdf_linebreaks` é reaproveitada também na extração de PDF (`harvester/extract.py`), antes da persistência — não só no hash. |
 | [`schemas.py`](../zettel/schemas.py) | Modelos Pydantic v2 de todos os objetos de dados e das saídas estruturadas do LLM (`LiteratureChunkOutput`, `PermanentNoteLLMOutput`, `DedupeResult`, `MOCGenerationOutput`, `ArticleOutline`…). |
 
 Cada comando da CLI monta a tripla `(AppConfig, StateDB, VectorIndex)` via `_load_deps()`, `_get_db()` e `_get_idx()` em `cli.py`.
