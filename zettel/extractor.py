@@ -309,7 +309,12 @@ def _process_chunk(
         "summary": output.summary,
         "key_concepts": output.key_concepts,
         "chunk_status": output.chunk_status,
+        "rejection_reason": output.rejection_reason,
+        "rejection_category": output.rejection_category,
         "candidates": [c.model_dump() for c in approved_cands],
+        "rejected_candidates": [
+            {"thesis": cand.thesis, "reason": reason} for cand, reason in rejected_cands
+        ],
     }
     db.update_chunk_review(
         chunk_id,
@@ -493,12 +498,12 @@ def _filter_candidates(
 ) -> tuple[list[PermanentNoteCandidate], list[PermanentNoteCandidate]]:
     ext = cfg.extraction
     approved: list[PermanentNoteCandidate] = []
-    rejected: list[PermanentNoteCandidate] = []
+    rejected: list[tuple[PermanentNoteCandidate, str]] = []
     for cand in candidates:
         reason = _check_candidate(cand, ext, chunk_text)
         if reason:
             logger.debug("Candidato rejeitado (%s): %s", reason, cand.thesis[:60])
-            rejected.append(cand)
+            rejected.append((cand, reason))
         else:
             approved.append(cand)
     return approved, rejected

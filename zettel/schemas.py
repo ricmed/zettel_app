@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import logging
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+logger = logging.getLogger(__name__)
 
 
 # ── Enums ──────────────────────────────────────────────────────────────
+
+ChunkStatus = Literal["accepted", "rejected"]
+RejectionCategory = Literal[
+    "", "structural", "narrative", "promotional", "trivial", "fragmented"
+]
+_REJECTION_CATEGORIES: frozenset[str] = frozenset(
+    {"", "structural", "narrative", "promotional", "trivial", "fragmented"}
+)
 
 
 class DedupeDecision(str, Enum):
@@ -60,9 +71,9 @@ class PermanentNoteCandidate(BaseModel):
 
 class LiteratureChunkOutput(BaseModel):
     """Output from Prompt 1 for a single chunk — appended to LIT note."""
-    chunk_status: str = Field(description="Status do chunk")
+    chunk_status: ChunkStatus = Field(description="Status do chunk")
     rejection_reason: str = Field(description="Motivo da rejeição")
-    rejection_category: str = Field(description="Categoria da rejeição")
+    rejection_category: RejectionCategory = Field(description="Categoria da rejeição")
     summary: str = Field(description="Resumo do chunk em PT-BR")
     key_concepts: list[str] = Field(
         default_factory=list, description="Conceitos-chave extraídos"
@@ -71,6 +82,14 @@ class LiteratureChunkOutput(BaseModel):
         default_factory=list,
         description="Candidatos atômicos a notas permanentes",
     )
+
+    @field_validator("rejection_category", mode="before")
+    @classmethod
+    def _normalize_unknown_category(cls, v: str) -> str:
+        if v not in _REJECTION_CATEGORIES:
+            logger.warning("rejection_category desconhecida do LLM: %r -- normalizada para ''", v)
+            return ""
+        return v
 
 
 class DedupeResult(BaseModel):

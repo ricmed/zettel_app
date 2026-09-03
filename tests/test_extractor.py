@@ -55,7 +55,9 @@ def test_filter_candidates_by_relevance():
     approved, rejected = _filter_candidates(candidates, cfg)
     assert len(approved) == 1
     assert len(rejected) == 1
-    assert rejected[0].relevance_score == 2
+    cand, reason = rejected[0]
+    assert cand.relevance_score == 2
+    assert "relevance_score" in reason
 
 
 def test_filter_candidates_by_thesis_length():
@@ -216,7 +218,7 @@ def test_write_literature_draft_records_llm_model(tmp_path):
     )
     chunk_row = db.get_chunk("@Book2024::ch000::abc")
     output = LiteratureChunkOutput(
-        chunk_status="ok",
+        chunk_status="accepted",
         rejection_reason="",
         rejection_category="",
         summary="Resumo do trecho",
@@ -296,3 +298,126 @@ def test_process_chunk_payload_carries_section_language_and_domain(tmp_path, mon
     for half in captured.values():
         assert "{language}" not in half and "{domain}" not in half
         assert "{section_path}" not in half and "{chunk_text}" not in half
+
+
+def _process_chunk_test_setup(tmp_path):
+    from pathlib import Path
+
+    from zettel.state import StateDB
+
+    cfg = AppConfig(
+        vault_path=tmp_path / "vault",
+        cache_path=tmp_path / "cache",
+        state_db_path=tmp_path / "state.db",
+        chroma_path=tmp_path / "chroma",
+        prompts_path=Path(__file__).resolve().parents[1] / "prompts",
+    )
+    (cfg.vault_path / "00_Inbox" / "Review").mkdir(parents=True)
+    db = StateDB(cfg.state_db_path)
+    db.upsert_source("@Book2024", "Book2024", "Livro", ["Autor"], 2024, "h", "/x.pdf", "pdf")
+    db.upsert_chapter("@Book2024::ch000", "@Book2024", "Ch1", "chh")
+    db.upsert_chunk(
+        "@Book2024::ch000::abc", "@Book2024", "@Book2024::ch000",
+        "texto do chunk com conteudo suficiente", "ck",
+        chunk_index=0, status="pending",
+    )
+    return cfg, db, db.get_chunk("@Book2024::ch000::abc")
+
+
+def test_process_chunk_persists_rejection_taxonomy(tmp_path, monkeypatch):
+    """Chunk-level rejection_category/rejection_reason survive into summary_json."""
+    import json
+
+    from zettel.extractor import _process_chunk
+    from zettel.llm import load_prompt_parts
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        return json.dumps({
+            "chunk_status": "rejected",
+            "rejection_reason": "trecho e so uma referencia bibliografica",
+            "rejection_category": "structural",
+            "summary": "Trecho estrutural.",
+            "key_concepts": [],
+            "candidates": [],
+        })
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+
+    persisted = json.loads(db.get_chunk("@Book2024::ch000::abc")["summary_json"])
+    assert persisted["rejection_category"] == "structural"
+    assert persisted["rejection_reason"] == "trecho e so uma referencia bibliografica"
+    assert persisted["rejected_candidates"] == []
+    db.close()
+
+
+def test_process_chunk_normalizes_unknown_rejection_category(tmp_path, monkeypatch):
+    """An out-of-vocabulary category from the LLM doesn't crash the parse."""
+    import json
+
+    from zettel.extractor import _process_chunk
+    from zettel.llm import load_prompt_parts
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        return json.dumps({
+            "chunk_status": "rejected",
+            "rejection_reason": "motivo qualquer",
+            "rejection_category": "categoria-inventada-pelo-llm",
+            "summary": "Trecho.",
+            "key_concepts": [],
+            "candidates": [],
+        })
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+
+    persisted = json.loads(db.get_chunk("@Book2024::ch000::abc")["summary_json"])
+    assert persisted["rejection_category"] == ""
+    db.close()
+
+
+def test_process_chunk_persists_rejected_candidates_with_reason(tmp_path, monkeypatch):
+    """A candidate dropped by the deterministic filter is recorded with its reason."""
+    import json
+
+    from zettel.extractor import _process_chunk
+    from zettel.llm import load_prompt_parts
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+
+    low_relevance_candidate = {
+        "thesis": "Uma tese qualquer com palavras suficientes para passar no filtro de tamanho",
+        "definition": (
+            "Uma definicao qualquer com bastante texto explicativo sobre o tema tratado aqui"
+        ),
+        "anchor_quote": "",
+        "relevance_score": 1,
+    }
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        return json.dumps({
+            "chunk_status": "accepted",
+            "rejection_reason": "",
+            "rejection_category": "",
+            "summary": "Resumo com conteudo suficiente para pontuar bem no calculo de confianca.",
+            "key_concepts": ["conceito"],
+            "candidates": [low_relevance_candidate],
+        })
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+
+    persisted = json.loads(db.get_chunk("@Book2024::ch000::abc")["summary_json"])
+    assert persisted["candidates"] == []
+    assert len(persisted["rejected_candidates"]) == 1
+    rejected = persisted["rejected_candidates"][0]
+    assert rejected["thesis"] == low_relevance_candidate["thesis"]
+    assert "relevance_score" in rejected["reason"]
+    db.close()
