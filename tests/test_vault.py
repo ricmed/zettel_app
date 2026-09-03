@@ -3,9 +3,12 @@
 from zettel.hashing import extract_embeddable_text
 from zettel.vault import (
     author_year_label,
+    best_candidate_thesis,
     build_literature_chunk_note,
     compose_note,
     literature_chunk_filename,
+    literature_chunk_filename_for_row,
+    literature_chunk_topic,
     literature_chunk_wikilink,
     literature_index_filename,
     literature_index_link_label,
@@ -198,6 +201,93 @@ def test_literature_chunk_filename_falls_back_to_summary_slug():
     assert name == "LIT - Book2024 - p010 - um-resumo-sobre-vies-de-confirmacao-0003.md"
 
 
+# ── #57: thesis-based title/slug ────────────────────────────────────────
+
+
+def test_best_candidate_thesis_picks_highest_relevance():
+    candidates = [
+        {"thesis": "Tese fraca", "relevance_score": 2},
+        {"thesis": "Tese forte e declarativa sobre o tema", "relevance_score": 5},
+        {"thesis": "Tese media", "relevance_score": 3},
+    ]
+    assert best_candidate_thesis(candidates) == "Tese forte e declarativa sobre o tema"
+
+
+def test_best_candidate_thesis_tie_keeps_first_in_list():
+    candidates = [
+        {"thesis": "Primeira tese, mesma relevancia", "relevance_score": 4},
+        {"thesis": "Segunda tese, mesma relevancia", "relevance_score": 4},
+    ]
+    assert best_candidate_thesis(candidates) == "Primeira tese, mesma relevancia"
+
+
+def test_best_candidate_thesis_empty_list():
+    assert best_candidate_thesis([]) == ""
+    assert best_candidate_thesis(None) == ""
+
+
+def test_literature_chunk_topic_precedence_thesis_over_summary_over_section():
+    # thesis wins even when summary and section_path are both present
+    assert literature_chunk_topic(
+        section_path="Cap 2 > Sistema 1", summary="um resumo qualquer",
+        thesis="L1 induz esparsidade nos pesos",
+    ) == "L1 induz esparsidade nos pesos"
+    # no thesis: summary wins over section_path
+    assert literature_chunk_topic(
+        section_path="Cap 2 > Sistema 1", summary="um resumo qualquer",
+    ) == "um resumo qualquer"
+    # no thesis, no summary: section_path
+    assert literature_chunk_topic(section_path="Cap 2 > Sistema 1") == "Sistema 1"
+    # nothing at all
+    assert literature_chunk_topic() == "nota"
+
+
+def test_literature_chunk_filename_two_theses_in_same_section_differ():
+    """Two LIT notes from the same section but different theses get different slugs."""
+    a = literature_chunk_filename(
+        "Book2024", chunk_index=7, page_in_book=8,
+        section_path="Cap > Pontos de Atencao",
+        thesis="Regularizacao L1 induz esparsidade nos pesos do modelo",
+    )
+    b = literature_chunk_filename(
+        "Book2024", chunk_index=9, page_in_book=8,
+        section_path="Cap > Pontos de Atencao",
+        thesis="Dropout previne overfitting ao desligar neuronios aleatoriamente",
+    )
+    assert a != b
+    assert "regularizacao" in a or "l1" in a
+    assert "dropout" in b
+
+
+def test_literature_chunk_filename_thesis_beats_generic_section_path():
+    name = literature_chunk_filename(
+        "Book2024", chunk_index=1, page_in_book=8,
+        section_path="Cap > 7 Pontos de Atencao e Anti-Padroes",
+        thesis="Gradient clipping evita explosao de gradientes em RNNs profundas",
+    )
+    assert "pontos-de-atencao" not in name
+    assert "gradient" in name
+
+
+def test_literature_chunk_filename_for_row_derives_thesis_from_summary_json():
+    import json
+
+    chunk = {
+        "chunk_index": 2,
+        "page_in_book": 5,
+        "section_path": "Cap > Secao",
+        "summary_json": json.dumps({
+            "summary": "resumo generico",
+            "candidates": [
+                {"thesis": "tese fraca", "relevance_score": 2},
+                {"thesis": "Backpropagation calcula gradientes via regra da cadeia", "relevance_score": 5},
+            ],
+        }),
+    }
+    name = literature_chunk_filename_for_row("Book2024", chunk)
+    assert "backpropagation" in name
+
+
 def test_literature_chunk_wikilink_is_path_qualified():
     link = literature_chunk_wikilink(
         "Negro2026KnowledgeGraphs",
@@ -240,6 +330,82 @@ def test_literature_chunk_note_includes_source_excerpt():
     embeddable = extract_embeddable_text(compose_note({"type": "literature"}, body))
     assert source not in embeddable
     assert "Resumo gerado pelo LLM." in embeddable
+
+
+# ── #58: render anchor_quote + relevance in the LIT note ─────────────────
+
+
+def test_literature_chunk_note_renders_thesis_relevance_and_anchor_quote():
+    _, body = build_literature_chunk_note(
+        source_id="@S",
+        citekey="Book2024",
+        title="Livro",
+        chunk_id="@S::ch::abc",
+        chunk_index=1,
+        literature_id="lit1",
+        summary="Resumo gerado pelo LLM.",
+        key_concepts=["intuicao"],
+        candidates=[{
+            "thesis": "L1 induz esparsidade nos pesos do modelo",
+            "definition": "Definicao completa aqui",
+            "anchor_quote": "a penalidade L1 empurra pesos irrelevantes para exatamente zero",
+            "relevance_score": 4,
+            "source_locator": "p.42",
+        }],
+        section_path="Cap > Sistema 1",
+        source_text="Paragrafo integral do chunk.",
+        page_in_book=20,
+    )
+    assert "L1 induz esparsidade nos pesos do modelo" in body
+    assert "relevancia 4/5" in body
+    assert "p.42" in body
+    assert "a penalidade L1 empurra pesos irrelevantes para exatamente zero" in body
+    assert "zettel:auto-candidate-quotes:start" in body
+
+
+def test_literature_chunk_note_anchor_quote_excluded_from_embedding():
+    _, body = build_literature_chunk_note(
+        source_id="@S",
+        citekey="Book2024",
+        title="Livro",
+        chunk_id="@S::ch::abc",
+        chunk_index=1,
+        literature_id="lit1",
+        summary="Resumo gerado pelo LLM.",
+        key_concepts=[],
+        candidates=[{
+            "thesis": "L1 induz esparsidade nos pesos do modelo",
+            "anchor_quote": "a penalidade L1 empurra pesos irrelevantes para exatamente zero",
+            "relevance_score": 4,
+        }],
+        source_text="",
+    )
+    embeddable = extract_embeddable_text(compose_note({"type": "literature"}, body))
+    # The thesis (real signal) stays; the raw quote (duplicated source text) doesn't.
+    assert "L1 induz esparsidade nos pesos do modelo" in embeddable
+    assert "a penalidade L1 empurra pesos irrelevantes" not in embeddable
+
+
+def test_literature_chunk_note_candidate_without_anchor_quote_does_not_break_layout():
+    _, body = build_literature_chunk_note(
+        source_id="@S",
+        citekey="Book2024",
+        title="Livro",
+        chunk_id="@S::ch::abc",
+        chunk_index=1,
+        literature_id="lit1",
+        summary="Resumo.",
+        key_concepts=[],
+        candidates=[{
+            "thesis": "Uma tese sem citacao ancora disponivel",
+            "anchor_quote": "",
+            "relevance_score": 3,
+        }],
+        source_text="",
+    )
+    assert "Uma tese sem citacao ancora disponivel" in body
+    assert "_(sem citação-âncora)_" in body
+    assert "## Trecho da fonte" in body  # rest of the note still renders
 
 
 def test_literature_chunk_note_empty_source_placeholder():

@@ -268,28 +268,52 @@ def _section_topic(section_path: str | None) -> str:
     return last
 
 
+def best_candidate_thesis(candidates: list[dict[str, Any]] | None) -> str:
+    """Thesis of the approved candidate with the highest `relevance_score`.
+
+    Ties keep the first candidate in the list (``max`` only updates on a
+    strictly greater score). Empty/missing input returns "".
+    """
+    if not candidates:
+        return ""
+    best = max(candidates, key=lambda c: c.get("relevance_score") or 0)
+    return str(best.get("thesis") or "").strip()
+
+
 def literature_chunk_topic(
     section_path: str | None = None,
     summary: str | None = None,
+    thesis: str | None = None,
 ) -> str:
-    """Human topic for H1 headings and index link aliases."""
-    topic = _section_topic(section_path)
-    if topic:
-        return topic
+    """Human topic for H1 headings and index link aliases.
+
+    Precedence: the candidate's own thesis (an assertion, not a topic) beats
+    the auto-generated summary, which beats the section heading, which beats
+    the literal fallback "nota".
+    """
+    if thesis and thesis.strip():
+        return thesis.strip()
     if summary and summary.strip():
         words = summary.strip().split()
         return " ".join(words[:8]) if words else "nota"
+    topic = _section_topic(section_path)
+    if topic:
+        return topic
     return "nota"
 
 
-def _topic_slug(section_path: str | None, summary: str | None) -> str:
-    topic = _section_topic(section_path)
-    if topic:
-        slug = _slug(topic, max_len=_TOPIC_SLUG_MAX)
+def _topic_slug(section_path: str | None, summary: str | None, thesis: str | None = None) -> str:
+    if thesis and thesis.strip():
+        slug = _slug(thesis, max_len=_TOPIC_SLUG_MAX)
         if slug:
             return slug
     if summary and summary.strip():
         slug = _slug(summary, max_len=_TOPIC_SLUG_MAX)
+        if slug:
+            return slug
+    topic = _section_topic(section_path)
+    if topic:
+        slug = _slug(topic, max_len=_TOPIC_SLUG_MAX)
         if slug:
             return slug
     return "nota"
@@ -303,11 +327,12 @@ def literature_chunk_filename(
     page_in_file: int | None = None,
     section_path: str | None = None,
     summary: str | None = None,
+    thesis: str | None = None,
 ) -> str:
     """Basename for a granular LIT (same name in Review and 20_Literature)."""
     label = author_year_label(citekey)
     page = _page_token(page_in_book, page_in_file, chunk_index)
-    topic = _topic_slug(section_path, summary)
+    topic = _topic_slug(section_path, summary, thesis)
     return f"LIT - {label} - {page} - {topic}-{int(chunk_index):04d}.md"
 
 
@@ -324,6 +349,19 @@ def _summary_from_chunk(chunk: dict[str, Any]) -> str:
         return ""
 
 
+def _candidates_from_chunk(chunk: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = chunk.get("summary_json")
+    if not raw:
+        return []
+    if isinstance(raw, dict):
+        return raw.get("candidates") or []
+    try:
+        data = json.loads(raw)
+        return data.get("candidates") or []
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        return []
+
+
 def literature_chunk_filename_for_row(citekey: str, chunk: dict[str, Any]) -> str:
     return literature_chunk_filename(
         citekey,
@@ -332,6 +370,7 @@ def literature_chunk_filename_for_row(citekey: str, chunk: dict[str, Any]) -> st
         page_in_file=chunk.get("page_in_file"),
         section_path=chunk.get("section_path") or "",
         summary=_summary_from_chunk(chunk),
+        thesis=best_candidate_thesis(_candidates_from_chunk(chunk)),
     )
 
 
@@ -343,6 +382,7 @@ def literature_chunk_wikilink(
     page_in_file: int | None = None,
     section_path: str | None = None,
     summary: str | None = None,
+    thesis: str | None = None,
     alias: str | None = None,
 ) -> str:
     """Path-qualified wikilink to a granular LIT (unique even if stems collide)."""
@@ -354,6 +394,7 @@ def literature_chunk_wikilink(
         page_in_file=page_in_file,
         section_path=section_path,
         summary=summary,
+        thesis=thesis,
     ).removesuffix(".md")
     target = f"{dirname}/{stem}"
     if alias:
@@ -367,9 +408,10 @@ def literature_index_link_label(
     page_in_file: int | None = None,
     section_path: str | None = None,
     summary: str | None = None,
+    thesis: str | None = None,
 ) -> str:
     page = page_in_book if page_in_book is not None else page_in_file
-    topic = literature_chunk_topic(section_path, summary)
+    topic = literature_chunk_topic(section_path, summary, thesis)
     if page is not None:
         return f"p. {page} — {topic}"
     return topic
@@ -386,6 +428,7 @@ def literature_chunk_wikilink_for_row(
     """
     summary = _summary_from_chunk(chunk)
     section_path = chunk.get("section_path") or ""
+    thesis = best_candidate_thesis(_candidates_from_chunk(chunk))
     alias = None
     if with_alias:
         alias = literature_index_link_label(
@@ -393,6 +436,7 @@ def literature_chunk_wikilink_for_row(
             page_in_file=chunk.get("page_in_file"),
             section_path=section_path,
             summary=summary,
+            thesis=thesis,
         )
     on_disk = chunk.get("literature_note_path")
     if on_disk:
@@ -407,6 +451,7 @@ def literature_chunk_wikilink_for_row(
         page_in_file=chunk.get("page_in_file"),
         section_path=section_path,
         summary=summary,
+        thesis=thesis,
         alias=alias,
     )
 
@@ -658,7 +703,8 @@ def build_literature_chunk_note(
         meta["section_path"] = section_path
 
     index_stem = literature_index_stem(citekey, title)
-    topic = literature_chunk_topic(section_path, summary)
+    note_thesis = best_candidate_thesis(candidates)
+    topic = literature_chunk_topic(section_path, summary, note_thesis)
     body = f"# {topic} ({page_str})\n\n"
     body += "## Resumo\n\n"
     body += f"{summary.strip() or '_Sem resumo._'}\n\n"
@@ -673,7 +719,26 @@ def build_literature_chunk_note(
     if candidates:
         for cand in candidates:
             thesis = cand.get("thesis") or cand.get("definition") or "?"
-            body += f"- [ ] {thesis}\n"
+            relevance = cand.get("relevance_score")
+            locator = str(cand.get("source_locator") or "").strip()
+            meta_bits = []
+            if relevance is not None:
+                meta_bits.append(f"relevancia {relevance}/5")
+            if locator:
+                meta_bits.append(locator)
+            suffix = f" <sub>{' · '.join(meta_bits)}</sub>" if meta_bits else ""
+            body += f"- [ ] **{thesis}**{suffix}\n"
+        body += "\n"
+        quotes = "\n".join(
+            f"{i}. > {str(cand.get('anchor_quote') or '').strip() or '_(sem citação-âncora)_'}"
+            for i, cand in enumerate(candidates, start=1)
+        )
+        body = upsert_managed_block(
+            body,
+            "auto-candidate-quotes",
+            "**Citações-âncora** (conferência humana — não entram na busca "
+            f"semântica):\n\n{quotes}",
+        )
         body += "\n"
     else:
         body += "_Nenhum candidato._\n\n"

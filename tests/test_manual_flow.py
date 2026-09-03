@@ -6,6 +6,7 @@ import pytest
 
 from zettel.config import AppConfig
 from zettel.manual_lit import (
+    _candidate_theses,
     build_candidate_from_literature,
     create_permanent_from_literature,
 )
@@ -333,3 +334,19 @@ def test_permanent_from_literature_with_llm(cfg, db, monkeypatch):
     assert idx.permanent == [meta["note_id"]]
     # The concept is consumed, so a later `connect` will not duplicate the note.
     assert db.get_concepts_by_status("approved", without_notes=True) == []
+
+
+def test_candidate_theses_strips_pipeline_rendering_metadata():
+    """#57/#58: a checklist line rendered by build_literature_chunk_note still
+    adopts a clean thesis, in case a pipeline draft is later hand-edited to
+    origin: manual."""
+    body = (
+        "## Candidatos a Nota Permanente\n\n"
+        "- [ ] **Backpropagation calcula gradientes via regra da cadeia** "
+        "<sub>relevancia 5/5 · p.42</sub>\n"
+        "- [ ] Tese simples sem formatacao\n"
+    )
+    assert _candidate_theses(body) == [
+        "Backpropagation calcula gradientes via regra da cadeia",
+        "Tese simples sem formatacao",
+    ]
