@@ -26,12 +26,20 @@ def _make_candidate(**overrides) -> PermanentNoteCandidate:
 
 
 def _make_config(**overrides) -> AppConfig:
-    """Helper to build an AppConfig with custom extraction settings."""
+    """Helper to build an AppConfig with custom extraction settings.
+
+    `verify_anchor_quote` defaults to False here so tests unrelated to
+    anchor grounding don't need to supply a matching `chunk_text`.
+    """
     ext_kwargs = {
         "min_relevance_score": 3,
         "min_thesis_words": 5,
         "require_anchor_quote": True,
         "min_definition_words": 10,
+        "verify_anchor_quote": False,
+        "anchor_quote_min_ratio": 0.85,
+        "anchor_quote_min_words": 10,
+        "anchor_quote_max_words": 25,
     }
     ext_kwargs.update(overrides)
     return AppConfig(extraction=ExtractionConfig(**ext_kwargs))
@@ -109,6 +117,75 @@ def test_filter_candidates_all_pass():
     ]
     approved, rejected = _filter_candidates(candidates, cfg)
     assert len(approved) == 2
+    assert len(rejected) == 0
+
+
+# ── verify_anchor_quote (grounding + word range) ────────────────────────
+
+_CHUNK_TEXT = (
+    "Estudos recentes mostram que adaptive learning rates converge faster "
+    "in practice than fixed schedules quando aplicados a redes profundas, "
+    "especialmente em cenarios com ruido alto nos gradientes."
+)
+
+
+def test_filter_candidates_verified_quote_verbatim_in_chunk_passes():
+    cfg = _make_config(verify_anchor_quote=True)
+    candidates = [_make_candidate()]  # default anchor_quote is verbatim in _CHUNK_TEXT
+    approved, rejected = _filter_candidates(candidates, cfg, _CHUNK_TEXT)
+    assert len(approved) == 1
+    assert len(rejected) == 0
+
+
+def test_filter_candidates_verified_quote_absent_from_chunk_rejected():
+    cfg = _make_config(verify_anchor_quote=True)
+    candidates = [_make_candidate(anchor_quote="isso nao aparece em lugar nenhum do texto")]
+    approved, rejected = _filter_candidates(candidates, cfg, _CHUNK_TEXT)
+    assert len(approved) == 0
+    assert len(rejected) == 1
+
+
+def test_filter_candidates_verified_quote_with_editorial_ellipsis_passes():
+    cfg = _make_config(verify_anchor_quote=True, anchor_quote_min_words=5)
+    quote = "adaptive learning rates [...] than fixed schedules"
+    candidates = [_make_candidate(anchor_quote=quote)]
+    approved, rejected = _filter_candidates(candidates, cfg, _CHUNK_TEXT)
+    assert len(approved) == 1
+    assert len(rejected) == 0
+
+
+def test_filter_candidates_verified_quote_paraphrase_rejected():
+    cfg = _make_config(verify_anchor_quote=True)
+    paraphrase = "taxas de aprendizado adaptativas convergem mais rapido na pratica que agendas fixas"
+    candidates = [_make_candidate(anchor_quote=paraphrase)]
+    approved, rejected = _filter_candidates(candidates, cfg, _CHUNK_TEXT)
+    assert len(approved) == 0
+    assert len(rejected) == 1
+
+
+def test_filter_candidates_verified_quote_too_short_rejected():
+    cfg = _make_config(verify_anchor_quote=True)
+    candidates = [_make_candidate(anchor_quote="adaptive learning rates converge")]  # 4 words
+    approved, rejected = _filter_candidates(candidates, cfg, _CHUNK_TEXT)
+    assert len(approved) == 0
+    assert len(rejected) == 1
+
+
+def test_filter_candidates_verified_quote_too_long_rejected():
+    cfg = _make_config(verify_anchor_quote=True)
+    long_quote = " ".join(["palavra"] * 40)
+    candidates = [_make_candidate(anchor_quote=long_quote)]
+    approved, rejected = _filter_candidates(candidates, cfg, "palavra " * 50)
+    assert len(approved) == 0
+    assert len(rejected) == 1
+
+
+def test_filter_candidates_verify_anchor_quote_false_restores_old_behavior():
+    """With verify_anchor_quote off, only the empty-string check still runs."""
+    cfg = _make_config(verify_anchor_quote=False)
+    candidates = [_make_candidate(anchor_quote="isso nao aparece em lugar nenhum do texto")]
+    approved, rejected = _filter_candidates(candidates, cfg, _CHUNK_TEXT)
+    assert len(approved) == 1
     assert len(rejected) == 0
 
 

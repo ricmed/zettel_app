@@ -55,7 +55,7 @@ As flags `--yes`, `--skip-duplicates` e `--force` controlam o comportamento não
 
 ### Chunking
 
-Chunking híbrido ([ADR-014](adrs/generated/HARVEST/ADR-014-hybrid-structural-chunking-strategy.md)): primeiro corta pela estrutura (headings H3–H6), fundindo seções menores que `chunking.min_section_chars` com a seguinte; depois aplica o splitter da LangChain com `chunk_size` / `chunk_overlap` (em **caracteres**, não tokens).
+Chunking híbrido ([ADR-014](adrs/generated/HARVEST/ADR-014-hybrid-structural-chunking-strategy.md)): primeiro corta pela estrutura (headings H3–H6), fundindo seções menores que `chunking.min_section_chars` com a seguinte; depois aplica o splitter da LangChain com `chunk_size` / `chunk_overlap` (em **caracteres**, não tokens). Um terceiro piso roda depois do splitter: pedaço menor que `chunking.min_chunk_chars` (default `200`) é fundido no anterior (ou no seguinte, se for o primeiro da seção) — elimina caudas de corte e réguas horizontais isoladas (`---`) antes que virem uma chamada de LLM. Fontes já harvestadas só se beneficiam do piso novo depois de `zettel rechunk`.
 
 **Fences são átomos.** Um bloco cercado CommonMark (```` ``` ```` ou `~~~`) nunca é cortado. Headings H1–H6 **dentro** do fence são ilustrativos — não viram capítulo nem entram no `section_path`; só headings fora do fence particionam. O splitter de tamanho age apenas na prosa entre fences. Se o fence for maior que `chunk_size`, sai um **chunk oversized** de propósito: fatiar um template ou um trecho de código em `\n\n` é pior que um chunk grande (isso não altera o `chunk_size` global). Fontes harvestadas antes dessa regra mantêm os chunks antigos até você rodar `zettel rechunk`. Fora do escopo do scanner: código indentado por 4 espaços, tabelas fora de fence e HTML.
 
@@ -104,7 +104,7 @@ Módulo: [`extractor.py`](../zettel/extractor.py).
 2. Escreve um **draft** em `00_Inbox/Review/{Citekey}/LIT - AuthorYear - pNNN - topico-NNNN.md` (resumo, conceitos, candidatos, **trecho integral da fonte**, imagens; mesmo basename da nota aprovada)
 3. Checkpoint no SQLite após **cada** chunk: `status=awaiting_review`, `summary_json`, `review_confidence`, `literature_note_path`
 4. Concepts ficam em `awaiting_review` (não elegíveis ao `connect` ainda)
-5. Filtragem estrutural de qualidade (`extraction.min_relevance_score`, `min_thesis_words`, `min_definition_words`, `require_anchor_quote`)
+5. Filtragem estrutural de qualidade (`extraction.min_relevance_score`, `min_thesis_words`, `min_definition_words`, `require_anchor_quote`, `verify_anchor_quote` — checa faixa de 10-25 palavras e se a citação de fato existe no chunk, tolerando elipse editorial)
 6. `--auto-approve` pode promover drafts com confiança ≥ `literature_review.auto_approve_min_confidence`
 
 O nome legível do arquivo (com página e tópico) é uma decisão deliberada — [ADR-015](adrs/generated/EXTRACT/ADR-015-granular-literature-notes-readable-filenames.md).

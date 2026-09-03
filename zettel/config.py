@@ -89,6 +89,7 @@ class ChunkingConfig(BaseModel):
     chunk_size: int = 1000            # caracteres (nao tokens)
     chunk_overlap: int = 200
     min_section_chars: int = 200      # secoes menores sao fundidas com a seguinte
+    min_chunk_chars: int = 200        # pedacos menores sao fundidos no anterior
 
 
 class LinkingConfig(BaseModel):
@@ -112,6 +113,10 @@ class ExtractionConfig(BaseModel):
     min_thesis_words: int = 5         # palavras minimas na tese
     require_anchor_quote: bool = True # descartar se anchor_quote vazio
     min_definition_words: int = 10    # palavras minimas na definicao
+    verify_anchor_quote: bool = True  # checa faixa de palavras e ancoragem no chunk
+    anchor_quote_min_ratio: float = 0.85  # cobertura minima na checagem fuzzy
+    anchor_quote_min_words: int = 10      # faixa que o prompt ja exige
+    anchor_quote_max_words: int = 25
 
 
 class LiteratureReviewConfig(BaseModel):
