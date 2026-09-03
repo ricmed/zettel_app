@@ -12,8 +12,7 @@ Escreva todos os campos textuais da saída em **{language}**, preservando na lí
 
 ## CONTEXTO DA EXTRAÇÃO
 
-Uma chamada = **um chunk** = uma nota de literatura granular. O resultado não é um
-resumo da obra inteira, e sim o registro deste trecho.
+Uma chamada = **um chunk** = uma nota de literatura granular. O resultado não é um resumo da obra inteira, e sim o registro deste trecho.
 
 - O `summary` vira o slug do arquivo da nota (`LIT - AutorAno - pNNN - topico-NNNN.md`):
   a **primeira frase deve nomear o conceito** do trecho, não descrever o documento.

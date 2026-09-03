@@ -1,12 +1,12 @@
 # Zettelkasten — Pipeline Automatizado de Geração de Notas
 
-[![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
-[![uv](https://img.shields.io/badge/gerenciado%20com-uv-DE5FE9?logo=uv&logoColor=white)](https://docs.astral.sh/uv/)
-[![Obsidian](https://img.shields.io/badge/saída-Obsidian-7C3AED?logo=obsidian&logoColor=white)](https://obsidian.md)
-[![LangChain](https://img.shields.io/badge/LLM-LangChain%20%2B%20LangGraph-1C3C3C)](https://python.langchain.com)
-[![Stores](https://img.shields.io/badge/stores-SQLite%20FTS5%20%2B%20ChromaDB-003B57?logo=sqlite&logoColor=white)](docs/arquitetura.md)
-[![ADRs](https://img.shields.io/badge/ADRs-31%20decisões-0A7EA4)](docs/adrs/ADR-INDEX.md)
-[![Licença](https://img.shields.io/badge/licença-MIT-green)](#licença)
+![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)
+![uv](https://img.shields.io/badge/gerenciado%20com-uv-DE5FE9?logo=uv&logoColor=white)
+![Obsidian](https://img.shields.io/badge/saída-Obsidian-7C3AED?logo=obsidian&logoColor=white)
+![LangChain](https://img.shields.io/badge/LLM-LangChain%20%2B%20LangGraph-1C3C3C)
+![Stores](https://img.shields.io/badge/stores-SQLite%20FTS5%20%2B%20ChromaDB-003B57?logo=sqlite&logoColor=white)
+![ADRs](https://img.shields.io/badge/ADRs-31%20decisões-0A7EA4)
+![Licença](https://img.shields.io/badge/licença-MIT-green)
 
 Sistema em Python que lê arquivos (PDF, Markdown) e gera **Notas de Literatura** e **Notas Permanentes** seguindo rigorosamente o método Zettelkasten, com saída compatível com **Obsidian**.
 
@@ -24,6 +24,8 @@ Notas Permanentes (ZTL) com links e backlinks
 MOCs (Mapas de Conteúdo) por clusterização semântica
 ```
 
+
+
 ### Princípios
 
 - **Atomicidade real**: cada nota permanente = uma tese + explicação autônoma + limites
@@ -35,27 +37,33 @@ MOCs (Mapas de Conteúdo) por clusterização semântica
 
 ---
 
+
+
 ## Documentação
 
-| Guia | O que você encontra |
-|---|---|
-| [Instalação](docs/instalacao.md) | Pré-requisitos, `uv sync`, `.env`, GPU, `init`, testes |
-| [Configuração](docs/configuracao.md) | Catálogo completo do `config.yaml`, provedores de LLM/embedding, caches, troca de modelo |
-| [Comandos (CLI)](docs/cli.md) | Referência de **todos** os comandos e flags |
-| [Arquitetura](docs/arquitetura.md) | Mapa dos módulos, estrutura do vault, anti-drift, IDs estáveis, custos |
-| [Pipeline](docs/pipeline.md) | O que cada fase faz por dentro, incluindo paginação arquivo vs. impressa |
-| [Notas geradas](docs/notas.md) | Formato de SRC, índice LIT, LIT granular e ZTL; tipos documentais ABNT |
-| [Recuperação](docs/recuperacao.md) | Busca híbrida (vetor + BM25 + RRF), GraphRAG, piso de relevância, `ask` e `article` |
-| [Notas manuais](docs/notas-manuais.md) | `new-note`, `sync-manual`, adoção de LIT e de imagens, caminho LIT → ZTL |
-| [Interface web](docs/interface-web.md) | Subir a UI, páginas, fila de jobs, o que é exclusivo da CLI |
-| [Operação](docs/operacao.md) | Retenção, `reindex`/`rebuild`/`rechunk`, dumps, purga, remoção de fonte, backup |
-| [Solução de problemas](docs/troubleshooting.md) | Sintomas comuns e como sair deles |
-| [Prompts e taxonomia](docs/prompts.md) | Personalizar `prompts/`, `moc_topics.yaml` e as personalidades do `article` |
-| [ADRs](docs/adrs/ADR-INDEX.md) | 31 decisões de arquitetura, com contexto e alternativas |
+
+| Guia                                            | O que você encontra                                                                      |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| [Instalação](docs/instalacao.md)                | Pré-requisitos, `uv sync`, `.env`, GPU, `init`, testes                                   |
+| [Configuração](docs/configuracao.md)            | Catálogo completo do `config.yaml`, provedores de LLM/embedding, caches, troca de modelo |
+| [Comandos (CLI)](docs/cli.md)                   | Referência de **todos** os comandos e flags                                              |
+| [Arquitetura](docs/arquitetura.md)              | Mapa dos módulos, estrutura do vault, anti-drift, IDs estáveis, custos                   |
+| [Pipeline](docs/pipeline.md)                    | O que cada fase faz por dentro, incluindo paginação arquivo vs. impressa                 |
+| [Notas geradas](docs/notas.md)                  | Formato de SRC, índice LIT, LIT granular e ZTL; tipos documentais ABNT                   |
+| [Recuperação](docs/recuperacao.md)              | Busca híbrida (vetor + BM25 + RRF), GraphRAG, piso de relevância, `ask` e `article`      |
+| [Notas manuais](docs/notas-manuais.md)          | `new-note`, `sync-manual`, adoção de LIT e de imagens, caminho LIT → ZTL                 |
+| [Interface web](docs/interface-web.md)          | Subir a UI, páginas, fila de jobs, o que é exclusivo da CLI                              |
+| [Operação](docs/operacao.md)                    | Retenção, `reindex`/`rebuild`/`rechunk`, dumps, purga, remoção de fonte, backup          |
+| [Solução de problemas](docs/troubleshooting.md) | Sintomas comuns e como sair deles                                                        |
+| [Prompts e taxonomia](docs/prompts.md)          | Personalizar `prompts/`, `moc_topics.yaml` e as personalidades do `article`              |
+| [ADRs](docs/adrs/ADR-INDEX.md)                  | 31 decisões de arquitetura, com contexto e alternativas                                  |
+
 
 Índice completo em [docs/INDICE.md](docs/INDICE.md).
 
 ---
+
+
 
 ## Início rápido
 
@@ -84,22 +92,26 @@ Os exemplos abaixo usam `python -m zettel ...`; prefixe com `uv run` se o ambien
 
 ---
 
-## Comandos principais
 
-| Comando | O que faz |
-|---|---|
-| `zettel init` | Cria o vault e as bases (`--reset` apaga também SQLite/Chroma/cache) |
-| `zettel harvest` | Escaneia o inbox, extrai texto, cria SRC + índice LIT + chunks com página |
-| `zettel extract` | Prompt 1: gera drafts de LIT granular em `00_Inbox/Review` |
-| `zettel review` | Portão humano: aprova/rejeita os drafts por faixa de confiança |
-| `zettel connect` | Prompt 2: gera notas permanentes (ZTL) com links e backlinks |
-| `zettel garden` | Clusteriza notas e gera/atualiza MOCs (`--hubs` para MOCs ancorados em hubs) |
-| `zettel ask "..."` | QA sobre o vault com recuperação híbrida + grafo, sempre citando as notas |
-| `zettel article "..."` | Artigo longo a partir do vault, com outline interativo |
-| `zettel new-note` | Scaffold de nota manual (`ztl`/`src`/`lit`/`moc`) |
-| `zettel sync-manual` | Adota notas escritas à mão no Obsidian (índice, grafo, backrefs) |
-| `zettel status` / `zettel doctor` | Estatísticas do pipeline / diagnóstico de config e dependências |
-| `zettel run-all` | Pipeline completo, do inbox aos MOCs |
+
+## Comandos principaismanu
+
+
+| Comando                           | O que faz                                                                    |
+| --------------------------------- | ---------------------------------------------------------------------------- |
+| `zettel init`                     | Cria o vault e as bases (`--reset` apaga também SQLite/Chroma/cache)         |
+| `zettel harvest`                  | Escaneia o inbox, extrai texto, cria SRC + índice LIT + chunks com página    |
+| `zettel extract`                  | Prompt 1: gera drafts de LIT granular em `00_Inbox/Review`                   |
+| `zettel review`                   | Portão humano: aprova/rejeita os drafts por faixa de confiança               |
+| `zettel connect`                  | Prompt 2: gera notas permanentes (ZTL) com links e backlinks                 |
+| `zettel garden`                   | Clusteriza notas e gera/atualiza MOCs (`--hubs` para MOCs ancorados em hubs) |
+| `zettel ask "..."`                | QA sobre o vault com recuperação híbrida + grafo, sempre citando as notas    |
+| `zettel article "..."`            | Artigo longo a partir do vault, com outline interativo                       |
+| `zettel new-note`                 | Scaffold de nota manual (`ztl`/`src`/`lit`/`moc`)                            |
+| `zettel sync-manual`              | Adota notas escritas à mão no Obsidian (índice, grafo, backrefs)             |
+| `zettel status` / `zettel doctor` | Estatísticas do pipeline / diagnóstico de config e dependências              |
+| `zettel run-all`                  | Pipeline completo, do inbox aos MOCs                                         |
+
 
 Fluxo típico do dia a dia:
 
@@ -113,9 +125,11 @@ python -m zettel garden       # atualiza os mapas de conteúdo
 
 Todas as flags de cada comando: [docs/cli.md](docs/cli.md).
 
-> **Chunking e fences.** No `harvest`, um bloco cercado CommonMark (```` ``` ````/`~~~`) é uma **unidade atômica**: nunca é cortado, e os headings dentro dele não viram `section_path`. Fence maior que `chunk_size` gera um chunk *oversized* de propósito. O heading ATX da seção entra **só no primeiro chunk** daquela seção (depois do split por fences); as continuações seguem só com o corpo. Fontes antigas só mudam com `zettel rechunk`. Detalhes em [docs/pipeline.md](docs/pipeline.md#chunking) e [ADR-014](docs/adrs/generated/HARVEST/ADR-014-hybrid-structural-chunking-strategy.md).
+> **Chunking e fences.** No `harvest`, um bloco cercado CommonMark (`````/`~~~`) é uma **unidade atômica**: nunca é cortado, e os headings dentro dele não viram `section_path`. Fence maior que `chunk_size` gera um chunk *oversized* de propósito. O heading ATX da seção entra **só no primeiro chunk** daquela seção (depois do split por fences); as continuações seguem só com o corpo. Fontes antigas só mudam com `zettel rechunk`. Detalhes em [docs/pipeline.md](docs/pipeline.md#chunking) e [ADR-014](docs/adrs/generated/HARVEST/ADR-014-hybrid-structural-chunking-strategy.md).
 
 ---
+
+
 
 ## Estrutura do vault
 
@@ -136,6 +150,8 @@ Mapa dos módulos, blocos gerenciados e camadas anti-drift: [docs/arquitetura.md
 
 ---
 
+
+
 ## Interface web
 
 ```bash
@@ -150,24 +166,30 @@ Páginas, operações enfileiráveis e recuperação após reinício: [docs/inte
 
 ---
 
+
+
 ## Configuração
 
-A **fonte operacional** é [`config/config.yaml`](config/config.yaml) — é o arquivo que o CLI e a web carregam. [`zettel/config.py`](zettel/config.py) define o schema Pydantic e só aplica fallback quando o YAML falta ou omite uma chave. Segredos (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `SESSION_SECRET`) ficam no `.env`.
+A **fonte operacional** é `[config/config.yaml](config/config.yaml)` — é o arquivo que o CLI e a web carregam. `[zettel/config.py](zettel/config.py)` define o schema Pydantic e só aplica fallback quando o YAML falta ou omite uma chave. Segredos (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `SESSION_SECRET`) ficam no `.env`.
 
-| Bloco | Controla |
-|---|---|
-| `vault_path`, `inbox_path`, `chroma_path`, `state_db_path`, `cache_path`, `prompts_path` | Caminhos do projeto |
-| `llm.*` | Identidade de LLM **por fase** (`harvest`, `extract`, `review`, `connect`, `garden`, `ask`, `article`, `images`) + amostragem global |
-| `embedding.*` | Provider, modelo, `dimensions` (MRL) e política de fallback |
-| `chunking.*`, `harvest.*`, `extraction.*`, `literature_review.*` | Ingestão, duplicatas, filtragem de candidatos e portão de aprovação |
-| `retrieval.*` | Busca híbrida, piso de relevância, expansão por grafo, `ask` e `article` |
-| `gardener.*`, `hub_mocs.*` | Clusterização e geração de MOCs |
-| `images.*` | Extração e descrição multimodal de imagens |
-| `language`, `log_level`, `device` | Idioma do conteúdo gerado, logging e dispositivo (CPU/CUDA) |
+
+| Bloco                                                                                    | Controla                                                                                                                             |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `vault_path`, `inbox_path`, `chroma_path`, `state_db_path`, `cache_path`, `prompts_path` | Caminhos do projeto                                                                                                                  |
+| `llm.*`                                                                                  | Identidade de LLM **por fase** (`harvest`, `extract`, `review`, `connect`, `garden`, `ask`, `article`, `images`) + amostragem global |
+| `embedding.*`                                                                            | Provider, modelo, `dimensions` (MRL) e política de fallback                                                                          |
+| `chunking.*`, `harvest.*`, `extraction.*`, `literature_review.*`                         | Ingestão, duplicatas, filtragem de candidatos e portão de aprovação                                                                  |
+| `retrieval.*`                                                                            | Busca híbrida, piso de relevância, expansão por grafo, `ask` e `article`                                                             |
+| `gardener.*`, `hub_mocs.*`                                                               | Clusterização e geração de MOCs                                                                                                      |
+| `images.*`                                                                               | Extração e descrição multimodal de imagens                                                                                           |
+| `language`, `log_level`, `device`                                                        | Idioma do conteúdo gerado, logging e dispositivo (CPU/CUDA)                                                                          |
+
 
 Catálogo completo, provedores suportados e o procedimento de troca de embedding: [docs/configuracao.md](docs/configuracao.md).
 
 ---
+
+
 
 ## Testes
 
@@ -186,6 +208,8 @@ uv run pytest tests/test_web.py tests/test_web_state.py -v
 Problemas conhecidos e diagnósticos: [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ---
+
+
 
 ## Licença
 

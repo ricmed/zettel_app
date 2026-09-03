@@ -81,7 +81,7 @@ embedding:
 # Tamanhos em caracteres (nao tokens). Entram no hash de paging; mudar
 # re-chunka fontes se o harvest/rechunk rodar de novo.
 chunking:
-  chunk_size: 1500           # alvo do splitter LangChain apos fusao de secoes
+  chunk_size: 2500           # alvo do splitter LangChain apos fusao de secoes
   chunk_overlap: 400         # sobreposicao entre chunks consecutivos
   min_section_chars: 200     # secoes (H3+) menores sao fundidas com a seguinte
 

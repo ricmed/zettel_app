@@ -47,7 +47,7 @@ def yaml_has_path(data: dict[str, Any], dotted: str) -> bool:
 def test_load_config_yaml_smoke():
     cfg = load_config(_CONFIG_YAML)
     assert cfg.retrieval.mode == "hybrid"
-    assert cfg.retrieval.relevance_floor.min_vector_similarity == 0.70
+    assert cfg.retrieval.relevance_floor.min_vector_similarity == 0.65
     assert cfg.hub_mocs.selection_mode in ("percentile", "absolute")
     assert "contradicts" in cfg.retrieval.graph_expansion.relation_weights
 
