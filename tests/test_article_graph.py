@@ -262,7 +262,7 @@ def test_hitl_handler_receives_interrupt_payload(tmp_path, monkeypatch):
             return FakeCompiled()
 
     monkeypatch.setattr(
-        "zettel.article_graph.build_article_graph", lambda: FakeBuilder()
+        "zettel.article_graph.graph.build_article_graph", lambda: FakeBuilder()
     )
 
     def hitl(payload: dict) -> dict:
