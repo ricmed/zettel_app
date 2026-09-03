@@ -439,24 +439,60 @@ def _images_for_chunk(db: StateDB, chunk_row: dict) -> list[dict[str, Any]]:
 def _score_review_confidence(
     output: LiteratureChunkOutput, cfg: AppConfig, chunk_text: str = "",
 ) -> float:
-    """Heuristic confidence in [0, 1] for auto-approve decisions."""
+    """Heuristic confidence in [0, 1] for auto-approve decisions.
+
+    Optimized for *separation*, not a calibrated probability (there is no
+    ground truth to calibrate against). The previous version scored form —
+    summary length, key-concept count, anchor-quote *presence* — with binary
+    bonuses that saturated almost immediately: `require_anchor_quote` already
+    filters out quote-less candidates before this runs, so that term was
+    `+0.2` on every accepted chunk, not a signal. Measured on the corpus,
+    every accepted chunk with >=3 key concepts and a 20-word summary hit the
+    same ~0.98, and the "medium" confidence band was empty.
+
+    Three components with real variance in the corpus instead:
+      - `approval_ratio`: candidates the deterministic filter kept vs. the
+        chunk's total. A chunk where the filter dropped half its candidates
+        is a weaker chunk than one where nothing was dropped.
+      - `rel_component`: mean `relevance_score` of approved candidates,
+        normalized over the filter's own floor..5 range (not /5 — the
+        filter already cuts everything below `min_relevance_score`, so
+        dividing by 5 compresses every surviving chunk toward the top).
+      - `depth_component`: mean `definition` word count, normalized over
+        `min_definition_words`..5x that floor. Not a correctness signal —
+        a long definition isn't automatically a truer one — but it has
+        real spread in the corpus (33-88 words) where relevance_score
+        mostly doesn't (the LLM rarely uses the full 1-5 scale in practice),
+        so it does the work of actually separating chunks.
+    """
     if output.chunk_status == "rejected":
         return 0.1
-    score = 0.4
-    if output.summary and len(output.summary.split()) >= 20:
-        score += 0.15
-    if output.key_concepts:
-        score += min(0.15, 0.05 * len(output.key_concepts))
     if not output.candidates:
-        return min(score, 0.55)
-    approved, _ = _filter_candidates(output.candidates, cfg, chunk_text)
+        return 0.2
+    approved, rejected = _filter_candidates(output.candidates, cfg, chunk_text)
     if not approved:
-        return min(score, 0.45)
+        return 0.2
+
+    ext = cfg.extraction
+    n_total = len(approved) + len(rejected)
+    approval_ratio = (len(approved) / n_total) if n_total else 1.0
+
+    rel_span = 5 - ext.min_relevance_score
     avg_rel = sum(c.relevance_score for c in approved) / len(approved)
-    score += 0.1 * (avg_rel / 5.0)
-    with_quote = sum(1 for c in approved if c.anchor_quote.strip())
-    score += 0.2 * (with_quote / len(approved))
-    return round(min(1.0, score), 3)
+    rel_component = (
+        min(1.0, max(0.0, (avg_rel - ext.min_relevance_score) / rel_span))
+        if rel_span > 0 else 1.0
+    )
+
+    depth_span = ext.min_definition_words * 5
+    avg_def_words = sum(len(c.definition.split()) for c in approved) / len(approved)
+    depth_component = (
+        min(1.0, max(0.0, (avg_def_words - ext.min_definition_words) / depth_span))
+        if depth_span > 0 else 1.0
+    )
+
+    confidence = 0.30 * approval_ratio + 0.30 * rel_component + 0.40 * depth_component
+    return round(min(1.0, max(0.0, confidence)), 3)
 
 
 def _build_images_context(

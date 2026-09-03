@@ -117,15 +117,20 @@ extraction:
   anchor_quote_max_words: 25
 
 # ── Literature Review (aprovacao seletiva de LIT por chunk) ───────────
-# Limiares de review_confidence sao heuristicas iniciais (ADR-017), nao
-# calibracao empirica. Este YAML e a fonte operacional do limiar de
-# auto-aprovacao (pode divergir do default historico 0.7 da ADR). O corte
-# muito baixo 0.4 vive em review.py. Monitorar volume por faixa apos
-# harvest/extract; se a carga do operador ficar desbalanceada, propor
-# ajuste via GitHub issue (docs/adrs/RUNBOOK.md). Calibracao formal so
-# apos evidencia operacional ou mudanca significativa de modelo no extract.
+# review_confidence foi recalibrada (issue #59) sobre o corpus real (117
+# chunks aceitos em data/state.db no momento da calibracao): a formula
+# anterior saturava em ~0.98 para quase todo chunk aceito (banda media
+# vazia). A nova formula pondera approval_ratio + relevance_score medio
+# (normalizado sobre o piso do filtro, nao /5) + profundidade media da
+# definicao (unico termo com dispersao real no corpus medido -- 33 a 88
+# palavras; relevance_score raramente sai de 3-4). Distribuicao medida:
+# min 0.52, mediana 0.75, max 0.85, desvio padrao 0.09 -- 0.75 fica bem no
+# meio (~51% dos chunks aceitos ficam >= limiar). O corte muito baixo 0.4
+# vive em review.py (chunk rejeitado=0.1, aceito sem candidato=0.2 --
+# ambos abaixo, corretamente). Corpus muda com o modelo/prompt de extract;
+# reavaliar percentis se a distribuicao mudar muito (docs/adrs/RUNBOOK.md).
 literature_review:
-  auto_approve_min_confidence: 0.85  # faixa alta / auto-aprovacao (>=); heuristica tunavel
+  auto_approve_min_confidence: 0.75  # faixa alta / auto-aprovacao (>=); recalibrado sobre o corpus (issue #59)
   batch_sample_size: 20              # max drafts de baixa confianca listados no review interativo
   drafts_subdir: 00_Inbox/Review     # relativo ao vault; drafts antes da promocao para 20_Literature
 

@@ -1,8 +1,8 @@
 """Tests for extractor candidate filtering."""
 
 from zettel.config import AppConfig, ExtractionConfig
-from zettel.extractor import _filter_candidates
-from zettel.schemas import PermanentNoteCandidate
+from zettel.extractor import _filter_candidates, _score_review_confidence
+from zettel.schemas import LiteratureChunkOutput, PermanentNoteCandidate
 
 
 def _make_candidate(**overrides) -> PermanentNoteCandidate:
@@ -421,3 +421,116 @@ def test_process_chunk_persists_rejected_candidates_with_reason(tmp_path, monkey
     assert rejected["thesis"] == low_relevance_candidate["thesis"]
     assert "relevance_score" in rejected["reason"]
     db.close()
+
+
+# ── #59: review_confidence recalibration ──────────────────────────────
+
+
+def _make_output(**overrides) -> LiteratureChunkOutput:
+    defaults = {
+        "chunk_status": "accepted",
+        "rejection_reason": "",
+        "rejection_category": "",
+        "summary": "Resumo qualquer.",
+        "key_concepts": ["conceito"],
+        "candidates": [],
+    }
+    defaults.update(overrides)
+    return LiteratureChunkOutput(**defaults)
+
+
+def test_score_review_confidence_rejected_chunk_is_lowest():
+    cfg = _make_config()
+    output = _make_output(chunk_status="rejected", candidates=[])
+    assert _score_review_confidence(output, cfg) == 0.1
+
+
+def test_score_review_confidence_accepted_without_candidates_is_low_but_distinguishable():
+    cfg = _make_config()
+    output = _make_output(chunk_status="accepted", candidates=[])
+    score = _score_review_confidence(output, cfg)
+    assert score == 0.2
+    rejected_score = _score_review_confidence(_make_output(chunk_status="rejected"), cfg)
+    assert score > rejected_score
+
+
+def test_score_review_confidence_all_candidates_filtered_out_is_low():
+    cfg = _make_config()
+    weak = _make_candidate(relevance_score=1)  # below min_relevance_score=3
+    output = _make_output(candidates=[weak])
+    assert _score_review_confidence(output, cfg) == 0.2
+
+
+def test_score_review_confidence_has_real_dispersion_not_saturated():
+    """The old formula converged on ~0.98 for any reasonably-formed chunk.
+
+    A thin candidate (short definition, floor relevance) and a well-developed
+    one (long definition, high relevance) must land in visibly different
+    places, not both pinned near 1.0.
+    """
+    cfg = _make_config()
+    thin = _make_candidate(
+        relevance_score=3,
+        definition="Definicao curta com poucas palavras apenas o minimo necessario aqui",
+    )
+    rich = _make_candidate(
+        relevance_score=5,
+        definition=(
+            "Uma definicao bem mais desenvolvida, com varias frases substantivas "
+            "explicando o conceito em profundidade, cobrindo nuances, excecoes e "
+            "conexoes com ideias correlatas, para que o leitor entenda o mecanismo "
+            "completo sem precisar consultar a fonte original de novo"
+        ),
+    )
+    thin_score = _score_review_confidence(_make_output(candidates=[thin]), cfg)
+    rich_score = _score_review_confidence(_make_output(candidates=[rich]), cfg)
+    assert rich_score > thin_score
+    assert rich_score - thin_score >= 0.2  # meaningfully separated, not a rounding blip
+    assert thin_score < 0.85  # neither pinned at the old ~0.98 ceiling
+    assert rich_score < 0.95
+
+
+def test_score_review_confidence_partial_filter_rejection_lowers_score():
+    """A chunk where the filter dropped half the candidates scores lower."""
+    cfg = _make_config()
+    good = _make_candidate(relevance_score=5)
+    weak = _make_candidate(relevance_score=1)  # gets filtered out
+
+    all_good = _score_review_confidence(
+        _make_output(candidates=[good, _make_candidate(relevance_score=5)]), cfg,
+    )
+    half_filtered = _score_review_confidence(
+        _make_output(candidates=[good, weak]), cfg,
+    )
+    assert all_good > half_filtered
+
+
+def test_score_review_confidence_deterministic():
+    cfg = _make_config()
+    output = _make_output(candidates=[_make_candidate()])
+    a = _score_review_confidence(output, cfg)
+    b = _score_review_confidence(output, cfg)
+    assert a == b
+
+
+def test_score_review_confidence_handles_degenerate_relevance_range():
+    """min_relevance_score == 5 (rel_span == 0) must not raise ZeroDivisionError."""
+    cfg = _make_config(min_relevance_score=5)
+    output = _make_output(candidates=[_make_candidate(relevance_score=5)])
+    score = _score_review_confidence(output, cfg)
+    assert 0.0 <= score <= 1.0
+
+
+def test_score_review_confidence_handles_degenerate_definition_floor():
+    """min_definition_words == 0 (depth_span == 0) must not raise ZeroDivisionError."""
+    cfg = _make_config(min_definition_words=0)
+    output = _make_output(candidates=[_make_candidate()])
+    score = _score_review_confidence(output, cfg)
+    assert 0.0 <= score <= 1.0
+
+
+def test_score_review_confidence_never_calls_llm():
+    """No `llm` argument exists on the signature -- purely a function of output/cfg."""
+    import inspect
+    params = inspect.signature(_score_review_confidence).parameters
+    assert "llm" not in params
