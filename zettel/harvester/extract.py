@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from zettel.config import AppConfig
+from zettel.hashing import dehyphenate_pdf_linebreaks
 from zettel.paging import PAGE_BREAK_MARKER, page_map_from_marked_markdown
 
 logger = logging.getLogger(__name__)
@@ -127,6 +128,11 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
     if cfg.images.enabled:
         from zettel.assets import extract_docling_images
         text, images = extract_docling_images(cfg, result.document, text)
+
+    # PDF-only cleanup: merge line-break hyphenation before persistence, so the
+    # LLM prompt, the embedding and the anchor_quote never see "pala-\nvra".
+    # normalize_text_for_hash() also runs this (idempotent) for the hashing path.
+    text = dehyphenate_pdf_linebreaks(text)
 
     metadata: dict[str, Any] = {
         "title": file_path.stem, "authors": [], "year": None, "_images": images,

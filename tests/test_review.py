@@ -139,6 +139,58 @@ def test_approve_moves_draft_and_embeds(env):
     assert concepts[0]["status"] == "extracted"
 
 
+def test_approve_preserves_candidate_quotes_block_without_duplicating(tmp_path):
+    """#58: the anchor-quote managed block survives promotion exactly once."""
+    cfg = AppConfig(
+        vault_path=tmp_path / "vault",
+        cache_path=tmp_path / "cache",
+        state_db_path=tmp_path / "state.db",
+        chroma_path=tmp_path / "chroma",
+    )
+    for d in ("00_Inbox/Review", "10_Sources", "20_Literature", "30_Permanent", "90_Assets"):
+        (cfg.vault_path / d).mkdir(parents=True, exist_ok=True)
+    db = StateDB(cfg.state_db_path)
+    db.upsert_source("@Book2024", "Book2024", "Livro Teste", ["Autor"], 2024, "h", "/x.pdf", "pdf")
+    db.upsert_chapter("@Book2024::ch000", "@Book2024", "Ch1", "chh")
+    candidates = [{
+        "thesis": "L1 induz esparsidade nos pesos do modelo",
+        "anchor_quote": "a penalidade L1 empurra pesos irrelevantes para exatamente zero",
+        "relevance_score": 4,
+    }]
+    db.upsert_chunk(
+        "@Book2024::ch000::abc", "@Book2024", "@Book2024::ch000",
+        "texto do chunk", "ck",
+        chunk_index=0, status="awaiting_review",
+        literature_id="lit123",
+        summary_json=json.dumps({"summary": "Um resumo", "key_concepts": [], "candidates": candidates}),
+        review_confidence=0.9,
+    )
+    chunk_row = db.get_chunk("@Book2024::ch000::abc")
+    fname = literature_chunk_filename_for_row("Book2024", chunk_row)
+    draft_dir = cfg.vault_path / "00_Inbox" / "Review" / literature_source_dirname("Book2024")
+    draft_dir.mkdir(parents=True, exist_ok=True)
+    meta, body = build_literature_chunk_note(
+        source_id="@Book2024", citekey="Book2024", title="Livro Teste",
+        chunk_id="@Book2024::ch000::abc", chunk_index=0, literature_id="lit123",
+        summary="Um resumo", key_concepts=[], candidates=candidates,
+        page_in_book=10, status="awaiting_review", review_confidence=0.9,
+    )
+    draft_path = draft_dir / fname
+    safe_write_note(draft_path, meta, body)
+    db.update_chunk_review(
+        "@Book2024::ch000::abc", literature_note_path=str(draft_path), status="awaiting_review",
+    )
+    idx = _FakeLitIndex()
+
+    ok = approve_chunk(cfg, db, idx, "@Book2024::ch000::abc")
+    assert ok
+    dest = cfg.vault_path / "20_Literature" / literature_source_dirname("Book2024") / fname
+    dest_text = dest.read_text(encoding="utf-8")
+    assert dest_text.count("zettel:auto-candidate-quotes:start") == 1
+    assert "a penalidade L1 empurra pesos irrelevantes" in dest_text
+    db.close()
+
+
 def test_reject_deletes_draft(env):
     cfg, db, idx = env
     ok = reject_chunk(cfg, db, idx, "@Book2024::ch000::abc")
@@ -159,6 +211,64 @@ def test_reject_refuses_chunk_outside_review(env):
     assert approve_chunk(cfg, db, idx, "@Book2024::ch000::abc")
     assert not reject_chunk(cfg, db, idx, "@Book2024::ch000::abc")
     assert db.get_chunk("@Book2024::ch000::abc")["status"] == "persisted"
+
+
+# ── #54: no draft file was ever written (rejected / content-less chunk) ──
+
+
+@pytest.fixture
+def env_no_draft(tmp_path):
+    """A chunk with literature_note_path=None, as #54 now leaves rejected/empty chunks."""
+    cfg = AppConfig(
+        vault_path=tmp_path / "vault",
+        cache_path=tmp_path / "cache",
+        state_db_path=tmp_path / "state.db",
+        chroma_path=tmp_path / "chroma",
+    )
+    for d in ("00_Inbox/Review", "10_Sources", "20_Literature", "30_Permanent", "90_Assets"):
+        (cfg.vault_path / d).mkdir(parents=True, exist_ok=True)
+    db = StateDB(cfg.state_db_path)
+    db.upsert_source(
+        "@Book2024", "Book2024", "Livro Teste", ["Autor"], 2024,
+        "h", "/x.pdf", "pdf",
+    )
+    db.upsert_chapter("@Book2024::ch000", "@Book2024", "Ch1", "chh")
+    db.upsert_chunk(
+        "@Book2024::ch000::abc", "@Book2024", "@Book2024::ch000",
+        "texto do chunk", "ck",
+        chunk_index=0, status="awaiting_review",
+        literature_id="lit123",
+        summary_json=json.dumps({
+            "summary": "Um resumo", "key_concepts": ["conceito"], "candidates": [],
+            "rejection_reason": "so uma referencia bibliografica",
+            "rejection_category": "structural",
+        }),
+        review_confidence=0.1,
+    )
+    idx = _FakeLitIndex()
+    yield cfg, db, idx
+    db.close()
+
+
+def test_reject_tolerates_null_literature_note_path(env_no_draft):
+    """#54: chunk_status=rejected never got a draft file; reject still works cleanly."""
+    cfg, db, idx = env_no_draft
+    assert db.get_chunk("@Book2024::ch000::abc")["literature_note_path"] is None
+    ok = reject_chunk(cfg, db, idx, "@Book2024::ch000::abc")
+    assert ok
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "rejected"
+
+
+def test_approve_tolerates_null_literature_note_path_by_rebuilding(env_no_draft):
+    """#54: no draft file to move, so approve_chunk rebuilds the note from summary_json."""
+    cfg, db, idx = env_no_draft
+    ok = approve_chunk(cfg, db, idx, "@Book2024::ch000::abc")
+    assert ok
+    chunk = db.get_chunk("@Book2024::ch000::abc")
+    assert chunk["status"] == "persisted"
+    fname = literature_chunk_filename_for_row("Book2024", chunk)
+    dest = cfg.vault_path / "20_Literature" / literature_source_dirname("Book2024") / fname
+    assert dest.exists()
 
 
 def test_confidence_band_counts():
