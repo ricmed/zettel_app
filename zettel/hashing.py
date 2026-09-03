@@ -13,6 +13,35 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 
+_HYPHEN_LINEBREAK_RE = re.compile(r"(\w)-[ \t]*\n[ \t]*(\w)")
+
+
+def dehyphenate_pdf_linebreaks(text: str) -> str:
+    """Merge a PDF's line-break hyphenation: ``"pala-\\nvra"`` -> ``"palavra"``.
+
+    Only meaningful for PDF-originated text; native Markdown may end a line
+    on a legitimate hyphen and must not be touched (callers are responsible
+    for only applying this to PDF extraction output).
+
+    The character right after the break is checked: lowercase means this is
+    almost always the tail of a word split by the PDF's line layout, so the
+    hyphen and line break are removed. Uppercase is a weak but cheap signal
+    of a genuine hyphenated compound (a heading, a proper noun) and is left
+    untouched. This does **not** catch a genuine compound whose continuation
+    happens to be lowercase (e.g. ``"bem-\\nvindo"`` still merges into the
+    wrong ``"bemvindo"``) — a known limitation with no fix short of a
+    dictionary lookup, not attempted here.
+
+    Idempotent: re-running on already-merged text is a no-op.
+    """
+    def _join(m: re.Match[str]) -> str:
+        before, after = m.group(1), m.group(2)
+        if after.isupper():
+            return m.group(0)
+        return f"{before}{after}"
+    return _HYPHEN_LINEBREAK_RE.sub(_join, text)
+
+
 def normalize_text_for_hash(text: str) -> str:
     """Normalize text canonically before hashing to prevent false drift.
 
@@ -28,8 +57,7 @@ def normalize_text_for_hash(text: str) -> str:
     t = re.sub(r"[ \t]+", " ", t)
     t = re.sub(r" *\n *", "\n", t)
     t = re.sub(r"\n{3,}", "\n\n", t)
-    # Fix simple PDF hyphenation: "word-\ncontinuation" -> "wordcontinuation"
-    t = re.sub(r"(\w)-\n(\w)", r"\1\2", t)
+    t = dehyphenate_pdf_linebreaks(t)
     return t.strip()
 
 
