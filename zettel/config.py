@@ -89,6 +89,7 @@ class ChunkingConfig(BaseModel):
     chunk_size: int = 1000            # caracteres (nao tokens)
     chunk_overlap: int = 200
     min_section_chars: int = 200      # secoes menores sao fundidas com a seguinte
+    min_chunk_chars: int = 200        # pedacos menores sao fundidos no anterior
 
 
 class LinkingConfig(BaseModel):

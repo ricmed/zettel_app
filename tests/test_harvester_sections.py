@@ -12,6 +12,7 @@ from zettel.harvester import (
     split_chapter_into_sections as _split_chapter_into_sections,
     split_into_chapters as _split_into_chapters,
 )
+from zettel.harvester.chunking import _merge_short_pieces
 from zettel.state import StateDB
 
 
@@ -87,7 +88,7 @@ def test_trailing_small_section_merges_into_previous():
 
 
 def test_large_section_is_subdivided():
-    cfg = _cfg(chunk_size=100, chunk_overlap=10, min_section_chars=50)
+    cfg = _cfg(chunk_size=100, chunk_overlap=10, min_section_chars=50, min_chunk_chars=0)
     chapter = {"title": "Cap", "text": "palavra " * 200, "locator": "Cap"}
     pairs = _split_chapter_into_chunks(cfg, chapter)
     assert len(pairs) > 1
@@ -107,6 +108,53 @@ def test_chunk_pairs_carry_section_path():
     by_path = {path: text for path, text in pairs}
     assert by_path["Cap > Alpha"].startswith("### Alpha")
     assert by_path["Cap > Beta"].startswith("### Beta")
+
+
+# ── min_chunk_chars floor ──────────────────────────────────────────────
+
+
+def test_merge_short_pieces_merges_short_tail_into_previous():
+    pieces = ["x" * 300, "---"]
+    merged = _merge_short_pieces(pieces, min_chunk_chars=200)
+    assert len(merged) == 1
+    assert merged[0] == "x" * 300 + "\n\n---"
+
+
+def test_merge_short_pieces_merges_leading_short_piece_forward():
+    pieces = ["---", "y" * 300]
+    merged = _merge_short_pieces(pieces, min_chunk_chars=200)
+    assert merged == ["---\n\n" + "y" * 300]
+
+
+def test_merge_short_pieces_collapses_all_short_pieces_into_one():
+    pieces = ["a", "b", "c"]
+    merged = _merge_short_pieces(pieces, min_chunk_chars=200)
+    assert merged == ["a\n\nb\n\nc"]
+
+
+def test_merge_short_pieces_leaves_pieces_above_floor_untouched():
+    pieces = ["x" * 250, "y" * 250]
+    merged = _merge_short_pieces(pieces, min_chunk_chars=200)
+    assert merged == pieces
+
+
+def test_chunk_floor_drops_no_piece_below_min_chunk_chars(monkeypatch):
+    # Force the size-splitter to emit an isolated "---" tail piece, the
+    # documented real-world artifact this floor exists to eliminate.
+    import langchain_text_splitters
+
+    class _FakeSplitter:
+        def split_text(self, text):
+            return ["x" * 300, "---", "y" * 300]
+
+    monkeypatch.setattr(
+        langchain_text_splitters, "RecursiveCharacterTextSplitter", lambda **kw: _FakeSplitter()
+    )
+    cfg = _cfg(chunk_size=50, chunk_overlap=0, min_section_chars=20, min_chunk_chars=200)
+    chapter = {"title": "Cap", "text": "z" * 900, "locator": "Cap"}
+    pairs = _split_chapter_into_chunks(cfg, chapter)
+    assert all(len(text) >= 200 for _, text in pairs)
+    assert not any(text.strip() == "---" for _, text in pairs)
 
 
 def test_split_into_chapters_regression_no_headings():
@@ -368,7 +416,7 @@ def test_real_headings_outside_fence_still_split():
 
 
 def test_fence_is_never_cut_by_the_size_splitter():
-    cfg = _cfg(chunk_size=200, chunk_overlap=20, min_section_chars=50)
+    cfg = _cfg(chunk_size=200, chunk_overlap=20, min_section_chars=50, min_chunk_chars=0)
     chapter = {
         "title": "Cap",
         "text": f"{_filler(6)}\n\n{HLD_FENCE}\n\n{_filler(6)}",
@@ -395,7 +443,7 @@ def test_oversized_fence_becomes_a_single_chunk():
 def test_multiple_fences_are_independent_atoms():
     fence_a = "```python\n" + "print('a')\n" * 12 + "```"
     fence_b = "~~~sql\n" + "select 1;\n" * 12 + "~~~"
-    cfg = _cfg(chunk_size=200, chunk_overlap=20, min_section_chars=50)
+    cfg = _cfg(chunk_size=200, chunk_overlap=20, min_section_chars=50, min_chunk_chars=0)
     chapter = {
         "title": "Cap",
         "text": f"{fence_a}\n\n{_filler(8)}\n\n{fence_b}",
@@ -409,7 +457,7 @@ def test_multiple_fences_are_independent_atoms():
 
 
 def test_long_prose_without_fence_still_splits():
-    cfg = _cfg(chunk_size=200, chunk_overlap=20, min_section_chars=50)
+    cfg = _cfg(chunk_size=200, chunk_overlap=20, min_section_chars=50, min_chunk_chars=0)
     chapter = {"title": "Cap", "text": _filler(30), "locator": "Cap"}
     pairs = _split_chapter_into_chunks(cfg, chapter)
     assert len(pairs) > 1
@@ -420,7 +468,7 @@ def test_long_prose_without_fence_still_splits():
 
 
 def test_heading_prefixed_only_on_first_chunk_of_section():
-    cfg = _cfg(chunk_size=80, chunk_overlap=0, min_section_chars=20)
+    cfg = _cfg(chunk_size=80, chunk_overlap=0, min_section_chars=20, min_chunk_chars=0)
     body = "palavra " * 80
     chapter = {
         "title": "Cap",
