@@ -123,6 +123,14 @@ O Sistema 1 opera de forma automatica e rapida...
 ## Conceitos-chave
 #heuristicas #vieses-cognitivos
 
+## Julgamento do autor
+
+<!-- zettel:auto-decision:start -->
+**Regras de decisão**
+
+- Quando a decisão for repetitiva e de baixo risco, deixe o Sistema 1 agir, porque o custo de deliberar excede o do erro
+<!-- zettel:auto-decision:end -->
+
 ## Trecho da fonte
 
 <!-- zettel:auto-source-excerpt:start -->
@@ -135,6 +143,7 @@ Pontos importantes:
 - O **draft** gerado pelo `extract` fica em `00_Inbox/Review/{Citekey}/` com o **mesmo basename** da nota aprovada — aprovar é mover, não regravar.
 - O bloco `auto-source-excerpt` guarda o trecho integral da fonte. Ele é **removido do texto embeddado** em `literature_notes`: o índice vetorial guarda a interpretação, não o texto-fonte cru (que já vive na coleção `chunks`).
 - Uma LIT granular escrita à mão pode ser adotada pelo pipeline — veja [notas-manuais.md](notas-manuais.md).
+- O bloco `auto-decision` só aparece quando algum candidato do chunk **enunciou** uma regra de decisão, um anti-padrão ou um framework nomeado. É gerenciado: edições fora dele sobrevivem. Como todo bloco `auto-*`, fica **fora** do texto embeddado ([ADR-034](adrs/generated/EXTRACT/ADR-034-optional-author-judgement-fields.md)).
 
 ---
 
@@ -150,6 +159,10 @@ source_id: "@Kahneman2011ThinkingFast"
 literature_ref: "[[Kahneman2011ThinkingFast/LIT - Kahneman2011 - p020 - sistema-1-0001]]"
 source_locator: "p.20-25 / Capítulo 1"
 tags: [heurísticas, cognição, sistema-1]
+decision_rules:
+  - Quando a decisão for repetitiva e de baixo risco, deixe o Sistema 1 agir, porque o custo de deliberar excede o do erro
+named_frameworks:
+  - System 1 / System 2
 origin: pipeline
 llm_cost_usd: 0.002100
 llm_tokens_prompt: 1800

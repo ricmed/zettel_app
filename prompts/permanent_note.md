@@ -112,6 +112,21 @@ Responda mentalmente antes de decidir:
 - Indique exceções, pressupostos necessários ou contextos problemáticos
 - Seja honesto sobre as fronteiras do conceito
 
+### Julgamento do autor (entrada opcional)
+
+O input pode trazer **Regras de decisão**, **Anti-padrões** e **Frameworks nomeados**
+já extraídos do trecho-fonte. Quando vierem preenchidos:
+
+- Use as regras de decisão para deixar `definition`/`example` **acionáveis** ("quando
+  usar", "com que critério") em vez de puramente descritivos
+- Use os anti-padrões para tornar `limits` concreto — uma prática que falha e o motivo
+  da falha valem mais que uma ressalva genérica
+- Cite o **nome exato** de um framework nomeado se ele aparecer na nota: não traduza,
+  não expanda a sigla, não reescreva a grafia do autor
+
+Quando vierem vazios (o caso comum), ignore-os. **Nunca invente** uma regra, um
+anti-padrão ou um nome de framework que não esteja no input.
+
 ### Conexões
 
 - **SOMENTE se houver relação conceitual genuína**
@@ -151,6 +166,9 @@ Conceito:
 - Definição: <definition>
 - Intuição: <intuition>
 - Limites: <limits>
+- Regras de decisão: <decision_rules>
+- Anti-padrões: <anti_patterns>
+- Frameworks nomeados: <named_frameworks>
 - Fonte: <source_id>
 - Localizador: <source_locator>
 - Referência literatura: <literature_ref>
@@ -278,6 +296,9 @@ Conceito:
 - Definição: {definition}
 - Intuição: {intuition}
 - Limites: {limits}
+- Regras de decisão: {decision_rules}
+- Anti-padrões: {anti_patterns}
+- Frameworks nomeados: {named_frameworks}
 - Fonte: {source_id}
 - Localizador: {source_locator}
 - Referência literatura: {literature_ref}

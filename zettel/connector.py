@@ -37,6 +37,7 @@ from zettel.schemas import PermanentNoteCandidate, PermanentNoteLLMOutput, Relat
 from zettel.state import StateDB
 from zettel.vault import (
     build_permanent_note_body,
+    judgement_frontmatter,
     note_filename,
     normalize_note_id,
     permanent_wikilink,
@@ -76,6 +77,11 @@ def _relation_type_value(relation_type: Any) -> str:
     if isinstance(relation_type, Enum):
         return str(relation_type.value)
     return str(relation_type or "related")
+
+
+def _format_judgement(items: list[str]) -> str:
+    """Render an author-judgement list for the Prompt 2 payload."""
+    return "; ".join(items) if items else "(nenhuma)"
 
 
 def _literature_ref_for_chunk(
@@ -263,6 +269,9 @@ def _process_candidate(
         "definition": cand.definition,
         "intuition": cand.intuition or "",
         "limits": cand.limits or "",
+        "decision_rules": _format_judgement(cand.decision_rules),
+        "anti_patterns": _format_judgement(cand.anti_patterns),
+        "named_frameworks": _format_judgement(cand.named_frameworks),
         "source_id": source_id,
         "source_locator": cand.source_locator or "",
         "literature_ref": literature_ref,
@@ -396,6 +405,10 @@ def _process_candidate(
         "llm_tokens_completion": note_tokens_out,
         "llm_cache_hit": cache_hit,
     }
+    # The author's judgement travels verbatim from the candidate, not through the
+    # LLM: the export (`zettel skill`) reads it from here instead of re-parsing the
+    # LIT draft. Absent keys mean the chunk stated none — noise-free by default.
+    meta.update(judgement_frontmatter(cand))
 
     filename = note_filename("ZTL", note_id, title)
     note_path = cfg.vault_path / "30_Permanent" / filename

@@ -86,6 +86,14 @@ Para CADA candidato a nota permanente, **TODOS** os critérios abaixo devem ser 
 - **Acionável**: Pode guiar decisões, design ou análise concreta
 - **Conectável**: Relaciona-se com outros conceitos conhecidos de forma não-óbvia
 
+#### Acionável como regra de decisão (especialização de "Acionável")
+
+Quando o trecho **enuncia** o julgamento do autor — não apenas o que a coisa é, mas
+como ele decidiria —, registre-o nos campos opcionais `decision_rules`,
+`anti_patterns` e `named_frameworks`. **Esses campos são um bônus, nunca um
+requisito**: um trecho que só define um conceito continua sendo um candidato válido
+com as três listas vazias. **Nunca invente uma regra** para preencher o campo.
+
 ---
 
 ## CHECKLIST DE VALIDAÇÃO POR CANDIDATO
@@ -182,6 +190,33 @@ O corte é aplicado depois, pela política do sistema — sua tarefa é pontuar 
 - Seja honesto sobre fronteiras do conceito
 - Opcional: pode ser omitida se não houver limites claros na fonte
 
+### Regras de Decisão (decision_rules) — opcional
+
+- Só preencha quando o trecho **enunciar** a regra; jamais deduza uma a partir da tese
+- Formato: "Quando X, faça Y, porque Z" (em {language})
+- Máximo 3 itens; cada item é uma frase completa e autônoma
+- **BOM**: "Quando o custo de um falso positivo for maior que o de um falso negativo, prefira precisão a revocação, porque o erro caro é a inclusão indevida"
+- **RUIM**: "Use precisão e revocação" (não é regra: não diz quando nem por quê)
+- **RUIM**: inventar "Quando o dataset for pequeno, use validação cruzada" porque parece razoável — se o autor não disse, não entra
+
+### Anti-Padrões (anti_patterns) — opcional
+
+- Só preencha quando o trecho nomear a prática errada **e** o motivo da falha
+- Formato: "O que evitar: ... — por que falha: ..."
+- Máximo 3 itens
+- **BOM**: "O que evitar: avaliar o modelo no mesmo conjunto usado para escolher hiperparâmetros — por que falha: a estimativa de erro passa a incluir a informação já usada na seleção"
+- **RUIM**: "Evite overfitting" (genérico, sem mecanismo de falha)
+- **Não duplique `limits`**: uma ressalva sobre quando a tese não vale é `limits`; anti-padrão é uma **prática** que alguém executa e que falha
+
+### Frameworks Nomeados (named_frameworks) — opcional
+
+- Apenas nomes próprios que o autor **usa como nome**: "The 5 Whys", "OODA Loop", "Conway's Law"
+- Preserve o nome **exatamente** como está na fonte, na língua original — não traduza, não expanda a sigla, não normalize maiúsculas
+- Máximo 3 itens; só o nome, sem explicação (a explicação já está na definição)
+- **BOM**: `["The 5 Whys"]`
+- **RUIM**: `["Os 5 Porquês"]` (traduzido), `["The 5 Whys — técnica de análise de causa raiz"]` (não é só o nome)
+- **RUIM**: `["aprendizado supervisionado"]` (termo de domínio, não nome próprio de framework)
+
 ### Citação-Âncora (anchor_quote)
 
 - **Obrigatória**: deve ter 10-25 palavras
@@ -270,11 +305,17 @@ simplesmente **não entra** na lista `candidates`; não o inclua marcado como re
       "source_locator": "p.XX / seção Y.Z / cap. N",
       "tags": ["tag1", "tag2", "tag3"],
       "relevance_score": 4,
-      "relevant_image_ids": []
+      "relevant_image_ids": [],
+      "decision_rules": ["Quando X, faça Y, porque Z (só se o trecho enunciar)"],
+      "anti_patterns": ["O que evitar: ... — por que falha: ... (só se o trecho enunciar)"],
+      "named_frameworks": ["Nome exato do autor (só se houver)"]
     }
   ]
 }
 ```
+
+`decision_rules`, `anti_patterns` e `named_frameworks` são **opcionais**: use `[]`
+quando o trecho não os enunciar. Listas vazias são o caso comum e esperado.
 
 ### Caso 2: Chunk SEM candidatos válidos (rejeitado)
 
@@ -351,7 +392,10 @@ Um único candidato, com figura essencial referenciada em `relevant_image_ids`:
       "source_locator": "p.42 / secao 2.2",
       "tags": ["rag", "embedding", "indice_vetorial"],
       "relevance_score": 5,
-      "relevant_image_ids": ["@Fonte::img::5c97880b"]
+      "relevant_image_ids": ["@Fonte::img::5c97880b"],
+      "decision_rules": [],
+      "anti_patterns": [],
+      "named_frameworks": []
     }
   ]
 }

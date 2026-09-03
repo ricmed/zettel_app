@@ -41,6 +41,13 @@ class RelationType(str, Enum):
 # ── LLM Extraction Outputs ────────────────────────────────────────────
 
 
+# The author's-judgement fields, in the order they are rendered everywhere.
+JUDGEMENT_FIELDS: tuple[str, ...] = (
+    "decision_rules", "anti_patterns", "named_frameworks",
+)
+_MAX_JUDGEMENT_ITEMS = 3
+
+
 class PermanentNoteCandidate(BaseModel):
     """A single atomic concept extracted from a chunk."""
     chunk_status: str = Field(default="ok", description="Status do chunk")
@@ -67,6 +74,40 @@ class PermanentNoteCandidate(BaseModel):
         default_factory=list,
         description="IDs de imagens (asset_id) essenciais para entender este conceito",
     )
+    # Julgamento do autor: como ele decidiria, nao apenas o que a coisa e. Sempre
+    # opcionais -- um trecho que nao enuncia regra alguma continua valido.
+    decision_rules: list[str] = Field(
+        default_factory=list,
+        description="Regras no formato 'Quando X, faca Y, porque Z' enunciadas pelo autor",
+    )
+    anti_patterns: list[str] = Field(
+        default_factory=list,
+        description="'O que evitar: ... - por que falha: ...' enunciado pelo autor",
+    )
+    named_frameworks: list[str] = Field(
+        default_factory=list,
+        description="Nomes proprios de frameworks/metodos, exatamente como o autor escreve",
+    )
+
+    @field_validator(
+        "decision_rules", "anti_patterns", "named_frameworks", mode="after"
+    )
+    @classmethod
+    def _clean_judgement_list(cls, v: list[str]) -> list[str]:
+        """Drop blanks and cap at ``_MAX_JUDGEMENT_ITEMS`` — never reject the candidate.
+
+        These fields are a bonus, so a model that returns ten padded rules loses
+        the tail instead of failing the whole chunk (which would cost an LLM
+        retry over material the note does not depend on).
+        """
+        cleaned = [item.strip() for item in v if item and item.strip()]
+        if len(cleaned) > _MAX_JUDGEMENT_ITEMS:
+            logger.warning(
+                "candidato com %d itens de julgamento -- truncado para %d",
+                len(cleaned), _MAX_JUDGEMENT_ITEMS,
+            )
+            return cleaned[:_MAX_JUDGEMENT_ITEMS]
+        return cleaned
 
 
 _SUMMARY_MAX_CHARS = 280
