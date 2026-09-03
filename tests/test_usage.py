@@ -185,12 +185,12 @@ def test_usage_from_run_defaults_prompt_cache_to_zero_for_legacy_rows():
     assert u.prompt_cache_write_tokens == 0
 
 
-def test_fmt_prompt_cache_ratio():
-    from zettel.cli import _fmt_prompt_cache_ratio
+def testfmt_prompt_cache_ratio():
+    from zettel.cli.formatting import fmt_prompt_cache_ratio
     from zettel.usage import UsageSummary
 
     no_cache = UsageSummary(tokens_prompt=5000)
-    assert _fmt_prompt_cache_ratio(no_cache) == "-"
+    assert fmt_prompt_cache_ratio(no_cache) == "-"
 
     with_cache = UsageSummary(tokens_prompt=5000, prompt_cache_read_tokens=4800, prompt_cache_write_tokens=0)
-    assert _fmt_prompt_cache_ratio(with_cache) == "4800r/0w (96%)"
+    assert fmt_prompt_cache_ratio(with_cache) == "4800r/0w (96%)"

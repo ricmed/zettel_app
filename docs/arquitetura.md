@@ -86,7 +86,6 @@ zettel_app/
 │   └── article_anti_ai.md          # Bloco anti-prosa generica no article
 ├── data/
 │   ├── inbox/               # Arquivos para processar (drop zone)
-│   ├── processed/           # Arquivos ja processados (harvest --move-processed)
 │   ├── cache/               # Cache intermediario (checkpointer article, dumps)
 │   ├── chroma/              # ChromaDB (persistente)
 │   └── state.db             # SQLite (estado do pipeline)
