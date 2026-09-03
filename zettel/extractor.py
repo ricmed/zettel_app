@@ -308,7 +308,12 @@ def _process_chunk(
         "summary": output.summary,
         "key_concepts": output.key_concepts,
         "chunk_status": output.chunk_status,
+        "rejection_reason": output.rejection_reason,
+        "rejection_category": output.rejection_category,
         "candidates": [c.model_dump() for c in approved_cands],
+        "rejected_candidates": [
+            {"thesis": cand.thesis, "reason": reason} for cand, reason in rejected_cands
+        ],
     }
     db.update_chunk_review(
         chunk_id,
@@ -486,15 +491,16 @@ def _build_images_context(
 def _filter_candidates(
     candidates: list[PermanentNoteCandidate],
     cfg: AppConfig,
-) -> tuple[list[PermanentNoteCandidate], list[PermanentNoteCandidate]]:
+) -> tuple[list[PermanentNoteCandidate], list[tuple[PermanentNoteCandidate, str]]]:
+    """Split candidates into approved and (candidate, reason) rejected pairs."""
     ext = cfg.extraction
     approved: list[PermanentNoteCandidate] = []
-    rejected: list[PermanentNoteCandidate] = []
+    rejected: list[tuple[PermanentNoteCandidate, str]] = []
     for cand in candidates:
         reason = _check_candidate(cand, ext)
         if reason:
             logger.debug("Candidato rejeitado (%s): %s", reason, cand.thesis[:60])
-            rejected.append(cand)
+            rejected.append((cand, reason))
         else:
             approved.append(cand)
     return approved, rejected
