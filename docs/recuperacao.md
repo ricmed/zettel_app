@@ -4,7 +4,7 @@
 
 Como o sistema encontra as notas que alimentam o RAG do `connect`, as sugestões do `sync-manual`, o comando `ask` e o `article` — e por que existe um piso absoluto de relevância além do ranking.
 
-Módulos: [`retrieval.py`](../zettel/retrieval.py), [`graph.py`](../zettel/graph.py), [`ask.py`](../zettel/ask.py), [`article.py`](../zettel/article.py) / [`article_graph.py`](../zettel/article_graph.py).
+Módulos: [`retrieval.py`](../zettel/retrieval.py), [`graph.py`](../zettel/graph.py), [`ask.py`](../zettel/ask.py), [`article.py`](../zettel/article.py) / [`article_graph/`](../zettel/article_graph/) (pacote — runtime, search, nodes, graph).
 
 ---
 
@@ -98,7 +98,7 @@ python -m zettel article "Grafos de conhecimento e LLMs" --style academic --pers
 python -m zettel article "RAG" --outline-only
 ```
 
-Orquestrado por **LangGraph** ([`article_graph.py`](../zettel/article_graph.py)), diferente do `ask` (QA curto) — [ADR-028](adrs/generated/QA-WRITING/ADR-028-langgraph-stategraph-article-orchestration.md). Fluxo:
+Orquestrado por **LangGraph** ([`article_graph/`](../zettel/article_graph/), pacote per [ADR-029](adrs/generated/QA-WRITING/ADR-029-article-graph-as-python-package.md)), diferente do `ask` (QA curto) — [ADR-028](adrs/generated/QA-WRITING/ADR-028-langgraph-stategraph-article-orchestration.md). Fluxo:
 
 1. **Query enricher** — expande o tema em várias queries semânticas
 2. **Busca acumulativa** — Retriever híbrido + merge por `note_id` (queries extras do usuário somam, não substituem)
