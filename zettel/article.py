@@ -1,7 +1,7 @@
 """The `article` command — structured long-form writing from the vault.
 
 Domain helpers (catalog, merge, draft, assemble, personality, judge) live here.
-Orchestration is a LangGraph StateGraph in ``article_graph.py``: query enrich ->
+Orchestration is a LangGraph StateGraph in the ``article_graph`` package: query enrich ->
 incremental hybrid search -> context HITL -> outline HITL -> draft -> assemble ->
 personality -> judge loop -> verify/save.
 """
