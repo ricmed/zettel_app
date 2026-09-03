@@ -421,3 +421,141 @@ def test_process_chunk_persists_rejected_candidates_with_reason(tmp_path, monkey
     assert rejected["thesis"] == low_relevance_candidate["thesis"]
     assert "relevance_score" in rejected["reason"]
     db.close()
+
+
+# ── #55: cache the response that parsed, not the one that failed ─────────
+
+
+def test_process_chunk_caches_repaired_response_not_broken_one(tmp_path, monkeypatch):
+    """A malformed first response is never cached; the repaired one is, under the same key."""
+    import json
+
+    from zettel.extractor import _process_chunk
+    from zettel.hashing import compute_llm_call_checksum
+    from zettel.llm import load_prompt_parts
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+
+    good_response = json.dumps({
+        "chunk_status": "rejected",
+        "rejection_reason": "estrutural",
+        "rejection_category": "structural",
+        "summary": "Trecho estrutural.",
+        "key_concepts": [],
+        "candidates": [],
+    })
+    calls = {"n": 0}
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return "isto nao e json valido {{{"
+        return good_response
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+
+    assert calls["n"] == 2  # primary call + repair retry
+
+    checksum = compute_llm_call_checksum(
+        "prompthash", chunk_row["chunk_checksum"], cfg.llm.extract.model,
+        cfg.llm.temperature, cfg.language, rag_context_checksum="",
+    )
+    assert db.get_cached_llm_response(checksum) == good_response
+    db.close()
+
+
+def test_process_chunk_validation_error_prompt_includes_error_message(tmp_path, monkeypatch):
+    """An out-of-range field (schema violation) gets a repair prompt citing the error."""
+    import json
+
+    from zettel.extractor import _process_chunk
+    from zettel.llm import load_prompt_parts
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+
+    invalid_response = json.dumps({
+        "chunk_status": "accepted",
+        "rejection_reason": "",
+        "rejection_category": "",
+        "summary": "Resumo valido com bastante conteudo para pontuar razoavelmente bem.",
+        "key_concepts": ["conceito"],
+        "candidates": [{
+            "thesis": "Uma tese qualquer com palavras suficientes para passar no filtro",
+            "definition": "Uma definicao qualquer com bastante texto explicativo sobre o tema",
+            "anchor_quote": "",
+            "relevance_score": 9,  # out of the 1-5 range -> ValidationError, not a filter rejection
+        }],
+    })
+    captured_retry_prompts: list[str] = []
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        if kwargs.get("label", "").startswith("extract-retry"):
+            captured_retry_prompts.append(user)
+            return json.dumps({
+                "chunk_status": "accepted",
+                "rejection_reason": "",
+                "rejection_category": "",
+                "summary": "Resumo valido com bastante conteudo para pontuar razoavelmente bem.",
+                "key_concepts": ["conceito"],
+                "candidates": [],
+            })
+        return invalid_response
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+
+    assert len(captured_retry_prompts) == 1
+    retry_prompt = captured_retry_prompts[0]
+    assert "contrato esperado" in retry_prompt
+    assert "relevance_score" in retry_prompt  # the pydantic error message is embedded
+    db.close()
+
+
+def test_process_chunk_json_decode_error_uses_generic_repair_prompt(tmp_path, monkeypatch):
+    """Malformed JSON (not a schema violation) keeps the generic repair prompt."""
+    import json
+
+    from zettel.extractor import _process_chunk
+    from zettel.llm import load_prompt_parts
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+    captured_retry_prompts: list[str] = []
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        if kwargs.get("label", "").startswith("extract-retry"):
+            captured_retry_prompts.append(user)
+            return json.dumps({
+                "chunk_status": "rejected", "rejection_reason": "x", "rejection_category": "",
+                "summary": "s", "key_concepts": [], "candidates": [],
+            })
+        return "{ isto: nao fecha"
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+
+    assert len(captured_retry_prompts) == 1
+    assert "malformado" in captured_retry_prompts[0]
+    assert "Erro de validacao" not in captured_retry_prompts[0]
+    db.close()
+
+
+def test_process_chunk_fails_after_two_bad_attempts(tmp_path, monkeypatch):
+    """Both the primary call and the repair retry fail to parse -> status=failed."""
+    from zettel.extractor import _process_chunk
+    from zettel.llm import load_prompt_parts
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        return "isto nunca vai ser json valido"
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "failed"
+    db.close()
