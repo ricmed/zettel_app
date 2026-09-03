@@ -257,6 +257,10 @@ class RetrievalConfig(BaseModel):
 
     mode: Literal["vector", "hybrid"] = "hybrid"
     rrf_k: int = 60                   # constante do Reciprocal Rank Fusion (canonica)
+    # Termo da pergunta que casa com o Topic Index vira semente EXTRA -- e passa
+    # pelo mesmo piso de relevancia. Nunca fura o piso (ver ADR-036).
+    topic_index_boost: bool = True
+    topic_index_max_seeds: int = 5
     graph_expansion: GraphExpansionConfig = Field(default_factory=GraphExpansionConfig)
     relevance_floor: RelevanceFloorConfig = Field(default_factory=RelevanceFloorConfig)
     ask: AskConfig = Field(default_factory=AskConfig)

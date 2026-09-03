@@ -678,6 +678,41 @@ class VectorIndex:
             output.append(entry)
         return output[:n_results]
 
+    def query_notes_by_ids(self, query_text: str, note_ids: list[str]) -> list[dict]:
+        """Similarity of ``query_text`` against a fixed set of permanent notes.
+
+        Same shape as :meth:`query_similar_notes`, but the search space is
+        restricted to ``note_ids``. Used by the topic-index boost so a routed
+        note arrives carrying a real distance and faces the relevance floor on
+        the same evidence as every other candidate.
+        """
+        from zettel.llm import clip_text
+
+        if not note_ids:
+            return []
+        self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
+        logger.info(
+            "Embedding [%d] busca notas por id | n=%d | query=%s",
+            self._embed_call_count, len(note_ids), clip_text(query_text),
+        )
+        results = self.permanent.query(
+            query_texts=[query_text], ids=note_ids, n_results=len(note_ids),
+        )
+        self._record_embed_usage(query_text, label="query_notes_by_ids")
+        output: list[dict] = []
+        if not results or not results["ids"] or not results["ids"][0]:
+            return output
+        for i, nid in enumerate(results["ids"][0]):
+            entry: dict[str, Any] = {"id": nid}
+            if results["documents"] and results["documents"][0]:
+                entry["document"] = results["documents"][0][i]
+            if results["metadatas"] and results["metadatas"][0]:
+                entry["metadata"] = results["metadatas"][0][i]
+            if results["distances"] and results["distances"][0]:
+                entry["distance"] = results["distances"][0][i]
+            output.append(entry)
+        return output
+
     def find_similar_chunks(self, texts: list[str], n_results: int = 3) -> list[dict]:
         """Find already-indexed chunks similar to a sample of newly extracted chunks.
 

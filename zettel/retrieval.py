@@ -47,6 +47,7 @@ class RetrievedNote:
     via: list[dict] = field(default_factory=list)  # graph path (see graph.py)
     passed_floor: bool = True             # absolute relevance floor (see _apply_relevance_floor)
     floor_reason: str = ""                # human-readable explanation of the floor verdict
+    origin: str = "search"                # "search" | "topic_index" (routing hint, see ADR-036)
 
 
 @dataclass
@@ -113,8 +114,14 @@ class Retriever:
         bm25_hits = (
             self._bm25_notes(query, pool, exclude_id) if mode == "hybrid" else []
         )
+        vector_hits, topic_seed_ids = self._add_topic_index_seeds(
+            query, vector_hits, exclude_id
+        )
 
         fused = self._rrf_fuse_notes(vector_hits, bm25_hits)
+        for hit in fused:
+            if hit.note_id in topic_seed_ids:
+                hit.origin = "topic_index"
         self._apply_relevance_floor(fused, relevance_floor, min_vector_similarity)
         candidates = fused[: max(topk, 10)]
 
@@ -135,6 +142,50 @@ class Retriever:
         except Exception as e:  # pragma: no cover - defensive around Chroma
             logger.warning("Busca vetorial de notas falhou: %s", e)
             return []
+
+    def _add_topic_index_seeds(
+        self, query: str, vector_hits: list[dict], exclude_id: Optional[str],
+    ) -> tuple[list[dict], set[str]]:
+        """Add notes the topic index routes this query to, as extra vector hits.
+
+        The seed is added *as a vector hit*, with a real distance from a
+        Chroma query restricted to those ids, so it goes through
+        ``_apply_relevance_floor`` on exactly the same evidence as any other
+        candidate. Injecting it without a distance would make it pass the floor
+        by default — a repeat of the unconditional-BM25-bypass bug the floor's
+        rank cutoff exists to prevent. Being in the index is a routing hint, not
+        proof of relevance.
+
+        Costs one extra embedding of the query, and only when a term matches.
+        """
+        from zettel.topic_index import fold
+
+        if not self.cfg.retrieval.topic_index_boost:
+            return vector_hits, set()
+
+        already = {h["id"] for h in vector_hits}
+        matches = self.db.match_topic_index(fold(query))
+        wanted = [
+            m["note_id"] for m in matches
+            if m["note_id"] not in already and m["note_id"] != exclude_id
+        ][: self.cfg.retrieval.topic_index_max_seeds]
+        if not wanted:
+            return vector_hits, set()
+
+        try:
+            extra = self.idx.query_notes_by_ids(query, wanted)
+        except Exception as e:  # pragma: no cover - defensive around Chroma
+            logger.warning("Boost por topic index falhou: %s", e)
+            return vector_hits, set()
+
+        logger.debug("Topic index: %d semente(s) extra para a consulta", len(extra))
+        # Re-sort by real distance so a routed note gets its true vector rank
+        # rather than being pinned to the tail of the pool.
+        merged = sorted(
+            vector_hits + extra,
+            key=lambda h: h.get("distance") if h.get("distance") is not None else float("inf"),
+        )
+        return merged, {hit["id"] for hit in extra}
 
     def _bm25_notes(self, query: str, pool: int, exclude_id: Optional[str]) -> list[dict]:
         if not getattr(self.db, "fts_enabled", False):
