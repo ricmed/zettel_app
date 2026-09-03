@@ -105,9 +105,22 @@ Amendment:
 * `min_chunk_chars` joins `chunk_size`/`chunk_overlap`/`min_section_chars` in `compute_docling_config_hash`, so the pipeline flags corpora that need `zettel rechunk` to benefit from the new floor. As with every other chunking knob, already-harvested sources keep their existing chunks — there is no silent re-chunking.
 * 200 characters was chosen as the *safe* floor: it eliminates all 116 structurally-doomed chunks in the measured corpus without discarding a single chunk the LLM would have accepted. A more aggressive floor (600 chars) was evaluated and rejected for this default — it would additionally eliminate 301 calls (44%) but at the cost of 35 accepted notes, i.e., real signal, not just noise. Operators who want the aggressive tradeoff can raise `min_chunk_chars` themselves; the default optimizes for zero false negatives.
 
+## Addendum (2026-09-03): overlap operacional é 16%, não 10-15%, e é assimétrico por seção
+
+**Status:** Accepted amendment — corrects a factual claim in the original decision text, does not change any behavior.
+
+The original decision above states the "default 200-character overlap" produces "roughly 10-15% additional embeddings per corpus". Two things were wrong with that claim, independent of each other:
+
+* The Pydantic *default* (`ChunkingConfig.chunk_overlap: int = 200`, over `chunk_size: int = 1000`) never matched the *operational* value in `config/config.yaml` (`chunk_overlap: 400`, over `chunk_size: 2500`) — the gap this ADR itself calls out as a general problem in the min-chunk-chars addendum's own audit context. The Pydantic defaults have since been aligned to the YAML (`zettel/config.py`), so `AppConfig()` with no YAML now exercises the same values as production.
+* At the corrected, actual operational ratio, overlap is `400 / 2500` = **16%**, not 10-15% — closer to the original estimate than the divergent Pydantic default was, but still a different number than the ADR states, and one that moves whenever `chunk_size`/`chunk_overlap` are retuned in the YAML without a matching edit here.
+
+Separately, and not previously documented at all: **the overlap is not uniform across the corpus.** `chunk_overlap` only ever applies *inside* `_split_preserving_fences`/`RecursiveCharacterTextSplitter`, which only runs when a section's text exceeds `chunk_size` (`split_chapter_into_chunks`, the `len(text) <= cfg.chunking.chunk_size` branch). A section that fits in one chunk — the common case for most H3+ subsections — becomes a single chunk with **zero** overlap with its neighbors. Only sections long enough to be split internally carry the 16% duplication, and even then only between the pieces of that one section, never across a section boundary. Any consumer reasoning about "the corpus has ~16% overlap" (layer-3 semantic dedupe, the `overlap_prefix_len` diagnostic in chunk dumps, a future embedding-cost estimate) needs to read that as a per-oversized-section figure, not a corpus-wide constant.
+
+This resolves the `[NEEDS INPUT]` above about an accepted ceiling for the overlap-driven cost: there is no single ceiling to accept, because the actual overshoot is a property of how many sections exceed `chunk_size` in a given corpus, not a fixed percentage.
+
 ## References
 
-Paths refreshed 2026-09-02 (chunking addenda); 2026-09-03 (`min_chunk_chars` addendum). The original references pointed into the monolithic
+Paths refreshed 2026-09-02 (chunking addenda); 2026-09-03 (`min_chunk_chars` addendum, overlap-ratio correction). The original references pointed into the monolithic
 `zettel/harvester.py`, which ADR-027 split into a package; symbols are cited instead of
 line ranges, since the line ranges are what rotted.
 

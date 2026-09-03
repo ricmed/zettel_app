@@ -155,32 +155,11 @@ def test_suggest_content_start_skips_toc_then_finds_chapter():
     assert result["content_start_book_page"] == 1
 
 
-def test_suggest_content_start_journal_from_printed_page():
-    page_map = [
-        (1, "# Abstract\n\nThis paper discusses unique methods."),
-        (2, "Continuation of the article body."),
-    ]
-    result = suggest_content_start(page_map, printed_by_file_page={1: 200})
-    assert result["content_start_file_page"] == 1
-    assert result["content_start_book_page"] == 200
-    assert result["confidence"] == "heuristic"
-
-
 def test_suggest_content_start_journal_from_biblio_range():
     page_map = [(1, "Abstract of a specialized journal article about widgets.")]
     result = suggest_content_start(page_map, biblio_pages="200-210")
     assert result["content_start_book_page"] == 200
     assert result["confidence"] == "heuristic"
-
-
-def test_suggest_content_start_book_uses_printed_number_on_chapter_page():
-    page_map = [
-        (1, "Cover"),
-        (35, "# Chapter 1\n\nGetting started with graphs and knowledge."),
-    ]
-    result = suggest_content_start(page_map, printed_by_file_page={35: 1})
-    assert result["content_start_file_page"] == 35
-    assert result["content_start_book_page"] == 1
 
 
 def test_parse_biblio_start_page():
@@ -226,6 +205,5 @@ def test_resolve_content_paging_explicit_flags_win():
         content_start_file=1,
         content_start_book=200,
         skip_paging=True,
-        printed_by_file_page={1: 199},
     )
     assert paging == ContentPaging(1, 200, "confirmed")

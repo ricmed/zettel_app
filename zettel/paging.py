@@ -238,25 +238,17 @@ def _page_has_chapter_start(head: str, patterns: Sequence[re.Pattern[str]]) -> b
 def suggest_content_start(
     page_map: Sequence[tuple[int, str]],
     *,
-    printed_by_file_page: dict[int, int] | None = None,
     biblio_pages: str | None = None,
 ) -> dict[str, Any]:
     """Heuristic content-start: book front matter vs journal vs 1=1 document.
 
     * Book: first non-TOC page matching Capítulo 1 / Introduction; printed
-      page from header/footer on that file page, else 1.
-    * Journal article: no chapter marker, printed number on file page 1 is
-      already > 1 (or bibliographic ``pages: 200-210``).
+      page number is always 1 (no header/footer OCR -- ADR-012 ruled that out
+      along with PyMuPDF).
+    * Journal article: no chapter marker, bibliographic ``pages: 200-210``.
     * Handout / article starting at 1: file 1 = printed 1, confidence none.
     """
-    printed_by_file_page = printed_by_file_page or {}
     biblio_start = parse_biblio_start_page(biblio_pages)
-
-    def _book_page_for(file_page: int, default: int = 1) -> int:
-        printed = printed_by_file_page.get(int(file_page))
-        if printed is not None and printed >= 1:
-            return int(printed)
-        return default
 
     # Markdown headings first (Docling map); skip TOC-style pages.
     for patterns in (MARKDOWN_CHAPTER_START_PATTERNS, PLAIN_CHAPTER_START_PATTERNS):
@@ -266,25 +258,15 @@ def suggest_content_start(
                 continue
             if _page_has_chapter_start(head, patterns):
                 start_file = int(page_no)
-                start_book = _book_page_for(start_file, default=1)
                 return {
                     "content_start_file_page": start_file,
-                    "content_start_book_page": start_book,
+                    "content_start_book_page": 1,
                     "confidence": "heuristic",
                     "needs_confirmation": True,
                     "anchor_page_in_file": start_file,
                 }
 
     start_file = 1
-    printed_p1 = printed_by_file_page.get(1)
-    if printed_p1 is not None and printed_p1 > 1:
-        return {
-            "content_start_file_page": start_file,
-            "content_start_book_page": int(printed_p1),
-            "confidence": "heuristic",
-            "needs_confirmation": True,
-            "anchor_page_in_file": start_file,
-        }
     if biblio_start is not None and biblio_start > 1:
         return {
             "content_start_file_page": start_file,
@@ -309,7 +291,6 @@ def resolve_content_paging(
     content_start_file: int | None,
     content_start_book: int | None,
     skip_paging: bool,
-    printed_by_file_page: dict[int, int] | None = None,
     biblio_pages: str | None = None,
 ) -> ContentPaging:
     """Resolve content-start file/book pages before chunking.
@@ -321,11 +302,7 @@ def resolve_content_paging(
     if skip_paging and content_start_file is None:
         return ContentPaging(1, 1, "skipped")
 
-    suggested = suggest_content_start(
-        page_map,
-        printed_by_file_page=printed_by_file_page,
-        biblio_pages=biblio_pages,
-    )
+    suggested = suggest_content_start(page_map, biblio_pages=biblio_pages)
     sug_file = int(suggested.get("content_start_file_page") or 1)
     sug_book = int(suggested.get("content_start_book_page") or 1)
 

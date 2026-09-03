@@ -82,9 +82,19 @@ Manual renaming or moving of a literature note file is possible but leaves `lite
 
 [NEEDS INPUT: Has the short-hash collision probability been evaluated for sources with a large number of chunks (e.g., 100+), or is the current entropy considered sufficient without a formal analysis?]
 
+## Addendum (2026-09-03): the slug source is not the summary — corrected precedence
+
+**Status:** Accepted amendment — corrects a factual claim throughout the decision text above; does not change the chosen option.
+
+The decision text above (Context, Decision Drivers, Decision Outcome, Pros/Cons, Consequences) repeatedly states the topic slug is "derived from the LLM-generated summary". That was already inaccurate at the time of writing against the code as it stood — `vault.py`'s `_topic_slug` gave `section_path` absolute precedence, falling back to `summary` only when the section heading was empty or generic (`"documento completo"` and similar). The vault's own evidence: 16 files sharing the slug `7-pontos-de-atenção-e-anti-padrões` (issue #57), which could only happen from section-heading-derived slugs, not summary-derived ones — a summary is specific to its chunk and would not collide across 16 unrelated notes.
+
+Issue #57 then changed the precedence again, deliberately: `thesis` of the highest-`relevance_score` approved candidate (an assertion, not a topic) now outranks both `section_path` and `summary`. Current, correct precedence in `literature_chunk_topic`/`_topic_slug` (`zettel/vault.py`): **thesis → summary → section_path → literal `"nota"`**.
+
+None of this changes the chosen option in this ADR (granular chunk-per-note, readable filenames, source-excerpt block) — only the description of what feeds the filename. The Pros/Cons/Consequences prose above should be read with "summary" replaced by "the topic-slug source (now the candidate's thesis; previously the section heading)" wherever it appears; not rewritten here to preserve the historical record of what the ADR originally claimed.
+
 ## References
 
 * `zettel/extractor.py:296-404` — draft literature note creation, ULID assignment, `_write_literature_draft()`
-* `zettel/vault.py` — `literature_chunk_filename()`, `build_literature_chunk_note()`, `literature_source_dirname()`
+* `zettel/vault.py` — `literature_chunk_filename()`, `build_literature_chunk_note()`, `literature_source_dirname()`, `literature_chunk_topic()` / `_topic_slug()` (current thesis → summary → section_path precedence), `best_candidate_thesis()`
 * `zettel/review.py:387-481` — `approve_chunk()`: draft promotion, managed-block excerpt insertion, Chroma upsert
 * `zettel/schemas.py` — `LiteratureChunkOutput`, `PermanentNoteCandidate`
