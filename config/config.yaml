@@ -30,34 +30,42 @@ llm:
     provider: openai
     model: gpt-4o-mini      # bibliografia ABNT no harvest
     base_url: null
+    temperature: null       # null = herda llm.temperature
   extract:
     provider: gemini
     model: gemini-3.5-flash-lite      # notas de literatura (Prompt 1)
     base_url: null
+    temperature: 0.0        # extracao estruturada: contrato fechado, cache determinístico
   review:
     provider: openai
     model: gpt-4o-mini      # dedupe de conceitos pos-aprovacao
     base_url: null
+    temperature: null       # null = herda llm.temperature
   connect:
     provider: openai
     model: gpt-4o-mini      # notas permanentes (Prompt 2)
     base_url: null
+    temperature: null       # null = herda llm.temperature
   garden:
     provider: openai
     model: gpt-4o-mini      # MOCs taxonomicos e hub
     base_url: null
+    temperature: null       # null = herda llm.temperature
   ask:
     provider: gemini
     model: gemini-3.5-flash-lite      # zettel ask
     base_url: null
+    temperature: null       # null = herda llm.temperature
   article:
     provider: openai
     model: gpt-4o-mini      # zettel article (todos os nos)
     base_url: null
+    temperature: null       # null = herda llm.temperature (nos individuais podem sobrescrever em codigo)
   images:
     provider: openai
     model: gpt-4o-mini      # descricao multimodal (precisa ser vision)
     base_url: null
+    temperature: null       # null = herda llm.temperature
 
 # ── Embeddings ──────────────────────────────────────────────────────────
 # Providers: openai | sentence-transformers | ollama

@@ -39,6 +39,7 @@ class LLMPhaseConfig(BaseModel):
     provider: str = "openai"
     model: str = "gpt-4o-mini"
     base_url: str | None = None       # gateways OpenAI-compatible / Ollama; None = default do provider
+    temperature: float | None = None  # None = herda llm.temperature; override so desta fase
 
 
 class LLMConfig(BaseModel):
@@ -352,6 +353,11 @@ def llm_phase(cfg: Any, phase: str) -> LLMPhaseConfig:
             f"llm.{phase} deve ser LLMPhaseConfig, obtido {type(spec).__name__}"
         )
     return spec
+
+
+def effective_temperature(cfg: Any, spec: LLMPhaseConfig) -> float:
+    """Resolve the sampling temperature for a phase: its own override, else the global default."""
+    return cfg.llm.temperature if spec.temperature is None else spec.temperature
 
 
 def setup_logging(level: str = "INFO") -> None:

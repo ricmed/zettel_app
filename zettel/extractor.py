@@ -17,7 +17,7 @@ from typing import Any
 from pydantic import ValidationError
 from ulid import ULID
 
-from zettel.config import AppConfig, llm_phase
+from zettel.config import AppConfig, effective_temperature, llm_phase
 from zettel.hashing import (
     compute_llm_call_checksum,
     normalize_text_for_hash,
@@ -194,8 +194,9 @@ def _process_chunk(
 
     spec = llm_phase(cfg, "extract")
     call_checksum = compute_llm_call_checksum(
-        prompt_hash, chunk_checksum, spec.model, cfg.llm.temperature, cfg.language,
+        prompt_hash, chunk_checksum, spec.model, effective_temperature(cfg, spec), cfg.language,
         rag_context_checksum=images_ctx_checksum,
+        provider=spec.provider, top_p=cfg.llm.top_p,
     )
     cached = db.get_cached_llm_response(call_checksum)
     request_payload_json: str | None = None

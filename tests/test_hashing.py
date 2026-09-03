@@ -2,6 +2,7 @@
 
 from zettel.hashing import (
     compute_embedding_input_hash,
+    compute_llm_call_checksum,
     dehyphenate_pdf_linebreaks,
     extract_embeddable_text,
     fold_for_match,
@@ -118,6 +119,38 @@ def test_normalize_text_for_hash_preserves_uppercase_continuation_hyphen():
     text = "bem-\nVindo ao capitulo"
     result = normalize_text_for_hash(text)
     assert "bem-\nVindo" in result
+
+
+# ── #61: provider + top_p in the LLM call checksum ────────────────────
+
+
+def _base_checksum(**overrides) -> str:
+    kwargs = dict(
+        prompt_hash="ph", chunk_checksum="cc", model="gpt-4o-mini",
+        temperature=0.0, language="pt-BR", provider="openai", top_p=1.0,
+    )
+    kwargs.update(overrides)
+    return compute_llm_call_checksum(**kwargs)
+
+
+def test_compute_llm_call_checksum_differs_by_provider():
+    """Same model string, different provider (e.g. an OpenAI-compatible gateway)."""
+    a = _base_checksum(provider="openai")
+    b = _base_checksum(provider="openrouter")
+    assert a != b
+
+
+def test_compute_llm_call_checksum_differs_by_top_p():
+    a = _base_checksum(top_p=0.5)
+    b = _base_checksum(top_p=1.0)
+    assert a != b
+
+
+def test_compute_llm_call_checksum_provider_and_top_p_have_defaults():
+    """Old callers that don't pass provider/top_p still get a stable checksum."""
+    a = compute_llm_call_checksum("ph", "cc", "gpt-4o-mini", 0.0, "pt-BR")
+    b = compute_llm_call_checksum("ph", "cc", "gpt-4o-mini", 0.0, "pt-BR")
+    assert a == b
 
 
 def test_sha256_deterministic():

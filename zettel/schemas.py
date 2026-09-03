@@ -69,6 +69,9 @@ class PermanentNoteCandidate(BaseModel):
     )
 
 
+_SUMMARY_MAX_CHARS = 280
+
+
 class LiteratureChunkOutput(BaseModel):
     """Output from Prompt 1 for a single chunk — appended to LIT note."""
     chunk_status: ChunkStatus = Field(description="Status do chunk")
@@ -89,6 +92,19 @@ class LiteratureChunkOutput(BaseModel):
         if v not in _REJECTION_CATEGORIES:
             logger.warning("rejection_category desconhecida do LLM: %r -- normalizada para ''", v)
             return ""
+        return v
+
+    @field_validator("summary", mode="after")
+    @classmethod
+    def _truncate_oversized_summary(cls, v: str) -> str:
+        # summary is navigation material (filenames, review tables), not a semantic
+        # contract -- truncate and warn instead of raising, so an overlong summary
+        # never burns an LLM call on the generic retry.
+        if len(v) > _SUMMARY_MAX_CHARS:
+            logger.warning(
+                "summary com %d chars, acima do teto de %d -- truncado", len(v), _SUMMARY_MAX_CHARS
+            )
+            return v[:_SUMMARY_MAX_CHARS].rstrip()
         return v
 
 

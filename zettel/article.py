@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Literal, Optional
 
 from .bibliography import display_author_natural, format_abnt_in_text
-from .config import llm_phase
+from .config import effective_temperature, llm_phase
 from .hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
 from .llm import call_llm, clip_text, extract_json, fill_template, get_llm, load_prompt_parts
 from .retrieval import RetrievedNote
@@ -807,7 +807,7 @@ def _cached_llm(
     total: int | None = None,
 ) -> tuple[str, bool]:
     spec = llm_phase(cfg, "article")
-    temp = cfg.llm.temperature if temperature is None else temperature
+    temp = effective_temperature(cfg, spec) if temperature is None else temperature
     user_text = user or filled
     system_text = system or ""
     filled_for_hash = f"{system_text}\n{user_text}" if system_text else user_text
@@ -815,6 +815,7 @@ def _cached_llm(
     filled_hash = sha256_hex(normalize_text_for_hash(filled_for_hash))
     call_checksum = compute_llm_call_checksum(
         prompt_hash, filled_hash, spec.model, temp, cfg.language,
+        provider=spec.provider, top_p=cfg.llm.top_p,
     )
     cached = db.get_cached_llm_response(call_checksum)
     if cached is not None:

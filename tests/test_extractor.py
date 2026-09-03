@@ -578,6 +578,7 @@ def test_process_chunk_caches_repaired_response_not_broken_one(tmp_path, monkeyp
     checksum = compute_llm_call_checksum(
         "prompthash", chunk_row["chunk_checksum"], cfg.llm.extract.model,
         cfg.llm.temperature, cfg.language, rag_context_checksum="",
+        provider=cfg.llm.extract.provider, top_p=cfg.llm.top_p,
     )
     assert db.get_cached_llm_response(checksum) == good_response
     db.close()
@@ -850,3 +851,19 @@ def test_score_review_confidence_never_calls_llm():
     import inspect
     params = inspect.signature(_score_review_confidence).parameters
     assert "llm" not in params
+
+
+# ── #60: summary gets a hard cap, truncated rather than rejected ─────────
+
+
+def test_oversized_summary_is_truncated_not_rejected():
+    long_summary = "x" * 400
+    output = _make_output(summary=long_summary)
+    assert len(output.summary) == 280
+    assert output.summary == long_summary[:280]
+
+
+def test_summary_within_cap_is_untouched():
+    summary = "Um resumo normal de tamanho razoavel."
+    output = _make_output(summary=summary)
+    assert output.summary == summary

@@ -83,12 +83,13 @@ def get_llm(
     Identity (provider, model, base_url) comes from ``llm.<phase>``. Sampling
     knobs come from ``cfg.llm`` unless ``temperature`` / ``max_retries`` are
     passed (article node temps; vision sets ``max_retries=0`` because assets
-    owns 429 pacing).
+    owns 429 pacing) or the phase declares its own ``llm.<phase>.temperature``
+    (lower priority than the explicit kwarg, higher than the global default).
     """
-    from zettel.config import llm_phase
+    from zettel.config import effective_temperature, llm_phase
 
     spec = llm_phase(cfg, phase)
-    temp = cfg.llm.temperature if temperature is None else temperature
+    temp = effective_temperature(cfg, spec) if temperature is None else temperature
     retries = cfg.llm.max_retries if max_retries is None else max_retries
     provider = normalize_llm_provider(spec.provider)
     base_url = spec.base_url

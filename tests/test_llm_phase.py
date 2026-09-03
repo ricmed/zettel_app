@@ -6,7 +6,7 @@ import pytest
 
 from pydantic import ValidationError
 
-from zettel.config import AppConfig, LLMConfig, LLMPhaseConfig, llm_phase
+from zettel.config import AppConfig, LLMConfig, LLMPhaseConfig, effective_temperature, llm_phase
 from zettel.llm import get_llm, is_supported_llm_provider
 
 
@@ -65,3 +65,57 @@ def test_get_llm_rejects_unsupported_provider():
     cfg.llm.ask = LLMPhaseConfig(provider="acme", model="x")
     with pytest.raises(ValueError, match="não suportado"):
         get_llm(cfg, "ask")
+
+
+# ── #60: temperature per phase ────────────────────────────────────────
+
+
+def test_effective_temperature_inherits_global_when_phase_unset():
+    cfg = AppConfig()
+    cfg.llm.temperature = 0.25
+    spec = llm_phase(cfg, "connect")  # default LLMPhaseConfig: temperature=None
+    assert spec.temperature is None
+    assert effective_temperature(cfg, spec) == 0.25
+
+
+def test_effective_temperature_phase_override_wins():
+    cfg = AppConfig()
+    cfg.llm.temperature = 0.25
+    cfg.llm.extract = LLMPhaseConfig(provider="gemini", model="gemini-3.5-flash-lite", temperature=0.0)
+    spec = llm_phase(cfg, "extract")
+    assert effective_temperature(cfg, spec) == 0.0
+    # Other phases are untouched.
+    assert effective_temperature(cfg, llm_phase(cfg, "connect")) == 0.25
+
+
+def test_get_llm_uses_phase_temperature_when_not_overridden_by_kwarg(monkeypatch):
+    langchain_openai = pytest.importorskip("langchain_openai")
+    captured: dict = {}
+
+    class FakeChat:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(langchain_openai, "ChatOpenAI", FakeChat)
+
+    cfg = AppConfig()
+    cfg.llm.temperature = 0.25
+    cfg.llm.extract = LLMPhaseConfig(provider="openai", model="gpt-4o-mini", temperature=0.0)
+    get_llm(cfg, "extract")
+    assert captured["temperature"] == 0.0
+
+
+def test_get_llm_explicit_kwarg_still_wins_over_phase_temperature(monkeypatch):
+    langchain_openai = pytest.importorskip("langchain_openai")
+    captured: dict = {}
+
+    class FakeChat:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(langchain_openai, "ChatOpenAI", FakeChat)
+
+    cfg = AppConfig()
+    cfg.llm.article = LLMPhaseConfig(provider="openai", model="gpt-4o-mini", temperature=0.0)
+    get_llm(cfg, "article", temperature=0.8)
+    assert captured["temperature"] == 0.8
