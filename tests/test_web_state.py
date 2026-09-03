@@ -3,8 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from zettel.config import AppConfig, EmbeddingConfig
+from zettel.index import index_kwargs
 from zettel.state import StateDB
-from zettel.web_app import UserFacingError, WebWorker, _idx_kwargs, safe_error
+from zettel.web_app import UserFacingError, WebWorker, safe_error
 
 
 def test_web_queue_enforces_mutual_exclusion_and_transitions(tmp_path: Path):
@@ -65,12 +66,19 @@ def test_expected_operational_error_is_safe_and_useful():
 
 
 def test_idx_kwargs_forwards_embedding_dimensions():
+    """The web and the CLI must open the same embedding space.
+
+    ``index_kwargs`` is the single builder both entry points call. It replaced a
+    copy in each of them: the web copy had dropped ``dimensions``, so a reducing
+    model wrote full-width vectors through the web and reduced ones through the
+    CLI, into the same Chroma store.
+    """
     cfg = AppConfig(embedding=EmbeddingConfig(provider="ollama", model="qwen3-embedding", dimensions=1024))
-    assert _idx_kwargs(cfg)["dimensions"] == 1024
+    assert index_kwargs(cfg)["dimensions"] == 1024
 
 
 def test_run_all_dispatches_every_phase_in_order(tmp_path: Path, monkeypatch):
-    from zettel import connector, extractor, gardener, harvester, index, review, web_app
+    from zettel import connector, extractor, gardener, harvester, index, review
 
     calls = []
 
@@ -89,7 +97,7 @@ def test_run_all_dispatches_every_phase_in_order(tmp_path: Path, monkeypatch):
         or {"approved": 1, "rejected": 0, "skipped": 0},
     )
     monkeypatch.setattr(
-        web_app, "_load_candidates",
+        connector, "load_approved_candidates",
         lambda db: [{"candidate": "approved"}],
     )
     monkeypatch.setattr(

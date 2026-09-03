@@ -2,7 +2,7 @@
 
 [← Voltar ao README](../README.md)
 
-Todos os comandos do `zettel`, com as flags reais de [`zettel/cli.py`](../zettel/cli.py) e o que cada uma faz. A CLI é construída com Typer + Rich ([ADR-026](adrs/generated/CLI/ADR-026-typer-rich-cli-framework.md)).
+Todos os comandos do `zettel`, com as flags reais do pacote [`zettel/cli/`](../zettel/cli/) e o que cada uma faz. A CLI é construída com Typer + Rich ([ADR-026](adrs/generated/CLI/ADR-026-typer-rich-cli-framework.md)) e está organizada em módulos por fase do pipeline ([ADR-032](adrs/generated/CLI/ADR-032-cli-as-python-package.md)).
 
 Os exemplos usam `python -m zettel ...`; prefixe com `uv run` se o ambiente não estiver ativado.
 
@@ -93,7 +93,6 @@ python -m zettel harvest --content-start-file 1 --content-start-book 200
 # artigo de revista: PDF comeca em p.1, numero impresso na revista e 200
 python -m zettel harvest --skip-duplicates          # nunca reprocessa suspeitos
 python -m zettel harvest --force                    # sempre trata suspeito como fonte nova
-python -m zettel harvest --move-processed           # move o arquivo para data/processed/
 python -m zettel harvest --dump-chunks
 python -m zettel harvest --dump-chunks --dump-dir ./tmp/chunks
 python -m zettel harvest --dump-extraction
@@ -109,7 +108,6 @@ python -m zettel harvest --dump-extraction --dump-extraction-dir ./tmp/extractio
 | `--content-start-file N` | Página do **arquivo PDF** (1-based) onde o conteúdo começa. Ganha de qualquer heurística. |
 | `--content-start-book M` | Número **impresso** nessa primeira página de conteúdo (default 1). |
 | `--skip-paging` | Não detecta paginação: arquivo p.1 = impressa p.1. |
-| `--move-processed` | Move o arquivo do inbox para `data/processed/` após o harvest. |
 | `--dump-chunks` | Grava um markdown por fonte com os chunks persistidos (texto + paginação + `section_path` + overlap). |
 | `--dump-dir DIR` | Diretório do dump de chunks (implica `--dump-chunks`; default `data/cache/chunk-dumps/`). |
 | `--dump-extraction` | Grava o Markdown extraído assim que ele é persistido (antes dos embeddings). |

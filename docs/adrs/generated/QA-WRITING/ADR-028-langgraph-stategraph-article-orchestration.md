@@ -165,10 +165,10 @@ owns topology and state, not writing logic. ADR-029 formalizes that separation a
 
 ## References
 
-* zettel/article_graph.py — `build_article_graph()`, the 13-node topology and 3 conditional routers
-* zettel/article_graph.py — `run_article_graph()`, compiles with `MemorySaver` and drives the interrupt/resume loop
-* zettel/article_graph.py — `node_context_review` / `node_outline_review`, the two dual-path HITL nodes
-* zettel/article_graph.py — `route_after_context`, `route_after_outline`, `route_after_judge`
-* zettel/article.py — domain helpers (outline, drafting, assembly, personality, judge, verification)
-* zettel/cli.py — `article` command and its Rich-based `_hitl` handler
+* `zettel/article_graph/graph.py` — `build_article_graph()`, the 13-node topology and 3 conditional routers
+* `zettel/article_graph/graph.py` — `run_article_graph()`, compiles with `MemorySaver` and drives the interrupt/resume loop
+* `zettel/article_graph/nodes.py` — `node_context_review` / `node_outline_review`, the two dual-path HITL nodes
+* `zettel/article_graph/nodes.py` — `route_after_context`, `route_after_outline`, `route_after_judge`
+* `zettel/article.py` — domain helpers (outline, drafting, assembly, personality, judge, verification)
+* `zettel/cli/writing.py` — `article` command and its Rich-based `_hitl` handler
 * config/config.yaml — `retrieval.article` section (`max_judge_iterations`, `judge_min_score`, `max_sections`)

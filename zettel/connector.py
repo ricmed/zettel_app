@@ -99,6 +99,40 @@ def _literature_ref_for_chunk(
 # ── Public API ─────────────────────────────────────────────────────────
 
 
+def load_approved_candidates(db: StateDB) -> list[dict]:
+    """Load the concepts eligible for ``connect`` straight from SQLite.
+
+    This is the entry gate of Phase 3, and the only definition of what "eligible"
+    means: a concept whose ``status`` is ``approved`` (the reviewer let it through)
+    **and** whose ``note_id`` is still NULL (no permanent note was written for it
+    yet). Nothing else crosses the review/connect boundary — the phases talk to
+    each other through StateDB, never through in-memory handoff.
+
+    Rows without a ``candidate_json`` payload are skipped rather than raising: a
+    concept row can exist before the extractor has serialized its candidate, and
+    an unfinished row must not abort a batch of good ones.
+
+    Lives here, next to ``run_connect``, because both entry points that need it —
+    the CLI ``connect`` command and the web worker's ``connect`` job — used to
+    carry their own identical copy.
+
+    Returns:
+        One dict per candidate with ``concept_id``, ``source_id``, ``chunk_id`` and
+        a parsed ``candidate`` (``PermanentNoteCandidate``), shaped exactly as
+        ``run_connect`` expects its ``candidates`` argument.
+    """
+    return [
+        {
+            "concept_id": concept["concept_id"],
+            "source_id": concept["source_id"],
+            "chunk_id": concept["chunk_id"],
+            "candidate": PermanentNoteCandidate.model_validate_json(raw),
+        }
+        for concept in db.get_concepts_by_status("approved", without_notes=True)
+        if (raw := concept.get("candidate_json"))
+    ]
+
+
 def run_connect(
     cfg: AppConfig, db: StateDB, idx: VectorIndex, candidates: list[dict], *,
     observer=None, origin: str = "pipeline",
