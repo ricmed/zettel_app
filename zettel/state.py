@@ -1001,7 +1001,8 @@ class StateDB:
                                      note_id, candidate_json, status)
                VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, 'pending'))
                ON CONFLICT(concept_id) DO UPDATE SET
-                 anchor_hash=excluded.anchor_hash, thesis_hash=excluded.thesis_hash,
+                 anchor_hash=COALESCE(NULLIF(excluded.anchor_hash, ''), concepts.anchor_hash),
+                 thesis_hash=COALESCE(NULLIF(excluded.thesis_hash, ''), concepts.thesis_hash),
                  note_id=COALESCE(excluded.note_id, concepts.note_id),
                  candidate_json=COALESCE(excluded.candidate_json, concepts.candidate_json),
                  status=COALESCE(?, concepts.status)""",

@@ -226,6 +226,44 @@ def test_concept_candidate_and_status(db):
     assert db.get_concepts_by_status("approved", without_notes=True) == []
 
 
+def test_upsert_concept_preserves_hashes_when_not_passed(db):
+    db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
+    db.upsert_chapter("@S::ch000", "@S", "Ch", "chk")
+    db.upsert_chunk("@S::ch000::a", "@S", "@S::ch000", "txt", "ck")
+    db.upsert_concept(
+        "@S::concept::a", "@S", "@S::ch000::a", "anchorhash123", "thesishash456",
+        candidate_json='{"thesis": "x"}', status="extracted",
+    )
+
+    # connect-style call: no hashes passed, only note_id/status touched.
+    db.upsert_concept("@S::concept::a", "@S", "@S::ch000::a", note_id="note1", status="noted")
+
+    concept = db.get_concept("@S::concept::a")
+    assert concept["anchor_hash"] == "anchorhash123"
+    assert concept["thesis_hash"] == "thesishash456"
+    assert concept["note_id"] == "note1"
+    assert concept["status"] == "noted"
+
+    # A later call that does pass new hashes still overwrites them.
+    db.upsert_concept(
+        "@S::concept::a", "@S", "@S::ch000::a", "newanchor", "newthesis",
+    )
+    concept = db.get_concept("@S::concept::a")
+    assert concept["anchor_hash"] == "newanchor"
+    assert concept["thesis_hash"] == "newthesis"
+
+
+def test_upsert_concept_initial_insert_defaults_hashes_to_empty(db):
+    db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
+    db.upsert_chapter("@S::ch000", "@S", "Ch", "chk")
+    db.upsert_chunk("@S::ch000::a", "@S", "@S::ch000", "txt", "ck")
+    db.upsert_concept("@S::concept::a", "@S", "@S::ch000::a")
+
+    concept = db.get_concept("@S::concept::a")
+    assert concept["anchor_hash"] == ""
+    assert concept["thesis_hash"] == ""
+
+
 def test_note_body_and_embedding_hash(db):
     db.upsert_note(
         "n1", "@S", "/p/n1.md", "Title",
