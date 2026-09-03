@@ -299,11 +299,12 @@ def _process_chunk(
         )
 
     literature_id = str(ULID())
+    has_content = output.chunk_status != "rejected" and bool(approved_cands)
     draft_path = _write_literature_draft(
         cfg, db, chunk_row, output, literature_id, confidence, elapsed_ms,
         candidates=approved_cands,
         llm_model=spec.model,
-    )
+    ) if has_content else None
 
     summary_payload = {
         "summary": output.summary,
