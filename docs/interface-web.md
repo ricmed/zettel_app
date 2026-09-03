@@ -81,7 +81,7 @@ A CLI permanece compatível e continua usando a apresentação Rich normalmente.
 - Recarregar ou fechar a página não interrompe o trabalho. Ao reiniciar o servidor, jobs que estavam `running` viram `interrupted`; jobs ainda `queued` são retomados.
 - Chamadas LLM/PDF em curso não são canceladas à força. A recuperação ocorre entre checkpoints seguros, executando novamente a fase quando necessário.
 
-> **Nota de implementação**: o `_idx_kwargs` de `web_app.py` deve espelhar o `cli._idx_kwargs` (inclusive `embedding.dimensions`) ao abrir o `VectorIndex` — caso contrário a web e a CLI abririam espaços vetoriais diferentes.
+> **Nota de implementação**: a web e a CLI abrem o `VectorIndex` pela mesma função, `index.index_kwargs(cfg)`. Antes havia uma cópia em cada lado e elas divergiram — a do `web_app.py` omitia `embedding.dimensions`, de modo que os dois caminhos gravavam vetores de larguras diferentes no mesmo Chroma. Não crie uma nova cópia.
 
 A assimetria deliberada de validação entre web e CLI está documentada em [ADR-018](adrs/generated/REVIEW/ADR-018-web-cli-validation-asymmetry.md).
 

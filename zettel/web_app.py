@@ -92,34 +92,6 @@ class JobProgress:
         ))
 
 
-def _idx_kwargs(cfg: AppConfig) -> dict[str, Any]:
-    return {
-        "chroma_path": cfg.chroma_path,
-        "embedding_provider": cfg.embedding.provider,
-        "embedding_model": cfg.embedding.model,
-        "device": cfg.device,
-        "allow_fallback": cfg.embedding.allow_fallback,
-        "base_url": cfg.embedding.base_url,
-        "dimensions": cfg.embedding.dimensions,
-    }
-
-
-def _load_candidates(db: StateDB) -> list[dict]:
-    from zettel.schemas import PermanentNoteCandidate
-
-    output = []
-    for concept in db.get_concepts_by_status("approved", without_notes=True):
-        raw = concept.get("candidate_json")
-        if raw:
-            output.append({
-                "concept_id": concept["concept_id"],
-                "source_id": concept["source_id"],
-                "chunk_id": concept["chunk_id"],
-                "candidate": PermanentNoteCandidate.model_validate_json(raw),
-            })
-    return output
-
-
 class WebWorker:
     """A durable queue backed by SQLite and one process-local worker thread."""
 
@@ -225,10 +197,10 @@ class WebWorker:
         if operation == "retry_assets":
             return {"assets_reset": db.reset_failed_assets()}
 
-        from zettel.index import VectorIndex
-        idx = VectorIndex(**_idx_kwargs(cfg))
+        from zettel.index import VectorIndex, index_kwargs
+        idx = VectorIndex(**index_kwargs(cfg))
         if operation == "run_all":
-            from zettel.connector import run_connect
+            from zettel.connector import load_approved_candidates, run_connect
             from zettel.extractor import run_extract
             from zettel.gardener import run_garden
             from zettel.harvester import run_harvest
@@ -251,7 +223,7 @@ class WebWorker:
                 cfg, db, idx, auto_approve=True, interactive=False,
             )
 
-            approved = _load_candidates(db)
+            approved = load_approved_candidates(db)
             progress.emit(ProgressEvent(
                 "connect", f"Fase 4/5 — gerando {len(approved)} nota(s).",
                 total_items=len(approved),
@@ -334,8 +306,8 @@ class WebWorker:
             finish_pipeline_run(db, review_run_id)
             return stats
         if operation == "connect":
-            from zettel.connector import run_connect
-            candidates = _load_candidates(db)
+            from zettel.connector import load_approved_candidates, run_connect
+            candidates = load_approved_candidates(db)
             progress.emit(ProgressEvent("connect", f"Gerando {len(candidates)} nota(s).", total_items=len(candidates)))
             return {"notes": run_connect(cfg, db, idx, candidates, observer=progress)}
         if operation == "garden":

@@ -24,7 +24,7 @@ import pytest
 from pydantic import BaseModel
 
 from zettel.ask import _NO_EVIDENCE
-from zettel.llm import fill_template, load_prompt_parts
+from zettel.llm import REQUIRED_PROMPTS, fill_template, load_prompt_parts
 from zettel.schemas import (
     ArticleOutline,
     DedupeDecision,
@@ -150,13 +150,20 @@ def test_every_prompt_is_registered():
     assert set(prompt_names()) == set(CONSUMERS) | NO_SPLIT
 
 
-def test_doctor_checks_every_prompt():
-    """`zettel doctor` must fail on a checkout missing any prompt (incl. hubs)."""
-    source = (ROOT / "zettel" / "cli.py").read_text(encoding="utf-8")
-    block = re.search(r"prompt_files = \[(.*?)\]", source, re.DOTALL)
-    assert block, "lista prompt_files nao encontrada em cli.py"
-    listed = set(re.findall(r'"([^"]+\.md)"', block.group(1)))
-    assert listed == set(prompt_names())
+def test_required_prompts_matches_the_directory():
+    """`zettel doctor` must fail on a checkout missing any prompt (incl. hubs).
+
+    ``REQUIRED_PROMPTS`` is what the doctor iterates over, so a prompt added to
+    ``prompts/`` but not to the tuple would never be checked, and a prompt removed
+    from disk but left in the tuple would make the doctor fail forever.
+    """
+    assert set(REQUIRED_PROMPTS) == set(prompt_names())
+    assert len(REQUIRED_PROMPTS) == len(set(REQUIRED_PROMPTS)), "nome duplicado"
+
+
+def test_every_consumed_prompt_is_required():
+    """A template with a caller must be one the doctor guards."""
+    assert set(CONSUMERS) <= set(REQUIRED_PROMPTS)
 
 
 @pytest.mark.parametrize("name", prompt_names())

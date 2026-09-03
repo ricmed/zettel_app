@@ -62,7 +62,7 @@ harvest → extract → review → connect → garden
 Server-rendered FastAPI app — no Node/bundler. Entry point: `uvicorn zettel.web:app` (see `docs/interface-web.md` for user-facing docs).
 
 - **`web.py`**: HTTP routes, Jinja2 templates, auth (HMAC-signed `zettel_session` cookie + CSRF on all POSTs), upload validation, job enqueue redirects. Pages: dashboard, documents, pipeline, review, notes/MOCs (+ read-only detail views for sources/notes/MOCs), runs/jobs, settings/health.
-- **`web_app.py`**: `WebApplication` service — daemon worker thread, SQLite-backed job queue (`web_jobs`, `web_job_events` in `state.py`), dispatches pipeline ops via the same modules as CLI. **`_idx_kwargs` must mirror `cli._idx_kwargs`** (including `embedding.dimensions`) when opening `VectorIndex`.
+- **`web_app.py`**: `WebApplication` service — daemon worker thread, SQLite-backed job queue (`web_jobs`, `web_job_events` in `state.py`), dispatches pipeline ops via the same modules as CLI. Opens `VectorIndex` through **`index.index_kwargs(cfg)`** and loads the connect queue through **`connector.load_approved_candidates(db)`** — both were once duplicated here and drifted (the web copy silently dropped `embedding.dimensions`), so there is now a single definition and nothing to keep in sync by hand.
 - **`progress.py`**: shared `ProgressObserver` protocol; web worker emits checkpoints through `JobProgress`.
 - **Auth**: `SESSION_SECRET` env var; login compares instance secret with `hmac.compare_digest`. Without it, no session is issued.
 - **Concurrency**: single Uvicorn worker, at most one mutating job (`queued`/`running`) at a time; second submit → 409. On server restart, `running` jobs → `interrupted`; `queued` jobs resume.

@@ -9,6 +9,8 @@ from typing import Any, Optional
 import chromadb
 from chromadb.config import Settings
 
+from zettel.config import AppConfig
+
 logger = logging.getLogger(__name__)
 
 # Collection names
@@ -198,6 +200,39 @@ def _identity_from_client(client: Any) -> tuple[str | None, str | None, int | No
                 dims,
             )
     return None, None, None
+
+
+def index_kwargs(cfg: AppConfig, *, reset_mismatched: bool = False) -> dict[str, Any]:
+    """Translate an ``AppConfig`` into the keyword arguments of ``VectorIndex``.
+
+    This is the **only** place in the project that knows how config maps onto the
+    index constructor. It exists because the mapping used to be copy-pasted into
+    every entry point (the CLI's composition root and the web worker), and the two
+    copies drifted: the web one silently omitted ``embedding.dimensions``, so a
+    dimension-reducing model (e.g. ``text-embedding-3-large`` at 1024d) produced
+    full-width vectors in jobs submitted through the web UI and reduced ones
+    through the CLI — two incompatible spaces in the same Chroma store.
+
+    Args:
+        cfg: the loaded application config.
+        reset_mismatched: drop and recreate collections whose stored embedding
+            identity differs from ``cfg``, instead of raising
+            ``EmbeddingSpaceMismatch``. Only a caller that is about to repopulate
+            the store (``zettel reindex --force``) may pass True.
+
+    Returns:
+        Keyword arguments ready for ``VectorIndex(**index_kwargs(cfg))``.
+    """
+    return {
+        "chroma_path": cfg.chroma_path,
+        "embedding_provider": cfg.embedding.provider,
+        "embedding_model": cfg.embedding.model,
+        "device": cfg.device,
+        "allow_fallback": cfg.embedding.allow_fallback,
+        "base_url": cfg.embedding.base_url,
+        "dimensions": cfg.embedding.dimensions,
+        "reset_mismatched": reset_mismatched,
+    }
 
 
 class VectorIndex:

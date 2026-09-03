@@ -414,6 +414,40 @@ def split_prompt_text(text: str) -> PromptParts:
     )
 
 
+# Every prompt template the pipeline loads at runtime, relative to
+# ``cfg.prompts_path``. Kept here, next to ``load_prompt_parts`` (the function that
+# actually reads them), so there is one list instead of one per consumer: `zettel
+# doctor` checks that each file exists before a run fails mid-pipeline on a
+# ``FileNotFoundError``, and ``tests/test_prompts.py`` locks each template against
+# the code that fills it.
+#
+# ``article_anti_ai.md`` is here too even though it is never loaded on its own: it
+# is a fragment injected into the section prompts through ``{anti_ai}``, so a
+# missing file breaks article generation exactly like a missing top-level prompt.
+#
+# Adding a prompt file means adding it here.
+REQUIRED_PROMPTS: tuple[str, ...] = (
+    "literature_note.md",
+    "permanent_note.md",
+    "dedupe_decision.md",
+    "moc_generation.md",
+    "moc_incremental.md",
+    "moc_hub_generation.md",
+    "moc_hub_incremental.md",
+    "ptbr_guard.md",
+    "image_description.md",
+    "ask.md",
+    "bibliographic_metadata.md",
+    "article_outline.md",
+    "article_section_blog.md",
+    "article_section_academic.md",
+    "article_anti_ai.md",
+    "article_query_enrich.md",
+    "article_personality.md",
+    "article_judge.md",
+)
+
+
 def load_prompt(path: Path) -> str:
     """Load a prompt template from a file path (full text, including marker)."""
     if not path.exists():

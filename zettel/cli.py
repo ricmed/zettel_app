@@ -55,24 +55,6 @@ def _get_db(cfg):
     return StateDB(cfg.state_db_path)
 
 
-def _load_approved_candidates(db) -> list[dict]:
-    """Load approved concepts without notes from SQLite for ``connect``."""
-    from zettel.schemas import PermanentNoteCandidate
-
-    candidates: list[dict] = []
-    for concept in db.get_concepts_by_status("approved", without_notes=True):
-        raw = concept.get("candidate_json")
-        if not raw:
-            continue
-        candidates.append({
-            "concept_id": concept["concept_id"],
-            "source_id": concept["source_id"],
-            "chunk_id": concept["chunk_id"],
-            "candidate": PermanentNoteCandidate.model_validate_json(raw),
-        })
-    return candidates
-
-
 def _fmt_embedding_id(provider: str | None, model: str | None, dimensions: int | None) -> str:
     base = f"{provider}/{model}"
     if dimensions is not None:
@@ -153,19 +135,6 @@ def _fmt_prompt_cache_ratio(u) -> str:
     return f"{read}r/{write}w{pct}"
 
 
-def _idx_kwargs(cfg, *, reset_mismatched: bool = False) -> dict:
-    return {
-        "chroma_path": cfg.chroma_path,
-        "embedding_provider": cfg.embedding.provider,
-        "embedding_model": cfg.embedding.model,
-        "device": cfg.device,
-        "allow_fallback": cfg.embedding.allow_fallback,
-        "base_url": cfg.embedding.base_url,
-        "dimensions": cfg.embedding.dimensions,
-        "reset_mismatched": reset_mismatched,
-    }
-
-
 def _warn_embedding_mismatch(exc) -> None:
     """Print a clear warning when the configured embedding differs from Chroma."""
     stored = _fmt_embedding_id(
@@ -204,10 +173,10 @@ def _get_idx(cfg, db=None, yes: bool = False):
             Opened temporarily if omitted.
         yes: skip interactive confirmation (CI / ``--yes``).
     """
-    from zettel.index import EmbeddingSpaceMismatch, VectorIndex
+    from zettel.index import EmbeddingSpaceMismatch, VectorIndex, index_kwargs
 
     try:
-        return VectorIndex(**_idx_kwargs(cfg))
+        return VectorIndex(**index_kwargs(cfg))
     except EmbeddingSpaceMismatch as exc:
         _warn_embedding_mismatch(exc)
         if not _confirm_embedding_reprocess(yes):
@@ -222,7 +191,7 @@ def _get_idx(cfg, db=None, yes: bool = False):
         if own_db:
             db = _get_db(cfg)
         try:
-            idx = VectorIndex(**_idx_kwargs(cfg, reset_mismatched=True))
+            idx = VectorIndex(**index_kwargs(cfg, reset_mismatched=True))
             from zettel.rebuild import run_reindex
             with console.status(
                 "[bold blue]Regenerando embeddings (reindex --force)...",
@@ -739,7 +708,8 @@ def connect(
     db = _get_db(cfg)
     idx = _get_idx(cfg, db=db, yes=yes)
 
-    candidates = _load_approved_candidates(db)
+    from zettel.connector import load_approved_candidates, run_connect
+    candidates = load_approved_candidates(db)
 
     if not candidates:
         console.print(
@@ -748,7 +718,6 @@ def connect(
         db.close()
         raise typer.Exit(1)
 
-    from zettel.connector import run_connect
     # Nao usar console.status: o Progress interno de run_connect disputa o mesmo
     # stdout (dois Rich Live) e a barra Connect nota i/N pisca. Ver #21.
     note_ids = run_connect(cfg, db, idx, candidates)
@@ -1275,7 +1244,12 @@ def reindex(
     --force e aplicado automaticamente (aviso + confirmacao, ou --yes).
     Sem --force apos troca de modelo, sources/chunks antigos nao seriam regenerados.
     """
-    from zettel.index import EmbeddingSpaceMismatch, VectorIndex, peek_stored_embedding_identity
+    from zettel.index import (
+        EmbeddingSpaceMismatch,
+        VectorIndex,
+        index_kwargs,
+        peek_stored_embedding_identity,
+    )
 
     cfg = _load_deps(config)
     db = _get_db(cfg)
@@ -1305,9 +1279,9 @@ def reindex(
             raise typer.Exit(1)
         force = True
         console.print("[dim]Troca de embedding detectada — aplicando --force.[/dim]")
-        idx = VectorIndex(**_idx_kwargs(cfg, reset_mismatched=True))
+        idx = VectorIndex(**index_kwargs(cfg, reset_mismatched=True))
     else:
-        idx = VectorIndex(**_idx_kwargs(cfg))
+        idx = VectorIndex(**index_kwargs(cfg))
 
     from zettel.rebuild import run_reindex
     with console.status("[bold blue]Reconstruindo indice vetorial...", spinner="dots"):
@@ -1450,8 +1424,8 @@ def run_all(
 
     # Phase 3: Connect (from DB approved concepts)
     console.rule("[bold blue]Fase 3 — Connect")
-    from zettel.connector import run_connect
-    connect_cands = _load_approved_candidates(db)
+    from zettel.connector import load_approved_candidates, run_connect
+    connect_cands = load_approved_candidates(db)
     note_ids = run_connect(cfg, db, idx, connect_cands)
     console.print(f"  Notas permanentes: {len(note_ids)}")
 
@@ -1896,28 +1870,11 @@ def doctor(
     # Inbox
     checks.append(("Inbox path", cfg.inbox_path.exists(), str(cfg.inbox_path)))
 
-    # Prompts (must match files actually loaded by the pipeline)
-    prompt_files = [
-        "literature_note.md",
-        "permanent_note.md",
-        "dedupe_decision.md",
-        "moc_generation.md",
-        "moc_incremental.md",
-        "moc_hub_generation.md",
-        "moc_hub_incremental.md",
-        "ptbr_guard.md",
-        "image_description.md",
-        "ask.md",
-        "bibliographic_metadata.md",
-        "article_outline.md",
-        "article_section_blog.md",
-        "article_section_academic.md",
-        "article_anti_ai.md",
-        "article_query_enrich.md",
-        "article_personality.md",
-        "article_judge.md",
-    ]
-    for pf in prompt_files:
+    # Prompts: the canonical list lives next to the loader (zettel.llm), so this
+    # check and tests/test_prompts.py cannot drift apart from what the pipeline
+    # actually opens at runtime.
+    from zettel.llm import REQUIRED_PROMPTS
+    for pf in REQUIRED_PROMPTS:
         p = cfg.prompts_path / pf
         checks.append((f"Prompt: {pf}", p.exists(), str(p)))
 
