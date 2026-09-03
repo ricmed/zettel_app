@@ -3,14 +3,15 @@
 **Status:** Accepted
 **Date:** 2026-02-01
 **Related to:**
-- [ADR-XXX: Repository Pattern for Data Access (StateDB and VectorIndex)](../INFRA/ADR-008-repository-pattern-data-access.md)
-- [ADR-XXX: FastAPI Server-Rendered Web Interface (No SPA)](../WEB/ADR-022-fastapi-server-rendered-jinja2.md)
+- [ADR-008: Repository Pattern for Data Access (StateDB and VectorIndex)](../INFRA/ADR-008-repository-pattern-data-access.md)
+- [ADR-022: FastAPI Server-Rendered Web Interface (No SPA)](../WEB/ADR-022-fastapi-server-rendered-jinja2.md)
+- [ADR-032: CLI as Python Package](./ADR-032-cli-as-python-package.md)
 
 ## Context and Problem Statement
 
 The pipeline (`harvest` -> `extract` -> `review` -> `connect` -> `garden`, plus `ask`, `article`, `sync-manual`, `new-note`, `delete-source`, and others) needed a command-line entry point that could parse arguments, route them to orchestration functions, and present results to a human operator. From the initial commit, the project structured all 24 commands as decorated functions on a single Typer application, with Rich supplying colored status output, tables/panels for pipeline statistics, interactive confirmations, and progress spinners for long-running operations.
 
-This pattern has remained unchanged for 6+ months: 20+ commits have extended `zettel/cli.py` (now 1,934 lines, with 156 Typer-specific and 127 Rich-specific call sites) by adding new commands or parameters, but none have questioned or replaced the underlying framework choice. No alternative CLI router (manual `sys.argv` parsing, a command dispatcher) exists anywhere in the codebase — Typer is the sole CLI abstraction, and Rich usage is confined to the CLI and the web UI's status tables, kept out of pipeline modules entirely.
+This pattern has remained unchanged for 6+ months: 20+ commits have extended `zettel/cli.py` (now 1,934 lines, with 156 Typer-specific and 127 Rich-specific call sites) by adding new commands or parameters, but none have questioned or replaced the underlying framework choice. No alternative CLI router (manual `sys.argv` parsing, a command dispatcher) exists anywhere in the codebase — Typer is the sole CLI abstraction, and Rich usage is confined to the CLI and the web UI's status tables, kept out of pipeline modules entirely. (The file itself was later split into the package `zettel/cli/` — ADR-032 — without changing this framework decision.)
 
 [NEEDS INPUT: Confirm whether Typer was evaluated against Click or argparse before adoption, or chosen by default based on the team's familiarity with type-hint-driven frameworks]
 
@@ -59,7 +60,9 @@ Chosen option: "Typer with Rich", because type hints directly drive command sign
 
 ## Consequences
 
-Typer and Rich are now non-negotiable dependencies: removing either would require rewriting all 24 commands and their output paths. The decorator model leaves `zettel/cli.py` with zero test coverage, in contrast to the underlying pipeline modules it orchestrates, because Typer's app-per-invocation design resists conventional unit testing. Because Typer models "one invocation = one command execution," every command independently calls `_load_deps()` -> `_get_db()` -> `_get_idx()` at startup rather than reusing a long-lived process, embedding stateful concerns such as embedding-model-mismatch handling into command startup instead of an always-on service.
+Typer and Rich are now non-negotiable dependencies: removing either would require rewriting every command and its output path. Because Typer models "one invocation = one command execution," every command independently calls `load_deps()` -> `get_db()` -> `get_idx()` at startup rather than reusing a long-lived process, embedding stateful concerns such as embedding-model-mismatch handling into command startup instead of an always-on service.
+
+**Superseded, 2026-09-03 (ADR-032):** this ADR originally recorded that the decorator model left the CLI with zero test coverage, "because Typer's app-per-invocation design resists conventional unit testing." That turned out to be a gap, not a property of the framework. `typer.testing.CliRunner` builds each command's parser without executing the pipeline, and the logic worth testing — flag resolvers, formatters — is ordinary pure functions once it is lifted out of the command bodies. `tests/test_cli.py` now covers the command surface, every parser, the package's structural invariants and the helpers.
 
 Extensibility follows a fixed, predictable pattern: new commands are parameterized via `typer.Option()`/`typer.Argument()`, delegate to existing orchestration functions, and print results via Rich. This keeps the CLI surface consistent but rigid. Rich's output is human-optimized markup, not machine-parseable — any future scripting or programmatic-consumption use case (JSON export, CI integration) would need a parallel output path rather than reusing the existing formatting.
 
@@ -67,8 +70,10 @@ Extensibility follows a fixed, predictable pattern: new commands are parameteriz
 
 ## References
 
-* `zettel/cli.py:36-40` — Typer app initialization and Rich `Console` setup
-* `zettel/cli.py:44-169` — dependency injection helpers (`_load_deps()`, `_get_db()`, `_get_idx()`) called at the start of every command
-* `zettel/cli.py:174-246` — representative command declaration pattern (`init` command, with Rich `Panel` output)
-* `zettel/__main__.py:3` — entry point invoking the Typer `app()`
+* `zettel/cli/app.py` — Typer app initialization and Rich `Console` setup
+* `zettel/cli/deps.py` — dependency injection helpers (`load_deps()`, `get_db()`, `get_idx()`) called at the start of every command
+* `zettel/cli/maintenance.py` — representative command declaration pattern (`init` command, with Rich `Panel` output)
+* `zettel/cli/options.py` — the shared `Annotated` option aliases
+* `zettel/__main__.py` — entry point invoking the Typer `app()`
+* `tests/test_cli.py` — command-surface and parser coverage
 * `pyproject.toml` — declares `typer>=0.21.1` and `typer-slim==0.21.1` as dependencies

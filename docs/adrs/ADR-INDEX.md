@@ -1,7 +1,7 @@
-# zettel_app ADR Index (31 Decisions)
+# zettel_app ADR Index (32 Decisions)
 
-**Last Updated**: 2026-09-02  
-**Status**: Complete — 31 formal ADRs across 12 modules, 42 relationships mapped
+**Last Updated**: 2026-09-03  
+**Status**: Complete — 32 formal ADRs across 12 modules, 42 relationships mapped
 
 ---
 
@@ -17,7 +17,7 @@
 | **GARDEN** | 3 | [019–021](#garden-moc-generation) |
 | **WEB** | 2 | [022–023](#web-ui--job-queue) |
 | **LLM** | 2 | [024–025](#llm-provider--caching) |
-| **CLI** | 1 | [026](#cli-orchestration) |
+| **CLI** | 2 | [026, 032](#cli-orchestration) |
 | **QA-WRITING** | 2 | [028–029](#qa-writing--article-pipeline) |
 | **MANUAL** | 1 | [030](#manual-hand-written-notes) |
 | **ASSETS** | 1 | [031](#assets-images) |
@@ -282,6 +282,15 @@
 - **Date**: 2026-02-01
 - **Summary**: 24 commands as decorated Typer functions with Rich for tables, panels, progress spinners, and interactive confirmations. Chosen for type-hint-driven argument parsing and polished terminal UI without adding frontend build infrastructure.
 - **Link**: [`ADR-026-typer-rich-cli-framework.md`](./generated/CLI/ADR-026-typer-rich-cli-framework.md)
+
+---
+
+### ADR-032: CLI as Python Package
+
+- **Status**: Accepted
+- **Date**: 2026-09-03
+- **Summary**: `zettel/cli.py` (2085 lines, 22 commands) split into `zettel/cli/` — four infrastructure modules plus ten command modules grouped by pipeline phase. Third application of the ADR-027/ADR-029 package pattern, closing the set of monoliths. Two structural seams (`app.py` imports nothing local; import order is `--help` order) are enforced by AST checks instead of convention.
+- **Link**: [`ADR-032-cli-as-python-package.md`](./generated/CLI/ADR-032-cli-as-python-package.md)
 
 ---
 

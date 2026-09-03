@@ -102,9 +102,24 @@ Every decision is recorded via `db.record_duplicate(run_id, layer)` and surfaced
 - **hashing.py**: Canonical text normalization (NFKC, whitespace collapse, PDF dehyphenation) before hashing. Layered checksums: file → extraction → chapter → chunk → llm_call → note_semantic. `compute_llm_call_checksum()` enables deterministic LLM response caching.
 - **schemas.py**: Pydantic v2 models for all data objects and LLM structured outputs (LiteratureChunkOutput, PermanentNoteLLMOutput, DedupeResult, MOCGenerationOutput, ArticleOutline).
 
+### CLI (`zettel/cli/`)
+
+Typer + Rich, split into a package by pipeline phase (ADR-026 for the framework, **ADR-032** for the layout — same pattern as `harvester/` and `article_graph/`). Entry point: `python -m zettel <command>`, via `zettel/__main__.py` -> `from zettel.cli import main`. There is no `[project.scripts]`.
+
+- **Infrastructure**: `app.py` (the `app`/`console` singletons), `deps.py` (composition root + the embedding-drift prompt), `formatting.py` (Rich renderers: `print_cost_by_phase`, `metrics_table`, the formatters), `options.py` (shared `Annotated` options + the flag resolvers `resolve_duplicate_flags` / `resolve_chunk_dump_dir` / `resolve_extraction_dump_dir`).
+- **Commands**: `maintenance.py` (init, reindex, rebuild) · `ingest.py` (harvest, rechunk, set-paging, dump-chunks, dump-extraction) · `curation.py` (extract, review, retry-failed) · `synthesis.py` (connect, garden) · `purge.py` (purge-rejected, delete-source) · `manual.py` (new-note, sync-manual) · `pipeline.py` (run-all) · `qa.py` (ask) · `writing.py` (article) · `diagnostics.py` (status, doctor). `qa`/`writing` rather than `ask`/`article` because those modules import `zettel/ask.py` and `zettel/article.py`.
+
+**Three rules a change here must respect** — all three are enforced by AST checks in `tests/test_cli.py`, not just documented:
+
+1. **`app.py` imports nothing from the package.** Command modules import `app`/`console` from it, and `__init__.py` imports the command modules to trigger `@app.command()`; an import back into `app.py` closes the cycle and kills `python -m zettel`.
+2. **Import order in `__init__.py` is the order of `zettel --help`.** Registration is an import side effect. The modules are bound to `COMMAND_MODULES` so an "unused import" cleanup cannot silently drop commands. `tests/test_cli.py` pins names *and* order.
+3. **Domain modules are imported inside the command function, never at module scope.** That is what keeps `zettel --help` from loading chromadb/docling/langchain.
+
+A shared `Annotated` option alias exists only when two or more commands declare the same flags with the same help text; where the flag means more in one command (`harvest --yes` also picks the duplicate action, `garden --yes` also confirms `--recreate`), that command declares it inline.
+
 ### Data flow between phases
 
-`extract` writes drafts + concepts `awaiting_review`. `review` promotes approved concepts (after dedupe) to `approved`. `connect` loads `get_concepts_by_status("approved", without_notes=True)` from SQLite only. All other inter-phase communication goes through StateDB and ChromaDB. Each CLI command instantiates `(AppConfig, StateDB, VectorIndex)` via `_load_deps()`, `_get_db()`, `_get_idx()` in cli.py.
+`extract` writes drafts + concepts `awaiting_review`. `review` promotes approved concepts (after dedupe) to `approved`. `connect` loads `get_concepts_by_status("approved", without_notes=True)` from SQLite only. All other inter-phase communication goes through StateDB and ChromaDB. Each CLI command instantiates `(AppConfig, StateDB, VectorIndex)` via `load_deps()`, `get_db()`, `get_idx()` in `cli/deps.py`.
 
 **Breaking change**: the old monolithic LIT-per-source model is gone. Re-run `extract` + `review` for sources harvested before this change.
 

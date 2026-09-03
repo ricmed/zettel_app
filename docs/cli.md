@@ -2,7 +2,7 @@
 
 [← Voltar ao README](../README.md)
 
-Todos os comandos do `zettel`, com as flags reais do pacote [`zettel/cli/`](../zettel/cli/) e o que cada uma faz. A CLI é construída com Typer + Rich ([ADR-026](adrs/generated/CLI/ADR-026-typer-rich-cli-framework.md)) e está organizada em módulos por fase do pipeline.
+Todos os comandos do `zettel`, com as flags reais do pacote [`zettel/cli/`](../zettel/cli/) e o que cada uma faz. A CLI é construída com Typer + Rich ([ADR-026](adrs/generated/CLI/ADR-026-typer-rich-cli-framework.md)) e está organizada em módulos por fase do pipeline ([ADR-032](adrs/generated/CLI/ADR-032-cli-as-python-package.md)).
 
 Os exemplos usam `python -m zettel ...`; prefixe com `uv run` se o ambiente não estiver ativado.
 

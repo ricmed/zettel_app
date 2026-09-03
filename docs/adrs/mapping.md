@@ -61,14 +61,14 @@
 ---
 
 ### CLI: Command-Line Interface
-**Purpose**: Sole orchestration entry point; every pipeline/maintenance command is wired here (`(AppConfig, StateDB, VectorIndex)` composition via `_load_deps()`/`_get_db()`/`_get_idx()`).
-**Location**: `zettel/cli.py`, `zettel/__main__.py`
-**Key Components**: 24 `@app.command()` entries covering harvest, extract, review, connect, garden (+hubs, +recreate), ask, article, new-note, delete-source, sync-manual, purge-rejected, reindex, doctor, status, set-paging, rechunk, dump-chunks, dump-extraction, run-all, init.
-**Technologies**: Typer, Rich (interactive prompts/tables).
-**Dependencies**: Internal — nearly every pipeline module (21 internal imports, the highest efferent coupling in the codebase). External — none directly (delegates everything).
-**Patterns**: Composition root / orchestrator; presentation layer holding no business logic itself.
-**Key Files**: `zettel/cli.py` (1934 lines), `zettel/__main__.py`.
-**Scope**: Large — 2 files, ~1935 lines. Confirmed **zero test coverage** (no `CliRunner`, no subprocess test) across the 391-test suite — notable for Phase 2 scoring.
+**Purpose**: Sole orchestration entry point; every pipeline/maintenance command is wired here (`(AppConfig, StateDB, VectorIndex)` composition via `load_deps()`/`get_db()`/`get_idx()` in `cli/deps.py`).
+**Location**: `zettel/cli/` (package, ADR-032), `zettel/__main__.py`
+**Key Components**: 22 `@app.command()` entries across ten command modules grouped by pipeline phase — `maintenance` (init, reindex, rebuild), `ingest` (harvest, rechunk, set-paging, the two dumps), `curation` (extract, review, retry-failed), `synthesis` (connect, garden), `purge` (purge-rejected, delete-source), `manual` (new-note, sync-manual), `pipeline` (run-all), `qa` (ask), `writing` (article), `diagnostics` (status, doctor) — over four infrastructure modules (`app`, `deps`, `formatting`, `options`).
+**Technologies**: Typer (`Annotated` options), Rich (interactive prompts/tables).
+**Dependencies**: Internal — nearly every pipeline module, all imported lazily inside the command functions so `--help` does not load chromadb/docling/langchain. External — none directly (delegates everything).
+**Patterns**: Composition root / orchestrator; presentation layer holding no business logic itself. Command registration is a side effect of importing a module in `__init__.py`, whose order is the `--help` order.
+**Key Files**: `zettel/cli/__init__.py` (module map + the two structural seams), `zettel/cli/deps.py`, `zettel/cli/options.py`, `zettel/__main__.py`.
+**Scope**: Medium — 15 modules, ~2570 lines, none over ~310. Covered by `tests/test_cli.py` (40 tests: command surface, per-command parser, AST checks for the package invariants, pure helpers).
 
 ### WEB: Web UI
 **Purpose**: Server-rendered FastAPI front end exposing a curated subset of pipeline operations as background jobs, with authentication and a single-mutating-job-at-a-time queue.

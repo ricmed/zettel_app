@@ -66,5 +66,5 @@ Cost estimation (`pricing.py`) depends on LiteLLM's public price map staying cur
 * zettel/llm.py:50 — `get_llm()`, the provider-dispatch entry point
 * zettel/llm.py:41 — `normalize_llm_provider()`, case-insensitive provider name normalization
 * zettel/llm.py:46 — `is_openai_compatible()`, OpenAI-compatible gateway grouping
-* zettel/cli.py — `_load_deps()`, calls `get_llm(cfg)` once per command invocation
+* `zettel/cli/deps.py` — `load_deps()`, resolves the config each command invocation builds its LLM client from
 * config/config.yaml:20 — `llm` configuration section (provider, model, base_url, sampling params)

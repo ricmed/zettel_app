@@ -454,7 +454,7 @@ Recommended:
 | **article.py** | 028, 003, 009, 010, 024, 025 | Article domain helpers: catalog, outline, drafting, assembly, judge |
 | **article_graph/** (package) | 028, 029 | LangGraph orchestration (13 nodes, HITL interrupts, judge loop), package layout |
 | **ask.py** | 003, 009, 010 | Hybrid retrieval, relevance floor, graph expansion |
-| **cli.py** | 026 | Typer/Rich framework (all commands routed through) |
+| **cli/** (package) | 026, 032 | Typer/Rich framework (all commands routed through), package layout |
 
 ---
 
