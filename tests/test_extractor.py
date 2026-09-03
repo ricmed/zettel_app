@@ -421,3 +421,120 @@ def test_process_chunk_persists_rejected_candidates_with_reason(tmp_path, monkey
     assert rejected["thesis"] == low_relevance_candidate["thesis"]
     assert "relevance_score" in rejected["reason"]
     db.close()
+
+
+# ── No draft file for chunks with nothing to review ──────────────────────
+
+
+def test_process_chunk_rejected_writes_no_draft_file(tmp_path, monkeypatch):
+    """chunk_status=rejected: no LIT draft file, but the chunk state is complete."""
+    import json
+
+    from zettel.extractor import _process_chunk
+    from zettel.llm import load_prompt_parts
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        return json.dumps({
+            "chunk_status": "rejected",
+            "rejection_reason": "so uma referencia bibliografica",
+            "rejection_category": "structural",
+            "summary": "Trecho estrutural.",
+            "key_concepts": [],
+            "candidates": [],
+        })
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+
+    row = db.get_chunk("@Book2024::ch000::abc")
+    assert row["literature_note_path"] is None
+    assert row["status"] == "awaiting_review"
+    assert json.loads(row["summary_json"])["rejection_category"] == "structural"
+    review_dir = cfg.vault_path / "00_Inbox" / "Review"
+    assert list(review_dir.rglob("*.md")) == []
+    db.close()
+
+
+def test_process_chunk_accepted_but_all_candidates_filtered_writes_no_draft_file(
+    tmp_path, monkeypatch,
+):
+    """chunk_status=accepted but the deterministic filter drops every candidate."""
+    import json
+
+    from zettel.extractor import _process_chunk
+    from zettel.llm import load_prompt_parts
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+
+    low_relevance_candidate = {
+        "thesis": "Uma tese qualquer com palavras suficientes para passar no filtro de tamanho",
+        "definition": (
+            "Uma definicao qualquer com bastante texto explicativo sobre o tema tratado aqui"
+        ),
+        "anchor_quote": "",
+        "relevance_score": 1,
+    }
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        return json.dumps({
+            "chunk_status": "accepted",
+            "rejection_reason": "",
+            "rejection_category": "",
+            "summary": "Resumo com conteudo suficiente para pontuar bem no calculo de confianca.",
+            "key_concepts": ["conceito"],
+            "candidates": [low_relevance_candidate],
+        })
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+
+    row = db.get_chunk("@Book2024::ch000::abc")
+    assert row["literature_note_path"] is None
+    review_dir = cfg.vault_path / "00_Inbox" / "Review"
+    assert list(review_dir.rglob("*.md")) == []
+    db.close()
+
+
+def test_process_chunk_accepted_with_approved_candidate_writes_draft_file(tmp_path, monkeypatch):
+    """A chunk with at least one approved candidate keeps writing its draft."""
+    import json
+    from pathlib import Path
+
+    from zettel.extractor import _process_chunk
+    from zettel.llm import load_prompt_parts
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+    cfg.extraction.verify_anchor_quote = False  # chunk text is too short to host a 10-25 word anchor
+
+    good_candidate = {
+        "thesis": "Gradient descent converge mais rapido com learning rate adaptativo no treino",
+        "definition": (
+            "O algoritmo de gradient descent ajusta os pesos do modelo iterativamente "
+            "na direcao oposta ao gradiente da funcao de perda observada"
+        ),
+        "anchor_quote": "texto do chunk com conteudo suficiente",
+        "relevance_score": 4,
+    }
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        return json.dumps({
+            "chunk_status": "accepted",
+            "rejection_reason": "",
+            "rejection_category": "",
+            "summary": "Resumo com conteudo suficiente para pontuar bem no calculo de confianca.",
+            "key_concepts": ["conceito"],
+            "candidates": [good_candidate],
+        })
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+
+    row = db.get_chunk("@Book2024::ch000::abc")
+    assert row["literature_note_path"] is not None
+    assert Path(row["literature_note_path"]).is_file()
+    db.close()
