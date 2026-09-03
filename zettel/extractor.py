@@ -42,6 +42,7 @@ from zettel.schemas import (
 )
 from zettel.state import StateDB
 from zettel.vault import (
+    best_candidate_thesis,
     build_literature_chunk_note,
     literature_chunk_filename,
     literature_source_dirname,
@@ -378,6 +379,7 @@ def _write_literature_draft(
     chunk_index = int(chunk_row.get("chunk_index") or 0)
     section_path = chunk_row.get("section_path") or ""
 
+    candidate_dicts = [c.model_dump() for c in candidates]
     images = _images_for_chunk(db, chunk_row)
     meta, body = build_literature_chunk_note(
         source_id=chunk_row["source_id"],
@@ -388,7 +390,7 @@ def _write_literature_draft(
         literature_id=literature_id,
         summary=output.summary,
         key_concepts=output.key_concepts,
-        candidates=[c.model_dump() for c in candidates],
+        candidates=candidate_dicts,
         images=images,
         section_path=section_path,
         source_text=chunk_row.get("text") or "",
@@ -411,6 +413,7 @@ def _write_literature_draft(
         page_in_file=chunk_row.get("page_in_file"),
         section_path=section_path,
         summary=output.summary,
+        thesis=best_candidate_thesis(candidate_dicts),
     )
     safe_write_note(path, meta, body)
     return path

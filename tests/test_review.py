@@ -139,6 +139,58 @@ def test_approve_moves_draft_and_embeds(env):
     assert concepts[0]["status"] == "extracted"
 
 
+def test_approve_preserves_candidate_quotes_block_without_duplicating(tmp_path):
+    """#58: the anchor-quote managed block survives promotion exactly once."""
+    cfg = AppConfig(
+        vault_path=tmp_path / "vault",
+        cache_path=tmp_path / "cache",
+        state_db_path=tmp_path / "state.db",
+        chroma_path=tmp_path / "chroma",
+    )
+    for d in ("00_Inbox/Review", "10_Sources", "20_Literature", "30_Permanent", "90_Assets"):
+        (cfg.vault_path / d).mkdir(parents=True, exist_ok=True)
+    db = StateDB(cfg.state_db_path)
+    db.upsert_source("@Book2024", "Book2024", "Livro Teste", ["Autor"], 2024, "h", "/x.pdf", "pdf")
+    db.upsert_chapter("@Book2024::ch000", "@Book2024", "Ch1", "chh")
+    candidates = [{
+        "thesis": "L1 induz esparsidade nos pesos do modelo",
+        "anchor_quote": "a penalidade L1 empurra pesos irrelevantes para exatamente zero",
+        "relevance_score": 4,
+    }]
+    db.upsert_chunk(
+        "@Book2024::ch000::abc", "@Book2024", "@Book2024::ch000",
+        "texto do chunk", "ck",
+        chunk_index=0, status="awaiting_review",
+        literature_id="lit123",
+        summary_json=json.dumps({"summary": "Um resumo", "key_concepts": [], "candidates": candidates}),
+        review_confidence=0.9,
+    )
+    chunk_row = db.get_chunk("@Book2024::ch000::abc")
+    fname = literature_chunk_filename_for_row("Book2024", chunk_row)
+    draft_dir = cfg.vault_path / "00_Inbox" / "Review" / literature_source_dirname("Book2024")
+    draft_dir.mkdir(parents=True, exist_ok=True)
+    meta, body = build_literature_chunk_note(
+        source_id="@Book2024", citekey="Book2024", title="Livro Teste",
+        chunk_id="@Book2024::ch000::abc", chunk_index=0, literature_id="lit123",
+        summary="Um resumo", key_concepts=[], candidates=candidates,
+        page_in_book=10, status="awaiting_review", review_confidence=0.9,
+    )
+    draft_path = draft_dir / fname
+    safe_write_note(draft_path, meta, body)
+    db.update_chunk_review(
+        "@Book2024::ch000::abc", literature_note_path=str(draft_path), status="awaiting_review",
+    )
+    idx = _FakeLitIndex()
+
+    ok = approve_chunk(cfg, db, idx, "@Book2024::ch000::abc")
+    assert ok
+    dest = cfg.vault_path / "20_Literature" / literature_source_dirname("Book2024") / fname
+    dest_text = dest.read_text(encoding="utf-8")
+    assert dest_text.count("zettel:auto-candidate-quotes:start") == 1
+    assert "a penalidade L1 empurra pesos irrelevantes" in dest_text
+    db.close()
+
+
 def test_reject_deletes_draft(env):
     cfg, db, idx = env
     ok = reject_chunk(cfg, db, idx, "@Book2024::ch000::abc")

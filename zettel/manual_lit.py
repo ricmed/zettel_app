@@ -84,13 +84,25 @@ def _key_concepts(body: str) -> list[str]:
     return [tag.lstrip("#") for tag in re.findall(r"#([\w/-]+)", raw)]
 
 
+_SUB_SUFFIX_RE = re.compile(r"\s*<sub>.*?</sub>\s*$")
+
+
 def _candidate_theses(body: str) -> list[str]:
+    """Thesis text of each checklist line under 'Candidatos a Nota Permanente'.
+
+    Tolerates the pipeline's own rendering (``- [ ] **thesis** <sub>relevancia
+    N/5 . locator</sub>``) by stripping the trailing metadata `<sub>` and
+    surrounding `**` bold markers, so a note that started as a pipeline draft
+    and was later hand-edited into ``origin: manual`` still adopts a clean
+    thesis rather than one polluted with markdown/metadata.
+    """
     raw = _section(body, "Candidatos a Nota Permanente")
-    return [
-        line.strip()
-        for line in re.findall(r"^\s*-\s*\[[ xX]\]\s*(.+)$", raw, re.MULTILINE)
-        if line.strip()
-    ]
+    theses = []
+    for line in re.findall(r"^\s*-\s*\[[ xX]\]\s*(.+)$", raw, re.MULTILINE):
+        line = _SUB_SUFFIX_RE.sub("", line).strip().strip("*").strip()
+        if line:
+            theses.append(line)
+    return theses
 
 
 def summary_payload(body: str, content: str) -> dict[str, Any]:

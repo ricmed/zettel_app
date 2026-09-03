@@ -421,3 +421,64 @@ def test_process_chunk_persists_rejected_candidates_with_reason(tmp_path, monkey
     assert rejected["thesis"] == low_relevance_candidate["thesis"]
     assert "relevance_score" in rejected["reason"]
     db.close()
+
+
+# ── #57/#58: draft filename, H1 and note body agree on the same thesis ───
+
+
+def test_process_chunk_draft_filename_and_h1_share_the_same_thesis(tmp_path, monkeypatch):
+    """The chosen candidate's thesis drives both the filename slug and the H1."""
+    import json
+    from pathlib import Path
+
+    from zettel.extractor import _process_chunk
+    from zettel.llm import load_prompt_parts
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+    cfg.extraction.verify_anchor_quote = False  # chunk text is too short for a 10-25 word anchor
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        return json.dumps({
+            "chunk_status": "accepted",
+            "rejection_reason": "",
+            "rejection_category": "",
+            "summary": "Resumo generico que nao deveria vencer a tese.",
+            "key_concepts": ["conceito"],
+            "candidates": [
+                {
+                    "thesis": "Tese fraca e menos relevante para o tema principal",
+                    "definition": (
+                        "Definicao qualquer com palavras suficientes para passar pelo "
+                        "filtro minimo de tamanho estabelecido na configuracao"
+                    ),
+                    "anchor_quote": "texto do chunk",
+                    "relevance_score": 2,
+                },
+                {
+                    "thesis": "Backpropagation calcula gradientes via regra da cadeia",
+                    "definition": (
+                        "Definicao qualquer com palavras suficientes para passar pelo "
+                        "filtro minimo de tamanho estabelecido na configuracao"
+                    ),
+                    "anchor_quote": "texto do chunk",
+                    "relevance_score": 5,
+                },
+            ],
+        })
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+
+    row = db.get_chunk("@Book2024::ch000::abc")
+    draft_path = row["literature_note_path"]
+    assert draft_path is not None
+    body = Path(draft_path).read_text(encoding="utf-8")
+
+    assert "backpropagation" in Path(draft_path).name.lower()
+    h1 = next(line for line in body.splitlines() if line.startswith("# "))
+    assert "Backpropagation calcula gradientes via regra da cadeia" in h1
+
+    from zettel.vault import literature_chunk_filename_for_row
+    assert literature_chunk_filename_for_row("Book2024", row) == Path(draft_path).name
+    db.close()
