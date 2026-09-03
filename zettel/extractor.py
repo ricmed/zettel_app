@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from pathlib import Path
 from typing import Any
@@ -612,6 +613,87 @@ def _check_candidate(cand: PermanentNoteCandidate, ext: Any, chunk_text: str = "
 
 # ── Deduplication (used by review after approval) ─────────────────────
 
+_INTRA_BATCH_PAIRWISE_MAX = 60
+
+
+def _intra_batch_dedupe(
+    cfg: AppConfig, idx: VectorIndex, candidates: list[dict],
+) -> tuple[list[dict], list[dict]]:
+    """Reconcile duplicate candidates within the same approval batch.
+
+    Two chunks that say the same thing both pass the against-existing-notes
+    check while neither has a permanent note yet (`chunk_overlap` repeats
+    text between neighboring chunks, and a long section becomes several
+    chunks about the same subject). This runs *before* that pass so it
+    receives fewer candidates. No LLM call: cheap hash equality first,
+    then a single batch embedding call compared pairwise at the same
+    `dedupe_threshold` already used against existing notes.
+
+    Returns (kept, duplicates) -- `duplicates` entries carry `duplicate_of`
+    (the concept_id of the candidate that won).
+    """
+    if len(candidates) < 2:
+        return candidates, []
+
+    duplicates: list[dict] = []
+
+    # Cheap pass: identical thesis is an exact duplicate regardless of batch size.
+    by_hash: dict[str, list[dict]] = {}
+    for cd in candidates:
+        h = sha256_hex(normalize_text_for_hash(cd["candidate"].thesis))
+        by_hash.setdefault(h, []).append(cd)
+
+    survivors: list[dict] = []
+    for group in by_hash.values():
+        if len(group) == 1:
+            survivors.append(group[0])
+            continue
+        group.sort(key=lambda cd: cd["candidate"].relevance_score, reverse=True)
+        winner, *losers = group
+        survivors.append(winner)
+        for loser in losers:
+            loser["duplicate_of"] = winner["concept_id"]
+            logger.info(
+                "Candidato duplicado no lote (tese identica): %s", loser["candidate"].thesis[:60]
+            )
+            duplicates.append(loser)
+
+    # Above the pairwise cap, skip the quadratic embedding comparison --
+    # the hash pass above still caught exact duplicates.
+    if len(survivors) < 2 or len(survivors) > _INTRA_BATCH_PAIRWISE_MAX:
+        return survivors, duplicates
+
+    texts = [f"{cd['candidate'].thesis} {cd['candidate'].definition}" for cd in survivors]
+    vectors = idx.embed_texts(texts)
+    for t in texts:
+        idx._record_embed_usage(t, label="dedupe-intra-lote")
+
+    threshold_distance = 2 * (1 - cfg.linking.dedupe_threshold)
+    order = sorted(
+        range(len(survivors)),
+        key=lambda i: survivors[i]["candidate"].relevance_score,
+        reverse=True,
+    )
+    absorbed: set[int] = set()
+    kept: list[dict] = []
+    for i in order:
+        if i in absorbed:
+            continue
+        kept.append(survivors[i])
+        for j in order:
+            if j == i or j in absorbed:
+                continue
+            if math.dist(vectors[i], vectors[j]) <= threshold_distance:
+                absorbed.add(j)
+                survivors[j]["duplicate_of"] = survivors[i]["concept_id"]
+                logger.info(
+                    "Candidato duplicado no lote (semantico): %s",
+                    survivors[j]["candidate"].thesis[:60],
+                )
+                duplicates.append(survivors[j])
+
+    return kept, duplicates
+
 
 def deduplicate_candidates(
     cfg: AppConfig,
@@ -620,16 +702,26 @@ def deduplicate_candidates(
     llm: Any,
     candidates: list[dict],
 ) -> list[dict]:
-    """Semantic deduplication of candidates against existing permanent notes."""
+    """Deduplicate within the batch first, then semantically against existing
+    permanent notes. The intra-batch pass runs first so the (more expensive,
+    LLM-backed) existing-notes pass sees fewer candidates.
+    """
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn
 
     if not candidates:
         return []
 
+    survivors, intra_batch_duplicates = _intra_batch_dedupe(cfg, idx, candidates)
+    if intra_batch_duplicates:
+        logger.info(
+            "Dedupe intra-lote: %d / %d candidatos descartados por duplicata no proprio lote",
+            len(intra_batch_duplicates), len(candidates),
+        )
+
     spec = llm_phase(cfg, "review")
     dedupe_parts = load_prompt_parts(cfg.prompts_path / "dedupe_decision.md")
     approved: list[dict] = []
-    total = len(candidates)
+    total = len(survivors)
 
     with Progress(
         SpinnerColumn(),
@@ -639,7 +731,7 @@ def deduplicate_candidates(
         transient=True,
     ) as progress:
         task = progress.add_task("candidatos", total=total)
-        for i, cand_dict in enumerate(candidates, 1):
+        for i, cand_dict in enumerate(survivors, 1):
             cand: PermanentNoteCandidate = cand_dict["candidate"]
             progress.update(task, description=f"candidato {i}/{total}", advance=1)
             logger.info("Deduplicando candidato %d/%d: %s", i, total, cand.thesis[:50])

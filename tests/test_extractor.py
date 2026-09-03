@@ -867,3 +867,144 @@ def test_summary_within_cap_is_untouched():
     summary = "Um resumo normal de tamanho razoavel."
     output = _make_output(summary=summary)
     assert output.summary == summary
+
+
+# ── #63: intra-batch candidate dedupe ─────────────────────────────────
+
+from zettel.extractor import _intra_batch_dedupe, deduplicate_candidates  # noqa: E402
+
+
+class _FakeDedupeIndex:
+    """Minimal VectorIndex double for _intra_batch_dedupe / deduplicate_candidates."""
+
+    def __init__(self, vectors_by_text: dict[str, list[float]] | None = None):
+        self._vectors_by_text = vectors_by_text or {}
+        self.embed_calls: list[list[str]] = []
+
+    def embed_texts(self, texts):
+        self.embed_calls.append(list(texts))
+        return [self._vectors_by_text[t] for t in texts]
+
+    def _record_embed_usage(self, text, label=""):
+        pass
+
+    def query_similar_notes(self, query_text, n_results=5, exclude_id=None):
+        return []  # no existing permanent notes -- isolates the intra-batch pass
+
+
+def _cand_dict(concept_id: str, **overrides) -> dict:
+    return {
+        "concept_id": concept_id,
+        "source_id": "@S",
+        "chunk_id": f"@S::ch000::{concept_id}",
+        "candidate": _make_candidate(**overrides),
+    }
+
+
+def test_intra_batch_dedupe_exact_thesis_hash_match_keeps_higher_relevance():
+    cfg = _make_config()
+    idx = _FakeDedupeIndex()
+    same_thesis = "Gradient descent converge mais rapido com learning rate adaptativo"
+    a = _cand_dict("c1", thesis=same_thesis, relevance_score=3)
+    b = _cand_dict("c2", thesis=same_thesis, relevance_score=5)
+
+    kept, duplicates = _intra_batch_dedupe(cfg, idx, [a, b])
+
+    assert len(kept) == 1
+    assert kept[0]["concept_id"] == "c2"  # higher relevance_score wins
+    assert len(duplicates) == 1
+    assert duplicates[0]["concept_id"] == "c1"
+    assert duplicates[0]["duplicate_of"] == "c2"
+    assert idx.embed_calls == []  # exact-hash path never needs to embed
+
+
+def test_intra_batch_dedupe_semantic_match_within_threshold():
+    cfg = _make_config()
+    a = _cand_dict("c1", thesis="Primeira formulacao da mesma ideia central", relevance_score=4)
+    b = _cand_dict("c2", thesis="Segunda formulacao da mesma ideia central", relevance_score=5)
+    text_a = f"{a['candidate'].thesis} {a['candidate'].definition}"
+    text_b = f"{b['candidate'].thesis} {b['candidate'].definition}"
+    idx = _FakeDedupeIndex({text_a: [0.0, 0.0], text_b: [0.05, 0.05]})  # dist ~0.07
+
+    kept, duplicates = _intra_batch_dedupe(cfg, idx, [a, b])
+
+    assert len(kept) == 1
+    assert kept[0]["concept_id"] == "c2"
+    assert len(duplicates) == 1
+    assert duplicates[0]["concept_id"] == "c1"
+    assert idx.embed_calls == [[text_a, text_b]]  # one batched call, not per-pair
+
+
+def test_intra_batch_dedupe_distinct_candidates_both_survive():
+    cfg = _make_config()
+    a = _cand_dict("c1", thesis="Uma ideia sobre regularizacao L1 em modelos lineares")
+    b = _cand_dict("c2", thesis="Uma ideia completamente diferente sobre grafos de conhecimento")
+    text_a = f"{a['candidate'].thesis} {a['candidate'].definition}"
+    text_b = f"{b['candidate'].thesis} {b['candidate'].definition}"
+    idx = _FakeDedupeIndex({text_a: [0.0, 0.0], text_b: [10.0, 10.0]})  # far apart
+
+    kept, duplicates = _intra_batch_dedupe(cfg, idx, [a, b])
+
+    assert {c["concept_id"] for c in kept} == {"c1", "c2"}
+    assert duplicates == []
+
+
+def test_intra_batch_dedupe_single_candidate_is_a_noop():
+    cfg = _make_config()
+    idx = _FakeDedupeIndex()
+    a = _cand_dict("c1")
+    kept, duplicates = _intra_batch_dedupe(cfg, idx, [a])
+    assert kept == [a]
+    assert duplicates == []
+    assert idx.embed_calls == []
+
+
+def test_intra_batch_dedupe_skips_pairwise_above_cap():
+    """Above the pairwise cap, only the cheap hash pass runs -- no embedding call."""
+    cfg = _make_config()
+    idx = _FakeDedupeIndex()
+    from zettel.extractor import _INTRA_BATCH_PAIRWISE_MAX
+    candidates = [
+        _cand_dict(f"c{i}", thesis=f"Tese numero {i} totalmente distinta das outras aqui")
+        for i in range(_INTRA_BATCH_PAIRWISE_MAX + 1)
+    ]
+    kept, duplicates = _intra_batch_dedupe(cfg, idx, candidates)
+    assert len(kept) == _INTRA_BATCH_PAIRWISE_MAX + 1
+    assert duplicates == []
+    assert idx.embed_calls == []
+
+
+def test_deduplicate_candidates_intra_batch_duplicate_marked_before_existing_notes_pass(
+    tmp_path, monkeypatch,
+):
+    """A batch-internal duplicate never reaches the (LLM-backed) existing-notes pass."""
+    from pathlib import Path
+
+    from zettel.state import StateDB
+
+    cfg = _make_config()
+    cfg.prompts_path = Path(__file__).resolve().parents[1] / "prompts"
+
+    db = StateDB(tmp_path / "state.db")
+    db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
+    db.upsert_chapter("@S::ch000", "@S", "Ch", "chk")
+    db.upsert_chunk("@S::ch000::a", "@S", "@S::ch000", "txt", "ck")
+
+    same_thesis = "Backpropagation calcula gradientes via regra da cadeia no grafo"
+    a = _cand_dict("c1", thesis=same_thesis, relevance_score=3)
+    b = _cand_dict("c2", thesis=same_thesis, relevance_score=5)
+    for cd in (a, b):
+        db.upsert_concept(cd["concept_id"], "@S", "@S::ch000::a", status="extracted")
+
+    idx = _FakeDedupeIndex()
+    monkeypatch.setattr(
+        "zettel.extractor.call_llm",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("LLM should not be called")),
+    )
+
+    approved = deduplicate_candidates(cfg, db, idx, object(), [a, b])
+
+    assert [c["concept_id"] for c in approved] == ["c2"]
+    assert db.get_concept("c1")["status"] == "duplicate"
+    assert db.get_concept("c2")["status"] == "approved"
+    db.close()
