@@ -146,3 +146,51 @@ def test_latest_pipeline_session_ask_is_standalone():
     garden = {"pipeline_signature": "garden", "started_at": "2026-08-31T12:40:00"}
     session = latest_pipeline_session([ask, garden])
     assert session == [ask]
+
+
+# ── #64: provider-side prompt cache tokens ────────────────────────────
+
+
+def test_record_llm_aggregates_prompt_cache_tokens():
+    begin_run(1)
+    record_llm(
+        model="gemini-3.5-flash-lite", tokens_in=5000, tokens_out=200, cost_usd=0.001,
+        label="extract", cache_read_tokens=4800, cache_write_tokens=0,
+    )
+    record_llm(
+        model="gemini-3.5-flash-lite", tokens_in=5100, tokens_out=210, cost_usd=0.001,
+        label="extract", cache_read_tokens=4900, cache_write_tokens=100,
+    )
+    summary = get_tracker().summary().as_dict()
+    assert summary["prompt_cache_read_tokens"] == 4800 + 4900
+    assert summary["prompt_cache_write_tokens"] == 100
+
+
+def test_usage_from_run_reads_prompt_cache_columns():
+    from zettel.usage import usage_from_run
+
+    row = {"tokens_prompt": 5000, "prompt_cache_read_tokens": 4800, "prompt_cache_write_tokens": 0}
+    u = usage_from_run(row)
+    assert u.prompt_cache_read_tokens == 4800
+    assert u.prompt_cache_write_tokens == 0
+
+
+def test_usage_from_run_defaults_prompt_cache_to_zero_for_legacy_rows():
+    """A run persisted before #64 has no prompt_cache_* columns at all."""
+    from zettel.usage import usage_from_run
+
+    row = {"tokens_prompt": 5000}
+    u = usage_from_run(row)
+    assert u.prompt_cache_read_tokens == 0
+    assert u.prompt_cache_write_tokens == 0
+
+
+def test_fmt_prompt_cache_ratio():
+    from zettel.cli import _fmt_prompt_cache_ratio
+    from zettel.usage import UsageSummary
+
+    no_cache = UsageSummary(tokens_prompt=5000)
+    assert _fmt_prompt_cache_ratio(no_cache) == "-"
+
+    with_cache = UsageSummary(tokens_prompt=5000, prompt_cache_read_tokens=4800, prompt_cache_write_tokens=0)
+    assert _fmt_prompt_cache_ratio(with_cache) == "4800r/0w (96%)"
