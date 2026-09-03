@@ -113,6 +113,14 @@ def test_compute_docling_config_hash_stable():
     assert len(h1) == 16
 
 
+def test_compute_docling_config_hash_changes_with_min_chunk_chars():
+    cfg = AppConfig()
+    before = compute_docling_config_hash(cfg)
+    cfg.chunking.min_chunk_chars = cfg.chunking.min_chunk_chars + 1
+    after = compute_docling_config_hash(cfg)
+    assert before != after
+
+
 def test_page_map_from_marked_markdown():
     marked = (
         f"# Cover\n\n{PAGE_BREAK_MARKER}\n\n"

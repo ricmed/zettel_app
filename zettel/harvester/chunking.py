@@ -258,6 +258,35 @@ def merge_small_sections(
     return merged
 
 
+def _merge_short_pieces(pieces: list[str], min_chunk_chars: int) -> list[str]:
+    """Merge splitter pieces shorter than `min_chunk_chars` into a neighbor.
+
+    A short piece is almost always the tail of a size-based cut, so it merges
+    into the *previous* kept piece (the missing context is behind it). A short
+    piece with no previous piece yet (start of the section) carries forward
+    and merges into the next one instead; if every piece in the section is
+    short, they all collapse into a single piece.
+    """
+    merged: list[str] = []
+    carry = ""
+    for piece in pieces:
+        piece = f"{carry}\n\n{piece}" if carry else piece
+        carry = ""
+        if len(piece) < min_chunk_chars:
+            if merged:
+                merged[-1] = f"{merged[-1]}\n\n{piece}"
+            else:
+                carry = piece
+        else:
+            merged.append(piece)
+    if carry:
+        if merged:
+            merged[-1] = f"{merged[-1]}\n\n{carry}"
+        else:
+            merged.append(carry)
+    return merged
+
+
 def _split_preserving_fences(text: str, splitter: Any, chunk_size: int) -> list[str]:
     """Split `text` by size while keeping each fenced block atomic.
 
@@ -330,6 +359,7 @@ def split_chapter_into_chunks(
         else:
             pieces = _split_preserving_fences(text, splitter, cfg.chunking.chunk_size)
         pieces = _glue_orphan_heading(pieces)
+        pieces = _merge_short_pieces(pieces, cfg.chunking.min_chunk_chars)
         prefix = _join_headings(_headings_of(sec))
         prefixed = False
         for piece in pieces:

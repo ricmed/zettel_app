@@ -84,6 +84,7 @@ chunking:
   chunk_size: 2500           # alvo do splitter LangChain apos fusao de secoes
   chunk_overlap: 400         # sobreposicao entre chunks consecutivos
   min_section_chars: 200     # secoes (H3+) menores sao fundidas com a seguinte
+  min_chunk_chars: 200       # pedacos do splitter menores sao fundidos no anterior
 
 # ── Linkagem / Deduplicação ─────────────────────────────────────────────
 linking:

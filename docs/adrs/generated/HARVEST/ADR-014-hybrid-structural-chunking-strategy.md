@@ -93,16 +93,29 @@ Amendment:
 * Forward merge of a short section concatenates `headings` onto the surviving section (all appear on that unit's first chunk). Trailing merge injects the carried heading at the join in `text`; a heading-only piece is glued onto the following piece so it cannot detach from a fence.
 * `chunk_id` is a hash of `text`, so the prefix is part of identity: identical bodies under **different** headings no longer collapse. Already-harvested sources keep old chunks until `zettel rechunk`.
 
+## Addendum (2026-09-03): Piso de tamanho pos-splitter (`min_chunk_chars`)
+
+**Status:** Accepted amendment — does not replace the decision above, adds a third filtering stage after the recursive splitter.
+
+`min_section_chars` folds undersized **sections** (H3+) forward before splitting, but nothing floored the **pieces** the recursive splitter itself emits. Measured on the corpus (`data/state.db`, 680 chunks): 116 chunks (17%) landed below 200 characters — mostly the tail of a size-based cut, or an isolated Markdown horizontal rule (`---`) left standing alone between two `\n\n` breaks — and **100%** of them were rejected by the extraction LLM (Prompt 1), each still costing one call. This is a distinct failure mode from undersized sections: it happens *after* structural splitting, on pieces the splitter itself produced.
+
+Amendment:
+
+* A new `_merge_short_pieces` pass runs after `_glue_orphan_heading`, on the same per-section `pieces` list, before the heading prefix is applied. A piece shorter than `chunking.min_chunk_chars` (default `200`, the same value proven safe for `min_section_chars`) is merged into the **previous** kept piece — a short piece is almost always the tail of a cut, so the missing context sits behind it. A short piece with no previous piece yet (the first piece of the section) carries forward and merges into the next one instead. If every piece in a section is short, they all collapse into that section's single chunk — the same "whole unit is small, keep it as-is" outcome `merge_small_sections` already produces at the section level.
+* `min_chunk_chars` joins `chunk_size`/`chunk_overlap`/`min_section_chars` in `compute_docling_config_hash`, so the pipeline flags corpora that need `zettel rechunk` to benefit from the new floor. As with every other chunking knob, already-harvested sources keep their existing chunks — there is no silent re-chunking.
+* 200 characters was chosen as the *safe* floor: it eliminates all 116 structurally-doomed chunks in the measured corpus without discarding a single chunk the LLM would have accepted. A more aggressive floor (600 chars) was evaluated and rejected for this default — it would additionally eliminate 301 calls (44%) but at the cost of 35 accepted notes, i.e., real signal, not just noise. Operators who want the aggressive tradeoff can raise `min_chunk_chars` themselves; the default optimizes for zero false negatives.
+
 ## References
 
-Paths refreshed 2026-09-02. The original references pointed into the monolithic
+Paths refreshed 2026-09-02 (chunking addenda); 2026-09-03 (`min_chunk_chars` addendum). The original references pointed into the monolithic
 `zettel/harvester.py`, which ADR-027 split into a package; symbols are cited instead of
 line ranges, since the line ranges are what rotted.
 
 * `zettel/harvester/chunking.py` — `split_into_chapters` (H1/H2 chapter boundaries), `split_chapter_into_sections` (H3-H6 sub-sections; builds the `section_path` carried in chunk metadata), `merge_small_sections` (`min_section_chars` folding), `split_chapter_into_chunks` (recursive-splitter fallback), `chunk_and_persist` (persistence and indexing)
 * `zettel/harvester/chunking.py` — addendum: `iter_fenced_spans` (fence scanner), `_headings_outside_fences` (heading filter), `_split_preserving_fences` (atomic fence in the size split); heading-prefix addendum: `_glue_orphan_heading`, `headings` on section records, prefix on first piece in `split_chapter_into_chunks`
-* `tests/test_harvester_sections.py` — section splitting and merge rules; addendum: fence atomicity, info-string/marker-family rules, unclosed fence, oversized fence; heading prefix on first chunk, fence-only section, merge heading placement, checksum identity
-* `zettel/config.py` — `ChunkingConfig`: `chunk_size`, `chunk_overlap`, `min_section_chars`
+* `zettel/harvester/chunking.py` — `min_chunk_chars` addendum: `_merge_short_pieces` (post-splitter floor)
+* `tests/test_harvester_sections.py` — section splitting and merge rules; addendum: fence atomicity, info-string/marker-family rules, unclosed fence, oversized fence; heading prefix on first chunk, fence-only section, merge heading placement, checksum identity; `min_chunk_chars` floor: merge-back, merge-forward, all-short collapse, integration via `split_chapter_into_chunks`
+* `zettel/config.py` — `ChunkingConfig`: `chunk_size`, `chunk_overlap`, `min_section_chars`, `min_chunk_chars`
 * `config/config.yaml` — operational chunking defaults (`chunking.*`)
-* `zettel/paging.py` — page-inference helpers consumed by `chunk_and_persist` (see ADR-013); the heading path itself is built in `zettel/harvester/chunking.py`, not here
+* `zettel/paging.py` — `compute_docling_config_hash` (includes `min_chunk_chars`); page-inference helpers consumed by `chunk_and_persist` (see ADR-013) — the heading path itself is built in `zettel/harvester/chunking.py`, not here
 * [ADR-027: Harvest Phase as Python Package](./ADR-027-harvest-phase-as-python-package.md) — the module extraction that moved this code
