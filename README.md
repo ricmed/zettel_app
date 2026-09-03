@@ -56,7 +56,7 @@ MOCs (Mapas de Conteúdo) por clusterização semântica
 | [Operação](docs/operacao.md)                    | Retenção, `reindex`/`rebuild`/`rechunk`, dumps, purga, remoção de fonte, backup          |
 | [Solução de problemas](docs/troubleshooting.md) | Sintomas comuns e como sair deles                                                        |
 | [Prompts e taxonomia](docs/prompts.md)          | Personalizar `prompts/`, `moc_topics.yaml` e as personalidades do `article`              |
-| [ADRs](docs/adrs/ADR-INDEX.md)                  | 34 decisões de arquitetura, com contexto e alternativas                                  |
+| [ADRs](docs/adrs/ADR-INDEX.md)                  | 35 decisões de arquitetura, com contexto e alternativas                                  |
 
 
 Índice completo em [docs/INDICE.md](docs/INDICE.md).
@@ -107,6 +107,7 @@ Os exemplos abaixo usam `python -m zettel ...`; prefixe com `uv run` se o ambien
 | `zettel garden`                   | Clusteriza notas e gera/atualiza MOCs (`--hubs` para MOCs ancorados em hubs) |
 | `zettel ask "..."`                | QA sobre o vault com recuperação híbrida + grafo, sempre citando as notas    |
 | `zettel article "..."`            | Artigo longo a partir do vault, com outline interativo                       |
+| `zettel skill`                    | Exporta um recorte aprovado do vault como Agent Skill plana                  |
 | `zettel new-note`                 | Scaffold de nota manual (`ztl`/`src`/`lit`/`moc`)                            |
 | `zettel sync-manual`              | Adota notas escritas à mão no Obsidian (índice, grafo, backrefs)             |
 | `zettel status` / `zettel doctor` | Estatísticas do pipeline / diagnóstico de config e dependências              |
@@ -124,6 +125,8 @@ python -m zettel garden       # atualiza os mapas de conteúdo
 ```
 
 Todas as flags de cada comando: [docs/cli.md](docs/cli.md).
+
+> **Exportar para um agente.** `zettel skill --source-id @Citekey` (ou `--moc-id`, ou `--topic`) projeta um recorte **já aprovado** do vault como [Agent Skill](https://code.claude.com/docs/en/skills) plana em `<vault>/.claude/skills/<slug>/`: um `SKILL.md` pequeno com Core + Topic Index + Note Index, mais `notes/`, `cheatsheet.md` e `glossary.md` que o agente abre sob demanda. É projeção determinística — **não** chama LLM e não grava nada nas bases. O trecho da fonte fica de fora por padrão (pack publicável); citekey, localizador e teses permanecem. Detalhes em [ADR-035](docs/adrs/generated/CLI/ADR-035-flat-agent-skill-export.md).
 
 > **Julgamento do autor.** Quando o trecho *enuncia* como o autor decidiria, a extração registra `decision_rules` ("Quando X, faça Y, porque Z"), `anti_patterns` e `named_frameworks` (o nome exato do autor, sem tradução). São **opcionais**: um trecho que só define um conceito continua sendo um candidato válido, e nada no pipeline depende desses campos. A LIT ganha o bloco `auto-decision`; a ZTL carrega as listas no frontmatter. Detalhes em [ADR-034](docs/adrs/generated/EXTRACT/ADR-034-optional-author-judgement-fields.md).
 

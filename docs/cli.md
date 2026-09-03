@@ -40,6 +40,7 @@ O `run-all` encadeia `harvest → extract → review → connect → garden`. Em
 | [`garden`](#garden) | Clusteriza notas e gera/atualiza MOCs |
 | [`ask`](#ask) | QA sobre o vault com recuperação híbrida |
 | [`article`](#article) | Artigo longo a partir do vault (LangGraph) |
+| [`skill`](#skill) | Exporta um recorte aprovado como Agent Skill plana |
 | [`new-note`](#new-note) | Scaffold de notas manuais |
 | [`sync-manual`](#sync-manual) | Adota notas escritas à mão no Obsidian |
 | [`delete-source`](#delete-source) | Remove uma fonte por completo (irreversível) |
@@ -298,6 +299,46 @@ python -m zettel article "RAG" --skip-context-review --skip-judge --no-save-prom
 | `--save` / `--save-to` / `--no-save-prompt` | Persistência do artigo (`00_Inbox/ART - ....md`). |
 
 Fluxo completo em [recuperacao.md](recuperacao.md#gerar-artigo-a-partir-do-vault-zettel-article).
+
+---
+
+## `skill`
+
+Projeta um recorte **já aprovado** do vault no formato [Agent Skills](https://code.claude.com/docs/en/skills): um `SKILL.md` pequeno, sempre carregado, mais arquivos que o agente abre sob demanda. Determinístico — **não** chama LLM, não grava nada no SQLite/Chroma.
+
+```bash
+python -m zettel skill --source-id @Kahneman2011ThinkingFast
+python -m zettel skill --moc-id 01HXYZ... --out ./packs
+python -m zettel skill --topic "Redes Neurais" --overwrite
+```
+
+| Flag | Efeito |
+|---|---|
+| `--source-id` / `--moc-id` / `--topic` | Seletor do recorte. Exatamente **um**. |
+| `--out` | Diretório que guarda os packs; o pack vai para `<out>/<slug>`. Default: `<vault>/.claude/skills`. |
+| `--slug` | Nome do pack (default: derivado do seletor). |
+| `--overwrite` | Regenera por cima; **limpa** o diretório antes. |
+| `--include-excerpts` | Copia o trecho da fonte para os arquivos do pack (default: não copia). |
+
+Layout gerado (plano, um nível — sem child skills):
+
+```
+<out>/<slug>/
+  SKILL.md        # frontmatter + How to Use + Core + Topic Index + Note Index
+  notes/*.md      # uma nota por arquivo, abertas sob demanda
+  cheatsheet.md   # regras de decisão, anti-padrões, limites, tensões (contradicts)
+  glossary.md     # termos -> nota que define
+```
+
+Detalhes que importam:
+
+- **Só entra o que passou pelo portão humano.** ZTL aprovadas; LIT granular aprovada é o fallback quando a fonte ainda não tem nota permanente (só para `--source-id`).
+- **Trecho da fonte fica de fora por padrão** — o pack é publicável. Citekey, localizador, tese e wikilinks permanecem.
+- **Orçamento de contexto**: só a seção Core é limitada (~4000 tokens). Os dois índices são a tabela de roteamento e nunca são truncados; a CLI mostra a estimativa do `SKILL.md` para você perceber quando o recorte está grande demais.
+- **`--overwrite` apaga o diretório do pack.** É saída gerada, não nota do vault: edite o vault e regenere.
+- `--topic` que casa com mais de um tópico de MOC é **erro**, listando os candidatos.
+
+Decisão e alternativas: [ADR-035](adrs/generated/CLI/ADR-035-flat-agent-skill-export.md).
 
 ---
 

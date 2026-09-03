@@ -976,6 +976,21 @@ class StateDB:
             (status,),
         )
 
+    def get_concepts_for_notes(self, note_ids: list[str]) -> dict[str, dict]:
+        """Batch-fetch the concept row behind each note, keyed by ``note_id``.
+
+        One query instead of N, for consumers that need the original candidate
+        (relevance score, author judgement) alongside a set of notes.
+        """
+        if not note_ids:
+            return {}
+        placeholders = ",".join("?" * len(note_ids))
+        rows = self._fetchall(
+            f"SELECT * FROM concepts WHERE note_id IN ({placeholders})",
+            tuple(note_ids),
+        )
+        return {row["note_id"]: row for row in rows if row.get("note_id")}
+
     def get_concepts_for_chunk(self, chunk_id: str) -> list[dict]:
         return self._fetchall(
             "SELECT * FROM concepts WHERE chunk_id=?", (chunk_id,)
