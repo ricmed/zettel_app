@@ -105,7 +105,8 @@ def _print_cost_by_phase(db, *, title: str = "Custo por fase") -> None:
     table.add_column("Tokens completion", justify="right")
     table.add_column("Tokens embedding", justify="right")
     table.add_column("LLM calls", justify="right")
-    table.add_column("Cache hits", justify="right")
+    table.add_column("Cache hits (SQLite)", justify="right")
+    table.add_column("Cache prompt (provider)", justify="right")
     for row in session:
         u = usage_from_run(row)
         table.add_row(
@@ -118,6 +119,7 @@ def _print_cost_by_phase(db, *, title: str = "Custo por fase") -> None:
             str(u.tokens_embedding),
             str(u.llm_calls),
             str(u.cache_hits),
+            _fmt_prompt_cache_ratio(u),
         )
     total = sum_run_usage(session)
     table.add_row(
@@ -130,9 +132,25 @@ def _print_cost_by_phase(db, *, title: str = "Custo por fase") -> None:
         str(total.tokens_embedding),
         str(total.llm_calls),
         str(total.cache_hits),
+        _fmt_prompt_cache_ratio(total),
         style="bold",
     )
     console.print(table)
+    console.print(
+        "[dim]'Cache hits (SQLite)' = respostas reaproveitadas de llm_cache (custo $0). "
+        "'Cache prompt (provider)' = tokens de prompt lidos do cache do provedor "
+        "(Anthropic/OpenAI/Gemini) numa chamada que ainda assim foi feita -- reduz custo "
+        "por token, nao elimina a chamada. As duas camadas sao independentes.[/dim]"
+    )
+
+
+def _fmt_prompt_cache_ratio(u) -> str:
+    """'read/write tokens (pct% do prompt)', or '-' when nothing was read/written."""
+    read, write = u.prompt_cache_read_tokens, u.prompt_cache_write_tokens
+    if not read and not write:
+        return "-"
+    pct = f" ({100 * read / u.tokens_prompt:.0f}%)" if u.tokens_prompt else ""
+    return f"{read}r/{write}w{pct}"
 
 
 def _idx_kwargs(cfg, *, reset_mismatched: bool = False) -> dict:

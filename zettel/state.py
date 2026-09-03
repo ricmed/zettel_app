@@ -224,7 +224,9 @@ CREATE TABLE IF NOT EXISTS runs (
     tokens_completion   INTEGER NOT NULL DEFAULT 0,
     tokens_embedding    INTEGER NOT NULL DEFAULT 0,
     llm_calls           INTEGER NOT NULL DEFAULT 0,
-    cache_hits          INTEGER NOT NULL DEFAULT 0
+    cache_hits          INTEGER NOT NULL DEFAULT 0,
+    prompt_cache_read_tokens   INTEGER NOT NULL DEFAULT 0,
+    prompt_cache_write_tokens  INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS web_jobs (
@@ -435,6 +437,8 @@ class StateDB:
             ("runs", "tokens_embedding", "INTEGER NOT NULL DEFAULT 0"),
             ("runs", "llm_calls", "INTEGER NOT NULL DEFAULT 0"),
             ("runs", "cache_hits", "INTEGER NOT NULL DEFAULT 0"),
+            ("runs", "prompt_cache_read_tokens", "INTEGER NOT NULL DEFAULT 0"),
+            ("runs", "prompt_cache_write_tokens", "INTEGER NOT NULL DEFAULT 0"),
             ("sources", "cost_usd_total", "REAL NOT NULL DEFAULT 0"),
             ("sources", "cost_usd_llm", "REAL NOT NULL DEFAULT 0"),
             ("sources", "cost_usd_embedding", "REAL NOT NULL DEFAULT 0"),
@@ -1440,7 +1444,8 @@ class StateDB:
                      finished_at=?, status=?,
                      cost_usd_total=?, cost_usd_llm=?, cost_usd_embedding=?,
                      tokens_prompt=?, tokens_completion=?, tokens_embedding=?,
-                     llm_calls=?, cache_hits=?
+                     llm_calls=?, cache_hits=?,
+                     prompt_cache_read_tokens=?, prompt_cache_write_tokens=?
                    WHERE run_id=?""",
                 (
                     self._now(),
@@ -1453,6 +1458,8 @@ class StateDB:
                     int(usage.get("tokens_embedding", 0) or 0),
                     int(usage.get("llm_calls", 0) or 0),
                     int(usage.get("cache_hits", 0) or 0),
+                    int(usage.get("prompt_cache_read_tokens", 0) or 0),
+                    int(usage.get("prompt_cache_write_tokens", 0) or 0),
                     run_id,
                 ),
             )

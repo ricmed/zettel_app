@@ -159,6 +159,29 @@ def test_get_recent_runs_newest_first(db):
     assert float(rows[0]["cost_usd_total"]) == 0.2
 
 
+def test_finish_run_persists_prompt_cache_tokens(db):
+    """#64: provider-side prompt cache tokens survive past the run (they didn't before)."""
+    run_id = db.start_run("extract")
+    db.finish_run(run_id, "completed", {
+        "cost_usd_total": 0.05,
+        "llm_calls": 3,
+        "prompt_cache_read_tokens": 12000,
+        "prompt_cache_write_tokens": 500,
+    })
+    row = db.get_last_run()
+    assert row["run_id"] == run_id
+    assert int(row["prompt_cache_read_tokens"]) == 12000
+    assert int(row["prompt_cache_write_tokens"]) == 500
+
+
+def test_finish_run_prompt_cache_tokens_default_to_zero(db):
+    run_id = db.start_run("extract")
+    db.finish_run(run_id, "completed", {"cost_usd_total": 0.01})
+    row = db.get_last_run()
+    assert int(row["prompt_cache_read_tokens"]) == 0
+    assert int(row["prompt_cache_write_tokens"]) == 0
+
+
 # ── Fase 0 — retenção máxima no SQLite ─────────────────────────────────
 
 
