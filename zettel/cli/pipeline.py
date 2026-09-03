@@ -59,12 +59,14 @@ def run_all(
     # Phase 1: Harvest
     console.rule("[bold blue]Fase 1 — Harvest")
     from zettel.harvester import run_harvest
-    new_sources = run_harvest(
+    harvest_outcome = run_harvest(
         cfg, db, idx, interactive=interactive, duplicate_action=duplicate_action,
         skip_biblio=skip_biblio,
         skip_paging=False,
     )
-    console.print(f"  Fontes: {len(new_sources)}")
+    console.print(f"  Fontes: {len(harvest_outcome.source_ids)}")
+    for skip in harvest_outcome.skipped:
+        console.print(f"  [red]Ignorado: {skip.path.name} ({skip.reason})[/red] {skip.message}")
     last_run = db.get_last_run()
     if last_run:
         dup_total = (

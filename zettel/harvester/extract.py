@@ -10,6 +10,7 @@ from typing import Any
 from zettel.config import AppConfig
 from zettel.hashing import dehyphenate_pdf_linebreaks
 from zettel.paging import PAGE_BREAK_MARKER, page_map_from_marked_markdown
+from zettel.text_sanitize import sanitize_extracted_text, visible_char_count
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +48,20 @@ def extract_text(
     list of {checksum, path, context_snippet} for later DB registration.
     """
     if origin_type == "pdf":
-        return extract_pdf(cfg, file_path)
-    return extract_markdown(cfg, file_path)
+        text, metadata = extract_pdf(cfg, file_path)
+    else:
+        text, metadata = extract_markdown(cfg, file_path)
+
+    # Single sanitization point: everything downstream (extraction checksum,
+    # chunks, prompts, embeddings, vault) reads the cleaned text.
+    text = sanitize_extracted_text(text, file_path.name)
+    if visible_char_count(text) == 0:
+        raise EmptyTextLayerError(
+            f"Arquivo '{file_path.name}' nao produziu texto visivel apos a "
+            "extracao. Se for um PDF escaneado, rode OCR (ex.: "
+            "'ocrmypdf entrada.pdf saida.pdf') e tente de novo."
+        )
+    return text, metadata
 
 
 # ── PDF Extraction ─────────────────────────────────────────────────────
@@ -58,8 +71,70 @@ class PdfExtractionError(RuntimeError):
     """Fatal PDF extraction failure. Docling is mandatory; there is no fallback (ADR-012)."""
 
 
+class EmptyTextLayerError(PdfExtractionError):
+    """The file carries no text layer (photographed/scanned PDF) — OCR it first."""
+
+
+# A scanned PDF costs ~1.5s/page in Docling and yields nothing, so the text
+# layer is probed on the first few pages before the converter is built.
+TEXT_LAYER_PROBE_PAGES = 3
+TEXT_LAYER_MIN_CHARS = 40
+
+
+def assert_pdf_has_text_layer(file_path: Path) -> None:
+    """Raise ``EmptyTextLayerError`` when the PDF looks like a scan.
+
+    Uses pdfium (already pulled in by Docling) to read the raw text of the first
+    ``TEXT_LAYER_PROBE_PAGES`` pages. Fewer than ``TEXT_LAYER_MIN_CHARS`` visible
+    characters across them means there is nothing for Docling to extract. When
+    pdfium is unavailable the probe is skipped: the post-extraction emptiness
+    check in ``extract_text`` still catches the same file, only later.
+    """
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
+        logger.debug("pdfium indisponivel; probe de camada de texto ignorado.")
+        return
+
+    try:
+        document = pdfium.PdfDocument(str(file_path))
+    except Exception as e:  # corrupt/encrypted file — let Docling report it
+        logger.debug("pdfium nao abriu %s (%s); probe ignorado.", file_path.name, e)
+        return
+
+    try:
+        sampled = "".join(
+            _pdfium_page_text(document, page_no)
+            for page_no in range(min(TEXT_LAYER_PROBE_PAGES, len(document)))
+        )
+    finally:
+        document.close()
+
+    if visible_char_count(sampled) >= TEXT_LAYER_MIN_CHARS:
+        return
+    raise EmptyTextLayerError(
+        f"PDF '{file_path.name}' nao tem camada de texto (provavelmente "
+        f"escaneado): menos de {TEXT_LAYER_MIN_CHARS} caracteres nas primeiras "
+        f"{TEXT_LAYER_PROBE_PAGES} paginas. Rode OCR antes do harvest, ex.: "
+        "'ocrmypdf entrada.pdf saida.pdf'."
+    )
+
+
+def _pdfium_page_text(document: Any, page_no: int) -> str:
+    try:
+        page = document[page_no]
+        textpage = page.get_textpage()
+        try:
+            return textpage.get_text_bounded() or ""
+        finally:
+            textpage.close()
+    except Exception:
+        return ""
+
+
 def extract_pdf(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str, Any]]:
     """Extract text from PDF using Docling (the only supported extractor)."""
+    assert_pdf_has_text_layer(file_path)
     return extract_pdf_docling(cfg, file_path)
 
 

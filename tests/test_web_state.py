@@ -85,7 +85,8 @@ def test_run_all_dispatches_every_phase_in_order(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(index, "VectorIndex", lambda **kwargs: object())
     monkeypatch.setattr(
         harvester, "run_harvest",
-        lambda cfg, db, idx, **kwargs: calls.append(("harvest", kwargs)) or ["@source"],
+        lambda cfg, db, idx, **kwargs: calls.append(("harvest", kwargs))
+        or harvester.HarvestOutcome(source_ids=["@source"]),
     )
     monkeypatch.setattr(
         extractor, "run_extract",

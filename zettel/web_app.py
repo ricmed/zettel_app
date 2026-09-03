@@ -207,13 +207,14 @@ class WebWorker:
             from zettel.review import run_review
 
             progress.emit(ProgressEvent("harvest", "Fase 1/5 — iniciando harvest."))
-            sources = run_harvest(
+            harvest = run_harvest(
                 cfg, db, idx, interactive=False,
                 duplicate_action=payload.get("duplicate_action", "skip"),
                 skip_biblio=bool(payload.get("skip_biblio", False)),
                 skip_paging=bool(payload.get("skip_paging", False)),
                 observer=progress,
             )
+            sources = harvest.source_ids
 
             progress.emit(ProgressEvent("extract", "Fase 2/5 — iniciando extract."))
             drafts = run_extract(cfg, db, idx, auto_approve=False, observer=progress)
@@ -244,7 +245,7 @@ class WebWorker:
             selected = payload.get("selected_file")
             file_path = Path(selected).resolve() if selected else None
             progress.emit(ProgressEvent("harvest", "Processando documento.", current_item=file_path.name if file_path else None))
-            sources = run_harvest(
+            harvest = run_harvest(
                 cfg, db, idx, interactive=False,
                 duplicate_action=payload.get("duplicate_action", "skip"),
                 skip_biblio=bool(payload.get("skip_biblio", False)),
@@ -254,6 +255,9 @@ class WebWorker:
                 selected_file=file_path,
                 observer=progress,
             )
+            sources = harvest.source_ids
+            if harvest.skipped:
+                raise UserFacingError(harvest.skipped[0].message)
             if not sources:
                 existing = db.get_file(str(file_path)) if file_path else None
                 if existing and existing.get("source_id"):
