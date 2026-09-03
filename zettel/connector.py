@@ -15,7 +15,7 @@ from typing import Any
 
 from ulid import ULID
 
-from zettel.config import AppConfig, llm_phase
+from zettel.config import AppConfig, effective_temperature, llm_phase
 from zettel.hashing import (
     compute_embedding_input_hash,
     compute_llm_call_checksum,
@@ -247,7 +247,8 @@ def _process_candidate(
     prompt_hash = sha256_hex(prompt_parts.full_template)
     filled_hash = sha256_hex(normalize_text_for_hash(filled_for_hash))
     call_checksum = compute_llm_call_checksum(
-        prompt_hash, filled_hash, spec.model, cfg.llm.temperature, cfg.language,
+        prompt_hash, filled_hash, spec.model, effective_temperature(cfg, spec), cfg.language,
+        provider=spec.provider, top_p=cfg.llm.top_p,
     )
     tracker = get_tracker()
     snap = tracker.summary().as_dict() if tracker else {}

@@ -10,7 +10,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from zettel.config import AppConfig, llm_phase
+from zettel.config import AppConfig, effective_temperature, llm_phase
 from zettel.hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
 from zettel.llm import call_llm, extract_json, fill_template, get_llm, load_prompt_parts
 from zettel.state import StateDB
@@ -753,9 +753,11 @@ def enrich_with_llm(
         prompt_hash,
         sample_checksum,
         spec.model,
-        cfg.llm.temperature,
+        effective_temperature(cfg, spec),
         cfg.language,
         rag_context_checksum=seed_checksum,
+        provider=spec.provider,
+        top_p=cfg.llm.top_p,
     )
     cached = db.get_cached_llm_response(call_checksum)
     if cached:
