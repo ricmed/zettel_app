@@ -1,5 +1,17 @@
 # Potential ADR: Hybrid Structural Chunking (H3-H6 Sections + LangChain Splitter)
 
+> **Superseded (2026-09-03).** This is the raw `/adr-identify` snapshot that
+> `/adr-generate` turned into [ADR-014](../../../generated/HARVEST/ADR-014-hybrid-structural-chunking-strategy.md)
+> (hence its location under `done/`) — a frozen record of the codebase as it looked on
+> 2026-08-30, **not** a description of the current implementation. Config keys named
+> below (`min_chars_per_chunk`, `max_chars_per_chunk`) never existed in `config.py` /
+> `config.yaml` under those names even at the time this was generated (the real keys
+> were `min_section_chars`/`chunk_size`/`chunk_overlap`); the module paths
+> (`harvester.py:1400-1450` etc.) predate ADR-027's split into the `zettel/harvester/`
+> package. Treat every code reference and number here as historical. **ADR-014 is the
+> current, maintained source** — read that document, not this one, for how chunking
+> actually works today.
+
 **Module**: HARVEST  
 **Category**: Data Architecture / Document Segmentation Strategy  
 **Priority**: Must Document (Score: 140)  

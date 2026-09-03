@@ -87,15 +87,15 @@ class EmbeddingConfig(BaseModel):
 
 
 class ChunkingConfig(BaseModel):
-    chunk_size: int = 1000            # caracteres (nao tokens)
-    chunk_overlap: int = 200
+    chunk_size: int = 2500             # caracteres (nao tokens)
+    chunk_overlap: int = 400
     min_section_chars: int = 200      # secoes menores sao fundidas com a seguinte
     min_chunk_chars: int = 200        # pedacos menores sao fundidos no anterior
 
 
 class LinkingConfig(BaseModel):
     topk: int = 5
-    dedupe_threshold: float = 0.90
+    dedupe_threshold: float = 0.85
 
 
 class HarvestConfig(BaseModel):

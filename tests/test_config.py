@@ -65,3 +65,20 @@ def test_config_yaml_covers_schema_keys():
         "Chaves do schema ausentes em config/config.yaml (fonte operacional). "
         f"Declare-as ou, se forem so de codigo, acrescente na allowlist: {missing}"
     )
+
+
+def test_pydantic_defaults_match_operational_yaml_for_chunking_and_linking():
+    """AppConfig() (sem YAML) nao deve exercitar uma config diferente da producao.
+
+    Chave ausente no YAML cai no default do Field (load_config faz
+    AppConfig(**yaml)), entao um default historico diferente do YAML e uma
+    armadilha silenciosa para qualquer teste que instancie AppConfig() puro.
+    """
+    defaults = AppConfig()
+    operational = load_config(_CONFIG_YAML)
+
+    assert defaults.chunking.chunk_size == operational.chunking.chunk_size
+    assert defaults.chunking.chunk_overlap == operational.chunking.chunk_overlap
+    assert defaults.chunking.min_section_chars == operational.chunking.min_section_chars
+    assert defaults.chunking.min_chunk_chars == operational.chunking.min_chunk_chars
+    assert defaults.linking.dedupe_threshold == operational.linking.dedupe_threshold

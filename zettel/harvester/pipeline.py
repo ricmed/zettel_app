@@ -338,7 +338,6 @@ def _process_file(
         content_start_file=content_start_file,
         content_start_book=content_start_book,
         skip_paging=skip_paging or origin_type == "md",
-        printed_by_file_page=metadata.get("_printed_page_hints") or {},
         biblio_pages=getattr(biblio, "pages", None),
     )
     logger.info(
