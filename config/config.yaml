@@ -111,6 +111,10 @@ extraction:
   min_thesis_words: 5        # palavras minimas no campo thesis
   require_anchor_quote: true # descartar se anchor_quote vazio
   min_definition_words: 10   # palavras minimas no campo definition
+  verify_anchor_quote: true      # checa faixa de palavras e se a citacao existe no chunk
+  anchor_quote_min_ratio: 0.85   # cobertura minima na checagem fuzzy (tolera elipse editorial)
+  anchor_quote_min_words: 10     # faixa de palavras que o prompt ja exige
+  anchor_quote_max_words: 25
 
 # ── Literature Review (aprovacao seletiva de LIT por chunk) ───────────
 # Limiares de review_confidence sao heuristicas iniciais (ADR-017), nao

@@ -20,6 +20,7 @@ from zettel.config import AppConfig, llm_phase
 from zettel.hashing import (
     compute_llm_call_checksum,
     normalize_text_for_hash,
+    quote_is_grounded,
     sha256_hex,
     short_hash,
 )
@@ -277,7 +278,7 @@ def _process_chunk(
             return [], None
 
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
-    confidence = _score_review_confidence(output, cfg)
+    confidence = _score_review_confidence(output, cfg, chunk_text)
 
     # Structural locator for candidates
     locator = format_source_locator(
@@ -290,7 +291,7 @@ def _process_chunk(
                         or len(cand.source_locator) < 3):
             cand.source_locator = locator
 
-    approved_cands, rejected_cands = _filter_candidates(output.candidates, cfg)
+    approved_cands, rejected_cands = _filter_candidates(output.candidates, cfg, chunk_text)
     if rejected_cands:
         logger.info(
             "Chunk %s: %d candidatos rejeitados pela filtragem de qualidade",
@@ -430,7 +431,9 @@ def _images_for_chunk(db: StateDB, chunk_row: dict) -> list[dict[str, Any]]:
     return out
 
 
-def _score_review_confidence(output: LiteratureChunkOutput, cfg: AppConfig) -> float:
+def _score_review_confidence(
+    output: LiteratureChunkOutput, cfg: AppConfig, chunk_text: str = "",
+) -> float:
     """Heuristic confidence in [0, 1] for auto-approve decisions."""
     if output.chunk_status == "rejected":
         return 0.1
@@ -441,7 +444,7 @@ def _score_review_confidence(output: LiteratureChunkOutput, cfg: AppConfig) -> f
         score += min(0.15, 0.05 * len(output.key_concepts))
     if not output.candidates:
         return min(score, 0.55)
-    approved, _ = _filter_candidates(output.candidates, cfg)
+    approved, _ = _filter_candidates(output.candidates, cfg, chunk_text)
     if not approved:
         return min(score, 0.45)
     avg_rel = sum(c.relevance_score for c in approved) / len(approved)
@@ -486,12 +489,13 @@ def _build_images_context(
 def _filter_candidates(
     candidates: list[PermanentNoteCandidate],
     cfg: AppConfig,
+    chunk_text: str = "",
 ) -> tuple[list[PermanentNoteCandidate], list[PermanentNoteCandidate]]:
     ext = cfg.extraction
     approved: list[PermanentNoteCandidate] = []
     rejected: list[PermanentNoteCandidate] = []
     for cand in candidates:
-        reason = _check_candidate(cand, ext)
+        reason = _check_candidate(cand, ext, chunk_text)
         if reason:
             logger.debug("Candidato rejeitado (%s): %s", reason, cand.thesis[:60])
             rejected.append(cand)
@@ -500,7 +504,7 @@ def _filter_candidates(
     return approved, rejected
 
 
-def _check_candidate(cand: PermanentNoteCandidate, ext: Any) -> str | None:
+def _check_candidate(cand: PermanentNoteCandidate, ext: Any, chunk_text: str = "") -> str | None:
     if cand.chunk_status == "rejected":
         return (
             f"chunk_status={cand.chunk_status}, "
@@ -517,6 +521,15 @@ def _check_candidate(cand: PermanentNoteCandidate, ext: Any) -> str | None:
         return f"definition_words={definition_words} < {ext.min_definition_words}"
     if ext.require_anchor_quote and not cand.anchor_quote.strip():
         return "anchor_quote vazio"
+    if ext.verify_anchor_quote and cand.anchor_quote.strip():
+        anchor_words = len(cand.anchor_quote.split())
+        if not (ext.anchor_quote_min_words <= anchor_words <= ext.anchor_quote_max_words):
+            return (
+                f"anchor_quote_words={anchor_words} fora de "
+                f"[{ext.anchor_quote_min_words},{ext.anchor_quote_max_words}]"
+            )
+        if not quote_is_grounded(cand.anchor_quote, chunk_text, ext.anchor_quote_min_ratio):
+            return "anchor_quote nao encontrada no chunk"
     return None
 
 

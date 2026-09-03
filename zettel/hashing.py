@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 import unicodedata
+from difflib import SequenceMatcher
 from pathlib import Path
 
 
@@ -30,6 +31,43 @@ def normalize_text_for_hash(text: str) -> str:
     # Fix simple PDF hyphenation: "word-\ncontinuation" -> "wordcontinuation"
     t = re.sub(r"(\w)-\n(\w)", r"\1\2", t)
     return t.strip()
+
+
+def fold_for_match(text: str) -> str:
+    """Fold text for fuzzy quote-grounding comparisons.
+
+    Applies `normalize_text_for_hash` first, then strips accents, lowercases
+    and collapses everything that is not alphanumeric to a single space —
+    tolerating case, accent and editorial punctuation differences without
+    duplicating the canonical hash normalizer.
+    """
+    t = normalize_text_for_hash(text)
+    t = unicodedata.normalize("NFKD", t)
+    t = "".join(ch for ch in t if not unicodedata.combining(ch))
+    t = t.lower()
+    t = re.sub(r"[^a-z0-9\s]", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def quote_is_grounded(quote: str, chunk_text: str, min_ratio: float = 0.85) -> bool:
+    """True if `quote` is verbatim (or near-verbatim) inside `chunk_text`.
+
+    Exact substring match on the folded text first; if that fails, sums the
+    sizes of every matching block between the two (not just the longest
+    one) so an editorial ellipsis ("[...]", "(...)") splitting an otherwise
+    verbatim quote into two grounded halves still clears `min_ratio`, while
+    a paraphrase — which shares little more than common short words —
+    stays far below it.
+    """
+    q = fold_for_match(quote)
+    if not q:
+        return False
+    c = fold_for_match(chunk_text)
+    if q in c:
+        return True
+    matcher = SequenceMatcher(None, q, c, autojunk=False)
+    matched = sum(block.size for block in matcher.get_matching_blocks())
+    return (matched / len(q)) >= min_ratio
 
 
 def sha256_hex(s: str) -> str:

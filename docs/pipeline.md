@@ -104,7 +104,7 @@ Módulo: [`extractor.py`](../zettel/extractor.py).
 2. Escreve um **draft** em `00_Inbox/Review/{Citekey}/LIT - AuthorYear - pNNN - topico-NNNN.md` (resumo, conceitos, candidatos, **trecho integral da fonte**, imagens; mesmo basename da nota aprovada)
 3. Checkpoint no SQLite após **cada** chunk: `status=awaiting_review`, `summary_json`, `review_confidence`, `literature_note_path`
 4. Concepts ficam em `awaiting_review` (não elegíveis ao `connect` ainda)
-5. Filtragem estrutural de qualidade (`extraction.min_relevance_score`, `min_thesis_words`, `min_definition_words`, `require_anchor_quote`)
+5. Filtragem estrutural de qualidade (`extraction.min_relevance_score`, `min_thesis_words`, `min_definition_words`, `require_anchor_quote`, `verify_anchor_quote` — checa faixa de 10-25 palavras e se a citação de fato existe no chunk, tolerando elipse editorial)
 6. `--auto-approve` pode promover drafts com confiança ≥ `literature_review.auto_approve_min_confidence`
 
 O nome legível do arquivo (com página e tópico) é uma decisão deliberada — [ADR-015](adrs/generated/EXTRACT/ADR-015-granular-literature-notes-readable-filenames.md).
