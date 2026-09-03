@@ -48,7 +48,7 @@ zettel_app/
 │   ├── graph.py             # Expansao por grafo sobre as conexoes tipadas (GraphRAG leve)
 │   ├── ask.py               # Comando `ask`: QA sobre o vault com citacoes
 │   ├── article.py           # Comando `article`: helpers de dominio (catalogo, draft, judge)
-│   ├── article_graph.py     # Orquestracao LangGraph do `article` (StateGraph + HITL)
+│   ├── article_graph/       # Orquestracao LangGraph do `article` (StateGraph + HITL, ADR-028/029)
 │   ├── assets.py            # Extracao, adocao e descricao multimodal de imagens
 │   ├── rebuild.py           # Reconstrucao do Chroma (reindex) e do vault (rebuild)
 │   ├── sync.py              # Sincronizacao de notas manuais (SRC/LIT/ZTL/MOC) + grafo

@@ -162,13 +162,13 @@
 
 ### QA-WRITING: Higher-level Features (Ask + Article)
 **Purpose**: Grounded question-answering (`zettel ask`) and long-form writing (`zettel article`) built entirely on top of the `Retriever`, with a deterministic "no evidence" short-circuit and a LangGraph-based multi-stage writing flow respectively.
-**Location**: `zettel/ask.py`, `zettel/article.py`, `zettel/article_graph.py`, `zettel/bibliography.py`
+**Location**: `zettel/ask.py`, `zettel/article.py`, `zettel/article_graph/` (package), `zettel/bibliography.py`
 **Key Components**: `run_ask` (skips the LLM call entirely when `.hits` is empty, still surfaces `.candidates` for `--show-context`), `AskResult.retrieval_params` snapshot; `article_graph`'s 13-node LangGraph `StateGraph` (query enricher -> incremental hybrid search -> context HITL -> catalog -> outline HITL -> per-section draft -> assemble -> personality rewrite -> judge loop -> verify/save), ABNT citation formatting (`bibliography.py`, includes an LLM-merge path every test fixture disables).
 **Technologies**: LangGraph (`StateGraph`, `MemorySaver` checkpointer, `interrupt()` for CLI HITL).
 **Dependencies**: Internal — `retrieval`, `index`, `bibliography` + shared infra. External — the configured LLM provider.
-**Patterns**: RAG Q&A with deterministic fallback; graph-of-nodes orchestration (LangGraph) with a bounded judge/redraft loop — distinct from the staged SQLite-status pipeline pattern used by phases 1-4.
-**Key Files**: `zettel/article.py` (1161 lines), `zettel/article_graph.py` (715 lines), `zettel/ask.py` (314 lines), `zettel/bibliography.py` (836 lines).
-**Scope**: Large — 4 files, ~3,000 lines. `bibliography.py`'s LLM-merge logic is untested in every fixture — worth noting for Phase 2 as a test-coverage gap rather than an architectural decision per se.
+**Patterns**: RAG Q&A with deterministic fallback; graph-of-nodes orchestration (LangGraph) with a bounded judge/redraft loop — distinct from the staged SQLite-status pipeline pattern used by phases 1-4. `article_graph/` follows the harvest-package pattern (ADR-027) per ADR-029: `runtime.py` (state/options), `search.py` (pure retrieval helpers), `nodes.py` (13 `node_*` + 3 routers), `graph.py` (topology + runner) — see ADR-028 for the orchestration decision.
+**Key Files**: `zettel/article.py` (1164 lines), `zettel/article_graph/` (5 files: `__init__.py` 15, `runtime.py` 219, `search.py` 156, `nodes.py` 361, `graph.py` 236), `zettel/ask.py` (314 lines), `zettel/bibliography.py` (836 lines).
+**Scope**: Large — 8 files, ~3,300 lines. `bibliography.py`'s LLM-merge logic is untested in every fixture — worth noting for Phase 2 as a test-coverage gap rather than an architectural decision per se.
 
 ### MANUAL-SYNC: Manual Vault Integration
 **Purpose**: Cross-cutting utilities that let hand-created/hand-edited vault content join the pipeline's SQLite/Chroma state, close the graph loop from body wikilinks, scaffold new manual notes, and irreversibly delete sources.
