@@ -529,7 +529,8 @@ def _filter_candidates(
     candidates: list[PermanentNoteCandidate],
     cfg: AppConfig,
     chunk_text: str = "",
-) -> tuple[list[PermanentNoteCandidate], list[PermanentNoteCandidate]]:
+) -> tuple[list[PermanentNoteCandidate], list[tuple[PermanentNoteCandidate, str]]]:
+    """Split candidates into approved and (candidate, reason) rejected pairs."""
     ext = cfg.extraction
     approved: list[PermanentNoteCandidate] = []
     rejected: list[tuple[PermanentNoteCandidate, str]] = []
