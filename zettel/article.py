@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 ArticleStyle = Literal["blog", "academic"]
 OutlineDecision = Literal["approve", "regenerate", "abort"]
 
-_NO_EVIDENCE = (
+NO_EVIDENCE = (
     "Nao encontrei evidencia suficiente no vault para escrever um artigo "
     "sobre esse tema."
 )
@@ -426,7 +426,7 @@ def verify_article(
 ) -> list[str]:
     """Deterministic checks; returns warning strings (never raises)."""
     warnings: list[str] = []
-    if not body.strip() or body.strip() == _NO_EVIDENCE:
+    if not body.strip() or body.strip() == NO_EVIDENCE:
         warnings.append("Corpo do artigo vazio ou sem evidencia.")
         return warnings
 
@@ -501,7 +501,7 @@ def _origin_label(hit: RetrievedNote) -> str:
     return f"conexao {rel} a partir de [[ZTL - {anchor}]]"
 
 
-def _merge_moc_notes(
+def merge_moc_notes(
     db: "StateDB", hits: list[RetrievedNote], moc: dict
 ) -> list[RetrievedNote]:
     """Add notes linked from a matching MOC body as high-confidence seeds."""

@@ -167,7 +167,7 @@ def node_vector_search_merge(state: ArticleGraphState, config: RunnableConfig) -
         if moc:
             moc_ids.append(moc["moc_id"])
             hits = [art.dict_to_retrieved_note(d) for d in existing]
-            hits = art._merge_moc_notes(rt.db, hits, moc)  # noqa: SLF001
+            hits = art.merge_moc_notes(rt.db, hits, moc)
             existing = art.merge_retrieved_notes(
                 [], hits, art_cfg.max_context_notes
             )
@@ -497,7 +497,7 @@ def node_finish(state: ArticleGraphState, config: RunnableConfig) -> dict:
 def node_abort(state: ArticleGraphState, config: RunnableConfig) -> dict:
     if state.get("no_evidence"):
         return {
-            "final_body": art._NO_EVIDENCE,  # noqa: SLF001
+            "final_body": art.NO_EVIDENCE,
             "aborted": True,
             "no_evidence": True,
             "frontmatter": {},
