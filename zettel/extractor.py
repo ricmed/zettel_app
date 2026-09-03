@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
 from ulid import ULID
 
 from zettel.config import AppConfig, llm_phase
@@ -196,6 +197,7 @@ def _process_chunk(
         rag_context_checksum=images_ctx_checksum,
     )
     cached = db.get_cached_llm_response(call_checksum)
+    request_payload_json: str | None = None
     if cached:
         logger.debug("Cache hit para chunk %s", chunk_id)
         from zettel.usage import record_cache_hit
@@ -223,6 +225,7 @@ def _process_chunk(
         }
         system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
         user = fill_template(prompt_parts.user_template, mapping)
+        request_payload_json = json.dumps({"system": system, "user": user}, ensure_ascii=False)
 
         try:
             response_text = call_llm(
@@ -234,11 +237,6 @@ def _process_chunk(
                 total=total,
                 provider=spec.provider,
                 prompt_cache=cfg.llm.prompt_cache,
-            )
-            db.cache_llm_response(
-                call_checksum,
-                json.dumps({"system": system, "user": user}, ensure_ascii=False),
-                response_text,
             )
             logger.info(
                 "[SOURCE=%s] [CHUNK=%s] [LLM_CALL model=%s] → resposta recebida",
@@ -252,9 +250,36 @@ def _process_chunk(
 
     try:
         output = _parse_literature_output(response_text)
-    except Exception as e:
+    except ValidationError as e:
         logger.warning(
-            "Falha ao parsear output do chunk %s: %s -- tentando retry", chunk_id, e
+            "Contrato invalido no output do chunk %s: %s -- tentando reparo", chunk_id, e
+        )
+        try:
+            retry_prompt = (
+                "O JSON abaixo nao satisfaz o contrato esperado. Corrija e retorne "
+                f"APENAS o JSON valido.\n\nErro de validacao:\n{e}\n\nJSON:\n{response_text}"
+            )
+            response_text = call_llm(
+                llm,
+                retry_prompt,
+                label=f"extract-retry:{chunk_id}",
+                step=step,
+                total=total,
+                provider=spec.provider,
+                prompt_cache=False,
+            )
+            output = _parse_literature_output(response_text)
+        except Exception:
+            logger.error("Chunk %s enviado para revisao manual (parse falhou)", chunk_id)
+            db.update_chunk_status(chunk_id, "failed")
+            clear_progress()
+            return [], None
+    except ValueError as e:
+        # json.JSONDecodeError subclasses ValueError; extract_json's own "no JSON
+        # found" error is a plain ValueError -- both are "malformed JSON", not a
+        # schema violation.
+        logger.warning(
+            "JSON malformado no output do chunk %s: %s -- tentando retry", chunk_id, e
         )
         try:
             retry_prompt = (
@@ -276,6 +301,11 @@ def _process_chunk(
             db.update_chunk_status(chunk_id, "failed")
             clear_progress()
             return [], None
+
+    # Cache only the response that actually parsed -- reached here means `output`
+    # is valid, whether from the first attempt or the repair retry above.
+    if not cached:
+        db.cache_llm_response(call_checksum, request_payload_json or "{}", response_text)
 
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
     confidence = _score_review_confidence(output, cfg, chunk_text)

@@ -492,49 +492,55 @@ def test_process_chunk_accepted_but_all_candidates_filtered_writes_no_draft_file
     prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
     _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
 
-    row = db.get_chunk("@Book2024::ch000::abc")
-    assert row["literature_note_path"] is None
-    review_dir = cfg.vault_path / "00_Inbox" / "Review"
-    assert list(review_dir.rglob("*.md")) == []
+    assert len(captured_retry_prompts) == 1
+    retry_prompt = captured_retry_prompts[0]
+    assert "contrato esperado" in retry_prompt
+    assert "relevance_score" in retry_prompt  # the pydantic error message is embedded
     db.close()
 
 
-def test_process_chunk_accepted_with_approved_candidate_writes_draft_file(tmp_path, monkeypatch):
-    """A chunk with at least one approved candidate keeps writing its draft."""
+def test_process_chunk_json_decode_error_uses_generic_repair_prompt(tmp_path, monkeypatch):
+    """Malformed JSON (not a schema violation) keeps the generic repair prompt."""
     import json
-    from pathlib import Path
 
     from zettel.extractor import _process_chunk
     from zettel.llm import load_prompt_parts
 
     cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
-    cfg.extraction.verify_anchor_quote = False  # chunk text is too short to host a 10-25 word anchor
-
-    good_candidate = {
-        "thesis": "Gradient descent converge mais rapido com learning rate adaptativo no treino",
-        "definition": (
-            "O algoritmo de gradient descent ajusta os pesos do modelo iterativamente "
-            "na direcao oposta ao gradiente da funcao de perda observada"
-        ),
-        "anchor_quote": "texto do chunk com conteudo suficiente",
-        "relevance_score": 4,
-    }
+    captured_retry_prompts: list[str] = []
 
     def fake_call_llm(llm, user, system=None, **kwargs):
-        return json.dumps({
-            "chunk_status": "accepted",
-            "rejection_reason": "",
-            "rejection_category": "",
-            "summary": "Resumo com conteudo suficiente para pontuar bem no calculo de confianca.",
-            "key_concepts": ["conceito"],
-            "candidates": [good_candidate],
-        })
+        if kwargs.get("label", "").startswith("extract-retry"):
+            captured_retry_prompts.append(user)
+            return json.dumps({
+                "chunk_status": "rejected", "rejection_reason": "x", "rejection_category": "",
+                "summary": "s", "key_concepts": [], "candidates": [],
+            })
+        return "{ isto: nao fecha"
 
     monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
     prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
     _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
 
-    row = db.get_chunk("@Book2024::ch000::abc")
-    assert row["literature_note_path"] is not None
-    assert Path(row["literature_note_path"]).is_file()
+    assert len(captured_retry_prompts) == 1
+    assert "malformado" in captured_retry_prompts[0]
+    assert "Erro de validacao" not in captured_retry_prompts[0]
+    db.close()
+
+
+def test_process_chunk_fails_after_two_bad_attempts(tmp_path, monkeypatch):
+    """Both the primary call and the repair retry fail to parse -> status=failed."""
+    from zettel.extractor import _process_chunk
+    from zettel.llm import load_prompt_parts
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        return "isto nunca vai ser json valido"
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "failed"
     db.close()
