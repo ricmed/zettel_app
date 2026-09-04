@@ -49,6 +49,14 @@ from zettel.vault import (
 logger = logging.getLogger(__name__)
 
 
+class ConnectRejected(RuntimeError):
+    """Prompt 2 declined to write a permanent note. ``reason`` is the model text."""
+
+    def __init__(self, message: str, *, reason: str = ""):
+        super().__init__(message)
+        self.reason = (reason or message).strip()
+
+
 # ── Inverse relation map (PT-BR) ─────────────────────────────────────
 
 _INVERSE_RELATION: dict[str, str] = {
@@ -161,6 +169,7 @@ def run_connect(
     retriever = Retriever(cfg, db, idx)
 
     created_ids: list[str] = []
+    rejection: ConnectRejected | None = None
     total = len(candidates)
     from zettel.progress import report
     report(observer, "connect", f"{total} candidato(s) aprovado(s).", total_items=total)
@@ -183,10 +192,16 @@ def run_connect(
             )
             logger.info("Gerando nota %d/%d: %s", i, total, cand.thesis[:50])
 
-            note_id = _process_candidate(
-                cfg, db, idx, llm, cand_dict, prompt_parts, retriever,
-                step=i, total=total, origin=origin,
-            )
+            try:
+                note_id = _process_candidate(
+                    cfg, db, idx, llm, cand_dict, prompt_parts, retriever,
+                    step=i, total=total, origin=origin,
+                )
+            except ConnectRejected as exc:
+                if origin == "manual":
+                    rejection = exc
+                    break
+                continue
             if note_id:
                 created_ids.append(note_id)
                 logger.info("Nota %d/%d OK (id=%s)", i, total, note_id)
@@ -200,6 +215,8 @@ def run_connect(
 
     logger.info("Notas permanentes criadas/atualizadas: %d", len(created_ids))
     finish_pipeline_run(db, run_id)
+    if rejection:
+        raise rejection
     return created_ids
 
 
@@ -359,7 +376,12 @@ def _process_candidate(
                 concept_id, note_output.reason,
             )
             clear_progress()
-            return None
+            raise ConnectRejected(
+                note_output.reason or "sem motivo informado",
+                reason=note_output.reason or "",
+            )
+    except ConnectRejected:
+        raise
     except Exception as e:
         logger.error("Erro ao gerar nota permanente para conceito %s: %s", concept_id, e)
         clear_progress()

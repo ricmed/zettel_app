@@ -246,6 +246,61 @@ def frontmatter_biblio_fields(meta: BibliographicMetadata) -> dict[str, Any]:
     return {k: v for k, v in data.items() if k in BIBLIO_FRONTMATTER_FIELDS}
 
 
+def metadata_from_manual_seed(
+    *,
+    title: str | None = None,
+    authors: list[str] | None = None,
+    year: int | None = None,
+    document_type: str | None = None,
+    publisher: str | None = None,
+    place: str | None = None,
+    doi: str | None = None,
+    url: str | None = None,
+    journal: str | None = None,
+    edition: str | None = None,
+    institution: str | None = None,
+    pages: str | None = None,
+) -> BibliographicMetadata:
+    """Build metadata from the manual SRC form. Does not guess ``document_type``."""
+    doc_type: DocumentType | None = None
+    if document_type in DOCUMENT_TYPES:
+        doc_type = document_type  # type: ignore[assignment]
+    return BibliographicMetadata(
+        document_type=doc_type,
+        confidence=0.85 if doc_type else 0.0,
+        title=_str_or_none(title),
+        authors=[str(a).strip() for a in (authors or []) if a and str(a).strip()],
+        year=year,
+        publisher=_str_or_none(publisher),
+        place=_str_or_none(place),
+        doi=_str_or_none(doi),
+        url=_str_or_none(url),
+        journal=_str_or_none(journal),
+        edition=_str_or_none(edition),
+        institution=_str_or_none(institution),
+        pages=_str_or_none(pages),
+    )
+
+
+def form_fields_from_metadata(meta: BibliographicMetadata) -> dict[str, Any]:
+    """JSON-ready payload for the manual SRC form (plus the formatted ABNT string)."""
+    return {
+        "abnt_reference": format_abnt(meta) if meta.document_type else "",
+        "title": meta.title or "",
+        "authors": list(meta.authors),
+        "year": meta.year,
+        "document_type": meta.document_type or "",
+        "publisher": meta.publisher or "",
+        "place": meta.place or "",
+        "doi": meta.doi or "",
+        "url": meta.url or "",
+        "journal": meta.journal or "",
+        "edition": meta.edition or "",
+        "institution": meta.institution or "",
+        "pages": meta.pages or "",
+    }
+
+
 # ── Author / ABNT formatting ───────────────────────────────────────────
 
 
@@ -698,21 +753,38 @@ def _as_str_list(value: Any) -> list[str]:
 # ── LLM enrichment ─────────────────────────────────────────────────────
 
 
-def _merge_biblio(seed: BibliographicMetadata, llm_meta: BibliographicMetadata) -> BibliographicMetadata:
-    """Prefer non-empty LLM values; keep seed when LLM leaves a field empty."""
+def _value_empty(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, list):
+        return not bool(value)
+    if isinstance(value, str) and not value.strip():
+        return True
+    return False
+
+
+def _merge_biblio(
+    seed: BibliographicMetadata,
+    llm_meta: BibliographicMetadata,
+    *,
+    prefer_seed: bool = False,
+) -> BibliographicMetadata:
+    """Merge LLM fields into the seed.
+
+    Default (harvest): non-empty LLM values win. ``prefer_seed=True`` keeps
+    whatever the user already typed and only fills empty seed fields.
+    """
     merged = seed.model_copy(deep=True)
     llm_dump = llm_meta.model_dump()
     for key, value in llm_dump.items():
         if key == "confidence":
             continue
-        if value is None:
+        if _value_empty(value):
             continue
-        if isinstance(value, list) and not value:
-            continue
-        if isinstance(value, str) and not value.strip():
+        if prefer_seed and not _field_empty(seed, key):
             continue
         setattr(merged, key, value)
-    if llm_meta.document_type:
+    if llm_meta.document_type and not (prefer_seed and seed.document_type):
         merged.document_type = llm_meta.document_type
     merged.confidence = max(seed.confidence, llm_meta.confidence or 0.0)
     if llm_meta.confidence:
@@ -731,14 +803,21 @@ def enrich_with_llm(
     seed: BibliographicMetadata,
     text_sample: str,
     filename: str,
+    *,
+    prefer_seed: bool = False,
+    raise_on_error: bool = False,
 ) -> BibliographicMetadata:
     """Call LLM to enrich bibliographic metadata; uses deterministic cache."""
     if not getattr(cfg.harvest, "biblio_llm_enabled", True):
+        if raise_on_error:
+            raise RuntimeError("O enriquecimento bibliográfico por LLM está desligado na configuração.")
         return seed
 
     prompt_path = cfg.prompts_path / "bibliographic_metadata.md"
     if not prompt_path.exists():
         logger.warning("Prompt bibliografico ausente: %s", prompt_path)
+        if raise_on_error:
+            raise RuntimeError("Prompt bibliográfico ausente.")
         return seed
 
     prompt_parts = load_prompt_parts(prompt_path)
@@ -789,16 +868,28 @@ def enrich_with_llm(
             )
         except Exception as e:
             logger.warning("Falha no LLM bibliografico para %s: %s", filename, e)
+            if raise_on_error:
+                raise RuntimeError(
+                    "O LLM não conseguiu completar a bibliografia. Tente de novo ou monte a ABNT sem o modelo."
+                ) from e
             return seed
 
     try:
         raw = json.loads(extract_json(response_text))
         if not isinstance(raw, dict):
+            if raise_on_error:
+                raise RuntimeError("O LLM não devolveu metadados bibliográficos válidos.")
             return seed
         llm_meta = BibliographicMetadata.model_validate(_coerce_llm_dict(raw))
-        return _merge_biblio(seed, llm_meta)
+        return _merge_biblio(seed, llm_meta, prefer_seed=prefer_seed)
+    except RuntimeError:
+        raise
     except Exception as e:
         logger.warning("Falha ao parsear metadados bibliograficos de %s: %s", filename, e)
+        if raise_on_error:
+            raise RuntimeError(
+                "O LLM não devolveu metadados bibliográficos válidos."
+            ) from e
         return seed
 
 
@@ -837,3 +928,22 @@ def build_bibliographic_metadata(
     text_sample = (text or "")[:sample_chars]
     seed = infer_from_file_metadata(metadata, text_sample, filename)
     return enrich_with_llm(cfg, db, seed, text_sample, filename)
+
+
+def preview_manual_bibliography(
+    cfg: AppConfig,
+    db: StateDB,
+    seed: BibliographicMetadata,
+    text_sample: str,
+    *,
+    enrich: bool,
+) -> BibliographicMetadata:
+    """Form preview: format from the seed, optionally filling empties via LLM."""
+    if not enrich:
+        return seed
+    sample_chars = getattr(cfg.harvest, "biblio_text_sample_chars", 5000)
+    sample = (text_sample or "")[:sample_chars]
+    return enrich_with_llm(
+        cfg, db, seed, sample, "manual-src",
+        prefer_seed=True, raise_on_error=True,
+    )

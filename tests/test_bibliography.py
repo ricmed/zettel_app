@@ -8,12 +8,15 @@ import pytest
 
 from zettel.bibliography import (
     BibliographicMetadata,
+    _merge_biblio,
+    form_fields_from_metadata,
     format_abnt,
     format_authors_abnt,
     frontmatter_biblio_fields,
     infer_from_file_metadata,
     invert_author_name,
     is_complete,
+    metadata_from_manual_seed,
     missing_required,
     required_fields,
 )
@@ -81,6 +84,39 @@ def test_format_abnt_livro():
     assert "Traducao: Rubens Enderle." in ref
     assert "2 ed." in ref
     assert "Sao Paulo: Boitempo, 2013." in ref
+
+
+def test_metadata_from_manual_seed_does_not_guess_document_type():
+    meta = metadata_from_manual_seed(
+        title="O Capital", authors=["Karl Marx"], year=2013,
+    )
+    assert meta.document_type is None
+    assert form_fields_from_metadata(meta)["abnt_reference"] == ""
+
+
+def test_metadata_from_manual_seed_formats_livro_for_the_form():
+    meta = metadata_from_manual_seed(
+        title="O Capital", authors=["Karl Marx"], year=2013,
+        document_type="livro", place="Sao Paulo", publisher="Boitempo",
+    )
+    payload = form_fields_from_metadata(meta)
+    assert payload["abnt_reference"].startswith("MARX, Karl.")
+    assert "Sao Paulo: Boitempo, 2013." in payload["abnt_reference"]
+    assert payload["publisher"] == "Boitempo"
+    assert payload["place"] == "Sao Paulo"
+
+
+def test_merge_biblio_prefer_seed_keeps_user_fields():
+    seed = BibliographicMetadata(
+        document_type="livro", title="O Capital", publisher="Boitempo",
+    )
+    llm_meta = BibliographicMetadata(
+        document_type="artigo_periodico", publisher="Outra", place="Sao Paulo",
+    )
+    merged = _merge_biblio(seed, llm_meta, prefer_seed=True)
+    assert merged.document_type == "livro"
+    assert merged.publisher == "Boitempo"
+    assert merged.place == "Sao Paulo"
 
 
 def test_format_abnt_artigo_periodico():

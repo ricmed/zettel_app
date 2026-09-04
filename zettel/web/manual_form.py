@@ -7,6 +7,10 @@ from typing import Any, Mapping
 
 MODES = {"SRC", "LIT_INDEX", "LIT_GRANULAR", "ZTL_BLANK", "ZTL_FROM_LIT"}
 _NOTE_TYPES = {"SRC", "LIT", "ZTL"}
+_MAX_BIBLIO_SAMPLE = 5000
+_BIBLIO_FORM_FIELDS = (
+    "publisher", "place", "doi", "url", "journal", "edition", "institution", "pages",
+)
 
 
 def _text(form: Mapping[str, Any], name: str) -> str:
@@ -76,6 +80,14 @@ def parse(form: Mapping[str, Any]) -> dict[str, Any]:
         "from_lit": _optional(form, "from_lit"),
         "from_lit_path": _optional(form, "from_lit_path"),
         "lit_thesis": _optional(form, "lit_thesis"),
+        "lit_summary": _optional(form, "lit_summary"),
+        "lit_excerpt": _optional(form, "lit_excerpt"),
+        "lit_concepts": [
+            line.lstrip("#").strip()
+            for line in str(form.get("lit_concepts") or "").splitlines()
+            if line.strip()
+        ],
+        "lit_candidate": _optional(form, "lit_candidate"),
         "use_llm": bool(form.get("use_llm")),
         "force": bool(form.get("force")) and mode != "SRC",
     }
@@ -89,6 +101,61 @@ def parse(form: Mapping[str, Any]) -> dict[str, Any]:
             pass
     elif payload["use_llm"]:
         raise ValueError("O uso de LLM requer uma nota LIT de origem.")
+    return payload
+
+
+def _truthy(form: Mapping[str, Any], name: str) -> bool:
+    raw = str(form.get(name) or "").strip().lower()
+    return raw in {"1", "true", "on", "yes"}
+
+
+def has_biblio_evidence(parsed: Mapping[str, Any]) -> bool:
+    """DOI, URL or a pasted citation/excerpt — anything the LLM can ground on."""
+    return bool(parsed.get("doi") or parsed.get("url") or parsed.get("biblio_sample"))
+
+
+def biblio_text_sample(parsed: Mapping[str, Any]) -> str:
+    """Text the bibliographic prompt sees: pasted excerpt plus DOI/URL hints."""
+    parts: list[str] = []
+    sample = parsed.get("biblio_sample") or ""
+    if sample:
+        parts.append(sample)
+    if parsed.get("doi"):
+        parts.append(f"DOI: {parsed['doi']}")
+    if parsed.get("url"):
+        parts.append(f"URL: {parsed['url']}")
+    return "\n".join(parts)
+
+
+def parse_biblio_preview(form: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate the SRC bibliography preview POST. Does not write the vault."""
+    from zettel.bibliography import DOCUMENT_TYPES
+
+    document_type = _optional(form, "document_type")
+    if document_type and document_type not in DOCUMENT_TYPES:
+        raise ValueError("Tipo de documento inválido.")
+    sample = _text(form, "biblio_sample")[:_MAX_BIBLIO_SAMPLE]
+    payload: dict[str, Any] = {
+        "title": _optional(form, "title"),
+        "authors": [
+            line.strip()
+            for line in str(form.get("authors") or "").splitlines()
+            if line.strip()
+        ],
+        "year": _int(form, "year"),
+        "document_type": document_type,
+        "biblio_sample": sample or None,
+        "enrich": _truthy(form, "enrich"),
+    }
+    for key in _BIBLIO_FORM_FIELDS:
+        payload[key] = _optional(form, key)
+    if payload["enrich"]:
+        if not has_biblio_evidence(payload):
+            raise ValueError(
+                "Cole um DOI, uma URL ou um trecho/citação para completar com o LLM."
+            )
+    elif not payload["document_type"]:
+        raise ValueError("Informe o tipo de documento para montar a referência ABNT.")
     return payload
 
 

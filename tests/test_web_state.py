@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from zettel.config import AppConfig, EmbeddingConfig
 from zettel.index import index_kwargs
 from zettel.state import StateDB
@@ -221,7 +223,34 @@ def test_manual_lit_to_ztl_accepts_ref_and_force(tmp_path: Path, monkeypatch):
         "path": str(tmp_path / "vault" / "note.md"),
         "used_llm": False,
     }
-    assert result == {
-        "path": str(tmp_path / "vault" / "note.md"),
-        "used_llm": False,
-    }
+
+
+def test_manual_lit_llm_rejection_is_user_facing(tmp_path: Path, monkeypatch):
+    from zettel import index, manual_lit
+    from zettel.connector import ConnectRejected
+    from zettel.web_app import UserFacingError
+
+    monkeypatch.setattr(index, "VectorIndex", lambda **kwargs: object())
+
+    def fake_create(cfg, db, idx, ref, **kwargs):
+        raise ConnectRejected(
+            "O modelo recusou gerar a nota permanente: definicao generica. "
+            "Enriqueça o resumo ou a tese da LIT e tente de novo, ou crie a ZTL sem o LLM.",
+            reason="definicao generica",
+        )
+
+    monkeypatch.setattr(manual_lit, "create_permanent_from_literature", fake_create)
+
+    class Progress:
+        def emit(self, event):
+            pass
+
+    with pytest.raises(UserFacingError, match="definicao generica") as caught:
+        WebWorker._dispatch(
+            AppConfig(chroma_path=tmp_path / "chroma"),
+            object(),
+            Progress(),
+            "manual-ztl-from-lit",
+            {"chunk_id": "chunk-1", "thesis": "Uma tese", "use_llm": True},
+        )
+    assert safe_error(caught.value).startswith("O modelo recusou")

@@ -338,6 +338,28 @@ def test_permanent_from_literature_with_llm(cfg, db, monkeypatch):
     assert db.get_concepts_by_status("approved", without_notes=True) == []
 
 
+def test_permanent_from_literature_llm_rejected_surfaces_reason(cfg, db, monkeypatch):
+    import zettel.connector as connector
+    from zettel.connector import ConnectRejected
+    from zettel.schemas import PermanentNoteLLMOutput
+
+    idx = FakeIndex()
+    lit = _scaffold_source_and_lit(cfg, db, idx)
+    response = PermanentNoteLLMOutput(
+        status="rejected",
+        reason="A definicao e generica e nao fornece substancia conceitual.",
+        category="empty",
+    ).model_dump_json()
+    monkeypatch.setattr(connector, "get_llm", lambda cfg, phase: object())
+    monkeypatch.setattr(connector, "call_llm", lambda *a, **k: response)
+
+    with pytest.raises(ConnectRejected, match="definicao e generica") as caught:
+        create_permanent_from_literature(cfg, db, idx, str(lit), use_llm=True)
+    assert "sem o LLM" in str(caught.value)
+    assert "zettel connect" not in str(caught.value)
+    assert "--llm" not in str(caught.value)
+
+
 def test_candidate_theses_strips_pipeline_rendering_metadata():
     """#57/#58: a checklist line rendered by build_literature_chunk_note still
     adopts a clean thesis, in case a pipeline draft is later hand-edited to

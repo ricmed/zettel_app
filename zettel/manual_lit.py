@@ -30,6 +30,21 @@ logger = logging.getLogger(__name__)
 MANUAL_CHAPTER_SUFFIX = "::ch000"
 MANUAL_CHAPTER_TITLE = "Manual"
 
+
+def _ztl_llm_rejected_message(reason: str) -> str:
+    """Web/CLI copy when Prompt 2 declines a LIT→ZTL candidate."""
+    reason = (reason or "").strip()
+    head = "O modelo recusou gerar a nota permanente"
+    if reason:
+        head = f"{head}: {reason}"
+    else:
+        head = f"{head}."
+    return (
+        f"{head} Enriqueça o resumo ou a tese da LIT e tente de novo, "
+        "ou crie a ZTL sem o LLM."
+    )
+
+
 _PLACEHOLDERS = {
     "_preencha o resumo._",
     "_preencha a tese._",
@@ -416,7 +431,7 @@ def create_permanent_from_literature(
     ``origin: manual``. Without it, a pre-filled scaffold is written for the user to
     complete and adopt later with ``sync-manual``. Neither path needs approval.
     """
-    from zettel.connector import _literature_ref_for_chunk, run_connect
+    from zettel.connector import ConnectRejected, _literature_ref_for_chunk, run_connect
     from zettel.new_note import resolve_src_in_vault, source_wikilink
     from zettel.vault import (
         build_permanent_note_body,
@@ -452,25 +467,26 @@ def create_permanent_from_literature(
             candidate_json=candidate.model_dump_json(),
             status="approved",
         )
-        note_ids = run_connect(
-            cfg, db, idx,
-            [{
-                "concept_id": concept_id,
-                "source_id": source_id,
-                "chunk_id": chunk_id,
-                "candidate": candidate,
-            }],
-            origin="manual",
-        )
-        if not note_ids:
-            # The concept row survives with status=approved, so `zettel connect`
-            # retries it later without re-deriving anything.
-            raise RuntimeError(
-                "O LLM nao produziu uma nota valida para esta nota de literatura "
-                "(resposta rejeitada ou fora do formato esperado). O candidato ficou "
-                "registrado: refine o resumo/tese e tente de novo, rode 'zettel connect', "
-                "ou use o caminho sem --llm."
+        try:
+            note_ids = run_connect(
+                cfg, db, idx,
+                [{
+                    "concept_id": concept_id,
+                    "source_id": source_id,
+                    "chunk_id": chunk_id,
+                    "candidate": candidate,
+                }],
+                origin="manual",
             )
+        except ConnectRejected as exc:
+            raise ConnectRejected(
+                _ztl_llm_rejected_message(exc.reason),
+                reason=exc.reason,
+            ) from exc
+        if not note_ids:
+            # The concept row survives with status=approved, so a later connect
+            # retries it without re-deriving anything.
+            raise ConnectRejected(_ztl_llm_rejected_message(""))
         row = db.get_note(note_ids[0]) or {}
         return Path(row.get("path") or ""), True
 

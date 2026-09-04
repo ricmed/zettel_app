@@ -51,7 +51,7 @@ uv run pytest tests/test_web.py tests/test_web_state.py tests/test_web_package.p
 | **Pipeline** (`/pipeline`) | `extract`, `connect`, garden taxonômico, garden por hubs, sincronização manual e repetição segura de chunks/assets com falha |
 | **Revisão** (`/review`) | Filtros por fonte/confiança, trecho, candidatos e aprovação/rejeição **em lote** (sem auto-approve por limiar — use a CLI para `--yes` / bandas interativas) |
 | **Notas / MOCs** (`/notes`, `/notes/{id}`, `/mocs/{id}`, `/sources/{id}`) | Listagem read-only e páginas de detalhe de notas permanentes, MOCs e fontes |
-| **Criar notas** (`/notes/new`) | Scaffolds manuais SRC, LIT (índice ou granular) e ZTL; busca de fonte/LIT com combobox (fallback `<select>`); ZTL a partir de LIT enfileira `manual-ztl-from-lit` com ou sem LLM |
+| **Criar notas** (`/notes/new`) | Scaffolds manuais SRC, LIT (índice ou granular) e ZTL; busca de fonte/LIT com combobox (a partir de 3 letras; fallback `<select>`); SRC monta a referência ABNT no form (`POST /notes/new/biblio-preview`, sem job) para revisão antes de criar; LIT granular aceita trecho, resumo, conceitos e candidato no próprio form; ZTL a partir de LIT enfileira `manual-ztl-from-lit` com ou sem LLM |
 | **Execuções** (`/runs`, `/jobs/{id}`) | Estado persistente, progresso (polling em `/api/jobs/{id}`), eventos, resultado e erro sanitizado |
 | **Configuração / saúde** (`/settings`) | FTS5, diretórios, identidade LLM/embedding (incluindo drift de `dimensions`) — sem segredos |
 

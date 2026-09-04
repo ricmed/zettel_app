@@ -67,6 +67,7 @@ def _lit_label(row: dict) -> str:
 
 def _source_item(row: dict, next_index: int | None = None) -> dict:
     item = {
+        "id": row["source_id"],
         "source_id": row["source_id"],
         "citekey": row.get("citekey") or "",
         "title": row.get("title") or "",
@@ -80,8 +81,10 @@ def _source_item(row: dict, next_index: int | None = None) -> dict:
 
 
 def _lit_item(row: dict) -> dict:
+    chunk_id = row["chunk_id"]
     return {
-        "ref": row["chunk_id"],
+        "id": chunk_id,
+        "ref": chunk_id,
         "source_id": row.get("source_id") or "",
         "section_path": row.get("section_path") or "",
         "locator": row.get("locator") or "",

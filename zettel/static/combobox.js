@@ -1,5 +1,6 @@
 (() => {
   const DEBOUNCE_MS = 200;
+  const MIN_QUERY = 3;
 
   function liveField(scope, name) {
     const root = scope && scope.querySelectorAll ? scope : document;
@@ -19,10 +20,16 @@
   function restoreSelect(root, select) {
     select.hidden = false;
     select.disabled = false;
-    const extras = root.querySelectorAll(".combobox-input, .combobox-list, .combobox-status, input[type=hidden][data-combobox-hidden]");
+    const extras = root.querySelectorAll(
+      ".combobox-input, .combobox-list, .combobox-status, .combobox-field, input[type=hidden][data-combobox-hidden]",
+    );
     extras.forEach(node => node.remove());
     const hint = root.querySelector(".combobox-hint");
     if (hint) hint.hidden = false;
+  }
+
+  function queryReady(query) {
+    return (query || "").trim().length >= MIN_QUERY;
   }
 
   function enhance(root) {
@@ -40,12 +47,15 @@
     hidden.dataset.comboboxHidden = "1";
 
     const input = document.createElement("input");
-    input.type = "search";
+    input.type = "text";
     input.setAttribute("role", "combobox");
     input.setAttribute("aria-autocomplete", "list");
     input.setAttribute("aria-expanded", "false");
     input.setAttribute("autocomplete", "off");
+    input.setAttribute("autocapitalize", "off");
+    input.setAttribute("spellcheck", "false");
     input.className = "combobox-input";
+    input.placeholder = "Digite pelo menos 3 letras";
     if (select.dataset.requiredFor) {
       hidden.dataset.requiredFor = select.dataset.requiredFor;
       input.dataset.requiredFor = select.dataset.requiredFor;
@@ -58,6 +68,10 @@
     list.setAttribute("role", "listbox");
     list.className = "combobox-list";
     list.hidden = true;
+
+    const field = document.createElement("div");
+    field.className = "combobox-field";
+    field.append(input, list);
 
     const status = document.createElement("div");
     status.className = "combobox-status";
@@ -91,11 +105,30 @@
     function highlight() {
       [...list.children].forEach((child, index) => {
         child.setAttribute("aria-selected", index === active ? "true" : "false");
-        if (index === active) {
-          input.setAttribute("aria-activedescendant", child.id);
-          child.scrollIntoView({ block: "nearest" });
-        }
       });
+      if (active >= 0 && list.children[active]) {
+        const child = list.children[active];
+        input.setAttribute("aria-activedescendant", child.id);
+        const top = child.offsetTop;
+        const bottom = top + child.offsetHeight;
+        if (top < list.scrollTop) list.scrollTop = top;
+        else if (bottom > list.scrollTop + list.clientHeight) {
+          list.scrollTop = bottom - list.clientHeight;
+        }
+      } else {
+        input.removeAttribute("aria-activedescendant");
+      }
+    }
+
+    function itemValue(row) {
+      // Canonical submitted value. Literature items also carry source_id for
+      // filtering — that must not win over ref/id, or from_lit posts a citekey.
+      return row.id || row.ref || row.source_id || "";
+    }
+
+    function pick(row) {
+      setValue(itemValue(row), row.label, row);
+      close();
     }
 
     function render(rows, truncated) {
@@ -107,11 +140,9 @@
         li.setAttribute("role", "option");
         li.setAttribute("aria-selected", "false");
         li.textContent = row.label;
-        li.addEventListener("mousedown", event => {
+        li.addEventListener("pointerdown", event => {
           event.preventDefault();
-          const value = row.source_id || row.ref || row.id || "";
-          setValue(value, row.label, row);
-          close();
+          pick(row);
         });
         list.append(li);
       });
@@ -120,7 +151,7 @@
         : "Nenhum resultado";
       list.hidden = false;
       input.setAttribute("aria-expanded", "true");
-      active = rows.length ? 0 : -1;
+      active = -1;
       highlight();
     }
 
@@ -136,7 +167,7 @@
       if (dependsOn) {
         const scope = liveValue(root.form || document, dependsOn);
         if (!scope) {
-          render([], false);
+          close();
           status.textContent = "Escolha a fonte primeiro";
           return;
         }
@@ -168,7 +199,19 @@
 
     function schedule(query) {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => search(query), DEBOUNCE_MS);
+      if (dependsOn && !liveValue(root.form || document, dependsOn)) {
+        close();
+        status.textContent = "Escolha a fonte primeiro";
+        return;
+      }
+      if (!queryReady(query)) {
+        close();
+        status.textContent = (query || "").trim()
+          ? "Digite pelo menos 3 letras"
+          : "";
+        return;
+      }
+      timer = window.setTimeout(() => search(query.trim()), DEBOUNCE_MS);
     }
 
     select.hidden = true;
@@ -176,9 +219,8 @@
     const hint = root.querySelector(".combobox-hint");
     if (hint) hint.hidden = true;
     select.insertAdjacentElement("afterend", hidden);
-    hidden.insertAdjacentElement("afterend", input);
-    input.insertAdjacentElement("afterend", list);
-    list.insertAdjacentElement("afterend", status);
+    hidden.insertAdjacentElement("afterend", field);
+    field.insertAdjacentElement("afterend", status);
 
     if (select.value) {
       setValue(select.value, optionLabel(select, select.value), {
@@ -192,19 +234,25 @@
     }
 
     input.addEventListener("input", () => schedule(input.value));
-    input.addEventListener("focus", () => schedule(input.value));
+    input.addEventListener("focus", () => {
+      if (queryReady(input.value)) schedule(input.value);
+      else if (!hidden.value) status.textContent = "Digite pelo menos 3 letras";
+    });
     input.addEventListener("keydown", event => {
       if (event.key === "ArrowDown") {
         event.preventDefault();
-        if (list.hidden) schedule(input.value);
-        else if (items.length) {
-          active = (active + 1) % items.length;
+        if (list.hidden) {
+          if (queryReady(input.value)) schedule(input.value);
+          return;
+        }
+        if (items.length) {
+          active = active < 0 ? 0 : (active + 1) % items.length;
           highlight();
         }
       } else if (event.key === "ArrowUp") {
         event.preventDefault();
         if (items.length) {
-          active = (active - 1 + items.length) % items.length;
+          active = active < 0 ? items.length - 1 : (active - 1 + items.length) % items.length;
           highlight();
         }
       } else if (event.key === "Home") {
@@ -214,9 +262,7 @@
       } else if (event.key === "Enter") {
         if (!list.hidden && active >= 0 && items[active]) {
           event.preventDefault();
-          const row = items[active];
-          setValue(row.source_id || row.ref || row.id || "", row.label, row);
-          close();
+          pick(items[active]);
         }
       } else if (event.key === "Escape") {
         input.value = confirmedLabel;
@@ -237,10 +283,12 @@
       document.addEventListener("combobox:change", event => {
         if (!event.detail || event.detail.name !== dependsOn) return;
         input.disabled = !event.detail.value;
-        input.placeholder = event.detail.value ? "Buscar…" : "Escolha a fonte primeiro";
+        input.placeholder = event.detail.value
+          ? "Digite pelo menos 3 letras"
+          : "Escolha a fonte primeiro";
         setValue("", "", null);
-        if (event.detail.value) schedule("");
-        else close();
+        close();
+        status.textContent = event.detail.value ? "Digite pelo menos 3 letras" : "Escolha a fonte primeiro";
       });
     }
   }

@@ -175,6 +175,32 @@ def test_scaffold_literature_granular(cfg):
     assert meta["type"] == "literature"
     assert meta["status"] == "approved"
     assert read_managed_block(body, "auto-source-excerpt") is not None
+    assert "_Preencha o resumo._" in body
+    assert "_Cole o trecho da fonte aqui._" in read_managed_block(body, "auto-source-excerpt")
+
+
+def test_scaffold_literature_granular_persists_body(cfg):
+    scaffold_manual_note(cfg, "src", "Fonte Granular", citekey="Autor2023")
+    result = scaffold_manual_note(
+        cfg, "literature", "Sistema 1",
+        source_id="@Autor2023",
+        granular=True,
+        chunk_index=1,
+        page=20,
+        summary="Pensar rapido e o modo padrao.",
+        source_text="O sistema 1 opera automaticamente.",
+        key_concepts=["sistema 1", "heuristica"],
+        candidates=[{"thesis": "O sistema 1 e o modo padrao da mente."}],
+    )
+    meta, body = parse_frontmatter(result.path.read_text(encoding="utf-8"))
+    assert meta["section_path"] == "Sistema 1"
+    excerpt = read_managed_block(body, "auto-source-excerpt")
+    assert excerpt is not None
+    assert "O sistema 1 opera automaticamente." in excerpt
+    assert "Pensar rapido e o modo padrao." in body
+    assert "#sistema 1" in body
+    assert "O sistema 1 e o modo padrao da mente." in body
+    assert "_Preencha o resumo._" not in body
 
 
 def test_scaffold_permanent_note(cfg):

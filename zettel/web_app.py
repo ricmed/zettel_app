@@ -172,6 +172,14 @@ class WebWorker:
                 message="Operação concluída.", result=result or {}, run_id=run_id, finished=True,
             )
             db.add_web_job_event(job_id, "completed", message="Operação concluída.")
+        except UserFacingError as exc:
+            logger.warning("Trabalho web %s falhou: %s", job_id, exc)
+            message = safe_error(exc)
+            db.update_web_job(
+                job_id, state="failed", phase="failed",
+                message=message, error_message=message, finished=True,
+            )
+            db.add_web_job_event(job_id, "failed", message=message)
         except Exception as exc:  # worker must survive a failed job
             logger.error("Trabalho web %s falhou: %s\n%s", job_id, exc, traceback.format_exc())
             message = safe_error(exc)
@@ -288,14 +296,18 @@ class WebWorker:
                 "extraction_dump_dir": payload.get("extraction_dump_dir"),
             }
         if operation == "manual-ztl-from-lit":
+            from zettel.connector import ConnectRejected
             from zettel.manual_lit import create_permanent_from_literature
             ref = payload.get("ref") or payload["chunk_id"]
-            result = create_permanent_from_literature(
-                cfg, db, idx, ref,
-                thesis=payload.get("thesis") or None,
-                use_llm=bool(payload.get("use_llm")),
-                force=bool(payload.get("force")),
-            )
+            try:
+                result = create_permanent_from_literature(
+                    cfg, db, idx, ref,
+                    thesis=payload.get("thesis") or None,
+                    use_llm=bool(payload.get("use_llm")),
+                    force=bool(payload.get("force")),
+                )
+            except ConnectRejected as exc:
+                raise UserFacingError(str(exc)) from exc
             path, used_llm = result
             return {"path": str(path), "used_llm": used_llm}
         if operation == "extract":

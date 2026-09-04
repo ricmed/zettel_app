@@ -489,9 +489,159 @@ def test_manual_form_markup_contract(web_client):
     assert "for-lit for-ztl" not in page.text
     assert 'data-types="' in page.text
     assert "data-required-for" in page.text
+    assert "pelo menos 3 letras" in page.text
     assert re.search(r"\srequired(\s|=|>)", page.text) is None
     assert 'name="thesis"' not in page.text
     assert "Tese / título da ideia" in page.text
+    assert 'id="biblio-format"' in page.text
+    assert 'id="biblio-enrich"' in page.text
+    assert 'name="biblio_sample"' in page.text
+    assert 'name="lit_excerpt"' in page.text
+    assert 'name="lit_summary"' in page.text
+    assert 'name="lit_concepts"' in page.text
+    assert 'name="lit_candidate"' in page.text
+    assert "Escreva a nota" in page.text
+
+
+def test_biblio_enrich_button_follows_harvest_phase(web_client, monkeypatch):
+    """All-phase llm_ready can be false (e.g. missing Gemini) while harvest works."""
+    client, _ = web_client
+    monkeypatch.setattr("zettel.web.manual._connect_llm_ok", lambda cfg: False)
+    monkeypatch.setattr("zettel.web.manual._biblio_llm_ok", lambda cfg: True)
+    _login(client)
+    page = client.get("/notes/new")
+    match = re.search(r'<button[^>]*id="biblio-enrich"[^>]*>', page.text)
+    assert match
+    assert "disabled" not in match.group(0)
+    assert "data-locked" not in match.group(0)
+    assert "biblio-llm-note" not in page.text
+
+
+def test_from_lit_llm_checkbox_follows_connect_phase(web_client, monkeypatch):
+    """Connect can be ready while extract/ask (Gemini) are not."""
+    client, _ = web_client
+    monkeypatch.setattr("zettel.web.manual._connect_llm_ok", lambda cfg: True)
+    monkeypatch.setattr("zettel.web.manual._biblio_llm_ok", lambda cfg: False)
+    _login(client)
+    page = client.get("/notes/new")
+    match = re.search(r'<input[^>]*id="use-llm"[^>]*>', page.text)
+    assert match
+    assert "disabled" not in match.group(0)
+    assert "data-locked" not in match.group(0)
+    assert "A fase connect não tem credencial" not in page.text
+
+
+def test_biblio_preview_requires_session(web_client):
+    client, _ = web_client
+    response = client.post("/notes/new/biblio-preview")
+    assert response.status_code == 401
+    assert response.json() == {"error": "unauthorized"}
+
+
+def test_biblio_preview_rejects_bad_csrf(web_client):
+    client, _ = web_client
+    _login(client)
+    response = client.post("/notes/new/biblio-preview", data={
+        "csrf": "wrong", "document_type": "livro", "title": "O Capital",
+    })
+    assert response.status_code == 403
+    assert response.json() == {"error": "csrf"}
+
+
+def test_biblio_preview_formats_abnt_without_writing_vault(web_client):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    response = client.post("/notes/new/biblio-preview", data={
+        "csrf": csrf, "title": "O Capital", "authors": "Karl Marx",
+        "year": "2013", "document_type": "livro",
+        "place": "Sao Paulo", "publisher": "Boitempo",
+    })
+    assert response.status_code == 200
+    body = response.json()
+    assert body["abnt_reference"].startswith("MARX, Karl.")
+    assert "Sao Paulo: Boitempo, 2013." in body["abnt_reference"]
+    assert body["enriched"] is False
+    assert body["publisher"] == "Boitempo"
+    assert not list((tmp_path / "vault").rglob("*.md"))
+
+
+def test_biblio_preview_requires_document_type_without_llm(web_client):
+    client, _ = web_client
+    csrf = _login(client)
+    response = client.post("/notes/new/biblio-preview", data={
+        "csrf": csrf, "title": "O Capital", "authors": "Karl Marx", "year": "2013",
+    })
+    assert response.status_code == 400
+    assert "tipo de documento" in response.json()["error"].lower()
+
+
+def test_biblio_preview_refuses_llm_without_evidence(web_client):
+    client, _ = web_client
+    csrf = _login(client)
+    response = client.post("/notes/new/biblio-preview", data={
+        "csrf": csrf, "enrich": "1", "document_type": "livro", "title": "O Capital",
+    })
+    assert response.status_code == 400
+    assert "DOI" in response.json()["error"]
+
+
+def test_biblio_preview_enrich_without_llm_is_conflict(web_client, monkeypatch):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    monkeypatch.setattr("zettel.web.manual._biblio_llm_ok", lambda cfg: False)
+    response = client.post("/notes/new/biblio-preview", data={
+        "csrf": csrf, "enrich": "1", "document_type": "livro", "title": "O Capital",
+        "doi": "https://doi.org/10.1234/x",
+    })
+    assert response.status_code == 409
+    assert "credencial" in response.json()["error"].lower()
+    assert not list((tmp_path / "vault").rglob("*.md"))
+
+
+def test_biblio_preview_enrich_fills_empty_fields_without_writing(web_client, monkeypatch):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    monkeypatch.setattr("zettel.web.manual._biblio_llm_ok", lambda cfg: True)
+
+    def fake_enrich(cfg, db, seed, text_sample, filename, *, prefer_seed=False, raise_on_error=False):
+        assert prefer_seed is True
+        assert filename == "manual-src"
+        assert "10.1234/x" in text_sample
+        seed.publisher = seed.publisher or "Boitempo"
+        seed.place = "Sao Paulo"
+        return seed
+
+    monkeypatch.setattr("zettel.bibliography.enrich_with_llm", fake_enrich)
+    response = client.post("/notes/new/biblio-preview", data={
+        "csrf": csrf, "enrich": "1", "title": "O Capital", "authors": "Karl Marx",
+        "year": "2013", "document_type": "livro", "doi": "https://doi.org/10.1234/x",
+        "publisher": "Boitempo",
+    })
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enriched"] is True
+    assert body["publisher"] == "Boitempo"
+    assert body["place"] == "Sao Paulo"
+    assert "MARX, Karl." in body["abnt_reference"]
+    assert not list((tmp_path / "vault").rglob("*.md"))
+
+
+def test_manual_source_keeps_edited_abnt_reference(web_client):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    response = client.post("/notes/new", data={
+        "csrf": csrf, "note_type": "SRC", "title": "O Capital",
+        "citekey": "Marx2013", "authors": "Karl Marx", "year": "2013",
+        "document_type": "livro",
+        "abnt_reference": "MARX, Karl. O Capital. Sao Paulo: Boitempo, 2013.",
+        "publisher": "Boitempo", "biblio_sample": "nao deve ir para a nota",
+    })
+    assert response.status_code == 201
+    created = list((tmp_path / "vault" / "10_Sources").glob("*.md"))
+    assert len(created) == 1
+    content = created[0].read_text(encoding="utf-8")
+    assert "MARX, Karl. O Capital. Sao Paulo: Boitempo, 2013." in content
+    assert "nao deve ir para a nota" not in content
 
 
 def test_manual_lit_granular_creates_chunk_file(web_client):
@@ -512,6 +662,32 @@ def test_manual_lit_granular_creates_chunk_file(web_client):
     assert "chunk_id:" in content
     assert "@Kahneman2011::manual::0001" in content
     assert "Sistema 1" in content
+
+
+def test_manual_lit_granular_writes_body(web_client):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    _seed_source(client)
+    response = client.post("/notes/new", data={
+        "csrf": csrf, "note_type": "LIT", "title": "Sistema 1",
+        "source_id": "@Kahneman2011", "granular": "1",
+        "chunk_index": "1", "page_number": "20",
+        "lit_excerpt": "O sistema 1 opera automatica e rapidamente.",
+        "lit_summary": "Pensar rapido e o modo padrao, sem esforco deliberado.",
+        "lit_concepts": "sistema 1\nheuristica",
+        "lit_candidate": "O sistema 1 e o modo padrao da mente.",
+    })
+    assert response.status_code == 201
+    created = list((tmp_path / "vault" / "20_Literature" / "Kahneman2011").glob("*.md"))
+    assert len(created) == 1
+    content = created[0].read_text(encoding="utf-8")
+    assert "O sistema 1 opera automatica e rapidamente." in content
+    assert "Pensar rapido e o modo padrao, sem esforco deliberado." in content
+    assert "#sistema 1" in content
+    assert "#heuristica" in content
+    assert "O sistema 1 e o modo padrao da mente." in content
+    assert "_Preencha o resumo._" not in content
+    assert "_Cole o trecho da fonte aqui._" not in content
 
 
 def test_manual_lit_index_collides_without_force(web_client):
@@ -564,6 +740,7 @@ def test_pickers_require_session_and_omit_payloads(web_client):
     assert "SENTINEL_LIT_BODY" not in body
     assert "literature_note_path" not in body
     assert sources.json()["items"][0]["source_id"] == "@Kahneman2011"
+    assert sources.json()["items"][0]["id"] == "@Kahneman2011"
     missing = client.get("/api/pickers/literature?q=sistema")
     assert missing.status_code == 400
     assert missing.json() == {"error": "source_id_required"}
@@ -576,6 +753,9 @@ def test_pickers_require_session_and_omit_payloads(web_client):
     assert "literature_note_path" not in literature.text
     items = literature.json()["items"]
     assert items and items[0]["ref"] == chunk_id
+    assert items[0]["id"] == chunk_id
+    assert items[0]["source_id"] == "@Kahneman2011"
+    assert items[0]["id"] != items[0]["source_id"]
     other = client.get(
         "/api/pickers/literature",
         params={"q": "Sistema", "source_id": "@Other2010"},
@@ -614,6 +794,53 @@ def test_from_lit_unknown_chunk_is_rejected(web_client):
         "from_lit": "@nope::manual::0001",
     })
     assert response.status_code == 400
+    assert "LIT granular" in response.text
+
+
+def test_from_lit_source_id_is_not_a_chunk(web_client):
+    """A literature pick that submitted source_id (citekey) is not a valid chunk."""
+    client, _ = web_client
+    csrf = _login(client)
+    _seed_source(client)
+    response = client.post("/notes/new", data={
+        "csrf": csrf, "note_type": "ZTL", "ztl_origin": "from_lit",
+        "from_lit": "@Kahneman2011",
+    })
+    assert response.status_code == 400
+    assert "LIT granular" in response.text
+
+
+def test_from_lit_chunk_id_enqueues(web_client, monkeypatch):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    _seed_source(client)
+    lit_dir = tmp_path / "vault" / "20_Literature" / "Kahneman2011"
+    lit_dir.mkdir(parents=True)
+    path = lit_dir / "LIT - Kahneman2011 - p020 - sistema-1-0001.md"
+    path.write_text(
+        "---\ntype: literature\nchunk_id: '@Kahneman2011::manual::0001'\n"
+        "source_id: '@Kahneman2011'\n---\n## Resumo\n\nHeurísticas guiam o julgamento.\n",
+        encoding="utf-8",
+    )
+    chunk_id = _seed_literature_chunk(client, path=path)
+    captured = {}
+
+    def fake_submit(operation, payload):
+        captured.update(operation=operation, payload=payload)
+        return "from-lit-job"
+
+    monkeypatch.setattr(client.app.state.service, "submit", fake_submit)
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf, "note_type": "ZTL", "ztl_origin": "from_lit",
+            "from_lit": chunk_id, "lit_thesis": "Heurísticas guiam o julgamento.",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert captured["operation"] == "manual-ztl-from-lit"
+    assert captured["payload"]["ref"] == chunk_id
 
 
 @pytest.mark.parametrize("path", [

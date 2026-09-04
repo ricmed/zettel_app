@@ -5,14 +5,16 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi import APIRouter
 
 from zettel.web.enqueue import post_job
-from zettel.web.health import llm_ready as _llm_ready
+from zettel.web.health import llm_phase_ready as _llm_phase_ready
 from zettel.web.manual_form import (
     PreflightConflict,
+    biblio_text_sample,
     parse,
+    parse_biblio_preview,
     preflight_from_lit,
     resolve_from_lit,
 )
@@ -83,6 +85,18 @@ def _accepted_source(db: Any, source_id: str | None) -> str | None:
     return row["source_id"] if row else None
 
 
+def _biblio_llm_ok(cfg: Any) -> bool:
+    """Bibliography preview uses ``llm.harvest``, not every phase."""
+    return _llm_phase_ready(cfg, "harvest") and bool(
+        getattr(cfg.harvest, "biblio_llm_enabled", True)
+    )
+
+
+def _connect_llm_ok(cfg: Any) -> bool:
+    """LIT→ZTL with LLM reuses Prompt 2 (``llm.connect``), not every phase."""
+    return _llm_phase_ready(cfg, "connect")
+
+
 def _document_type_options() -> list[dict]:
     from zettel.bibliography import DOCUMENT_TYPE_LABELS
 
@@ -102,7 +116,8 @@ def _form_page(
         recent_literature=_picker_literature(db, source_id),
         document_types=_document_type_options(),
         selected_document_type=selected.get("document_type") or "",
-        llm_ready=_llm_ready(cfg),
+        connect_llm_ready=_connect_llm_ok(cfg),
+        biblio_llm_ready=_biblio_llm_ok(cfg),
         result=result, error=error, next_step=next_step,
         selected_type=selected.get("type") or "SRC",
         selected_source_id=source_id or "",
@@ -168,7 +183,7 @@ async def new_note(
             index = int(chunk_index)
         elif accepted and note_type == "LIT":
             index = db.next_manual_chunk_index(accepted)
-        granular = "1" if note_type == "LIT" and chunk_index else ""
+        granular = "1"
         return _form_page(request, db, selected={
             "type": note_type,
             "source_id": accepted,
@@ -178,6 +193,66 @@ async def new_note(
             "ztl_origin": ztl_origin,
             "granular": granular,
         })
+    finally:
+        db.close()
+
+
+@router.post("/notes/new/biblio-preview")
+async def biblio_preview(request: Request):
+    """Fill SRC bibliography fields. Never writes the vault or enqueues a job."""
+    if not authenticated(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    form = await request.form()
+    if not csrf_ok(request, str(form.get("csrf") or "")):
+        return JSONResponse({"error": "csrf"}, status_code=403)
+    svc = service(request)
+    db = svc.db()
+    try:
+        parsed = parse_biblio_preview(form)
+        if parsed["enrich"] and not _biblio_llm_ok(svc.cfg):
+            return JSONResponse(
+                {
+                    "error": (
+                        "O provedor LLM não possui credencial configurada. "
+                        "Verifique Configuração / saúde."
+                    ),
+                },
+                status_code=409,
+            )
+        from zettel.bibliography import (
+            form_fields_from_metadata,
+            metadata_from_manual_seed,
+            preview_manual_bibliography,
+        )
+        seed = metadata_from_manual_seed(
+            title=parsed["title"],
+            authors=parsed["authors"],
+            year=parsed["year"],
+            document_type=parsed["document_type"],
+            publisher=parsed["publisher"],
+            place=parsed["place"],
+            doi=parsed["doi"],
+            url=parsed["url"],
+            journal=parsed["journal"],
+            edition=parsed["edition"],
+            institution=parsed["institution"],
+            pages=parsed["pages"],
+        )
+        meta = preview_manual_bibliography(
+            svc.cfg, db, seed, biblio_text_sample(parsed), enrich=parsed["enrich"],
+        )
+        payload = form_fields_from_metadata(meta)
+        payload["enriched"] = bool(parsed["enrich"])
+        payload["warning"] = None
+        if not payload["abnt_reference"]:
+            payload["warning"] = (
+                "Informe o tipo de documento para montar a referência ABNT."
+            )
+        return payload
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except RuntimeError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
     finally:
         db.close()
 
@@ -200,7 +275,7 @@ async def create_note(request: Request):
             "from_lit_path": parsed.get("from_lit_path") or "",
             "chunk_index": parsed.get("chunk_index"),
             "ztl_origin": "from_lit" if parsed["mode"] == "ZTL_FROM_LIT" else "blank",
-            "granular": "1" if parsed["mode"] == "LIT_GRANULAR" else "",
+            "granular": "" if parsed["mode"] == "LIT_INDEX" else "1",
         }
         if parsed["mode"] in {"LIT_INDEX", "LIT_GRANULAR"}:
             if not selected["source_id"]:
@@ -210,7 +285,7 @@ async def create_note(request: Request):
         if parsed["mode"] == "ZTL_FROM_LIT":
             ref = resolve_from_lit(svc.cfg, db, parsed)
             thesis = preflight_from_lit(
-                svc.cfg, db, parsed, ref, llm_ok=_llm_ready(svc.cfg),
+                svc.cfg, db, parsed, ref, llm_ok=_connect_llm_ok(svc.cfg),
             )
             return post_job(request, "manual-ztl-from-lit", {
                 "ref": ref,
@@ -243,6 +318,16 @@ async def create_note(request: Request):
             granular=parsed["granular"],
             chunk_index=parsed["chunk_index"],
             page=parsed["page"],
+            summary=parsed.get("lit_summary") if parsed["mode"] == "LIT_GRANULAR" else None,
+            source_text=parsed.get("lit_excerpt") if parsed["mode"] == "LIT_GRANULAR" else None,
+            key_concepts=(
+                parsed.get("lit_concepts") if parsed["mode"] == "LIT_GRANULAR" else None
+            ),
+            candidates=(
+                [{"thesis": parsed["lit_candidate"]}]
+                if parsed["mode"] == "LIT_GRANULAR" and parsed.get("lit_candidate")
+                else None
+            ),
             force=parsed["force"],
         )
         return _form_page(
@@ -255,13 +340,19 @@ async def create_note(request: Request):
             body = f'{body} <a href="{exc.href}">Abrir o Pipeline</a>.'
         return HTMLResponse(body, status_code=409)
     except (ValueError, FileExistsError) as exc:
+        note_type = str(form.get("note_type") or "SRC").upper()
+        posted_granular = str(form.get("granular") or "")
+        if note_type == "LIT":
+            granular = "1" if posted_granular == "1" else ""
+        else:
+            granular = "1"
         return _form_page(request, db, status_code=400, error=str(exc), selected={
-            "type": str(form.get("note_type") or "SRC").upper(),
+            "type": note_type,
             "source_id": str(form.get("source_id") or "") or None,
             "from_lit": str(form.get("from_lit") or ""),
             "from_lit_path": str(form.get("from_lit_path") or ""),
             "ztl_origin": str(form.get("ztl_origin") or "blank"),
-            "granular": str(form.get("granular") or ""),
+            "granular": granular,
             "document_type": str(form.get("document_type") or ""),
         })
     finally:

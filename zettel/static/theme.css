@@ -71,7 +71,21 @@
   background: var(--card);
 }
 
-[data-theme="dark"] .manual-form input:not([type="checkbox"]):not([type="radio"]),
+[data-theme="dark"] .combobox-input,
+[data-theme="dark"] .manual-form input.combobox-input {
+  background: var(--surface-input);
+  color: var(--ink);
+  border-color: var(--field-line);
+}
+  background: var(--card);
+  border-color: var(--line);
+}
+
+[data-theme="dark"] .combobox-list li[aria-selected="true"],
+[data-theme="dark"] .combobox-list li:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
 [data-theme="dark"] .manual-form textarea,
 [data-theme="dark"] .manual-form select,
 [data-theme="dark"] input[type="file"],
