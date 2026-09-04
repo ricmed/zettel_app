@@ -16,6 +16,8 @@ answers it differently, which is exactly why the resolution is not baked into
 
 from __future__ import annotations
 
+import sys
+
 import typer
 
 from zettel.cli.app import console
@@ -123,3 +125,41 @@ def get_idx(cfg, db=None, yes: bool = False):
         finally:
             if own_db and db is not None:
                 db.close()
+
+
+def preflight_gate(estimate, yes: bool, db=None) -> None:
+    """Show the LLM cost estimate and, when interactive, ask before spending.
+
+    Lives next to the embedding-drift confirmation for the same reason: deciding
+    what to ask a human is entry-point UX, not pipeline logic. The estimators in
+    ``zettel/preflight.py`` stay pure, so ``run_extract`` / ``run_connect`` /
+    ``run_article_graph`` are untouched and the web worker (a daemon with no
+    stdin) cannot acquire a new way to block.
+
+    ``--yes`` and a non-TTY stdin go straight through: the estimate is an
+    operator courtesy, not a budget cap.
+    """
+    from rich.table import Table
+
+    table = Table(title="Pre-voo LLM")
+    table.add_column("Item", style="bold")
+    table.add_column("Valor", justify="right")
+    table.add_row("Fase", estimate.phase)
+    table.add_row("Modelo", f"{estimate.provider}/{estimate.model}")
+    table.add_row("Itens", f"{estimate.items} {estimate.item_label}")
+    table.add_row("Tokens input (est.)", f"~{estimate.input_tokens:,}")
+    table.add_row("Tokens output (est.)", f"~{estimate.output_tokens:,}")
+    table.add_row("Custo est. (LiteLLM)", f"~${estimate.cost_usd:.4f}")
+    console.print(table)
+    for caveat in estimate.caveats:
+        console.print(f"[dim]{caveat}[/dim]")
+    console.print("[dim]Estimativa: precos mudam e o cache SQLite pode reduzir o total.[/dim]")
+
+    if yes or not sys.stdin.isatty():
+        return
+    if typer.confirm("Prosseguir?", default=True):
+        return
+    console.print("[yellow]Abortado antes de qualquer chamada de LLM.[/yellow]")
+    if db is not None:
+        db.close()
+    raise typer.Exit(1)

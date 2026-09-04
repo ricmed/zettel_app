@@ -96,6 +96,8 @@ class ChunkingConfig(BaseModel):
 class LinkingConfig(BaseModel):
     topk: int = 5
     dedupe_threshold: float = 0.85
+    # Alvo de saida por nota, usado APENAS na estimativa de pre-voo (nao e teto).
+    preflight_output_tokens_per_note: int = 1200
 
 
 class HarvestConfig(BaseModel):
@@ -118,6 +120,8 @@ class ExtractionConfig(BaseModel):
     anchor_quote_min_ratio: float = 0.85  # cobertura minima na checagem fuzzy
     anchor_quote_min_words: int = 10      # faixa que o prompt ja exige
     anchor_quote_max_words: int = 25
+    # Alvo de saida por chunk, usado APENAS na estimativa de pre-voo (nao e teto).
+    preflight_output_tokens_per_chunk: int = 800
 
 
 class LiteratureReviewConfig(BaseModel):

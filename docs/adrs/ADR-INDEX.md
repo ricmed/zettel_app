@@ -1,7 +1,7 @@
-# zettel_app ADR Index (36 Decisions)
+# zettel_app ADR Index (37 Decisions)
 
 **Last Updated**: 2026-09-03  
-**Status**: Complete — 36 formal ADRs across 12 modules, 42 relationships mapped
+**Status**: Complete — 37 formal ADRs across 12 modules, 42 relationships mapped
 
 ---
 
@@ -17,7 +17,7 @@
 | **GARDEN** | 3 | [019–021](#garden-moc-generation) |
 | **WEB** | 2 | [022–023](#web-ui--job-queue) |
 | **LLM** | 2 | [024–025](#llm-provider--caching) |
-| **CLI** | 3 | [026, 032, 035](#cli-orchestration) |
+| **CLI** | 4 | [026, 032, 035, 037](#cli-orchestration) |
 | **QA-WRITING** | 2 | [028–029](#qa-writing--article-pipeline) |
 | **MANUAL** | 1 | [030](#manual-hand-written-notes) |
 | **ASSETS** | 1 | [031](#assets-images) |
@@ -330,6 +330,15 @@
 
 ---
 
+### ADR-037: Pre-Flight Cost Estimate as a Pure Function, Confirmation Only in the CLI
+
+- **Status**: Accepted (2026-09-03)
+- **Date**: 2026-09-03
+- **Summary**: `zettel/preflight.py` estimates tokens and USD for `extract`, `connect` and `article` as **pure functions** (SQLite + config, no LLM call); `cli.deps.preflight_gate` renders the panel and asks. `run_*` is untouched, so the web worker and the test suite cannot acquire a new way to block. `--yes` and a non-TTY stdin pass straight through; a declined confirmation exits before any client is constructed. The estimate is a magnitude check, never a budget cap.
+- **Link**: [`ADR-037-llm-cost-preflight-estimate.md`](./generated/CLI/ADR-037-llm-cost-preflight-estimate.md)
+
+---
+
 ## QA-WRITING — Article Pipeline
 
 ### ADR-028: LangGraph StateGraph for Article Orchestration
@@ -376,8 +385,8 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 36 |
-| **Accepted** | 36 |
+| **Total ADRs** | 37 |
+| **Accepted** | 37 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 42 |
 | **Modules Covered** | 12 |
@@ -386,7 +395,7 @@
 
 ## Status Update (2026-09-03)
 
-✅ **ADR-033 through ADR-036 added** (epic #10). ADR-033 covers document hygiene at the ingestion boundary (issue #8): invisible-Unicode sanitization before the extraction checksum, plus a pdfium text-layer probe that aborts scanned PDFs before Docling runs. ADR-034 covers the optional author-judgement fields on the extraction candidate (issue #5). ADR-035 covers `zettel skill`, the deterministic flat Agent Skill export (issue #4). ADR-036 covers the topic index — routing, fed back through the relevance floor (issue #6).
+✅ **ADR-033 through ADR-037 added** (epic #10). ADR-033 covers document hygiene at the ingestion boundary (issue #8): invisible-Unicode sanitization before the extraction checksum, plus a pdfium text-layer probe that aborts scanned PDFs before Docling runs. ADR-034 covers the optional author-judgement fields on the extraction candidate (issue #5). ADR-035 covers `zettel skill`, the deterministic flat Agent Skill export (issue #4). ADR-036 covers the topic index — routing, fed back through the relevance floor (issue #6). ADR-037 covers the pre-flight cost estimate for extract/connect/article (issue #7).
 
 ---
 

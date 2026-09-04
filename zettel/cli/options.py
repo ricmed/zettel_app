@@ -31,7 +31,7 @@ ConfigOption = Annotated[Optional[str], typer.Option("--config", "-c")]
 
 YesOption = Annotated[bool, typer.Option(
     "--yes", "-y",
-    help="Confirmar automaticamente o reprocessamento se o embedding mudou",
+    help="Confirmar automaticamente: pre-voo de custo e reprocessamento de embedding",
 )]
 
 # harvest / run-all: --yes also selects the config default for suspected duplicates.
