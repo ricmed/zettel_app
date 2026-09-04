@@ -1,0 +1,26 @@
+[
+  {
+    "note_id": "01HEVALAAAAAAAAAAAAAAAAAAA",
+    "title": "Dropout como ensemble implicito",
+    "thesis": "Dropout treina subconjuntos de pesos e faz a media deles na inferencia, funcionando como um ensemble implicito.",
+    "tags": ["dropout", "regularizacao"]
+  },
+  {
+    "note_id": "01HEVALBBBBBBBBBBBBBBBBBBB",
+    "title": "Batch norm e covariate shift interno",
+    "thesis": "Batch normalization reduz o covariate shift interno ao renormalizar as ativacoes de cada minibatch.",
+    "tags": ["normalizacao"]
+  },
+  {
+    "note_id": "01HEVALCCCCCCCCCCCCCCCCCCC",
+    "title": "Attention sem recorrencia",
+    "thesis": "Attention modela dependencias de longo alcance sem recorrencia, tornando o comprimento do caminho constante.",
+    "tags": ["attention", "transformers"]
+  },
+  {
+    "note_id": "01HEVALDDDDDDDDDDDDDDDDDDD",
+    "title": "Curva de aprendizado e tamanho do dataset",
+    "thesis": "A curva de aprendizado separa erro por vies de erro por variancia conforme o dataset cresce.",
+    "tags": ["avaliacao"]
+  }
+]

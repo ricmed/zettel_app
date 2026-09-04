@@ -1,7 +1,7 @@
-# zettel_app ADR Index (37 Decisions)
+# zettel_app ADR Index (38 Decisions)
 
 **Last Updated**: 2026-09-03  
-**Status**: Complete — 37 formal ADRs across 12 modules, 42 relationships mapped
+**Status**: Complete — 38 formal ADRs across 12 modules, 42 relationships mapped
 
 ---
 
@@ -17,8 +17,7 @@
 | **GARDEN** | 3 | [019–021](#garden-moc-generation) |
 | **WEB** | 2 | [022–023](#web-ui--job-queue) |
 | **LLM** | 2 | [024–025](#llm-provider--caching) |
-| **CLI** | 4 | [026, 032, 035, 037](#cli-orchestration) |
-| **QA-WRITING** | 2 | [028–029](#qa-writing--article-pipeline) |
+| **QA-WRITING** | 3 | [028–029, 038](#qa-writing--article-pipeline) |
 | **MANUAL** | 1 | [030](#manual-hand-written-notes) |
 | **ASSETS** | 1 | [031](#assets-images) |
 
@@ -359,6 +358,15 @@
 
 ---
 
+### ADR-038: Ask Evaluation as Offline Replay, Isolated from the Production Path
+
+- **Status**: Accepted (2026-09-03)
+- **Date**: 2026-09-03
+- **Summary**: Research infrastructure that separates *routing* (`routing_miss`) from *representation* (`floor_reject`, `answer_fail`) instead of treating retrieval failure as one undifferentiated outcome. Replay first, live later: recorded trajectories are scored deterministically with no LLM and no network, so the scorer is verified before it is trusted to judge anything. Run identity hashes the manifest (including `commit_sha`), so a cross-commit comparison must be deliberate. Isolation from the pipeline is asserted by a test, not assumed.
+- **Link**: [`ADR-038-ask-trajectory-evals-offline-replay.md`](./generated/QA-WRITING/ADR-038-ask-trajectory-evals-offline-replay.md)
+
+---
+
 ## MANUAL — Hand-Written Notes
 
 ### ADR-030: Manual Notes Are Adopted at Sync Time and Bypass the Review Gate
@@ -385,8 +393,8 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 37 |
-| **Accepted** | 37 |
+| **Total ADRs** | 38 |
+| **Accepted** | 38 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 42 |
 | **Modules Covered** | 12 |
@@ -395,7 +403,7 @@
 
 ## Status Update (2026-09-03)
 
-✅ **ADR-033 through ADR-037 added** (epic #10). ADR-033 covers document hygiene at the ingestion boundary (issue #8): invisible-Unicode sanitization before the extraction checksum, plus a pdfium text-layer probe that aborts scanned PDFs before Docling runs. ADR-034 covers the optional author-judgement fields on the extraction candidate (issue #5). ADR-035 covers `zettel skill`, the deterministic flat Agent Skill export (issue #4). ADR-036 covers the topic index — routing, fed back through the relevance floor (issue #6). ADR-037 covers the pre-flight cost estimate for extract/connect/article (issue #7).
+✅ **ADR-033 through ADR-038 added** (epic #10). ADR-033 covers document hygiene at the ingestion boundary (issue #8): invisible-Unicode sanitization before the extraction checksum, plus a pdfium text-layer probe that aborts scanned PDFs before Docling runs. ADR-034 covers the optional author-judgement fields on the extraction candidate (issue #5). ADR-035 covers `zettel skill`, the deterministic flat Agent Skill export (issue #4). ADR-036 covers the topic index — routing, fed back through the relevance floor (issue #6). ADR-037 covers the pre-flight cost estimate for extract/connect/article (issue #7). ADR-038 covers the offline `ask` evaluation harness (issue #9). Epic #10 is complete.
 
 ---
 
