@@ -96,6 +96,8 @@ class ChunkingConfig(BaseModel):
 class LinkingConfig(BaseModel):
     topk: int = 5
     dedupe_threshold: float = 0.85
+    # Alvo de saida por nota, usado APENAS na estimativa de pre-voo (nao e teto).
+    preflight_output_tokens_per_note: int = 1200
 
 
 class HarvestConfig(BaseModel):
@@ -118,6 +120,8 @@ class ExtractionConfig(BaseModel):
     anchor_quote_min_ratio: float = 0.85  # cobertura minima na checagem fuzzy
     anchor_quote_min_words: int = 10      # faixa que o prompt ja exige
     anchor_quote_max_words: int = 25
+    # Alvo de saida por chunk, usado APENAS na estimativa de pre-voo (nao e teto).
+    preflight_output_tokens_per_chunk: int = 800
 
 
 class LiteratureReviewConfig(BaseModel):
@@ -257,6 +261,10 @@ class RetrievalConfig(BaseModel):
 
     mode: Literal["vector", "hybrid"] = "hybrid"
     rrf_k: int = 60                   # constante do Reciprocal Rank Fusion (canonica)
+    # Termo da pergunta que casa com o Topic Index vira semente EXTRA -- e passa
+    # pelo mesmo piso de relevancia. Nunca fura o piso (ver ADR-036).
+    topic_index_boost: bool = True
+    topic_index_max_seeds: int = 5
     graph_expansion: GraphExpansionConfig = Field(default_factory=GraphExpansionConfig)
     relevance_floor: RelevanceFloorConfig = Field(default_factory=RelevanceFloorConfig)
     ask: AskConfig = Field(default_factory=AskConfig)

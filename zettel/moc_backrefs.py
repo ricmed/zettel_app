@@ -7,7 +7,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from zettel.gardener_assign import extract_note_ids_from_moc_body
-from zettel.vault import note_filename, parse_frontmatter, read_managed_block, safe_update_managed_blocks
+from zettel.vault import (
+    note_filename,
+    parse_frontmatter,
+    read_managed_block,
+    safe_update_managed_blocks,
+)
 
 if TYPE_CHECKING:
     from zettel.state import StateDB
@@ -105,6 +110,29 @@ def sync_moc_backrefs(
         if note_path:
             _add_moc_link_to_note(note_path, link_line)
 
+    _sync_moc_topic_index(db, moc_id, path, new_ids)
+
+
+def _sync_moc_topic_index(
+    db: StateDB, moc_id: str, path: Path, note_ids: set[str],
+) -> None:
+    """Refresh the MOC's `auto-topic-index` block and its lookup rows.
+
+    Hung off the backref sync because that is the one function every MOC write
+    already goes through (taxonomy pipeline, hub pipeline and manual sync).
+    """
+    from zettel.topic_index import (
+        SCOPE_MOC,
+        sources_from_permanent_notes,
+        sync_topic_index,
+    )
+
+    sync_topic_index(
+        db, SCOPE_MOC, moc_id,
+        sources_from_permanent_notes(db, sorted(note_ids)),
+        note_path=path,
+    )
+
 
 def clear_moc_backrefs(db: StateDB, moc: dict) -> None:
     """Remove this MOC from all permanent notes that referenced it."""
@@ -122,3 +150,7 @@ def clear_moc_backrefs(db: StateDB, moc: dict) -> None:
         note_path = _note_path_from_db(db, note_id)
         if note_path:
             _remove_moc_link_from_note(note_path, moc_id)
+
+    from zettel.topic_index import SCOPE_MOC
+
+    db.delete_topic_index_scope(SCOPE_MOC, moc_id)

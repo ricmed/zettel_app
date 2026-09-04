@@ -116,6 +116,7 @@ images:
 linking:
   topk: 5                    # default do Retriever e do RAG de connect/sync
   dedupe_threshold: 0.90     # similaridade; L2 = 2 * (1 - threshold) no extract
+  preflight_output_tokens_per_note: 1200  # alvo de saida por nota no pre-voo (nao e teto)
 
 # ── Harvest (duplicatas + metadados bibliograficos ABNT) ───────────────
 harvest:
@@ -140,11 +141,14 @@ extraction:
   min_thesis_words: 5        # palavras minimas na tese
   require_anchor_quote: true # exigir citacao-ancora
   min_definition_words: 10   # palavras minimas na definicao
+  preflight_output_tokens_per_chunk: 800  # alvo de saida por chunk no pre-voo (nao e teto)
 
 # ── Recuperacao (busca hibrida + GraphRAG leve) ────────────────────────
 retrieval:
   mode: hybrid               # hybrid (vetor + BM25) | vector (so Chroma, legado)
   rrf_k: 60                  # constante do Reciprocal Rank Fusion
+  topic_index_boost: true    # termo do Topic Index vira semente extra (ainda passa pelo piso)
+  topic_index_max_seeds: 5   # teto de notas trazidas por essa via em uma consulta
   relevance_floor:
     enabled: true            # piso ABSOLUTO de relevancia (alem do ranking RRF)
     min_vector_similarity: 0.70   # similaridade coseno minima (calibre por corpus)

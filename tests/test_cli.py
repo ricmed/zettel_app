@@ -56,8 +56,8 @@ EXPECTED_COMMANDS = [
     "purge-rejected", "delete-source",
     # manual.py — hand-written notes
     "new-note", "sync-manual",
-    # pipeline.py / qa.py / writing.py
-    "run-all", "ask", "article",
+    # pipeline.py / qa.py / writing.py / export.py
+    "run-all", "ask", "article", "skill",
     # diagnostics.py — read-only inspection
     "status", "doctor",
 ]

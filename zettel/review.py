@@ -635,17 +635,53 @@ def _refresh_literature_index(cfg: AppConfig, db: StateDB, source_id: str) -> No
 
     lit_dir = cfg.vault_path / "20_Literature"
     lit_path = lit_dir / literature_index_filename(citekey, title)
-    if lit_path.exists():
-        block = "\n".join(f"- {link}" for link in links) if links else "_Nenhuma nota granular aprovada ainda._\n"
-        safe_update_managed_blocks(lit_path, {"auto-lit-index": block})
-        try:
-            db.update_source_texts(source_id, lit_body=lit_path.read_text(encoding="utf-8"))
-        except OSError:
-            pass
-    else:
+    if not lit_path.exists():
         meta, body = build_literature_index_note(source_id, citekey, title, approved_links=links)
         safe_write_note(lit_path, meta, body)
         db.update_source_texts(source_id, lit_body=compose_note(meta, body))
+    else:
+        block = "\n".join(f"- {link}" for link in links) if links else "_Nenhuma nota granular aprovada ainda._\n"
+        safe_update_managed_blocks(lit_path, {"auto-lit-index": block})
+
+    _refresh_source_topic_index(db, source_id, citekey, approved, lit_path)
+    try:
+        db.update_source_texts(source_id, lit_body=lit_path.read_text(encoding="utf-8"))
+    except OSError:
+        pass
+
+
+def _refresh_source_topic_index(
+    db: StateDB, source_id: str, citekey: str, approved: list[dict], lit_path: Path,
+) -> None:
+    """Rebuild the source's `auto-topic-index` from its approved literature notes.
+
+    Targets are literature wikilinks, so the rows carry no ``note_id``: they route
+    a reader to the right granular note, but a LIT note is not something the
+    Retriever scores. The MOC scope is what feeds the `ask` boost.
+    """
+    from zettel.topic_index import SCOPE_SOURCE, TermSource, sync_topic_index
+
+    sources: list[TermSource] = []
+    for chunk in approved:
+        try:
+            summary = json.loads(chunk.get("summary_json") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        candidates = summary.get("candidates") or []
+        if not candidates:
+            continue
+        best = max(candidates, key=lambda c: c.get("relevance_score") or 0)
+        sources.append(TermSource(
+            note_id=chunk["chunk_id"],
+            label=literature_chunk_wikilink_for_row(citekey, chunk),
+            frameworks=tuple(best.get("named_frameworks") or []),
+            tags=tuple(str(t) for t in (best.get("tags") or [])),
+            thesis=str(best.get("thesis") or ""),
+        ))
+    sync_topic_index(
+        db, SCOPE_SOURCE, source_id, sources, note_path=lit_path,
+        targets_are_permanent_notes=False,
+    )
 
 
 def _dedupe_approved_concepts(

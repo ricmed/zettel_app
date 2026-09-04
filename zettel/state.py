@@ -208,6 +208,20 @@ CREATE TABLE IF NOT EXISTS note_connections (
     PRIMARY KEY (source_note_id, target_note_id, relation_type)
 );
 
+-- Cheap term -> note routing index, mirrored from the `auto-topic-index` blocks
+-- in the vault so `ask` can look a term up without reading Markdown files.
+-- `note_id` is set only when the target is a permanent note; a literature target
+-- routes a human/agent but is not something the Retriever can score.
+CREATE TABLE IF NOT EXISTS topic_index_terms (
+    scope_kind  TEXT NOT NULL,
+    scope_id    TEXT NOT NULL,
+    term        TEXT NOT NULL,
+    term_folded TEXT NOT NULL,
+    target      TEXT NOT NULL,
+    note_id     TEXT,
+    PRIMARY KEY (scope_kind, scope_id, term_folded, target)
+);
+
 CREATE TABLE IF NOT EXISTS runs (
     run_id              INTEGER PRIMARY KEY AUTOINCREMENT,
     pipeline_signature  TEXT NOT NULL,
@@ -270,6 +284,7 @@ CREATE INDEX IF NOT EXISTS idx_concepts_note_id ON concepts(note_id);
 CREATE INDEX IF NOT EXISTS idx_concepts_status  ON concepts(status);
 CREATE INDEX IF NOT EXISTS idx_nc_source        ON note_connections(source_note_id);
 CREATE INDEX IF NOT EXISTS idx_nc_target        ON note_connections(target_note_id);
+CREATE INDEX IF NOT EXISTS idx_topic_terms_folded ON topic_index_terms(term_folded);
 CREATE INDEX IF NOT EXISTS idx_assets_source    ON assets(source_id);
 CREATE INDEX IF NOT EXISTS idx_assets_status    ON assets(status);
 """
@@ -758,6 +773,10 @@ class StateDB:
         cur_source = self.conn.execute(
             "DELETE FROM sources WHERE source_id=?", (source_id,)
         )
+        self.conn.execute(
+            "DELETE FROM topic_index_terms WHERE scope_kind='source' AND scope_id=?",
+            (source_id,),
+        )
         self.conn.commit()
         return {
             "chunks": removed_chunks,
@@ -975,6 +994,86 @@ class StateDB:
             "SELECT * FROM chunks WHERE status=? ORDER BY source_id, chunk_index ASC",
             (status,),
         )
+
+    # ── Topic index (term -> note routing) ─────────────────────────────
+
+    def replace_topic_index_terms(
+        self, scope_kind: str, scope_id: str, rows: list[dict],
+    ) -> int:
+        """Replace every term row for one scope. Returns how many were written.
+
+        Replace rather than merge: the vault block is regenerated wholesale on
+        each refresh, and a term that disappeared from the notes must disappear
+        from the lookup too.
+        """
+        self.conn.execute(
+            "DELETE FROM topic_index_terms WHERE scope_kind=? AND scope_id=?",
+            (scope_kind, scope_id),
+        )
+        if rows:
+            self.conn.executemany(
+                """INSERT OR REPLACE INTO topic_index_terms
+                   (scope_kind, scope_id, term, term_folded, target, note_id)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                [
+                    (
+                        scope_kind, scope_id, r["term"], r["term_folded"],
+                        r["target"], r.get("note_id"),
+                    )
+                    for r in rows
+                ],
+            )
+        self.conn.commit()
+        return len(rows)
+
+    def delete_topic_index_scope(self, scope_kind: str, scope_id: str) -> None:
+        self.conn.execute(
+            "DELETE FROM topic_index_terms WHERE scope_kind=? AND scope_id=?",
+            (scope_kind, scope_id),
+        )
+        self.conn.commit()
+
+    def match_topic_index_scope(self, scope_kind: str, scope_id: str) -> list[dict]:
+        """Every term row for one scope, ordered for stable rendering/reporting."""
+        return self._fetchall(
+            """SELECT * FROM topic_index_terms
+               WHERE scope_kind=? AND scope_id=? ORDER BY term_folded, target""",
+            (scope_kind, scope_id),
+        )
+
+    def match_topic_index(self, folded_query: str, limit: int = 20) -> list[dict]:
+        """Permanent notes whose indexed term appears in ``folded_query``.
+
+        The containment test runs in SQLite (``instr``) so a large index never
+        has to cross into Python. Only rows with a ``note_id`` are returned:
+        a literature target routes a reader but is not something the Retriever
+        can score.
+        """
+        if not folded_query:
+            return []
+        return self._fetchall(
+            """SELECT DISTINCT note_id, term, scope_kind, scope_id
+               FROM topic_index_terms
+               WHERE note_id IS NOT NULL AND instr(?, term_folded) > 0
+               ORDER BY length(term_folded) DESC, term ASC
+               LIMIT ?""",
+            (folded_query, limit),
+        )
+
+    def get_concepts_for_notes(self, note_ids: list[str]) -> dict[str, dict]:
+        """Batch-fetch the concept row behind each note, keyed by ``note_id``.
+
+        One query instead of N, for consumers that need the original candidate
+        (relevance score, author judgement) alongside a set of notes.
+        """
+        if not note_ids:
+            return {}
+        placeholders = ",".join("?" * len(note_ids))
+        rows = self._fetchall(
+            f"SELECT * FROM concepts WHERE note_id IN ({placeholders})",
+            tuple(note_ids),
+        )
+        return {row["note_id"]: row for row in rows if row.get("note_id")}
 
     def get_concepts_for_chunk(self, chunk_id: str) -> list[dict]:
         return self._fetchall(

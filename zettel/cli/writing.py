@@ -38,7 +38,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from zettel.cli.app import app, console
-from zettel.cli.deps import get_db, get_idx, load_deps
+from zettel.cli.deps import get_db, get_idx, load_deps, preflight_gate
 from zettel.cli.options import (
     ConfigOption,
     NoGraphOption,
@@ -101,6 +101,9 @@ def article(
     idx = get_idx(cfg, db=db, yes=yes)
 
     from rich.prompt import Prompt
+
+    from zettel.preflight import estimate_article
+    preflight_gate(estimate_article(cfg), yes, db)
 
     from zettel.article import parse_extra_queries, save_article_note
     from zettel.article_graph import run_article_graph

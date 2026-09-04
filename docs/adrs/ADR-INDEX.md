@@ -1,7 +1,7 @@
-# zettel_app ADR Index (34 Decisions)
+# zettel_app ADR Index (37 Decisions)
 
 **Last Updated**: 2026-09-03  
-**Status**: Complete — 34 formal ADRs across 12 modules, 42 relationships mapped
+**Status**: Complete — 37 formal ADRs across 12 modules, 42 relationships mapped
 
 ---
 
@@ -10,14 +10,14 @@
 | Module | Count | ADRs |
 |--------|-------|------|
 | **INFRA** | 8 | [001–008](#infra-core-infrastructure) |
-| **RETRIEVAL** | 2 | [009–010](#retrieval-hybrid-search--graph) |
+| **RETRIEVAL** | 3 | [009–010, 036](#retrieval-hybrid-search--graph) |
 | **HARVEST** | 6 | [011–014, 027, 033](#harvest-ingestion--paging) |
 | **EXTRACT** | 2 | [015, 034](#extract-literature-notes) |
 | **REVIEW** | 1 | [016](#review-approval-gate) |
 | **GARDEN** | 3 | [019–021](#garden-moc-generation) |
 | **WEB** | 2 | [022–023](#web-ui--job-queue) |
 | **LLM** | 2 | [024–025](#llm-provider--caching) |
-| **CLI** | 2 | [026, 032](#cli-orchestration) |
+| **CLI** | 4 | [026, 032, 035, 037](#cli-orchestration) |
 | **QA-WRITING** | 2 | [028–029](#qa-writing--article-pipeline) |
 | **MANUAL** | 1 | [030](#manual-hand-written-notes) |
 | **ASSETS** | 1 | [031](#assets-images) |
@@ -115,6 +115,15 @@
 - **Date**: 2026-07-18
 - **Summary**: `NoteSearchResult` carries both `hits` (results cleared the relevance floor) and `candidates` (raw RRF-ranked pool before the floor), each with provenance fields (`floor_reason`, `vector_rank`, `bm25_rank`), making filtering transparent rather than opaque.
 - **Link**: [`ADR-010-retrieval-result-transparency-hits-vs-candidates.md`](./generated/RETRIEVAL/ADR-010-retrieval-result-transparency-hits-vs-candidates.md)
+
+---
+
+### ADR-036: A Topic Index for Routing, Fed Back Through the Relevance Floor
+
+- **Status**: Accepted (2026-09-03)
+- **Date**: 2026-09-03
+- **Summary**: A cheap term -> note map on two surfaces (an `auto-topic-index` managed block per source and per MOC, mirrored into a `topic_index_terms` table), sharing one term-extraction rule with the skill export. A query term that matches routes the note back through the **same** relevance floor carrying a real vector distance (id-restricted Chroma query) — never as a bypass, which is the shape of a bug already fixed once in the BM25 path.
+- **Link**: [`ADR-036-topic-index-routing-not-representation.md`](./generated/RETRIEVAL/ADR-036-topic-index-routing-not-representation.md)
 
 ---
 
@@ -312,6 +321,24 @@
 
 ---
 
+### ADR-035: `zettel skill` Projects a Vault Slice as a Flat Agent Skill
+
+- **Status**: Accepted (2026-09-03)
+- **Date**: 2026-09-03
+- **Summary**: A deterministic projection (no LLM, no new state) of an already-approved slice — source, MOC or taxonomy topic — into a flat Agent Skill pack: `SKILL.md` + `notes/` + `cheatsheet.md` + `glossary.md`. Only the Core section is budgeted at ~4000 tokens; the two indexes are the routing table and are never truncated. Source excerpts are excluded by default so a pack is publishable, while citekey and locator survive.
+- **Link**: [`ADR-035-flat-agent-skill-export.md`](./generated/CLI/ADR-035-flat-agent-skill-export.md)
+
+---
+
+### ADR-037: Pre-Flight Cost Estimate as a Pure Function, Confirmation Only in the CLI
+
+- **Status**: Accepted (2026-09-03)
+- **Date**: 2026-09-03
+- **Summary**: `zettel/preflight.py` estimates tokens and USD for `extract`, `connect` and `article` as **pure functions** (SQLite + config, no LLM call); `cli.deps.preflight_gate` renders the panel and asks. `run_*` is untouched, so the web worker and the test suite cannot acquire a new way to block. `--yes` and a non-TTY stdin pass straight through; a declined confirmation exits before any client is constructed. The estimate is a magnitude check, never a budget cap.
+- **Link**: [`ADR-037-llm-cost-preflight-estimate.md`](./generated/CLI/ADR-037-llm-cost-preflight-estimate.md)
+
+---
+
 ## QA-WRITING — Article Pipeline
 
 ### ADR-028: LangGraph StateGraph for Article Orchestration
@@ -358,8 +385,8 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 34 |
-| **Accepted** | 34 |
+| **Total ADRs** | 37 |
+| **Accepted** | 37 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 42 |
 | **Modules Covered** | 12 |
@@ -368,7 +395,7 @@
 
 ## Status Update (2026-09-03)
 
-✅ **ADR-033 and ADR-034 added** (epic #10). ADR-033 covers document hygiene at the ingestion boundary (issue #8): invisible-Unicode sanitization before the extraction checksum, plus a pdfium text-layer probe that aborts scanned PDFs before Docling runs. ADR-034 covers the optional author-judgement fields on the extraction candidate (issue #5).
+✅ **ADR-033 through ADR-037 added** (epic #10). ADR-033 covers document hygiene at the ingestion boundary (issue #8): invisible-Unicode sanitization before the extraction checksum, plus a pdfium text-layer probe that aborts scanned PDFs before Docling runs. ADR-034 covers the optional author-judgement fields on the extraction candidate (issue #5). ADR-035 covers `zettel skill`, the deterministic flat Agent Skill export (issue #4). ADR-036 covers the topic index — routing, fed back through the relevance floor (issue #6). ADR-037 covers the pre-flight cost estimate for extract/connect/article (issue #7).
 
 ---
 

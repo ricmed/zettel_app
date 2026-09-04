@@ -126,7 +126,43 @@ def run_reindex(
         fts_counts = db.rebuild_fts()
         stats["fts_notes"] = fts_counts.get("fts_notes", 0)
         stats["fts_chunks"] = fts_counts.get("fts_chunks", 0)
+        stats["topic_terms"] = rebuild_topic_index(cfg, db)
     return stats
+
+
+def rebuild_topic_index(cfg: AppConfig, db: StateDB) -> int:
+    """Rebuild every topic-index scope from SQLite. Returns the row count.
+
+    Like FTS5, the topic index is a disposable cache derived from state that
+    already exists, so a full `reindex` is the natural place to backfill it —
+    otherwise a mature vault would only get one after its next `review`/`garden`.
+    """
+    from zettel.gardener_assign import extract_note_ids_from_moc_body
+    from zettel.moc_backrefs import _sync_moc_topic_index
+    from zettel.review import _refresh_source_topic_index
+    from zettel.topic_index import SCOPE_MOC, SCOPE_SOURCE
+
+    total = 0
+    for src in db.list_sources():
+        source_id = src["source_id"]
+        approved = [
+            c for c in db.get_chunks_for_source(source_id)
+            if c.get("status") in ("approved", "persisted")
+        ]
+        lit_path = cfg.vault_path / "20_Literature" / literature_index_filename(
+            src["citekey"], src["title"],
+        )
+        _refresh_source_topic_index(db, source_id, src["citekey"], approved, lit_path)
+        total += len(db.match_topic_index_scope(SCOPE_SOURCE, source_id))
+
+    for moc in db.list_mocs():
+        body = moc.get("body") or ""
+        path = Path(moc["path"]) if moc.get("path") else Path()
+        _sync_moc_topic_index(
+            db, moc["moc_id"], path, extract_note_ids_from_moc_body(body),
+        )
+        total += len(db.match_topic_index_scope(SCOPE_MOC, moc["moc_id"]))
+    return total
 
 
 def _reindex_sources(db: StateDB, idx: VectorIndex) -> int:

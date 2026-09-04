@@ -649,6 +649,8 @@ def build_literature_index_note(
     else:
         body += "_Nenhuma nota granular aprovada ainda._\n"
     body += "<!-- zettel:auto-lit-index:end -->\n"
+    # The `## Topic Index` section is appended by topic_index.sync_topic_index,
+    # which owns that section on every surface that has one.
     return meta, body
 
 

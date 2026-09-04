@@ -19,7 +19,7 @@ from typing import Annotated, Optional
 import typer
 
 from zettel.cli.app import app, console
-from zettel.cli.deps import get_db, get_idx, load_deps
+from zettel.cli.deps import get_db, get_idx, load_deps, preflight_gate
 from zettel.cli.options import ConfigOption, YesOption
 
 
@@ -54,6 +54,9 @@ def connect(
         )
         db.close()
         raise typer.Exit(1)
+
+    from zettel.preflight import estimate_connect
+    preflight_gate(estimate_connect(cfg, db, candidates), yes, db)
 
     # Nao usar console.status: o Progress interno de run_connect disputa o mesmo
     # stdout (dois Rich Live) e a barra Connect nota i/N pisca. Ver #21.
