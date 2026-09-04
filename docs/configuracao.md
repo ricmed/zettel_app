@@ -145,6 +145,8 @@ extraction:
 retrieval:
   mode: hybrid               # hybrid (vetor + BM25) | vector (so Chroma, legado)
   rrf_k: 60                  # constante do Reciprocal Rank Fusion
+  topic_index_boost: true    # termo do Topic Index vira semente extra (ainda passa pelo piso)
+  topic_index_max_seeds: 5   # teto de notas trazidas por essa via em uma consulta
   relevance_floor:
     enabled: true            # piso ABSOLUTO de relevancia (alem do ranking RRF)
     min_vector_similarity: 0.70   # similaridade coseno minima (calibre por corpus)

@@ -53,6 +53,23 @@ Resultados abaixo do piso não alimentam a resposta, mas continuam visíveis em 
 
 ---
 
+## Índice de tópicos (roteamento)
+
+`sync_topic_index` ([`topic_index.py`](../zettel/topic_index.py)) mantém um mapa **termo → nota** em duas superfícies: um bloco gerenciado `auto-topic-index` no índice LIT de cada fonte e em cada MOC (para você e para um agente ler), espelhado numa tabela `topic_index_terms` no SQLite (para o `ask` consultar sem parsear Markdown). Os termos saem de `named_frameworks` (vocabulário do autor), depois tags, e só caem na cabeça da tese quando a nota não tem nenhum dos dois — a mesma regra que o `zettel skill` usa, para os dois índices não divergirem.
+
+**Roteamento não é representação.** O índice é uma *dica de onde olhar*, não um veredito de relevância:
+
+- Só alvos que são **notas permanentes** roteiam. Um alvo LIT aparece no bloco (leva o leitor à nota granular certa) mas é gravado sem `note_id` e nunca vira semente — o Retriever pontua ZTL, não LIT.
+- Quando a pergunta contém um termo indexado, a nota roteada é buscada no Chroma com o espaço de busca **restrito ao id dela** (`query_notes_by_ids`), então chega com **distância real** e enfrenta o mesmo `_apply_relevance_floor` que qualquer outro candidato. Estar no índice **não** fura o piso — seria o mesmo bug do bypass incondicional do BM25, com outro nome.
+- `retrieval.topic_index_boost: false` restaura o comportamento anterior. `topic_index_max_seeds` limita quantas notas uma pergunta pode puxar por essa via.
+- Uma nota que chegou assim aparece com origem `topic index` no `--show-context`.
+
+Custo: **uma** chamada extra de embedding da pergunta, e só quando algum termo casa.
+
+O índice se materializa no `review` (fonte) e no `garden`/`sync-manual` (MOC). Um vault já maduro pega tudo de uma vez com `zettel reindex`, que refaz também esse índice (como já faz com o FTS5). Decisão e alternativas recusadas: [ADR-036](adrs/generated/RETRIEVAL/ADR-036-topic-index-routing-not-representation.md).
+
+---
+
 ## Expansão por grafo
 
 `expand_notes` ([`graph.py`](../zettel/graph.py)) faz BFS em Python (não CTE recursiva em SQL) sobre `note_connections`, de forma não-direcionada, com peso por tipo de relação (`DEFAULT_RELATION_WEIGHTS` em `config.py`; `contradicts` no topo — é o sinal que embeddings não capturam) e decaimento por salto. As sementes entram com o próprio score RRF (`seed_weights`), e cada fronteira faz **uma** consulta em lote (`StateDB.get_connections_for_notes`).

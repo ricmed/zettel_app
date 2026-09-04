@@ -112,6 +112,8 @@ def run_ask(
         "absolute_min_similarity": floor_cfg.absolute_min_similarity,
         "bm25_hit_bypasses_floor": floor_cfg.bm25_hit_bypasses_floor,
         "bm25_bypass_max_rank": floor_cfg.bm25_bypass_max_rank,
+        "topic_index_boost": cfg.retrieval.topic_index_boost,
+        "topic_index_max_seeds": cfg.retrieval.topic_index_max_seeds,
         "graph_expansion_used": bool(use_graph),
         "graph_max_hops": graph_cfg.max_hops,
         "graph_decay": graph_cfg.decay,
@@ -188,6 +190,8 @@ def run_ask(
 def _origin_label(hit: RetrievedNote) -> str:
     """Human-readable retrieval origin for a hit ('busca' or 'conexao ...')."""
     if hit.hop == 0 or not hit.via:
+        if hit.origin == "topic_index":
+            return "topic index"
         return "busca"
     step = hit.via[-1]
     rel = step.get("relation_type", "related")

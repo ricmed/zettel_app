@@ -1,7 +1,7 @@
-# zettel_app ADR Index (35 Decisions)
+# zettel_app ADR Index (36 Decisions)
 
 **Last Updated**: 2026-09-03  
-**Status**: Complete — 35 formal ADRs across 12 modules, 42 relationships mapped
+**Status**: Complete — 36 formal ADRs across 12 modules, 42 relationships mapped
 
 ---
 
@@ -10,7 +10,7 @@
 | Module | Count | ADRs |
 |--------|-------|------|
 | **INFRA** | 8 | [001–008](#infra-core-infrastructure) |
-| **RETRIEVAL** | 2 | [009–010](#retrieval-hybrid-search--graph) |
+| **RETRIEVAL** | 3 | [009–010, 036](#retrieval-hybrid-search--graph) |
 | **HARVEST** | 6 | [011–014, 027, 033](#harvest-ingestion--paging) |
 | **EXTRACT** | 2 | [015, 034](#extract-literature-notes) |
 | **REVIEW** | 1 | [016](#review-approval-gate) |
@@ -115,6 +115,15 @@
 - **Date**: 2026-07-18
 - **Summary**: `NoteSearchResult` carries both `hits` (results cleared the relevance floor) and `candidates` (raw RRF-ranked pool before the floor), each with provenance fields (`floor_reason`, `vector_rank`, `bm25_rank`), making filtering transparent rather than opaque.
 - **Link**: [`ADR-010-retrieval-result-transparency-hits-vs-candidates.md`](./generated/RETRIEVAL/ADR-010-retrieval-result-transparency-hits-vs-candidates.md)
+
+---
+
+### ADR-036: A Topic Index for Routing, Fed Back Through the Relevance Floor
+
+- **Status**: Accepted (2026-09-03)
+- **Date**: 2026-09-03
+- **Summary**: A cheap term -> note map on two surfaces (an `auto-topic-index` managed block per source and per MOC, mirrored into a `topic_index_terms` table), sharing one term-extraction rule with the skill export. A query term that matches routes the note back through the **same** relevance floor carrying a real vector distance (id-restricted Chroma query) — never as a bypass, which is the shape of a bug already fixed once in the BM25 path.
+- **Link**: [`ADR-036-topic-index-routing-not-representation.md`](./generated/RETRIEVAL/ADR-036-topic-index-routing-not-representation.md)
 
 ---
 
@@ -367,8 +376,8 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 35 |
-| **Accepted** | 35 |
+| **Total ADRs** | 36 |
+| **Accepted** | 36 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 42 |
 | **Modules Covered** | 12 |
@@ -377,7 +386,7 @@
 
 ## Status Update (2026-09-03)
 
-✅ **ADR-033, ADR-034 and ADR-035 added** (epic #10). ADR-033 covers document hygiene at the ingestion boundary (issue #8): invisible-Unicode sanitization before the extraction checksum, plus a pdfium text-layer probe that aborts scanned PDFs before Docling runs. ADR-034 covers the optional author-judgement fields on the extraction candidate (issue #5). ADR-035 covers `zettel skill`, the deterministic flat Agent Skill export (issue #4).
+✅ **ADR-033 through ADR-036 added** (epic #10). ADR-033 covers document hygiene at the ingestion boundary (issue #8): invisible-Unicode sanitization before the extraction checksum, plus a pdfium text-layer probe that aborts scanned PDFs before Docling runs. ADR-034 covers the optional author-judgement fields on the extraction candidate (issue #5). ADR-035 covers `zettel skill`, the deterministic flat Agent Skill export (issue #4). ADR-036 covers the topic index — routing, fed back through the relevance floor (issue #6).
 
 ---
 

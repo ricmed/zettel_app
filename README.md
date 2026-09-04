@@ -56,7 +56,7 @@ MOCs (Mapas de Conteúdo) por clusterização semântica
 | [Operação](docs/operacao.md)                    | Retenção, `reindex`/`rebuild`/`rechunk`, dumps, purga, remoção de fonte, backup          |
 | [Solução de problemas](docs/troubleshooting.md) | Sintomas comuns e como sair deles                                                        |
 | [Prompts e taxonomia](docs/prompts.md)          | Personalizar `prompts/`, `moc_topics.yaml` e as personalidades do `article`              |
-| [ADRs](docs/adrs/ADR-INDEX.md)                  | 35 decisões de arquitetura, com contexto e alternativas                                  |
+| [ADRs](docs/adrs/ADR-INDEX.md)                  | 36 decisões de arquitetura, com contexto e alternativas                                  |
 
 
 Índice completo em [docs/INDICE.md](docs/INDICE.md).
@@ -125,6 +125,8 @@ python -m zettel garden       # atualiza os mapas de conteúdo
 ```
 
 Todas as flags de cada comando: [docs/cli.md](docs/cli.md).
+
+> **Índice de tópicos.** Cada índice LIT e cada MOC ganham um bloco `auto-topic-index` mapeando **termo → nota** (frameworks nomeados, depois tags, e a cabeça da tese como último recurso). É roteamento, não representação: quando a pergunta casa com um termo, a nota entra na busca do `ask` como semente extra **carregando distância vetorial real**, e passa pelo mesmo piso de relevância que qualquer outra — estar no índice não fura o piso. Desligue com `retrieval.topic_index_boost: false`. Detalhes em [ADR-036](docs/adrs/generated/RETRIEVAL/ADR-036-topic-index-routing-not-representation.md).
 
 > **Exportar para um agente.** `zettel skill --source-id @Citekey` (ou `--moc-id`, ou `--topic`) projeta um recorte **já aprovado** do vault como [Agent Skill](https://code.claude.com/docs/en/skills) plana em `<vault>/.claude/skills/<slug>/`: um `SKILL.md` pequeno com Core + Topic Index + Note Index, mais `notes/`, `cheatsheet.md` e `glossary.md` que o agente abre sob demanda. É projeção determinística — **não** chama LLM e não grava nada nas bases. O trecho da fonte fica de fora por padrão (pack publicável); citekey, localizador e teses permanecem. Detalhes em [ADR-035](docs/adrs/generated/CLI/ADR-035-flat-agent-skill-export.md).
 
