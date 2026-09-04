@@ -74,7 +74,14 @@
             <label>Autores <textarea name="authors" rows="3" placeholder="Um autor por linha"></textarea><small>Ex.: Silva, Ana</small></label>
             <div class="form-grid">
               <label>Ano <input type="number" name="year" min="1000" max="2200" inputmode="numeric" placeholder="2024"></label>
-              <label>Tipo de documento <input name="document_type" placeholder="livro, artigo, tese…"></label>
+              <label>Tipo de documento
+                <select name="document_type">
+                  <option value="">Não informado</option>
+                  {% for opt in document_types %}
+                  <option value="{{ opt.value }}"{% if opt.value == selected_document_type %} selected{% endif %}>{{ opt.label }}</option>
+                  {% endfor %}
+                </select>
+              </label>
             </div>
           </div>
           <p class="muted" data-types="SRC">Criar a fonte também cria o índice de literatura dela em <code>20_Literature/</code>, como o harvest faz.</p>

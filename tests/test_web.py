@@ -188,6 +188,19 @@ def test_nested_inbox_file_can_be_selected_for_harvest(web_client, monkeypatch):
     )
 
 
+def test_manual_source_document_type_is_a_dropdown_of_abnt_types(web_client):
+    from zettel.bibliography import DOCUMENT_TYPE_LABELS
+
+    client, _ = web_client
+    _login(client)
+    response = client.get("/notes/new")
+    assert '<select name="document_type">' in response.text
+    assert 'name="document_type" placeholder' not in response.text
+    for value, label in DOCUMENT_TYPE_LABELS.items():
+        assert f'<option value="{value}"' in response.text
+        assert label in response.text
+
+
 def test_manual_source_scaffold_can_be_created_without_overwrite(web_client):
     client, tmp_path = web_client
     csrf = _login(client)

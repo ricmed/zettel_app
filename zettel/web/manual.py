@@ -83,6 +83,12 @@ def _accepted_source(db: Any, source_id: str | None) -> str | None:
     return row["source_id"] if row else None
 
 
+def _document_type_options() -> list[dict]:
+    from zettel.bibliography import DOCUMENT_TYPE_LABELS
+
+    return [{"value": value, "label": label} for value, label in DOCUMENT_TYPE_LABELS.items()]
+
+
 def _form_page(
     request: Request, db: Any, *, status_code: int = 200, error: str | None = None,
     result: Any = None, next_step: dict | None = None, selected: dict | None = None,
@@ -94,6 +100,8 @@ def _form_page(
         request, "manual_notes.html", status_code=status_code, page="manual-notes",
         recent_sources=_picker_sources(db),
         recent_literature=_picker_literature(db, source_id),
+        document_types=_document_type_options(),
+        selected_document_type=selected.get("document_type") or "",
         llm_ready=_llm_ready(cfg),
         result=result, error=error, next_step=next_step,
         selected_type=selected.get("type") or "SRC",
@@ -254,6 +262,7 @@ async def create_note(request: Request):
             "from_lit_path": str(form.get("from_lit_path") or ""),
             "ztl_origin": str(form.get("ztl_origin") or "blank"),
             "granular": str(form.get("granular") or ""),
+            "document_type": str(form.get("document_type") or ""),
         })
     finally:
         db.close()
