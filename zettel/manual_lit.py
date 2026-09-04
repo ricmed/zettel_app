@@ -159,6 +159,122 @@ def concept_id_for(source_id: str, chunk_id: str, thesis: str) -> str:
     return f"{source_id}::concept::{short_hash(digest)}"
 
 
+_WIKILINK_TARGET = re.compile(r"\[\[([^\]|#]+)")
+_TESE_LINE = re.compile(r"^>\s*\*\*Tese\*\*:\s*(.+)$", re.MULTILINE)
+
+
+def wikilink_target(ref: str) -> str:
+    """Strip ``[[...]]`` / alias from a wikilink, leaving the path target."""
+    match = _WIKILINK_TARGET.search(ref or "")
+    return (match.group(1) if match else (ref or "")).strip()
+
+
+def thesis_from_permanent_note(meta: dict[str, Any], body: str) -> str:
+    """Thesis line from a ZTL body (``> **Tese**: ...``), else frontmatter title."""
+    match = _TESE_LINE.search(body or "")
+    if match:
+        return match.group(1).strip()
+    return str(meta.get("title") or "").strip()
+
+
+def _chunk_ref_targets(chunk: dict[str, Any] | None) -> set[str]:
+    """Identifiers a ``literature_ref`` may use to point at this chunk's LIT."""
+    targets: set[str] = set()
+    if not chunk:
+        return targets
+    on_disk = chunk.get("literature_note_path")
+    if on_disk:
+        path = Path(on_disk)
+        targets.add(f"{path.parent.name}/{path.stem}")
+        targets.add(path.stem)
+    lit_id = chunk.get("literature_id")
+    if lit_id:
+        targets.add(str(lit_id))
+    return targets
+
+
+def _lit_ref_covers_chunk(lit_ref: str, chunk: dict[str, Any] | None) -> bool:
+    if not lit_ref or not chunk:
+        return False
+    targets = _chunk_ref_targets(chunk)
+    if lit_ref in targets:
+        return True
+    stem = lit_ref.rsplit("/", 1)[-1]
+    return any(t == stem or t.rsplit("/", 1)[-1] == stem for t in targets)
+
+
+def claim_concepts_for_note(
+    db: StateDB, note_id: str, meta: dict[str, Any], body: str,
+) -> int:
+    """Mark unnoted concepts covered by this permanent note as ``noted``.
+
+    Matching is structural, not semantic: same ``thesis_hash``, or a manual note
+    whose ``literature_ref`` points at the concept's chunk. Does not write the
+    note file and does not change ``origin``.
+    """
+    source_id = str(meta.get("source_id") or "")
+    if not note_id or not source_id:
+        return 0
+    origin = str(meta.get("origin") or "manual")
+    thesis = thesis_from_permanent_note(meta, body)
+    thesis_hash = sha256_hex(normalize_text_for_hash(thesis)) if thesis else ""
+    lit_ref = wikilink_target(str(meta.get("literature_ref") or ""))
+    claimed = 0
+    for concept in db.get_concepts_for_source(source_id, without_notes=True):
+        matched = bool(thesis_hash and concept.get("thesis_hash") == thesis_hash)
+        if not matched and origin == "manual" and lit_ref:
+            chunk = db.get_chunk(concept["chunk_id"])
+            matched = _lit_ref_covers_chunk(lit_ref, chunk)
+        if not matched:
+            continue
+        db.upsert_concept(
+            concept["concept_id"],
+            concept["source_id"],
+            concept["chunk_id"],
+            note_id=note_id,
+            status="noted",
+        )
+        claimed += 1
+        logger.info(
+            "Conceito %s coberto pela nota %s; marcado noted",
+            concept["concept_id"], note_id,
+        )
+    return claimed
+
+
+def find_covering_note_id(
+    db: StateDB, *, source_id: str, chunk_id: str, thesis: str,
+) -> str | None:
+    """Return an existing permanent note that already covers this candidate."""
+    thesis_hash = sha256_hex(normalize_text_for_hash(thesis)) if thesis else ""
+    chunk = db.get_chunk(chunk_id) if chunk_id else None
+
+    if chunk_id:
+        for concept in db.get_concepts_for_chunk(chunk_id):
+            nid = concept.get("note_id")
+            if not nid or not thesis_hash:
+                continue
+            if concept.get("thesis_hash") == thesis_hash and db.get_note(nid):
+                return nid
+
+    if not source_id:
+        return None
+    for note in db.get_notes_for_source(source_id):
+        try:
+            meta = json.loads(note.get("frontmatter_json") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            meta = {}
+        origin = str(note.get("origin") or meta.get("origin") or "")
+        note_thesis = thesis_from_permanent_note(meta, note.get("body") or "")
+        if thesis_hash and note_thesis:
+            if sha256_hex(normalize_text_for_hash(note_thesis)) == thesis_hash:
+                return note["note_id"]
+        lit_ref = wikilink_target(str(meta.get("literature_ref") or ""))
+        if origin == "manual" and _lit_ref_covers_chunk(lit_ref, chunk):
+            return note["note_id"]
+    return None
+
+
 # -- Adoption -----------------------------------------------------------
 
 
@@ -406,4 +522,7 @@ def create_permanent_from_literature(
     if note_path.exists() and not force:
         raise FileExistsError(f"Arquivo ja existe: {note_path}")
     safe_write_note(note_path, note_meta, note_body)
+    # Consume extract/review concepts that this scaffold already covers, so a
+    # later `zettel connect` cannot mint a duplicate pipeline note.
+    claim_concepts_for_note(db, note_id, note_meta, note_body)
     return note_path, False

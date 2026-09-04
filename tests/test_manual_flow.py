@@ -5,12 +5,14 @@ import json
 import pytest
 
 from zettel.config import AppConfig
+from zettel.hashing import normalize_text_for_hash, sha256_hex
 from zettel.manual_lit import (
     _candidate_theses,
     build_candidate_from_literature,
     create_permanent_from_literature,
 )
 from zettel.new_note import scaffold_manual_note
+from zettel.schemas import PermanentNoteCandidate
 from zettel.state import StateDB
 from zettel.sync import run_sync_manual
 from zettel.vault import parse_frontmatter, read_managed_block, safe_write_note
@@ -350,3 +352,120 @@ def test_candidate_theses_strips_pipeline_rendering_metadata():
         "Backpropagation calcula gradientes via regra da cadeia",
         "Tese simples sem formatacao",
     ]
+
+
+def _insert_approved_concept(db, lit_path, thesis: str) -> str:
+    """Simulate extract+review having left an approved concept with no note."""
+    meta, _ = parse_frontmatter(lit_path.read_text(encoding="utf-8"))
+    chunk_id = str(meta["chunk_id"])
+    source_id = str(meta["source_id"])
+    concept_id = f"{source_id}::concept::testcover"
+    candidate = PermanentNoteCandidate(
+        thesis=thesis,
+        definition="Definicao do candidato extraido.",
+        source_locator=str(meta.get("source_locator") or ""),
+    )
+    db.upsert_concept(
+        concept_id,
+        source_id,
+        chunk_id,
+        thesis_hash=sha256_hex(normalize_text_for_hash(thesis)),
+        candidate_json=candidate.model_dump_json(),
+        status="approved",
+    )
+    return concept_id
+
+
+def test_from_lit_without_llm_consumes_existing_approved_concept(cfg, db):
+    """#132: scaffold without --llm must claim extract/review concepts."""
+    from zettel.connector import load_approved_candidates
+
+    idx = FakeIndex()
+    lit = _scaffold_source_and_lit(cfg, db, idx)
+    thesis = "Conectividade determina robustez estrutural."
+    concept_id = _insert_approved_concept(db, lit, thesis)
+    assert load_approved_candidates(db)
+
+    path, via_llm = create_permanent_from_literature(cfg, db, idx, str(lit))
+    assert via_llm is False
+    meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+
+    assert load_approved_candidates(db) == []
+    row = db.get_concept(concept_id)
+    assert row["status"] == "noted"
+    assert row["note_id"] == meta["note_id"]
+    assert db.get_note(meta["note_id"]) is None  # indexed only after sync-manual
+
+
+def test_sync_manual_consumes_approved_concept_for_existing_ztl(cfg, db):
+    """#132: sync-manual of a hand-written ZTL claims covering concepts."""
+    from zettel.connector import load_approved_candidates
+
+    idx = FakeIndex()
+    lit = _scaffold_source_and_lit(cfg, db, idx)
+    thesis = "Conectividade determina robustez estrutural."
+    concept_id = _insert_approved_concept(db, lit, thesis)
+
+    path, _ = create_permanent_from_literature(cfg, db, idx, str(lit))
+    # Re-open the queue as if claim had not run (legacy vault / concept inserted later).
+    chunk_id = parse_frontmatter(lit.read_text(encoding="utf-8"))[0]["chunk_id"]
+    db.conn.execute(
+        "UPDATE concepts SET note_id=NULL, status='approved' WHERE concept_id=?",
+        (concept_id,),
+    )
+    db.conn.commit()
+    assert load_approved_candidates(db)
+
+    run_sync_manual(cfg, db, idx)
+    assert load_approved_candidates(db) == []
+    row = db.get_concept(concept_id)
+    note_id = parse_frontmatter(path.read_text(encoding="utf-8"))[0]["note_id"]
+    assert row["status"] == "noted"
+    assert row["note_id"] == note_id
+    assert db.get_note(note_id) is not None
+    assert db.get_note(note_id)["origin"] == "manual"
+
+
+def test_connect_skips_generation_when_manual_ztl_already_covers(cfg, db, monkeypatch):
+    """#132: Connect guard skips LLM when a covering manual note is already indexed."""
+    import zettel.connector as connector
+    from zettel.connector import load_approved_candidates, run_connect
+
+    idx = FakeIndex()
+    lit = _scaffold_source_and_lit(cfg, db, idx)
+    thesis = "Conectividade determina robustez estrutural."
+    path, _ = create_permanent_from_literature(cfg, db, idx, str(lit))
+    run_sync_manual(cfg, db, idx)
+    note_id = parse_frontmatter(path.read_text(encoding="utf-8"))[0]["note_id"]
+
+    # A leftover approved concept the sync/from-lit claim missed (different id).
+    lit_meta = parse_frontmatter(lit.read_text(encoding="utf-8"))[0]
+    leftover_id = "@Diestel2017::concept::leftover"
+    leftover = PermanentNoteCandidate(
+        thesis=thesis,
+        definition="Parafrase do extract.",
+    )
+    db.upsert_concept(
+        leftover_id,
+        "@Diestel2017",
+        lit_meta["chunk_id"],
+        thesis_hash=sha256_hex(normalize_text_for_hash(thesis)),
+        candidate_json=leftover.model_dump_json(),
+        status="approved",
+    )
+    assert load_approved_candidates(db)
+
+    monkeypatch.setattr(connector, "get_llm", lambda cfg, phase: object())
+
+    def _boom(*_a, **_k):
+        raise AssertionError("LLM nao deveria ser chamado para conceito ja coberto")
+
+    monkeypatch.setattr(connector, "call_llm", _boom)
+
+    created = run_connect(cfg, db, idx, load_approved_candidates(db))
+    assert created == []
+    assert list((cfg.vault_path / "30_Permanent").glob("*.md")) == [path]
+    row = db.get_concept(leftover_id)
+    assert row["status"] == "noted"
+    assert row["note_id"] == note_id
+    assert parse_frontmatter(path.read_text(encoding="utf-8"))[0]["origin"] == "manual"

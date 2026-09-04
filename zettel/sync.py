@@ -349,6 +349,9 @@ def _sync_permanent(
 
     existing = db.get_note(note_id)
     if existing and existing.get("note_semantic_checksum") == semantic_checksum:
+        from zettel.manual_lit import claim_concepts_for_note
+
+        claim_concepts_for_note(db, note_id, meta, body)
         return "skipped"
 
     title = meta.get("title", file_path.stem)
@@ -377,6 +380,9 @@ def _sync_permanent(
 
     _extract_body_edges(db, note_id, body)
     _suggest_connections(cfg, db, idx, note_id, embeddable, file_path)
+    from zettel.manual_lit import claim_concepts_for_note
+
+    claim_concepts_for_note(db, note_id, meta, body)
     return "new" if not existing else "updated"
 
 

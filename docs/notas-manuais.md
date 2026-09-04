@@ -87,7 +87,7 @@ A adoção completa de uma LIT escrita à mão ([ADR-030](adrs/generated/MANUAL/
 
 - `adopt_manual_literature` sintetiza a linha de `chunks` que a nota nunca teve (mais um capítulo `{source_id}::ch000` "Manual" por fonte — `chunks.chapter_id` é `NOT NULL` com FK), reconstrói o `summary_json` a partir das seções `## Resumo` / `## Conceitos-chave` / `## Candidatos a Nota Permanente` da própria nota, tira o `chunks.text` do bloco `auto-source-excerpt`, grava `status='persisted'`, embeda via `review._literature_embed_text` em `literature_notes` e chama `review._refresh_literature_index`. É idempotente por checksum sobre excerto + corpo.
 - Deliberadamente **não** escreve na coleção Chroma `chunks`: os limiares dessa coleção são calibrados para a dedupe do harvest sobre distância L2 crua.
-- `create_permanent_from_literature` deriva um `PermanentNoteCandidate` da nota. Com `--llm`, persiste um concept `approved` e chama `connector.run_connect(..., origin="manual")` — mesmo Prompt 2, mesmo RAG, mesmas relações e backlinks. Sem `--llm`, escreve um scaffold pré-preenchido e **nenhuma** linha de concept, para que um `connect` posterior não duplique a nota.
+- `create_permanent_from_literature` deriva um `PermanentNoteCandidate` da nota. Com `--llm`, persiste um concept `approved` e chama `connector.run_connect(..., origin="manual")` — mesmo Prompt 2, mesmo RAG, mesmas relações e backlinks. Sem `--llm`, escreve um scaffold pré-preenchido e **consome** conceitos `approved` já existentes daquele chunk/tese (`status=noted`), para que um `connect` posterior não duplique a nota. `sync-manual` faz o mesmo ao adotar uma ZTL escrita à mão.
 
 ---
 

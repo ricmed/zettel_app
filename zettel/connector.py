@@ -231,10 +231,42 @@ def _process_candidate(
         set_progress(step, total, "nota")
 
     existing_concept = db.get_concept(concept_id)
-    if existing_concept and existing_concept.get("note_id"):
-        note_id = existing_concept["note_id"]
+    existing_note_id = existing_concept.get("note_id") if existing_concept else None
+    if existing_note_id:
+        existing_note = db.get_note(existing_note_id)
+        if existing_note and str(existing_note.get("origin") or "") == "manual":
+            logger.info(
+                "Conceito %s ja coberto pela nota manual %s, pulando",
+                concept_id, existing_note_id,
+            )
+            db.upsert_concept(
+                concept_id, source_id, cand_dict["chunk_id"],
+                note_id=existing_note_id, status="noted",
+            )
+            clear_progress()
+            return None
+        note_id = existing_note_id
         logger.debug("Conceito %s ja tem nota %s, atualizando", concept_id, note_id)
     else:
+        from zettel.manual_lit import find_covering_note_id
+
+        covering = find_covering_note_id(
+            db,
+            source_id=source_id,
+            chunk_id=cand_dict.get("chunk_id") or "",
+            thesis=cand.thesis,
+        )
+        if covering:
+            logger.info(
+                "Conceito %s ja coberto pela nota %s, pulando geracao",
+                concept_id, covering,
+            )
+            db.upsert_concept(
+                concept_id, source_id, cand_dict["chunk_id"],
+                note_id=covering, status="noted",
+            )
+            clear_progress()
+            return None
         note_id = str(ULID())
 
     source = db.get_source(source_id)

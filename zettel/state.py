@@ -1080,6 +1080,19 @@ class StateDB:
             "SELECT * FROM concepts WHERE chunk_id=?", (chunk_id,)
         )
 
+    def get_concepts_for_source(
+        self, source_id: str, *, without_notes: bool = False,
+    ) -> list[dict]:
+        """Concepts belonging to ``source_id``, optionally only those still without a note."""
+        if without_notes:
+            return self._fetchall(
+                "SELECT * FROM concepts WHERE source_id=? AND note_id IS NULL",
+                (source_id,),
+            )
+        return self._fetchall(
+            "SELECT * FROM concepts WHERE source_id=?", (source_id,)
+        )
+
     def update_concepts_status_for_chunk(self, chunk_id: str, status: str) -> None:
         self.conn.execute(
             "UPDATE concepts SET status=? WHERE chunk_id=?", (status, chunk_id)
