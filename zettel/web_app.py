@@ -196,6 +196,14 @@ class WebWorker:
             return {"chunks_reset": len(failed)}
         if operation == "retry_assets":
             return {"assets_reset": db.reset_failed_assets()}
+        if operation == "manual-ztl-from-lit" and not payload.get("use_llm"):
+            from zettel.manual_lit import create_permanent_from_literature
+            path, used_llm = create_permanent_from_literature(
+                cfg, db, None, payload["chunk_id"],
+                thesis=payload.get("thesis") or None,
+                use_llm=False,
+            )
+            return {"path": str(path), "used_llm": used_llm}
 
         from zettel.index import VectorIndex, index_kwargs
         idx = VectorIndex(**index_kwargs(cfg))
@@ -253,6 +261,8 @@ class WebWorker:
                 content_start_book=payload.get("content_start_book"),
                 skip_paging=bool(payload.get("skip_paging", False)),
                 selected_file=file_path,
+                dump_dir=Path(payload["dump_dir"]) if payload.get("dump_dir") else None,
+                extraction_dump_dir=Path(payload["extraction_dump_dir"]) if payload.get("extraction_dump_dir") else None,
                 observer=progress,
             )
             sources = harvest.source_ids
@@ -270,7 +280,20 @@ class WebWorker:
                     "extraível, se não é uma duplicata e se as opções bibliográficas "
                     "estão corretas."
                 )
-            return {"sources": sources}
+            return {
+                "sources": sources,
+                "chunk_dump_dir": payload.get("dump_dir"),
+                "extraction_dump_dir": payload.get("extraction_dump_dir"),
+            }
+        if operation == "manual-ztl-from-lit":
+            from zettel.manual_lit import create_permanent_from_literature
+            result = create_permanent_from_literature(
+                cfg, db, idx, payload["chunk_id"],
+                thesis=payload.get("thesis") or None,
+                use_llm=bool(payload.get("use_llm")),
+            )
+            path, used_llm = result
+            return {"path": str(path), "used_llm": used_llm}
         if operation == "extract":
             from zettel.extractor import run_extract
             total = len(db.get_pending_chunks())

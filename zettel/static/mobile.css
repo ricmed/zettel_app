@@ -17,4 +17,15 @@
   .shell {
     padding-top: 112px;
   }
+
+  .note-rule{display:none}
+  .type-picker{grid-template-columns:1fr}
+  .type-option{grid-template-columns:24px 1fr;padding:11px}
+  .manual-layout{grid-template-columns:1fr}
+  .manual-aside{position:static;display:flex;flex-direction:column}
+  .aside-callout{order:2}
+  .submit-note{order:3;margin-top:16px}
+  .two-col,.three-col{grid-template-columns:1fr}
+  .form-section{padding:20px 16px}
+  .manual-heading{margin-bottom:18px}
 }

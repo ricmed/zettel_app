@@ -328,6 +328,7 @@ def _post_job(request: Request, operation: str, payload: dict[str, Any], csrf: s
 @app.post("/documents/harvest")
 async def harvest(request: Request, selected_file: str = Form(""), duplicate_action: str = Form("skip"),
                   skip_biblio: str = Form(""), skip_paging: str = Form(""),
+                  dump_chunks: str = Form(""), dump_extraction: str = Form(""),
                   content_start_file: int | None = Form(None),
                   content_start_book: int | None = Form(None), csrf: str = Form("")):
     if not _auth(request):
@@ -358,10 +359,15 @@ async def harvest(request: Request, selected_file: str = Form(""), duplicate_act
         selected_file = str(selected)
     if duplicate_action not in {"skip", "continue", "abort"}:
         duplicate_action = "skip"
+    from zettel.chunk_dump import default_dump_dir as chunk_dump_dir
+    from zettel.extraction_dump import default_dump_dir as extraction_dump_dir
+    cfg = _service(request).cfg
     return _post_job(request, "harvest", {"selected_file": selected_file or None,
         "duplicate_action": duplicate_action, "skip_biblio": bool(skip_biblio),
         "skip_paging": bool(skip_paging), "content_start_file": content_start_file,
-        "content_start_book": content_start_book}, csrf)
+        "content_start_book": content_start_book,
+        "dump_dir": str(chunk_dump_dir(cfg)) if dump_chunks else None,
+        "extraction_dump_dir": str(extraction_dump_dir(cfg)) if dump_extraction else None}, csrf)
 
 
 @app.post("/documents/run-all")
@@ -494,6 +500,104 @@ async def notes(request: Request):
     finally:
         db.close()
     return _render(request, "notes.html", page="notes", notes=note_rows, mocs=moc_rows)
+
+
+def _manual_note_choices(db: Any) -> tuple[list[dict], list[dict]]:
+    sources = db.list_sources()
+    literature = []
+    for source in sources:
+        for chunk in db.get_chunks_for_source(source["source_id"]):
+            if chunk.get("literature_note_path"):
+                literature.append({
+                    "ref": chunk["chunk_id"],
+                    "title": chunk.get("section_path") or source.get("title") or chunk["chunk_id"],
+                    "source_id": chunk["source_id"],
+                    "locator": chunk.get("locator") or "",
+                })
+    return sources, sorted(literature, key=lambda row: (row["title"], row["ref"]))
+
+
+@app.get("/notes/new", response_class=HTMLResponse)
+async def new_note(request: Request):
+    if not _auth(request):
+        return _redirect_login()
+    service = _service(request)
+    db = service.db()
+    try:
+        sources, literature = _manual_note_choices(db)
+    finally:
+        db.close()
+    return _render(request, "manual_notes.html", page="manual-notes", sources=sources,
+                   literature_notes=literature, llm_ready=_llm_ready(service.cfg),
+                   result=None, error=None)
+
+
+@app.post("/notes/new", response_class=HTMLResponse)
+async def create_note(request: Request):
+    if not _auth(request):
+        return _redirect_login()
+    form = await request.form()
+    if not _csrf_ok(request, str(form.get("csrf") or "")):
+        return HTMLResponse("CSRF inválido", status_code=403)
+    service = _service(request)
+    db = service.db()
+    try:
+        sources, literature = _manual_note_choices(db)
+    finally:
+        db.close()
+    note_type = str(form.get("note_type") or "").upper()
+    title = str(form.get("title") or "").strip()
+    from_lit = str(form.get("from_lit") or "").strip()
+    source_id = str(form.get("source_id") or "").strip()
+    try:
+        if note_type not in {"SRC", "LIT", "ZTL"} or not title:
+            raise ValueError("Informe um tipo e um título válidos.")
+        if from_lit:
+            valid = {row["ref"] for row in literature}
+            if note_type != "ZTL" or from_lit not in valid:
+                raise ValueError("Selecione uma nota LIT granular válida.")
+            if form.get("use_llm") and not _llm_ready(service.cfg):
+                return HTMLResponse(
+                    "O provedor LLM não possui credencial configurada. "
+                    "Verifique Configuração / saúde.",
+                    status_code=409,
+                )
+            return _post_job(request, "manual-ztl-from-lit", {
+                "chunk_id": from_lit, "thesis": title,
+                "use_llm": bool(form.get("use_llm")),
+            }, str(form.get("csrf")))
+        if form.get("use_llm"):
+            raise ValueError("O uso de LLM requer uma nota LIT de origem.")
+        known_sources = {row["source_id"] for row in sources}
+        if note_type == "LIT" and source_id not in known_sources:
+            raise ValueError("Selecione uma fonte existente para a nota LIT.")
+        if note_type == "ZTL" and source_id and source_id not in known_sources:
+            raise ValueError("Selecione uma fonte existente para a nota ZTL.")
+        from zettel.new_note import scaffold_manual_note
+        optional = lambda name: str(form.get(name) or "").strip() or None
+        result = scaffold_manual_note(
+            service.cfg, note_type=note_type, title=title,
+            citekey=optional("citekey"),
+            authors=[x.strip() for x in str(form.get("authors") or "").splitlines() if x.strip()] or None,
+            year=int(optional("year")) if optional("year") else None,
+            document_type=optional("document_type"),
+            abnt_reference=optional("abnt_reference"), publisher=optional("publisher"),
+            place=optional("place"), doi=optional("doi"), url=optional("url"),
+            journal=optional("journal"), edition=optional("edition"),
+            institution=optional("institution"), pages=optional("pages"),
+            thesis=title if note_type == "ZTL" else None,
+            source_id=source_id or None, granular=bool(form.get("granular")),
+            chunk_index=int(optional("chunk_index")) if optional("chunk_index") else 1,
+            page=int(optional("page_number")) if optional("page_number") else None,
+            force=False,
+        )
+        return _render(request, "manual_notes.html", status_code=201, page="manual-notes",
+                       sources=sources, literature_notes=literature,
+                       llm_ready=_llm_ready(service.cfg), result=result, error=None)
+    except (ValueError, FileExistsError) as exc:
+        return _render(request, "manual_notes.html", status_code=400, page="manual-notes",
+                       sources=sources, literature_notes=literature,
+                       llm_ready=_llm_ready(service.cfg), result=None, error=str(exc))
 
 
 @app.get("/sources/{source_id}", response_class=HTMLResponse)

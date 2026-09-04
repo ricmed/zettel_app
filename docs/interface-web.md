@@ -47,16 +47,17 @@ uv run pytest tests/test_web.py tests/test_web_state.py -v
 | Página | O que oferece |
 |---|---|
 | **Visão geral** (`/`) | KPIs, funil, confiança, custos, runs, duplicatas e qualidade do grafo |
-| **Documentos** (`/documents`) | Upload de PDF/Markdown/TXT (até 25 MB), decisões de duplicidade, bibliografia e paginação, harvest **de um arquivo por vez**, e um botão de **pipeline completo** (não-interativo, inbox inteiro) |
+| **Documentos** (`/documents`) | Upload, harvest de um arquivo, opções de bibliografia/paginação e dumps seguros de chunks/Markdown extraído, além do pipeline completo |
 | **Pipeline** (`/pipeline`) | `extract`, `connect`, garden taxonômico, garden por hubs, sincronização manual e repetição segura de chunks/assets com falha |
 | **Revisão** (`/review`) | Filtros por fonte/confiança, trecho, candidatos e aprovação/rejeição **em lote** (sem auto-approve por limiar — use a CLI para `--yes` / bandas interativas) |
 | **Notas / MOCs** (`/notes`, `/notes/{id}`, `/mocs/{id}`, `/sources/{id}`) | Listagem read-only e páginas de detalhe de notas permanentes, MOCs e fontes |
+| **Criar notas** (`/notes/new`) | Scaffolds manuais SRC, LIT e ZTL; ZTL a partir de LIT pode usar o fluxo especializado com ou sem LLM |
 | **Execuções** (`/runs`, `/jobs/{id}`) | Estado persistente, progresso (polling em `/api/jobs/{id}`), eventos, resultado e erro sanitizado |
 | **Configuração / saúde** (`/settings`) | FTS5, diretórios, identidade LLM/embedding (incluindo drift de `dimensions`) — sem segredos |
 
 ### Operações enfileiráveis
 
-`harvest` (um arquivo do inbox, `interactive=False`), `run_all` (as cinco fases em sequência, não-interativo, com `review` em auto-approve), `extract` (`auto_approve=False`), `review` (aprovação/rejeição em lote), `connect`, `garden`, `garden` + hubs, `sync`, `retry_chunks`, `retry_assets`.
+`harvest` (um arquivo do inbox, com dumps opcionais), `manual-ztl-from-lit`, `run_all`, `extract`, `review`, `connect`, `garden`, `garden` + hubs, `sync`, `retry_chunks`, `retry_assets`.
 
 Antes de enfileirar, a rota valida pré-condições e responde **409** com uma mensagem legível — por exemplo, `extract` sem chunks pendentes, `connect` sem candidatos aprovados, `garden` sem notas permanentes, ou provedor de LLM sem credencial configurada.
 
@@ -65,9 +66,9 @@ Antes de enfileirar, a rota valida pré-condições e responde **409** com uma m
 Operações destrutivas e interativas **não** são expostas na web:
 
 - `init --reset`, `delete-source`, `purge-rejected`, `reindex`, `rebuild`, `garden --recreate`
-- `new-note`, `ask`, `article`, `skill`
+- criação de MOC, `ask`, `article`, `skill`
 - resolução interativa de duplicatas semânticas e o HITL de paginação
-- `set-paging`, `rechunk`, `dump-chunks`, `dump-extraction`, `doctor`, `status`
+- `set-paging`, `rechunk`, execução isolada de `dump-chunks`/`dump-extraction`, `doctor`, `status`
 
 A CLI permanece compatível e continua usando a apresentação Rich normalmente.
 

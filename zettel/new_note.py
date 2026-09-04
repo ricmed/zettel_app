@@ -91,9 +91,8 @@ def _resolve_citekey(
     year: int | None,
     title: str,
 ) -> str:
-    if citekey:
-        return citekey.lstrip("@")
-    return provisional_citekey(authors, year, title)
+    key = citekey.lstrip("@") if citekey else provisional_citekey(authors, year, title)
+    return _validate_citekey(key)
 
 
 def _ensure_parent(path: Path) -> None:
@@ -103,9 +102,21 @@ def _ensure_parent(path: Path) -> None:
 def normalize_source_id(raw: str) -> str:
     """Normalize citekey/source_id to ``@Citekey`` form."""
     key = raw.strip().lstrip("@")
-    if not key:
-        raise ValueError("source_id/citekey invalido (vazio)")
-    return f"@{key}"
+    return f"@{_validate_citekey(key)}"
+
+
+def _validate_citekey(key: str) -> str:
+    """Reject source identifiers that could escape vault directories."""
+    if (
+        not key
+        or len(key) > 160
+        or re.fullmatch(r"[\w][\w.:-]*", key, flags=re.UNICODE) is None
+    ):
+        raise ValueError(
+            "source_id/citekey invalido; use apenas letras, numeros, ponto, "
+            "hifen, sublinhado ou dois-pontos"
+        )
+    return key
 
 
 def resolve_src_in_vault(
@@ -231,6 +242,7 @@ def scaffold_manual_note(
     edition: str | None = None,
     institution: str | None = None,
     pages: str | None = None,
+    thesis: str | None = None,
     granular: bool = False,
     chunk_index: int = 1,
     page: int | None = None,
@@ -366,7 +378,7 @@ def scaffold_manual_note(
                     "wikilink provisorio usado (crie a fonte com new-note src ou harvest)."
                 )
         body = build_permanent_note_body(
-            thesis="_Preencha a tese._",
+            thesis=thesis or "_Preencha a tese._",
             definition="_Preencha a definicao._",
             intuition="",
             example="",

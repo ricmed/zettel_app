@@ -143,3 +143,41 @@ def test_run_all_dispatches_every_phase_in_order(tmp_path: Path, monkeypatch):
         "notes": ["note"],
         "mocs": ["moc"],
     }
+
+
+def test_manual_lit_to_ztl_dispatches_specialized_flow(tmp_path: Path, monkeypatch):
+    from zettel import index, manual_lit
+
+    captured = {}
+    monkeypatch.setattr(
+        index, "VectorIndex",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("index must stay lazy")),
+    )
+
+    def fake_create(cfg, db, idx, ref, **kwargs):
+        captured.update(ref=ref, kwargs=kwargs)
+        assert idx is None
+        return tmp_path / "vault" / "note.md", False
+
+    monkeypatch.setattr(manual_lit, "create_permanent_from_literature", fake_create)
+
+    class Progress:
+        def emit(self, event):
+            pass
+
+    result = WebWorker._dispatch(
+        AppConfig(chroma_path=tmp_path / "chroma"),
+        object(),
+        Progress(),
+        "manual-ztl-from-lit",
+        {"chunk_id": "chunk-1", "thesis": "Uma tese", "use_llm": False},
+    )
+
+    assert captured == {
+        "ref": "chunk-1",
+        "kwargs": {"thesis": "Uma tese", "use_llm": False},
+    }
+    assert result == {
+        "path": str(tmp_path / "vault" / "note.md"),
+        "used_llm": False,
+    }

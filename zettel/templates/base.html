@@ -10,7 +10,7 @@
 <body>
 <header class="topbar"><a class="brand" href="/">zettel<span>.</span></a>
 {% if authenticated %}
-<nav>{% for href,label,key in [('/', 'Visão geral','overview'),('/documents','Documentos','documents'),('/pipeline','Pipeline','pipeline'),('/review','Revisão','review'),('/notes','Notas / MOCs','notes'),('/runs','Execuções','runs'),('/settings','Configuração / saúde','settings')] %}
+<nav>{% for href,label,key in [('/', 'Visão geral','overview'),('/documents', 'Documentos','documents'),('/pipeline','Pipeline','pipeline'),('/review','Revisão','review'),('/notes','Notas / MOCs','notes'),('/notes/new','Criar notas','manual-notes'),('/runs','Execuções','runs'),('/settings','Configuração / saúde','settings')] %}
 <a class="{% if page == key %}active{% endif %}" href="{{ href }}">{{ label }}</a>{% endfor %}</nav>
 <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="link-button">Sair</button></form>
 {% endif %}</header>

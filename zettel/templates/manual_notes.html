@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Criar notas · Zettelkasten{% endblock %}
+{% block content %}
+<div class="manual-notes-page">
+  {% if error %}<div class="alert error" role="alert">{{ error }}</div>{% endif %}
+  {% if result %}<div class="alert" role="status"><strong>Nota criada.</strong> {{ result.path }}. Execute “Sincronizar notas manuais” no Pipeline quando terminar de editar.</div>{% endif %}
+  <div class="page-heading manual-heading">
+    <div>
+      <div class="eyebrow">escrita estruturada</div>
+      <h1>Criar notas</h1>
+      <p class="muted heading-copy">Registre uma fonte, uma leitura ou um pensamento — sem lembrar flags de CLI.</p>
+    </div>
+    <div class="note-rule"><span>01</span><span>preencher</span><i></i><span>02</span><span>indexar</span></div>
+  </div>
+
+  <form class="manual-form" method="post" action="/notes/new" id="manual-note-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <section class="panel note-type-panel">
+      <div class="section-kicker">Escolha o gesto</div>
+      <fieldset class="type-picker">
+        <legend class="sr-only">Tipo de nota</legend>
+        <label class="type-option selected">
+          <input type="radio" name="note_type" value="SRC" checked>
+          <span class="type-code">SRC</span><span><strong>Fonte</strong><small>cadastre o documento que sustenta sua pesquisa</small></span>
+        </label>
+        <label class="type-option">
+          <input type="radio" name="note_type" value="LIT">
+          <span class="type-code">LIT</span><span><strong>Nota de leitura</strong><small>guarde uma ideia localizada em uma fonte</small></span>
+        </label>
+        <label class="type-option">
+          <input type="radio" name="note_type" value="ZTL">
+          <span class="type-code">ZTL</span><span><strong>Nota permanente</strong><small>transforme uma ideia em conhecimento seu</small></span>
+        </label>
+      </fieldset>
+    </section>
+
+    <div class="manual-layout">
+      <div class="manual-main">
+        <section class="panel form-section">
+          <div class="section-heading"><span class="section-number">1</span><div><h2>O essencial</h2><p>Comece com o que torna esta nota encontrável.</p></div></div>
+          <div class="form-grid two-col">
+             <label><span id="title-label">Título</span> <input name="title" required placeholder="Um título que diga o que está aqui"></label>
+            <label class="for-src">Citekey <input name="citekey" placeholder="sobrenome_ano"></label>
+          </div>
+          <div class="form-grid two-col for-src">
+            <label>Autores <textarea name="authors" rows="3" placeholder="Um autor por linha"></textarea><small>Ex.: Silva, Ana</small></label>
+            <div class="form-grid">
+              <label>Ano <input type="number" name="year" min="1000" max="2200" inputmode="numeric" placeholder="2024"></label>
+              <label>Tipo de documento <input name="document_type" placeholder="livro, artigo, tese…"></label>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel form-section for-src">
+          <div class="section-heading"><span class="section-number">2</span><div><h2>Referência</h2><p>Dados bibliográficos opcionais, para completar quando fizer sentido.</p></div></div>
+          <label>Referência ABNT <textarea name="abnt_reference" rows="3" placeholder="Cole ou componha a referência completa"></textarea></label>
+          <details class="advanced-details"><summary>Mais dados bibliográficos</summary>
+            <div class="form-grid two-col details-grid">
+              <label>Editora <input name="publisher"></label><label>Local <input name="place"></label>
+              <label>DOI <input name="doi" type="url" placeholder="https://doi.org/…"></label><label>URL <input name="url" type="url" placeholder="https://…"></label>
+              <label>Periódico <input name="journal"></label><label>Edição <input name="edition"></label>
+              <label>Instituição <input name="institution"></label><label>Páginas <input name="pages" placeholder="12–28"></label>
+            </div>
+          </details>
+        </section>
+
+        <section class="panel form-section for-lit for-ztl">
+          <div class="section-heading"><span class="section-number">2</span><div><h2>Onde esta ideia vive</h2><p>Uma localização precisa torna a nota verificável.</p></div></div>
+          <div class="form-grid two-col">
+            <label>Fonte relacionada
+              <select name="source_id"><option value="">Selecione uma fonte</option>{% for source in sources %}<option value="{{ source.source_id }}">{{ source.citekey }} · {{ source.title }}</option>{% endfor %}</select>
+            </label>
+            <label>Localização <input name="page_number" type="number" min="1" inputmode="numeric" placeholder="42"></label>
+          </div>
+          <div class="form-grid two-col">
+             <label class="toggle-row"><input type="checkbox" name="granular" value="1"><span><strong>Nota LIT granular</strong><small>Cria uma nota localizada por trecho e página.</small></span></label>
+            <label>Índice do trecho <input type="number" name="chunk_index" min="0" inputmode="numeric"></label>
+          </div>
+          <div class="form-grid for-ztl">
+            <label>Nota de leitura de origem
+              <select name="from_lit"><option value="">Nenhuma</option>{% for note in literature_notes %}<option value="{{ note.ref }}">{{ note.ref }} · {{ note.title }}{% if note.locator %} · {{ note.locator }}{% endif %}</option>{% endfor %}</select>
+            </label>
+          </div>
+        </section>
+
+        <section class="panel form-section for-ztl">
+          <div class="section-heading"><span class="section-number">3</span><div><h2>Refino assistido</h2><p>Opcional. A fila preserva a nota e cria o índice depois.</p></div></div>
+          <label class="toggle-row"><input type="checkbox" name="use_llm" value="1" {% if not llm_ready %}disabled{% endif %}><span><strong>Usar LLM para estruturar a partir da nota de leitura</strong><small>{% if llm_ready %}O ZTL será enfileirado e indexado após o processamento.{% else %}Configure o provedor LLM em Configuração / saúde para ativar.{% endif %}</small></span></label>
+          <div class="llm-note" aria-live="polite">Sem LLM, o scaffold comum é criado agora. A sincronização manual com a fonte continua sendo sua responsabilidade.</div>
+        </section>
+      </div>
+      <aside class="manual-aside">
+        <div class="aside-card">
+          <div class="aside-mark">ZK</div>
+          <h2>Uma nota, um endereço</h2>
+          <p>O formulário conduz o mínimo necessário. O resto pode amadurecer junto com a pesquisa.</p>
+          <dl><div><dt>SRC</dt><dd>registro bibliográfico</dd></div><div><dt>LIT</dt><dd>observação ancorada</dd></div><div><dt>ZTL</dt><dd>ideia reutilizável</dd></div></dl>
+        </div>
+        <div class="aside-callout"><strong>Sobre a sincronização</strong><p>Scaffolds comuns exigem sincronização manual depois. ZTLs vindos de LIT com LLM entram na fila e são indexados automaticamente.</p></div>
+        <button class="primary submit-note" type="submit">Criar nota <span>→</span></button>
+      </aside>
+    </div>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const form = document.getElementById('manual-note-form');
+  const options = [...document.querySelectorAll('.type-option')];
+  const groups = { SRC: document.querySelectorAll('.for-src'), LIT: document.querySelectorAll('.for-lit'), ZTL: document.querySelectorAll('.for-ztl') };
+  function update() {
+    const type = form.querySelector('input[name="note_type"]:checked').value;
+    document.getElementById('title-label').textContent = type === 'ZTL' ? 'Tese / título da ideia' : 'Título';
+    options.forEach(option => option.classList.toggle('selected', option.querySelector('input').value === type));
+    Object.entries(groups).forEach(([key, fields]) => fields.forEach(field => field.hidden = key !== type));
+    form.querySelectorAll('[name="source_id"], [name="from_lit"]').forEach(input => input.required = type === 'LIT' && input.name === 'source_id');
+  }
+  form.querySelectorAll('input[name="note_type"]').forEach(input => input.addEventListener('change', update));
+  update();
+})();
+</script>
+{% endblock %}

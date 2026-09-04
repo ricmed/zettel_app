@@ -32,6 +32,14 @@ def test_normalize_note_type_invalid():
         normalize_note_type("article")
 
 
+@pytest.mark.parametrize("source_id", ["../../outside", r"..\\outside", "/tmp/outside"])
+def test_scaffold_rejects_unsafe_source_ids(cfg, source_id):
+    with pytest.raises(ValueError, match="source_id/citekey invalido"):
+        scaffold_manual_note(
+            cfg, "lit", "Unsafe", source_id=source_id, granular=True,
+        )
+
+
 def test_provisional_citekey_author_year():
     ck = provisional_citekey(["Maria Silva"], 2024, "Knowledge Graphs")
     assert ck == "Silva2024KnowledgeGraphs"
@@ -181,6 +189,16 @@ def test_scaffold_permanent_note(cfg):
     assert len(meta["note_id"]) == 26
     assert "> **Tese**:" in body
     assert read_managed_block(body, "auto-connections") is not None
+
+
+def test_scaffold_permanent_note_persists_thesis(cfg):
+    result = scaffold_manual_note(
+        cfg, "ztl", "Heurísticas",
+        thesis="Heurísticas reduzem esforço cognitivo.",
+    )
+    _meta, body = parse_frontmatter(result.path.read_text(encoding="utf-8"))
+    assert "Heurísticas reduzem esforço cognitivo." in body
+    assert "_Preencha a tese._" not in body
 
 
 def test_scaffold_permanent_with_existing_src(cfg):

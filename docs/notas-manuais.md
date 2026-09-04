@@ -38,6 +38,8 @@ python -m zettel sync-manual --rebuild-graph   # re-deriva as arestas de todo o 
 
 Para criar notas manuais com frontmatter e corpo padronizados (sem indexar ainda), use **`zettel new-note`**. O comando só grava o `.md` no vault com `origin: manual`; rode **`zettel sync-manual`** em seguida para registrar no SQLite/Chroma, sugerir conexões e sincronizar backrefs de MOC.
 
+A página **Criar notas** (`/notes/new`) oferece o mesmo scaffold para SRC, LIT e ZTL, sempre sem sobrescrita forçada. Fontes e LITs granulares já conhecidas aparecem como seleções seguras. ZTL a partir de LIT é enfileirada; com LLM, ela reutiliza o connector e já é indexada. MOC continua exclusiva da CLI.
+
 Tipos aceitos: `ztl`, `lit`, `src`, `moc` (aliases `permanent`, `literature`, `source`).
 
 | Tipo | Destino | Comportamento |

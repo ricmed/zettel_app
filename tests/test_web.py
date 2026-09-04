@@ -107,6 +107,7 @@ def test_navigation_and_retry_job_flow(web_client):
         ("/pipeline", "Pré-requisitos"),
         ("/review", "Revisão humana"),
         ("/notes", "Notas / MOCs"),
+        ("/notes/new", "Criar notas"),
         ("/runs", "Execuções"),
         ("/settings", "SQLite FTS5"),
     ]:
@@ -170,12 +171,66 @@ def test_nested_inbox_file_can_be_selected_for_harvest(web_client, monkeypatch):
             "csrf": csrf,
             "selected_file": "folder/nested.txt",
             "duplicate_action": "skip",
+            "dump_chunks": "1",
+            "dump_extraction": "1",
         },
         follow_redirects=False,
     )
     assert response.status_code == 303
     assert captured["operation"] == "harvest"
     assert captured["payload"]["selected_file"] == str(nested.resolve())
+    assert captured["payload"]["dump_dir"] == str(tmp_path / "cache" / "chunk-dumps")
+    assert captured["payload"]["extraction_dump_dir"] == str(
+        tmp_path / "cache" / "extraction-dumps"
+    )
+
+
+def test_manual_source_scaffold_can_be_created_without_overwrite(web_client):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    response = client.post("/notes/new", data={
+        "csrf": csrf, "note_type": "SRC", "title": "Thinking Fast",
+        "citekey": "Kahneman2011", "authors": "Daniel Kahneman", "year": "2011",
+        "document_type": "book",
+    })
+    assert response.status_code == 201
+    assert "Nota criada" in response.text
+    created = list((tmp_path / "vault" / "10_Sources").glob("*.md"))
+    assert len(created) == 1
+    duplicate = client.post("/notes/new", data={
+        "csrf": csrf, "note_type": "SRC", "title": "Thinking Fast",
+        "citekey": "Kahneman2011",
+    })
+    assert duplicate.status_code == 400
+
+
+def test_manual_ztl_uses_single_title_as_thesis(web_client):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    response = client.post("/notes/new", data={
+        "csrf": csrf, "note_type": "ZTL",
+        "title": "Heurísticas reduzem esforço cognitivo",
+    })
+    assert response.status_code == 201
+    note = next((tmp_path / "vault" / "30_Permanent").glob("*.md"))
+    content = note.read_text(encoding="utf-8")
+    assert "title: Heurísticas reduzem esforço cognitivo" in content
+    assert "> **Tese**: Heurísticas reduzem esforço cognitivo" in content
+    page = client.get("/notes/new")
+    assert 'name="thesis"' not in page.text
+    assert "Tese / título da ideia" in page.text
+
+
+@pytest.mark.parametrize("source_id", ["../../outside", r"..\\outside", "@not-known"])
+def test_manual_lit_rejects_forged_source_ids(web_client, source_id):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    response = client.post("/notes/new", data={
+        "csrf": csrf, "note_type": "LIT", "title": "Tentativa",
+        "source_id": source_id, "granular": "1",
+    })
+    assert response.status_code == 400
+    assert not (tmp_path / "outside").exists()
 
 
 def test_harvest_rejects_absolute_and_parent_paths(web_client):
