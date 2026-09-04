@@ -1,0 +1,83 @@
+[
+  {
+    "question_id": "q01-hit",
+    "question": "Por que dropout se comporta como um ensemble?",
+    "hit_ids": ["01HEVALAAAAAAAAAAAAAAAAAAA"],
+    "candidate_ids": ["01HEVALAAAAAAAAAAAAAAAAAAA", "01HEVALBBBBBBBBBBBBBBBBBBB"],
+    "passed_floor": {
+      "01HEVALAAAAAAAAAAAAAAAAAAA": true,
+      "01HEVALBBBBBBBBBBBBBBBBBBB": false
+    },
+    "floor_reasons": {
+      "01HEVALAAAAAAAAAAAAAAAAAAA": "similaridade 0.88 >= piso 0.70",
+      "01HEVALBBBBBBBBBBBBBBBBBBB": "similaridade 0.54 abaixo do piso (0.70)"
+    },
+    "llm_called": true,
+    "answer": "Dropout funciona como um ensemble implicito de sub-redes.",
+    "tokens_input": 1200,
+    "tokens_output": 180
+  },
+  {
+    "question_id": "q02-floor-reject",
+    "question": "Como a normalizacao afeta o treinamento?",
+    "hit_ids": [],
+    "candidate_ids": ["01HEVALBBBBBBBBBBBBBBBBBBB", "01HEVALAAAAAAAAAAAAAAAAAAA"],
+    "passed_floor": {
+      "01HEVALBBBBBBBBBBBBBBBBBBB": false,
+      "01HEVALAAAAAAAAAAAAAAAAAAA": false
+    },
+    "floor_reasons": {
+      "01HEVALBBBBBBBBBBBBBBBBBBB": "similaridade 0.62 abaixo do piso (0.70)",
+      "01HEVALAAAAAAAAAAAAAAAAAAA": "similaridade 0.41 abaixo do piso (0.70)"
+    },
+    "llm_called": false,
+    "answer": "Nao encontrei evidencia suficiente no vault para responder a essa pergunta.",
+    "tokens_input": 0,
+    "tokens_output": 0
+  },
+  {
+    "question_id": "q03-routing-miss",
+    "question": "O que a curva de aprendizado revela sobre vies e variancia?",
+    "hit_ids": ["01HEVALCCCCCCCCCCCCCCCCCCC"],
+    "candidate_ids": ["01HEVALCCCCCCCCCCCCCCCCCCC", "01HEVALAAAAAAAAAAAAAAAAAAA"],
+    "passed_floor": {
+      "01HEVALCCCCCCCCCCCCCCCCCCC": true,
+      "01HEVALAAAAAAAAAAAAAAAAAAA": false
+    },
+    "floor_reasons": {
+      "01HEVALCCCCCCCCCCCCCCCCCCC": "match lexical forte (bm25 rank 2 <= 5)"
+    },
+    "llm_called": true,
+    "answer": "Attention modela dependencias de longo alcance.",
+    "tokens_input": 1100,
+    "tokens_output": 90
+  },
+  {
+    "question_id": "q04-no-evidence",
+    "question": "Qual a massa do planeta Netuno?",
+    "hit_ids": [],
+    "candidate_ids": ["01HEVALCCCCCCCCCCCCCCCCCCC"],
+    "passed_floor": {"01HEVALCCCCCCCCCCCCCCCCCCC": false},
+    "floor_reasons": {
+      "01HEVALCCCCCCCCCCCCCCCCCCC": "similaridade 0.18 abaixo do piso (0.70)"
+    },
+    "llm_called": false,
+    "answer": "Nao encontrei evidencia suficiente no vault para responder a essa pergunta.",
+    "tokens_input": 0,
+    "tokens_output": 0
+  },
+  {
+    "question_id": "q05-answer-fail",
+    "question": "Attention substitui recorrencia por quê?",
+    "hit_ids": ["01HEVALCCCCCCCCCCCCCCCCCCC"],
+    "candidate_ids": ["01HEVALCCCCCCCCCCCCCCCCCCC"],
+    "passed_floor": {"01HEVALCCCCCCCCCCCCCCCCCCC": true},
+    "floor_reasons": {
+      "01HEVALCCCCCCCCCCCCCCCCCCC": "similaridade 0.91 >= piso 0.70"
+    },
+    "llm_called": true,
+    "answer": "Attention dispensa a recorrencia usando pesos aprendidos entre posicoes.",
+    "tokens_input": 1000,
+    "tokens_output": 140
+  }
+]

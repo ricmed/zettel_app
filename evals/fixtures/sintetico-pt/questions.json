@@ -1,0 +1,29 @@
+[
+  {
+    "question_id": "q01-hit",
+    "question": "Por que dropout se comporta como um ensemble?",
+    "target_note_id": "01HEVALAAAAAAAAAAAAAAAAAAA",
+    "answer_must_contain": ["ensemble"]
+  },
+  {
+    "question_id": "q02-floor-reject",
+    "question": "Como a normalizacao afeta o treinamento?",
+    "target_note_id": "01HEVALBBBBBBBBBBBBBBBBBBB"
+  },
+  {
+    "question_id": "q03-routing-miss",
+    "question": "O que a curva de aprendizado revela sobre vies e variancia?",
+    "target_note_id": "01HEVALDDDDDDDDDDDDDDDDDDD"
+  },
+  {
+    "question_id": "q04-no-evidence",
+    "question": "Qual a massa do planeta Netuno?",
+    "expect_no_evidence": true
+  },
+  {
+    "question_id": "q05-answer-fail",
+    "question": "Attention substitui recorrencia por quê?",
+    "target_note_id": "01HEVALCCCCCCCCCCCCCCCCCCC",
+    "answer_must_contain": ["comprimento do caminho"]
+  }
+]
