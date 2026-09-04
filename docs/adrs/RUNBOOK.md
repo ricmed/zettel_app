@@ -446,7 +446,7 @@ Recommended:
 | **retrieval.py** | 003, 009, 010 | Hybrid fusion, floor, graph expansion |
 | **gardener.py** | 019, 021, 025 | Taxonomy clustering, routing, prompting |
 | **gardener_hub.py** | 020, 021, 025 | Hub MOCs, routing, prompting |
-| **web.py, web_app.py** | 022, 023, 018 | Server rendering, job queue, validation |
+| **web/ (pacote), web_app.py** | 022, 023, 018, 039, 040 | Server rendering, job queue, validation, JSON pickers |
 | **config.py** | 004, 006 | YAML-first, Pydantic schema |
 | **state.py** | 001, 005, 007, 008 | SQLite persistence, hashing, repository pattern |
 | **index.py** | 002, 008 | ChromaDB, repository pattern |

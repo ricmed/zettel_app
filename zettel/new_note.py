@@ -291,7 +291,9 @@ def scaffold_manual_note(
             body, source_id=sid, citekey=ck, title=title, path=path,
         )
         _write_scaffold(path, meta, body, force=force)
-        _write_literature_index(cfg, sid, ck, title, force=force)
+        # Never overwrite an index that already carries the auto-lit-index block
+        # maintained by review/sync, even when the SRC scaffold itself is forced.
+        _write_literature_index(cfg, sid, ck, title, force=False)
         return NewNoteResult(path=path, note_type=normalized, meta=meta)
 
     if normalized == "literature":

@@ -1,9 +1,37 @@
 {% extends "base.html" %}
+{% from "_combobox.html" import combobox %}
 {% block title %}Criar notas · Zettelkasten{% endblock %}
 {% block content %}
 <div class="manual-notes-page">
-  {% if error %}<div class="alert error" role="alert">{{ error }}</div>{% endif %}
-  {% if result %}<div class="alert" role="status"><strong>Nota criada.</strong> {{ result.path }}. Execute “Sincronizar notas manuais” no Pipeline quando terminar de editar.</div>{% endif %}
+  {% if result %}
+  <div class="alert" role="status">
+    <strong>Nota criada.</strong> {{ result.path }}. Execute “Sincronizar notas manuais” no Pipeline quando terminar de editar.
+    {% if result.warnings %}
+    <ul class="result-warnings">{% for warning in result.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
+    {% endif %}
+  </div>
+  {% if next_step %}
+  <section class="panel next-step" data-types="LIT_GRANULAR">
+    <h2>Próximo passo</h2>
+    <p>Transforme este trecho em uma nota permanente. O caminho recomendado sincroniza a LIT primeiro, para o wikilink apontar para este trecho — não só para o índice da fonte — e para o refino com LLM ficar disponível.</p>
+    {% if next_step.source_in_db %}
+    <form method="post" action="/pipeline/sync">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="next" value="{{ next_step.sync_next }}">
+      <button class="primary" type="submit">Sincronizar e continuar</button>
+    </form>
+    {% else %}
+    <p class="muted">A fonte ainda não está no SQLite. Sincronize pelo Pipeline antes de usar o LLM.</p>
+    <form method="post" action="/pipeline/sync">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="next" value="{{ next_step.sync_next }}">
+      <button class="primary" type="submit">Sincronizar e continuar</button>
+    </form>
+    {% endif %}
+    <p><a href="{{ next_step.direct_href }}">Criar ZTL agora, sem sincronizar</a> — a nota vai referenciar o índice da fonte, não este trecho, e o LLM não estará disponível.</p>
+  </section>
+  {% endif %}
+  {% endif %}
   <div class="page-heading manual-heading">
     <div>
       <div class="eyebrow">escrita estruturada</div>
@@ -19,39 +47,41 @@
       <div class="section-kicker">Escolha o gesto</div>
       <fieldset class="type-picker">
         <legend class="sr-only">Tipo de nota</legend>
-        <label class="type-option selected">
-          <input type="radio" name="note_type" value="SRC" checked>
-          <span class="type-code">SRC</span><span><strong>Fonte</strong><small>cadastre o documento que sustenta sua pesquisa</small></span>
+        <label class="type-option{% if selected_type == 'SRC' %} selected{% endif %}">
+          <input type="radio" name="note_type" value="SRC"{% if selected_type == 'SRC' %} checked{% endif %}>
+          <span class="type-copy"><span class="type-code">SRC</span><strong>Fonte</strong><small>cadastre o documento que sustenta sua pesquisa</small></span>
         </label>
-        <label class="type-option">
-          <input type="radio" name="note_type" value="LIT">
-          <span class="type-code">LIT</span><span><strong>Nota de leitura</strong><small>guarde uma ideia localizada em uma fonte</small></span>
+        <label class="type-option{% if selected_type == 'LIT' %} selected{% endif %}">
+          <input type="radio" name="note_type" value="LIT"{% if selected_type == 'LIT' %} checked{% endif %}>
+          <span class="type-copy"><span class="type-code">LIT</span><strong>Nota de leitura</strong><small>guarde uma ideia localizada em uma fonte</small></span>
         </label>
-        <label class="type-option">
-          <input type="radio" name="note_type" value="ZTL">
-          <span class="type-code">ZTL</span><span><strong>Nota permanente</strong><small>transforme uma ideia em conhecimento seu</small></span>
+        <label class="type-option{% if selected_type == 'ZTL' %} selected{% endif %}">
+          <input type="radio" name="note_type" value="ZTL"{% if selected_type == 'ZTL' %} checked{% endif %}>
+          <span class="type-copy"><span class="type-code">ZTL</span><strong>Nota permanente</strong><small>transforme uma ideia em conhecimento seu</small></span>
         </label>
       </fieldset>
     </section>
 
     <div class="manual-layout">
       <div class="manual-main">
-        <section class="panel form-section">
+        <section class="panel form-section" data-types="SRC LIT_INDEX LIT_GRANULAR ZTL_BLANK">
           <div class="section-heading"><span class="section-number">1</span><div><h2>O essencial</h2><p>Comece com o que torna esta nota encontrável.</p></div></div>
           <div class="form-grid two-col">
-             <label><span id="title-label">Título</span> <input name="title" required placeholder="Um título que diga o que está aqui"></label>
-            <label class="for-src">Citekey <input name="citekey" placeholder="sobrenome_ano"></label>
+            <label><span id="title-label">Título</span> <input name="title" data-required-for="SRC LIT_INDEX LIT_GRANULAR ZTL_BLANK" placeholder="Um título que diga o que está aqui"></label>
+            <label data-types="SRC">Citekey <input name="citekey" placeholder="sobrenome_ano"></label>
           </div>
-          <div class="form-grid two-col for-src">
+          <div class="form-grid two-col" data-types="SRC">
             <label>Autores <textarea name="authors" rows="3" placeholder="Um autor por linha"></textarea><small>Ex.: Silva, Ana</small></label>
             <div class="form-grid">
               <label>Ano <input type="number" name="year" min="1000" max="2200" inputmode="numeric" placeholder="2024"></label>
               <label>Tipo de documento <input name="document_type" placeholder="livro, artigo, tese…"></label>
             </div>
           </div>
+          <p class="muted" data-types="SRC">Criar a fonte também cria o índice de literatura dela em <code>20_Literature/</code>, como o harvest faz.</p>
+          <p class="muted" data-types="LIT_INDEX">Se você acabou de criar a SRC aqui, o índice já existe nesse caminho. Recriá-lo exige marcar <em>substituir arquivo existente</em>.</p>
         </section>
 
-        <section class="panel form-section for-src">
+        <section class="panel form-section" data-types="SRC">
           <div class="section-heading"><span class="section-number">2</span><div><h2>Referência</h2><p>Dados bibliográficos opcionais, para completar quando fizer sentido.</p></div></div>
           <label>Referência ABNT <textarea name="abnt_reference" rows="3" placeholder="Cole ou componha a referência completa"></textarea></label>
           <details class="advanced-details"><summary>Mais dados bibliográficos</summary>
@@ -64,29 +94,60 @@
           </details>
         </section>
 
-        <section class="panel form-section for-lit for-ztl">
-          <div class="section-heading"><span class="section-number">2</span><div><h2>Onde esta ideia vive</h2><p>Uma localização precisa torna a nota verificável.</p></div></div>
-          <div class="form-grid two-col">
-            <label>Fonte relacionada
-              <select name="source_id"><option value="">Selecione uma fonte</option>{% for source in sources %}<option value="{{ source.source_id }}">{{ source.citekey }} · {{ source.title }}</option>{% endfor %}</select>
-            </label>
-            <label>Localização <input name="page_number" type="number" min="1" inputmode="numeric" placeholder="42"></label>
-          </div>
-          <div class="form-grid two-col">
-             <label class="toggle-row"><input type="checkbox" name="granular" value="1"><span><strong>Nota LIT granular</strong><small>Cria uma nota localizada por trecho e página.</small></span></label>
-            <label>Índice do trecho <input type="number" name="chunk_index" min="0" inputmode="numeric"></label>
-          </div>
-          <div class="form-grid for-ztl">
-            <label>Nota de leitura de origem
-              <select name="from_lit"><option value="">Nenhuma</option>{% for note in literature_notes %}<option value="{{ note.ref }}">{{ note.ref }} · {{ note.title }}{% if note.locator %} · {{ note.locator }}{% endif %}</option>{% endfor %}</select>
-            </label>
-          </div>
+        <section class="panel form-section" data-types="LIT_INDEX LIT_GRANULAR">
+          <div class="section-heading"><span class="section-number">2</span><div><h2>Que tipo de LIT</h2><p>Índice da fonte ou nota localizada por trecho.</p></div></div>
+          <fieldset class="radio-row">
+            <legend class="sr-only">Tipo de nota de leitura</legend>
+            <label class="toggle-row"><input type="radio" name="granular" value=""{% if selected_granular != '1' %} checked{% endif %}><span><strong>Índice da fonte</strong><small>A lista de trechos desta SRC. O título abaixo é o título do índice.</small></span></label>
+            <label class="toggle-row"><input type="radio" name="granular" value="1"{% if selected_granular == '1' %} checked{% endif %}><span><strong>Nota granular</strong><small>Um trecho localizado por página, com tópico próprio.</small></span></label>
+          </fieldset>
         </section>
 
-        <section class="panel form-section for-ztl">
-          <div class="section-heading"><span class="section-number">3</span><div><h2>Refino assistido</h2><p>Opcional. A fila preserva a nota e cria o índice depois.</p></div></div>
-          <label class="toggle-row"><input type="checkbox" name="use_llm" value="1" {% if not llm_ready %}disabled{% endif %}><span><strong>Usar LLM para estruturar a partir da nota de leitura</strong><small>{% if llm_ready %}O ZTL será enfileirado e indexado após o processamento.{% else %}Configure o provedor LLM em Configuração / saúde para ativar.{% endif %}</small></span></label>
-          <div class="llm-note" aria-live="polite">Sem LLM, o scaffold comum é criado agora. A sincronização manual com a fonte continua sendo sua responsabilidade.</div>
+        <section class="panel form-section" data-types="LIT_INDEX LIT_GRANULAR ZTL_BLANK ZTL_FROM_LIT">
+          <div class="section-heading"><span class="section-number">2</span><div><h2>Onde esta ideia vive</h2><p>Uma localização precisa torna a nota verificável.</p></div></div>
+          <div class="form-grid">
+            <label>Fonte relacionada
+              {{ combobox("source_id", recent_sources, "/api/pickers/sources", selected=selected_source_id, required_for="LIT_INDEX LIT_GRANULAR", placeholder="Selecione uma fonte") }}
+            </label>
+          </div>
+          <div class="form-grid two-col" data-types="LIT_GRANULAR">
+            <label>Índice do trecho <input type="number" name="chunk_index" min="1" inputmode="numeric" value="{{ default_chunk_index }}"><small>Duas notas com o mesmo índice na mesma fonte compartilham o chunk_id e a segunda sobrescreve a primeira no sync.</small></label>
+            <label>Página impressa <input name="page_number" type="number" min="1" inputmode="numeric" placeholder="42"></label>
+          </div>
+          <p class="muted filename-preview" data-types="LIT_GRANULAR" id="lit-preview" hidden></p>
+        </section>
+
+        <section class="panel form-section" data-types="LIT_GRANULAR">
+          <div class="section-heading"><span class="section-number">3</span><div><h2>Tópico deste trecho</h2><p>Não é o título da nota. O título vem da fonte selecionada.</p></div></div>
+          <p class="muted">O campo <strong>Título</strong> acima vira o <code>section_path</code> da nota e entra no nome do arquivo.</p>
+        </section>
+
+        <section class="panel form-section" data-types="ZTL_BLANK ZTL_FROM_LIT">
+          <div class="section-heading"><span class="section-number">2</span><div><h2>Origem da permanente</h2><p>Em branco, ou derivada de uma nota de leitura.</p></div></div>
+          <fieldset class="radio-row">
+            <legend class="sr-only">Origem da ZTL</legend>
+            <label class="toggle-row"><input type="radio" name="ztl_origin" value="blank"{% if selected_ztl_origin != 'from_lit' %} checked{% endif %}><span><strong>Nota em branco</strong><small>O título acima é a tese.</small></span></label>
+            <label class="toggle-row"><input type="radio" name="ztl_origin" value="from_lit"{% if selected_ztl_origin == 'from_lit' %} checked{% endif %}><span><strong>A partir de uma nota de leitura</strong><small>Adota a LIT e gera a permanente.</small></span></label>
+          </fieldset>
+        </section>
+
+        <section class="panel form-section" data-types="ZTL_FROM_LIT">
+          <div class="section-heading"><span class="section-number">3</span><div><h2>Nota de leitura de origem</h2><p>Escolha a fonte para filtrar, depois a LIT.</p></div></div>
+          <div class="form-grid">
+            <label>Nota de leitura
+              {{ combobox("from_lit", recent_literature, "/api/pickers/literature", selected=selected_from_lit, required_for="ZTL_FROM_LIT", depends_on="source_id", placeholder="Escolha a fonte primeiro") }}
+            </label>
+            {% if selected_from_lit_path %}
+            <input type="hidden" name="from_lit_path" value="{{ selected_from_lit_path }}">
+            {% endif %}
+          </div>
+          <label>Tese desta permanente <input name="lit_thesis" placeholder="Opcional se a LIT já tiver um candidato ou um resumo"></label>
+          <label class="toggle-row"><input type="checkbox" name="use_llm" value="1" id="use-llm"{% if not llm_ready %} disabled data-locked="1"{% endif %}><span><strong>Usar LLM para estruturar a partir da nota de leitura</strong><small>{% if llm_ready %}O ZTL será enfileirado e indexado após o processamento. A SRC precisa já estar no SQLite.{% else %}Configure o provedor LLM em Configuração / saúde para ativar.{% endif %}</small></span></label>
+        </section>
+
+        <section class="panel form-section" data-types="LIT_INDEX LIT_GRANULAR ZTL_BLANK ZTL_FROM_LIT">
+          <div class="section-heading"><span class="section-number">4</span><div><h2>Opções</h2><p>Só quando você pretende substituir um arquivo que já existe.</p></div></div>
+          <label class="toggle-row"><input type="checkbox" name="force" value="1" id="force-overwrite"><span><strong>Substituir arquivo existente</strong><small>Não se aplica ao ramo com LLM: o Connect escreve o próprio arquivo.</small></span></label>
         </section>
       </div>
       <aside class="manual-aside">
@@ -104,19 +165,97 @@
 </div>
 {% endblock %}
 {% block scripts %}
+<script src="/static/combobox.js"></script>
 <script>
 (() => {
   const form = document.getElementById('manual-note-form');
   const options = [...document.querySelectorAll('.type-option')];
-  const groups = { SRC: document.querySelectorAll('.for-src'), LIT: document.querySelectorAll('.for-lit'), ZTL: document.querySelectorAll('.for-ztl') };
-  function update() {
+  const useLlm = document.getElementById('use-llm');
+  const force = document.getElementById('force-overwrite');
+  const preview = document.getElementById('lit-preview');
+  function mode() {
     const type = form.querySelector('input[name="note_type"]:checked').value;
-    document.getElementById('title-label').textContent = type === 'ZTL' ? 'Tese / título da ideia' : 'Título';
-    options.forEach(option => option.classList.toggle('selected', option.querySelector('input').value === type));
-    Object.entries(groups).forEach(([key, fields]) => fields.forEach(field => field.hidden = key !== type));
-    form.querySelectorAll('[name="source_id"], [name="from_lit"]').forEach(input => input.required = type === 'LIT' && input.name === 'source_id');
+    if (type === 'SRC') return 'SRC';
+    if (type === 'LIT') {
+      const g = form.querySelector('input[name="granular"]:checked');
+      return g && g.value === '1' ? 'LIT_GRANULAR' : 'LIT_INDEX';
+    }
+    const origin = form.querySelector('input[name="ztl_origin"]:checked');
+    return origin && origin.value === 'from_lit' ? 'ZTL_FROM_LIT' : 'ZTL_BLANK';
   }
-  form.querySelectorAll('input[name="note_type"]').forEach(input => input.addEventListener('change', update));
+  function slug(text) {
+    return (text || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'nota';
+  }
+  function fieldValue(name) {
+    const live = [...form.querySelectorAll(`[name="${name}"]`)].find(node => !node.disabled);
+    return live ? live.value : '';
+  }
+  function updatePreview() {
+    if (!preview) return;
+    const on = mode() === 'LIT_GRANULAR';
+    preview.hidden = !on;
+    if (!on) return;
+    const sourceId = fieldValue('source_id');
+    const index = parseInt(form.querySelector('[name="chunk_index"]').value || '1', 10);
+    const page = form.querySelector('[name="page_number"]').value;
+    const topic = form.querySelector('[name="title"]').value;
+    const padded = String(index).padStart(4, '0');
+    const pageTok = page ? ('p' + String(page).padStart(3, '0')) : ('c' + padded);
+    const citekey = (sourceId || '').replace(/^@/, '') || 'Citekey';
+    preview.textContent = 'Arquivo: LIT - ' + citekey + ' - ' + pageTok + ' - ' + slug(topic) + '-' + padded + '.md · chunk_id: ' + (sourceId || '@Citekey') + '::manual::' + padded;
+  }
+  function update() {
+    const current = mode();
+    const type = form.querySelector('input[name="note_type"]:checked').value;
+    const titleLabel = document.getElementById('title-label');
+    if (current === 'ZTL_BLANK') titleLabel.textContent = 'Tese / título da ideia';
+    else if (current === 'LIT_GRANULAR') titleLabel.textContent = 'Tópico / seção deste trecho';
+    else if (current === 'LIT_INDEX') titleLabel.textContent = 'Título do índice';
+    else titleLabel.textContent = 'Título';
+    options.forEach(option => option.classList.toggle('selected', option.querySelector('input').value === type));
+    for (const el of form.querySelectorAll('[data-types]')) {
+      const on = el.dataset.types.split(/\s+/).includes(current);
+      el.hidden = !on;
+      for (const input of el.querySelectorAll('input, select, textarea')) {
+        if (input.matches('select') && input.closest('.combobox')?.dataset.enhanced === '1') {
+          input.disabled = true;
+          input.required = false;
+          continue;
+        }
+        if (input.dataset.locked === '1') {
+          input.disabled = true;
+          continue;
+        }
+        input.disabled = !on;
+        if (input.dataset.requiredFor)
+          input.required = on && input.dataset.requiredFor.split(/\s+/).includes(current);
+      }
+    }
+    form.querySelectorAll('.combobox[data-depends-on]').forEach(root => {
+      const input = root.querySelector('.combobox-input');
+      if (!input) return;
+      const sectionOn = !root.closest('[hidden]');
+      const ownerVal = fieldValue(root.dataset.dependsOn);
+      input.disabled = !sectionOn || !ownerVal;
+      if (sectionOn) input.placeholder = ownerVal ? 'Buscar…' : 'Escolha a fonte primeiro';
+    });
+    if (force && useLlm) force.disabled = Boolean(useLlm.checked) && current === 'ZTL_FROM_LIT';
+    updatePreview();
+  }
+  form.querySelectorAll('input[name="note_type"], input[name="granular"], input[name="ztl_origin"]').forEach(input => input.addEventListener('change', update));
+  form.addEventListener('input', updatePreview);
+  if (useLlm) useLlm.addEventListener('change', update);
+  form.addEventListener('combobox:change', event => {
+    if (event.detail && event.detail.name === 'source_id') {
+      const next = event.detail.item && event.detail.item.next_chunk_index;
+      const indexInput = form.querySelector('[name="chunk_index"]');
+      if (next && indexInput) indexInput.value = next;
+      updatePreview();
+    }
+    update();
+  });
+  form.addEventListener('combobox:ready', update);
   update();
 })();
 </script>

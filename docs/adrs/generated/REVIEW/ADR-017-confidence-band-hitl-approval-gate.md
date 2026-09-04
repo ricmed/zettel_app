@@ -74,5 +74,5 @@ Because concept deduplication runs after human approval rather than at extractio
 * `zettel/review.py:70-76` — confidence-band classification (`chunk_confidence_band`)
 * `zettel/review.py:79-88` — band-based filtering (`filter_chunks_by_band`)
 * `zettel/review.py:194-206` — non-interactive/auto-approve threshold enforcement
-* `zettel/web.py:458-469` — web `/review` route with client-side band filtering
+* `zettel/web/review.py` — `review` (GET `/review`, confidence bands for display filtering)
 * `zettel/web_app.py` — review job dispatch (batch approve/reject routing)

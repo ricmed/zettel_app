@@ -1,0 +1,11 @@
+{% macro combobox(name, items, endpoint, selected="", required_for="", depends_on="", placeholder="Selecione") %}
+<div class="combobox" data-endpoint="{{ endpoint }}" data-name="{{ name }}"{% if depends_on %} data-depends-on="{{ depends_on }}"{% endif %}{% if required_for %} data-required-for="{{ required_for }}"{% endif %}>
+  <select name="{{ name }}"{% if required_for %} data-required-for="{{ required_for }}"{% endif %}>
+    <option value="">{{ placeholder }}</option>
+    {% for item in items %}
+    <option value="{{ item.id }}"{% if item.id == selected %} selected{% endif %}{% if item.next_chunk_index %} data-next-chunk-index="{{ item.next_chunk_index }}"{% endif %}>{{ item.label }}</option>
+    {% endfor %}
+  </select>
+  <p class="muted combobox-hint">Mostrando as {{ items|length }} mais recentes. Com JavaScript, digite para buscar em todo o acervo.</p>
+</div>
+{% endmacro %}

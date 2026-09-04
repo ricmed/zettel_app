@@ -33,6 +33,7 @@ AREA_LABELS = {
     "harvest": "area:harvest",
     "ask": "area:ask",
     "evals": "area:evals",
+    "web": "area:web",
 }
 
 

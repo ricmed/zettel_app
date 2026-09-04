@@ -6,6 +6,8 @@
 - [ADR-XXX: Repository Pattern for Data Access (StateDB and VectorIndex)](../INFRA/ADR-008-repository-pattern-data-access.md)
 - [ADR-XXX: Typer and Rich as CLI Framework](../CLI/ADR-026-typer-rich-cli-framework.md)
 - [ADR-XXX: SQLite-Backed Persistent Job Queue with Single Worker Thread](./ADR-023-sqlite-backed-job-queue-single-worker.md)
+- [ADR-039: Web as Python Package](./ADR-039-web-as-python-package.md)
+- [ADR-040: JSON Pickers and Progressive Enhancement](./ADR-040-json-pickers-progressive-enhancement.md)
 
 ## Context and Problem Statement
 
@@ -52,7 +54,7 @@ Chosen option: "Server-rendered FastAPI + Jinja2 templates", because it keeps th
 
 ## Consequences
 
-Every future web feature must be implemented as a FastAPI route paired with a Jinja2 template and server-side form handling; there is no established path for adding an isolated client-heavy widget without revisiting this decision. This keeps the web layer's skill requirements aligned with the rest of the Python codebase, but it also means every user interaction pays the cost of a full server round trip, and real-time features beyond SSE-based progress streaming (for example collaborative editing or live search-as-you-type) are not supported by the current architecture.
+Every future **mutating** web feature must be implemented as a FastAPI route paired with a Jinja2 template and server-side form handling. Read-only JSON GETs that feed a form control with a server-rendered `<select>` fallback are a documented exception — see [ADR-040](./ADR-040-json-pickers-progressive-enhancement.md). There is still no path for a client-rendered page, a JSON mutation API, or a JS bundler. This keeps the web layer's skill requirements aligned with the rest of the Python codebase, but it also means every mutating interaction pays the cost of a full server round trip.
 
 If the web UI is expected to become the primary interface to the system, or if requirements introduce real-time collaborative features, this decision will need to be revisited. The evidence estimates a move toward an API-first or SPA architecture at 6+ months of work (extracting an API layer, introducing a frontend framework, and restructuring client/server data flow), so the cost of reversing this decision grows with every feature added on top of it.
 
@@ -60,7 +62,8 @@ If the web UI is expected to become the primary interface to the system, or if r
 
 ## References
 
-* `zettel/web.py:1-30` — FastAPI app setup, Jinja2 template directory configuration, static file mounting
-* `zettel/web.py` — 23 HTTP endpoints, all returning `HTMLResponse`/`RedirectResponse` (JSON reserved for the SSE progress stream)
+* `zettel/web/server.py` — `create_app`, lifespan, static mount
+* `zettel/web/rendering.py` — Jinja2 template directory (``templates``)
+* `zettel/web/` — HTTP endpoints (HTML or redirect; JSON reserved for job progress and the picker GETs of ADR-040)
 * `zettel/web_app.py` — `WebApplication` service layer; web routes delegate business logic here, holding no HTTP concerns themselves
-* `zettel/templates/` — 14 Jinja2 templates covering dashboard, documents, pipeline, review, notes, MOCs, runs, and settings pages
+* `zettel/templates/` — Jinja2 templates covering dashboard, documents, pipeline, review, notes, MOCs, runs, and settings pages

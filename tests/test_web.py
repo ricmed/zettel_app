@@ -409,7 +409,7 @@ def test_documents_can_queue_full_pipeline(web_client, monkeypatch):
     captured = {}
     service = client.app.state.service
 
-    monkeypatch.setattr("zettel.web._llm_ready", lambda cfg: True)
+    monkeypatch.setattr("zettel.web.documents._llm_ready", lambda cfg: True)
 
     def fake_submit(operation, payload):
         captured.update(operation=operation, payload=payload)
@@ -432,3 +432,280 @@ def test_documents_can_queue_full_pipeline(web_client, monkeypatch):
             "skip_paging": False,
         },
     }
+
+
+def _seed_source(client, source_id="@Kahneman2011", citekey="Kahneman2011", title="Thinking Fast"):
+    db = client.app.state.service.db()
+    try:
+        db.upsert_source(
+            source_id, citekey, title, ["Daniel Kahneman"], 2011, "h", "/p", "md",
+        )
+        db.conn.execute(
+            "UPDATE sources SET extracted_text=?, lit_body=? WHERE source_id=?",
+            ("SENTINEL_EXTRACTED_TEXT", "SENTINEL_LIT_BODY", source_id),
+        )
+        db.conn.commit()
+    finally:
+        db.close()
+
+
+def _seed_literature_chunk(
+    client, *, source_id="@Kahneman2011", chunk_index=1, section="Sistema 1",
+    text="SENTINEL_CHUNK_TEXT", path=None,
+):
+    db = client.app.state.service.db()
+    try:
+        db.upsert_chapter(f"{source_id}::ch000", source_id, "Manual", "ch")
+        chunk_id = f"{source_id}::manual::{chunk_index:04d}"
+        db.upsert_chunk(
+            chunk_id, source_id, f"{source_id}::ch000", text, "ck",
+            locator="p. 20", section_path=section, chunk_index=chunk_index,
+            page_in_book=20, literature_note_path=str(path or f"/vault/{chunk_id}.md"),
+        )
+        return chunk_id
+    finally:
+        db.close()
+
+
+def test_manual_form_markup_contract(web_client):
+    """The JS reads data-types / data-required-for; these tests do not execute JS."""
+    client, _ = web_client
+    _login(client)
+    page = client.get("/notes/new")
+    assert page.status_code == 200
+    assert "for-lit for-ztl" not in page.text
+    assert 'data-types="' in page.text
+    assert "data-required-for" in page.text
+    assert re.search(r"\srequired(\s|=|>)", page.text) is None
+    assert 'name="thesis"' not in page.text
+    assert "Tese / título da ideia" in page.text
+
+
+def test_manual_lit_granular_creates_chunk_file(web_client):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    _seed_source(client)
+    response = client.post("/notes/new", data={
+        "csrf": csrf, "note_type": "LIT", "title": "Sistema 1",
+        "source_id": "@Kahneman2011", "granular": "1",
+        "chunk_index": "1", "page_number": "20",
+    })
+    assert response.status_code == 201
+    assert "Próximo passo" in response.text
+    created = list((tmp_path / "vault" / "20_Literature" / "Kahneman2011").glob("*.md"))
+    assert len(created) == 1
+    assert "p020" in created[0].name
+    content = created[0].read_text(encoding="utf-8")
+    assert "chunk_id:" in content
+    assert "@Kahneman2011::manual::0001" in content
+    assert "Sistema 1" in content
+
+
+def test_manual_lit_index_collides_without_force(web_client):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    _seed_source(client)
+    first = client.post("/notes/new", data={
+        "csrf": csrf, "note_type": "SRC", "title": "Thinking Fast",
+        "citekey": "Kahneman2011",
+    })
+    assert first.status_code == 201
+    collision = client.post("/notes/new", data={
+        "csrf": csrf, "note_type": "LIT", "title": "Thinking Fast",
+        "source_id": "@Kahneman2011", "granular": "",
+    })
+    assert collision.status_code == 400
+    forced = client.post("/notes/new", data={
+        "csrf": csrf, "note_type": "LIT", "title": "Thinking Fast",
+        "source_id": "@Kahneman2011", "granular": "", "force": "1",
+    })
+    assert forced.status_code == 201
+
+
+def test_manual_ztl_renders_missing_src_warning(web_client):
+    client, _ = web_client
+    csrf = _login(client)
+    _seed_source(client, source_id="@Ghost2020", citekey="Ghost2020", title="Fantasma")
+    response = client.post("/notes/new", data={
+        "csrf": csrf, "note_type": "ZTL",
+        "title": "Uma tese sem SRC no vault",
+        "source_id": "@Ghost2020",
+    })
+    assert response.status_code == 201
+    assert "SRC nao encontrada" in response.text
+
+
+def test_pickers_require_session_and_omit_payloads(web_client):
+    client, tmp_path = web_client
+    anonymous = client.get("/api/pickers/sources")
+    assert anonymous.status_code == 401
+    assert anonymous.json() == {"error": "unauthorized"}
+    _login(client)
+    _seed_source(client)
+    lit_path = tmp_path / "vault" / "20_Literature" / "note.md"
+    chunk_id = _seed_literature_chunk(client, path=lit_path)
+    sources = client.get("/api/pickers/sources?q=kahneman")
+    assert sources.status_code == 200
+    body = sources.text
+    assert "SENTINEL_EXTRACTED_TEXT" not in body
+    assert "SENTINEL_LIT_BODY" not in body
+    assert "literature_note_path" not in body
+    assert sources.json()["items"][0]["source_id"] == "@Kahneman2011"
+    missing = client.get("/api/pickers/literature?q=sistema")
+    assert missing.status_code == 400
+    assert missing.json() == {"error": "source_id_required"}
+    literature = client.get(
+        "/api/pickers/literature",
+        params={"q": "Sistema", "source_id": "@Kahneman2011"},
+    )
+    assert literature.status_code == 200
+    assert "SENTINEL_CHUNK_TEXT" not in literature.text
+    assert "literature_note_path" not in literature.text
+    items = literature.json()["items"]
+    assert items and items[0]["ref"] == chunk_id
+    other = client.get(
+        "/api/pickers/literature",
+        params={"q": "Sistema", "source_id": "@Other2010"},
+    )
+    assert other.json()["items"] == []
+
+
+@pytest.mark.parametrize("query", ["%", "_", '" OR 1=1 --', "NEAR(a b)", "a*", "-x"])
+def test_pickers_treat_metacharacters_literally(web_client, query):
+    client, _ = web_client
+    _login(client)
+    _seed_source(client)
+    response = client.get("/api/pickers/sources", params={"q": query})
+    assert response.status_code == 200
+    if query == "%":
+        assert response.json()["items"] == []
+
+
+def test_pickers_are_accent_insensitive_and_clamp_limit(web_client):
+    client, _ = web_client
+    _login(client)
+    _seed_source(client, source_id="@Funcao2020", citekey="Funcao2020", title="Função cognitiva")
+    folded = client.get("/api/pickers/sources", params={"q": "funcao"})
+    assert folded.json()["items"][0]["source_id"] == "@Funcao2020"
+    clamped = client.get("/api/pickers/sources", params={"q": "", "limit": 999})
+    assert clamped.status_code == 200
+    empty = client.get("/api/pickers/sources", params={"q": ""})
+    assert empty.json()["items"][0]["source_id"] == "@Funcao2020"
+
+
+def test_from_lit_unknown_chunk_is_rejected(web_client):
+    client, _ = web_client
+    csrf = _login(client)
+    response = client.post("/notes/new", data={
+        "csrf": csrf, "note_type": "ZTL", "ztl_origin": "from_lit",
+        "from_lit": "@nope::manual::0001",
+    })
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize("path", [
+    "../../etc/passwd",
+    "/etc/passwd",
+    r"C:\Windows\win.ini",
+    "30_Permanent/other.md",
+    "20_Literature/../../secret.md",
+])
+def test_from_lit_path_cannot_escape_literature_dir(web_client, path):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    response = client.post("/notes/new", data={
+        "csrf": csrf, "note_type": "ZTL", "ztl_origin": "from_lit",
+        "from_lit_path": path,
+    })
+    assert response.status_code == 400
+    assert not (tmp_path / "secret.md").exists()
+    assert not list((tmp_path / "vault" / "30_Permanent").glob("*.md"))
+
+
+def test_from_lit_index_note_is_rejected(web_client):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    _seed_source(client)
+    index = tmp_path / "vault" / "20_Literature" / "LIT - Kahneman2011 - index.md"
+    index.parent.mkdir(parents=True, exist_ok=True)
+    index.write_text("---\ntype: literature_index\n---\n# Index\n", encoding="utf-8")
+    response = client.post("/notes/new", data={
+        "csrf": csrf, "note_type": "ZTL", "ztl_origin": "from_lit",
+        "from_lit_path": "20_Literature/LIT - Kahneman2011 - index.md",
+    })
+    assert response.status_code == 400
+
+
+def test_from_lit_llm_without_sqlite_source_is_conflict(web_client):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    lit_dir = tmp_path / "vault" / "20_Literature" / "Orphan2020"
+    lit_dir.mkdir(parents=True)
+    lit = lit_dir / "LIT - Orphan2020 - p001 - tema-0001.md"
+    lit.write_text(
+        "---\ntype: literature\nchunk_id: '@Orphan2020::manual::0001'\n"
+        "source_id: '@Orphan2020'\n---\n## Resumo\n\nUma tese real o suficiente.\n",
+        encoding="utf-8",
+    )
+    response = client.post("/notes/new", data={
+        "csrf": csrf, "note_type": "ZTL", "ztl_origin": "from_lit",
+        "from_lit_path": "20_Literature/Orphan2020/LIT - Orphan2020 - p001 - tema-0001.md",
+        "use_llm": "1", "lit_thesis": "Uma tese",
+    })
+    assert response.status_code == 409
+    assert "Pipeline" in response.text
+
+
+def test_from_lit_scaffold_without_thesis_is_rejected(web_client):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    _seed_source(client)
+    lit_dir = tmp_path / "vault" / "20_Literature" / "Kahneman2011"
+    lit_dir.mkdir(parents=True)
+    lit = lit_dir / "LIT - Kahneman2011 - p001 - tema-0001.md"
+    lit.write_text(
+        "---\ntype: literature\nchunk_id: '@Kahneman2011::manual::0001'\n"
+        "source_id: '@Kahneman2011'\n---\n## Resumo\n\n_Preencha o resumo._\n",
+        encoding="utf-8",
+    )
+    response = client.post("/notes/new", data={
+        "csrf": csrf, "note_type": "ZTL", "ztl_origin": "from_lit",
+        "from_lit_path": "20_Literature/Kahneman2011/LIT - Kahneman2011 - p001 - tema-0001.md",
+    })
+    assert response.status_code == 400
+
+
+def test_from_lit_enqueues_ref_thesis_and_force(web_client, monkeypatch):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    _seed_source(client)
+    captured = {}
+    service = client.app.state.service
+
+    def fake_submit(operation, payload):
+        captured.update(operation=operation, payload=payload)
+        return "from-lit-job"
+
+    monkeypatch.setattr(service, "submit", fake_submit)
+    lit_dir = tmp_path / "vault" / "20_Literature" / "Kahneman2011"
+    lit_dir.mkdir(parents=True)
+    rel = "20_Literature/Kahneman2011/LIT - Kahneman2011 - p020 - sistema-1-0001.md"
+    (tmp_path / "vault" / rel).write_text(
+        "---\ntype: literature\nchunk_id: '@Kahneman2011::manual::0001'\n"
+        "source_id: '@Kahneman2011'\n---\n## Resumo\n\nHeurísticas guiam o julgamento.\n",
+        encoding="utf-8",
+    )
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf, "note_type": "ZTL", "ztl_origin": "from_lit",
+            "from_lit_path": rel, "lit_thesis": "Heurísticas guiam o julgamento.",
+            "force": "1",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert captured["operation"] == "manual-ztl-from-lit"
+    assert "Kahneman2011" in captured["payload"]["ref"].replace("\\", "/")
+    assert captured["payload"]["thesis"] == "Heurísticas guiam o julgamento."
+    assert captured["payload"]["force"] is True

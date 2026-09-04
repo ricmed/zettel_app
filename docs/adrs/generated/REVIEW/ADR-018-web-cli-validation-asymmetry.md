@@ -88,7 +88,7 @@ With server-side threshold enforcement now chosen:
 
 ## References
 
-* `zettel/review.py:194-206` — CLI non-interactive path, server-side threshold enforcement
-* `zettel/web.py:458-462` — web GET route, threshold used for display filtering only
-* `zettel/web.py:472-477` — `/review/action` POST endpoint, no confidence validation before enqueue
+* `zettel/review.py` — `run_review` (CLI non-interactive path, server-side threshold enforcement)
+* `zettel/web/review.py` — `review` (GET `/review`, threshold used for display filtering only)
+* `zettel/web/review.py` — `review_action` (`POST /review/action`, no confidence validation before enqueue)
 * `zettel/web_app.py` — web job handler for the `review` operation, approves submitted chunk_ids without a threshold check

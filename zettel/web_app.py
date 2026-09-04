@@ -198,10 +198,12 @@ class WebWorker:
             return {"assets_reset": db.reset_failed_assets()}
         if operation == "manual-ztl-from-lit" and not payload.get("use_llm"):
             from zettel.manual_lit import create_permanent_from_literature
+            ref = payload.get("ref") or payload["chunk_id"]
             path, used_llm = create_permanent_from_literature(
-                cfg, db, None, payload["chunk_id"],
+                cfg, db, None, ref,
                 thesis=payload.get("thesis") or None,
                 use_llm=False,
+                force=bool(payload.get("force")),
             )
             return {"path": str(path), "used_llm": used_llm}
 
@@ -287,10 +289,12 @@ class WebWorker:
             }
         if operation == "manual-ztl-from-lit":
             from zettel.manual_lit import create_permanent_from_literature
+            ref = payload.get("ref") or payload["chunk_id"]
             result = create_permanent_from_literature(
-                cfg, db, idx, payload["chunk_id"],
+                cfg, db, idx, ref,
                 thesis=payload.get("thesis") or None,
                 use_llm=bool(payload.get("use_llm")),
+                force=bool(payload.get("force")),
             )
             path, used_llm = result
             return {"path": str(path), "used_llm": used_llm}

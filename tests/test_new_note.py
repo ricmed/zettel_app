@@ -274,3 +274,23 @@ def test_scaffold_force_overwrites(cfg):
     )
     meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
     assert meta["author"] == ["Novo"]
+
+
+def test_force_does_not_overwrite_an_existing_literature_index(cfg):
+    """SRC --force rewrites the source note but must leave the literature index.
+
+    The index carries the auto-lit-index block that review/sync maintain.
+    Passing the same force flag through to _write_literature_index would
+    destroy that block (risco #2 / WI-8).
+    """
+    scaffold_manual_note(cfg, "src", "Thinking Fast", citekey="Kahneman2011")
+    index_dir = cfg.vault_path / "20_Literature"
+    indexes = list(index_dir.glob("LIT - *.md"))
+    assert len(indexes) == 1
+    marker = "<!-- hand-edited index -->"
+    original = indexes[0].read_text(encoding="utf-8")
+    indexes[0].write_text(original + "\n" + marker + "\n", encoding="utf-8")
+    scaffold_manual_note(
+        cfg, "src", "Thinking Fast", citekey="Kahneman2011", force=True,
+    )
+    assert marker in indexes[0].read_text(encoding="utf-8")

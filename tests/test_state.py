@@ -491,3 +491,78 @@ def test_note_connection_upsert_updates_description(db):
     edges = db.get_note_connections("a")
     assert len(edges) == 1
     assert edges[0]["description"] == "atualizada"
+
+
+def test_search_sources_folds_and_omits_payload(db):
+    db.upsert_source(
+        "@Kahneman2011", "Kahneman2011", "Thinking Fast",
+        ["Daniel Kahneman"], 2011, "h", "/p", "md",
+    )
+    db.upsert_source(
+        "@Funcao2020", "Funcao2020", "Função cognitiva",
+        ["Ana Silva"], 2020, "h", "/p", "md",
+    )
+    db.conn.execute(
+        "UPDATE sources SET extracted_text=?, lit_body=? WHERE source_id=?",
+        ("SENTINEL_EXTRACTED_TEXT", "SENTINEL_LIT_BODY", "@Kahneman2011"),
+    )
+    db.conn.commit()
+    by_author = db.search_sources("kahneman")
+    assert [row["source_id"] for row in by_author] == ["@Kahneman2011"]
+    assert "extracted_text" not in by_author[0]
+    assert "lit_body" not in by_author[0]
+    folded = db.search_sources("funcao")
+    assert folded[0]["source_id"] == "@Funcao2020"
+    assert db.search_sources("%") == []
+    assert db.search_sources("_") == []
+    recent = db.search_sources("")
+    assert recent[0]["source_id"] == "@Funcao2020"
+
+
+def test_search_literature_chunks_requires_path_and_orders(db):
+    db.upsert_source("@S", "S", "Source", [], None, "h", "/p", "md")
+    db.upsert_chapter("@S::ch000", "@S", "Ch", "ch")
+    db.upsert_chunk(
+        "@S::manual::0002", "@S", "@S::ch000", "SENTINEL_CHUNK_TEXT later", "ck2",
+        section_path="Depois", chunk_index=2, literature_note_path="/later.md",
+    )
+    db.upsert_chunk(
+        "@S::manual::0001", "@S", "@S::ch000", "SENTINEL_CHUNK_TEXT first", "ck1",
+        section_path="Antes", chunk_index=1, literature_note_path="/first.md",
+    )
+    db.upsert_chunk(
+        "@S::ch000::raw", "@S", "@S::ch000", "no path", "ck0",
+        section_path="Ignorado", chunk_index=0,
+    )
+    rows = db.search_literature_chunks("", source_id="@S")
+    assert [row["chunk_id"] for row in rows] == ["@S::manual::0001", "@S::manual::0002"]
+    assert "text" not in rows[0]
+    scoped = db.search_literature_chunks("Antes", source_id="@Other")
+    assert scoped == []
+    named = db.search_literature_chunks("antes", source_id="@S")
+    assert named[0]["chunk_id"] == "@S::manual::0001"
+
+
+def test_search_literature_chunks_fts_never_selects_text(db):
+    db.upsert_source("@S", "S", "Source", [], None, "h", "/p", "md")
+    db.upsert_chapter("@S::ch000", "@S", "Ch", "ch")
+    db.upsert_chunk(
+        "@S::manual::0001", "@S", "@S::ch000",
+        "o corpo menciona ancoragem e vies de confirmacao", "ck",
+        section_path="Meta", chunk_index=1, literature_note_path="/x.md",
+    )
+    rows = db.search_literature_chunks_fts("ancoragem", source_id="@S")
+    assert rows
+    assert "text" not in rows[0]
+    assert rows[0]["chunk_id"] == "@S::manual::0001"
+
+
+def test_next_manual_chunk_index_starts_at_one(db):
+    db.upsert_source("@S", "S", "Source", [], None, "h", "/p", "md")
+    db.upsert_chapter("@S::ch000", "@S", "Ch", "ch")
+    assert db.next_manual_chunk_index("@S") == 1
+    db.upsert_chunk(
+        "@S::manual::0001", "@S", "@S::ch000", "t", "ck",
+        chunk_index=1, literature_note_path="/x.md",
+    )
+    assert db.next_manual_chunk_index("@S") == 2
