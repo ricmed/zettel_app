@@ -76,7 +76,10 @@
   background: var(--surface-input);
   color: var(--ink);
   border-color: var(--field-line);
+  -webkit-text-fill-color: var(--ink);
 }
+
+[data-theme="dark"] .combobox-list {
   background: var(--card);
   border-color: var(--line);
 }
@@ -86,16 +89,30 @@
   background: var(--surface-hover);
   color: var(--ink);
 }
+[data-theme="dark"] .manual-form input:not([type="checkbox"]):not([type="radio"]),
 [data-theme="dark"] .manual-form textarea,
 [data-theme="dark"] .manual-form select,
 [data-theme="dark"] input[type="file"],
 [data-theme="dark"] input[type="password"],
+[data-theme="dark"] input[type="text"],
+[data-theme="dark"] input[type="number"],
+[data-theme="dark"] input[type="url"],
 [data-theme="dark"] select,
 [data-theme="dark"] .button,
 [data-theme="dark"] button.primary {
   background: var(--surface-input);
   color: var(--ink);
   border-color: var(--field-line);
+  -webkit-text-fill-color: var(--ink);
+}
+
+[data-theme="dark"] .manual-form input:disabled,
+[data-theme="dark"] .manual-form textarea:disabled,
+[data-theme="dark"] .manual-form select:disabled,
+[data-theme="dark"] .combobox-input:disabled {
+  opacity: 1;
+  color: var(--muted);
+  -webkit-text-fill-color: var(--muted);
 }
 
 [data-theme="dark"] .manual-form input:focus,

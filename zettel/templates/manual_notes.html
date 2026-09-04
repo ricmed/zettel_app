@@ -74,9 +74,9 @@
             <label>Autores <textarea name="authors" rows="3" placeholder="Um autor por linha"></textarea><small>Ex.: Silva, Ana</small></label>
             <div class="form-grid">
               <label>Ano <input type="number" name="year" min="2000" max="2030" inputmode="numeric" placeholder="2024"></label>
-              <label>Editora <input name="publisher">
+              <label>Editora <input name="publisher"></label>
               <label>Edição <input name="edition"></label>
-              </label><label>Local <input name="place"></label>
+              <label>Local <input name="place"></label>
               <label>Tipo de documento
                 <select name="document_type">
                   <option value="">Não informado</option>
@@ -100,13 +100,13 @@
           {% if not biblio_llm_ready %}<p class="muted biblio-llm-note">A fase harvest não tem credencial. Monte a ABNT sem LLM, ou configure o provedor em Configuração / saúde.</p>{% endif %}
           <p class="biblio-status muted" id="biblio-status" hidden></p>
           <label>Referência ABNT <textarea name="abnt_reference" rows="3" placeholder="Cole, componha ou monte a partir dos campos acima"></textarea></label>
-          <label>Citação ou trecho para o LLM <textarea name="biblio_sample" rows="2" placeholder="Cole uma citação pronta ou um trecho da capa. Não é gravado na nota."></textarea><small>O LLM só entra com DOI, URL ou este trecho. A referência ABNT é montada no mesmo padrão do harvest — você revisa antes de criar a nota.</small></label>
+          <label>Citação ou trecho para o LLM <textarea name="biblio_sample" rows="4" placeholder="Cole uma citação pronta ou um trecho da capa. Não é gravado na nota."></textarea><small>Só usado por “Completar com LLM”: informe DOI, URL ou este trecho. A referência ABNT é montada no mesmo padrão do harvest — você revisa antes de criar a nota.</small></label>
           <details class="advanced-details" id="biblio-details"><summary>Mais dados bibliográficos</summary>
             <div class="form-grid two-col details-grid">
 
               <label>DOI <input name="doi" type="url" placeholder="https://doi.org/…"></label><label>URL <input name="url" type="url" placeholder="https://…"></label>
-              <label>Periódico <input name="journal"></label><label>Edição <input name="edition"></label>
-              <label>Instituição <input name="institution"></label><label>Páginas <input name="pages" placeholder="12–28"></label>
+              <label>Periódico <input name="journal"></label><label>Instituição <input name="institution"></label>
+              <label>Páginas <input name="pages" placeholder="12–28"></label>
             </div>
           </details>
         </section>
@@ -116,7 +116,7 @@
           <fieldset class="radio-row">
             <legend class="sr-only">Tipo de nota de leitura</legend>
             <label class="toggle-row"><input type="radio" name="granular" value="1"{% if selected_granular != '' %} checked{% endif %}><span><strong>Nota granular</strong><small>Um trecho localizado por página, com tópico próprio. É aqui que você escreve a leitura.</small></span></label>
-            <label class="toggle-row"><input type="radio" name="granular" value=""{% if selected_granular == '' %} checked{% endif %}><span><strong>Índice da fonte</strong><small>A lista de trechos desta SRC. O título abaixo é o título do índice — não o corpo da nota.</small></span></label>
+            <label class="toggle-row"><input type="radio" name="granular" value=""{% if selected_granular == '' %} checked{% endif %}><span><strong>Índice da fonte</strong><small>A lista de trechos desta SRC. O título em <em>O essencial</em> é o título do índice — não o corpo da nota.</small></span></label>
           </fieldset>
         </section>
 
@@ -128,7 +128,7 @@
             </label>
           </div>
           <div class="form-grid two-col" data-types="LIT_GRANULAR">
-            <label>Índice do trecho <input type="number" name="chunk_index" min="1" inputmode="numeric" value="{{ default_chunk_index }}"><small>Duas notas com o mesmo índice na mesma fonte compartilham o chunk_id e a segunda sobrescreve a primeira no sync.</small></label>
+            <label>Sequência do trecho <input type="number" name="chunk_index" min="1" inputmode="numeric" value="{{ default_chunk_index }}"><small>Número que entra no nome do arquivo (0001, 0002…). Duas notas com o mesmo valor na mesma fonte compartilham o chunk_id — a segunda sobrescreve a primeira no sync.</small></label>
             <label>Página impressa <input name="page_number" type="number" min="1" inputmode="numeric" placeholder="42"></label>
           </div>
           <p class="muted filename-preview" data-types="LIT_GRANULAR" id="lit-preview" hidden></p>
@@ -136,13 +136,13 @@
 
         <section class="panel form-section note-body" data-types="LIT_GRANULAR">
           <div class="section-heading"><span class="section-number">3</span><div><h2>Escreva a nota</h2><p>O trecho ancora a leitura na fonte. O resumo é a sua interpretação — o que o sync vai incorporar.</p></div></div>
-          <p class="muted">O campo <strong>Tópico</strong> acima vira o <code>section_path</code> da nota e entra no nome do arquivo. O título visível da LIT vem da fonte.</p>
+          <p class="muted">O campo <strong>Tópico / seção</strong> em <em>O essencial</em> vira o <code>section_path</code> da nota e entra no nome do arquivo. O título visível da LIT vem da fonte.</p>
           <div class="form-grid">
             <label>Trecho da fonte <textarea name="lit_excerpt" rows="8" placeholder="Cole aqui o trecho que você está lendo. Vai para o bloco auto-source-excerpt."></textarea></label>
             <label>Resumo da leitura <textarea name="lit_summary" rows="8" placeholder="O que este trecho diz, nas suas palavras."></textarea></label>
             <div class="form-grid two-col">
               <label>Conceitos-chave <textarea name="lit_concepts" rows="4" placeholder="Um por linha"></textarea><small>Viram tags na seção Conceitos-chave.</small></label>
-              <label>Candidato a permanente <input name="lit_candidate" placeholder="Uma tese que este trecho sustenta"><small>Opcional. Preenche “Candidatos a Nota Permanente”.</small></label>
+              <label>Candidato a permanente <textarea name="lit_candidate" rows="3" placeholder="Uma tese que este trecho sustenta"></textarea><small>Opcional. Preenche “Candidatos a Nota Permanente”.</small></label>
             </div>
           </div>
         </section>
@@ -166,7 +166,7 @@
             <input type="hidden" name="from_lit_path" value="{{ selected_from_lit_path }}">
             {% endif %}
           </div>
-          <label>Tese desta permanente <input name="lit_thesis" placeholder="Opcional se a LIT já tiver um candidato ou um resumo"></label>
+          <label>Tese desta permanente <textarea name="lit_thesis" rows="3" placeholder="Opcional se a LIT já tiver candidato a permanente ou resumo"></textarea><small>Frase ou parágrafo curto que resume a ideia reutilizável. Sem LLM, vira o título da ZTL.</small></label>
           <label class="toggle-row"><input type="checkbox" name="use_llm" value="1" id="use-llm"{% if not connect_llm_ready %} disabled data-locked="1"{% endif %}><span><strong>Usar LLM para estruturar a partir da nota de leitura</strong><small>{% if connect_llm_ready %}O ZTL será enfileirado e indexado após o processamento. A SRC precisa já estar no SQLite.{% else %}A fase connect não tem credencial. Configure o provedor em Configuração / saúde para ativar.{% endif %}</small></span></label>
         </section>
 
