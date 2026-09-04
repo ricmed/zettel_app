@@ -3,7 +3,6 @@
 {% block title %}Criar notas · Zettelkasten{% endblock %}
 {% block content %}
 <div class="manual-notes-page">
-  {% if error %}<div class="alert error" role="alert">{{ error }}</div>{% endif %}
   {% if result %}
   <div class="alert" role="status">
     <strong>Nota criada.</strong> {{ result.path }}. Execute “Sincronizar notas manuais” no Pipeline quando terminar de editar.

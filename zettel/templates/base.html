@@ -26,7 +26,7 @@
 {% if authenticated %}
 <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="link-button">Sair</button></form>
 {% endif %}</header>
-<main class="shell">{% if error %}<div class="alert error">{{ error }}</div>{% endif %}{% if message %}<div class="alert">{{ message }}</div>{% endif %}
+<main class="shell">{% if error %}<div class="alert error" role="alert">{{ error }}</div>{% endif %}{% if message %}<div class="alert">{{ message }}</div>{% endif %}
 {% block content %}{% endblock %}</main>
 {% block scripts %}{% endblock %}
 <script>
