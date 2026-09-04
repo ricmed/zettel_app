@@ -90,7 +90,7 @@ def harvest(
             "[dim]Coletando arquivos do inbox "
             "(pode solicitar metadados bibliograficos / inicio de paginacao)...[/dim]"
         )
-        new_sources = run_harvest(
+        outcome = run_harvest(
             cfg, db, idx, interactive=True, skip_biblio=skip_biblio,
             content_start_file=content_start_file,
             content_start_book=content_start_book,
@@ -102,7 +102,7 @@ def harvest(
         console.print(f"[dim]Modo nao-interativo — duplicatas suspeitas: '{duplicate_action}'[/dim]")
         if skip_biblio:
             console.print("[dim]Bibliografia incompleta permitida (--skip-biblio)[/dim]")
-        new_sources = run_harvest(
+        outcome = run_harvest(
             cfg, db, idx, interactive=False, duplicate_action=duplicate_action,
             skip_biblio=skip_biblio,
             content_start_file=content_start_file,
@@ -112,6 +112,7 @@ def harvest(
             extraction_dump_dir=extraction_dump_dir,
         )
 
+    new_sources = outcome.source_ids
     if new_sources:
         console.print(f"[green]Fontes processadas: {len(new_sources)}[/green]")
         for sid in new_sources:
@@ -139,6 +140,11 @@ def harvest(
             )
 
     db.close()
+    if outcome.skipped:
+        console.print(f"[red]Arquivos ignorados: {len(outcome.skipped)}[/red]")
+        for skip in outcome.skipped:
+            console.print(f"  - {skip.path.name} ({skip.reason}): {skip.message}")
+        raise typer.Exit(1)
 
 
 @app.command()

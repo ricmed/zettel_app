@@ -20,7 +20,9 @@ from .duplicates import (
     sample_chunk_texts,
 )
 from .extract import (
+    EmptyTextLayerError,
     PdfExtractionError,
+    assert_pdf_has_text_layer,
     docling_num_pages,
     docling_page_map_by_export,
     extract_markdown,
@@ -32,6 +34,8 @@ from .extract import (
     page_map_for_source,
 )
 from .pipeline import (
+    HarvestOutcome,
+    HarvestSkip,
     list_incomplete_sources,
     run_harvest,
     run_rechunk,
@@ -42,7 +46,11 @@ from .set_paging import run_set_paging
 __all__ = [
     # Exceptions
     "HarvestAborted",
+    "EmptyTextLayerError",
     "PdfExtractionError",
+    # Result objects
+    "HarvestOutcome",
+    "HarvestSkip",
     # Public API (pipeline)
     "run_harvest",
     "run_rechunk",
@@ -57,6 +65,7 @@ __all__ = [
     "chunk_and_persist",
     "split_chapter_into_chunks",
     # Extraction (used by tests, pipeline)
+    "assert_pdf_has_text_layer",
     "extract_text",
     "extract_pdf",
     "extract_markdown",

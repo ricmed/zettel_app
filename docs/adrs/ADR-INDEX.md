@@ -1,7 +1,7 @@
-# zettel_app ADR Index (32 Decisions)
+# zettel_app ADR Index (33 Decisions)
 
 **Last Updated**: 2026-09-03  
-**Status**: Complete — 32 formal ADRs across 12 modules, 42 relationships mapped
+**Status**: Complete — 33 formal ADRs across 12 modules, 42 relationships mapped
 
 ---
 
@@ -11,7 +11,7 @@
 |--------|-------|------|
 | **INFRA** | 8 | [001–008](#infra-core-infrastructure) |
 | **RETRIEVAL** | 2 | [009–010](#retrieval-hybrid-search--graph) |
-| **HARVEST** | 5 | [011–014, 027](#harvest-ingestion--paging) |
+| **HARVEST** | 6 | [011–014, 027, 033](#harvest-ingestion--paging) |
 | **EXTRACT** | 1 | [015](#extract-literature-notes) |
 | **REVIEW** | 1 | [016](#review-approval-gate) |
 | **GARDEN** | 3 | [019–021](#garden-moc-generation) |
@@ -162,6 +162,15 @@
 - **Date**: 2026-08-31
 - **Summary**: Extract monolithic `harvester.py` (1776 lines) into 8-module package (`extract.py`, `chunking.py`, `duplicates.py`, `biblio_hitl.py`, `citekey.py`, `pipeline.py`, `set_paging.py`, `__init__.py`) to improve testability, agent context window efficiency, and code readability. Public API maintained; no behavior changes.
 - **Link**: [`ADR-027-harvest-phase-as-python-package.md`](./generated/HARVEST/ADR-027-harvest-phase-as-python-package.md)
+
+---
+
+### ADR-033: Invisible-Unicode Sanitization and a Text-Layer Probe Before Docling
+
+- **Status**: Accepted (2026-09-03)
+- **Date**: 2026-09-03
+- **Summary**: Strip zero-width, bidi and Unicode-tag-block characters once at the extraction boundary (before `extraction_checksum`), so nothing invisible to the human reviewer reaches the prompt, the vault or the embedding; probe the first three pages with `pypdfium2` (already a Docling dependency, no PyMuPDF revival) and abort a scanned PDF before paying for conversion. One unusable file no longer stops the batch: `run_harvest` returns a `HarvestOutcome` carrying the skipped files and their reasons.
+- **Link**: [`ADR-033-invisible-unicode-sanitization-and-text-layer-probe.md`](./generated/HARVEST/ADR-033-invisible-unicode-sanitization-and-text-layer-probe.md)
 
 ---
 
@@ -340,11 +349,17 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 31 |
-| **Accepted** | 31 |
+| **Total ADRs** | 33 |
+| **Accepted** | 33 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 42 |
 | **Modules Covered** | 12 |
+
+---
+
+## Status Update (2026-09-03)
+
+✅ **ADR-033 added** — document hygiene at the ingestion boundary (issue #8, epic #10): invisible-Unicode sanitization before the extraction checksum, plus a pdfium text-layer probe that aborts scanned PDFs before Docling runs.
 
 ---
 

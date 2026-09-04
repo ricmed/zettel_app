@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,21 @@ logger = logging.getLogger(__name__)
 SUPPORTED_EXTENSIONS = {".pdf", ".md", ".markdown", ".txt"}
 
 
+@dataclass(frozen=True)
+class HarvestSkip:
+    """A file the harvest refused to ingest, with the reason to show the operator."""
+    path: Path
+    reason: str
+    message: str
+
+
+@dataclass
+class HarvestOutcome:
+    """What one harvest run produced: new sources plus the files it refused."""
+    source_ids: list[str] = field(default_factory=list)
+    skipped: list[HarvestSkip] = field(default_factory=list)
+
+
 # ── Public API ─────────────────────────────────────────────────────
 
 
@@ -50,9 +66,13 @@ def run_harvest(
     extraction_dump_dir: Path | None = None,
     selected_file: Path | None = None,
     observer=None,
-) -> list[str]:
-    """Scan inbox, extract text, create SRC + LIT index, chunk. Returns new source_ids."""
-    new_sources: list[str] = []
+) -> HarvestOutcome:
+    """Scan inbox, extract text, create SRC + LIT index, chunk.
+
+    One unusable file does not stop the batch: extraction failures are collected
+    in ``HarvestOutcome.skipped`` and the remaining inbox files are processed.
+    """
+    outcome = HarvestOutcome()
     inbox = cfg.inbox_path
 
     signature = compute_pipeline_signature({
@@ -69,7 +89,7 @@ def run_harvest(
     if not inbox.exists():
         logger.warning("Inbox nao encontrado: %s", inbox)
         finish_pipeline_run(db, run_id, run_status)
-        return new_sources
+        return outcome
 
     if selected_file is not None:
         selected_file = selected_file.resolve()
@@ -94,16 +114,27 @@ def run_harvest(
                 observer, "harvest", f"Processando {file_path.name}.",
                 current_item=file_path.name, current_index=item_index, total_items=len(files),
             )
-            sid, stats = _process_file(
-                cfg, db, idx, file_path, run_id, interactive, duplicate_action,
-                skip_biblio=skip_biblio,
-                content_start_file=content_start_file,
-                content_start_book=content_start_book,
-                skip_paging=skip_paging,
-                extraction_dump_dir=extraction_dump_dir,
-            )
+            try:
+                sid, stats = _process_file(
+                    cfg, db, idx, file_path, run_id, interactive, duplicate_action,
+                    skip_biblio=skip_biblio,
+                    content_start_file=content_start_file,
+                    content_start_book=content_start_book,
+                    skip_paging=skip_paging,
+                    extraction_dump_dir=extraction_dump_dir,
+                )
+            except extract.PdfExtractionError as e:
+                reason = (
+                    "empty_text_layer"
+                    if isinstance(e, extract.EmptyTextLayerError)
+                    else "extraction_failed"
+                )
+                logger.warning("Arquivo ignorado (%s): %s", reason, e)
+                outcome.skipped.append(HarvestSkip(file_path, reason, str(e)))
+                report(observer, "harvest", str(e), current_item=file_path.name)
+                continue
             if sid:
-                new_sources.append(sid)
+                outcome.source_ids.append(sid)
                 total_stats["text_len"] += stats.get("text_len", 0)
                 total_stats["chapters"] += stats.get("chapters", 0)
                 total_stats["chunks"] += stats.get("chunks", 0)
@@ -112,15 +143,15 @@ def run_harvest(
         logger.warning("Harvest abortado pelo usuario: %s", e)
         run_status = "aborted"
 
-    if new_sources:
+    if outcome.source_ids:
         logger.info(
             "Harvest concluido: %d fontes, %d caracteres, %d capitulos, %d chunks",
-            len(new_sources), total_stats["text_len"],
+            len(outcome.source_ids), total_stats["text_len"],
             total_stats["chapters"], total_stats["chunks"],
         )
 
     finish_pipeline_run(db, run_id, run_status)
-    return new_sources
+    return outcome
 
 
 def run_rechunk(

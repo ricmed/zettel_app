@@ -26,7 +26,7 @@ Módulos: o pacote [`zettel/harvester/`](../zettel/harvester) ([ADR-027](adrs/ge
 
 1. Varre `data/inbox/` por arquivos `.pdf` e `.md`
 2. Calcula checksum SHA-256 de cada arquivo (pula inalterados) e aplica **detecção de duplicatas em 3 camadas** (hash de arquivo → hash do texto extraído → similaridade semântica de chunks)
-3. Extrai texto usando **Docling** (PDF) ou parser nativo (Markdown)
+3. Extrai texto usando **Docling** (PDF) ou parser nativo (Markdown). Antes do Docling, um *probe* de camada de texto (`pypdfium2`, dependência do próprio Docling) lê as 3 primeiras páginas: menos de 40 caracteres visíveis = PDF escaneado, recusado na hora com sugestão de OCR, sem pagar conversão. Logo depois, o texto passa por `text_sanitize` (zero-width, marcas bidi, bloco de tags Unicode) **antes** do checksum de extração ([ADR-033](adrs/generated/HARVEST/ADR-033-invisible-unicode-sanitization-and-text-layer-probe.md))
 4. **Metadados bibliográficos (ABNT)**:
    - Infere o **tipo documental** (`livro`, `capitulo_livro`, `artigo_periodico`, `artigo_internet`, `material_curso`, `tese`, `anais_evento`, `relatorio`) e os campos tipados a partir de metadados do arquivo, heurísticas no texto e, se habilitado, LLM (`prompts/bibliographic_metadata.md`, com cache)
    - Campos obrigatórios variam por tipo (ex.: livro exige autores, título, cidade, editora, ano; artigo de internet exige título, URL e data de acesso)
@@ -40,6 +40,8 @@ Módulos: o pacote [`zettel/harvester/`](../zettel/harvester) ([ADR-027](adrs/ge
 9. Divide o texto em **capítulos**/seções. Infere `page_in_file` pelo mapa Docling (marcadores de quebra de página no mesmo Markdown dos chunks) e grava `page_in_book = page_in_file - start_file + start_book` (chunk multi-página usa a **primeira** página). Indexa chunks no ChromaDB e no SQLite.
 10. Atualiza a SRC com início de conteúdo/páginas/`total_chunks` e `processing_status=completed`
 11. **Cobertura de capítulos**: harvest interrompido é completado no próximo `harvest` ou via `zettel rechunk`
+
+Um arquivo que não passa na extração não derruba o lote: `run_harvest` devolve um `HarvestOutcome` com `source_ids` e `skipped` (motivo `empty_text_layer` ou `extraction_failed`); os demais arquivos do inbox seguem sendo processados, a CLI lista os recusados e sai com código 1, e a UI web mostra a mensagem real no job.
 
 ### Detecção de duplicatas em 3 camadas
 

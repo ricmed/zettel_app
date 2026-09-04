@@ -2,13 +2,13 @@
 
 **Generated**: 2026-08-31  
 **Status**: Phase 4 Complete — Index & Relationship Mapping + Resolution of All Needs-Input (2026-08-31)  
-**Coverage**: 31 formal ADRs (100% Accepted, 0 Needs-Input) across 12 architectural modules, 42 documented relationships, 7 reserved for future consideration
+**Coverage**: 33 formal ADRs (100% Accepted, 0 Needs-Input) across 12 architectural modules, 42 documented relationships, 7 reserved for future consideration
 
 ---
 
 ## Executive Summary
 
-The zettel_app project has captured **31 formal architectural decisions** spanning core infrastructure, retrieval, ingestion, extraction, review, MOC generation, web UI, LLM integration, and CLI orchestration. **All 31 are now Accepted** (26 as of 2026-08-31; ADR-027 added 2026-08-31, ADR-028 and ADR-029 added 2026-09-01, ADR-030 and ADR-031 added 2026-09-02), with no remaining needs-input. These decisions represent a stable, coherent architecture that has evolved incrementally over 18+ months without fundamental rework, indicating sound structural choices. The codebase is dominated by a **dual-store persistence model** (SQLite + ChromaDB) with a **hybrid retrieval layer** (RRF fusion + relevance floor + graph expansion), feeding **multiple frontends** (CLI via Typer/Rich, web via FastAPI/Jinja2) that orchestrate a **linear five-phase pipeline** (harvest → extract → review → connect → garden) plus **two complementary MOC strategies** (taxonomy-first and hub-anchored clustering).
+The zettel_app project has captured **33 formal architectural decisions** spanning core infrastructure, retrieval, ingestion, extraction, review, MOC generation, web UI, LLM integration, and CLI orchestration. **All 33 are now Accepted** (26 as of 2026-08-31; ADR-027 added 2026-08-31, ADR-028 and ADR-029 added 2026-09-01, ADR-030 and ADR-031 added 2026-09-02, ADR-032 and ADR-033 added 2026-09-03), with no remaining needs-input. These decisions represent a stable, coherent architecture that has evolved incrementally over 18+ months without fundamental rework, indicating sound structural choices. The codebase is dominated by a **dual-store persistence model** (SQLite + ChromaDB) with a **hybrid retrieval layer** (RRF fusion + relevance floor + graph expansion), feeding **multiple frontends** (CLI via Typer/Rich, web via FastAPI/Jinja2) that orchestrate a **linear five-phase pipeline** (harvest → extract → review → connect → garden) plus **two complementary MOC strategies** (taxonomy-first and hub-anchored clustering).
 
 Three decisions were formally resolved on 2026-08-31:
 - **ADR-012** (Docling): Remove PyMuPDF, make Docling mandatory, pin version
@@ -32,12 +32,13 @@ RETRIEVAL (2 ADRs)
 ├─ ADR-009 (Graph expansion)
 └─ ADR-010 (Result transparency)
 
-HARVEST (5 ADRs)
+HARVEST (6 ADRs)
 ├─ ADR-011 (3-layer duplicate detection)
 ├─ ADR-012 (Docling mandatory PDF extractor)
 ├─ ADR-013 (3-layer page inference)
 ├─ ADR-014 (Hybrid structural chunking)
-└─ ADR-027 (harvester.py → harvester/ package)
+├─ ADR-027 (harvester.py → harvester/ package)
+└─ ADR-033 (invisible-Unicode sanitization + text-layer probe)
 
 EXTRACT (1 ADR)
 └─ ADR-015 (Granular chunk-per-note)
@@ -60,8 +61,9 @@ LLM (2 ADRs)
 ├─ ADR-024 (Multi-provider strategy)
 └─ ADR-025 (System+Human prompt split)
 
-CLI (1 ADR)
-└─ ADR-026 (Typer + Rich framework)
+CLI (2 ADRs)
+├─ ADR-026 (Typer + Rich framework)
+└─ ADR-032 (cli.py -> cli/ package)
 
 QA-WRITING (2 ADRs)
 ├─ ADR-028 (LangGraph StateGraph article orchestration)
@@ -282,7 +284,7 @@ REVIEW      ██████       (3 ADRs, mid-priority)
 GARDEN      ███████      (3 ADRs, interconnected)
 WEB         ████         (2 ADRs, narrow scope)
 LLM         ███████      (2 ADRs, cross-cutting)
-CLI         ████         (1 ADR, orchestration)
+CLI         █████        (2 ADRs, orchestration)
 ```
 
 **Interpretation**: INFRA, HARVEST, RETRIEVAL, and GARDEN are high-coupling, load-bearing areas. EXTRACT, WEB, and CLI are more specialized, lower-coupling zones.
