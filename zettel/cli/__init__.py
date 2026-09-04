@@ -22,6 +22,7 @@ Module map:
 ``pipeline.py``      run-all
 ``qa.py``            ask
 ``writing.py``       article
+``export.py``        skill
 ``diagnostics.py``   status, doctor
 ===================  =========================================================
 
@@ -57,6 +58,7 @@ from zettel.cli import manual        # new-note, sync-manual
 from zettel.cli import pipeline      # run-all
 from zettel.cli import qa            # ask
 from zettel.cli import writing       # article
+from zettel.cli import export        # skill
 from zettel.cli import diagnostics   # status, doctor
 # isort: on
 
@@ -66,7 +68,7 @@ from zettel.cli import diagnostics   # status, doctor
 #: commands from the CLI.
 COMMAND_MODULES = (
     maintenance, ingest, curation, synthesis, purge,
-    manual, pipeline, qa, writing, diagnostics,
+    manual, pipeline, qa, writing, export, diagnostics,
 )
 
 __all__ = ["COMMAND_MODULES", "app", "console", "main"]

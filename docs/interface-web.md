@@ -65,7 +65,7 @@ Antes de enfileirar, a rota valida pré-condições e responde **409** com uma m
 Operações destrutivas e interativas **não** são expostas na web:
 
 - `init --reset`, `delete-source`, `purge-rejected`, `reindex`, `rebuild`, `garden --recreate`
-- `new-note`, `ask`, `article`
+- `new-note`, `ask`, `article`, `skill`
 - resolução interativa de duplicatas semânticas e o HITL de paginação
 - `set-paging`, `rechunk`, `dump-chunks`, `dump-extraction`, `doctor`, `status`
 
