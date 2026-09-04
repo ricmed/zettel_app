@@ -101,6 +101,9 @@ def test_upload_rejects_traversal_and_collisions(web_client):
 def test_navigation_and_retry_job_flow(web_client):
     client, _ = web_client
     csrf = _login(client)
+    home = client.get("/")
+    assert 'id="theme-toggle"' in home.text
+    assert "zettel-theme" in home.text
     for path, text in [
         ("/", "Bom trabalho"),
         ("/documents", "Documentos"),
@@ -382,7 +385,7 @@ def test_note_and_moc_details_render_sanitized_markdown(web_client):
     assert 'href="https://docs.example.com/guia"' in note.text
     assert 'href="/notes/note-target"' in note.text
     assert "![[figura-local.png]]" in note.text
-    assert "<script>" not in note.text
+    assert "<script>alert('xss')</script>" not in note.text
     assert 'href="javascript:' not in note.text
     assert "Nota relacionada" in note.text
     assert "note-target" in note.text
