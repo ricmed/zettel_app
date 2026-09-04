@@ -108,6 +108,7 @@ Módulo: [`extractor.py`](../zettel/extractor.py).
 4. Concepts ficam em `awaiting_review` (não elegíveis ao `connect` ainda)
 5. Filtragem estrutural de qualidade (`extraction.min_relevance_score`, `min_thesis_words`, `min_definition_words`, `require_anchor_quote`, `verify_anchor_quote` — checa faixa de 10-25 palavras e se a citação de fato existe no chunk, tolerando elipse editorial)
 6. `--auto-approve` pode promover drafts com confiança ≥ `literature_review.auto_approve_min_confidence`
+7. **Julgamento do autor** (opcional): quando o trecho *enuncia* a regra, o candidato traz `decision_rules`, `anti_patterns` e `named_frameworks`. São opcionais por construção — default `[]`, não entram na filtragem de qualidade, e o validador trunca em 3 itens em vez de falhar o chunk. O draft ganha o bloco `auto-decision` sob `## Julgamento do autor` (só quando houver conteúdo) e a ZTL carrega as listas no frontmatter ([ADR-034](adrs/generated/EXTRACT/ADR-034-optional-author-judgement-fields.md))
 
 O nome legível do arquivo (com página e tópico) é uma decisão deliberada — [ADR-015](adrs/generated/EXTRACT/ADR-015-granular-literature-notes-readable-filenames.md).
 

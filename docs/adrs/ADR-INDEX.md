@@ -1,7 +1,7 @@
-# zettel_app ADR Index (33 Decisions)
+# zettel_app ADR Index (34 Decisions)
 
 **Last Updated**: 2026-09-03  
-**Status**: Complete — 33 formal ADRs across 12 modules, 42 relationships mapped
+**Status**: Complete — 34 formal ADRs across 12 modules, 42 relationships mapped
 
 ---
 
@@ -12,7 +12,7 @@
 | **INFRA** | 8 | [001–008](#infra-core-infrastructure) |
 | **RETRIEVAL** | 2 | [009–010](#retrieval-hybrid-search--graph) |
 | **HARVEST** | 6 | [011–014, 027, 033](#harvest-ingestion--paging) |
-| **EXTRACT** | 1 | [015](#extract-literature-notes) |
+| **EXTRACT** | 2 | [015, 034](#extract-literature-notes) |
 | **REVIEW** | 1 | [016](#review-approval-gate) |
 | **GARDEN** | 3 | [019–021](#garden-moc-generation) |
 | **WEB** | 2 | [022–023](#web-ui--job-queue) |
@@ -185,6 +185,15 @@
 
 ---
 
+### ADR-034: Author-Judgement Fields on the Candidate, Optional by Construction
+
+- **Status**: Accepted (2026-09-03)
+- **Date**: 2026-09-03
+- **Summary**: Three optional list fields (`decision_rules`, `anti_patterns`, `named_frameworks`) on `PermanentNoteCandidate` — not on the chunk output, so a rule stays attached to the thesis it qualifies. Optionality is structural: `[]` defaults, no participation in `_check_candidate`, and a validator that truncates instead of raising. They render as an `auto-decision` managed block on the literature note and travel verbatim into the permanent note's frontmatter, so the skill export never re-parses a draft.
+- **Link**: [`ADR-034-optional-author-judgement-fields.md`](./generated/EXTRACT/ADR-034-optional-author-judgement-fields.md)
+
+---
+
 ## REVIEW — Approval Gate
 
 ### ADR-016: Post-Approval Concept Deduplication Timing
@@ -349,8 +358,8 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 33 |
-| **Accepted** | 33 |
+| **Total ADRs** | 34 |
+| **Accepted** | 34 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 42 |
 | **Modules Covered** | 12 |
@@ -359,7 +368,7 @@
 
 ## Status Update (2026-09-03)
 
-✅ **ADR-033 added** — document hygiene at the ingestion boundary (issue #8, epic #10): invisible-Unicode sanitization before the extraction checksum, plus a pdfium text-layer probe that aborts scanned PDFs before Docling runs.
+✅ **ADR-033 and ADR-034 added** (epic #10). ADR-033 covers document hygiene at the ingestion boundary (issue #8): invisible-Unicode sanitization before the extraction checksum, plus a pdfium text-layer probe that aborts scanned PDFs before Docling runs. ADR-034 covers the optional author-judgement fields on the extraction candidate (issue #5).
 
 ---
 

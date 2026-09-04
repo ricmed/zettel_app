@@ -56,7 +56,7 @@ MOCs (Mapas de Conteúdo) por clusterização semântica
 | [Operação](docs/operacao.md)                    | Retenção, `reindex`/`rebuild`/`rechunk`, dumps, purga, remoção de fonte, backup          |
 | [Solução de problemas](docs/troubleshooting.md) | Sintomas comuns e como sair deles                                                        |
 | [Prompts e taxonomia](docs/prompts.md)          | Personalizar `prompts/`, `moc_topics.yaml` e as personalidades do `article`              |
-| [ADRs](docs/adrs/ADR-INDEX.md)                  | 33 decisões de arquitetura, com contexto e alternativas                                  |
+| [ADRs](docs/adrs/ADR-INDEX.md)                  | 34 decisões de arquitetura, com contexto e alternativas                                  |
 
 
 Índice completo em [docs/INDICE.md](docs/INDICE.md).
@@ -124,6 +124,8 @@ python -m zettel garden       # atualiza os mapas de conteúdo
 ```
 
 Todas as flags de cada comando: [docs/cli.md](docs/cli.md).
+
+> **Julgamento do autor.** Quando o trecho *enuncia* como o autor decidiria, a extração registra `decision_rules` ("Quando X, faça Y, porque Z"), `anti_patterns` e `named_frameworks` (o nome exato do autor, sem tradução). São **opcionais**: um trecho que só define um conceito continua sendo um candidato válido, e nada no pipeline depende desses campos. A LIT ganha o bloco `auto-decision`; a ZTL carrega as listas no frontmatter. Detalhes em [ADR-034](docs/adrs/generated/EXTRACT/ADR-034-optional-author-judgement-fields.md).
 
 > **Higiene da extração.** Antes de chamar o Docling, o `harvest` verifica a camada de texto das 3 primeiras páginas do PDF; um arquivo escaneado é recusado na hora, com a sugestão de rodar OCR (`ocrmypdf entrada.pdf saida.pdf`), sem gastar conversão. O texto extraído passa por uma limpeza de Unicode invisível (zero-width, marcas bidi, bloco de tags) **antes** do checksum de extração, para que nada invisível ao revisor chegue ao prompt, ao vault ou ao embedding. Um arquivo ruim não derruba o lote: os demais são processados e os recusados aparecem no fim com o motivo (a CLI sai com código 1). Fontes já colhidas mantêm o checksum antigo até um novo `harvest`. Detalhes em [ADR-033](docs/adrs/generated/HARVEST/ADR-033-invisible-unicode-sanitization-and-text-layer-probe.md).
 

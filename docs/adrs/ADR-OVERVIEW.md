@@ -2,13 +2,13 @@
 
 **Generated**: 2026-08-31  
 **Status**: Phase 4 Complete — Index & Relationship Mapping + Resolution of All Needs-Input (2026-08-31)  
-**Coverage**: 33 formal ADRs (100% Accepted, 0 Needs-Input) across 12 architectural modules, 42 documented relationships, 7 reserved for future consideration
+**Coverage**: 34 formal ADRs (100% Accepted, 0 Needs-Input) across 12 architectural modules, 42 documented relationships, 7 reserved for future consideration
 
 ---
 
 ## Executive Summary
 
-The zettel_app project has captured **33 formal architectural decisions** spanning core infrastructure, retrieval, ingestion, extraction, review, MOC generation, web UI, LLM integration, and CLI orchestration. **All 33 are now Accepted** (26 as of 2026-08-31; ADR-027 added 2026-08-31, ADR-028 and ADR-029 added 2026-09-01, ADR-030 and ADR-031 added 2026-09-02, ADR-032 and ADR-033 added 2026-09-03), with no remaining needs-input. These decisions represent a stable, coherent architecture that has evolved incrementally over 18+ months without fundamental rework, indicating sound structural choices. The codebase is dominated by a **dual-store persistence model** (SQLite + ChromaDB) with a **hybrid retrieval layer** (RRF fusion + relevance floor + graph expansion), feeding **multiple frontends** (CLI via Typer/Rich, web via FastAPI/Jinja2) that orchestrate a **linear five-phase pipeline** (harvest → extract → review → connect → garden) plus **two complementary MOC strategies** (taxonomy-first and hub-anchored clustering).
+The zettel_app project has captured **34 formal architectural decisions** spanning core infrastructure, retrieval, ingestion, extraction, review, MOC generation, web UI, LLM integration, and CLI orchestration. **All 34 are now Accepted** (26 as of 2026-08-31; ADR-027 added 2026-08-31, ADR-028 and ADR-029 added 2026-09-01, ADR-030 and ADR-031 added 2026-09-02, ADR-032 through ADR-034 added 2026-09-03), with no remaining needs-input. These decisions represent a stable, coherent architecture that has evolved incrementally over 18+ months without fundamental rework, indicating sound structural choices. The codebase is dominated by a **dual-store persistence model** (SQLite + ChromaDB) with a **hybrid retrieval layer** (RRF fusion + relevance floor + graph expansion), feeding **multiple frontends** (CLI via Typer/Rich, web via FastAPI/Jinja2) that orchestrate a **linear five-phase pipeline** (harvest → extract → review → connect → garden) plus **two complementary MOC strategies** (taxonomy-first and hub-anchored clustering).
 
 Three decisions were formally resolved on 2026-08-31:
 - **ADR-012** (Docling): Remove PyMuPDF, make Docling mandatory, pin version
@@ -40,8 +40,9 @@ HARVEST (6 ADRs)
 ├─ ADR-027 (harvester.py → harvester/ package)
 └─ ADR-033 (invisible-Unicode sanitization + text-layer probe)
 
-EXTRACT (1 ADR)
-└─ ADR-015 (Granular chunk-per-note)
+EXTRACT (2 ADRs)
+├─ ADR-015 (Granular chunk-per-note)
+└─ ADR-034 (Optional author-judgement fields)
 
 REVIEW (1 ADR + 2 needs-input)
 ├─ ADR-016 (Post-approval dedup timing)
@@ -278,8 +279,8 @@ See [RESOLUTION-LOG-2026-08-31.md](./RESOLUTION-LOG-2026-08-31.md) for full deta
 ```
 INFRA       ████████████ (8 direct, high fan-out)
 RETRIEVAL   ███████      (2 ADRs, high usage)
-HARVEST     █████████    (4 ADRs, foundational)
-EXTRACT     ████         (1 ADR, focused)
+HARVEST     ██████████   (6 ADRs, foundational)
+EXTRACT     █████        (2 ADRs, focused)
 REVIEW      ██████       (3 ADRs, mid-priority)
 GARDEN      ███████      (3 ADRs, interconnected)
 WEB         ████         (2 ADRs, narrow scope)

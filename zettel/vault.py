@@ -12,6 +12,8 @@ from typing import Any
 
 import yaml
 
+from zettel.schemas import JUDGEMENT_FIELDS
+
 logger = logging.getLogger(__name__)
 
 
@@ -650,6 +652,50 @@ def build_literature_index_note(
     return meta, body
 
 
+_JUDGEMENT_HEADINGS: dict[str, str] = {
+    "decision_rules": "Regras de decisão",
+    "anti_patterns": "Anti-padrões",
+    "named_frameworks": "Frameworks nomeados",
+}
+
+
+def judgement_frontmatter(candidate: Any) -> dict[str, list[str]]:
+    """Frontmatter keys for a permanent note's author-judgement fields.
+
+    Only non-empty lists are returned, so a note whose chunk stated no rule keeps
+    the frontmatter it always had.
+    """
+    out: dict[str, list[str]] = {}
+    for key in JUDGEMENT_FIELDS:
+        values = getattr(candidate, key, None) or []
+        if values:
+            out[key] = list(values)
+    return out
+
+
+def render_decision_block(candidates: list[dict[str, Any]]) -> str:
+    """Render the author's judgement captured across ``candidates``.
+
+    Returns an empty string when no candidate carries any of the three fields, so
+    the caller can skip the managed block entirely instead of writing an empty
+    heading into every literature note.
+    """
+    body_parts: list[str] = []
+    for key in JUDGEMENT_FIELDS:
+        seen: dict[str, None] = {}
+        for cand in candidates:
+            for item in cand.get(key) or []:
+                text = str(item).strip()
+                if text:
+                    seen.setdefault(text, None)
+        if seen:
+            bullets = "\n".join(f"- {item}" for item in seen)
+            body_parts.append(f"**{_JUDGEMENT_HEADINGS[key]}**\n\n{bullets}")
+    if not body_parts:
+        return ""
+    return "\n\n".join(body_parts)
+
+
 def build_literature_chunk_note(
     *,
     source_id: str,
@@ -742,6 +788,11 @@ def build_literature_chunk_note(
         body += "\n"
     else:
         body += "_Nenhum candidato._\n\n"
+    decision_inner = render_decision_block(candidates)
+    if decision_inner:
+        body += "## Julgamento do autor\n"
+        body = upsert_managed_block(body, "auto-decision", decision_inner)
+        body += "\n"
     excerpt = (source_text or "").strip() or "_Trecho nao disponivel._"
     body += "## Trecho da fonte\n\n"
     body += "<!-- zettel:auto-source-excerpt:start -->\n"
