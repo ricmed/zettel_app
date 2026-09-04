@@ -24,7 +24,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 uvicorn zettel.web:app --host 0.0.0.0 --port 5000
 
 # Web UI tests
-.venv/Scripts/python.exe -m pytest tests/test_web.py tests/test_web_state.py -v
+.venv/Scripts/python.exe -m pytest tests/test_web.py tests/test_web_state.py tests/test_web_package.py -v
 
 # Ask evaluation harness (offline: no LLM, no network)
 .venv/Scripts/python.exe -m pytest tests/evals/ -v
@@ -61,17 +61,17 @@ harvest → extract → review → connect → garden
 
 **purge_source.py (`zettel delete-source`)**: Irreversible full source removal by `@citekey` — vault (SRC, LIT index/granular, Review drafts, assets), SQLite cascade (source/chapters/chunks/concepts/assets/files), Chroma (`sources`, `chunks`, `literature_notes`). Default keeps linked ZTL but strips dead wikilinks vault-wide and clears `source_id` on those notes; `--delete-permanent` removes ZTL too. VACUUM by default (`--no-compact` skips), same pattern as `purge-rejected`.
 
-### Web UI (`web.py`, `web_app.py`, `templates/`, `static/`)
+### Web UI (`zettel/web/`, `web_app.py`, `templates/`, `static/`)
 
-Server-rendered FastAPI app — no Node/bundler. Entry point: `uvicorn zettel.web:app` (see `docs/interface-web.md` for user-facing docs).
+Server-rendered FastAPI app — no Node/bundler. Entry point: `uvicorn zettel.web:app` (see `docs/interface-web.md` for user-facing docs). Package layout is ADR-039 (`zettel/web/server.py` holds `create_app`; parametric detail routes register last so `/notes/new` is not captured by `/notes/{note_id}`). JSON pickers for the manual-note combobox are the ADR-040 exception to ADR-022.
 
-- **`web.py`**: HTTP routes, Jinja2 templates, auth (HMAC-signed `zettel_session` cookie + CSRF on all POSTs), upload validation, job enqueue redirects. Pages: dashboard, documents, pipeline, review, notes/MOCs (+ read-only detail views for sources/notes/MOCs), runs/jobs, settings/health.
+- **`zettel/web/`**: HTTP routes, Jinja2 templates, auth (HMAC-signed `zettel_session` cookie + CSRF on all POSTs), upload validation, job enqueue redirects, `/notes/new` (manual SRC/LIT/ZTL, including LIT→ZTL) and read-only `/api/pickers/*`. Pages: dashboard, documents, pipeline, review, notes/MOCs (+ read-only detail views for sources/notes/MOCs), runs/jobs, settings/health.
 - **`web_app.py`**: `WebApplication` service — daemon worker thread, SQLite-backed job queue (`web_jobs`, `web_job_events` in `state.py`), dispatches pipeline ops via the same modules as CLI. Opens `VectorIndex` through **`index.index_kwargs(cfg)`** and loads the connect queue through **`connector.load_approved_candidates(db)`** — both were once duplicated here and drifted (the web copy silently dropped `embedding.dimensions`), so there is now a single definition and nothing to keep in sync by hand.
 - **`progress.py`**: shared `ProgressObserver` protocol; web worker emits checkpoints through `JobProgress`.
 - **Auth**: `SESSION_SECRET` env var; login compares instance secret with `hmac.compare_digest`. Without it, no session is issued.
 - **Concurrency**: single Uvicorn worker, at most one mutating job (`queued`/`running`) at a time; second submit → 409. On server restart, `running` jobs → `interrupted`; `queued` jobs resume.
-- **Enqueued operations**: `harvest` (one inbox file, `interactive=False`), `extract` (`auto_approve=False`), `review` (batch approve/reject only — no CLI auto-approve/bands), `connect`, `garden`, `garden`+hubs, `sync`, `retry_chunks`, `retry_assets`.
-- **Not exposed in web** (CLI only): `new-note`, `delete-source`, `ask`, `article`, `skill`, `run-all`, interactive duplicate resolution, `purge-rejected`, `reindex`/`rebuild`, `garden --recreate`, `init --reset`, `set-paging`, `rechunk`, dumps, `doctor`, `status`, harvest-all-inbox.
+- **Enqueued operations**: `harvest` (one inbox file, `interactive=False`), `extract` (`auto_approve=False`), `review` (batch approve/reject only — no CLI auto-approve/bands), `connect`, `garden`, `garden`+hubs, `sync`, `retry_chunks`, `retry_assets`, `manual-ztl-from-lit`, `run_all`.
+- **Not exposed in web** (CLI only): `delete-source`, `ask`, `article`, `skill`, interactive duplicate resolution, `purge-rejected`, `reindex`/`rebuild`, `garden --recreate`, `init --reset`, `set-paging`, `rechunk`, dumps, `doctor`, `status`, harvest-all-inbox, MOC creation. `new-note` **is** exposed as `/notes/new`.
 
 ### Hybrid retrieval + GraphRAG (retrieval.py, graph.py, ask.py, article.py)
 

@@ -175,7 +175,51 @@ def test_manual_lit_to_ztl_dispatches_specialized_flow(tmp_path: Path, monkeypat
 
     assert captured == {
         "ref": "chunk-1",
-        "kwargs": {"thesis": "Uma tese", "use_llm": False},
+        "kwargs": {"thesis": "Uma tese", "use_llm": False, "force": False},
+    }
+    assert result == {
+        "path": str(tmp_path / "vault" / "note.md"),
+        "used_llm": False,
+    }
+
+
+def test_manual_lit_to_ztl_accepts_ref_and_force(tmp_path: Path, monkeypatch):
+    from zettel import index, manual_lit
+
+    captured = {}
+    monkeypatch.setattr(
+        index, "VectorIndex",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("index must stay lazy")),
+    )
+
+    def fake_create(cfg, db, idx, ref, **kwargs):
+        captured.update(ref=ref, kwargs=kwargs)
+        return tmp_path / "vault" / "note.md", False
+
+    monkeypatch.setattr(manual_lit, "create_permanent_from_literature", fake_create)
+
+    class Progress:
+        def emit(self, event):
+            pass
+
+    result = WebWorker._dispatch(
+        AppConfig(chroma_path=tmp_path / "chroma"),
+        object(),
+        Progress(),
+        "manual-ztl-from-lit",
+        {
+            "ref": "20_Literature/Kahneman2011/note.md",
+            "chunk_id": "legacy",
+            "thesis": "Tese",
+            "use_llm": False,
+            "force": True,
+        },
+    )
+    assert captured["ref"] == "20_Literature/Kahneman2011/note.md"
+    assert captured["kwargs"]["force"] is True
+    assert result == {
+        "path": str(tmp_path / "vault" / "note.md"),
+        "used_llm": False,
     }
     assert result == {
         "path": str(tmp_path / "vault" / "note.md"),

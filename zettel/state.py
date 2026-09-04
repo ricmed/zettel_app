@@ -9,6 +9,7 @@ import json
 import logging
 import re
 import sqlite3
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -57,6 +58,31 @@ def _fts_match_expr(text: str, min_len: int = 2, max_tokens: int = 32) -> str | 
     if not tokens:
         return None
     return " OR ".join(f'"{t}"' for t in tokens[:max_tokens])
+
+
+def _escape_like(text: str) -> str:
+    """Neutralize LIKE metacharacters so a search for ``%`` does not match everything."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _fold(text: str | None) -> str:
+    """Accent- and case-insensitive key, same shape as ``topic_index.fold``.
+
+    Registered on the connection as ``zfold`` so ``LIKE`` can run inside SQLite
+    (ASCII-only case-insensitivity would miss ``função`` vs ``funcao``).
+    """
+    if not text:
+        return ""
+    folded = unicodedata.normalize("NFKD", text.lower())
+    folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    return re.sub(r"[\s_-]+", " ", folded).strip()
+
+
+_SOURCE_PICKER_COLS = "source_id, citekey, title, authors, year"
+_LIT_PICKER_COLS = (
+    "chunk_id, source_id, section_path, locator, page_in_book, "
+    "chunk_index, literature_note_path"
+)
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS files (
@@ -315,6 +341,7 @@ class StateDB:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL;")
         self.conn.execute("PRAGMA foreign_keys=ON;")
+        self.conn.create_function("zfold", 1, _fold, deterministic=True)
         # True if the SQLite build supports FTS5 (set by _init_fts). When False,
         # the hybrid retriever falls back to vector-only search.
         self.fts_enabled = False
@@ -816,6 +843,116 @@ class StateDB:
 
     def list_sources(self) -> list[dict]:
         return self._fetchall("SELECT * FROM sources ORDER BY created_at DESC")
+
+    def search_sources(self, query: str = "", limit: int = 20) -> list[dict]:
+        """Picker lookup: citekey/title/authors, never ``extracted_text`` / ``lit_body``.
+
+        ``authors`` is stored as JSON text, so ``kahneman`` and ``daniel kahneman``
+        match but ``kahneman, daniel`` (reordered) does not. Empty ``query``
+        returns the most recently created sources.
+        """
+        limit = max(1, min(int(limit), 50))
+        query = (query or "")[:200]
+        cols = _SOURCE_PICKER_COLS
+        if not query.strip():
+            return self._fetchall(
+                f"SELECT {cols} FROM sources ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (limit,),
+            )
+        folded = _fold(query)
+        if not folded:
+            return []
+        pattern = f"%{_escape_like(folded)}%"
+        return self._fetchall(
+            f"SELECT {cols} FROM sources "
+            f"WHERE zfold(citekey) LIKE ? ESCAPE '\\' "
+            f"OR zfold(title) LIKE ? ESCAPE '\\' "
+            f"OR zfold(authors) LIKE ? ESCAPE '\\' "
+            f"ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (pattern, pattern, pattern, limit),
+        )
+
+    def search_literature_chunks(
+        self, query: str = "", source_id: str | None = None, limit: int = 20,
+    ) -> list[dict]:
+        """Picker lookup over chunks that already have a literature note on disk.
+
+        Matches folded ``section_path`` / ``locator`` / ``chunk_id``. Does not
+        select ``chunks.text``. Empty ``query`` returns the lowest ``chunk_index``.
+        """
+        limit = max(1, min(int(limit), 50))
+        query = (query or "")[:200]
+        cols = _LIT_PICKER_COLS
+        where = [
+            "literature_note_path IS NOT NULL",
+            "literature_note_path <> ''",
+        ]
+        params: list[Any] = []
+        if source_id:
+            where.append("source_id=?")
+            params.append(source_id)
+        if query.strip():
+            folded = _fold(query)
+            if not folded:
+                return []
+            pattern = f"%{_escape_like(folded)}%"
+            where.append(
+                "(zfold(section_path) LIKE ? ESCAPE '\\' "
+                "OR zfold(locator) LIKE ? ESCAPE '\\' "
+                "OR zfold(chunk_id) LIKE ? ESCAPE '\\')"
+            )
+            params.extend((pattern, pattern, pattern))
+        params.append(limit)
+        sql = (
+            f"SELECT {cols} FROM chunks WHERE "
+            + " AND ".join(where)
+            + " ORDER BY chunk_index, chunk_id LIMIT ?"
+        )
+        return self._fetchall(sql, tuple(params))
+
+    def search_literature_chunks_fts(
+        self, query: str, source_id: str | None = None, limit: int = 20,
+    ) -> list[dict]:
+        """Second layer: match the chunk body via FTS5 without selecting ``text``."""
+        if not self.fts_enabled:
+            return []
+        limit = max(1, min(int(limit), 50))
+        query = (query or "")[:200]
+        match = _fts_match_expr(query)
+        if not match:
+            return []
+        where = [
+            "fts_chunks MATCH ?",
+            "c.literature_note_path IS NOT NULL",
+            "c.literature_note_path <> ''",
+        ]
+        params: list[Any] = [match]
+        if source_id:
+            where.append("c.source_id=?")
+            params.append(source_id)
+        params.append(limit)
+        cols = ", ".join(f"c.{name.strip()}" for name in _LIT_PICKER_COLS.split(","))
+        try:
+            return self._fetchall(
+                f"SELECT {cols} FROM fts_chunks "
+                f"JOIN chunks c ON c.chunk_id = fts_chunks.chunk_id "
+                f"WHERE {' AND '.join(where)} "
+                f"ORDER BY rank LIMIT ?",
+                tuple(params),
+            )
+        except sqlite3.OperationalError as e:
+            logger.warning("Busca FTS de literatura falhou: %s", e)
+            return []
+
+    def next_manual_chunk_index(self, source_id: str) -> int:
+        """Next ``chunk_index`` for a hand-written granular LIT of this source."""
+        row = self.conn.execute(
+            "SELECT MAX(chunk_index) AS m FROM chunks "
+            "WHERE source_id=? AND chunk_id LIKE '%::manual::%'",
+            (source_id,),
+        ).fetchone()
+        current = row["m"] if row is not None and row["m"] is not None else 0
+        return int(current) + 1
 
     # ── Chapters ───────────────────────────────────────────────────────
 

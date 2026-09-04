@@ -1,7 +1,7 @@
-# zettel_app ADR Index (38 Decisions)
+# zettel_app ADR Index (40 Decisions)
 
-**Last Updated**: 2026-09-03  
-**Status**: Complete — 38 formal ADRs across 12 modules, 42 relationships mapped
+**Last Updated**: 2026-09-04  
+**Status**: Complete — 40 formal ADRs across 12 modules
 
 ---
 
@@ -15,7 +15,7 @@
 | **EXTRACT** | 2 | [015, 034](#extract-literature-notes) |
 | **REVIEW** | 1 | [016](#review-approval-gate) |
 | **GARDEN** | 3 | [019–021](#garden-moc-generation) |
-| **WEB** | 2 | [022–023](#web-ui--job-queue) |
+| **WEB** | 4 | [022–023, 039–040](#web-ui--job-queue) |
 | **LLM** | 2 | [024–025](#llm-provider--caching) |
 | **QA-WRITING** | 3 | [028–029, 038](#qa-writing--article-pipeline) |
 | **MANUAL** | 1 | [030](#manual-hand-written-notes) |
@@ -280,6 +280,24 @@
 
 ---
 
+### ADR-039: Web as Python Package
+
+- **Status**: Accepted
+- **Date**: 2026-09-04
+- **Summary**: `zettel/web.py` becomes `zettel/web/`. `server.py` (not `app.py`) holds the FastAPI factory; parametric detail routes register last so `/notes/new` is not captured by `/notes/{note_id}`. Same seams as ADR-032, plus that ordering rule.
+- **Link**: [`ADR-039-web-as-python-package.md`](./generated/WEB/ADR-039-web-as-python-package.md)
+
+---
+
+### ADR-040: JSON Pickers and Progressive Enhancement
+
+- **Status**: Accepted
+- **Date**: 2026-09-04
+- **Summary**: Deliberate, narrow exception to ADR-022: read-only JSON GETs may feed a form control that degrades to a server-rendered `<select>`. No JSON mutations, no SPA, no bundler.
+- **Link**: [`ADR-040-json-pickers-progressive-enhancement.md`](./generated/WEB/ADR-040-json-pickers-progressive-enhancement.md)
+
+---
+
 ## LLM — Provider & Caching
 
 ### ADR-024: Pluggable Multi-Provider LLM Strategy
@@ -393,11 +411,17 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 38 |
-| **Accepted** | 38 |
+| **Total ADRs** | 40 |
+| **Accepted** | 40 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 42 |
 | **Modules Covered** | 12 |
+
+---
+
+## Status Update (2026-09-04)
+
+✅ **ADR-039 and ADR-040 added** — the web layer is now the package `zettel/web/` (sister of ADR-027/029/032), and read-only JSON pickers with a `<select>` fallback are a documented exception to ADR-022's "every feature is a template".
 
 ---
 

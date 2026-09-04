@@ -86,7 +86,7 @@ Because manual notes reach `permanent_notes` through `sync._sync_permanent` and 
 
 A related latent bug was fixed alongside this: `literature_chunk_wikilink_for_row` recomputed a note's filename from its database row, which only matches for pipeline-named files. It now prefers `chunks.literature_note_path` whenever that file still exists, so both hand-written and hand-renamed notes get links that resolve. The harvester's literature index was also moved to the flat, title-slugged path every generated wikilink already pointed at.
 
-**Web exposure (not implemented)**: this decision covers the CLI only. `new-note`, `--from-lit` and manual adoption have no web route; the web UI reaches them only indirectly through its existing `POST /pipeline/sync`. Exposing them would need a page for note creation and an upload path for images, which `web.py`'s `ALLOWED_EXTENSIONS` currently rejects. That is deliberate scope, deferred to a second phase.
+**Web exposure**: `/notes/new` scaffolds SRC, LIT and ZTL (including `--from-lit`) and is the web counterpart of `zettel new-note`. Layout and JSON pickers are [ADR-039](../WEB/ADR-039-web-as-python-package.md) and [ADR-040](../WEB/ADR-040-json-pickers-progressive-enhancement.md). Image upload is still not a dedicated web page: adoption of pasted Obsidian images remains `sync-manual` ([ADR-031](../ASSETS/ADR-031-vault-first-image-adoption.md)).
 
 This decision supersedes the DISCARD verdict recorded for "Decision 4: Manual Note Adoption Pattern (Vault-First Design)" in `docs/adrs/SYNC-module-analysis.md`, which scored 42/150 when the pattern was only a folder convention.
 

@@ -20,7 +20,7 @@
 
   .note-rule{display:none}
   .type-picker{grid-template-columns:1fr}
-  .type-option{grid-template-columns:24px 1fr;padding:11px}
+  .type-option{grid-template-columns:24px minmax(0,1fr);padding:11px}
   .manual-layout{grid-template-columns:1fr}
   .manual-aside{position:static;display:flex;flex-direction:column}
   .aside-callout{order:2}
@@ -28,4 +28,5 @@
   .two-col,.three-col{grid-template-columns:1fr}
   .form-section{padding:20px 16px}
   .manual-heading{margin-bottom:18px}
+  .combobox-list{max-height:40vh;left:0;right:0}
 }

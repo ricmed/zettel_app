@@ -4,7 +4,7 @@
 
 A UI FastAPI é server-rendered (Jinja2) e não exige Node, bundler ou acesso direto do navegador ao SQLite/ChromaDB. Não existe subcomando `zettel web`: é um app separado.
 
-Módulos: [`web.py`](../zettel/web.py) (rotas, auth, templates), [`web_app.py`](../zettel/web_app.py) (fila de jobs e dispatch), [`progress.py`](../zettel/progress.py) (progresso compartilhado com a CLI), [`markdown.py`](../zettel/markdown.py) (render seguro de Markdown). Decisões: [ADR-022](adrs/generated/WEB/ADR-022-fastapi-server-rendered-jinja2.md) e [ADR-023](adrs/generated/WEB/ADR-023-sqlite-backed-job-queue-single-worker.md).
+Módulos: [`zettel/web/`](../zettel/web/) (rotas, auth, templates; ADR-039), [`web_app.py`](../zettel/web_app.py) (fila de jobs e dispatch), [`progress.py`](../zettel/progress.py) (progresso compartilhado com a CLI), [`markdown.py`](../zettel/markdown.py) (render seguro de Markdown). Decisões: [ADR-022](adrs/generated/WEB/ADR-022-fastapi-server-rendered-jinja2.md), [ADR-023](adrs/generated/WEB/ADR-023-sqlite-backed-job-queue-single-worker.md), [ADR-039](adrs/generated/WEB/ADR-039-web-as-python-package.md), [ADR-040](adrs/generated/WEB/ADR-040-json-pickers-progressive-enhancement.md).
 
 ---
 
@@ -28,7 +28,7 @@ Sem `SESSION_SECRET`, nenhuma sessão é emitida e o login não funciona. Para a
 Testes:
 
 ```bash
-uv run pytest tests/test_web.py tests/test_web_state.py -v
+uv run pytest tests/test_web.py tests/test_web_state.py tests/test_web_package.py -v
 ```
 
 ---
@@ -51,7 +51,7 @@ uv run pytest tests/test_web.py tests/test_web_state.py -v
 | **Pipeline** (`/pipeline`) | `extract`, `connect`, garden taxonômico, garden por hubs, sincronização manual e repetição segura de chunks/assets com falha |
 | **Revisão** (`/review`) | Filtros por fonte/confiança, trecho, candidatos e aprovação/rejeição **em lote** (sem auto-approve por limiar — use a CLI para `--yes` / bandas interativas) |
 | **Notas / MOCs** (`/notes`, `/notes/{id}`, `/mocs/{id}`, `/sources/{id}`) | Listagem read-only e páginas de detalhe de notas permanentes, MOCs e fontes |
-| **Criar notas** (`/notes/new`) | Scaffolds manuais SRC, LIT e ZTL; ZTL a partir de LIT pode usar o fluxo especializado com ou sem LLM |
+| **Criar notas** (`/notes/new`) | Scaffolds manuais SRC, LIT (índice ou granular) e ZTL; busca de fonte/LIT com combobox (fallback `<select>`); ZTL a partir de LIT enfileira `manual-ztl-from-lit` com ou sem LLM |
 | **Execuções** (`/runs`, `/jobs/{id}`) | Estado persistente, progresso (polling em `/api/jobs/{id}`), eventos, resultado e erro sanitizado |
 | **Configuração / saúde** (`/settings`) | FTS5, diretórios, identidade LLM/embedding (incluindo drift de `dimensions`) — sem segredos |
 

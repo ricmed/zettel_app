@@ -57,10 +57,10 @@ zettel_app/
 │   ├── purge_source.py      # Remocao completa de fonte (zettel delete-source)
 │   ├── progress.py          # Protocolo ProgressObserver (CLI + web)
 │   ├── markdown.py          # Render Markdown seguro (bleach) para a interface web
-│   ├── web.py               # Interface web FastAPI (rotas, auth, templates)
+│   ├── web/                 # Interface web FastAPI (pacote, ADR-039)
 │   ├── web_app.py           # Fila de jobs web e dispatch do pipeline
-│   ├── templates/           # Jinja2 server-rendered (12 paginas + base.html e um partial)
-│   └── static/              # CSS (app.css, markdown.css, mobile.css)
+│   ├── templates/           # Jinja2 server-rendered (paginas + base.html e partials)
+│   └── static/              # CSS (app.css, markdown.css, mobile.css, theme.css) + combobox.js
 ├── config/
 │   ├── config.yaml          # Fonte operacional (todos os knobs do schema)
 │   ├── moc_topics.yaml      # Taxonomia hierarquica de topicos para MOCs
