@@ -16,12 +16,12 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from zettel.config import AppConfig
 from zettel.state import StateDB
+from zettel.time import vault_date_iso
 from zettel.topic_index import TermEntry, TermSource, build_term_map
 from zettel.vault import _slug, parse_frontmatter
 
@@ -281,6 +281,7 @@ def build_pack(
     contradictions: list[tuple[str, str]],
     include_excerpts: bool = False,
     generated_on: str | None = None,
+    vault_timezone: str = "America/Sao_Paulo",
 ) -> SkillPack:
     return SkillPack(
         slug=slug,
@@ -288,7 +289,7 @@ def build_pack(
         origin=origin,
         notes=notes,
         contradictions=contradictions,
-        generated_on=generated_on or datetime.now(UTC).date().isoformat(),
+        generated_on=generated_on or vault_date_iso(vault_timezone),
         include_excerpts=include_excerpts,
     )
 
@@ -515,6 +516,7 @@ def run_skill_export(
         notes=notes,
         contradictions=load_contradictions(db, notes),
         include_excerpts=include_excerpts,
+        vault_timezone=cfg.vault_timezone,
     )
     root = out or (cfg.vault_path / DEFAULT_SKILL_ROOT)
     pack_dir = write_pack(pack, root / pack.slug, overwrite=overwrite)

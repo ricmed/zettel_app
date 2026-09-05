@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from ulid import ULID
 
 from zettel.config import AppConfig
+from zettel.time import now_vault_iso
 from zettel.vault import (
     author_year_label,
     build_literature_chunk_note,
@@ -221,6 +221,7 @@ def _write_literature_index(
         citekey=citekey,
         title=title,
         origin="manual",
+        vault_timezone=cfg.vault_timezone,
     )
     _ensure_parent(path)
     safe_write_note(path, meta, body)
@@ -258,7 +259,7 @@ def scaffold_manual_note(
 ) -> NewNoteResult:
     """Create a manual note file in the vault. Does not index into SQLite/Chroma."""
     normalized = normalize_note_type(note_type)
-    now = datetime.now(UTC).isoformat()
+    now = now_vault_iso(cfg.vault_timezone)
     author_list = list(authors or [])
 
     if normalized == "source":
@@ -293,6 +294,7 @@ def scaffold_manual_note(
             document_type=document_type,
             biblio_fields=biblio_fields or None,
             abnt_reference=abnt_reference,
+            vault_timezone=cfg.vault_timezone,
         )
         meta["citekey"] = ck
         body = _append_src_ztl_hints(
@@ -345,6 +347,7 @@ def scaffold_manual_note(
                 page_in_book=page,
                 status="approved",
                 origin="manual",
+                vault_timezone=cfg.vault_timezone,
             )
         else:
             rel_path = literature_index_filename(ck, title)
@@ -354,6 +357,7 @@ def scaffold_manual_note(
                 citekey=ck,
                 title=title,
                 origin="manual",
+                vault_timezone=cfg.vault_timezone,
             )
         _write_scaffold(path, meta, body, force=force)
         return NewNoteResult(path=path, note_type=normalized, meta=meta)

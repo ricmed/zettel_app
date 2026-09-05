@@ -10,9 +10,10 @@ import logging
 import re
 import sqlite3
 import unicodedata
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from zettel.time import now_utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -590,7 +591,7 @@ class StateDB:
     # ── Generic helpers ────────────────────────────────────────────────
 
     def _now(self) -> str:
-        return datetime.now(UTC).isoformat()
+        return now_utc_iso()
 
     def _fetchone(self, sql: str, params: tuple = ()) -> dict | None:
         row = self.conn.execute(sql, params).fetchone()

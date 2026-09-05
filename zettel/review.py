@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +13,7 @@ from zettel.index import VectorIndex
 from zettel.llm import get_llm
 from zettel.schemas import PermanentNoteCandidate
 from zettel.state import StateDB
+from zettel.time import now_vault_iso
 from zettel.vault import (
     build_literature_index_note,
     compose_note,
@@ -411,7 +411,7 @@ def approve_chunk(cfg: AppConfig, db: StateDB, idx: VectorIndex, chunk_id: str) 
         content = draft_path.read_text(encoding="utf-8")
         meta, body = parse_frontmatter(content)
         meta["status"] = "approved"
-        meta["updated_at"] = datetime.now(UTC).isoformat()
+        meta["updated_at"] = now_vault_iso(cfg.vault_timezone)
         safe_write_note(dest_path, meta, body)
         with contextlib.suppress(OSError):
             draft_path.unlink()
@@ -440,11 +440,14 @@ def approve_chunk(cfg: AppConfig, db: StateDB, idx: VectorIndex, chunk_id: str) 
             page_confidence=chunk.get("page_confidence") or "unknown",
             status="approved",
             review_confidence=chunk.get("review_confidence"),
+            vault_timezone=cfg.vault_timezone,
         )
         safe_write_note(dest_path, meta, body)
 
     excerpt = (chunk.get("text") or "").strip() or "_Trecho nao disponivel._"
-    safe_update_managed_blocks(dest_path, {"auto-source-excerpt": excerpt})
+    safe_update_managed_blocks(
+        dest_path, {"auto-source-excerpt": excerpt}, vault_timezone=cfg.vault_timezone
+    )
 
     # Embed literature note (summary + concepts; source excerpt is a managed block)
     embed_text = _literature_embed_text(dest_path)
@@ -611,7 +614,13 @@ def _refresh_literature_index(cfg: AppConfig, db: StateDB, source_id: str) -> No
     lit_dir = cfg.vault_path / "20_Literature"
     lit_path = lit_dir / literature_index_filename(citekey, title)
     if not lit_path.exists():
-        meta, body = build_literature_index_note(source_id, citekey, title, approved_links=links)
+        meta, body = build_literature_index_note(
+            source_id,
+            citekey,
+            title,
+            approved_links=links,
+            vault_timezone=cfg.vault_timezone,
+        )
         safe_write_note(lit_path, meta, body)
         db.update_source_texts(source_id, lit_body=compose_note(meta, body))
     else:
@@ -620,9 +629,13 @@ def _refresh_literature_index(cfg: AppConfig, db: StateDB, source_id: str) -> No
             if links
             else "_Nenhuma nota granular aprovada ainda._\n"
         )
-        safe_update_managed_blocks(lit_path, {"auto-lit-index": block})
+        safe_update_managed_blocks(
+            lit_path, {"auto-lit-index": block}, vault_timezone=cfg.vault_timezone
+        )
 
-    _refresh_source_topic_index(db, source_id, citekey, approved, lit_path)
+    _refresh_source_topic_index(
+        db, source_id, citekey, approved, lit_path, vault_timezone=cfg.vault_timezone
+    )
     with contextlib.suppress(OSError):
         db.update_source_texts(source_id, lit_body=lit_path.read_text(encoding="utf-8"))
 
@@ -633,6 +646,8 @@ def _refresh_source_topic_index(
     citekey: str,
     approved: list[dict],
     lit_path: Path,
+    *,
+    vault_timezone: str = "America/Sao_Paulo",
 ) -> None:
     """Rebuild the source's `auto-topic-index` from its approved literature notes.
 
@@ -667,6 +682,7 @@ def _refresh_source_topic_index(
         source_id,
         sources,
         note_path=lit_path,
+        vault_timezone=vault_timezone,
         targets_are_permanent_notes=False,
     )
 

@@ -161,6 +161,7 @@ def sync_topic_index(
     sources: list[TermSource],
     note_path: Path | str | None = None,
     *,
+    vault_timezone: str = "America/Sao_Paulo",
     targets_are_permanent_notes: bool = True,
 ) -> list[TermEntry]:
     """Regenerate one scope's topic index: the managed block and the lookup rows.
@@ -185,11 +186,11 @@ def sync_topic_index(
 
     path = Path(note_path) if note_path else None
     if path and path.is_file():
-        _write_block(path, render_topic_index_block(entries))
+        _write_block(path, render_topic_index_block(entries), vault_timezone=vault_timezone)
     return entries
 
 
-def _write_block(path: Path, inner: str) -> None:
+def _write_block(path: Path, inner: str, *, vault_timezone: str) -> None:
     """Update the managed block, creating its section the first time.
 
     This function owns the `## Topic Index` section on every surface that has one
@@ -209,7 +210,7 @@ def _write_block(path: Path, inner: str) -> None:
         )
         path.write_text(compose_note(meta, body) if meta else body, encoding="utf-8")
         return
-    safe_update_managed_blocks(path, {TOPIC_INDEX_BLOCK: inner})
+    safe_update_managed_blocks(path, {TOPIC_INDEX_BLOCK: inner}, vault_timezone=vault_timezone)
 
 
 def sources_from_permanent_notes(db: StateDB, note_ids: list[str]) -> list[TermSource]:

@@ -77,7 +77,7 @@ def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, 
             if result in ("new", "updated"):
                 stats[counter] += 1
 
-    repair = repair_permanent_links(db)
+    repair = repair_permanent_links(db, vault_timezone=cfg.vault_timezone)
     stats.update(repair)
 
     logger.info(
@@ -97,7 +97,9 @@ def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, 
     return stats
 
 
-def repair_permanent_links(db: StateDB) -> dict[str, int]:
+def repair_permanent_links(
+    db: StateDB, *, vault_timezone: str = "America/Sao_Paulo"
+) -> dict[str, int]:
     """Fix malformed ZTL wikilinks and rebuild auto-backlinks from the graph.
 
     Rewrites ``[[ZTL - ZTL - ULID]]`` / ``[[ZTL - ULID]]`` (no slug) to the
@@ -142,7 +144,7 @@ def repair_permanent_links(db: StateDB) -> dict[str, int]:
                 origin=note.get("origin") or "pipeline",
             )
             wikilinks_rewritten += 1
-        if rebuild_auto_backlinks(db, note["note_id"]):
+        if rebuild_auto_backlinks(db, note["note_id"], vault_timezone=vault_timezone):
             backlinks_rebuilt += 1
     return {
         "wikilinks_rewritten": wikilinks_rewritten,
@@ -565,6 +567,7 @@ def _sync_moc(
         moc_id,
         topic,
         file_path,
+        vault_timezone=cfg.vault_timezone,
         previous_body=previous_body,
         new_body=body,
     )
@@ -607,6 +610,7 @@ def _suggest_connections(
             {
                 "auto-connections": "\n".join(links),
             },
+            vault_timezone=cfg.vault_timezone,
         )
 
 

@@ -13,9 +13,10 @@ import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
+
+from zettel.time import now_filename_ts, now_vault_iso
 
 from .bibliography import display_author_natural, format_abnt_in_text
 from .config import effective_temperature, llm_phase
@@ -423,7 +424,6 @@ def assemble_article(
                 warnings.append(f"Figura ausente no vault: {path}")
 
     meta = {
-        "created_at": datetime.now(UTC).isoformat(),
         "title": outline.title,
     }
     return meta, "\n".join(lines).rstrip() + "\n", cited_source_ids, warnings
@@ -457,7 +457,9 @@ def verify_article(
     return warnings
 
 
-def build_article_note(result: ArticleResult) -> tuple[dict, str]:
+def build_article_note(
+    result: ArticleResult, *, vault_timezone: str = "America/Sao_Paulo"
+) -> tuple[dict, str]:
     meta = dict(result.frontmatter)
     meta.setdefault("type", "article")
     meta.setdefault("origin", "article")
@@ -465,15 +467,21 @@ def build_article_note(result: ArticleResult) -> tuple[dict, str]:
     meta.setdefault("style", result.style)
     meta.setdefault("title", result.title)
     meta.setdefault("llm_model", result.llm_model)
-    meta.setdefault("created_at", datetime.now(UTC).isoformat())
+    meta.setdefault("created_at", now_vault_iso(vault_timezone))
     return meta, result.body
 
 
-def save_article_note(result: ArticleResult, vault_path: Path, dest: Path | None = None) -> Path:
+def save_article_note(
+    result: ArticleResult,
+    vault_path: Path,
+    dest: Path | None = None,
+    *,
+    vault_timezone: str = "America/Sao_Paulo",
+) -> Path:
     """Persist the article as Markdown under ``00_Inbox/`` by default."""
-    meta, body = build_article_note(result)
+    meta, body = build_article_note(result, vault_timezone=vault_timezone)
     if dest is None:
-        ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        ts = now_filename_ts(vault_timezone)
         slug = _slug(result.title or result.topic) or "artigo"
         filename = f"ART - {ts} - {slug}.md"
         dest = Path(vault_path) / "00_Inbox" / filename

@@ -12,9 +12,10 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from zettel.time import now_filename_ts, now_vault_iso
 
 from .config import effective_temperature, llm_phase
 from .hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
@@ -258,9 +259,11 @@ def _to_ask_source(db: StateDB, hit: RetrievedNote) -> AskSource:
 # ── Saving the answer as a provenance-rich note ────────────────────────
 
 
-def build_ask_note_body(result: AskResult) -> tuple[dict, str]:
+def build_ask_note_body(
+    result: AskResult, *, vault_timezone: str = "America/Sao_Paulo"
+) -> tuple[dict, str]:
     """Build (frontmatter, body) for a saved answer note with full provenance."""
-    now = datetime.now(UTC).isoformat()
+    now = now_vault_iso(vault_timezone)
     meta = {
         "type": "ask_answer",
         "question": result.question,
@@ -303,15 +306,21 @@ def build_ask_note_body(result: AskResult) -> tuple[dict, str]:
     return meta, "\n".join(lines)
 
 
-def save_ask_note(result: AskResult, vault_path: Path, dest: Path | None = None) -> Path:
+def save_ask_note(
+    result: AskResult,
+    vault_path: Path,
+    dest: Path | None = None,
+    *,
+    vault_timezone: str = "America/Sao_Paulo",
+) -> Path:
     """Persist the answer as a Markdown note. Returns the written path.
 
     Default location is ``<vault>/00_Inbox/`` so the cited ``[[ZTL - ...]]``
     wikilinks resolve when opened in Obsidian.
     """
-    meta, body = build_ask_note_body(result)
+    meta, body = build_ask_note_body(result, vault_timezone=vault_timezone)
     if dest is None:
-        ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        ts = now_filename_ts(vault_timezone)
         slug = _slug(result.question) or "pergunta"
         filename = f"ASK - {ts} - {slug}.md"
         dest = Path(vault_path) / "00_Inbox" / filename

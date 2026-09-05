@@ -495,6 +495,7 @@ def _write_literature_draft(
         review_confidence=confidence,
         llm_model=llm_model,
         processing_time_ms=elapsed_ms,
+        vault_timezone=cfg.vault_timezone,
     )
 
     draft_root = cfg.vault_path / cfg.literature_review.drafts_subdir
