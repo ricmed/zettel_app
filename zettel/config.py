@@ -16,7 +16,75 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_CONFIG_PATH = Path("config/config.yaml")
+_PACKAGE_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _PACKAGE_DIR.parent
+_DEFAULT_CONFIG_PATH = _REPO_ROOT / "config" / "config.yaml"
+
+_TOP_LEVEL_PATH_KEYS = (
+    "vault_path",
+    "inbox_path",
+    "chroma_path",
+    "state_db_path",
+    "cache_path",
+    "prompts_path",
+)
+
+
+def _project_root_for_config(config_path: Path) -> Path:
+    """Directory that ``./vault``, ``./data/…`` in config.yaml are relative to."""
+    resolved = config_path.resolve()
+    if resolved.parent.name == "config":
+        return resolved.parent.parent
+    return resolved.parent
+
+
+def _anchor_path_value(value: Any, base: Path) -> Any:
+    if value is None:
+        return value
+    path = Path(value)
+    if path.is_absolute():
+        return str(path)
+    return str((base / path).resolve())
+
+
+def _anchor_relative_paths(data: dict[str, Any], base: Path) -> dict[str, Any]:
+    """Resolve config path strings against the repo root, not the process cwd."""
+    out = dict(data)
+    for key in _TOP_LEVEL_PATH_KEYS:
+        if key in out:
+            out[key] = _anchor_path_value(out[key], base)
+
+    gardener = out.get("gardener")
+    if isinstance(gardener, dict) and "topics_path" in gardener:
+        gardener = dict(gardener)
+        gardener["topics_path"] = _anchor_path_value(gardener["topics_path"], base)
+        out["gardener"] = gardener
+
+    retrieval = out.get("retrieval")
+    if isinstance(retrieval, dict):
+        article = retrieval.get("article")
+        if isinstance(article, dict) and "personalities_path" in article:
+            retrieval = dict(retrieval)
+            article = dict(article)
+            article["personalities_path"] = _anchor_path_value(
+                article["personalities_path"], base
+            )
+            retrieval["article"] = article
+            out["retrieval"] = retrieval
+
+    return out
+
+
+def _default_app_config(project_root: Path) -> AppConfig:
+    """Factory defaults anchored to ``project_root`` (YAML missing)."""
+    return AppConfig(
+        vault_path=project_root / "vault",
+        inbox_path=project_root / "data" / "inbox",
+        chroma_path=project_root / "data" / "chroma",
+        state_db_path=project_root / "data" / "state.db",
+        cache_path=project_root / "data" / "cache",
+        prompts_path=project_root / "prompts",
+    )
 
 
 LLM_PHASES: tuple[str, ...] = (
@@ -320,16 +388,21 @@ def load_config(path: Path | str | None = None) -> AppConfig:
     Contrato YAML-primeiro: cada chave do YAML substitui o Field default;
     chave ausente (ou arquivo faltando) usa o fallback de fabrica. Segredos
     (API keys) vêm de ``.env``, nao do YAML.
+
+    Caminhos relativos no YAML são resolvidos a partir da raiz do repositório
+    (pai de ``config/``), não do cwd do processo — o uvicorn/CLI enxergam o
+    mesmo ``state.db`` e vault independentemente de onde foram iniciados.
     """
-    # Load .env before anything that reads env vars (LLM keys, etc.)
-    env_path = Path(".env")
+    config_path = Path(path).resolve() if path else _DEFAULT_CONFIG_PATH
+    project_root = _project_root_for_config(config_path)
+
+    env_path = project_root / ".env"
     if env_path.exists():
         load_dotenv(env_path, override=False)
         logger.info("Variaveis de ambiente carregadas de .env")
     else:
         logger.debug(".env nao encontrado, usando apenas variaveis de ambiente do sistema")
 
-    config_path = Path(path) if path else _DEFAULT_CONFIG_PATH
     data: dict[str, Any] = {}
 
     if config_path.exists():
@@ -341,7 +414,10 @@ def load_config(path: Path | str | None = None) -> AppConfig:
     else:
         logger.warning("Arquivo de config não encontrado: %s — usando defaults", config_path)
 
-    return AppConfig(**data)
+    if not data:
+        return _default_app_config(project_root)
+
+    return AppConfig(**_anchor_relative_paths(data, project_root))
 
 
 def llm_phase(cfg: Any, phase: str) -> LLMPhaseConfig:

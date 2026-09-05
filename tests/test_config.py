@@ -9,9 +9,9 @@ from typing import Any, Union, get_args, get_origin
 import yaml
 from pydantic import BaseModel
 
-from zettel.config import AppConfig, load_config
+from zettel.config import AppConfig, _REPO_ROOT, load_config
 
-_CONFIG_YAML = Path("config/config.yaml")
+_CONFIG_YAML = _REPO_ROOT / "config" / "config.yaml"
 _PYTHON_ONLY_PATHS = frozenset({"gardener.allowed_topics"})
 
 
@@ -82,3 +82,17 @@ def test_pydantic_defaults_match_operational_yaml_for_chunking_and_linking():
     assert defaults.chunking.min_section_chars == operational.chunking.min_section_chars
     assert defaults.chunking.min_chunk_chars == operational.chunking.min_chunk_chars
     assert defaults.linking.dedupe_threshold == operational.linking.dedupe_threshold
+
+
+def test_load_config_paths_ignore_process_cwd(monkeypatch, tmp_path: Path):
+    """Web/CLI must use repo-root data/, not a stray cwd-relative state.db."""
+    monkeypatch.chdir(tmp_path)
+    cfg = load_config()
+    assert cfg.state_db_path == _REPO_ROOT / "data" / "state.db"
+    assert cfg.vault_path == _REPO_ROOT / "vault"
+
+
+def test_load_config_from_package_subdir_still_hits_repo_data(monkeypatch):
+    monkeypatch.chdir(_REPO_ROOT / "zettel")
+    cfg = load_config()
+    assert cfg.state_db_path == _REPO_ROOT / "data" / "state.db"

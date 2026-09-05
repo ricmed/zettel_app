@@ -65,6 +65,12 @@ def _escape_like(text: str) -> str:
     return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _path_under_permanent(path: str | None) -> bool:
+    """True when ``path`` points at a note under ``30_Permanent/`` (any slash style)."""
+    normalized = (path or "").replace("\\", "/")
+    return "30_Permanent" in normalized
+
+
 def _fold(text: str | None) -> str:
     """Accent- and case-insensitive key, same shape as ``topic_index.fold``.
 
@@ -1548,10 +1554,13 @@ class StateDB:
         rows = self._fetchall("SELECT note_id, path FROM notes WHERE path IS NOT NULL")
         permanent: set[str] = set()
         for row in rows:
-            path = (row.get("path") or "").replace("\\", "/")
-            if "30_Permanent" in path:
+            if _path_under_permanent(row.get("path")):
                 permanent.add(row["note_id"])
         return permanent
+
+    def count_permanent_notes(self) -> int:
+        """Count notes under ``30_Permanent/`` (path slash style agnostic)."""
+        return len(self.list_permanent_note_ids())
 
     def find_moc_by_hub_note_id(self, hub_note_id: str) -> Optional[dict]:
         """Find hub_pipeline MOC anchored on hub_note_id (from frontmatter_json)."""
@@ -1904,7 +1913,7 @@ class StateDB:
             "lit_index": count("SELECT COUNT(*) c FROM sources"),
             "lit_drafts": count("SELECT COUNT(*) c FROM chunks WHERE status='awaiting_review'"),
             "lit_approved": count("SELECT COUNT(*) c FROM chunks WHERE status IN ('approved','persisted')"),
-            "permanent_notes": count("SELECT COUNT(*) c FROM notes WHERE path LIKE '%30_Permanent/%'"),
+            "permanent_notes": self.count_permanent_notes(),
             "manual_notes": count("SELECT COUNT(*) c FROM notes WHERE origin='manual'"),
             "isolated_notes": count(
                 "SELECT COUNT(*) c FROM notes n WHERE NOT EXISTS "

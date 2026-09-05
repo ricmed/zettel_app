@@ -62,6 +62,22 @@ def test_progress_events_and_dashboard_are_persisted(tmp_path: Path):
         db.close()
 
 
+def test_dashboard_permanent_notes_count_windows_paths(tmp_path: Path):
+    """Dashboard must count ZTL notes when path uses backslashes (Windows)."""
+    db = StateDB(tmp_path / "state.db")
+    try:
+        win_path = str(tmp_path / "vault" / "30_Permanent" / "ZTL - 01ABC - teste.md")
+        posix_path = "vault/30_Permanent/ZTL - 01DEF - teste.md"
+        db.upsert_note("NOTE01", None, win_path, title="Windows")
+        db.upsert_note("NOTE02", None, posix_path, title="Posix")
+        db.upsert_note("NOTE03", None, "vault/20_Literature/LIT - x.md", title="LIT")
+        dashboard = db.get_web_dashboard()
+        assert dashboard["counts"]["permanent_notes"] == 2
+        assert db.count_permanent_notes() == 2
+    finally:
+        db.close()
+
+
 def test_expected_operational_error_is_safe_and_useful():
     error = UserFacingError("Nenhuma fonte foi criada.")
     assert safe_error(error) == "Nenhuma fonte foi criada."
