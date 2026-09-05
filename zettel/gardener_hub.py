@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -18,6 +17,7 @@ from zettel.index import VectorIndex
 from zettel.llm import call_llm, extract_json, fill_template, get_llm, load_prompt_parts
 from zettel.schemas import MOCHubGenerationOutput
 from zettel.taxonomy import resolve_allowed_topics
+from zettel.time import now_vault_iso
 from zettel.vault import note_filename, permanent_wikilink, safe_write_note
 
 if TYPE_CHECKING:
@@ -291,7 +291,7 @@ def purge_hub_pipeline_mocs(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> in
         return 0
 
     for moc in removed:
-        clear_moc_backrefs(db, moc)
+        clear_moc_backrefs(db, moc, vault_timezone=cfg.vault_timezone)
 
     idx.delete_mocs([m["moc_id"] for m in removed])
 
@@ -412,7 +412,7 @@ def _create_new_hub_moc(
 
     moc_id = str(ULID())
     topic = moc_output.topic
-    now = datetime.now(UTC).isoformat()
+    now = now_vault_iso(cfg.vault_timezone)
     meta = {
         "type": "hub_moc",
         "moc_id": moc_id,
@@ -442,7 +442,7 @@ def _create_new_hub_moc(
 
     from zettel.moc_backrefs import sync_moc_backrefs
 
-    sync_moc_backrefs(db, moc_id, topic, moc_path)
+    sync_moc_backrefs(db, moc_id, topic, moc_path, vault_timezone=cfg.vault_timezone)
 
     db.upsert_moc(
         moc_id,
@@ -570,6 +570,7 @@ def _update_hub_moc(
         incremental_output,
         _allowed_note_ids(db, truly_new),
         alias_to_id,
+        vault_timezone=cfg.vault_timezone,
     )
 
     body_snap, fm_snap = _snapshot_moc_file(moc_path)

@@ -17,6 +17,18 @@ templates = Jinja2Templates(
 )
 
 
+def _local_dt_filter(iso_text: str, style: str = "datetime") -> str:
+    if not iso_text:
+        return ""
+    from zettel.time import format_local_datetime
+
+    tz = templates.env.globals.get("vault_timezone", "America/Sao_Paulo")
+    return format_local_datetime(iso_text, tz, style=style)
+
+
+templates.env.filters["local_dt"] = _local_dt_filter
+
+
 def context(request: Request, **extra: Any) -> dict[str, Any]:
     current = session(request)
     return {
@@ -34,6 +46,9 @@ def render(
     status_code: int = 200,
     **extra: Any,
 ) -> HTMLResponse:
+    service_obj = getattr(request.app.state, "service", None)
+    if service_obj is not None:
+        templates.env.globals["vault_timezone"] = service_obj.cfg.vault_timezone
     return templates.TemplateResponse(
         request=request,
         name=name,

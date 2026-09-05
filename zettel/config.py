@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Any, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 from dotenv import load_dotenv
@@ -363,6 +364,7 @@ class AppConfig(BaseModel):
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
 
     language: str = "pt-BR"
+    vault_timezone: str = "America/Sao_Paulo"
     log_level: str = "INFO"
     device: str = "auto"  # auto | cpu | cuda
 
@@ -378,6 +380,16 @@ class AppConfig(BaseModel):
     @classmethod
     def resolve_path(cls, v: Any) -> Path:
         return Path(v).resolve()
+
+    @field_validator("vault_timezone")
+    @classmethod
+    def validate_vault_timezone(cls, v: str) -> str:
+        try:
+            ZoneInfo(v)
+        except ZoneInfoNotFoundError as exc:
+            msg = f"vault_timezone IANA invalido: {v!r}"
+            raise ValueError(msg) from exc
+        return v
 
 
 def load_config(path: Path | str | None = None) -> AppConfig:

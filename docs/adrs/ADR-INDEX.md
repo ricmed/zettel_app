@@ -1,7 +1,7 @@
-# zettel_app ADR Index (40 Decisions)
+# zettel_app ADR Index (41 Decisions)
 
-**Last Updated**: 2026-09-04  
-**Status**: Complete — 40 formal ADRs across 12 modules
+**Last Updated**: 2026-09-05  
+**Status**: Complete — 41 formal ADRs across 12 modules
 
 ---
 
@@ -9,7 +9,7 @@
 
 | Module | Count | ADRs |
 |--------|-------|------|
-| **INFRA** | 8 | [001–008](#infra-core-infrastructure) |
+| **INFRA** | 9 | [001–008, 041](#infra-core-infrastructure) |
 | **RETRIEVAL** | 3 | [009–010, 036](#retrieval-hybrid-search--graph) |
 | **HARVEST** | 6 | [011–014, 027, 033](#harvest-ingestion--paging) |
 | **EXTRACT** | 2 | [015, 034](#extract-literature-notes) |
@@ -94,6 +94,15 @@
 - **Date**: 2024-08-30
 - **Summary**: Two dedicated repository classes — `StateDB` for SQLite, `VectorIndex` for ChromaDB — abstract the different APIs behind consistent gateways, keeping business logic decoupled from storage technology.
 - **Link**: [`ADR-008-repository-pattern-data-access.md`](./generated/INFRA/ADR-008-repository-pattern-data-access.md)
+
+---
+
+### ADR-041: Dual Timezone — UTC in SQLite, Vault Timezone in Frontmatter
+
+- **Status**: Accepted
+- **Date**: 2026-09-05
+- **Summary**: SQLite rows use UTC ISO timestamps; vault frontmatter and web display use `vault_timezone` (default `America/Sao_Paulo`) via `zettel/time.py`. No legacy naive parsing.
+- **Link**: [`ADR-041-dual-timezone-utc-sqlite-vault-local.md`](./generated/INFRA/ADR-041-dual-timezone-utc-sqlite-vault-local.md)
 
 ---
 
@@ -411,11 +420,17 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 40 |
-| **Accepted** | 40 |
+| **Total ADRs** | 41 |
+| **Accepted** | 41 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 42 |
 | **Modules Covered** | 12 |
+
+---
+
+## Status Update (2026-09-05)
+
+✅ **ADR-041 added** — dual timezone: UTC in SQLite, `vault_timezone` in vault frontmatter and web UI (issue #148). Central helpers in `zettel/time.py`; no legacy naive parsing.
 
 ---
 

@@ -23,6 +23,7 @@ from zettel.hashing import normalize_text_for_hash, sha256_hex, short_hash
 from zettel.index import VectorIndex
 from zettel.schemas import PermanentNoteCandidate
 from zettel.state import StateDB
+from zettel.time import now_vault_iso
 from zettel.vault import compose_note, read_managed_block
 
 logger = logging.getLogger(__name__)
@@ -538,9 +539,7 @@ def create_permanent_from_literature(
         "<!-- zettel:auto-connections:end -->\n"
     )
 
-    from datetime import UTC, datetime
-
-    now = datetime.now(UTC).isoformat()
+    now = now_vault_iso(cfg.vault_timezone)
     note_meta = {
         "type": "permanent",
         "note_id": note_id,

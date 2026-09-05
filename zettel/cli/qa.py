@@ -152,15 +152,22 @@ def ask(
     # Save the answer with full provenance.
     saved_path = None
     if save_to:
-        saved_path = save_ask_note(result, cfg.vault_path, Path(save_to))
+        saved_path = save_ask_note(
+            result,
+            cfg.vault_path,
+            Path(save_to),
+            vault_timezone=cfg.vault_timezone,
+        )
     elif save:
-        saved_path = save_ask_note(result, cfg.vault_path)
+        saved_path = save_ask_note(result, cfg.vault_path, vault_timezone=cfg.vault_timezone)
     elif not no_save_prompt:
         from rich.prompt import Confirm
 
         try:
             if Confirm.ask("Salvar esta resposta como nota .md?", default=False):
-                saved_path = save_ask_note(result, cfg.vault_path)
+                saved_path = save_ask_note(
+                    result, cfg.vault_path, vault_timezone=cfg.vault_timezone
+                )
         except (EOFError, KeyboardInterrupt):
             pass
 

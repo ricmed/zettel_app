@@ -6,8 +6,9 @@ from pathlib import Path
 from types import UnionType
 from typing import Any, Union, get_args, get_origin
 
+import pytest
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from zettel.config import _REPO_ROOT, AppConfig, load_config
 
 _CONFIG_YAML = _REPO_ROOT / "config" / "config.yaml"
@@ -45,6 +46,7 @@ def yaml_has_path(data: dict[str, Any], dotted: str) -> bool:
 
 def test_load_config_yaml_smoke():
     cfg = load_config(_CONFIG_YAML)
+    assert cfg.vault_timezone == "America/Sao_Paulo"
     assert cfg.retrieval.mode == "hybrid"
     assert cfg.retrieval.relevance_floor.min_vector_similarity == 0.65
     assert cfg.hub_mocs.selection_mode in ("percentile", "absolute")
@@ -95,3 +97,8 @@ def test_load_config_from_package_subdir_still_hits_repo_data(monkeypatch):
     monkeypatch.chdir(_REPO_ROOT / "zettel")
     cfg = load_config()
     assert cfg.state_db_path == _REPO_ROOT / "data" / "state.db"
+
+
+def test_vault_timezone_invalid_rejected():
+    with pytest.raises(ValidationError):
+        AppConfig(vault_timezone="Not/A_Real_Zone")

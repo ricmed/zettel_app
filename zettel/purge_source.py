@@ -5,13 +5,13 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from zettel.config import AppConfig
 from zettel.index import VectorIndex
 from zettel.state import StateDB
+from zettel.time import now_vault_iso
 from zettel.vault import (
     compose_note,
     literature_chunk_filename_for_row,
@@ -156,6 +156,7 @@ def _clean_note_file(
     link_targets: set[str],
     db: StateDB,
     *,
+    vault_timezone: str,
     deleted_source_id: str | None = None,
 ) -> bool:
     if not path.is_file():
@@ -170,7 +171,7 @@ def _clean_note_file(
     if cleaned_body == body and not meta_changed:
         return False
     if meta:
-        meta["updated_at"] = datetime.now(UTC).isoformat()
+        meta["updated_at"] = now_vault_iso(vault_timezone)
         content = compose_note(meta, cleaned_body)
     else:
         content = cleaned_body
@@ -211,6 +212,7 @@ def clean_wikilinks_in_vault(
                 md_file,
                 link_targets,
                 db,
+                vault_timezone=cfg.vault_timezone,
                 deleted_source_id=deleted_source_id,
             ):
                 updated += 1

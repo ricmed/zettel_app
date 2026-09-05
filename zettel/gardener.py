@@ -34,6 +34,7 @@ from zettel.llm import call_llm, extract_json, fill_template, get_llm, load_prom
 from zettel.schemas import MOCGenerationOutput, MOCIncrementalOutput
 from zettel.state import StateDB
 from zettel.taxonomy import TaxonomyLoadError, resolve_allowed_topics
+from zettel.time import now_vault_iso
 from zettel.vault import (
     note_filename,
     parse_frontmatter,
@@ -199,7 +200,7 @@ def purge_pipeline_mocs(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
         return 0
 
     for moc in removed:
-        clear_moc_backrefs(db, moc)
+        clear_moc_backrefs(db, moc, vault_timezone=cfg.vault_timezone)
 
     idx.delete_mocs([m["moc_id"] for m in removed])
 
@@ -399,9 +400,7 @@ def _create_new_moc(
     moc_id = str(ULID())
     topic = moc_output.topic
 
-    from datetime import UTC, datetime
-
-    now = datetime.now(UTC).isoformat()
+    now = now_vault_iso(cfg.vault_timezone)
     meta = {
         "type": "moc",
         "moc_id": moc_id,
@@ -427,7 +426,7 @@ def _create_new_moc(
 
     from zettel.moc_backrefs import sync_moc_backrefs
 
-    sync_moc_backrefs(db, moc_id, topic, moc_path)
+    sync_moc_backrefs(db, moc_id, topic, moc_path, vault_timezone=cfg.vault_timezone)
 
     db.upsert_moc(
         moc_id,
@@ -674,6 +673,7 @@ def _update_existing_moc(
         incremental_output,
         _allowed_note_ids(db, truly_new),
         alias_to_id,
+        vault_timezone=cfg.vault_timezone,
     )
 
     body_snap, fm_snap = _snapshot_moc_file(moc_path)
@@ -723,14 +723,14 @@ def _apply_incremental_placements(
     incremental_output: MOCIncrementalOutput,
     allowed_ids: set[str],
     alias_to_id: dict[str, str],
+    *,
+    vault_timezone: str = "America/Sao_Paulo",
 ) -> None:
     """Reconstruct and write the MOC file with new notes placed into subsections."""
     content = moc_path.read_text(encoding="utf-8")
     meta, previous_body = parse_frontmatter(content)
 
-    from datetime import UTC, datetime
-
-    meta["updated_at"] = datetime.now(UTC).isoformat()
+    meta["updated_at"] = now_vault_iso(vault_timezone)
 
     placement_map: dict[str, list[str]] = {}
     placed: set[str] = set()
@@ -806,6 +806,7 @@ def _apply_incremental_placements(
             moc_id,
             meta.get("topic", ""),
             moc_path,
+            vault_timezone=vault_timezone,
             previous_body=previous_body,
         )
 

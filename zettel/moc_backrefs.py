@@ -59,16 +59,18 @@ def _link_references_moc(line: str, moc_id: str) -> bool:
     return moc_id in line
 
 
-def _add_moc_link_to_note(note_path: Path, link_line: str) -> None:
+def _add_moc_link_to_note(note_path: Path, link_line: str, *, vault_timezone: str) -> None:
     content = note_path.read_text(encoding="utf-8")
     existing = read_managed_block(content, MOC_BACKREFS_BLOCK)
     if existing and link_line.strip() in existing:
         return
     inner = f"{existing}\n{link_line}".strip() if existing else link_line
-    safe_update_managed_blocks(note_path, {MOC_BACKREFS_BLOCK: inner})
+    safe_update_managed_blocks(
+        note_path, {MOC_BACKREFS_BLOCK: inner}, vault_timezone=vault_timezone
+    )
 
 
-def _remove_moc_link_from_note(note_path: Path, moc_id: str) -> None:
+def _remove_moc_link_from_note(note_path: Path, moc_id: str, *, vault_timezone: str) -> None:
     content = note_path.read_text(encoding="utf-8")
     existing = read_managed_block(content, MOC_BACKREFS_BLOCK)
     if not existing:
@@ -78,7 +80,9 @@ def _remove_moc_link_from_note(note_path: Path, moc_id: str) -> None:
         for line in existing.splitlines()
         if line.strip() and not _link_references_moc(line, moc_id)
     ]
-    safe_update_managed_blocks(note_path, {MOC_BACKREFS_BLOCK: "\n".join(lines)})
+    safe_update_managed_blocks(
+        note_path, {MOC_BACKREFS_BLOCK: "\n".join(lines)}, vault_timezone=vault_timezone
+    )
 
 
 def sync_moc_backrefs(
@@ -87,6 +91,7 @@ def sync_moc_backrefs(
     moc_topic: str,
     moc_path: Path | str,
     *,
+    vault_timezone: str = "America/Sao_Paulo",
     previous_body: str | None = None,
     new_body: str | None = None,
 ) -> None:
@@ -104,14 +109,14 @@ def sync_moc_backrefs(
     for note_id in old_ids - new_ids:
         note_path = _note_path_from_db(db, note_id)
         if note_path:
-            _remove_moc_link_from_note(note_path, moc_id)
+            _remove_moc_link_from_note(note_path, moc_id, vault_timezone=vault_timezone)
 
     for note_id in new_ids - old_ids:
         note_path = _note_path_from_db(db, note_id)
         if note_path:
-            _add_moc_link_to_note(note_path, link_line)
+            _add_moc_link_to_note(note_path, link_line, vault_timezone=vault_timezone)
 
-    _sync_moc_topic_index(db, moc_id, path, new_ids)
+    _sync_moc_topic_index(db, moc_id, path, new_ids, vault_timezone=vault_timezone)
 
 
 def _sync_moc_topic_index(
@@ -119,6 +124,8 @@ def _sync_moc_topic_index(
     moc_id: str,
     path: Path,
     note_ids: set[str],
+    *,
+    vault_timezone: str,
 ) -> None:
     """Refresh the MOC's `auto-topic-index` block and its lookup rows.
 
@@ -137,10 +144,13 @@ def _sync_moc_topic_index(
         moc_id,
         sources_from_permanent_notes(db, sorted(note_ids)),
         note_path=path,
+        vault_timezone=vault_timezone,
     )
 
 
-def clear_moc_backrefs(db: StateDB, moc: dict) -> None:
+def clear_moc_backrefs(
+    db: StateDB, moc: dict, *, vault_timezone: str = "America/Sao_Paulo"
+) -> None:
     """Remove this MOC from all permanent notes that referenced it."""
     body = moc.get("body") or ""
     if not body and moc.get("path"):
@@ -155,7 +165,7 @@ def clear_moc_backrefs(db: StateDB, moc: dict) -> None:
     for note_id in extract_note_ids_from_moc_body(body):
         note_path = _note_path_from_db(db, note_id)
         if note_path:
-            _remove_moc_link_from_note(note_path, moc_id)
+            _remove_moc_link_from_note(note_path, moc_id, vault_timezone=vault_timezone)
 
     from zettel.topic_index import SCOPE_MOC
 

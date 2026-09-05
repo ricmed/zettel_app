@@ -6,13 +6,13 @@ import json
 import logging
 import re
 import shutil
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from zettel.schemas import JUDGEMENT_FIELDS
+from zettel.time import now_vault_iso
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +146,12 @@ def safe_write_note(path: Path, metadata: dict[str, Any], body: str) -> None:
     logger.debug("Nota salva: %s", path)
 
 
-def safe_update_managed_blocks(path: Path, blocks: dict[str, str]) -> None:
+def safe_update_managed_blocks(
+    path: Path,
+    blocks: dict[str, str],
+    *,
+    vault_timezone: str = "America/Sao_Paulo",
+) -> None:
     """Update only the managed blocks in an existing note, preserving manual edits.
 
     When the file content actually changes, bumps ``updated_at`` in frontmatter
@@ -165,7 +170,7 @@ def safe_update_managed_blocks(path: Path, blocks: dict[str, str]) -> None:
 
     meta, body = parse_frontmatter(content)
     if meta:
-        meta["updated_at"] = datetime.now(UTC).isoformat()
+        meta["updated_at"] = now_vault_iso(vault_timezone)
         content = compose_note(meta, body)
     path.write_text(content, encoding="utf-8")
     logger.debug("Blocos gerenciados atualizados em: %s", path)
@@ -487,6 +492,8 @@ def build_source_note(
     tokens_prompt: int | None = None,
     tokens_completion: int | None = None,
     tokens_embedding: int | None = None,
+    *,
+    vault_timezone: str = "America/Sao_Paulo",
 ) -> tuple[dict[str, Any], str]:
     """Build frontmatter and body for a Source (SRC) note.
 
@@ -494,7 +501,7 @@ def build_source_note(
     as `abnt_reference` for easy citation copy-paste. Links to the literature
     *index* (not a monolithic LIT).
     """
-    now = datetime.now(UTC).isoformat()
+    now = now_vault_iso(vault_timezone)
     meta: dict[str, Any] = {
         "type": "source",
         "source_id": source_id,
@@ -612,7 +619,7 @@ def sync_source_costs_to_vault(cfg: Any, db: Any, source_id: str) -> bool:
     meta["tokens_prompt"] = int(row.get("tokens_prompt") or 0)
     meta["tokens_completion"] = int(row.get("tokens_completion") or 0)
     meta["tokens_embedding"] = int(row.get("tokens_embedding") or 0)
-    meta["updated_at"] = datetime.now(UTC).isoformat()
+    meta["updated_at"] = now_vault_iso(cfg.vault_timezone)
     path.write_text(render_frontmatter(meta) + "\n" + body, encoding="utf-8")
     return True
 
@@ -623,9 +630,11 @@ def build_literature_index_note(
     title: str,
     approved_links: list[str] | None = None,
     origin: str = "pipeline",
+    *,
+    vault_timezone: str = "America/Sao_Paulo",
 ) -> tuple[dict[str, Any], str]:
     """Build the per-source literature index (replaces the old monolithic LIT)."""
-    now = datetime.now(UTC).isoformat()
+    now = now_vault_iso(vault_timezone)
     meta = {
         "type": "literature_index",
         "source_id": source_id,
@@ -716,9 +725,10 @@ def build_literature_chunk_note(
     llm_model: str = "",
     processing_time_ms: int | None = None,
     origin: str = "pipeline",
+    vault_timezone: str = "America/Sao_Paulo",
 ) -> tuple[dict[str, Any], str]:
     """Build a granular literature note for one chunk (draft or approved)."""
-    now = datetime.now(UTC).isoformat()
+    now = now_vault_iso(vault_timezone)
     page_label = page_in_book if page_in_book is not None else page_in_file
     page_str = f"p. {page_label}" if page_label is not None else "p. ?"
     meta: dict[str, Any] = {

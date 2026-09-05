@@ -161,7 +161,14 @@ def rebuild_topic_index(cfg: AppConfig, db: StateDB) -> int:
                 src["title"],
             )
         )
-        _refresh_source_topic_index(db, source_id, src["citekey"], approved, lit_path)
+        _refresh_source_topic_index(
+            db,
+            source_id,
+            src["citekey"],
+            approved,
+            lit_path,
+            vault_timezone=cfg.vault_timezone,
+        )
         total += len(db.match_topic_index_scope(SCOPE_SOURCE, source_id))
 
     for moc in db.list_mocs():
@@ -172,6 +179,7 @@ def rebuild_topic_index(cfg: AppConfig, db: StateDB) -> int:
             moc["moc_id"],
             path,
             extract_note_ids_from_moc_body(body),
+            vault_timezone=cfg.vault_timezone,
         )
         total += len(db.match_topic_index_scope(SCOPE_MOC, moc["moc_id"]))
     return total
@@ -396,6 +404,7 @@ def run_rebuild_vault(
             tokens_prompt=src.get("tokens_prompt"),
             tokens_completion=src.get("tokens_completion"),
             tokens_embedding=src.get("tokens_embedding"),
+            vault_timezone=cfg.vault_timezone,
         )
         src_path = cfg.vault_path / "10_Sources" / source_note_filename(citekey, title)
         if _write(src_path, compose_note(src_meta, src_body), origin):
@@ -426,7 +435,11 @@ def run_rebuild_vault(
                     stats["literature"] += 1
                     if not dry_run and dest.exists():
                         excerpt = (chunk.get("text") or "").strip() or "_Trecho nao disponivel._"
-                        safe_update_managed_blocks(dest, {"auto-source-excerpt": excerpt})
+                        safe_update_managed_blocks(
+                            dest,
+                            {"auto-source-excerpt": excerpt},
+                            vault_timezone=cfg.vault_timezone,
+                        )
                 continue
             summary_data: dict[str, Any] = {}
             if chunk.get("summary_json"):
@@ -450,6 +463,7 @@ def run_rebuild_vault(
                 status="approved",
                 review_confidence=chunk.get("review_confidence"),
                 origin=origin,
+                vault_timezone=cfg.vault_timezone,
             )
             if _write(dest, compose_note(meta, body), origin):
                 stats["literature"] += 1

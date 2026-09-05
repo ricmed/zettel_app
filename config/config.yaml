@@ -243,6 +243,9 @@ retrieval:
 # ── Idioma dos prompts / texto gerado ──────────────────────────────────
 language: pt-BR
 
+# Fuso IANA para created_at/updated_at no vault e exibição na web (SQLite permanece UTC).
+vault_timezone: America/Sao_Paulo
+
 # ── Logging (raiz do pipeline; httpx/openai ficam em WARNING) ──────────
 log_level: INFO
 

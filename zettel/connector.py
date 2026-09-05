@@ -500,9 +500,9 @@ def _process_candidate(
         images=images,
     )
 
-    from datetime import UTC, datetime
+    from zettel.time import now_vault_iso
 
-    now = datetime.now(UTC).isoformat()
+    now = now_vault_iso(cfg.vault_timezone)
     tags = note_output.tags or cand.tags
     title = note_output.title[:100] or cand.thesis[:60]
     meta = {
@@ -751,11 +751,13 @@ def _persist_and_backlink(
             relation_type=conn.get("relation_type") or "related",
             description=conn.get("description") or "",
         )
-        rebuild_auto_backlinks(db, target_id)
-    rebuild_auto_backlinks(db, new_note_id)
+        rebuild_auto_backlinks(db, target_id, vault_timezone=cfg.vault_timezone)
+    rebuild_auto_backlinks(db, new_note_id, vault_timezone=cfg.vault_timezone)
 
 
-def rebuild_auto_backlinks(db: StateDB, note_id: str) -> bool:
+def rebuild_auto_backlinks(
+    db: StateDB, note_id: str, *, vault_timezone: str = "America/Sao_Paulo"
+) -> bool:
     """Replace ``auto-backlinks`` with incoming graph edges whose source file exists.
 
     Returns True when the vault file was written (including clearing a stale block).
@@ -794,7 +796,7 @@ def rebuild_auto_backlinks(db: StateDB, note_id: str) -> bool:
         return False
     if existing is not None and existing.strip() == inner.strip():
         return False
-    safe_update_managed_blocks(path, {"auto-backlinks": inner})
+    safe_update_managed_blocks(path, {"auto-backlinks": inner}, vault_timezone=vault_timezone)
     return True
 
 

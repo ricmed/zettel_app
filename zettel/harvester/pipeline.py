@@ -765,6 +765,7 @@ def _create_vault_notes(
         processing_status=processing_status,
         total_chunks=total_chunks,
         docling_config_hash=docling_config_hash,
+        vault_timezone=cfg.vault_timezone,
     )
     src_path = cfg.vault_path / "10_Sources" / source_note_filename(citekey, title)
     src_path.parent.mkdir(parents=True, exist_ok=True)
@@ -772,7 +773,9 @@ def _create_vault_notes(
 
     # Write LIT index note. Flat, title-slugged path: this is where every generated
     # wikilink points and where review/rebuild/purge look for it.
-    lit_meta, lit_body = build_literature_index_note(source_id, citekey, title)
+    lit_meta, lit_body = build_literature_index_note(
+        source_id, citekey, title, vault_timezone=cfg.vault_timezone
+    )
     lit_path = cfg.vault_path / "20_Literature" / literature_index_filename(citekey, title)
     lit_path.parent.mkdir(parents=True, exist_ok=True)
     if not lit_path.exists():
