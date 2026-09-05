@@ -11,6 +11,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Run all tests
 .venv/Scripts/python.exe -m pytest tests/ -v
 
+# Lint / format (Ruff — pyproject.toml, .cursor/rules/python-ruff.mdc)
+.venv/Scripts/python.exe -m ruff check zettel tests --fix
+.venv/Scripts/python.exe -m ruff format zettel tests
+
 # Run a single test file
 .venv/Scripts/python.exe -m pytest tests/test_hashing.py -v
 
