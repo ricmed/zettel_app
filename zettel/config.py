@@ -158,6 +158,9 @@ class ChunkingConfig(BaseModel):
     chunk_overlap: int = 400
     min_section_chars: int = 200  # secoes menores sao fundidas com a seguinte
     min_chunk_chars: int = 200  # pedacos menores sao fundidos no anterior
+    # Secao com fence cujo total cabe em chunk_size * slack fica inteira num
+    # chunk, em vez de ser cortada nas bordas do fence (prosa e codigo juntos).
+    fence_section_slack: float = 1.5
 
 
 class LinkingConfig(BaseModel):

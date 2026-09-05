@@ -93,6 +93,13 @@ chunking:
   chunk_overlap: 400         # sobreposicao entre chunks consecutivos
   min_section_chars: 200     # secoes (H3+) menores sao fundidas com a seguinte
   min_chunk_chars: 200       # pedacos do splitter menores sao fundidos no anterior
+  # Um fence e a prosa que o introduz/comenta sao uma unidade: cortar na borda
+  # do fence deixa o codigo sem explicacao e a explicacao sem codigo (ambos
+  # viram 'fragmented'/'narrative' no extract). Secao com fence cujo total cabe
+  # em chunk_size * slack fica inteira num chunk; acima disso o corte volta a
+  # acontecer, mas a prosa orfa e colada no fence vizinho. 1.0 = comportamento
+  # antigo (sempre cortar na borda).
+  fence_section_slack: 1.5
 
 # ── Linkagem / Deduplicação ─────────────────────────────────────────────
 linking:

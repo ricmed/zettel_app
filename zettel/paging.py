@@ -415,6 +415,7 @@ def compute_docling_config_hash(cfg: AppConfig) -> str:
         "chunk_overlap": cfg.chunking.chunk_overlap,
         "min_section_chars": cfg.chunking.min_section_chars,
         "min_chunk_chars": cfg.chunking.min_chunk_chars,
+        "fence_section_slack": cfg.chunking.fence_section_slack,
         "images_enabled": cfg.images.enabled,
         "images_scale": cfg.images.scale,
         "images_min_width": cfg.images.min_width,
