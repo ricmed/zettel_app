@@ -134,20 +134,41 @@ extraction:
   preflight_output_tokens_per_chunk: 800  # alvo de saida por chunk no pre-voo de custo (nao e teto)
 
 # ── Literature Review (aprovacao seletiva de LIT por chunk) ───────────
-# review_confidence foi recalibrada (issue #59) sobre o corpus real (117
-# chunks aceitos em data/state.db no momento da calibracao): a formula
-# anterior saturava em ~0.98 para quase todo chunk aceito (banda media
-# vazia). A nova formula pondera approval_ratio + relevance_score medio
-# (normalizado sobre o piso do filtro, nao /5) + profundidade media da
-# definicao (unico termo com dispersao real no corpus medido -- 33 a 88
-# palavras; relevance_score raramente sai de 3-4). Distribuicao medida:
-# min 0.52, mediana 0.75, max 0.85, desvio padrao 0.09 -- 0.75 fica bem no
-# meio (~51% dos chunks aceitos ficam >= limiar). O corte muito baixo 0.4
+# review_confidence foi refeita na issue #152. A formula da #59 usava 40%
+# do peso em contagem de palavras da definicao; medido no corpus, o portao
+# equivalia a "relevance_score == 4 E definicao >= 48 palavras" -- um chunk
+# reprovou com 47.0 palavras contra 47.5 exigidas. Pior: no piso do filtro
+# (relevance_score == min_relevance_score) o teto era 0.70 contra limiar
+# 0.75, entao nenhum chunk rel-3 podia auto-aprovar, por melhor que fosse.
+#
+# A formula atual tem tres termos, nenhum deles um comprimento:
+#   0.50 relevancia  -- unico campo que julga o CONCEITO. O piso do filtro
+#                       vale 0.6 do termo (nao 0): o prompt manda escolher
+#                       o nivel menor em duvida e reserva 5 para ideias
+#                       fundamentais raras, entao rel==piso e "valido mas
+#                       nao surpreendente", nao "sem valor".
+#   0.30 integridade -- fracao dos candidatos que o filtro deterministico
+#                       manteve. Filtro derrubando candidato = olho humano.
+#   0.20 completude  -- presenca de `intuition` e `limits` (campos opcionais
+#                       no schema). Estrutural, nao verbosidade.
+#
+# O limiar NAO e um percentil: 0.75 fica logo abaixo de 0.80, que e o que
+# um chunk impecavel tira no piso de relevancia. Assim todo chunk sem
+# defeito detectavel auto-aprova e todo chunk com defeito (filtro derrubou
+# candidato, ou faltam intuition/limits) cai para revisao humana -- e cada
+# reprovacao tem causa nomeavel. Um percentil garantiria taxa fixa de
+# rejeicao independente da qualidade, que e a numerologia removida aqui.
+# Mexer nos pesos exige rodar scripts/calibrate_review_confidence.py e
+# conferir a tabela de alcancabilidade (docs/adrs/RUNBOOK.md).
+#
+# Distribuicao medida (1 fonte, 13 chunks pontuados -- default provisorio,
+# nao calibracao): antes min 0.599 / mediana 0.746 / max 0.810, 46%
+# aprovados; depois min 0.800 / mediana 0.900 / max 0.900, 100% aprovados
+# (o corpus nao tem defeito para o portao pegar). O corte muito baixo 0.4
 # vive em review.py (chunk rejeitado=0.1, aceito sem candidato=0.2 --
-# ambos abaixo, corretamente). Corpus muda com o modelo/prompt de extract;
-# reavaliar percentis se a distribuicao mudar muito (docs/adrs/RUNBOOK.md).
+# ambos abaixo, corretamente).
 literature_review:
-  auto_approve_min_confidence: 0.75  # faixa alta / auto-aprovacao (>=); recalibrado sobre o corpus (issue #59)
+  auto_approve_min_confidence: 0.75  # logo abaixo de 0.80 = chunk impecavel no piso (issue #152)
   batch_sample_size: 20              # max drafts de baixa confianca listados no review interativo
   drafts_subdir: 00_Inbox/Review     # relativo ao vault; drafts antes da promocao para 20_Literature
 

@@ -84,21 +84,38 @@ Also see:
   - config/config.yaml literature_review.auto_approve_min_confidence
   - review.py _LOW_CONFIDENCE_MAX = 0.4 (hard-coded very-low cut)
 
-Action:
-  - Monitor real-world impact: how many drafts fall into each band
-    after harvest/extract?
-  - If imbalanced (too many in "medium"? too many auto-approved FP?):
-    → Propose new thresholds via GitHub issue
-  - Document why change is needed (e.g., "extraction model improved,
-    now 80% are high-conf")
-  - Significant extract-model change → schedule a formal calibration
-    pass (future phase; do not retune in code without evidence)
+Action — measure first, never retune from intuition:
 
-Example:
-  Current (illustrative): 0.4 (very-low, review.py) | 0.4–limiar (medium)
-                          | limiar+ (high; read the YAML, not ADR 0.7)
-  Proposed: 0.3 (very-low) | 0.3-0.8 (medium) | 0.8+ (high)
-  Reason: New extractor model has higher overall confidence distribution
+  .venv/Scripts/python.exe scripts/calibrate_review_confidence.py
+
+  Rescores every chunk from the persisted summary_json. ZERO LLM calls,
+  zero embedding calls — it reads only data extract already wrote. Prints:
+    - old vs new distribution (min / median / max / stdev / pass rate)
+    - a threshold sweep, so you pick a cut with the curve in front of you
+    - a REACHABILITY table (see below)
+    - a warning when the corpus is a single source
+
+  Reachability is the check that matters. Before issue #152 a chunk at
+  relevance_score == min_relevance_score had a ceiling of 0.70 against a
+  0.75 threshold: an entire class of valid candidates could NEVER
+  auto-approve, and that read as "the model is strict" rather than as the
+  structural bug it was. If any row prints INALCANCAVEL, the weights are
+  wrong — not the threshold.
+
+  Since #152 the threshold is NOT a percentile. It sits just under the
+  score a flawless chunk earns at the relevance floor (0.80), so a chunk
+  auto-approves unless a defect was actually detected — the filter dropped
+  a candidate, or intuition/limits are missing. Moving it up starts
+  rejecting clean chunks for no nameable reason; moving it down stops
+  catching real defects. Change the WEIGHTS only with the harness output
+  and a reachability table attached to the GitHub issue.
+
+  Then: monitor how many drafts land in each band after harvest/extract,
+  and open an issue with the numbers if the workload looks unbalanced.
+
+Caveat: a calibration is only as wide as its corpus. The current default
+was set on 1 source / 13 scored chunks — provisional, not calibrated.
+Re-run the harness after harvesting a broader corpus.
 ```
 
 #### "Web review UI should approve below-threshold chunks"

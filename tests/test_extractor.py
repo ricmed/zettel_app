@@ -860,32 +860,65 @@ def test_score_review_confidence_all_candidates_filtered_out_is_low():
 
 
 def test_score_review_confidence_has_real_dispersion_not_saturated():
-    """The old formula converged on ~0.98 for any reasonably-formed chunk.
+    """Relevance, not verbosity, is what separates two chunks (issue #152).
 
-    A thin candidate (short definition, floor relevance) and a well-developed
-    one (long definition, high relevance) must land in visibly different
-    places, not both pinned near 1.0.
+    An earlier formula converged on ~0.98 for any well-formed chunk; the one
+    that replaced it separated on `definition` word count. Separation must come
+    from the model's own judgement of the concept.
     """
     cfg = _make_config()
-    thin = _make_candidate(
-        relevance_score=3,
-        definition="Definicao curta com poucas palavras apenas o minimo necessario aqui",
+    floor = _make_candidate(relevance_score=3)
+    fundamental = _make_candidate(relevance_score=5)
+
+    floor_score = _score_review_confidence(_make_output(candidates=[floor]), cfg)
+    top_score = _score_review_confidence(_make_output(candidates=[fundamental]), cfg)
+
+    assert top_score > floor_score
+    assert top_score - floor_score >= 0.19  # meaningfully separated, not a rounding blip
+    assert floor_score < top_score <= 1.0
+
+
+def test_score_review_confidence_ignores_definition_length():
+    """Word count is not a quality signal and must not move the score.
+
+    The concrete regression: a candidate whose definition ran 47 words failed
+    the gate while an otherwise identical 48-word one passed.
+    """
+    cfg = _make_config()
+    terse = _make_candidate(definition=" ".join(f"palavra{i}" for i in range(12)))
+    verbose = _make_candidate(definition=" ".join(f"palavra{i}" for i in range(120)))
+
+    assert _score_review_confidence(
+        _make_output(candidates=[terse]), cfg
+    ) == _score_review_confidence(_make_output(candidates=[verbose]), cfg)
+
+
+def test_score_review_confidence_floor_relevance_can_reach_the_threshold():
+    """No valid `relevance_score` may be structurally barred from auto-approve.
+
+    Before #152 a chunk at `min_relevance_score` had a ceiling of 0.70 against
+    a 0.75 threshold, so an entire class of valid candidates could never pass
+    however clean it was.
+    """
+    cfg = _make_config()
+    flawless_at_floor = _make_output(
+        candidates=[_make_candidate(relevance_score=cfg.extraction.min_relevance_score)]
     )
-    rich = _make_candidate(
-        relevance_score=5,
-        definition=(
-            "Uma definicao bem mais desenvolvida, com varias frases substantivas "
-            "explicando o conceito em profundidade, cobrindo nuances, excecoes e "
-            "conexoes com ideias correlatas, para que o leitor entenda o mecanismo "
-            "completo sem precisar consultar a fonte original de novo"
-        ),
-    )
-    thin_score = _score_review_confidence(_make_output(candidates=[thin]), cfg)
-    rich_score = _score_review_confidence(_make_output(candidates=[rich]), cfg)
-    assert rich_score > thin_score
-    assert rich_score - thin_score >= 0.2  # meaningfully separated, not a rounding blip
-    assert thin_score < 0.85  # neither pinned at the old ~0.98 ceiling
-    assert rich_score < 0.95
+    score = _score_review_confidence(flawless_at_floor, cfg)
+    assert score >= cfg.literature_review.auto_approve_min_confidence
+
+
+def test_score_review_confidence_drops_when_depth_fields_are_missing():
+    """`intuition`/`limits` are optional in the schema; their absence is a signal."""
+    cfg = _make_config()
+    complete = _make_candidate()
+    bare = _make_candidate(intuition="", limits="")
+
+    full_score = _score_review_confidence(_make_output(candidates=[complete]), cfg)
+    bare_score = _score_review_confidence(_make_output(candidates=[bare]), cfg)
+
+    assert bare_score < full_score
+    assert bare_score < cfg.literature_review.auto_approve_min_confidence
 
 
 def test_score_review_confidence_partial_filter_rejection_lowers_score():

@@ -197,7 +197,10 @@ class ExtractionConfig(BaseModel):
 class LiteratureReviewConfig(BaseModel):
     """Aprovacao seletiva de Notas de Literatura granulares (por chunk)."""
 
-    auto_approve_min_confidence: float = 0.85
+    # Placed just under 0.80 — the score a flawless chunk earns at the relevance
+    # floor — so every defect-free chunk auto-approves and every chunk with a
+    # detected defect does not. Kept in sync with config/config.yaml (issue #152).
+    auto_approve_min_confidence: float = 0.75
     batch_sample_size: int = 20  # max drafts de baixa confianca a listar no review interativo
     drafts_subdir: str = "00_Inbox/Review"
 
