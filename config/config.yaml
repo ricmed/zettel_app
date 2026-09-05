@@ -127,6 +127,23 @@ extraction:
   min_thesis_words: 5        # palavras minimas no campo thesis
   require_anchor_quote: true # descartar se anchor_quote vazio
   min_definition_words: 10   # palavras minimas no campo definition
+  # Gate pre-LLM por proporcao de codigo (issue #154). NAO LIGUE sem medir no
+  # seu proprio corpus: a unica medicao disponivel e CONTRARIA ao sinal.
+  #
+  # A hipotese era que chunk dominado por fence sempre volta rejected, entao a
+  # chamada podia ser evitada. Medido nos 3 chunks com fence do corpus:
+  #   #09  73% codigo  -> rejected            (hipotese acerta)
+  #   #10  87% codigo  -> PERSISTED, conf 0.900, virou nota permanente
+  #   #11  69% codigo  -> rejected            (hipotese acerta)
+  # O chunk de MAIOR proporcao foi o unico que deu certo -- nenhum limiar barra
+  # #09 e #11 poupando #10. A razao e semantica: o fence de #10 e um bloco
+  # Python cujos COMENTARIOS enunciam o conceito (trade-off de custo entre
+  # zero-shot e few-shot). O scanner conta caracteres, nao sentido.
+  #
+  # O knob fica porque 3 pontos de uma fonte so nao refutam mais do que
+  # confirmam, e porque desligado nao custa nada. Ligar em 0.65 hoje destroi
+  # uma nota boa a cada duas chamadas economizadas.
+  max_fence_ratio: 1.0       # 1.0 = desligado (unico valor com evidencia a favor)
   verify_anchor_quote: true      # checa faixa de palavras e se a citacao existe no chunk
   anchor_quote_min_ratio: 0.85   # cobertura minima na checagem fuzzy (tolera elipse editorial)
   anchor_quote_min_words: 10     # faixa de palavras que o prompt ja exige

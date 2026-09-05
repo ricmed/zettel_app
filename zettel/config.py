@@ -189,6 +189,9 @@ class ExtractionConfig(BaseModel):
     verify_anchor_quote: bool = True  # checa faixa de palavras e ancoragem no chunk
     anchor_quote_min_ratio: float = 0.85  # cobertura minima na checagem fuzzy
     anchor_quote_min_words: int = 10  # faixa que o prompt ja exige
+    # Fracao maxima de caracteres em blocos de codigo antes de barrar o chunk
+    # sem chamar o LLM. 1.0 = desligado (nenhum chunk e barrado).
+    max_fence_ratio: float = 1.0
     anchor_quote_max_words: int = 25
     # Margem sobre o teto antes de descartar o candidato inteiro. O modelo erra a
     # contagem por pouco e sempre para cima; `quote_is_grounded` e quem testa a

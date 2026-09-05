@@ -21,7 +21,7 @@ import re
 from pathlib import Path
 
 import pytest
-from zettel.harvester import iter_fenced_spans
+from zettel.markdown_fences import iter_fenced_spans
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATED = REPO_ROOT / "docs" / "adrs" / "generated"

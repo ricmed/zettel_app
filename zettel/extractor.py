@@ -35,6 +35,7 @@ from zettel.llm import (
     get_llm,
     load_prompt_parts,
 )
+from zettel.markdown_fences import fenced_char_ratio
 from zettel.paging import format_source_locator
 from zettel.schemas import (
     DedupeDecision,
@@ -188,6 +189,88 @@ def run_extract(
 # ── Chunk Processing ──────────────────────────────────────────────────
 
 
+# ── Pre-LLM gate: a chunk that is mostly a listing (issue #154) ───────
+
+
+def chunk_is_fence_dominated(cfg: AppConfig, chunk_text: str) -> bool:
+    """True when `chunk_text` is code-dominated enough to skip the LLM call.
+
+    **Off by default, and the only measurement available argues against turning
+    it on.** The hypothesis was that a fence-dominated chunk always comes back
+    `rejected`, so the call could be skipped. Measured over the three fenced
+    chunks in the corpus:
+
+    ===== ============== ==========================================
+    chunk fenced chars   extract outcome
+    ===== ============== ==========================================
+    #09   73%            rejected — hypothesis holds
+    #10   87%            **persisted**, conf 0.900, became a note
+    #11   69%            rejected — hypothesis holds
+    ===== ============== ==========================================
+
+    The highest-ratio chunk is the one that succeeded, so no threshold bars #09
+    and #11 while sparing #10: on this data the ratio is *anti-correlated* with
+    the outcome. The reason is semantic — #10's fence is a Python block whose
+    **comments** state the concept (the cost trade-off between zero-shot and
+    few-shot). A character scanner cannot see that.
+
+    The knob stays because three points from one source refute no more than they
+    confirm, and because off it costs nothing. Enabling it at 0.65 today would
+    destroy one good note for every two calls saved.
+    """
+    ratio = cfg.extraction.max_fence_ratio
+    return ratio < 1.0 and fenced_char_ratio(chunk_text) > ratio
+
+
+def _persist_fence_gated_chunk(
+    cfg: AppConfig,
+    db: StateDB,
+    chunk_id: str,
+    source_id: str,
+    chunk_text: str,
+) -> None:
+    """Record the gate's verdict without an LLM call and without a draft.
+
+    The reason string says *deterministic gate* in as many words: an operator
+    auditing `summary_json` has to be able to tell this apart from the model's
+    own `fragmented` verdict, which reads identically otherwise. No draft is
+    written, matching the policy for any chunk with nothing to review (#54).
+    """
+    ratio = fenced_char_ratio(chunk_text)
+    reason = (
+        f"Gate deterministico pre-LLM (nenhuma chamada ao modelo): "
+        f"{ratio:.0%} do chunk esta em blocos de codigo, acima de "
+        f"extraction.max_fence_ratio={cfg.extraction.max_fence_ratio:.0%}."
+    )
+    logger.info(
+        "[SOURCE=%s] [CHUNK=%s] barrado pelo gate de fence (%.0f%%)",
+        source_id,
+        chunk_id,
+        ratio * 100,
+    )
+    db.update_chunk_review(
+        chunk_id,
+        status="awaiting_review",
+        literature_note_path=None,
+        literature_id=None,
+        review_confidence=0.1,
+        summary_json=json.dumps(
+            {
+                "summary": "",
+                "key_concepts": [],
+                "chunk_status": "rejected",
+                "rejection_reason": reason,
+                "rejection_category": "fragmented",
+                "candidates": [],
+                "rejected_candidates": [],
+            },
+            ensure_ascii=False,
+        ),
+        llm_prompt1_hash="",
+        llm_call_checksum="",
+    )
+
+
 def _process_chunk(
     cfg: AppConfig,
     db: StateDB,
@@ -208,6 +291,10 @@ def _process_chunk(
     chunk_text = chunk_row["text"]
     chunk_checksum = chunk_row["chunk_checksum"]
     t0 = time.perf_counter()
+
+    if chunk_is_fence_dominated(cfg, chunk_text):
+        _persist_fence_gated_chunk(cfg, db, chunk_id, source_id, chunk_text)
+        return [], None
 
     if step is not None:
         set_progress(step, total, "chunk")

@@ -5,9 +5,6 @@ from zettel.harvester import (
     chunk_and_persist as _chunk_and_persist,
 )
 from zettel.harvester import (
-    iter_fenced_spans as _iter_fenced_spans,
-)
-from zettel.harvester import (
     merge_small_sections as _merge_small_sections,
 )
 from zettel.harvester import (
@@ -23,6 +20,7 @@ from zettel.harvester import (
     split_into_chapters as _split_into_chapters,
 )
 from zettel.harvester.chunking import _merge_short_pieces
+from zettel.markdown_fences import iter_fenced_spans as _iter_fenced_spans
 from zettel.state import StateDB
 
 

@@ -9,6 +9,7 @@ from typing import Any
 from zettel.config import AppConfig
 from zettel.hashing import normalize_text_for_hash, sha256_hex, short_hash
 from zettel.index import VectorIndex
+from zettel.markdown_fences import iter_fenced_spans, offset_is_fenced
 from zettel.paging import (
     ContentPaging,
     apply_page_inference,
@@ -22,63 +23,12 @@ from zettel.state import StateDB
 logger = logging.getLogger(__name__)
 
 
-# ── Fenced code scanner (CommonMark) ──────────────────────────────────
-
-# Opening/closing fence line: up to 3 spaces of indent, 3+ backticks or tildes,
-# optional info string. Indented code, tables and HTML are out of scope.
-_FENCE_LINE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
-
-
-def iter_fenced_spans(text: str) -> list[tuple[int, int]]:
-    """Return character spans of CommonMark fenced code blocks.
-
-    A fence closes only with the same marker family (backtick never closes tilde),
-    a marker at least as long as the opening one and no info string. An unclosed
-    fence spans to EOF. Spans are returned in order and never overlap.
-    """
-    spans: list[tuple[int, int]] = []
-    open_char = ""
-    open_len = 0
-    start = 0
-    pos = 0
-
-    for line in (text or "").splitlines(keepends=True):
-        line_start = pos
-        pos += len(line)
-        m = _FENCE_LINE_RE.match(line.rstrip("\r\n"))
-        if not m:
-            continue
-        marker, info = m.group(1), m.group(2)
-
-        if open_char:
-            # Closing fence: same family, at least as long, no info string.
-            if marker[0] == open_char and len(marker) >= open_len and not info.strip():
-                spans.append((start, pos))
-                open_char = ""
-            continue
-
-        # Backtick fences cannot carry a backtick in the info string.
-        if marker[0] == "`" and "`" in info:
-            continue
-        open_char = marker[0]
-        open_len = len(marker)
-        start = line_start
-
-    if open_char:
-        spans.append((start, len(text or "")))
-    return spans
-
-
-def _offset_is_fenced(offset: int, spans: list[tuple[int, int]]) -> bool:
-    return any(start <= offset < end for start, end in spans)
-
-
 def _headings_outside_fences(pattern: re.Pattern[str], text: str) -> list[re.Match[str]]:
     """Headings of `pattern` whose offset does not fall inside a fenced block."""
     spans = iter_fenced_spans(text)
     if not spans:
         return list(pattern.finditer(text))
-    return [m for m in pattern.finditer(text) if not _offset_is_fenced(m.start(), spans)]
+    return [m for m in pattern.finditer(text) if not offset_is_fenced(m.start(), spans)]
 
 
 # ── Chapter Splitting ─────────────────────────────────────────────────
