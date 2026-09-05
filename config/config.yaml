@@ -131,6 +131,13 @@ extraction:
   anchor_quote_min_ratio: 0.85   # cobertura minima na checagem fuzzy (tolera elipse editorial)
   anchor_quote_min_words: 10     # faixa de palavras que o prompt ja exige
   anchor_quote_max_words: 25
+  # Piso e teto nao sao simetricos (issue #153). Abaixo do piso nao ha citacao a
+  # julgar. Acima do teto ha citacao, so mais longa que o pedido -- e a contagem
+  # e apenas um proxy do que `quote_is_grounded` mede de fato. Descartar o
+  # candidato inteiro por duas palavras a mais troca erro de forma por perda de
+  # conteudo, entao o teto efetivo e max_words * tolerance (25 * 1.5 = 37) e so
+  # uma "citacao" do tamanho de um paragrafo e recusada. 1.0 = corte rigido.
+  anchor_quote_max_words_tolerance: 1.5
   preflight_output_tokens_per_chunk: 800  # alvo de saida por chunk no pre-voo de custo (nao e teto)
 
 # ── Literature Review (aprovacao seletiva de LIT por chunk) ───────────

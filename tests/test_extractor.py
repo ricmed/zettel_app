@@ -173,13 +173,58 @@ def test_filter_candidates_verified_quote_too_short_rejected():
     assert len(rejected) == 1
 
 
-def test_filter_candidates_verified_quote_too_long_rejected():
+def test_filter_candidates_paragraph_sized_quote_still_rejected():
+    """Past the tolerated ceiling (25 * 1.5 = 37) it is a paragraph, not a quote."""
     cfg = _make_config(verify_anchor_quote=True)
     long_quote = " ".join(["palavra"] * 40)
     candidates = [_make_candidate(anchor_quote=long_quote)]
     approved, rejected = _filter_candidates(candidates, cfg, "palavra " * 50)
     assert len(approved) == 0
     assert len(rejected) == 1
+
+
+def test_filter_candidates_quote_slightly_over_the_ceiling_is_kept():
+    """Two words over the prompt's 25 must not cost the whole candidate (#153).
+
+    The model overshoots the count by small margins and always upward; the word
+    range is a proxy for the property `quote_is_grounded` tests directly.
+    """
+    cfg = _make_config(verify_anchor_quote=True)
+    chunk = "prefixo " + " ".join(f"palavra{i}" for i in range(27)) + " sufixo"
+    quote = " ".join(f"palavra{i}" for i in range(27))  # 27 words, ceiling is 25
+    approved, rejected = _filter_candidates([_make_candidate(anchor_quote=quote)], cfg, chunk)
+    assert len(approved) == 1
+    assert len(rejected) == 0
+
+
+def test_filter_candidates_over_ceiling_quote_still_must_be_grounded():
+    """The tolerance relaxes the count, never the grounding check."""
+    cfg = _make_config(verify_anchor_quote=True)
+    paraphrase = " ".join(f"inventado{i}" for i in range(27))
+    approved, rejected = _filter_candidates(
+        [_make_candidate(anchor_quote=paraphrase)], cfg, _CHUNK_TEXT
+    )
+    assert len(approved) == 0
+    assert "nao encontrada" in rejected[0][1]
+
+
+def test_filter_candidates_tolerance_of_one_restores_the_hard_cut():
+    cfg = _make_config(verify_anchor_quote=True, anchor_quote_max_words_tolerance=1.0)
+    chunk = "prefixo " + " ".join(f"palavra{i}" for i in range(27)) + " sufixo"
+    quote = " ".join(f"palavra{i}" for i in range(27))
+    approved, rejected = _filter_candidates([_make_candidate(anchor_quote=quote)], cfg, chunk)
+    assert len(approved) == 0
+    assert len(rejected) == 1
+
+
+def test_filter_candidates_short_quote_reason_names_the_floor():
+    """Floor and ceiling are separate rules now, so the reason must say which."""
+    cfg = _make_config(verify_anchor_quote=True)
+    approved, rejected = _filter_candidates(
+        [_make_candidate(anchor_quote="adaptive learning rates converge")], cfg, _CHUNK_TEXT
+    )
+    assert not approved
+    assert "< 10" in rejected[0][1]
 
 
 def test_filter_candidates_verify_anchor_quote_false_restores_old_behavior():
@@ -461,6 +506,49 @@ def test_process_chunk_persists_rejected_candidates_with_reason(tmp_path, monkey
     rejected = persisted["rejected_candidates"][0]
     assert rejected["thesis"] == low_relevance_candidate["thesis"]
     assert "relevance_score" in rejected["reason"]
+    db.close()
+
+
+def test_process_chunk_persists_the_discarded_anchor_quote(tmp_path, monkeypatch):
+    """The dropped quote must survive for audit, not just the thesis (#153).
+
+    Without it an audit cannot see what was thrown away without re-running the
+    model — the exact gap that stopped `scripts/calibrate_review_confidence.py`
+    from rebuilding the integrity term out of history.
+    """
+    import json
+
+    from zettel.extractor import _process_chunk
+    from zettel.llm import load_prompt_parts
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+    quote = "uma citacao literal que precisa sobreviver ao descarte para auditoria posterior"
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        return json.dumps(
+            {
+                "chunk_status": "accepted",
+                "rejection_reason": "",
+                "rejection_category": "",
+                "summary": "Resumo com conteudo suficiente para pontuar no calculo de confianca.",
+                "key_concepts": ["conceito"],
+                "candidates": [
+                    {
+                        "thesis": "Uma tese qualquer com palavras suficientes para o filtro",
+                        "definition": "Uma definicao com bastante texto explicativo sobre o tema",
+                        "anchor_quote": quote,
+                        "relevance_score": 1,  # dropped by the relevance floor
+                    }
+                ],
+            }
+        )
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+
+    persisted = json.loads(db.get_chunk("@Book2024::ch000::abc")["summary_json"])
+    assert persisted["rejected_candidates"][0]["anchor_quote"] == quote
     db.close()
 
 

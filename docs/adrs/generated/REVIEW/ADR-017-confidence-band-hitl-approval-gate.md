@@ -96,7 +96,7 @@ Measurement is reproducible offline: `scripts/calibrate_review_confidence.py` re
 Two limitations an operator must carry forward:
 
 * **One source is not a calibration.** The script prints a warning when the corpus has a single source, and 0.75 is a provisional default until it is re-run on a wider corpus.
-* **The `integrity` term is not measurable from history.** `summary_json` persists the post-filter view, so `candidates` holds only survivors. The script reconstructs the ratio from `rejected_candidates`, but the dropped candidates' original fields are gone (issue #153 adds `anchor_quote` to that record).
+* **The `integrity` term is only partly measurable from history.** `summary_json` persists the post-filter view, so `candidates` holds only survivors. The script reconstructs the *ratio* from `rejected_candidates`, which is enough to score, but not the dropped candidates' fields. Issue #153 has since added `anchor_quote` to that record, so corpora extracted from 2026-09-05 on can be audited for what was thrown away; anything extracted earlier carries only thesis and reason.
 
 `tests/test_calibrate_review_confidence.py::test_every_relevance_level_is_reachable_at_the_configured_threshold` is the guardrail: any future reweighting that re-creates an unreachable relevance level fails the suite.
 

@@ -397,8 +397,13 @@ def _process_chunk(
         "rejection_reason": output.rejection_reason,
         "rejection_category": output.rejection_category,
         "candidates": [c.model_dump() for c in approved_cands],
+        # `anchor_quote` travels with the dropped candidate so an audit can see
+        # what was thrown away without re-running the model (issue #153). Without
+        # it, `scripts/calibrate_review_confidence.py` cannot rebuild the
+        # integrity term from history — it can count drops but not inspect them.
         "rejected_candidates": [
-            {"thesis": cand.thesis, "reason": reason} for cand, reason in rejected_cands
+            {"thesis": cand.thesis, "anchor_quote": cand.anchor_quote, "reason": reason}
+            for cand, reason in rejected_cands
         ],
     }
     db.update_chunk_review(
@@ -699,10 +704,25 @@ def _check_candidate(cand: PermanentNoteCandidate, ext: Any, chunk_text: str = "
         return "anchor_quote vazio"
     if ext.verify_anchor_quote and cand.anchor_quote.strip():
         anchor_words = len(cand.anchor_quote.split())
-        if not (ext.anchor_quote_min_words <= anchor_words <= ext.anchor_quote_max_words):
-            return (
-                f"anchor_quote_words={anchor_words} fora de "
-                f"[{ext.anchor_quote_min_words},{ext.anchor_quote_max_words}]"
+        # The floor and the ceiling mean different things, so they are enforced
+        # differently (issue #153). Under the floor there is no quote to judge:
+        # three words ground nothing. Over the ceiling there *is* a quote, just a
+        # wordier one than asked for, and the word count is only a proxy for the
+        # property `quote_is_grounded` measures directly. Dropping a whole
+        # candidate — thesis, definition and all — because the model overshot by
+        # two words trades a formatting miss for lost content, so the ceiling
+        # gets a tolerance band and only a paragraph-sized "quote" is refused.
+        max_words = int(ext.anchor_quote_max_words * ext.anchor_quote_max_words_tolerance)
+        if anchor_words < ext.anchor_quote_min_words:
+            return f"anchor_quote_words={anchor_words} < {ext.anchor_quote_min_words}"
+        if anchor_words > max_words:
+            return f"anchor_quote_words={anchor_words} > {max_words} (teto tolerado)"
+        if anchor_words > ext.anchor_quote_max_words:
+            logger.debug(
+                "anchor_quote com %d palavras, acima de %d mas dentro da tolerancia: %s",
+                anchor_words,
+                ext.anchor_quote_max_words,
+                cand.thesis[:60],
             )
         if not quote_is_grounded(cand.anchor_quote, chunk_text, ext.anchor_quote_min_ratio):
             return "anchor_quote nao encontrada no chunk"

@@ -190,6 +190,10 @@ class ExtractionConfig(BaseModel):
     anchor_quote_min_ratio: float = 0.85  # cobertura minima na checagem fuzzy
     anchor_quote_min_words: int = 10  # faixa que o prompt ja exige
     anchor_quote_max_words: int = 25
+    # Margem sobre o teto antes de descartar o candidato inteiro. O modelo erra a
+    # contagem por pouco e sempre para cima; `quote_is_grounded` e quem testa a
+    # propriedade real. 1.0 = corte rigido (comportamento anterior a #153).
+    anchor_quote_max_words_tolerance: float = 1.5
     # Alvo de saida por chunk, usado APENAS na estimativa de pre-voo (nao e teto).
     preflight_output_tokens_per_chunk: int = 800
 
