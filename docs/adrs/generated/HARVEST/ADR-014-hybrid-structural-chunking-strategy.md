@@ -132,7 +132,15 @@ Measured on `@2026EstruturaçãoDePrompts`, chapter `## 5. Exemplos Práticos Ex
 | #13 | 2339 | the structured prompt (bare fence) | `rejected` / `fragmented` |
 | #14 | 693 | "Por que esse prompt funciona bem?" | accepted, `conf=0.69` — analysing a prompt absent from its own chunk |
 
-Three LLM calls produced one mediocre candidate where one call would have produced a coherent chunk.
+Three LLM calls produced one mediocre candidate.
+
+**Measured outcome (2026-09-05, after reprocessing) — the premise above was wrong.** The amendment does what it says structurally: chapter 5 is now a single 3387-char chunk with its prose and its fence together. The extractor still rejects it, as `fragmented`: *"consiste essencialmente em um exemplo prático expandido de prompt estruturado para machine learning"*. Worse, the section now yields **zero** candidates where the three-way split yielded one — merging diluted the prose that had been carrying it.
+
+The reason is visible once measured: the chunk is **69% fenced characters** (2340 of 3387). The model was not rejecting for want of context; it rejects because a passage that is mostly an illustration is not a concept, which is a defensible reading. Adding the prose back did not change what dominates the chunk.
+
+The amendment is kept anyway, on narrower grounds than it was adopted: one whole chunk is a more faithful representation of an illustrative section than three fragments, and it costs one LLM call instead of three. It is **not** a fix for extraction yield, and nothing here should be cited as evidence that keeping a fence with its prose recovers concepts. `fence_section_slack: 1.0` restores the old split for an operator who prefers the fragments.
+
+The real saving is not to call the model at all for a chunk this code-dominated — tracked as issue #154, which uses the fence ratio this measurement produced.
 
 Amendment:
 
@@ -160,6 +168,8 @@ Amendment:
 * PDF/Docling is deliberately untouched: its heading levels are inferred by the converter, not authored, so the "single leading H1" signal does not carry the same meaning. Documents with several H1 keep the historical split.
 
 Net effect on the measured source: 20 chunks to 17 (this amendment removes one, the `fence_section_slack` amendment removes two), with every locator now rooted at the document title. As with every chunking change, already-harvested sources keep their chunks until `zettel rechunk`.
+
+**Cost to weigh before changing `section_path` again:** the locator is part of the extract prompt payload, so prefixing the document title changes `llm_call_checksum` for **every chunk of every Markdown source**. The whole corpus misses the SQLite response cache once, and borderline verdicts can flip — on reprocessing, chapter 6 (`6. Aplicações e Casos de Uso`, 0% fenced, byte-identical text) went from accepted to `rejected`/`narrative` purely because it was a different call. That is not a defect of this amendment, but any future edit to how `section_path` is built pays the same price and carries the same risk.
 
 ## References
 
