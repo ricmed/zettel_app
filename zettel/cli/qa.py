@@ -17,7 +17,7 @@ which is why it prints two tables instead of just an answer:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 from rich.panel import Panel
@@ -41,18 +41,34 @@ def ask(
     topk: SeedTopkOption = None,
     no_graph: NoGraphOption = False,
     mode: RetrievalModeOption = None,
-    show_context: Annotated[bool, typer.Option(
-        "--show-context", help="Exibe as notas recuperadas (debug)",
-    )] = False,
-    save: Annotated[bool, typer.Option(
-        "--save", help="Salva a resposta em .md no local padrao (sem perguntar)",
-    )] = False,
-    save_to: Annotated[Optional[str], typer.Option(
-        "--save-to", help="Salva a resposta em .md no caminho informado",
-    )] = None,
-    no_save_prompt: Annotated[bool, typer.Option(
-        "--no-save-prompt", help="Nao perguntar se deve salvar (para scripts)",
-    )] = False,
+    show_context: Annotated[
+        bool,
+        typer.Option(
+            "--show-context",
+            help="Exibe as notas recuperadas (debug)",
+        ),
+    ] = False,
+    save: Annotated[
+        bool,
+        typer.Option(
+            "--save",
+            help="Salva a resposta em .md no local padrao (sem perguntar)",
+        ),
+    ] = False,
+    save_to: Annotated[
+        str | None,
+        typer.Option(
+            "--save-to",
+            help="Salva a resposta em .md no caminho informado",
+        ),
+    ] = None,
+    no_save_prompt: Annotated[
+        bool,
+        typer.Option(
+            "--no-save-prompt",
+            help="Nao perguntar se deve salvar (para scripts)",
+        ),
+    ] = False,
     yes: YesOption = False,
 ):
     """Responder uma pergunta usando as notas do vault (recuperacao hibrida + grafo)."""
@@ -64,7 +80,10 @@ def ask(
 
     with console.status("[bold blue]Consultando o acervo...", spinner="dots"):
         result = run_ask(
-            cfg, db, idx, question,
+            cfg,
+            db,
+            idx,
+            question,
             topk=topk,
             use_graph=not no_graph,
             mode=mode,
@@ -84,7 +103,10 @@ def ask(
             ("Top-k sementes", p["topk"]),
             ("Max. notas no contexto", p["max_context_notes"]),
             ("RRF k", p["rrf_k"]),
-            ("Piso de relevancia ativo", "sim" if p["relevance_floor_enabled"] else "nao"),
+            (
+                "Piso de relevancia ativo",
+                "sim" if p["relevance_floor_enabled"] else "nao",
+            ),
             ("Similaridade minima (piso)", f"{p['min_vector_similarity']:.2f}"),
             ("Similaridade minima absoluta", f"{p['absolute_min_similarity']:.2f}"),
             ("Bypass do BM25 ativo", "sim" if p["bm25_hit_bypasses_floor"] else "nao"),
@@ -135,6 +157,7 @@ def ask(
         saved_path = save_ask_note(result, cfg.vault_path)
     elif not no_save_prompt:
         from rich.prompt import Confirm
+
         try:
             if Confirm.ask("Salvar esta resposta como nota .md?", default=False):
                 saved_path = save_ask_note(result, cfg.vault_path)

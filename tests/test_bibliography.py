@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from zettel.bibliography import (
     BibliographicMetadata,
     _merge_biblio,
@@ -26,7 +25,6 @@ from zettel.harvester.pipeline import _process_file
 from zettel.state import StateDB
 from zettel.vault import build_source_note, compose_note, parse_frontmatter
 
-
 # ── Author / required fields ───────────────────────────────────────────
 
 
@@ -44,7 +42,10 @@ def test_required_fields_livro():
     assert "place" in required_fields("livro")
     assert "publisher" in required_fields("livro")
     assert missing_required(BibliographicMetadata(document_type="livro", title="T")) == [
-        "authors", "place", "publisher", "year",
+        "authors",
+        "place",
+        "publisher",
+        "year",
     ]
 
 
@@ -88,7 +89,9 @@ def test_format_abnt_livro():
 
 def test_metadata_from_manual_seed_does_not_guess_document_type():
     meta = metadata_from_manual_seed(
-        title="O Capital", authors=["Karl Marx"], year=2013,
+        title="O Capital",
+        authors=["Karl Marx"],
+        year=2013,
     )
     assert meta.document_type is None
     assert form_fields_from_metadata(meta)["abnt_reference"] == ""
@@ -96,8 +99,12 @@ def test_metadata_from_manual_seed_does_not_guess_document_type():
 
 def test_metadata_from_manual_seed_formats_livro_for_the_form():
     meta = metadata_from_manual_seed(
-        title="O Capital", authors=["Karl Marx"], year=2013,
-        document_type="livro", place="Sao Paulo", publisher="Boitempo",
+        title="O Capital",
+        authors=["Karl Marx"],
+        year=2013,
+        document_type="livro",
+        place="Sao Paulo",
+        publisher="Boitempo",
     )
     payload = form_fields_from_metadata(meta)
     assert payload["abnt_reference"].startswith("MARX, Karl.")
@@ -108,10 +115,14 @@ def test_metadata_from_manual_seed_formats_livro_for_the_form():
 
 def test_merge_biblio_prefer_seed_keeps_user_fields():
     seed = BibliographicMetadata(
-        document_type="livro", title="O Capital", publisher="Boitempo",
+        document_type="livro",
+        title="O Capital",
+        publisher="Boitempo",
     )
     llm_meta = BibliographicMetadata(
-        document_type="artigo_periodico", publisher="Outra", place="Sao Paulo",
+        document_type="artigo_periodico",
+        publisher="Outra",
+        place="Sao Paulo",
     )
     merged = _merge_biblio(seed, llm_meta, prefer_seed=True)
     assert merged.document_type == "livro"
@@ -248,7 +259,11 @@ def test_build_source_note_includes_abnt_and_fields():
         "pdf",
         "abc",
         document_type="livro",
-        biblio_fields={"place": "Sao Paulo", "publisher": "Boitempo", "edition": "2. ed."},
+        biblio_fields={
+            "place": "Sao Paulo",
+            "publisher": "Boitempo",
+            "edition": "2. ed.",
+        },
         abnt_reference="MARX, Karl. O Capital. 2. ed. Sao Paulo: Boitempo, 2013.",
     )
     assert meta["document_type"] == "livro"
@@ -323,20 +338,36 @@ def cfg(tmp_path):
 
 def test_resolve_bibliography_noninteractive_skips_without_flag(cfg, tmp_path):
     incomplete = BibliographicMetadata(
-        document_type="livro", confidence=0.4, title="T", authors=["A B"], year=2020,
+        document_type="livro",
+        confidence=0.4,
+        title="T",
+        authors=["A B"],
+        year=2020,
     )
     result = _resolve_bibliography(
-        tmp_path / "x.pdf", incomplete, interactive=False, skip_biblio=False, cfg=cfg,
+        tmp_path / "x.pdf",
+        incomplete,
+        interactive=False,
+        skip_biblio=False,
+        cfg=cfg,
     )
     assert result is None
 
 
 def test_resolve_bibliography_noninteractive_allows_with_skip_biblio(cfg, tmp_path):
     incomplete = BibliographicMetadata(
-        document_type="livro", confidence=0.4, title="T", authors=["A B"], year=2020,
+        document_type="livro",
+        confidence=0.4,
+        title="T",
+        authors=["A B"],
+        year=2020,
     )
     result = _resolve_bibliography(
-        tmp_path / "x.pdf", incomplete, interactive=False, skip_biblio=True, cfg=cfg,
+        tmp_path / "x.pdf",
+        incomplete,
+        interactive=False,
+        skip_biblio=True,
+        cfg=cfg,
     )
     assert result is incomplete
 
@@ -353,8 +384,13 @@ def test_process_file_skips_incomplete_biblio_noninteractive(db, cfg, tmp_path):
     )
     idx = FakeVectorIndex()
     sid, stats = _process_file(
-        cfg, db, idx, path, run_id=db.start_run("sig"),
-        interactive=False, skip_biblio=False,
+        cfg,
+        db,
+        idx,
+        path,
+        run_id=db.start_run("sig"),
+        interactive=False,
+        skip_biblio=False,
     )
     assert sid is None
     assert stats == {}
@@ -379,8 +415,13 @@ def test_process_file_persists_biblio_with_complete_frontmatter(db, cfg, tmp_pat
     )
     idx = FakeVectorIndex()
     sid, stats = _process_file(
-        cfg, db, idx, path, run_id=db.start_run("sig"),
-        interactive=False, skip_biblio=False,
+        cfg,
+        db,
+        idx,
+        path,
+        run_id=db.start_run("sig"),
+        interactive=False,
+        skip_biblio=False,
     )
     assert sid is not None
     assert stats.get("chunks", 0) >= 1
@@ -414,8 +455,13 @@ def test_process_file_skip_biblio_persists_partial(db, cfg, tmp_path):
     )
     idx = FakeVectorIndex()
     sid, _ = _process_file(
-        cfg, db, idx, path, run_id=db.start_run("sig"),
-        interactive=False, skip_biblio=True,
+        cfg,
+        db,
+        idx,
+        path,
+        run_id=db.start_run("sig"),
+        interactive=False,
+        skip_biblio=True,
     )
     assert sid is not None
     src = db.get_source(sid)

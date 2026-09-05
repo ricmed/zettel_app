@@ -114,7 +114,10 @@ async def picker_sources(request: Request, q: str = "", limit: int = _DEFAULT_LI
 
 @router.get("/api/pickers/literature")
 async def picker_literature(
-    request: Request, q: str = "", source_id: str = "", limit: int = _DEFAULT_LIMIT,
+    request: Request,
+    q: str = "",
+    source_id: str = "",
+    limit: int = _DEFAULT_LIMIT,
 ):
     if not authenticated(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)

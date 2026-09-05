@@ -33,13 +33,17 @@ from zettel.llm import (
     load_prompt_parts,
 )
 from zettel.retrieval import RetrievedNote, Retriever
-from zettel.schemas import PermanentNoteCandidate, PermanentNoteLLMOutput, RelationshipResult
+from zettel.schemas import (
+    PermanentNoteCandidate,
+    PermanentNoteLLMOutput,
+    RelationshipResult,
+)
 from zettel.state import StateDB
 from zettel.vault import (
     build_permanent_note_body,
     judgement_frontmatter,
-    note_filename,
     normalize_note_id,
+    note_filename,
     permanent_wikilink,
     read_managed_block,
     safe_update_managed_blocks,
@@ -82,6 +86,7 @@ def _relation_type_value(relation_type: Any) -> str:
     ``RelationType.SUPPORTS``, not ``supports``. Always prefer ``.value``.
     """
     from enum import Enum
+
     if isinstance(relation_type, Enum):
         return str(relation_type.value)
     return str(relation_type or "related")
@@ -148,15 +153,26 @@ def load_approved_candidates(db: StateDB) -> list[dict]:
 
 
 def run_connect(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, candidates: list[dict], *,
-    observer=None, origin: str = "pipeline",
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    candidates: list[dict],
+    *,
+    observer=None,
+    origin: str = "pipeline",
 ) -> list[str]:
     """Generate permanent notes from approved candidates. Returns created note_ids.
 
     ``origin`` is stamped on every note produced: the manual LIT-to-ZTL path reuses
     this same machinery but must stay distinguishable from pipeline output.
     """
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn
+    from rich.progress import (
+        BarColumn,
+        MofNCompleteColumn,
+        Progress,
+        SpinnerColumn,
+        TextColumn,
+    )
 
     from zettel.usage import begin_run, finish_pipeline_run, get_tracker, set_source
     from zettel.vault import sync_source_costs_to_vault
@@ -172,6 +188,7 @@ def run_connect(
     rejection: ConnectRejected | None = None
     total = len(candidates)
     from zettel.progress import report
+
     report(observer, "connect", f"{total} candidato(s) aprovado(s).", total_items=total)
 
     with Progress(
@@ -187,15 +204,27 @@ def run_connect(
             set_source(cand_dict.get("source_id"))
             progress.update(task, description=f"nota {i}/{total}", advance=1)
             report(
-                observer, "connect", f"Gerando nota {i}/{total}.",
-                current_item=cand.thesis[:80], current_index=i, total_items=total,
+                observer,
+                "connect",
+                f"Gerando nota {i}/{total}.",
+                current_item=cand.thesis[:80],
+                current_index=i,
+                total_items=total,
             )
             logger.info("Gerando nota %d/%d: %s", i, total, cand.thesis[:50])
 
             try:
                 note_id = _process_candidate(
-                    cfg, db, idx, llm, cand_dict, prompt_parts, retriever,
-                    step=i, total=total, origin=origin,
+                    cfg,
+                    db,
+                    idx,
+                    llm,
+                    cand_dict,
+                    prompt_parts,
+                    retriever,
+                    step=i,
+                    total=total,
+                    origin=origin,
                 )
             except ConnectRejected as exc:
                 if origin == "manual":
@@ -254,11 +283,15 @@ def _process_candidate(
         if existing_note and str(existing_note.get("origin") or "") == "manual":
             logger.info(
                 "Conceito %s ja coberto pela nota manual %s, pulando",
-                concept_id, existing_note_id,
+                concept_id,
+                existing_note_id,
             )
             db.upsert_concept(
-                concept_id, source_id, cand_dict["chunk_id"],
-                note_id=existing_note_id, status="noted",
+                concept_id,
+                source_id,
+                cand_dict["chunk_id"],
+                note_id=existing_note_id,
+                status="noted",
             )
             clear_progress()
             return None
@@ -276,11 +309,15 @@ def _process_candidate(
         if covering:
             logger.info(
                 "Conceito %s ja coberto pela nota %s, pulando geracao",
-                concept_id, covering,
+                concept_id,
+                covering,
             )
             db.upsert_concept(
-                concept_id, source_id, cand_dict["chunk_id"],
-                note_id=covering, status="noted",
+                concept_id,
+                source_id,
+                cand_dict["chunk_id"],
+                note_id=covering,
+                status="noted",
             )
             clear_progress()
             return None
@@ -290,7 +327,12 @@ def _process_candidate(
     citekey = source["citekey"] if source else "unknown"
     title_src = source["title"] if source else ""
     literature_ref = _literature_ref_for_chunk(
-        cfg, db, source_id, citekey, title_src, cand_dict.get("chunk_id"),
+        cfg,
+        db,
+        source_id,
+        citekey,
+        title_src,
+        cand_dict.get("chunk_id"),
     )
 
     # Prefer LLM-provided image ids; fall back to paths embedded in the source chunk.
@@ -301,9 +343,7 @@ def _process_candidate(
             cand.relevant_image_ids = image_ids
 
     query_text = f"{cand.thesis} {cand.definition}"
-    similar = retriever.search_notes(
-        query_text, topk=cfg.linking.topk, exclude_id=note_id
-    ).hits
+    similar = retriever.search_notes(query_text, topk=cfg.linking.topk, exclude_id=note_id).hits
     rag_context = _build_rag_context(db, similar)
 
     # SECURITY NOTE: cand.thesis, cand.definition, and other candidate fields originate
@@ -339,8 +379,13 @@ def _process_candidate(
     prompt_hash = sha256_hex(prompt_parts.full_template)
     filled_hash = sha256_hex(normalize_text_for_hash(filled_for_hash))
     call_checksum = compute_llm_call_checksum(
-        prompt_hash, filled_hash, spec.model, effective_temperature(cfg, spec), cfg.language,
-        provider=spec.provider, top_p=cfg.llm.top_p,
+        prompt_hash,
+        filled_hash,
+        spec.model,
+        effective_temperature(cfg, spec),
+        cfg.language,
+        provider=spec.provider,
+        top_p=cfg.llm.top_p,
     )
     tracker = get_tracker()
     snap = tracker.summary().as_dict() if tracker else {}
@@ -350,6 +395,7 @@ def _process_candidate(
         if cached is not None:
             logger.debug("Cache hit (Prompt 2) para conceito %s", concept_id)
             from zettel.usage import record_cache_hit
+
             record_cache_hit(label=f"connect:{concept_id}", model=spec.model)
             response_text = cached
             cache_hit = True
@@ -373,7 +419,8 @@ def _process_candidate(
         if note_output.status == "rejected":
             logger.warning(
                 "Conceito %s não gerou nota permanente válida. Motivo: %s",
-                concept_id, note_output.reason,
+                concept_id,
+                note_output.reason,
             )
             clear_progress()
             raise ConnectRejected(
@@ -394,22 +441,34 @@ def _process_candidate(
 
     after = tracker.summary().as_dict() if tracker else {}
     note_cost = float(after.get("cost_usd_llm", 0) or 0) - float(snap.get("cost_usd_llm", 0) or 0)
-    note_tokens_in = int(after.get("tokens_prompt", 0) or 0) - int(snap.get("tokens_prompt", 0) or 0)
+    note_tokens_in = int(after.get("tokens_prompt", 0) or 0) - int(
+        snap.get("tokens_prompt", 0) or 0
+    )
     note_tokens_out = int(after.get("tokens_completion", 0) or 0) - int(
         snap.get("tokens_completion", 0) or 0
     )
     from zettel.usage import format_progress_from_context
+
     prog = format_progress_from_context()
     if prog:
         logger.info(
             "Nota permanente [%s] conceito=%s custo_usd=%.6f "
             "tokens_in=%d tokens_out=%d cache_hit=%s",
-            prog, concept_id, note_cost, note_tokens_in, note_tokens_out, cache_hit,
+            prog,
+            concept_id,
+            note_cost,
+            note_tokens_in,
+            note_tokens_out,
+            cache_hit,
         )
     else:
         logger.info(
             "Nota permanente conceito=%s custo_usd=%.6f tokens_in=%d tokens_out=%d cache_hit=%s",
-            concept_id, note_cost, note_tokens_in, note_tokens_out, cache_hit,
+            concept_id,
+            note_cost,
+            note_tokens_in,
+            note_tokens_out,
+            cache_hit,
         )
 
     connections = list(note_output.connections)
@@ -418,11 +477,13 @@ def _process_candidate(
     if refines_note_id:
         already_connected = any(c.related_note_id == refines_note_id for c in connections)
         if not already_connected:
-            connections.append(RelationshipResult(
-                related_note_id=refines_note_id,
-                relation_type="extends",
-                description=cand_dict.get("refine_reason", "Refina nota existente"),
-            ))
+            connections.append(
+                RelationshipResult(
+                    related_note_id=refines_note_id,
+                    relation_type="extends",
+                    description=cand_dict.get("refine_reason", "Refina nota existente"),
+                )
+            )
 
     resolved_connections = _resolve_connections(db, connections)
     images = _resolve_images(db, image_ids)
@@ -439,8 +500,9 @@ def _process_candidate(
         images=images,
     )
 
-    from datetime import datetime
-    now = datetime.now().isoformat()
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat()
     tags = note_output.tags or cand.tags
     title = note_output.title[:100] or cand.thesis[:60]
     meta = {
@@ -474,14 +536,22 @@ def _process_candidate(
     # Retencao: persiste o corpo completo e o frontmatter da ZTL no SQLite, permitindo
     # reconstruir o arquivo .md byte-a-byte sem reprocessar o LLM (ver `zettel rebuild`).
     db.upsert_note(
-        note_id=note_id, source_id=source_id, path=str(note_path),
-        title=title, note_semantic_checksum=semantic_checksum,
+        note_id=note_id,
+        source_id=source_id,
+        path=str(note_path),
+        title=title,
+        note_semantic_checksum=semantic_checksum,
         embedding_model=cfg.embedding.model,
-        body=body, frontmatter_json=json.dumps(meta, ensure_ascii=False),
+        body=body,
+        frontmatter_json=json.dumps(meta, ensure_ascii=False),
         origin=origin,
     )
     db.upsert_concept(
-        concept_id, source_id, cand_dict["chunk_id"], note_id=note_id, status="noted",
+        concept_id,
+        source_id,
+        cand_dict["chunk_id"],
+        note_id=note_id,
+        status="noted",
     )
 
     # Skip re-embedding when the note's semantic content and embedding model are unchanged.
@@ -490,10 +560,16 @@ def _process_candidate(
     )
     existing_note = db.get_note(note_id)
     if not existing_note or existing_note.get("embedding_input_hash") != emb_hash:
-        idx.upsert_permanent_note(note_id, embeddable, {
-            "title": title, "source_id": source_id, "tags": ", ".join(tags),
-            "note_semantic_checksum": semantic_checksum,
-        })
+        idx.upsert_permanent_note(
+            note_id,
+            embeddable,
+            {
+                "title": title,
+                "source_id": source_id,
+                "tags": ", ".join(tags),
+                "note_semantic_checksum": semantic_checksum,
+            },
+        )
         db.update_note_embedding(note_id, emb_hash, cfg.embedding.model)
 
     _persist_and_backlink(cfg, db, note_id, title, resolved_connections)
@@ -578,7 +654,8 @@ def _resolve_connections(db: StateDB, connections: list[RelationshipResult]) -> 
         if not _note_on_disk(note_record):
             logger.warning(
                 "Conexao descartada: related_note_id=%r (canonico=%s) nao existe no vault",
-                conn.related_note_id, note_id,
+                conn.related_note_id,
+                note_id,
             )
             continue
         seen.add(note_id)
@@ -587,12 +664,14 @@ def _resolve_connections(db: StateDB, connections: list[RelationshipResult]) -> 
             note_record.get("title", ""),
             path=note_record.get("path"),
         )
-        resolved.append({
-            "related_note_id": note_id,
-            "wiki_link": wiki_link,
-            "relation_type": _relation_type_value(conn.relation_type),
-            "description": conn.description,
-        })
+        resolved.append(
+            {
+                "related_note_id": note_id,
+                "wiki_link": wiki_link,
+                "relation_type": _relation_type_value(conn.relation_type),
+                "description": conn.description,
+            }
+        )
     return resolved
 
 
@@ -622,11 +701,11 @@ def _build_rag_context(db: StateDB, similar_notes: list[RetrievedNote]) -> str:
             tags = n.metadata.get("tags", "")
             row = db.get_note(n.note_id)
             wiki = permanent_wikilink(
-                n.note_id, title, path=row.get("path") if row else None,
+                n.note_id,
+                title,
+                path=row.get("path") if row else None,
             )
-            parts.append(
-                f"- note_id: {n.note_id} | **{wiki}**: {doc}... (tags: {tags})"
-            )
+            parts.append(f"- note_id: {n.note_id} | **{wiki}**: {doc}... (tags: {tags})")
 
     if graph_hits:
         parts.append("")
@@ -642,11 +721,12 @@ def _build_rag_context(db: StateDB, similar_notes: list[RetrievedNote]) -> str:
             anchor_txt = f" a partir de note_id: {anchor}" if anchor else ""
             row = db.get_note(n.note_id)
             wiki = permanent_wikilink(
-                n.note_id, title, path=row.get("path") if row else None,
+                n.note_id,
+                title,
+                path=row.get("path") if row else None,
             )
             parts.append(
-                f"- note_id: {n.note_id} | **{wiki}** "
-                f"(relacao: {rel}{anchor_txt}): {doc}..."
+                f"- note_id: {n.note_id} | **{wiki}** (relacao: {rel}{anchor_txt}): {doc}..."
             )
 
     return "\n".join(parts)
@@ -685,7 +765,8 @@ def rebuild_auto_backlinks(db: StateDB, note_id: str) -> bool:
         return False
     path = Path(record["path"])
     incoming = [
-        edge for edge in db.get_note_connections(note_id)
+        edge
+        for edge in db.get_note_connections(note_id)
         if edge["target_note_id"] == note_id and edge["source_note_id"] != note_id
     ]
 
@@ -722,7 +803,16 @@ def rebuild_auto_backlinks(db: StateDB, note_id: str) -> bool:
 
 def _needs_ptbr_fix(text: str) -> bool:
     """Simple heuristic: check if text has too many English words."""
-    english_markers = ["the ", "and ", "this ", "that ", "with ", "from ", "which ", "where "]
+    english_markers = [
+        "the ",
+        "and ",
+        "this ",
+        "that ",
+        "with ",
+        "from ",
+        "which ",
+        "where ",
+    ]
     count = sum(1 for m in english_markers if m.lower() in text.lower())
     return count >= 3
 
@@ -785,12 +875,7 @@ def _parse_permanent_note_output(text: str) -> PermanentNoteLLMOutput:
     data = json.loads(json_text)
     output = PermanentNoteLLMOutput(**data)
     if output.status != "rejected":
-        missing = [
-            f for f in ("title", "thesis", "definition")
-            if not getattr(output, f).strip()
-        ]
+        missing = [f for f in ("title", "thesis", "definition") if not getattr(output, f).strip()]
         if missing:
-            raise ValueError(
-                f"Nota aceita sem campos obrigatorios: {', '.join(missing)}"
-            )
+            raise ValueError(f"Nota aceita sem campos obrigatorios: {', '.join(missing)}")
     return output

@@ -13,7 +13,7 @@ calibrated numbers.
 
 from __future__ import annotations
 
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 
@@ -26,10 +26,13 @@ from zettel.cli.options import ConfigOption, SourceFilterOption, YesOption
 def extract(
     config: ConfigOption = None,
     yes: YesOption = False,
-    auto_approve: Annotated[bool, typer.Option(
-        "--auto-approve",
-        help="Aprovar automaticamente drafts com confianca >= limiar (literature_review)",
-    )] = False,
+    auto_approve: Annotated[
+        bool,
+        typer.Option(
+            "--auto-approve",
+            help="Aprovar automaticamente drafts com confianca >= limiar (literature_review)",
+        ),
+    ] = False,
 ):
     """Processar chunks pendentes com LLM (Prompt 1), gerar drafts de LIT granular."""
     cfg = load_deps(config)
@@ -37,9 +40,11 @@ def extract(
     idx = get_idx(cfg, db=db, yes=yes)
 
     from zettel.preflight import estimate_extract
+
     preflight_gate(estimate_extract(cfg, db), yes, db)
 
     from zettel.extractor import run_extract
+
     # Nao usar console.status: o Progress interno de run_extract disputa o mesmo
     # stdout (dois Rich Live) e a barra Extract chunk i/N pisca. Ver #21.
     candidates = run_extract(cfg, db, idx, auto_approve=auto_approve)
@@ -56,18 +61,28 @@ def extract(
 def review(
     config: ConfigOption = None,
     source_id: SourceFilterOption = None,
-    yes: Annotated[bool, typer.Option(
-        "--yes", "-y",
-        help="Nao-interativo: aprova todos com confianca >= limiar",
-    )] = False,
-    auto_approve: Annotated[bool, typer.Option(
-        "--auto-approve",
-        help="Aprovar automaticamente drafts com confianca >= limiar",
-    )] = False,
-    low_confidence_only: Annotated[bool, typer.Option(
-        "--low-confidence-only",
-        help="Listar apenas drafts abaixo do limiar",
-    )] = False,
+    yes: Annotated[
+        bool,
+        typer.Option(
+            "--yes",
+            "-y",
+            help="Nao-interativo: aprova todos com confianca >= limiar",
+        ),
+    ] = False,
+    auto_approve: Annotated[
+        bool,
+        typer.Option(
+            "--auto-approve",
+            help="Aprovar automaticamente drafts com confianca >= limiar",
+        ),
+    ] = False,
+    low_confidence_only: Annotated[
+        bool,
+        typer.Option(
+            "--low-confidence-only",
+            help="Listar apenas drafts abaixo do limiar",
+        ),
+    ] = False,
 ):
     """Aprovar/rejeitar Notas de Literatura granulares antes do connect."""
     cfg = load_deps(config)
@@ -75,10 +90,13 @@ def review(
     idx = get_idx(cfg, db=db, yes=yes)
 
     from zettel.review import run_review
+
     # Either flag means "decide without me", so the interactive report is skipped.
     interactive = not (yes or auto_approve)
     stats = run_review(
-        cfg, db, idx,
+        cfg,
+        db,
+        idx,
         source_id=source_id,
         auto_approve=auto_approve or yes,
         interactive=interactive,
@@ -95,12 +113,20 @@ def review(
 @app.command(name="retry-failed")
 def retry_failed(
     config: ConfigOption = None,
-    source_id: Annotated[Optional[str], typer.Option(
-        "--source-id", help="Filtrar por source_id",
-    )] = None,
-    assets: Annotated[bool, typer.Option(
-        "--assets", help="Resetar imagens com falha de descricao",
-    )] = False,
+    source_id: Annotated[
+        str | None,
+        typer.Option(
+            "--source-id",
+            help="Filtrar por source_id",
+        ),
+    ] = None,
+    assets: Annotated[
+        bool,
+        typer.Option(
+            "--assets",
+            help="Resetar imagens com falha de descricao",
+        ),
+    ] = False,
 ):
     """Resetar chunks (ou imagens) com falha para 'pending', permitindo reprocessar."""
     cfg = load_deps(config)

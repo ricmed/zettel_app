@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import chromadb
 from chromadb.config import Settings
@@ -70,7 +71,7 @@ class _LangChainOllamaChromaEF:
         }
 
     @staticmethod
-    def build_from_config(config: dict[str, Any]) -> "_LangChainOllamaChromaEF":
+    def build_from_config(config: dict[str, Any]) -> _LangChainOllamaChromaEF:
         from langchain_ollama import OllamaEmbeddings
 
         model = config.get("model")
@@ -145,7 +146,9 @@ class EmbeddingSpaceMismatch(Exception):
 
 
 def _format_space_id(
-    provider: str | None, model: str | None, dimensions: int | None,
+    provider: str | None,
+    model: str | None,
+    dimensions: int | None,
 ) -> str:
     base = f"{provider}/{model}"
     if dimensions is not None:
@@ -273,14 +276,18 @@ class VectorIndex:
                     "Resetando colecoes Chroma por troca de embedding: %s -> %s",
                     _format_space_id(stored[0], stored[1], stored[2]),
                     _format_space_id(
-                        self.embedding_provider, self.embedding_model, self.dimensions,
+                        self.embedding_provider,
+                        self.embedding_model,
+                        self.dimensions,
                     ),
                 )
                 self._delete_all_collections()
             else:
                 raise EmbeddingSpaceMismatch(
-                    stored[0], stored[1],
-                    self.embedding_provider, self.embedding_model,
+                    stored[0],
+                    stored[1],
+                    self.embedding_provider,
+                    self.embedding_model,
                     stored_dimensions=stored[2],
                     current_dimensions=self.dimensions,
                 )
@@ -376,7 +383,10 @@ class VectorIndex:
         return OpenAIEmbeddingFunction(**kwargs)
 
     def _build_sentence_transformers_ef(self, model: str) -> Any:
-        from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+        from chromadb.utils.embedding_functions import (
+            SentenceTransformerEmbeddingFunction,
+        )
+
         from zettel.config import detect_device
 
         device = detect_device(self.device)
@@ -401,7 +411,9 @@ class VectorIndex:
         base_url = _normalize_ollama_base_url(self.base_url)
         logger.info(
             "Ollama embeddings (langchain_ollama) em %s (modelo=%s dims=%s)",
-            base_url, model, self.dimensions,
+            base_url,
+            model,
+            self.dimensions,
         )
         kwargs: dict[str, Any] = {"model": model, "base_url": base_url}
         if self.dimensions is not None:
@@ -418,12 +430,15 @@ class VectorIndex:
             meta["embedding_dimensions"] = int(self.dimensions)
         return meta
 
-    def get_stored_embedding_identity(self) -> tuple[str | None, str | None, int | None]:
+    def get_stored_embedding_identity(
+        self,
+    ) -> tuple[str | None, str | None, int | None]:
         """Return ``(provider, model, dimensions)`` markers from existing collections."""
         return _identity_from_client(self.client)
 
     def embedding_space_matches(
-        self, stored: tuple[str | None, str | None, int | None] | None = None,
+        self,
+        stored: tuple[str | None, str | None, int | None] | None = None,
     ) -> bool:
         """True when there is no stored marker, or it equals the current space."""
         if stored is None:
@@ -432,17 +447,13 @@ class VectorIndex:
         if sp is None and sm is None and sd is None:
             return True
         return (
-            sp == self.embedding_provider
-            and sm == self.embedding_model
-            and sd == self.dimensions
+            sp == self.embedding_provider and sm == self.embedding_model and sd == self.dimensions
         )
 
     def _delete_all_collections(self) -> None:
         for name in _ALL_COLLECTIONS:
-            try:
+            with contextlib.suppress(Exception):
                 self.client.delete_collection(name)
-            except Exception:
-                pass
 
     def _get_or_create(self, name: str, **kwargs: Any) -> Any:
         """Get or create a collection.
@@ -458,9 +469,7 @@ class VectorIndex:
             sp, sm = meta.get("embedding_provider"), meta.get("embedding_model")
             sd = _parse_dimensions(meta.get("embedding_dimensions"))
             if (sp is not None or sm is not None or sd is not None) and (
-                sp != self.embedding_provider
-                or sm != self.embedding_model
-                or sd != self.dimensions
+                sp != self.embedding_provider or sm != self.embedding_model or sd != self.dimensions
             ):
                 raise EmbeddingSpaceMismatch(
                     str(sp) if sp is not None else None,
@@ -501,18 +510,18 @@ class VectorIndex:
 
     def reset_collection(self, name: str) -> Any:
         """Delete and recreate a collection (used by `reindex --force`)."""
-        try:
+        with contextlib.suppress(Exception):
             self.client.delete_collection(name)
-        except Exception:
-            pass
         kwargs: dict[str, Any] = {"metadata": self._collection_metadata()}
         if self.embedding_fn:
             kwargs["embedding_function"] = self.embedding_fn
         col = self.client.get_or_create_collection(name, **kwargs)
         # Refresh the cached handle so subsequent upserts hit the new collection.
         attr = {
-            COL_SOURCES: "sources", COL_CHUNKS: "chunks",
-            COL_PERMANENT: "permanent", COL_MOCS: "mocs_col",
+            COL_SOURCES: "sources",
+            COL_CHUNKS: "chunks",
+            COL_PERMANENT: "permanent",
+            COL_MOCS: "mocs_col",
             COL_LITERATURE: "literature",
         }.get(name)
         if attr:
@@ -540,23 +549,34 @@ class VectorIndex:
         """Embed and upsert a chunk. Optional ``progress=(i, total)`` logs X/Y."""
         safe_meta = _sanitize_metadata(metadata)
         from zettel.llm import clip_text
+
         self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
         if progress:
             i, total = progress
             logger.info(
                 "Embedding [%d] upsert chunk %d/%d %s | %s",
-                self._embed_call_count, i, total, chunk_id, clip_text(text),
+                self._embed_call_count,
+                i,
+                total,
+                chunk_id,
+                clip_text(text),
             )
         else:
             logger.info(
                 "Embedding [%d] upsert chunk %s | %s",
-                self._embed_call_count, chunk_id, clip_text(text),
+                self._embed_call_count,
+                chunk_id,
+                clip_text(text),
             )
         self.chunks.upsert(ids=[chunk_id], documents=[text], metadatas=[safe_meta])
         if progress:
             i, tot = progress
             self._record_embed_usage(
-                text, label=f"chunk:{chunk_id}", step=i, total=tot, kind="chunk",
+                text,
+                label=f"chunk:{chunk_id}",
+                step=i,
+                total=tot,
+                kind="chunk",
             )
         else:
             self._record_embed_usage(text, label=f"chunk:{chunk_id}")
@@ -592,10 +612,12 @@ class VectorIndex:
 
     # ── Permanent Notes ────────────────────────────────────────────────
 
-    def upsert_permanent_note(self, note_id: str, embeddable_text: str,
-                               metadata: dict[str, Any]) -> None:
+    def upsert_permanent_note(
+        self, note_id: str, embeddable_text: str, metadata: dict[str, Any]
+    ) -> None:
         safe_meta = _sanitize_metadata(metadata)
         from zettel.llm import clip_text
+
         self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
         logger.info(
             "Embedding [%d] upsert nota %s | %s",
@@ -613,6 +635,7 @@ class VectorIndex:
         """Index an approved granular literature note (only after review)."""
         safe_meta = _sanitize_metadata(metadata)
         from zettel.llm import clip_text
+
         self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
         logger.info(
             "Embedding [%d] upsert LIT %s | %s",
@@ -646,10 +669,12 @@ class VectorIndex:
             self.mocs_col.delete(ids=moc_ids)
             logger.debug("Index: %d mocs removidos", len(moc_ids))
 
-    def query_similar_notes(self, query_text: str, n_results: int = 5,
-                            exclude_id: str | None = None) -> list[dict]:
+    def query_similar_notes(
+        self, query_text: str, n_results: int = 5, exclude_id: str | None = None
+    ) -> list[dict]:
         """Find the most similar permanent notes to the given text."""
         from zettel.llm import clip_text
+
         self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
         logger.info(
             "Embedding [%d] busca notas | n=%d | query=%s",
@@ -693,10 +718,14 @@ class VectorIndex:
         self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
         logger.info(
             "Embedding [%d] busca notas por id | n=%d | query=%s",
-            self._embed_call_count, len(note_ids), clip_text(query_text),
+            self._embed_call_count,
+            len(note_ids),
+            clip_text(query_text),
         )
         results = self.permanent.query(
-            query_texts=[query_text], ids=note_ids, n_results=len(note_ids),
+            query_texts=[query_text],
+            ids=note_ids,
+            n_results=len(note_ids),
         )
         self._record_embed_usage(query_text, label="query_notes_by_ids")
         output: list[dict] = []
@@ -727,6 +756,7 @@ class VectorIndex:
             return results
 
         from zettel.llm import clip_text
+
         self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
         preview = " | ".join(clip_text(t, 40) for t in texts[:3])
         if len(texts) > 3:

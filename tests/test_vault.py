@@ -2,6 +2,7 @@
 
 from zettel.hashing import extract_embeddable_text
 from zettel.vault import (
+    _slug,
     author_year_label,
     best_candidate_thesis,
     build_literature_chunk_note,
@@ -22,7 +23,6 @@ from zettel.vault import (
     safe_update_managed_blocks,
     source_note_filename,
     upsert_managed_block,
-    _slug,
 )
 
 
@@ -178,11 +178,11 @@ def test_literature_chunk_filename_page_and_section():
 
 
 def test_literature_chunk_filename_same_section_differs_by_index():
-    kwargs = dict(
-        citekey="Negro2026KnowledgeGraphs",
-        page_in_book=42,
-        section_path="Cap 2 > Sistema 1",
-    )
+    kwargs = {
+        "citekey": "Negro2026KnowledgeGraphs",
+        "page_in_book": 42,
+        "section_path": "Cap 2 > Sistema 1",
+    }
     a = literature_chunk_filename(chunk_index=7, **kwargs)
     b = literature_chunk_filename(chunk_index=8, **kwargs)
     assert a != b
@@ -228,14 +228,22 @@ def test_best_candidate_thesis_empty_list():
 
 def test_literature_chunk_topic_precedence_thesis_over_summary_over_section():
     # thesis wins even when summary and section_path are both present
-    assert literature_chunk_topic(
-        section_path="Cap 2 > Sistema 1", summary="um resumo qualquer",
-        thesis="L1 induz esparsidade nos pesos",
-    ) == "L1 induz esparsidade nos pesos"
+    assert (
+        literature_chunk_topic(
+            section_path="Cap 2 > Sistema 1",
+            summary="um resumo qualquer",
+            thesis="L1 induz esparsidade nos pesos",
+        )
+        == "L1 induz esparsidade nos pesos"
+    )
     # no thesis: summary wins over section_path
-    assert literature_chunk_topic(
-        section_path="Cap 2 > Sistema 1", summary="um resumo qualquer",
-    ) == "um resumo qualquer"
+    assert (
+        literature_chunk_topic(
+            section_path="Cap 2 > Sistema 1",
+            summary="um resumo qualquer",
+        )
+        == "um resumo qualquer"
+    )
     # no thesis, no summary: section_path
     assert literature_chunk_topic(section_path="Cap 2 > Sistema 1") == "Sistema 1"
     # nothing at all
@@ -245,12 +253,16 @@ def test_literature_chunk_topic_precedence_thesis_over_summary_over_section():
 def test_literature_chunk_filename_two_theses_in_same_section_differ():
     """Two LIT notes from the same section but different theses get different slugs."""
     a = literature_chunk_filename(
-        "Book2024", chunk_index=7, page_in_book=8,
+        "Book2024",
+        chunk_index=7,
+        page_in_book=8,
         section_path="Cap > Pontos de Atencao",
         thesis="Regularizacao L1 induz esparsidade nos pesos do modelo",
     )
     b = literature_chunk_filename(
-        "Book2024", chunk_index=9, page_in_book=8,
+        "Book2024",
+        chunk_index=9,
+        page_in_book=8,
         section_path="Cap > Pontos de Atencao",
         thesis="Dropout previne overfitting ao desligar neuronios aleatoriamente",
     )
@@ -261,7 +273,9 @@ def test_literature_chunk_filename_two_theses_in_same_section_differ():
 
 def test_literature_chunk_filename_thesis_beats_generic_section_path():
     name = literature_chunk_filename(
-        "Book2024", chunk_index=1, page_in_book=8,
+        "Book2024",
+        chunk_index=1,
+        page_in_book=8,
         section_path="Cap > 7 Pontos de Atencao e Anti-Padroes",
         thesis="Gradient clipping evita explosao de gradientes em RNNs profundas",
     )
@@ -276,13 +290,18 @@ def test_literature_chunk_filename_for_row_derives_thesis_from_summary_json():
         "chunk_index": 2,
         "page_in_book": 5,
         "section_path": "Cap > Secao",
-        "summary_json": json.dumps({
-            "summary": "resumo generico",
-            "candidates": [
-                {"thesis": "tese fraca", "relevance_score": 2},
-                {"thesis": "Backpropagation calcula gradientes via regra da cadeia", "relevance_score": 5},
-            ],
-        }),
+        "summary_json": json.dumps(
+            {
+                "summary": "resumo generico",
+                "candidates": [
+                    {"thesis": "tese fraca", "relevance_score": 2},
+                    {
+                        "thesis": "Backpropagation calcula gradientes via regra da cadeia",
+                        "relevance_score": 5,
+                    },
+                ],
+            }
+        ),
     }
     name = literature_chunk_filename_for_row("Book2024", chunk)
     assert "backpropagation" in name
@@ -345,13 +364,15 @@ def test_literature_chunk_note_renders_thesis_relevance_and_anchor_quote():
         literature_id="lit1",
         summary="Resumo gerado pelo LLM.",
         key_concepts=["intuicao"],
-        candidates=[{
-            "thesis": "L1 induz esparsidade nos pesos do modelo",
-            "definition": "Definicao completa aqui",
-            "anchor_quote": "a penalidade L1 empurra pesos irrelevantes para exatamente zero",
-            "relevance_score": 4,
-            "source_locator": "p.42",
-        }],
+        candidates=[
+            {
+                "thesis": "L1 induz esparsidade nos pesos do modelo",
+                "definition": "Definicao completa aqui",
+                "anchor_quote": "a penalidade L1 empurra pesos irrelevantes para exatamente zero",
+                "relevance_score": 4,
+                "source_locator": "p.42",
+            }
+        ],
         section_path="Cap > Sistema 1",
         source_text="Paragrafo integral do chunk.",
         page_in_book=20,
@@ -373,11 +394,13 @@ def test_literature_chunk_note_anchor_quote_excluded_from_embedding():
         literature_id="lit1",
         summary="Resumo gerado pelo LLM.",
         key_concepts=[],
-        candidates=[{
-            "thesis": "L1 induz esparsidade nos pesos do modelo",
-            "anchor_quote": "a penalidade L1 empurra pesos irrelevantes para exatamente zero",
-            "relevance_score": 4,
-        }],
+        candidates=[
+            {
+                "thesis": "L1 induz esparsidade nos pesos do modelo",
+                "anchor_quote": "a penalidade L1 empurra pesos irrelevantes para exatamente zero",
+                "relevance_score": 4,
+            }
+        ],
         source_text="",
     )
     embeddable = extract_embeddable_text(compose_note({"type": "literature"}, body))
@@ -396,11 +419,13 @@ def test_literature_chunk_note_candidate_without_anchor_quote_does_not_break_lay
         literature_id="lit1",
         summary="Resumo.",
         key_concepts=[],
-        candidates=[{
-            "thesis": "Uma tese sem citacao ancora disponivel",
-            "anchor_quote": "",
-            "relevance_score": 3,
-        }],
+        candidates=[
+            {
+                "thesis": "Uma tese sem citacao ancora disponivel",
+                "anchor_quote": "",
+                "relevance_score": 3,
+            }
+        ],
         source_text="",
     )
     assert "Uma tese sem citacao ancora disponivel" in body

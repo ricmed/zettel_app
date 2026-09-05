@@ -11,7 +11,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from zettel.config import AppConfig
 from zettel.state import StateDB
 from zettel.topic_index import (
@@ -41,7 +40,10 @@ def _permanent_note(db: StateDB, tmp_path: Path, note_id: str, title: str, meta:
     path = tmp_path / f"ZTL - {note_id} - nota.md"
     path.write_text("corpo", encoding="utf-8")
     db.upsert_note(
-        note_id=note_id, source_id=None, path=str(path), title=title,
+        note_id=note_id,
+        source_id=None,
+        path=str(path),
+        title=title,
         body=f"> **Tese**: {thesis}\n\n## Definição\n\nTexto.\n",
         frontmatter_json=json.dumps({"title": title, **meta}, ensure_ascii=False),
     )
@@ -59,7 +61,9 @@ def test_block_lists_term_then_targets(db, tmp_path):
     moc_path = tmp_path / "MOC - 01H - tema.md"
     safe_write_note(moc_path, {"type": "moc"}, "# Tema\n\n## Notas\n\n- [[ZTL - A]]\n")
     sync_topic_index(
-        db, SCOPE_MOC, "01HMOC",
+        db,
+        SCOPE_MOC,
+        "01HMOC",
         [TermSource(NOTE_A, "[[ZTL - A - dropout]]", frameworks=("The 5 Whys",))],
         note_path=moc_path,
     )
@@ -72,12 +76,18 @@ def test_section_is_created_once_then_updated_in_place(db, tmp_path):
     safe_write_note(moc_path, {"type": "moc"}, "# Tema\n\nCorpo original.\n")
 
     sync_topic_index(
-        db, SCOPE_MOC, "01HMOC",
-        [TermSource(NOTE_A, "[[ZTL - A]]", tags=("dropout",))], note_path=moc_path,
+        db,
+        SCOPE_MOC,
+        "01HMOC",
+        [TermSource(NOTE_A, "[[ZTL - A]]", tags=("dropout",))],
+        note_path=moc_path,
     )
     sync_topic_index(
-        db, SCOPE_MOC, "01HMOC",
-        [TermSource(NOTE_A, "[[ZTL - A]]", tags=("attention",))], note_path=moc_path,
+        db,
+        SCOPE_MOC,
+        "01HMOC",
+        [TermSource(NOTE_A, "[[ZTL - A]]", tags=("attention",))],
+        note_path=moc_path,
     )
     content = moc_path.read_text(encoding="utf-8")
     assert content.count("## Topic Index") == 1
@@ -91,15 +101,21 @@ def test_manual_edits_outside_the_block_survive(db, tmp_path):
     moc_path = tmp_path / "MOC - 01H - tema.md"
     safe_write_note(moc_path, {"type": "moc"}, "# Tema\n\nCorpo.\n")
     sync_topic_index(
-        db, SCOPE_MOC, "01HMOC",
-        [TermSource(NOTE_A, "[[ZTL - A]]", tags=("dropout",))], note_path=moc_path,
+        db,
+        SCOPE_MOC,
+        "01HMOC",
+        [TermSource(NOTE_A, "[[ZTL - A]]", tags=("dropout",))],
+        note_path=moc_path,
     )
     content = moc_path.read_text(encoding="utf-8")
     moc_path.write_text(content + "\n## Minhas anotacoes\n\nComentario a mao.\n", encoding="utf-8")
 
     sync_topic_index(
-        db, SCOPE_MOC, "01HMOC",
-        [TermSource(NOTE_A, "[[ZTL - A]]", tags=("attention",))], note_path=moc_path,
+        db,
+        SCOPE_MOC,
+        "01HMOC",
+        [TermSource(NOTE_A, "[[ZTL - A]]", tags=("attention",))],
+        note_path=moc_path,
     )
     final = moc_path.read_text(encoding="utf-8")
     assert "Comentario a mao." in final
@@ -111,7 +127,9 @@ def test_manual_edits_outside_the_block_survive(db, tmp_path):
 
 def test_permanent_targets_are_routable(db):
     sync_topic_index(
-        db, SCOPE_MOC, "01HMOC",
+        db,
+        SCOPE_MOC,
+        "01HMOC",
         [TermSource(NOTE_A, "[[ZTL - A]]", frameworks=("The 5 Whys",))],
     )
     matches = db.match_topic_index(fold("como aplico The 5 Whys aqui?"))
@@ -120,7 +138,9 @@ def test_permanent_targets_are_routable(db):
 
 def test_literature_targets_are_listed_but_never_routed(db):
     sync_topic_index(
-        db, SCOPE_SOURCE, "@Fonte2020",
+        db,
+        SCOPE_SOURCE,
+        "@Fonte2020",
         [TermSource("chunk-1", "[[Fonte/LIT - p001]]", tags=("dropout",))],
         targets_are_permanent_notes=False,
     )
@@ -129,10 +149,16 @@ def test_literature_targets_are_listed_but_never_routed(db):
 
 def test_refresh_replaces_instead_of_accumulating(db):
     sync_topic_index(
-        db, SCOPE_MOC, "01HMOC", [TermSource(NOTE_A, "[[ZTL - A]]", tags=("dropout",))],
+        db,
+        SCOPE_MOC,
+        "01HMOC",
+        [TermSource(NOTE_A, "[[ZTL - A]]", tags=("dropout",))],
     )
     sync_topic_index(
-        db, SCOPE_MOC, "01HMOC", [TermSource(NOTE_A, "[[ZTL - A]]", tags=("attention",))],
+        db,
+        SCOPE_MOC,
+        "01HMOC",
+        [TermSource(NOTE_A, "[[ZTL - A]]", tags=("attention",))],
     )
     assert db.match_topic_index(fold("dropout")) == []
     assert len(db.match_topic_index(fold("attention"))) == 1
@@ -140,14 +166,20 @@ def test_refresh_replaces_instead_of_accumulating(db):
 
 def test_matching_is_accent_and_case_insensitive(db):
     sync_topic_index(
-        db, SCOPE_MOC, "01HMOC", [TermSource(NOTE_A, "[[ZTL - A]]", tags=("regularização",))],
+        db,
+        SCOPE_MOC,
+        "01HMOC",
+        [TermSource(NOTE_A, "[[ZTL - A]]", tags=("regularização",))],
     )
     assert len(db.match_topic_index(fold("O que e REGULARIZACAO?"))) == 1
 
 
 def test_deleting_a_scope_clears_its_rows(db):
     sync_topic_index(
-        db, SCOPE_MOC, "01HMOC", [TermSource(NOTE_A, "[[ZTL - A]]", tags=("dropout",))],
+        db,
+        SCOPE_MOC,
+        "01HMOC",
+        [TermSource(NOTE_A, "[[ZTL - A]]", tags=("dropout",))],
     )
     db.delete_topic_index_scope(SCOPE_MOC, "01HMOC")
     assert db.match_topic_index(fold("dropout")) == []
@@ -155,7 +187,10 @@ def test_deleting_a_scope_clears_its_rows(db):
 
 def test_sources_from_permanent_notes_reads_frontmatter_and_thesis(db, tmp_path):
     _permanent_note(
-        db, tmp_path, NOTE_A, "Dropout",
+        db,
+        tmp_path,
+        NOTE_A,
+        "Dropout",
         {"tags": ["regularizacao"], "named_frameworks": ["The 5 Whys"]},
         "Dropout treina sub-redes",
     )
@@ -203,7 +238,8 @@ class _FakeIndex:
         self.restricted_calls.append(list(note_ids))
         return [
             {"id": nid, "distance": self.by_id[nid], "document": "", "metadata": {}}
-            for nid in note_ids if nid in self.by_id
+            for nid in note_ids
+            if nid in self.by_id
         ]
 
 
@@ -221,7 +257,9 @@ def _retriever(db, idx, **overrides):
 def _index_note(db, tmp_path, note_id, tag, distance_map):
     _permanent_note(db, tmp_path, note_id, f"Nota {note_id[-1]}", {"tags": [tag]}, "Tese")
     sync_topic_index(
-        db, SCOPE_MOC, f"moc-{note_id}",
+        db,
+        SCOPE_MOC,
+        f"moc-{note_id}",
         [TermSource(note_id, f"[[ZTL - {note_id}]]", tags=(tag,))],
     )
     return distance_map
@@ -295,16 +333,25 @@ def test_reindex_backfills_every_scope(db, tmp_path):
     (cfg.vault_path / "20_Literature").mkdir(parents=True)
 
     db.upsert_source(
-        "@Autor2020", citekey="Autor2020", title="Livro", authors=["A"], year=2020,
-        file_checksum="c", origin_path="/x.pdf", origin_type="pdf",
+        "@Autor2020",
+        citekey="Autor2020",
+        title="Livro",
+        authors=["A"],
+        year=2020,
+        file_checksum="c",
+        origin_path="/x.pdf",
+        origin_type="pdf",
     )
     db.upsert_chapter("@Autor2020::ch000", "@Autor2020", "Cap", "chk")
     db.upsert_chunk("@Autor2020::ch000::a1", "@Autor2020", "@Autor2020::ch000", "t", "c1")
     db.update_chunk_review(
-        "@Autor2020::ch000::a1", status="persisted",
-        summary_json=json.dumps({
-            "candidates": [{"thesis": "Tese", "relevance_score": 4, "tags": ["dropout"]}],
-        }),
+        "@Autor2020::ch000::a1",
+        status="persisted",
+        summary_json=json.dumps(
+            {
+                "candidates": [{"thesis": "Tese", "relevance_score": 4, "tags": ["dropout"]}],
+            }
+        ),
     )
 
     _permanent_note(db, tmp_path, NOTE_B, "Attention", {"tags": ["attention"]}, "Tese B")

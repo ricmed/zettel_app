@@ -1,7 +1,6 @@
 """Tests for manual note scaffolding (new-note)."""
 
 import pytest
-
 from zettel.config import AppConfig
 from zettel.new_note import (
     NewNoteResult,
@@ -36,7 +35,11 @@ def test_normalize_note_type_invalid():
 def test_scaffold_rejects_unsafe_source_ids(cfg, source_id):
     with pytest.raises(ValueError, match="source_id/citekey invalido"):
         scaffold_manual_note(
-            cfg, "lit", "Unsafe", source_id=source_id, granular=True,
+            cfg,
+            "lit",
+            "Unsafe",
+            source_id=source_id,
+            granular=True,
         )
 
 
@@ -47,8 +50,11 @@ def test_provisional_citekey_author_year():
 
 def test_scaffold_source_note(cfg):
     result = scaffold_manual_note(
-        cfg, "src", "Meu Artigo",
-        authors=["Joao Negro"], year=2026,
+        cfg,
+        "src",
+        "Meu Artigo",
+        authors=["Joao Negro"],
+        year=2026,
     )
     assert isinstance(result, NewNoteResult)
     assert result.path.parent.name == "10_Sources"
@@ -146,7 +152,9 @@ def test_scaffold_source_sync_manual_adopts(cfg, tmp_path):
 
 def test_scaffold_literature_index(cfg):
     result = scaffold_manual_note(
-        cfg, "lit", "Artigo Manual",
+        cfg,
+        "lit",
+        "Artigo Manual",
         citekey="Autor2023",
     )
     assert result.path.parent.name == "20_Literature"
@@ -162,7 +170,9 @@ def test_scaffold_literature_index(cfg):
 
 def test_scaffold_literature_granular(cfg):
     result = scaffold_manual_note(
-        cfg, "literature", "Fonte Granular",
+        cfg,
+        "literature",
+        "Fonte Granular",
         citekey="Autor2023",
         granular=True,
         chunk_index=2,
@@ -182,7 +192,9 @@ def test_scaffold_literature_granular(cfg):
 def test_scaffold_literature_granular_persists_body(cfg):
     scaffold_manual_note(cfg, "src", "Fonte Granular", citekey="Autor2023")
     result = scaffold_manual_note(
-        cfg, "literature", "Sistema 1",
+        cfg,
+        "literature",
+        "Sistema 1",
         source_id="@Autor2023",
         granular=True,
         chunk_index=1,
@@ -219,7 +231,9 @@ def test_scaffold_permanent_note(cfg):
 
 def test_scaffold_permanent_note_persists_thesis(cfg):
     result = scaffold_manual_note(
-        cfg, "ztl", "Heurísticas",
+        cfg,
+        "ztl",
+        "Heurísticas",
         thesis="Heurísticas reduzem esforço cognitivo.",
     )
     _meta, body = parse_frontmatter(result.path.read_text(encoding="utf-8"))
@@ -229,11 +243,17 @@ def test_scaffold_permanent_note_persists_thesis(cfg):
 
 def test_scaffold_permanent_with_existing_src(cfg):
     src = scaffold_manual_note(
-        cfg, "src", "Knowledge Graphs",
-        authors=["Maria Silva"], year=2024, citekey="Silva2024KG",
+        cfg,
+        "src",
+        "Knowledge Graphs",
+        authors=["Maria Silva"],
+        year=2024,
+        citekey="Silva2024KG",
     )
     result = scaffold_manual_note(
-        cfg, "ztl", "Grafos e recuperacao",
+        cfg,
+        "ztl",
+        "Grafos e recuperacao",
         source_id="@Silva2024KG",
     )
     assert result.warnings is None
@@ -247,7 +267,9 @@ def test_scaffold_permanent_with_existing_src(cfg):
 
 def test_scaffold_permanent_provisional_src(cfg):
     result = scaffold_manual_note(
-        cfg, "ztl", "Nota sem SRC ainda",
+        cfg,
+        "ztl",
+        "Nota sem SRC ainda",
         source_id="MeuTemaCustom",
     )
     assert result.warnings
@@ -260,10 +282,16 @@ def test_scaffold_permanent_provisional_src(cfg):
 
 def test_scaffold_permanent_source_id_via_citekey(cfg):
     src = scaffold_manual_note(
-        cfg, "src", "Artigo Base", citekey="Base2023",
+        cfg,
+        "src",
+        "Artigo Base",
+        citekey="Base2023",
     )
     result = scaffold_manual_note(
-        cfg, "ztl", "Ideia derivada", citekey="Base2023",
+        cfg,
+        "ztl",
+        "Ideia derivada",
+        citekey="Base2023",
     )
     assert result.warnings is None
 
@@ -293,10 +321,19 @@ def test_scaffold_refuses_existing_file(cfg):
 
 def test_scaffold_force_overwrites(cfg):
     path = scaffold_manual_note(
-        cfg, "src", "Titulo", citekey="Fix2024", authors=["Antigo"],
+        cfg,
+        "src",
+        "Titulo",
+        citekey="Fix2024",
+        authors=["Antigo"],
     ).path
     scaffold_manual_note(
-        cfg, "src", "Titulo", citekey="Fix2024", authors=["Novo"], force=True,
+        cfg,
+        "src",
+        "Titulo",
+        citekey="Fix2024",
+        authors=["Novo"],
+        force=True,
     )
     meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
     assert meta["author"] == ["Novo"]
@@ -317,6 +354,10 @@ def test_force_does_not_overwrite_an_existing_literature_index(cfg):
     original = indexes[0].read_text(encoding="utf-8")
     indexes[0].write_text(original + "\n" + marker + "\n", encoding="utf-8")
     scaffold_manual_note(
-        cfg, "src", "Thinking Fast", citekey="Kahneman2011", force=True,
+        cfg,
+        "src",
+        "Thinking Fast",
+        citekey="Kahneman2011",
+        force=True,
     )
     assert marker in indexes[0].read_text(encoding="utf-8")

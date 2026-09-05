@@ -16,5 +16,10 @@ async def overview(request: Request):
     if not authenticated(request):
         return redirect_login()
     svc = service(request)
-    return render(request, "dashboard.html", page="overview",
-                  dashboard=svc.dashboard(), jobs=svc.jobs()[:5])
+    return render(
+        request,
+        "dashboard.html",
+        page="overview",
+        dashboard=svc.dashboard(),
+        jobs=svc.jobs()[:5],
+    )

@@ -18,7 +18,7 @@ rather than to the scaffolder.
 
 from __future__ import annotations
 
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 
@@ -29,7 +29,12 @@ from zettel.cli.options import ConfigOption, YesOption
 
 
 def _new_note_from_literature(
-    cfg, ref: str, *, use_llm: bool, thesis: Optional[str], force: bool,
+    cfg,
+    ref: str,
+    *,
+    use_llm: bool,
+    thesis: str | None,
+    force: bool,
 ) -> None:
     """Create a permanent note out of a literature note (LLM or hand-written).
 
@@ -44,7 +49,13 @@ def _new_note_from_literature(
     idx = get_idx(cfg, db=db)
     try:
         path, via_llm = create_permanent_from_literature(
-            cfg, db, idx, ref, use_llm=use_llm, thesis=thesis, force=force,
+            cfg,
+            db,
+            idx,
+            ref,
+            use_llm=use_llm,
+            thesis=thesis,
+            force=force,
         )
     except (FileNotFoundError, FileExistsError, ValueError, RuntimeError) as exc:
         console.print(f"[red]{exc}[/red]")
@@ -61,80 +72,160 @@ def _new_note_from_literature(
 
 @app.command(name="new-note")
 def new_note(
-    note_type: Annotated[str, typer.Argument(
-        help="Tipo: ztl|lit|src|moc (ou permanent|literature|source)",
-    )],
-    title: Annotated[str, typer.Argument(
-        help="Titulo da nota (dispensavel com --from-lit: vem da tese)",
-    )] = "",
+    note_type: Annotated[
+        str,
+        typer.Argument(
+            help="Tipo: ztl|lit|src|moc (ou permanent|literature|source)",
+        ),
+    ],
+    title: Annotated[
+        str,
+        typer.Argument(
+            help="Titulo da nota (dispensavel com --from-lit: vem da tese)",
+        ),
+    ] = "",
     config: ConfigOption = None,
-    citekey: Annotated[Optional[str], typer.Option(
-        "--citekey", "-k",
-        help="Citekey para SRC/LIT (sem @); alias de --source-id para SRC/ZTL",
-    )] = None,
-    source_id: Annotated[Optional[str], typer.Option(
-        "--source-id", "-s",
-        help="source_id (@Citekey) explicito para SRC ou vinculo de ZTL a uma SRC",
-    )] = None,
-    author: Annotated[Optional[list[str]], typer.Option(
-        "--author", "-a",
-        help="Autor(es) para SRC/LIT (repita a opcao para varios)",
-    )] = None,
-    year: Annotated[Optional[int], typer.Option(
-        "--year", "-y", help="Ano para SRC/LIT",
-    )] = None,
-    document_type: Annotated[Optional[str], typer.Option(
-        "--document-type", "-t",
-        help="Tipo documental ABNT para SRC (ex.: livro, artigo_periodico)",
-    )] = None,
-    abnt_reference: Annotated[Optional[str], typer.Option(
-        "--abnt-reference", help="Referencia ABNT pronta para copiar (SRC)",
-    )] = None,
-    publisher: Annotated[Optional[str], typer.Option(
-        "--publisher", help="Editora (SRC)",
-    )] = None,
-    place: Annotated[Optional[str], typer.Option(
-        "--place", help="Local de publicacao (SRC)",
-    )] = None,
-    doi: Annotated[Optional[str], typer.Option("--doi", help="DOI (SRC)")] = None,
-    url: Annotated[Optional[str], typer.Option("--url", help="URL (SRC)")] = None,
-    journal: Annotated[Optional[str], typer.Option(
-        "--journal", help="Periodico (SRC)",
-    )] = None,
-    edition: Annotated[Optional[str], typer.Option(
-        "--edition", help="Edicao (SRC)",
-    )] = None,
-    institution: Annotated[Optional[str], typer.Option(
-        "--institution", help="Instituicao (SRC)",
-    )] = None,
-    pages: Annotated[Optional[str], typer.Option(
-        "--pages", help="Paginas (SRC)",
-    )] = None,
-    granular: Annotated[bool, typer.Option(
-        "--granular",
-        help="LIT granular em 20_Literature/{citekey}/ (padrao: indice na raiz)",
-    )] = False,
-    chunk_index: Annotated[int, typer.Option(
-        "--chunk-index", help="Indice do chunk para LIT granular (padrao: 1)",
-    )] = 1,
-    page: Annotated[Optional[int], typer.Option(
-        "--page", "-p", help="Pagina impressa para LIT granular",
-    )] = None,
-    from_lit: Annotated[Optional[str], typer.Option(
-        "--from-lit",
-        help="ZTL a partir de uma nota de literatura (caminho do .md ou chunk_id)",
-    )] = None,
-    use_llm: Annotated[bool, typer.Option(
-        "--llm",
-        help="Com --from-lit: gerar o conteudo da ZTL com o LLM (Prompt 2 + RAG)",
-    )] = False,
-    thesis: Annotated[Optional[str], typer.Option(
-        "--thesis",
-        help="Com --from-lit: tese explicita (padrao: deduzida da nota de literatura)",
-    )] = None,
-    force: Annotated[bool, typer.Option(
-        "--force", help="Sobrescrever arquivo existente no mesmo caminho",
-    )] = False,
+    citekey: Annotated[
+        str | None,
+        typer.Option(
+            "--citekey",
+            "-k",
+            help="Citekey para SRC/LIT (sem @); alias de --source-id para SRC/ZTL",
+        ),
+    ] = None,
+    source_id: Annotated[
+        str | None,
+        typer.Option(
+            "--source-id",
+            "-s",
+            help="source_id (@Citekey) explicito para SRC ou vinculo de ZTL a uma SRC",
+        ),
+    ] = None,
+    author: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--author",
+            "-a",
+            help="Autor(es) para SRC/LIT (repita a opcao para varios)",
+        ),
+    ] = None,
+    year: Annotated[
+        int | None,
+        typer.Option(
+            "--year",
+            "-y",
+            help="Ano para SRC/LIT",
+        ),
+    ] = None,
+    document_type: Annotated[
+        str | None,
+        typer.Option(
+            "--document-type",
+            "-t",
+            help="Tipo documental ABNT para SRC (ex.: livro, artigo_periodico)",
+        ),
+    ] = None,
+    abnt_reference: Annotated[
+        str | None,
+        typer.Option(
+            "--abnt-reference",
+            help="Referencia ABNT pronta para copiar (SRC)",
+        ),
+    ] = None,
+    publisher: Annotated[
+        str | None,
+        typer.Option(
+            "--publisher",
+            help="Editora (SRC)",
+        ),
+    ] = None,
+    place: Annotated[
+        str | None,
+        typer.Option(
+            "--place",
+            help="Local de publicacao (SRC)",
+        ),
+    ] = None,
+    doi: Annotated[str | None, typer.Option("--doi", help="DOI (SRC)")] = None,
+    url: Annotated[str | None, typer.Option("--url", help="URL (SRC)")] = None,
+    journal: Annotated[
+        str | None,
+        typer.Option(
+            "--journal",
+            help="Periodico (SRC)",
+        ),
+    ] = None,
+    edition: Annotated[
+        str | None,
+        typer.Option(
+            "--edition",
+            help="Edicao (SRC)",
+        ),
+    ] = None,
+    institution: Annotated[
+        str | None,
+        typer.Option(
+            "--institution",
+            help="Instituicao (SRC)",
+        ),
+    ] = None,
+    pages: Annotated[
+        str | None,
+        typer.Option(
+            "--pages",
+            help="Paginas (SRC)",
+        ),
+    ] = None,
+    granular: Annotated[
+        bool,
+        typer.Option(
+            "--granular",
+            help="LIT granular em 20_Literature/{citekey}/ (padrao: indice na raiz)",
+        ),
+    ] = False,
+    chunk_index: Annotated[
+        int,
+        typer.Option(
+            "--chunk-index",
+            help="Indice do chunk para LIT granular (padrao: 1)",
+        ),
+    ] = 1,
+    page: Annotated[
+        int | None,
+        typer.Option(
+            "--page",
+            "-p",
+            help="Pagina impressa para LIT granular",
+        ),
+    ] = None,
+    from_lit: Annotated[
+        str | None,
+        typer.Option(
+            "--from-lit",
+            help="ZTL a partir de uma nota de literatura (caminho do .md ou chunk_id)",
+        ),
+    ] = None,
+    use_llm: Annotated[
+        bool,
+        typer.Option(
+            "--llm",
+            help="Com --from-lit: gerar o conteudo da ZTL com o LLM (Prompt 2 + RAG)",
+        ),
+    ] = False,
+    thesis: Annotated[
+        str | None,
+        typer.Option(
+            "--thesis",
+            help="Com --from-lit: tese explicita (padrao: deduzida da nota de literatura)",
+        ),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="Sobrescrever arquivo existente no mesmo caminho",
+        ),
+    ] = False,
 ):
     """Criar esqueleto de nota manual no vault (indexar depois com sync-manual)."""
     cfg = load_deps(config)
@@ -152,7 +243,11 @@ def new_note(
             console.print("[red]--from-lit so vale para notas permanentes (ztl).[/red]")
             raise typer.Exit(1)
         _new_note_from_literature(
-            cfg, from_lit, use_llm=use_llm, thesis=thesis, force=force,
+            cfg,
+            from_lit,
+            use_llm=use_llm,
+            thesis=thesis,
+            force=force,
         )
         return
     if use_llm or thesis:
@@ -209,10 +304,13 @@ def new_note(
 @app.command(name="sync-manual")
 def sync_manual(
     config: ConfigOption = None,
-    rebuild_graph: Annotated[bool, typer.Option(
-        "--rebuild-graph",
-        help="Re-deriva arestas 'related' dos wikilinks no corpo de todas as notas",
-    )] = False,
+    rebuild_graph: Annotated[
+        bool,
+        typer.Option(
+            "--rebuild-graph",
+            help="Re-deriva arestas 'related' dos wikilinks no corpo de todas as notas",
+        ),
+    ] = False,
     yes: YesOption = False,
 ):
     """Sincronizar notas manuais do vault com o índice vetorial."""

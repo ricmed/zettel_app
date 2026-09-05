@@ -75,9 +75,7 @@ def resolve_bibliography(
         table.add_row("document_type", m.document_type or "(ausente)")
         table.add_row("confidence", f"{m.confidence:.2f}")
         preview_fields = (
-            required_fields(m.document_type)
-            if m.document_type
-            else ["title", "authors", "year"]
+            required_fields(m.document_type) if m.document_type else ["title", "authors", "year"]
         )
         for field in preview_fields:
             if field == "document_type":
@@ -140,18 +138,13 @@ def resolve_bibliography(
 
     to_fill = [f for f in missing_required(meta) if f != "document_type"]
     if to_fill:
-        console.print(
-            "[cyan]Preencha os campos obrigatorios faltantes "
-            "(Enter deixa vazio):[/cyan]"
-        )
+        console.print("[cyan]Preencha os campos obrigatorios faltantes (Enter deixa vazio):[/cyan]")
     elif Confirm.ask(
         "Revisar campos obrigatorios ja preenchidos?",
         default=False,
         console=console,
     ):
-        to_fill = [
-            f for f in required_fields(meta.document_type) if f != "document_type"
-        ]
+        to_fill = [f for f in required_fields(meta.document_type) if f != "document_type"]
 
     for field in to_fill:
         current = getattr(meta, field, None)
@@ -209,9 +202,7 @@ def resolve_bibliography(
             if not answer:
                 continue
             if field in ("authors", "chapter_authors", "book_editors"):
-                setattr(
-                    meta, field, [a.strip() for a in answer.split(",") if a.strip()]
-                )
+                setattr(meta, field, [a.strip() for a in answer.split(",") if a.strip()])
             else:
                 setattr(meta, field, answer)
 

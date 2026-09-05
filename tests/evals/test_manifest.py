@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from zettel.evals.manifest import (
     FLOOR_KEYS,
     ManifestError,
@@ -53,11 +52,14 @@ def test_missing_required_field_is_refused(field):
 
 
 def test_only_the_judged_knobs_are_recorded():
-    manifest = build_manifest(**_BASE, retrieval_params={
-        "mode": "hybrid",
-        "min_vector_similarity": 0.7,
-        "irrelevante": "nao deve entrar",
-    })
+    manifest = build_manifest(
+        **_BASE,
+        retrieval_params={
+            "mode": "hybrid",
+            "min_vector_similarity": 0.7,
+            "irrelevante": "nao deve entrar",
+        },
+    )
     assert set(manifest.retrieval_params) <= set(FLOOR_KEYS)
     assert "irrelevante" not in manifest.retrieval_params
 

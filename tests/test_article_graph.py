@@ -113,12 +113,8 @@ def test_graph_judge_reject_then_approve(tmp_path, monkeypatch):
     # personality neutral = no call
     responses = [enrich, outline, section, judge_reject, section2, judge_ok]
 
-    monkeypatch.setattr(
-        article_mod, "call_llm", lambda llm, prompt, **kwargs: responses.pop(0)
-    )
-    monkeypatch.setattr(
-        article_mod, "get_llm", lambda *a, **k: object()
-    )
+    monkeypatch.setattr(article_mod, "call_llm", lambda llm, prompt, **kwargs: responses.pop(0))
+    monkeypatch.setattr(article_mod, "get_llm", lambda *a, **k: object())
 
     root = Path(__file__).resolve().parents[1]
     cfg = AppConfig(vault_path=vault, prompts_path=root / "prompts")
@@ -127,7 +123,10 @@ def test_graph_judge_reject_then_approve(tmp_path, monkeypatch):
     cfg.retrieval.article.max_judge_iterations = 3
 
     result = run_article_graph(
-        cfg, db, FakeIndex(), "conceito A",
+        cfg,
+        db,
+        FakeIndex(),
+        "conceito A",
         style="blog",
         personality="neutral",
         skip_context_review=True,
@@ -158,8 +157,12 @@ def test_graph_context_enrich_loop(tmp_path, monkeypatch):
     db.upsert_note(NOTE_A, "@S1", "p.md", "Nota A", body="corpo A")
 
     hit = RetrievedNote(
-        note_id=NOTE_A, score=0.9, title="Nota A",
-        document="corpo A", metadata={"source_id": "@S1"}, passed_floor=True,
+        note_id=NOTE_A,
+        score=0.9,
+        title="Nota A",
+        document="corpo A",
+        metadata={"source_id": "@S1"},
+        passed_floor=True,
     )
     monkeypatch.setattr(
         "zettel.retrieval.Retriever.search_notes",
@@ -184,26 +187,30 @@ def test_graph_context_enrich_loop(tmp_path, monkeypatch):
             "title": "T",
             "thesis": "t",
             "sections": [
-                {"heading": "H", "goal": "g", "note_ids": [NOTE_A], "figure_asset_ids": []}
+                {
+                    "heading": "H",
+                    "goal": "g",
+                    "note_ids": [NOTE_A],
+                    "figure_asset_ids": [],
+                }
             ],
         }
     )
     section = "## H\n\nTexto.\n<!-- cites: -->\n"
     responses = [enrich1, outline, section]
 
-    monkeypatch.setattr(
-        article_mod, "call_llm", lambda llm, prompt, **kwargs: responses.pop(0)
-    )
-    monkeypatch.setattr(
-        article_mod, "get_llm", lambda *a, **k: object()
-    )
+    monkeypatch.setattr(article_mod, "call_llm", lambda llm, prompt, **kwargs: responses.pop(0))
+    monkeypatch.setattr(article_mod, "get_llm", lambda *a, **k: object())
 
     root = Path(__file__).resolve().parents[1]
     cfg = AppConfig(vault_path=vault, prompts_path=root / "prompts")
     cfg.retrieval.article.personalities_path = root / "config" / "personalities.yaml"
 
     result = run_article_graph(
-        cfg, db, FakeIndex(), "tema",
+        cfg,
+        db,
+        FakeIndex(),
+        "tema",
         style="blog",
         personality="neutral",
         skip_judge=True,
@@ -261,9 +268,7 @@ def test_hitl_handler_receives_interrupt_payload(tmp_path, monkeypatch):
         def compile(self, checkpointer=None):
             return FakeCompiled()
 
-    monkeypatch.setattr(
-        "zettel.article_graph.graph.build_article_graph", lambda: FakeBuilder()
-    )
+    monkeypatch.setattr("zettel.article_graph.graph.build_article_graph", lambda: FakeBuilder())
 
     def hitl(payload: dict) -> dict:
         received.append(payload)
@@ -271,7 +276,10 @@ def test_hitl_handler_receives_interrupt_payload(tmp_path, monkeypatch):
 
     cfg = AppConfig(vault_path=vault, prompts_path=Path("prompts"))
     result = run_article_graph(
-        cfg, db, FakeIndex(), "tema",
+        cfg,
+        db,
+        FakeIndex(),
+        "tema",
         style="blog",
         personality="neutral",
         skip_context_review=False,

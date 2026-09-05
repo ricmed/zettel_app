@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 MODES = {"SRC", "LIT_INDEX", "LIT_GRANULAR", "ZTL_BLANK", "ZTL_FROM_LIT"}
 _NOTE_TYPES = {"SRC", "LIT", "ZTL"}
 _MAX_BIBLIO_SAMPLE = 5000
 _BIBLIO_FORM_FIELDS = (
-    "publisher", "place", "doi", "url", "journal", "edition", "institution", "pages",
+    "publisher",
+    "place",
+    "doi",
+    "url",
+    "journal",
+    "edition",
+    "institution",
+    "pages",
 )
 
 
@@ -40,7 +48,11 @@ def compose_mode(form: Mapping[str, Any]) -> str:
         return "SRC"
     if note_type == "LIT":
         return "LIT_GRANULAR" if _text(form, "granular") == "1" else "LIT_INDEX"
-    if _text(form, "ztl_origin") == "from_lit" or _text(form, "from_lit") or _text(form, "from_lit_path"):
+    if (
+        _text(form, "ztl_origin") == "from_lit"
+        or _text(form, "from_lit")
+        or _text(form, "from_lit_path")
+    ):
         return "ZTL_FROM_LIT"
     return "ZTL_BLANK"
 
@@ -61,7 +73,9 @@ def parse(form: Mapping[str, Any]) -> dict[str, Any]:
         "mode": mode,
         "title": title,
         "citekey": _optional(form, "citekey"),
-        "authors": [line.strip() for line in str(form.get("authors") or "").splitlines() if line.strip()],
+        "authors": [
+            line.strip() for line in str(form.get("authors") or "").splitlines() if line.strip()
+        ],
         "year": _int(form, "year"),
         "document_type": _optional(form, "document_type"),
         "abnt_reference": _optional(form, "abnt_reference"),
@@ -95,7 +109,9 @@ def parse(form: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("Selecione uma fonte existente para a nota LIT.")
     if mode == "ZTL_FROM_LIT":
         if bool(payload["from_lit"]) == bool(payload["from_lit_path"]):
-            raise ValueError("Informe exatamente uma nota LIT de origem (identificador ou caminho).")
+            raise ValueError(
+                "Informe exatamente uma nota LIT de origem (identificador ou caminho)."
+            )
         if payload["use_llm"] is False and not title and not payload["lit_thesis"]:
             # thesis may still be derived from the LIT body in preflight
             pass
@@ -138,9 +154,7 @@ def parse_biblio_preview(form: Mapping[str, Any]) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "title": _optional(form, "title"),
         "authors": [
-            line.strip()
-            for line in str(form.get("authors") or "").splitlines()
-            if line.strip()
+            line.strip() for line in str(form.get("authors") or "").splitlines() if line.strip()
         ],
         "year": _int(form, "year"),
         "document_type": document_type,
@@ -151,9 +165,7 @@ def parse_biblio_preview(form: Mapping[str, Any]) -> dict[str, Any]:
         payload[key] = _optional(form, key)
     if payload["enrich"]:
         if not has_biblio_evidence(payload):
-            raise ValueError(
-                "Cole um DOI, uma URL ou um trecho/citação para completar com o LLM."
-            )
+            raise ValueError("Cole um DOI, uma URL ou um trecho/citação para completar com o LLM.")
     elif not payload["document_type"]:
         raise ValueError("Informe o tipo de documento para montar a referência ABNT.")
     return payload
@@ -187,12 +199,17 @@ def resolve_from_lit(cfg: Any, db: Any, parsed: Mapping[str, Any]) -> str:
     return str(_under_literature(cfg, Path(rel)))
 
 
-def preflight_from_lit(cfg: Any, db: Any, parsed: Mapping[str, Any], ref: str, *, llm_ok: bool) -> str:
+def preflight_from_lit(
+    cfg: Any, db: Any, parsed: Mapping[str, Any], ref: str, *, llm_ok: bool
+) -> str:
     """Validate the LIT before enqueueing. Returns the thesis to send to the job.
 
     Raises ``ValueError`` (400) or ``PreflightConflict`` (409).
     """
-    from zettel.manual_lit import build_candidate_from_literature, resolve_literature_note
+    from zettel.manual_lit import (
+        build_candidate_from_literature,
+        resolve_literature_note,
+    )
     from zettel.vault import parse_frontmatter
 
     path: Path
@@ -218,8 +235,7 @@ def preflight_from_lit(cfg: Any, db: Any, parsed: Mapping[str, Any], ref: str, *
             )
         if not llm_ok:
             raise PreflightConflict(
-                "O provedor LLM não possui credencial configurada. "
-                "Verifique Configuração / saúde.",
+                "O provedor LLM não possui credencial configurada. Verifique Configuração / saúde.",
             )
 
     thesis = (parsed.get("lit_thesis") or "").strip()

@@ -51,12 +51,15 @@ def test_routing_miss_when_the_target_never_reached_the_pool():
 
 
 def test_floor_reject_when_the_target_was_retrieved_but_gated():
-    score = score_question(_gold(), _trajectory(
-        hit_ids=[],
-        passed_floor={TARGET: False},
-        floor_reasons={TARGET: "similaridade 0.62 abaixo do piso (0.70)"},
-        llm_called=False,
-    ))
+    score = score_question(
+        _gold(),
+        _trajectory(
+            hit_ids=[],
+            passed_floor={TARGET: False},
+            floor_reasons={TARGET: "similaridade 0.62 abaixo do piso (0.70)"},
+            llm_called=False,
+        ),
+    )
     assert score.verdict == Verdict.FLOOR_REJECT.value
     assert score.target_in_candidates is True
     assert "abaixo do piso" in score.floor_reason
@@ -64,7 +67,8 @@ def test_floor_reject_when_the_target_was_retrieved_but_gated():
 
 def test_answer_fail_when_the_target_was_used_but_the_rubric_missed():
     score = score_question(
-        _gold(answer_must_contain=["comprimento do caminho"]), _trajectory(),
+        _gold(answer_must_contain=["comprimento do caminho"]),
+        _trajectory(),
     )
     assert score.verdict == Verdict.ANSWER_FAIL.value
 
@@ -92,20 +96,34 @@ def test_no_rubric_means_retrieval_alone_decides():
 
 
 def test_no_evidence_is_ok_when_the_llm_was_never_called():
-    gold = GoldQuestion.from_dict({
-        "question_id": "q4", "question": "fora do acervo", "expect_no_evidence": True,
-    })
-    score = score_question(gold, _trajectory(
-        question_id="q4", hit_ids=[], llm_called=False, answer="Nao encontrei evidencia.",
-    ))
+    gold = GoldQuestion.from_dict(
+        {
+            "question_id": "q4",
+            "question": "fora do acervo",
+            "expect_no_evidence": True,
+        }
+    )
+    score = score_question(
+        gold,
+        _trajectory(
+            question_id="q4",
+            hit_ids=[],
+            llm_called=False,
+            answer="Nao encontrei evidencia.",
+        ),
+    )
     assert score.verdict == Verdict.OK.value
 
 
 def test_no_evidence_fails_when_the_llm_answered_anyway():
     """The behaviour worth protecting: empty hits must not reach the LLM."""
-    gold = GoldQuestion.from_dict({
-        "question_id": "q4", "question": "fora do acervo", "expect_no_evidence": True,
-    })
+    gold = GoldQuestion.from_dict(
+        {
+            "question_id": "q4",
+            "question": "fora do acervo",
+            "expect_no_evidence": True,
+        }
+    )
     score = score_question(gold, _trajectory(question_id="q4", hit_ids=[], llm_called=True))
     assert score.verdict == Verdict.ANSWER_FAIL.value
 

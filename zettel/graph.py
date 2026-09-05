@@ -17,7 +17,7 @@ provenance — both awkward in SQL. One batched query per BFS frontier
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from .config import DEFAULT_RELATION_WEIGHTS
 
@@ -30,21 +30,21 @@ class GraphNeighbor:
     """A note reachable from the seeds, with its best-path weight and provenance."""
 
     note_id: str
-    weight: float                 # max over paths of: relation_weight * decay^(hop-1)
-    hop: int                      # 1 = direct neighbour of a seed
+    weight: float  # max over paths of: relation_weight * decay^(hop-1)
+    hop: int  # 1 = direct neighbour of a seed
     via: list[dict] = field(default_factory=list)
     # via entries: {"from": seed/intermediate note_id, "relation_type": str,
     #               "description": str}
 
 
 def expand_notes(
-    db: "StateDB",
+    db: StateDB,
     seed_ids: list[str],
     max_hops: int = 1,
     decay: float = 0.5,
-    relation_weights: Optional[dict[str, float]] = None,
+    relation_weights: dict[str, float] | None = None,
     max_neighbors: int = 10,
-    seed_weights: Optional[dict[str, float]] = None,
+    seed_weights: dict[str, float] | None = None,
 ) -> dict[str, GraphNeighbor]:
     """BFS over note_connections from ``seed_ids``.
 
@@ -67,9 +67,7 @@ def expand_notes(
     visited: set[str] = set(seeds)
     best: dict[str, GraphNeighbor] = {}
     # frontier: note_id -> (accumulated_weight, via_path) of how we reached it.
-    frontier: dict[str, tuple[float, list[dict]]] = {
-        s: (seed_w.get(s, 1.0), []) for s in seeds
-    }
+    frontier: dict[str, tuple[float, list[dict]]] = {s: (seed_w.get(s, 1.0), []) for s in seeds}
 
     for hop in range(1, max_hops + 1):
         if not frontier:
@@ -89,7 +87,7 @@ def expand_notes(
                 anchor_weight, anchor_via = frontier[anchor]
                 cand_weight = anchor_weight * rel_weight * (decay ** (hop - 1))
                 step = {"from": anchor, "relation_type": rel, "description": desc}
-                cand_via = anchor_via + [step]
+                cand_via = [*anchor_via, step]
 
                 if other in best:
                     if cand_weight > best[other].weight:

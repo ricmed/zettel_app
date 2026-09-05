@@ -6,7 +6,7 @@
                 the taxonomy pipeline or (``--hubs``) anchored on graph hubs.
 
 The two are grouped because they are the synthesis half of the pipeline: unlike
-Phase 1–2, which read documents, these read the vault's own graph and write into
+Phase 1-2, which read documents, these read the vault's own graph and write into
 it. They also share the pattern of overriding a config knob for a single run
 (``--topk``, ``--dedupe-threshold``, ``--min-cluster-size``) without persisting it
 to ``config.yaml``.
@@ -14,7 +14,7 @@ to ``config.yaml``.
 
 from __future__ import annotations
 
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 
@@ -26,12 +26,19 @@ from zettel.cli.options import ConfigOption, YesOption
 @app.command()
 def connect(
     config: ConfigOption = None,
-    topk: Annotated[Optional[int], typer.Option(
-        "--topk", help="Top-k notas similares",
-    )] = None,
-    dedupe_threshold: Annotated[Optional[float], typer.Option(
-        "--dedupe-threshold",
-    )] = None,
+    topk: Annotated[
+        int | None,
+        typer.Option(
+            "--topk",
+            help="Top-k notas similares",
+        ),
+    ] = None,
+    dedupe_threshold: Annotated[
+        float | None,
+        typer.Option(
+            "--dedupe-threshold",
+        ),
+    ] = None,
     yes: YesOption = False,
 ):
     """Gerar notas permanentes a partir dos candidatos aprovados no review."""
@@ -46,6 +53,7 @@ def connect(
     idx = get_idx(cfg, db=db, yes=yes)
 
     from zettel.connector import load_approved_candidates, run_connect
+
     candidates = load_approved_candidates(db)
 
     if not candidates:
@@ -56,6 +64,7 @@ def connect(
         raise typer.Exit(1)
 
     from zettel.preflight import estimate_connect
+
     preflight_gate(estimate_connect(cfg, db, candidates), yes, db)
 
     # Nao usar console.status: o Progress interno de run_connect disputa o mesmo
@@ -72,21 +81,34 @@ def connect(
 @app.command()
 def garden(
     config: ConfigOption = None,
-    min_cluster_size: Annotated[Optional[int], typer.Option(
-        "--min-cluster-size",
-    )] = None,
-    hubs: Annotated[bool, typer.Option(
-        "--hubs",
-        help="Gerar MOCs ancorados em notas-hub do grafo (complementar ao pipeline taxonomico)",
-    )] = False,
-    recreate: Annotated[bool, typer.Option(
-        "--recreate",
-        help="Apagar MOCs gerados pelo pipeline e regenerar do zero",
-    )] = False,
-    yes: Annotated[bool, typer.Option(
-        "--yes", "-y",
-        help="Confirmar automaticamente (--recreate e reprocessamento de embedding)",
-    )] = False,
+    min_cluster_size: Annotated[
+        int | None,
+        typer.Option(
+            "--min-cluster-size",
+        ),
+    ] = None,
+    hubs: Annotated[
+        bool,
+        typer.Option(
+            "--hubs",
+            help="Gerar MOCs ancorados em notas-hub do grafo (complementar ao pipeline taxonomico)",
+        ),
+    ] = False,
+    recreate: Annotated[
+        bool,
+        typer.Option(
+            "--recreate",
+            help="Apagar MOCs gerados pelo pipeline e regenerar do zero",
+        ),
+    ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option(
+            "--yes",
+            "-y",
+            help="Confirmar automaticamente (--recreate e reprocessamento de embedding)",
+        ),
+    ] = False,
 ):
     """Clusterizar notas e gerar/atualizar MOCs."""
     cfg = load_deps(config)
@@ -99,7 +121,8 @@ def garden(
     if recreate and not yes:
         target = "hub" if hubs else "taxonomia"
         if not typer.confirm(
-            f"Apaga todos os MOCs do pipeline ({target}) (vault, banco e indice) e regenera. Continuar?",
+            f"Apaga todos os MOCs do pipeline ({target}) "
+            f"(vault, banco e indice) e regenera. Continuar?",
             default=False,
         ):
             raise typer.Exit(0)
@@ -109,12 +132,14 @@ def garden(
 
     if hubs:
         from zettel.gardener_hub import run_garden_hubs
+
         with console.status("[bold blue]Cultivando MOCs hub...", spinner="dots"):
             moc_ids = run_garden_hubs(cfg, db, idx, recreate=recreate)
         if recreate:
             console.print("[dim]MOCs hub do pipeline foram removidos antes da geracao.[/dim]")
     else:
         from zettel.gardener import run_garden
+
         with console.status("[bold blue]Cultivando o jardim de notas...", spinner="dots"):
             moc_ids = run_garden(cfg, db, idx, recreate=recreate)
         if recreate:

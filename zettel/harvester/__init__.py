@@ -44,45 +44,45 @@ from .pipeline import (
 from .set_paging import run_set_paging
 
 __all__ = [
+    "EmptyTextLayerError",
     # Exceptions
     "HarvestAborted",
-    "EmptyTextLayerError",
-    "PdfExtractionError",
     # Result objects
     "HarvestOutcome",
     "HarvestSkip",
+    "PdfExtractionError",
+    # Extraction (used by tests, pipeline)
+    "assert_pdf_has_text_layer",
+    "chunk_and_persist",
+    "docling_num_pages",
+    "docling_page_map_by_export",
+    "extract_markdown",
+    "extract_pdf",
+    "extract_pdf_docling",
+    "extract_text",
+    "extract_year_from_pdf_date",
+    "extract_year_from_string",
+    # Duplicates (used by pipeline, duplicates checks)
+    "find_semantic_duplicate_candidates",
+    # Citekey
+    "generate_citekey",
+    "iter_fenced_spans",
+    "list_incomplete_sources",
+    "merge_small_sections",
+    "page_map_for_source",
+    # Bibliography
+    "resolve_bibliography",
+    "resolve_duplicate_decision",
     # Public API (pipeline)
     "run_harvest",
     "run_rechunk",
     "run_set_paging",
-    "list_incomplete_sources",
+    "sample_chunk_texts",
     "source_chunking_incomplete",
+    "split_chapter_into_chunks",
+    "split_chapter_into_sections",
     # Chunking (used by tests, duplicates, other modules)
     "split_into_chapters",
-    "iter_fenced_spans",
-    "split_chapter_into_sections",
-    "merge_small_sections",
-    "chunk_and_persist",
-    "split_chapter_into_chunks",
-    # Extraction (used by tests, pipeline)
-    "assert_pdf_has_text_layer",
-    "extract_text",
-    "extract_pdf",
-    "extract_markdown",
-    "extract_pdf_docling",
-    "extract_year_from_pdf_date",
-    "extract_year_from_string",
-    "docling_num_pages",
-    "docling_page_map_by_export",
-    "page_map_for_source",
-    # Bibliography
-    "resolve_bibliography",
-    # Citekey
-    "generate_citekey",
-    # Duplicates (used by pipeline, duplicates checks)
-    "find_semantic_duplicate_candidates",
-    "resolve_duplicate_decision",
-    "sample_chunk_texts",
 ]
 
 SUPPORTED_EXTENSIONS = {".pdf", ".md", ".markdown", ".txt"}

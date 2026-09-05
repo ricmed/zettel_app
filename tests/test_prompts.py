@@ -22,7 +22,6 @@ from pathlib import Path
 
 import pytest
 from pydantic import BaseModel
-
 from zettel.ask import _NO_EVIDENCE
 from zettel.llm import REQUIRED_PROMPTS, fill_template, load_prompt_parts
 from zettel.schemas import (
@@ -70,11 +69,28 @@ CONSUMERS: dict[str, tuple[str, str]] = {
 # the provider prompt cache (and, for the extract/connect pair, the SQLite cache
 # key semantics documented in configuracao.md).
 PER_CALL_PLACEHOLDERS = {
-    "article_body", "chunk_text", "context", "context_notes", "evidence",
-    "existing_notes", "existing_subsections", "feedback", "filename",
-    "graph_context", "hub_note_section", "judge_feedback", "neighbors_list",
-    "new_definition", "new_notes_list", "new_thesis", "notes_list", "question",
-    "seed_json", "text", "text_sample", "thesis",
+    "article_body",
+    "chunk_text",
+    "context",
+    "context_notes",
+    "evidence",
+    "existing_notes",
+    "existing_subsections",
+    "feedback",
+    "filename",
+    "graph_context",
+    "hub_note_section",
+    "judge_feedback",
+    "neighbors_list",
+    "new_definition",
+    "new_notes_list",
+    "new_thesis",
+    "notes_list",
+    "question",
+    "seed_json",
+    "text",
+    "text_sample",
+    "thesis",
 }
 
 # JSON examples inside these prompts must validate against the parser's schema.
@@ -116,7 +132,8 @@ def _caller_mapping_keys(module: str, function: str) -> set[str]:
                 and isinstance(sub.value, ast.Dict)
             ):
                 return {
-                    k.value for k in sub.value.keys
+                    k.value
+                    for k in sub.value.keys
                     if isinstance(k, ast.Constant) and isinstance(k.value, str)
                 }
     raise AssertionError(f"mapping dict nao encontrado em {module}:{function}")
@@ -188,12 +205,10 @@ def test_placeholders_match_caller_mapping(name: str):
     )
     provided = _caller_mapping_keys(module, function)
     assert used <= provided, (
-        f"{name} usa placeholders sem mapping em {module}:{function}: "
-        f"{sorted(used - provided)}"
+        f"{name} usa placeholders sem mapping em {module}:{function}: {sorted(used - provided)}"
     )
     assert provided <= used, (
-        f"{module}:{function} passa chaves que {name} nao usa: "
-        f"{sorted(provided - used)}"
+        f"{module}:{function} passa chaves que {name} nao usa: {sorted(provided - used)}"
     )
 
 
@@ -202,12 +217,9 @@ def test_fill_template_leaves_no_placeholder(name: str):
     module, function = CONSUMERS[name]
     mapping = {k: f"<{k}>" for k in _caller_mapping_keys(module, function)}
     parts = load_prompt_parts(PROMPTS_DIR / name)
-    filled = fill_template(parts.system, mapping) + fill_template(
-        parts.user_template, mapping
-    )
+    filled = fill_template(parts.system, mapping) + fill_template(parts.user_template, mapping)
     assert not PLACEHOLDER_RE.search(filled), (
-        f"{name} ficou com placeholder apos fill_template: "
-        f"{PLACEHOLDER_RE.findall(filled)}"
+        f"{name} ficou com placeholder apos fill_template: {PLACEHOLDER_RE.findall(filled)}"
     )
 
 
@@ -231,9 +243,7 @@ def test_language_and_domain_reach_extract_connect_and_images():
     for name in ("literature_note.md", "permanent_note.md"):
         text = (PROMPTS_DIR / name).read_text(encoding="utf-8")
         assert "{language}" in text and "{domain}" in text, name
-    assert "{language}" in (PROMPTS_DIR / "image_description.md").read_text(
-        encoding="utf-8"
-    )
+    assert "{language}" in (PROMPTS_DIR / "image_description.md").read_text(encoding="utf-8")
 
 
 # ── JSON examples ↔ Pydantic schemas ──────────────────────────────────
@@ -267,9 +277,7 @@ def test_literature_examples_have_no_ghost_fields():
 
 
 def test_permanent_note_reject_example_has_no_note_body():
-    blocks = _json_examples(
-        (PROMPTS_DIR / "permanent_note.md").read_text(encoding="utf-8")
-    )
+    blocks = _json_examples((PROMPTS_DIR / "permanent_note.md").read_text(encoding="utf-8"))
     rejected = [json.loads(b) for b in blocks if json.loads(b).get("status") == "rejected"]
     assert rejected, "permanent_note.md sem exemplo de rejeicao"
     for block in rejected:

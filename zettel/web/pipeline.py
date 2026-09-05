@@ -12,7 +12,15 @@ from zettel.web.security import authenticated, csrf_ok, redirect_login
 
 router = APIRouter()
 
-_OPERATIONS = {"extract", "connect", "garden", "garden_hubs", "sync", "retry_chunks", "retry_assets"}
+_OPERATIONS = {
+    "extract",
+    "connect",
+    "garden",
+    "garden_hubs",
+    "sync",
+    "retry_chunks",
+    "retry_assets",
+}
 
 
 def _safe_next(raw: str) -> str | None:
@@ -43,7 +51,10 @@ async def pipeline(request: Request):
 
 @router.post("/pipeline/{operation}")
 async def pipeline_action(
-    request: Request, operation: str, csrf: str = Form(""), next: str = Form(""),
+    request: Request,
+    operation: str,
+    csrf: str = Form(""),
+    next: str = Form(""),
 ):
     if operation not in _OPERATIONS:
         return HTMLResponse("Operação indisponível", status_code=404)
@@ -61,18 +72,21 @@ async def pipeline_action(
             )
         if operation == "connect":
             if not db.get_concepts_by_status("approved", without_notes=True):
-                return HTMLResponse("Nenhum candidato aprovado aguardando connect.", status_code=409)
+                return HTMLResponse(
+                    "Nenhum candidato aprovado aguardando connect.", status_code=409
+                )
         if operation in {"garden", "garden_hubs"} and not stats.get("notes"):
             return HTMLResponse("Não há notas permanentes para jardinagem.", status_code=409)
         if operation == "retry_chunks" and not stats.get("chunks_failed"):
             return HTMLResponse("Não há chunks com falha para reprocessar.", status_code=409)
-        if (
-            operation in {"extract", "connect", "garden", "garden_hubs"}
-            and not _llm_ready(service(request).cfg)
-        ):
+        if operation in {
+            "extract",
+            "connect",
+            "garden",
+            "garden_hubs",
+        } and not _llm_ready(service(request).cfg):
             return HTMLResponse(
-                "O provedor LLM não possui credencial configurada. "
-                "Verifique Configuração / saúde.",
+                "O provedor LLM não possui credencial configurada. Verifique Configuração / saúde.",
                 status_code=409,
             )
     finally:

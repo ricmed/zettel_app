@@ -1,7 +1,6 @@
 """Tests for the `ask` command (QA over the vault)."""
 
 import pytest
-
 import zettel.ask as ask_mod
 from zettel.ask import AskResult, AskSource, build_ask_note_body, run_ask, save_ask_note
 from zettel.config import AppConfig
@@ -44,7 +43,8 @@ def test_run_ask_empty_vault_no_llm(db, monkeypatch):
 def test_run_ask_passes_wikilinks_to_prompt(db, tmp_path, monkeypatch):
     """The context handed to the LLM must contain the exact citation wikilinks."""
     db.upsert_note(
-        "01HZZZ", "@S",
+        "01HZZZ",
+        "@S",
         "/vault/30_Permanent/ZTL - 01HZZZ - grafos-de-conhecimento.md",
         "Grafos de Conhecimento",
         body="Um grafo conecta conceitos por arestas tipadas.",
@@ -54,8 +54,11 @@ def test_run_ask_passes_wikilinks_to_prompt(db, tmp_path, monkeypatch):
 
     def _fake_search(self, query, topk=None, mode=None, expand_graph=None):
         hit = RetrievedNote(
-            note_id="01HZZZ", score=0.9, title="Grafos de Conhecimento",
-            document="Um grafo conecta conceitos por arestas tipadas.", hop=0,
+            note_id="01HZZZ",
+            score=0.9,
+            title="Grafos de Conhecimento",
+            document="Um grafo conecta conceitos por arestas tipadas.",
+            hop=0,
         )
         return NoteSearchResult(hits=[hit], candidates=[hit])
 
@@ -94,8 +97,12 @@ def test_run_ask_below_floor_shows_candidates_but_no_llm_call(db, monkeypatch):
 
     def _fake_search(self, query, topk=None, mode=None, expand_graph=None):
         rejected = RetrievedNote(
-            note_id="n1", score=0.03, title="Nota Irrelevante",
-            document="assunto sem relacao", hop=0, passed_floor=False,
+            note_id="n1",
+            score=0.03,
+            title="Nota Irrelevante",
+            document="assunto sem relacao",
+            hop=0,
+            passed_floor=False,
         )
         return NoteSearchResult(hits=[], candidates=[rejected])
 
@@ -120,18 +127,28 @@ def test_build_ask_note_body_provenance():
         answer="RAG combina recuperacao e geracao [[ZTL - 01ABC - rag]].",
         sources=[
             AskSource(
-                note_id="01ABC", title="RAG",
-                wiki_link="[[ZTL - 01ABC - rag]]", rrf_score=0.42, hop=0,
-                origin="busca", source_id="@Paper2024", vector_similarity=0.84,
+                note_id="01ABC",
+                title="RAG",
+                wiki_link="[[ZTL - 01ABC - rag]]",
+                rrf_score=0.42,
+                hop=0,
+                origin="busca",
+                source_id="@Paper2024",
+                vector_similarity=0.84,
             ),
             AskSource(
-                note_id="01DEF", title="Embeddings",
-                wiki_link="[[ZTL - 01DEF - embeddings]]", rrf_score=0.1, hop=1,
+                note_id="01DEF",
+                title="Embeddings",
+                wiki_link="[[ZTL - 01DEF - embeddings]]",
+                rrf_score=0.1,
+                hop=1,
                 origin="conexao depends_on a partir de [[ZTL - 01ABC]]",
                 source_id="@Paper2024",
             ),
         ],
-        mode="hybrid", graph_expansion=True, llm_model="gpt-4o-mini",
+        mode="hybrid",
+        graph_expansion=True,
+        llm_model="gpt-4o-mini",
     )
     meta, body = build_ask_note_body(result)
     assert meta["type"] == "ask_answer"

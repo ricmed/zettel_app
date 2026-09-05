@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -76,21 +77,18 @@ def chunk_confidence_band(conf: float, limiar: float) -> str:
     return BAND_HIGH
 
 
-def filter_chunks_by_band(
-    chunks: list[dict], band: str, limiar: float
-) -> list[dict]:
+def filter_chunks_by_band(chunks: list[dict], band: str, limiar: float) -> list[dict]:
     """Filtra chunks pela faixa; band=all devolve a lista inteira."""
     if band == BAND_ALL:
         return list(chunks)
     return [
-        c for c in chunks
+        c
+        for c in chunks
         if chunk_confidence_band(float(c.get("review_confidence") or 0), limiar) == band
     ]
 
 
-def confidence_band_counts(
-    chunks: list[dict], limiar: float
-) -> dict[str, int]:
+def confidence_band_counts(chunks: list[dict], limiar: float) -> dict[str, int]:
     """Conta drafts por faixa de review_confidence.
 
     Faixas:
@@ -146,11 +144,7 @@ def format_review_item(chunk: dict) -> str:
         header += f"  {section}"
     summary = _summary_from_chunk(chunk) or "_Sem resumo._"
     excerpt = (chunk.get("text") or "").strip() or "_Trecho nao disponivel._"
-    return (
-        f"{header}\n\n"
-        f"Resumo\n{summary}\n\n"
-        f"Trecho\n{excerpt}"
-    )
+    return f"{header}\n\nResumo\n{summary}\n\nTrecho\n{excerpt}"
 
 
 def normalize_reject_scope(raw: str) -> str | None:
@@ -207,10 +201,7 @@ def run_review(
     limiar = cfg.literature_review.auto_approve_min_confidence
 
     if low_confidence_only:
-        chunks = [
-            c for c in chunks
-            if (c.get("review_confidence") or 0) < limiar
-        ]
+        chunks = [c for c in chunks if (c.get("review_confidence") or 0) < limiar]
 
     stats = {"approved": 0, "rejected": 0, "skipped": 0}
     if not chunks:
@@ -292,10 +283,7 @@ def run_review(
 
             targets = filter_chunks_by_band(chunks, scope, limiar)
             if not targets:
-                console.print(
-                    f"[dim]Nenhum draft na faixa "
-                    f"{_BAND_LABELS[scope]}.[/dim]"
-                )
+                console.print(f"[dim]Nenhum draft na faixa {_BAND_LABELS[scope]}.[/dim]")
                 continue
 
             label = _BAND_LABELS[scope]
@@ -399,9 +387,7 @@ def finalize_approved_concepts(
     _dedupe_approved_concepts(cfg, db, idx, source_id)
 
 
-def approve_chunk(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, chunk_id: str
-) -> bool:
+def approve_chunk(cfg: AppConfig, db: StateDB, idx: VectorIndex, chunk_id: str) -> bool:
     """Move draft to 20_Literature, embed literature_notes, promote concepts."""
     chunk = db.get_chunk(chunk_id)
     if not chunk or chunk.get("status") != "awaiting_review":
@@ -417,9 +403,7 @@ def approve_chunk(
     draft_path_str = chunk.get("literature_note_path")
     draft_path = Path(draft_path_str) if draft_path_str else None
 
-    dest_dir = (
-        cfg.vault_path / "20_Literature" / literature_source_dirname(citekey)
-    )
+    dest_dir = cfg.vault_path / "20_Literature" / literature_source_dirname(citekey)
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest_path = dest_dir / literature_chunk_filename_for_row(citekey, chunk)
 
@@ -427,21 +411,18 @@ def approve_chunk(
         content = draft_path.read_text(encoding="utf-8")
         meta, body = parse_frontmatter(content)
         meta["status"] = "approved"
-        meta["updated_at"] = datetime.now().isoformat()
+        meta["updated_at"] = datetime.now(UTC).isoformat()
         safe_write_note(dest_path, meta, body)
-        try:
+        with contextlib.suppress(OSError):
             draft_path.unlink()
-        except OSError:
-            pass
     else:
         # Rebuild from summary_json if draft missing
         summary_data: dict[str, Any] = {}
         if chunk.get("summary_json"):
-            try:
+            with contextlib.suppress(json.JSONDecodeError):
                 summary_data = json.loads(chunk["summary_json"])
-            except json.JSONDecodeError:
-                pass
         from zettel.vault import build_literature_chunk_note
+
         meta, body = build_literature_chunk_note(
             source_id=chunk["source_id"],
             citekey=citekey,
@@ -496,9 +477,7 @@ def approve_chunk(
     return True
 
 
-def reject_chunk(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, chunk_id: str
-) -> bool:
+def reject_chunk(cfg: AppConfig, db: StateDB, idx: VectorIndex, chunk_id: str) -> bool:
     chunk = db.get_chunk(chunk_id)
     if not chunk or chunk.get("status") != "awaiting_review":
         logger.warning("Chunk %s nao esta awaiting_review", chunk_id)
@@ -514,10 +493,8 @@ def reject_chunk(
 
     lit_id = chunk.get("literature_id")
     if lit_id:
-        try:
+        with contextlib.suppress(Exception):
             idx.delete_literature_notes([lit_id])
-        except Exception:
-            pass
 
     db.update_chunk_review(chunk_id, status="rejected", literature_note_path=None)
     db.update_concepts_status_for_chunk(chunk_id, "rejected")
@@ -559,10 +536,7 @@ def purge_rejected(
         }
 
     chunk_ids = [r["chunk_id"] for r in rows]
-    lit_ids = [
-        r["literature_id"] for r in rows
-        if r.get("literature_id")
-    ]
+    lit_ids = [r["literature_id"] for r in rows if r.get("literature_id")]
 
     removed_sqlite = db.delete_chunks(chunk_ids)
     idx.delete_chunks(chunk_ids)
@@ -574,7 +548,8 @@ def purge_rejected(
 
     logger.info(
         "Purge rejected: %d chunks SQLite, %d literature_ids Chroma",
-        removed_sqlite, len(lit_ids),
+        removed_sqlite,
+        len(lit_ids),
     )
 
     result: dict[str, int | float | bool] = {
@@ -602,8 +577,10 @@ def purge_rejected(
         result["compacted"] = True
         logger.info(
             "Compactacao: state %.2f→%.2f MB, chroma.sqlite3 %.2f→%.2f MB",
-            result["state_mb_before"], result["state_mb_after"],
-            result["chroma_mb_before"], result["chroma_mb_after"],
+            result["state_mb_before"],
+            result["state_mb_after"],
+            result["chroma_mb_before"],
+            result["chroma_mb_after"],
         )
     return result
 
@@ -624,14 +601,12 @@ def _refresh_literature_index(cfg: AppConfig, db: StateDB, source_id: str) -> No
     citekey = source["citekey"]
     title = source["title"]
     approved = [
-        c for c in db.get_chunks_for_source(source_id)
+        c
+        for c in db.get_chunks_for_source(source_id)
         if c.get("status") in ("approved", "persisted")
     ]
     approved.sort(key=lambda c: c.get("chunk_index") or 0)
-    links = [
-        literature_chunk_wikilink_for_row(citekey, c, with_alias=True)
-        for c in approved
-    ]
+    links = [literature_chunk_wikilink_for_row(citekey, c, with_alias=True) for c in approved]
 
     lit_dir = cfg.vault_path / "20_Literature"
     lit_path = lit_dir / literature_index_filename(citekey, title)
@@ -640,18 +615,24 @@ def _refresh_literature_index(cfg: AppConfig, db: StateDB, source_id: str) -> No
         safe_write_note(lit_path, meta, body)
         db.update_source_texts(source_id, lit_body=compose_note(meta, body))
     else:
-        block = "\n".join(f"- {link}" for link in links) if links else "_Nenhuma nota granular aprovada ainda._\n"
+        block = (
+            "\n".join(f"- {link}" for link in links)
+            if links
+            else "_Nenhuma nota granular aprovada ainda._\n"
+        )
         safe_update_managed_blocks(lit_path, {"auto-lit-index": block})
 
     _refresh_source_topic_index(db, source_id, citekey, approved, lit_path)
-    try:
+    with contextlib.suppress(OSError):
         db.update_source_texts(source_id, lit_body=lit_path.read_text(encoding="utf-8"))
-    except OSError:
-        pass
 
 
 def _refresh_source_topic_index(
-    db: StateDB, source_id: str, citekey: str, approved: list[dict], lit_path: Path,
+    db: StateDB,
+    source_id: str,
+    citekey: str,
+    approved: list[dict],
+    lit_path: Path,
 ) -> None:
     """Rebuild the source's `auto-topic-index` from its approved literature notes.
 
@@ -671,15 +652,21 @@ def _refresh_source_topic_index(
         if not candidates:
             continue
         best = max(candidates, key=lambda c: c.get("relevance_score") or 0)
-        sources.append(TermSource(
-            note_id=chunk["chunk_id"],
-            label=literature_chunk_wikilink_for_row(citekey, chunk),
-            frameworks=tuple(best.get("named_frameworks") or []),
-            tags=tuple(str(t) for t in (best.get("tags") or [])),
-            thesis=str(best.get("thesis") or ""),
-        ))
+        sources.append(
+            TermSource(
+                note_id=chunk["chunk_id"],
+                label=literature_chunk_wikilink_for_row(citekey, chunk),
+                frameworks=tuple(best.get("named_frameworks") or []),
+                tags=tuple(str(t) for t in (best.get("tags") or [])),
+                thesis=str(best.get("thesis") or ""),
+            )
+        )
     sync_topic_index(
-        db, SCOPE_SOURCE, source_id, sources, note_path=lit_path,
+        db,
+        SCOPE_SOURCE,
+        source_id,
+        sources,
+        note_path=lit_path,
         targets_are_permanent_notes=False,
     )
 
@@ -703,20 +690,24 @@ def _dedupe_approved_concepts(
             cand = PermanentNoteCandidate(**json.loads(raw))
         except Exception:
             continue
-        candidates.append({
-            "concept_id": row["concept_id"],
-            "source_id": row["source_id"],
-            "chunk_id": row["chunk_id"],
-            "candidate": cand,
-        })
+        candidates.append(
+            {
+                "concept_id": row["concept_id"],
+                "source_id": row["source_id"],
+                "chunk_id": row["chunk_id"],
+                "candidate": cand,
+            }
+        )
 
     if not candidates:
         return
 
     from zettel.extractor import deduplicate_candidates
+
     llm = get_llm(cfg, "review")
     approved = deduplicate_candidates(cfg, db, idx, llm, candidates)
     logger.info(
         "Dedupe pos-review: %d / %d candidatos aprovados para connect",
-        len(approved), len(candidates),
+        len(approved),
+        len(candidates),
     )

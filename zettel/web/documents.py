@@ -31,6 +31,7 @@ def _file_needs_harvest(db: Any, file_path: Path) -> bool:
     if not source or source.get("processing_status") != "completed":
         return True
     from zettel.harvester import source_chunking_incomplete
+
     if source_chunking_incomplete(db, source_id):
         return True
     try:
@@ -47,11 +48,13 @@ def _list_pending_inbox(db: Any, cfg: Any) -> list[dict[str, Any]]:
     for file_path in sorted(cfg.inbox_path.rglob("*")):
         if file_path.is_file() and file_path.suffix.lower() in ALLOWED_EXTENSIONS:
             if _file_needs_harvest(db, file_path):
-                pending.append({
-                    "name": file_path.name,
-                    "relative": file_path.relative_to(cfg.inbox_path).as_posix(),
-                    "size": file_path.stat().st_size,
-                })
+                pending.append(
+                    {
+                        "name": file_path.name,
+                        "relative": file_path.relative_to(cfg.inbox_path).as_posix(),
+                        "size": file_path.stat().st_size,
+                    }
+                )
     return pending
 
 
@@ -67,7 +70,11 @@ async def documents(request: Request):
     finally:
         db.close()
     return render(
-        request, "documents.html", page="documents", sources=sources, inbox=inbox,
+        request,
+        "documents.html",
+        page="documents",
+        sources=sources,
+        inbox=inbox,
         llm_ready=_llm_ready(cfg),
     )
 
@@ -82,20 +89,45 @@ async def upload(request: Request, file: UploadFile = File(...), csrf: str = For
     name = Path(original_name).name
     suffix = Path(name).suffix.lower()
     if (
-        not name or name in {".", ".."} or name != original_name
-        or "/" in original_name or "\\" in original_name
-        or suffix not in ALLOWED_EXTENSIONS or len(name) > 180
+        not name
+        or name in {".", ".."}
+        or name != original_name
+        or "/" in original_name
+        or "\\" in original_name
+        or suffix not in ALLOWED_EXTENSIONS
+        or len(name) > 180
         or re.fullmatch(r"[\w .()\-]+", name, flags=re.UNICODE) is None
     ):
-        return render(request, "documents.html", page="documents", sources=[], inbox=[],
-                      error="Use um arquivo PDF, Markdown ou TXT com nome válido.", status_code=400)
+        return render(
+            request,
+            "documents.html",
+            page="documents",
+            sources=[],
+            inbox=[],
+            error="Use um arquivo PDF, Markdown ou TXT com nome válido.",
+            status_code=400,
+        )
     data = await file.read(MAX_UPLOAD_BYTES + 1)
     if not data:
-        return render(request, "documents.html", page="documents", sources=[], inbox=[],
-                      error="O arquivo está vazio.", status_code=400)
+        return render(
+            request,
+            "documents.html",
+            page="documents",
+            sources=[],
+            inbox=[],
+            error="O arquivo está vazio.",
+            status_code=400,
+        )
     if len(data) > MAX_UPLOAD_BYTES:
-        return render(request, "documents.html", page="documents", sources=[], inbox=[],
-                      error="O arquivo excede o limite de 25 MB.", status_code=413)
+        return render(
+            request,
+            "documents.html",
+            page="documents",
+            sources=[],
+            inbox=[],
+            error="O arquivo excede o limite de 25 MB.",
+            status_code=413,
+        )
     cfg = service(request).cfg
     destination = (cfg.inbox_path / name).resolve()
     try:
@@ -103,8 +135,15 @@ async def upload(request: Request, file: UploadFile = File(...), csrf: str = For
     except ValueError:
         return HTMLResponse("Nome de arquivo inválido", status_code=400)
     if destination.exists():
-        return render(request, "documents.html", page="documents", sources=[], inbox=[],
-                      error="Já existe um arquivo com esse nome no inbox.", status_code=409)
+        return render(
+            request,
+            "documents.html",
+            page="documents",
+            sources=[],
+            inbox=[],
+            error="Já existe um arquivo com esse nome no inbox.",
+            status_code=409,
+        )
     cfg.inbox_path.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(data)
     return RedirectResponse("/documents", status_code=303)
@@ -112,11 +151,16 @@ async def upload(request: Request, file: UploadFile = File(...), csrf: str = For
 
 @router.post("/documents/harvest")
 async def harvest(
-    request: Request, selected_file: str = Form(""), duplicate_action: str = Form("skip"),
-    skip_biblio: str = Form(""), skip_paging: str = Form(""),
-    dump_chunks: str = Form(""), dump_extraction: str = Form(""),
+    request: Request,
+    selected_file: str = Form(""),
+    duplicate_action: str = Form("skip"),
+    skip_biblio: str = Form(""),
+    skip_paging: str = Form(""),
+    dump_chunks: str = Form(""),
+    dump_extraction: str = Form(""),
     content_start_file: int | None = Form(None),
-    content_start_book: int | None = Form(None), csrf: str = Form(""),
+    content_start_book: int | None = Form(None),
+    csrf: str = Form(""),
 ):
     if not authenticated(request):
         return RedirectResponse("/login", status_code=303)
@@ -148,15 +192,23 @@ async def harvest(
         duplicate_action = "skip"
     from zettel.chunk_dump import default_dump_dir as chunk_dump_dir
     from zettel.extraction_dump import default_dump_dir as extraction_dump_dir
+
     cfg = service(request).cfg
-    return post_job(request, "harvest", {
-        "selected_file": selected_file or None,
-        "duplicate_action": duplicate_action, "skip_biblio": bool(skip_biblio),
-        "skip_paging": bool(skip_paging), "content_start_file": content_start_file,
-        "content_start_book": content_start_book,
-        "dump_dir": str(chunk_dump_dir(cfg)) if dump_chunks else None,
-        "extraction_dump_dir": str(extraction_dump_dir(cfg)) if dump_extraction else None,
-    }, csrf)
+    return post_job(
+        request,
+        "harvest",
+        {
+            "selected_file": selected_file or None,
+            "duplicate_action": duplicate_action,
+            "skip_biblio": bool(skip_biblio),
+            "skip_paging": bool(skip_paging),
+            "content_start_file": content_start_file,
+            "content_start_book": content_start_book,
+            "dump_dir": str(chunk_dump_dir(cfg)) if dump_chunks else None,
+            "extraction_dump_dir": str(extraction_dump_dir(cfg)) if dump_extraction else None,
+        },
+        csrf,
+    )
 
 
 @router.post("/documents/run-all")
@@ -168,8 +220,7 @@ async def documents_run_all(request: Request, csrf: str = Form("")):
         return HTMLResponse("CSRF inválido", status_code=403)
     if not _llm_ready(service(request).cfg):
         return HTMLResponse(
-            "O provedor LLM não possui credencial configurada. "
-            "Verifique Configuração / saúde.",
+            "O provedor LLM não possui credencial configurada. Verifique Configuração / saúde.",
             status_code=409,
         )
     return post_job(

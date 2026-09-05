@@ -23,8 +23,9 @@ import hashlib
 import json
 import logging
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any
 
 from zettel.config import AppConfig
 
@@ -60,9 +61,7 @@ PLAIN_CHAPTER_START_PATTERNS = [
 
 CHAPTER_START_PATTERNS = MARKDOWN_CHAPTER_START_PATTERNS + PLAIN_CHAPTER_START_PATTERNS
 
-_BIBLIO_PAGE_RANGE = re.compile(
-    r"(?<!\d)(\d{1,4})\s*[-–—]\s*(\d{1,4})(?!\d)"
-)
+_BIBLIO_PAGE_RANGE = re.compile(r"(?<!\d)(\d{1,4})\s*[-\u2013\u2014]\s*(\d{1,4})(?!\d)")
 
 
 @dataclass
@@ -136,12 +135,17 @@ def infer_missing_page(
             next_idx, next_page = i, pages[i]
             break
 
-    if prev_page is not None and next_page is not None and next_idx is not None and prev_idx is not None:
+    if (
+        prev_page is not None
+        and next_page is not None
+        and next_idx is not None
+        and prev_idx is not None
+    ):
         span = next_idx - prev_idx
         if span <= 0:
             return prev_page
         progress = (chunk_index - prev_idx) / span
-        return int(round(prev_page + (next_page - prev_page) * progress))
+        return round(prev_page + (next_page - prev_page) * progress)
 
     return prev_page
 
@@ -225,9 +229,7 @@ def _looks_like_toc(head: str) -> bool:
     if len(lines) < 5:
         return False
     leaders = sum(1 for ln in lines if "...." in ln or "……" in ln or ". . ." in ln)
-    trailing_num = sum(
-        1 for ln in lines if re.search(r"\d+\s*$", ln) and len(ln) < 80
-    )
+    trailing_num = sum(1 for ln in lines if re.search(r"\d+\s*$", ln) and len(ln) < 80)
     return leaders >= 3 or trailing_num >= 6
 
 
@@ -308,16 +310,15 @@ def resolve_content_paging(
 
     if content_start_file is not None:
         start_file = int(content_start_file)
-        start_book = (
-            int(content_start_book) if content_start_book is not None else sug_book
-        )
+        start_book = int(content_start_book) if content_start_book is not None else sug_book
         return ContentPaging(start_file, start_book, "confirmed")
 
     if not interactive:
         if suggested.get("confidence") == "heuristic":
             logger.info(
                 "Paginacao heuristica (nao-interativo): arquivo p.%d = impressa p.%d",
-                sug_file, sug_book,
+                sug_file,
+                sug_book,
             )
             return ContentPaging(sug_file, sug_book, "heuristic")
         return ContentPaging(1, 1, "skipped")

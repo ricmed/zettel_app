@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from zettel.config import AppConfig, EmbeddingConfig
 from zettel.index import index_kwargs
 from zettel.state import StateDB
@@ -17,8 +16,11 @@ def test_web_queue_enforces_mutual_exclusion_and_transitions(tmp_path: Path):
         assert not db.create_web_job("two", "garden", {})
         assert db.claim_web_job("one")
         db.update_web_job(
-            "one", state="succeeded", phase="completed",
-            result={"drafts": 2}, finished=True,
+            "one",
+            state="succeeded",
+            phase="completed",
+            result={"drafts": 2},
+            finished=True,
         )
         job = db.get_web_job("one")
         assert job is not None
@@ -48,8 +50,12 @@ def test_progress_events_and_dashboard_are_persisted(tmp_path: Path):
     try:
         assert db.create_web_job("job", "extract", {})
         db.add_web_job_event(
-            "job", "extract", current_item="chunk-1",
-            current_index=1, total_items=3, message="Processando",
+            "job",
+            "extract",
+            current_item="chunk-1",
+            current_index=1,
+            total_items=3,
+            message="Processando",
         )
         events = db.list_web_job_events("job")
         assert events[0]["current_index"] == 1
@@ -91,7 +97,9 @@ def test_idx_kwargs_forwards_embedding_dimensions():
     model wrote full-width vectors through the web and reduced ones through the
     CLI, into the same Chroma store.
     """
-    cfg = AppConfig(embedding=EmbeddingConfig(provider="ollama", model="qwen3-embedding", dimensions=1024))
+    cfg = AppConfig(
+        embedding=EmbeddingConfig(provider="ollama", model="qwen3-embedding", dimensions=1024)
+    )
     assert index_kwargs(cfg)["dimensions"] == 1024
 
 
@@ -102,30 +110,39 @@ def test_run_all_dispatches_every_phase_in_order(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(index, "VectorIndex", lambda **kwargs: object())
     monkeypatch.setattr(
-        harvester, "run_harvest",
-        lambda cfg, db, idx, **kwargs: calls.append(("harvest", kwargs))
-        or harvester.HarvestOutcome(source_ids=["@source"]),
+        harvester,
+        "run_harvest",
+        lambda cfg, db, idx, **kwargs: (
+            calls.append(("harvest", kwargs)) or harvester.HarvestOutcome(source_ids=["@source"])
+        ),
     )
     monkeypatch.setattr(
-        extractor, "run_extract",
+        extractor,
+        "run_extract",
         lambda cfg, db, idx, **kwargs: calls.append(("extract", kwargs)) or ["draft"],
     )
     monkeypatch.setattr(
-        review, "run_review",
-        lambda cfg, db, idx, **kwargs: calls.append(("review", kwargs))
-        or {"approved": 1, "rejected": 0, "skipped": 0},
+        review,
+        "run_review",
+        lambda cfg, db, idx, **kwargs: (
+            calls.append(("review", kwargs)) or {"approved": 1, "rejected": 0, "skipped": 0}
+        ),
     )
     monkeypatch.setattr(
-        connector, "load_approved_candidates",
+        connector,
+        "load_approved_candidates",
         lambda db: [{"candidate": "approved"}],
     )
     monkeypatch.setattr(
-        connector, "run_connect",
-        lambda cfg, db, idx, candidates, **kwargs:
-        calls.append(("connect", {"candidates": candidates, **kwargs})) or ["note"],
+        connector,
+        "run_connect",
+        lambda cfg, db, idx, candidates, **kwargs: (
+            calls.append(("connect", {"candidates": candidates, **kwargs})) or ["note"]
+        ),
     )
     monkeypatch.setattr(
-        gardener, "run_garden",
+        gardener,
+        "run_garden",
         lambda cfg, db, idx, **kwargs: calls.append(("garden", kwargs)) or ["moc"],
     )
 
@@ -146,13 +163,22 @@ def test_run_all_dispatches_every_phase_in_order(tmp_path: Path, monkeypatch):
     )
 
     assert [name for name, _ in calls] == [
-        "harvest", "extract", "review", "connect", "garden",
+        "harvest",
+        "extract",
+        "review",
+        "connect",
+        "garden",
     ]
     assert calls[0][1]["interactive"] is False
     assert calls[0][1]["duplicate_action"] == "skip"
     assert calls[2][1] == {"auto_approve": True, "interactive": False}
     assert progress.phases == [
-        "run_all", "harvest", "extract", "review", "connect", "garden",
+        "run_all",
+        "harvest",
+        "extract",
+        "review",
+        "connect",
+        "garden",
     ]
     assert result == {
         "sources": ["@source"],
@@ -168,7 +194,8 @@ def test_manual_lit_to_ztl_dispatches_specialized_flow(tmp_path: Path, monkeypat
 
     captured = {}
     monkeypatch.setattr(
-        index, "VectorIndex",
+        index,
+        "VectorIndex",
         lambda **kwargs: (_ for _ in ()).throw(AssertionError("index must stay lazy")),
     )
 
@@ -206,7 +233,8 @@ def test_manual_lit_to_ztl_accepts_ref_and_force(tmp_path: Path, monkeypatch):
 
     captured = {}
     monkeypatch.setattr(
-        index, "VectorIndex",
+        index,
+        "VectorIndex",
         lambda **kwargs: (_ for _ in ()).throw(AssertionError("index must stay lazy")),
     )
 

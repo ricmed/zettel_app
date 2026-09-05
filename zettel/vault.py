@@ -6,7 +6,7 @@ import json
 import logging
 import re
 import shutil
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -51,9 +51,7 @@ _WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
 _NOTE_ULID_RE = re.compile(r"[0-9A-HJKMNP-TV-Z]{26}")
 _ZTL_PREFIX_RE = re.compile(r"^(?:ZTL\s*-\s*)+", re.IGNORECASE)
 # ``[[ZTL - ULID]]`` or ``[[ZTL - ZTL - ULID]]`` with no slug after the id.
-_BARE_PERMANENT_WIKILINK_RE = re.compile(
-    r"\[\[(?:ZTL\s*-\s*)+([0-9A-HJKMNP-TV-Z]{26})\]\]"
-)
+_BARE_PERMANENT_WIKILINK_RE = re.compile(r"\[\[(?:ZTL\s*-\s*)+([0-9A-HJKMNP-TV-Z]{26})\]\]")
 
 
 def _wikilink_target_matches(target: str, link_targets: set[str]) -> bool:
@@ -133,7 +131,7 @@ def upsert_managed_block(content: str, block_name: str, new_inner: str) -> str:
         return content + "\n" + block_text + "\n"
 
     before = content[:start_idx]
-    after = content[end_idx + len(end_tag):]
+    after = content[end_idx + len(end_tag) :]
     return before + block_text + after
 
 
@@ -167,7 +165,7 @@ def safe_update_managed_blocks(path: Path, blocks: dict[str, str]) -> None:
 
     meta, body = parse_frontmatter(content)
     if meta:
-        meta["updated_at"] = datetime.now().isoformat()
+        meta["updated_at"] = datetime.now(UTC).isoformat()
         content = compose_note(meta, body)
     path.write_text(content, encoding="utf-8")
     logger.debug("Blocos gerenciados atualizados em: %s", path)
@@ -496,7 +494,7 @@ def build_source_note(
     as `abnt_reference` for easy citation copy-paste. Links to the literature
     *index* (not a monolithic LIT).
     """
-    now = datetime.now().isoformat()
+    now = datetime.now(UTC).isoformat()
     meta: dict[str, Any] = {
         "type": "source",
         "source_id": source_id,
@@ -565,9 +563,7 @@ def build_source_note(
     if total_pages_file is not None:
         body += f"**Paginas (arquivo)**: {total_pages_file}\n"
     if content_start_file_page is not None:
-        body += (
-            f"**Inicio do conteudo (arquivo)**: p. {content_start_file_page}"
-        )
+        body += f"**Inicio do conteudo (arquivo)**: p. {content_start_file_page}"
         if content_start_book_page is not None:
             body += f" = p. impressa {content_start_book_page}"
         if page_offset_confidence:
@@ -616,7 +612,7 @@ def sync_source_costs_to_vault(cfg: Any, db: Any, source_id: str) -> bool:
     meta["tokens_prompt"] = int(row.get("tokens_prompt") or 0)
     meta["tokens_completion"] = int(row.get("tokens_completion") or 0)
     meta["tokens_embedding"] = int(row.get("tokens_embedding") or 0)
-    meta["updated_at"] = datetime.now().isoformat()
+    meta["updated_at"] = datetime.now(UTC).isoformat()
     path.write_text(render_frontmatter(meta) + "\n" + body, encoding="utf-8")
     return True
 
@@ -629,7 +625,7 @@ def build_literature_index_note(
     origin: str = "pipeline",
 ) -> tuple[dict[str, Any], str]:
     """Build the per-source literature index (replaces the old monolithic LIT)."""
-    now = datetime.now().isoformat()
+    now = datetime.now(UTC).isoformat()
     meta = {
         "type": "literature_index",
         "source_id": source_id,
@@ -722,7 +718,7 @@ def build_literature_chunk_note(
     origin: str = "pipeline",
 ) -> tuple[dict[str, Any], str]:
     """Build a granular literature note for one chunk (draft or approved)."""
-    now = datetime.now().isoformat()
+    now = datetime.now(UTC).isoformat()
     page_label = page_in_book if page_in_book is not None else page_in_file
     page_str = f"p. {page_label}" if page_label is not None else "p. ?"
     meta: dict[str, Any] = {
@@ -758,9 +754,10 @@ def build_literature_chunk_note(
     body += f"{summary.strip() or '_Sem resumo._'}\n\n"
     body += "## Conceitos-chave\n\n"
     if key_concepts:
-        body += " ".join(
-            f"#{c.lstrip('#')}" if not c.startswith("#") else c for c in key_concepts
-        ) + "\n\n"
+        body += (
+            " ".join(f"#{c.lstrip('#')}" if not c.startswith("#") else c for c in key_concepts)
+            + "\n\n"
+        )
     else:
         body += "_Nenhum._\n\n"
     body += "## Candidatos a Nota Permanente\n\n"
@@ -869,7 +866,7 @@ def build_permanent_note_body(
             if desc:
                 line += f" -- {desc}"
             conn_lines.append(line)
-        parts.append(f"## Conexões\n\n" + "\n".join(conn_lines) + "\n")
+        parts.append("## Conexões\n\n" + "\n".join(conn_lines) + "\n")
     return "\n".join(parts)
 
 
@@ -891,7 +888,7 @@ def normalize_note_id(raw: str) -> str | None:
         return None
     token = str(raw).strip()
     if token.startswith("[[") and "]]" in token:
-        token = token[2:token.index("]]")]
+        token = token[2 : token.index("]]")]
     token = token.split("|", 1)[0].strip()
     if not token:
         return None

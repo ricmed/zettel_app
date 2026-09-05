@@ -73,9 +73,7 @@ def _offset_is_fenced(offset: int, spans: list[tuple[int, int]]) -> bool:
     return any(start <= offset < end for start, end in spans)
 
 
-def _headings_outside_fences(
-    pattern: re.Pattern[str], text: str
-) -> list[re.Match[str]]:
+def _headings_outside_fences(pattern: re.Pattern[str], text: str) -> list[re.Match[str]]:
     """Headings of `pattern` whose offset does not fall inside a fenced block."""
     spans = iter_fenced_spans(text)
     if not spans:
@@ -113,12 +111,14 @@ def split_into_chapters(text: str, origin_type: str) -> list[dict[str, str]]:
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         chapter_text = text[start:end].strip()
         if chapter_text:
-            chapters.append({
-                "title": title,
-                "text": chapter_text,
-                "locator": title,
-                "heading": m.group(0).strip(),
-            })
+            chapters.append(
+                {
+                    "title": title,
+                    "text": chapter_text,
+                    "locator": title,
+                    "heading": m.group(0).strip(),
+                }
+            )
 
     return chapters
 
@@ -139,7 +139,9 @@ def _join_headings(headings: list[str]) -> str:
 
 
 def _section_record(
-    section_path: str, text: str, headings: list[str] | None = None,
+    section_path: str,
+    text: str,
+    headings: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
         "section_path": section_path,
@@ -243,18 +245,26 @@ def merge_small_sections(
         if len(sec["text"]) < min_section_chars:
             carry = sec
         else:
-            merged.append(_section_record(
-                sec["section_path"], sec["text"], _headings_of(sec),
-            ))
+            merged.append(
+                _section_record(
+                    sec["section_path"],
+                    sec["text"],
+                    _headings_of(sec),
+                )
+            )
     if carry:
         if merged:
             block = _join_headings(_headings_of(carry))
             suffix = f"\n\n{block}\n\n{carry['text']}" if block else f"\n\n{carry['text']}"
             merged[-1]["text"] += suffix
         else:
-            merged.append(_section_record(
-                carry["section_path"], carry["text"], _headings_of(carry),
-            ))
+            merged.append(
+                _section_record(
+                    carry["section_path"],
+                    carry["text"],
+                    _headings_of(carry),
+                )
+            )
     return merged
 
 
@@ -316,9 +326,7 @@ def _split_preserving_fences(text: str, splitter: Any, chunk_size: int) -> list[
     return pieces
 
 
-def split_chapter_into_chunks(
-    cfg: AppConfig, chapter: dict[str, str]
-) -> list[tuple[str, str]]:
+def split_chapter_into_chunks(cfg: AppConfig, chapter: dict[str, str]) -> list[tuple[str, str]]:
     """Return (section_path, chunk_text) pairs for one chapter.
 
     Sections that fit in chunk_size become a single chunk; larger ones are further
@@ -348,7 +356,7 @@ def split_chapter_into_chunks(
     if sections and chapter_heading:
         first_heads = _headings_of(sections[0])
         if chapter_heading not in first_heads:
-            sections[0]["headings"] = [chapter_heading] + first_heads
+            sections[0]["headings"] = [chapter_heading, *first_heads]
 
     for sec in sections:
         text = sec["text"]
@@ -378,8 +386,11 @@ def split_chapter_into_chunks(
 
 
 def chunk_and_persist(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex,
-    source_id: str, chapters: list[dict[str, str]],
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    source_id: str,
+    chapters: list[dict[str, str]],
     page_map: list[tuple[int, str]] | None = None,
     paging: ContentPaging | None = None,
     origin_type: str = "",
@@ -421,14 +432,18 @@ def chunk_and_persist(
         chapter_id = f"{source_id}::ch{ch_idx:03d}"
 
         existing_chapters = db.get_chapters_for_source(source_id)
-        existing_ch = next(
-            (c for c in existing_chapters if c["chapter_id"] == chapter_id), None
-        )
+        existing_ch = next((c for c in existing_chapters if c["chapter_id"] == chapter_id), None)
         if existing_ch and existing_ch["chapter_checksum"] == chapter_checksum:
             logger.debug("Capitulo inalterado: %s", chapter_id)
             continue
 
-        db.upsert_chapter(chapter_id, source_id, chapter["title"], chapter_checksum, chapter["locator"])
+        db.upsert_chapter(
+            chapter_id,
+            source_id,
+            chapter["title"],
+            chapter_checksum,
+            chapter["locator"],
+        )
 
         chunk_pairs = split_chapter_into_chunks(cfg, chapter)
         keep_ids: set[str] = set()
@@ -441,22 +456,27 @@ def chunk_and_persist(
             if chunk_id in keep_ids:
                 logger.debug(
                     "Chunk duplicado por conteudo ignorado: %s (%s)",
-                    chunk_id, section_path,
+                    chunk_id,
+                    section_path,
                 )
                 continue
             keep_ids.add(chunk_id)
             meta_page = lookup_page_for_chunk(chunk_text, page_map) if page_map else None
             hint = extract_page_hint(
-                chunk_text, page_from_meta=meta_page, allow_regex=allow_regex,
+                chunk_text,
+                page_from_meta=meta_page,
+                allow_regex=allow_regex,
             )
-            chapter_specs.append({
-                "chunk_id": chunk_id,
-                "chapter_id": chapter_id,
-                "section_path": section_path,
-                "text": chunk_text,
-                "chunk_checksum": chunk_checksum,
-                "page_hint": hint,
-            })
+            chapter_specs.append(
+                {
+                    "chunk_id": chunk_id,
+                    "chapter_id": chapter_id,
+                    "section_path": section_path,
+                    "text": chunk_text,
+                    "chunk_checksum": chunk_checksum,
+                    "page_hint": hint,
+                }
+            )
 
         removed = db.delete_chunks_for_chapter(chapter_id, keep_ids)
         if removed:
@@ -478,7 +498,7 @@ def chunk_and_persist(
     if pending_specs:
         hints = [s["page_hint"] for s in pending_specs]
         inferred = apply_page_inference(hints)
-        for spec, hint in zip(pending_specs, inferred):
+        for spec, hint in zip(pending_specs, inferred, strict=False):
             spec["page_in_file"] = hint.page_in_file
             spec["page_confidence"] = hint.confidence
 
@@ -499,18 +519,28 @@ def chunk_and_persist(
             db.delete_chunks(skipped_ids)
             idx.delete_chunks(skipped_ids)
             logger.info(
-                "[SOURCE=%s] %d chunk(s) antes da p.%d do arquivo ignorados "
-                "(%d permanecem de %d)",
-                source_id, len(skipped_ids), start_file, len(pending_specs), before,
+                "[SOURCE=%s] %d chunk(s) antes da p.%d do arquivo ignorados (%d permanecem de %d)",
+                source_id,
+                len(skipped_ids),
+                start_file,
+                len(pending_specs),
+                before,
             )
 
-        already = idx.existing_ids("chunks", [s["chunk_id"] for s in pending_specs]) if pending_specs else set()
+        already = (
+            idx.existing_ids("chunks", [s["chunk_id"] for s in pending_specs])
+            if pending_specs
+            else set()
+        )
         to_embed = [s for s in pending_specs if s["chunk_id"] not in already]
         logger.info(
             "[SOURCE=%s] Persistindo %d chunks no SQLite; "
             "gerando embeddings no Chroma para %d novos "
             "(%d ja indexados, pulados)",
-            source_id, len(pending_specs), len(to_embed), len(already),
+            source_id,
+            len(pending_specs),
+            len(to_embed),
+            len(already),
         )
         embed_i = 0
         for spec in pending_specs:
@@ -546,7 +576,9 @@ def chunk_and_persist(
         if to_embed:
             logger.info(
                 "[SOURCE=%s] Embeddings de chunks concluidos: %d/%d",
-                source_id, len(to_embed), len(to_embed),
+                source_id,
+                len(to_embed),
+                len(to_embed),
             )
 
     # Return total chunks currently stored for the source

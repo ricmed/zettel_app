@@ -43,10 +43,13 @@ def purge_rejected_cmd(
     config: ConfigOption = None,
     source_id: SourceFilterOption = None,
     yes: ConfirmDeleteYesOption = False,
-    no_compact: Annotated[bool, typer.Option(
-        "--no-compact",
-        help="Nao rodar VACUUM apos o purge (nao recupera espaco em disco)",
-    )] = False,
+    no_compact: Annotated[
+        bool,
+        typer.Option(
+            "--no-compact",
+            help="Nao rodar VACUUM apos o purge (nao recupera espaco em disco)",
+        ),
+    ] = False,
 ):
     """Apagar chunks rejeitados do SQLite e do Chroma (irreversivel).
 
@@ -64,9 +67,7 @@ def purge_rejected_cmd(
         db.close()
         return
 
-    console.print(
-        f"[yellow]{n} chunk(s) rejected serao apagados do SQLite e do Chroma.[/yellow]"
-    )
+    console.print(f"[yellow]{n} chunk(s) rejected serao apagados do SQLite e do Chroma.[/yellow]")
     if not no_compact:
         console.print(
             "[dim]Apos a exclusao, VACUUM compactara state.db e chroma.sqlite3 "
@@ -79,8 +80,13 @@ def purge_rejected_cmd(
 
     idx = get_idx(cfg, db=db, yes=yes)
     from zettel.review import purge_rejected
+
     result = purge_rejected(
-        cfg, db, idx, source_id=source_id, compact=not no_compact,
+        cfg,
+        db,
+        idx,
+        source_id=source_id,
+        compact=not no_compact,
     )
     console.print(
         f"[green]Removidos: {result['chunks']} chunks "
@@ -101,14 +107,20 @@ def delete_source_cmd(
     source_id: Annotated[str, typer.Argument(help="Fonte a apagar (ex. @Citekey)")],
     config: ConfigOption = None,
     yes: ConfirmDeleteYesOption = False,
-    delete_permanent: Annotated[bool, typer.Option(
-        "--delete-permanent",
-        help="Apagar tambem notas permanentes (ZTL) ligadas a fonte",
-    )] = False,
-    no_compact: Annotated[bool, typer.Option(
-        "--no-compact",
-        help="Nao rodar VACUUM apos a exclusao (nao recupera espaco em disco)",
-    )] = False,
+    delete_permanent: Annotated[
+        bool,
+        typer.Option(
+            "--delete-permanent",
+            help="Apagar tambem notas permanentes (ZTL) ligadas a fonte",
+        ),
+    ] = False,
+    no_compact: Annotated[
+        bool,
+        typer.Option(
+            "--no-compact",
+            help="Nao rodar VACUUM apos a exclusao (nao recupera espaco em disco)",
+        ),
+    ] = False,
 ):
     """Apagar uma fonte por completo do vault, SQLite e Chroma (irreversivel).
 
@@ -134,17 +146,11 @@ def delete_source_cmd(
         f"{len(chunks)} chunk(s), {len(permanent)} nota(s) permanente(s) ligada(s)."
     )
     if delete_permanent and permanent:
-        console.print(
-            f"[red]{len(permanent)} nota(s) permanente(s) serao apagadas.[/red]"
-        )
+        console.print(f"[red]{len(permanent)} nota(s) permanente(s) serao apagadas.[/red]")
     elif permanent:
-        console.print(
-            "[dim]Notas permanentes serao mantidas; wikilinks mortos serao limpos.[/dim]"
-        )
+        console.print("[dim]Notas permanentes serao mantidas; wikilinks mortos serao limpos.[/dim]")
     if not no_compact:
-        console.print(
-            "[dim]Apos a exclusao, VACUUM compactara state.db e chroma.sqlite3.[/dim]"
-        )
+        console.print("[dim]Apos a exclusao, VACUUM compactara state.db e chroma.sqlite3.[/dim]")
     if not yes and not typer.confirm("Excluir fonte permanentemente?", default=False):
         console.print("[dim]Exclusao cancelada.[/dim]")
         db.close()
@@ -152,7 +158,10 @@ def delete_source_cmd(
 
     idx = get_idx(cfg, db=db, yes=yes)
     result = purge_source(
-        cfg, db, idx, sid,
+        cfg,
+        db,
+        idx,
+        sid,
         delete_permanent=delete_permanent,
         compact=not no_compact,
     )
@@ -174,9 +183,7 @@ def delete_source_cmd(
         f"{result['literature_chroma']} literature_notes, 1 source."
     )
     if result["permanent_deleted"]:
-        console.print(
-            f"[green]Permanentes apagadas:[/green] {result['permanent_deleted']}"
-        )
+        console.print(f"[green]Permanentes apagadas:[/green] {result['permanent_deleted']}")
     if result["wikilinks_cleaned"]:
         console.print(
             f"[green]Wikilinks limpos em {result['wikilinks_cleaned']} arquivo(s).[/green]"

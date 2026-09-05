@@ -12,9 +12,9 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from .config import effective_temperature, llm_phase
 from .hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
@@ -39,15 +39,15 @@ class AskSource:
     note_id: str
     title: str
     wiki_link: str
-    rrf_score: float                  # fused Reciprocal Rank Fusion score (positional, not a relevance measure)
+    rrf_score: float  # fused Reciprocal Rank Fusion score (positional, not a relevance measure)
     hop: int
-    origin: str                       # human-readable: "busca" or "conexao ..."
-    source_id: Optional[str] = None
-    path: Optional[str] = None
-    passed_floor: bool = True         # False = shown for transparency, not used to answer
-    vector_similarity: Optional[float] = None  # cosine similarity (1 - distance/2), when available
-    bm25_rank: Optional[int] = None   # position in the lexical (BM25) ranking, when found
-    floor_reason: str = ""            # human-readable explanation of the floor verdict
+    origin: str  # human-readable: "busca" or "conexao ..."
+    source_id: str | None = None
+    path: str | None = None
+    passed_floor: bool = True  # False = shown for transparency, not used to answer
+    vector_similarity: float | None = None  # cosine similarity (1 - distance/2), when available
+    bm25_rank: int | None = None  # position in the lexical (BM25) ranking, when found
+    floor_reason: str = ""  # human-readable explanation of the floor verdict
 
 
 @dataclass
@@ -74,13 +74,13 @@ class AskResult:
 
 
 def run_ask(
-    cfg: "AppConfig",
-    db: "StateDB",
-    idx: "VectorIndex",
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
     question: str,
-    topk: Optional[int] = None,
-    use_graph: Optional[bool] = None,
-    mode: Optional[str] = None,
+    topk: int | None = None,
+    use_graph: bool | None = None,
+    mode: str | None = None,
 ) -> AskResult:
     """Answer ``question`` from the vault. Returns the answer plus its provenance."""
     from zettel.usage import begin_run, finish_pipeline_run
@@ -95,9 +95,7 @@ def run_ask(
         use_graph = cfg.retrieval.graph_expansion.enabled
 
     retriever = Retriever(cfg, db, idx)
-    result_pool = retriever.search_notes(
-        question, topk=topk, mode=mode, expand_graph=use_graph
-    )
+    result_pool = retriever.search_notes(question, topk=topk, mode=mode, expand_graph=use_graph)
     hits = result_pool.hits[: ask_cfg.max_context_notes]
 
     floor_cfg = cfg.retrieval.relevance_floor
@@ -154,13 +152,19 @@ def run_ask(
     prompt_hash = sha256_hex(prompt_parts.full_template)
     filled_hash = sha256_hex(normalize_text_for_hash(filled_for_hash))
     call_checksum = compute_llm_call_checksum(
-        prompt_hash, filled_hash, spec.model, effective_temperature(cfg, spec), cfg.language,
-        provider=spec.provider, top_p=cfg.llm.top_p,
+        prompt_hash,
+        filled_hash,
+        spec.model,
+        effective_temperature(cfg, spec),
+        cfg.language,
+        provider=spec.provider,
+        top_p=cfg.llm.top_p,
     )
     cached = db.get_cached_llm_response(call_checksum)
     if cached is not None:
         logger.debug("Cache hit (ask) para pergunta")
         from zettel.usage import record_cache_hit
+
         record_cache_hit(label="ask", model=spec.model)
         result.answer = cached
     else:
@@ -199,14 +203,16 @@ def _origin_label(hit: RetrievedNote) -> str:
     return f"conexao {rel} a partir de [[ZTL - {anchor}]]"
 
 
-def _wiki_link(db: "StateDB", note_id: str, title: str) -> str:
+def _wiki_link(db: StateDB, note_id: str, title: str) -> str:
     row = db.get_note(note_id)
     return permanent_wikilink(
-        note_id, title, path=row.get("path") if row else None,
+        note_id,
+        title,
+        path=row.get("path") if row else None,
     )
 
 
-def _build_context(db: "StateDB", hits: list[RetrievedNote], max_chars: int) -> str:
+def _build_context(db: StateDB, hits: list[RetrievedNote], max_chars: int) -> str:
     """Render retrieved notes into the prompt's context block."""
     parts: list[str] = []
     for i, hit in enumerate(hits, 1):
@@ -217,15 +223,12 @@ def _build_context(db: "StateDB", hits: list[RetrievedNote], max_chars: int) -> 
             body = body[:max_chars].rstrip() + "..."
         origin = _origin_label(hit)
         parts.append(
-            f"### Nota {i}: {title}\n"
-            f"- Wikilink para citar: {wiki}\n"
-            f"- Origem: {origin}\n\n"
-            f"{body}"
+            f"### Nota {i}: {title}\n- Wikilink para citar: {wiki}\n- Origem: {origin}\n\n{body}"
         )
     return "\n\n".join(parts)
 
 
-def _to_ask_source(db: "StateDB", hit: RetrievedNote) -> AskSource:
+def _to_ask_source(db: StateDB, hit: RetrievedNote) -> AskSource:
     source_id = hit.metadata.get("source_id")
     path = hit.metadata.get("path")
     if source_id is None or path is None:
@@ -234,9 +237,7 @@ def _to_ask_source(db: "StateDB", hit: RetrievedNote) -> AskSource:
             source_id = source_id or row.get("source_id")
             path = path or row.get("path")
     similarity = (
-        round(1.0 - hit.vector_distance / 2.0, 4)
-        if hit.vector_distance is not None
-        else None
+        round(1.0 - hit.vector_distance / 2.0, 4) if hit.vector_distance is not None else None
     )
     return AskSource(
         note_id=hit.note_id,
@@ -259,7 +260,7 @@ def _to_ask_source(db: "StateDB", hit: RetrievedNote) -> AskSource:
 
 def build_ask_note_body(result: AskResult) -> tuple[dict, str]:
     """Build (frontmatter, body) for a saved answer note with full provenance."""
-    now = datetime.now().isoformat()
+    now = datetime.now(UTC).isoformat()
     meta = {
         "type": "ask_answer",
         "question": result.question,
@@ -302,7 +303,7 @@ def build_ask_note_body(result: AskResult) -> tuple[dict, str]:
     return meta, "\n".join(lines)
 
 
-def save_ask_note(result: AskResult, vault_path: Path, dest: Optional[Path] = None) -> Path:
+def save_ask_note(result: AskResult, vault_path: Path, dest: Path | None = None) -> Path:
     """Persist the answer as a Markdown note. Returns the written path.
 
     Default location is ``<vault>/00_Inbox/`` so the cited ``[[ZTL - ...]]``
@@ -310,7 +311,7 @@ def save_ask_note(result: AskResult, vault_path: Path, dest: Optional[Path] = No
     """
     meta, body = build_ask_note_body(result)
     if dest is None:
-        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         slug = _slug(result.question) or "pergunta"
         filename = f"ASK - {ts} - {slug}.md"
         dest = Path(vault_path) / "00_Inbox" / filename

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -67,9 +67,13 @@ def collect_link_targets(
         if not row:
             continue
         targets.add(note_id)
-        targets.add(permanent_wikilink(
-            note_id, row.get("title") or "", path=row.get("path"),
-        ).strip("[]"))
+        targets.add(
+            permanent_wikilink(
+                note_id,
+                row.get("title") or "",
+                path=row.get("path"),
+            ).strip("[]")
+        )
         if row.get("path"):
             targets.add(Path(row["path"]).stem)
     return targets
@@ -107,7 +111,13 @@ def _delete_vault_source_files(
     citekey: str,
     title: str,
 ) -> dict[str, int]:
-    removed = {"src": 0, "lit_index": 0, "lit_granular": 0, "review_drafts": 0, "assets": 0}
+    removed = {
+        "src": 0,
+        "lit_index": 0,
+        "lit_granular": 0,
+        "review_drafts": 0,
+        "assets": 0,
+    }
 
     src_path = _resolve_src_path(cfg, source_id, citekey, title)
     if src_path and _remove_tree(src_path):
@@ -160,7 +170,7 @@ def _clean_note_file(
     if cleaned_body == body and not meta_changed:
         return False
     if meta:
-        meta["updated_at"] = datetime.now().isoformat()
+        meta["updated_at"] = datetime.now(UTC).isoformat()
         content = compose_note(meta, cleaned_body)
     else:
         content = cleaned_body
@@ -198,7 +208,10 @@ def clean_wikilinks_in_vault(
             if md_file.resolve() in exclude:
                 continue
             if _clean_note_file(
-                md_file, link_targets, db, deleted_source_id=deleted_source_id,
+                md_file,
+                link_targets,
+                db,
+                deleted_source_id=deleted_source_id,
             ):
                 updated += 1
     return updated
@@ -215,11 +228,11 @@ def purge_source(
 ) -> dict[str, Any]:
     """Delete a source completely from vault, SQLite, and Chroma.
 
-  When ``delete_permanent`` is False (default), permanent notes (ZTL) linked to
-  the source are kept but wikilinks to removed SRC/LIT notes are stripped from
-  all surviving vault notes. When True, those ZTL notes are also removed.
+    When ``delete_permanent`` is False (default), permanent notes (ZTL) linked to
+    the source are kept but wikilinks to removed SRC/LIT notes are stripped from
+    all surviving vault notes. When True, those ZTL notes are also removed.
 
-  Follows the same Chroma/SQLite cleanup patterns as ``purge_rejected``.
+    Follows the same Chroma/SQLite cleanup patterns as ``purge_rejected``.
     """
     source_id = normalize_source_id(source_id)
     source = db.get_source(source_id)
@@ -231,7 +244,8 @@ def purge_source(
     chunks = db.get_chunks_for_source(source_id)
     chunk_ids = [c["chunk_id"] for c in chunks]
     lit_ids = [
-        lit for lit in (
+        lit
+        for lit in (
             [c.get("literature_id") for c in chunks if c.get("literature_id")]
             + [f"{source_id}::index"]
         )
@@ -247,7 +261,11 @@ def purge_source(
     )
 
     vault_removed = _delete_vault_source_files(
-        cfg, db, source_id=source_id, citekey=citekey, title=title,
+        cfg,
+        db,
+        source_id=source_id,
+        citekey=citekey,
+        title=title,
     )
 
     permanent_vault_removed = 0
@@ -273,7 +291,9 @@ def purge_source(
         db.clear_source_id_on_notes(source_id)
 
     wikilinks_cleaned = clean_wikilinks_in_vault(
-        cfg, db, link_targets,
+        cfg,
+        db,
+        link_targets,
         exclude_paths=exclude_paths,
         deleted_source_id=source_id if not delete_permanent else None,
     )
@@ -311,9 +331,7 @@ def purge_source(
     }
 
     if compact and (
-        sqlite_removed.get("chunks")
-        or sqlite_removed.get("sources")
-        or delete_permanent
+        sqlite_removed.get("chunks") or sqlite_removed.get("sources") or delete_permanent
     ):
         state_path = Path(db.db_path)
         chroma_db = Path(cfg.chroma_path) / "chroma.sqlite3"
@@ -330,13 +348,18 @@ def purge_source(
         result["compacted"] = True
         logger.info(
             "Compactacao: state %.2f->%.2f MB, chroma.sqlite3 %.2f->%.2f MB",
-            result["state_mb_before"], result["state_mb_after"],
-            result["chroma_mb_before"], result["chroma_mb_after"],
+            result["state_mb_before"],
+            result["state_mb_after"],
+            result["chroma_mb_before"],
+            result["chroma_mb_after"],
         )
 
     logger.info(
         "Purge source %s: vault=%s sqlite_chunks=%d permanent_deleted=%d wikilinks_cleaned=%d",
-        source_id, vault_removed, sqlite_removed.get("chunks", 0),
-        result["permanent_deleted"], wikilinks_cleaned,
+        source_id,
+        vault_removed,
+        sqlite_removed.get("chunks", 0),
+        result["permanent_deleted"],
+        wikilinks_cleaned,
     )
     return result

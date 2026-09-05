@@ -4,7 +4,6 @@ import json
 
 import pytest
 import yaml
-
 from zettel.config import AppConfig
 from zettel.purge_source import normalize_source_id, purge_source
 from zettel.state import StateDB
@@ -52,8 +51,12 @@ def env(tmp_path):
         chroma_path=tmp_path / "chroma",
     )
     for d in (
-        "00_Inbox/Review", "10_Sources", "20_Literature",
-        "30_Permanent", "40_MOCs", "90_Assets",
+        "00_Inbox/Review",
+        "10_Sources",
+        "20_Literature",
+        "30_Permanent",
+        "40_MOCs",
+        "90_Assets",
     ):
         (cfg.vault_path / d).mkdir(parents=True, exist_ok=True)
     db = StateDB(cfg.state_db_path)
@@ -69,8 +72,14 @@ def _write_yaml(path, meta, body=""):
 
 def _seed_source(cfg, db, *, with_chunk=True, chunk_status="persisted"):
     db.upsert_source(
-        "@Book2024", "Book2024", "Livro Teste", ["Autor"], 2024,
-        "h", "/x.pdf", "pdf",
+        "@Book2024",
+        "Book2024",
+        "Livro Teste",
+        ["Autor"],
+        2024,
+        "h",
+        "/x.pdf",
+        "pdf",
     )
     db.upsert_chapter("@Book2024::ch000", "@Book2024", "Ch1", "chh")
     chunk = {
@@ -83,22 +92,34 @@ def _seed_source(cfg, db, *, with_chunk=True, chunk_status="persisted"):
     }
     if with_chunk:
         db.upsert_chunk(
-            "@Book2024::ch000::abc", "@Book2024", "@Book2024::ch000",
-            "texto do chunk", "ck",
-            chunk_index=3, page_in_file=20, page_in_book=10,
+            "@Book2024::ch000::abc",
+            "@Book2024",
+            "@Book2024::ch000",
+            "texto do chunk",
+            "ck",
+            chunk_index=3,
+            page_in_file=20,
+            page_in_book=10,
             status=chunk_status,
             section_path="Ch1 > Intro",
             literature_id="lit123",
             summary_json=chunk["summary_json"],
         )
         db.upsert_concept(
-            "concept1", "@Book2024", "@Book2024::ch000::abc",
+            "concept1",
+            "@Book2024",
+            "@Book2024::ch000::abc",
             status="approved",
         )
 
     citekey = "Book2024"
     title = "Livro Teste"
-    src_meta = {"type": "source", "source_id": "@Book2024", "citekey": citekey, "title": title}
+    src_meta = {
+        "type": "source",
+        "source_id": "@Book2024",
+        "citekey": citekey,
+        "title": title,
+    }
     _write_yaml(cfg.vault_path / "10_Sources" / source_note_filename(citekey, title), src_meta)
 
     lit_index = cfg.vault_path / "20_Literature" / literature_index_filename(citekey, title)
@@ -162,8 +183,12 @@ def test_purge_source_removes_vault_sqlite_chroma(env):
     assert db.get_concepts_for_chunk("@Book2024::ch000::abc") == []
 
     citekey = "Book2024"
-    assert not (cfg.vault_path / "10_Sources" / source_note_filename(citekey, "Livro Teste")).exists()
-    assert not (cfg.vault_path / "20_Literature" / literature_index_filename(citekey, "Livro Teste")).exists()
+    assert not (
+        cfg.vault_path / "10_Sources" / source_note_filename(citekey, "Livro Teste")
+    ).exists()
+    assert not (
+        cfg.vault_path / "20_Literature" / literature_index_filename(citekey, "Livro Teste")
+    ).exists()
     assert not (cfg.vault_path / "20_Literature" / literature_source_dirname(citekey)).exists()
     assert not (cfg.vault_path / "00_Inbox/Review" / literature_source_dirname(citekey)).exists()
 
@@ -177,10 +202,15 @@ def test_purge_source_keeps_permanent_cleans_wikilinks(env):
     _seed_source(cfg, db)
 
     ztl_path = cfg.vault_path / "30_Permanent" / "ZTL - NOTE01 - conceito.md"
-    lit_stem = literature_chunk_filename_for_row("Book2024", {
-        "chunk_index": 3, "page_in_book": 10, "section_path": "Ch1 > Intro",
-        "summary_json": json.dumps({"summary": "Resumo curto"}),
-    }).removesuffix(".md")
+    lit_stem = literature_chunk_filename_for_row(
+        "Book2024",
+        {
+            "chunk_index": 3,
+            "page_in_book": 10,
+            "section_path": "Ch1 > Intro",
+            "summary_json": json.dumps({"summary": "Resumo curto"}),
+        },
+    ).removesuffix(".md")
     body = (
         f"## Fonte\n\n- Ref. literatura: [[Book2024/{lit_stem}]]\n"
         f"<!-- zettel:auto-backlinks:start -->\n"
@@ -205,7 +235,13 @@ def test_purge_source_keeps_permanent_cleans_wikilinks(env):
         {"type": "permanent", "note_id": "OTHER", "title": "Outra"},
         f"Link: [[Book2024/{lit_stem}]]\n",
     )
-    db.upsert_note("OTHER", None, str(other), title="Outra", body=f"Link: [[Book2024/{lit_stem}]]\n")
+    db.upsert_note(
+        "OTHER",
+        None,
+        str(other),
+        title="Outra",
+        body=f"Link: [[Book2024/{lit_stem}]]\n",
+    )
 
     result = purge_source(cfg, db, idx, "@Book2024", compact=False)
     assert result["permanent_deleted"] == 0

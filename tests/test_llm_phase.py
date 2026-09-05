@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import pytest
-
 from pydantic import ValidationError
-
-from zettel.config import AppConfig, LLMConfig, LLMPhaseConfig, effective_temperature, llm_phase
+from zettel.config import (
+    AppConfig,
+    LLMConfig,
+    LLMPhaseConfig,
+    effective_temperature,
+    llm_phase,
+)
 from zettel.llm import get_llm, is_supported_llm_provider
 
 
@@ -18,7 +22,9 @@ def test_llm_phase_rejects_unknown():
 def test_llm_phase_returns_named_spec():
     cfg = AppConfig()
     cfg.llm.extract = LLMPhaseConfig(
-        provider="ollama", model="qwen3.5:4b", base_url="http://localhost:11434",
+        provider="ollama",
+        model="qwen3.5:4b",
+        base_url="http://localhost:11434",
     )
     spec = llm_phase(cfg, "extract")
     assert spec.provider == "ollama"
@@ -51,7 +57,9 @@ def test_get_llm_uses_phase_identity(monkeypatch):
 
     cfg = AppConfig()
     cfg.llm.connect = LLMPhaseConfig(
-        provider="openai", model="gpt-4o", base_url="https://example/v1",
+        provider="openai",
+        model="gpt-4o",
+        base_url="https://example/v1",
     )
     get_llm(cfg, "connect", temperature=0.3, max_retries=0)
     assert captured["model"] == "gpt-4o"
@@ -81,7 +89,9 @@ def test_effective_temperature_inherits_global_when_phase_unset():
 def test_effective_temperature_phase_override_wins():
     cfg = AppConfig()
     cfg.llm.temperature = 0.25
-    cfg.llm.extract = LLMPhaseConfig(provider="gemini", model="gemini-3.5-flash-lite", temperature=0.0)
+    cfg.llm.extract = LLMPhaseConfig(
+        provider="gemini", model="gemini-3.5-flash-lite", temperature=0.0
+    )
     spec = llm_phase(cfg, "extract")
     assert effective_temperature(cfg, spec) == 0.0
     # Other phases are untouched.

@@ -72,13 +72,7 @@ def test_run_set_paging_updates_book_and_drops_pending(tmp_path: Path):
         page_in_file=40,
         page_in_book=40,
     )
-    draft = (
-        cfg.vault_path
-        / "00_Inbox"
-        / "Review"
-        / literature_source_dirname("TestBook")
-        / fname
-    )
+    draft = cfg.vault_path / "00_Inbox" / "Review" / literature_source_dirname("TestBook") / fname
     safe_write_note(
         draft,
         {
@@ -104,7 +98,10 @@ def test_run_set_paging_updates_book_and_drops_pending(tmp_path: Path):
 
     idx = _FakeIdx()
     stats = run_set_paging(
-        cfg, db, idx, "@TestBook",
+        cfg,
+        db,
+        idx,
+        "@TestBook",
         content_start_file=35,
         content_start_book=10,
     )

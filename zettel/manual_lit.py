@@ -35,14 +35,8 @@ def _ztl_llm_rejected_message(reason: str) -> str:
     """Web/CLI copy when Prompt 2 declines a LIT→ZTL candidate."""
     reason = (reason or "").strip()
     head = "O modelo recusou gerar a nota permanente"
-    if reason:
-        head = f"{head}: {reason}"
-    else:
-        head = f"{head}."
-    return (
-        f"{head} Enriqueça o resumo ou a tese da LIT e tente de novo, "
-        "ou crie a ZTL sem o LLM."
-    )
+    head = f"{head}: {reason}" if reason else f"{head}."
+    return f"{head} Enriqueça o resumo ou a tese da LIT e tente de novo, ou crie a ZTL sem o LLM."
 
 
 _PLACEHOLDERS = {
@@ -219,7 +213,10 @@ def _lit_ref_covers_chunk(lit_ref: str, chunk: dict[str, Any] | None) -> bool:
 
 
 def claim_concepts_for_note(
-    db: StateDB, note_id: str, meta: dict[str, Any], body: str,
+    db: StateDB,
+    note_id: str,
+    meta: dict[str, Any],
+    body: str,
 ) -> int:
     """Mark unnoted concepts covered by this permanent note as ``noted``.
 
@@ -252,13 +249,18 @@ def claim_concepts_for_note(
         claimed += 1
         logger.info(
             "Conceito %s coberto pela nota %s; marcado noted",
-            concept["concept_id"], note_id,
+            concept["concept_id"],
+            note_id,
         )
     return claimed
 
 
 def find_covering_note_id(
-    db: StateDB, *, source_id: str, chunk_id: str, thesis: str,
+    db: StateDB,
+    *,
+    source_id: str,
+    chunk_id: str,
+    thesis: str,
 ) -> str | None:
     """Return an existing permanent note that already covers this candidate."""
     thesis_hash = sha256_hex(normalize_text_for_hash(thesis)) if thesis else ""
@@ -323,7 +325,12 @@ def adopt_manual_literature(
 
     # Images the author pasted into the note: copy into 90_Assets, rewrite refs.
     new_body, adopted = adopt_vault_images(
-        cfg, db, source_id, chapter_id, file_path, body,
+        cfg,
+        db,
+        source_id,
+        chapter_id,
+        file_path,
+        body,
         page_in_file=meta.get("page_in_file"),
     )
     if adopted and new_body != body:
@@ -379,7 +386,8 @@ def adopt_manual_literature(
 
     _refresh_literature_index(cfg, db, source_id)
     logger.info(
-        "[NOTE=%s] LIT manual adotada -> chunks + literature_notes", file_path.name,
+        "[NOTE=%s] LIT manual adotada -> chunks + literature_notes",
+        file_path.name,
     )
     return "updated" if existing else "new"
 
@@ -447,13 +455,21 @@ def create_permanent_from_literature(
         adopt_manual_literature(cfg, db, idx, path, meta, body)
 
     candidate = build_candidate_from_literature(
-        meta, body, content, thesis_override=thesis,
+        meta,
+        body,
+        content,
+        thesis_override=thesis,
     )
     source = db.get_source(source_id)
     citekey = source["citekey"] if source else str(meta.get("citekey") or "")
     title_src = source["title"] if source else ""
     literature_ref = _literature_ref_for_chunk(
-        cfg, db, source_id, citekey, title_src, chunk_id,
+        cfg,
+        db,
+        source_id,
+        citekey,
+        title_src,
+        chunk_id,
     )
 
     if use_llm:
@@ -469,13 +485,17 @@ def create_permanent_from_literature(
         )
         try:
             note_ids = run_connect(
-                cfg, db, idx,
-                [{
-                    "concept_id": concept_id,
-                    "source_id": source_id,
-                    "chunk_id": chunk_id,
-                    "candidate": candidate,
-                }],
+                cfg,
+                db,
+                idx,
+                [
+                    {
+                        "concept_id": concept_id,
+                        "source_id": source_id,
+                        "chunk_id": chunk_id,
+                        "candidate": candidate,
+                    }
+                ],
                 origin="manual",
             )
         except ConnectRejected as exc:
@@ -496,9 +516,7 @@ def create_permanent_from_literature(
     note_id = str(ULID())
     title = candidate.thesis[:100]
     src_path, _ = resolve_src_in_vault(cfg, source_id) if source_id else (None, None)
-    source_ref = (
-        source_wikilink(citekey, path=src_path, title=title_src) if citekey else ""
-    )
+    source_ref = source_wikilink(citekey, path=src_path, title=title_src) if citekey else ""
     definition = candidate.definition if candidate.definition != candidate.thesis else ""
     note_body = build_permanent_note_body(
         thesis=candidate.thesis,
@@ -520,8 +538,9 @@ def create_permanent_from_literature(
         "<!-- zettel:auto-connections:end -->\n"
     )
 
-    from datetime import datetime
-    now = datetime.now().isoformat()
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat()
     note_meta = {
         "type": "permanent",
         "note_id": note_id,

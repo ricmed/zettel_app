@@ -19,7 +19,11 @@ def post_job(request: Request, operation: str, payload: dict[str, Any], csrf: st
     job_id = service(request).submit(operation, payload)
     if not job_id:
         return render(
-            request, "jobs.html", page="jobs", jobs=service(request).jobs(),
-            error="Outra operação mutante já está em andamento.", status_code=409,
+            request,
+            "jobs.html",
+            page="jobs",
+            jobs=service(request).jobs(),
+            error="Outra operação mutante já está em andamento.",
+            status_code=409,
         )
     return RedirectResponse(f"/jobs/{job_id}", status_code=303)

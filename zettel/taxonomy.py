@@ -36,7 +36,7 @@ def load_moc_taxonomy(path: Path | str | None) -> MocTaxonomy:
     p = Path(path)
     if not p.exists():
         raise TaxonomyLoadError(f"Arquivo de taxonomia nao encontrado: {p}")
-    with open(p, "r", encoding="utf-8") as f:
+    with open(p, encoding="utf-8") as f:
         raw = yaml.safe_load(f)
     if not isinstance(raw, dict):
         raise TaxonomyLoadError(f"Taxonomia invalida (esperado mapping YAML): {p}")

@@ -18,7 +18,7 @@ subtly wrong, so each is separately inspectable and separately repairable.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 
@@ -48,28 +48,46 @@ def harvest(
     skip_duplicates: SkipDuplicatesOption = False,
     force: ForceDuplicatesOption = False,
     skip_biblio: SkipBiblioOption = False,
-    content_start_file: Annotated[Optional[int], typer.Option(
-        "--content-start-file",
-        help="Pagina do arquivo (PDF) onde o conteudo comeca (1-based)",
-    )] = None,
-    content_start_book: Annotated[Optional[int], typer.Option(
-        "--content-start-book",
-        help="Numero impresso nessa primeira pagina de conteudo (default 1)",
-    )] = None,
-    skip_paging: Annotated[bool, typer.Option(
-        "--skip-paging",
-        help="Nao detectar paginacao; arquivo p.1 = impressa p.1 (ignora heuristica)",
-    )] = False,
+    content_start_file: Annotated[
+        int | None,
+        typer.Option(
+            "--content-start-file",
+            help="Pagina do arquivo (PDF) onde o conteudo comeca (1-based)",
+        ),
+    ] = None,
+    content_start_book: Annotated[
+        int | None,
+        typer.Option(
+            "--content-start-book",
+            help="Numero impresso nessa primeira pagina de conteudo (default 1)",
+        ),
+    ] = None,
+    skip_paging: Annotated[
+        bool,
+        typer.Option(
+            "--skip-paging",
+            help="Nao detectar paginacao; arquivo p.1 = impressa p.1 (ignora heuristica)",
+        ),
+    ] = False,
     dump_chunks: DumpChunksOption = False,
     dump_dir: ChunkDumpDirOption = None,
-    dump_extraction: Annotated[bool, typer.Option(
-        "--dump-extraction",
-        help="Salvar Markdown extraido (Docling/MD, headings H1-H6) para inspecao",
-    )] = False,
-    dump_extraction_dir: Annotated[Optional[str], typer.Option(
-        "--dump-extraction-dir",
-        help="Diretorio do dump de extracao (implica --dump-extraction; default: cache/extraction-dumps)",
-    )] = None,
+    dump_extraction: Annotated[
+        bool,
+        typer.Option(
+            "--dump-extraction",
+            help="Salvar Markdown extraido (Docling/MD, headings H1-H6) para inspecao",
+        ),
+    ] = False,
+    dump_extraction_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--dump-extraction-dir",
+            help=(
+                "Diretorio do dump de extracao (implica --dump-extraction; "
+                "default: cache/extraction-dumps)"
+            ),
+        ),
+    ] = None,
 ):
     """Escanear inbox, extrair texto, criar SRC + indice LIT e chunks."""
     cfg = load_deps(config)
@@ -79,10 +97,13 @@ def harvest(
     interactive, duplicate_action = resolve_duplicate_flags(yes, skip_duplicates, force)
     chunk_dump_dir = resolve_chunk_dump_dir(cfg, dump_chunks, dump_dir)
     extraction_dump_dir = resolve_extraction_dump_dir(
-        cfg, dump_extraction, dump_extraction_dir,
+        cfg,
+        dump_extraction,
+        dump_extraction_dir,
     )
 
     from zettel.harvester import run_harvest
+
     if interactive:
         # Nao usar console.status aqui: prompts interativos (bibliografia / duplicatas)
         # precisam do terminal livre; o spinner engole o Prompt.ask e parece travado.
@@ -91,7 +112,11 @@ def harvest(
             "(pode solicitar metadados bibliograficos / inicio de paginacao)...[/dim]"
         )
         outcome = run_harvest(
-            cfg, db, idx, interactive=True, skip_biblio=skip_biblio,
+            cfg,
+            db,
+            idx,
+            interactive=True,
+            skip_biblio=skip_biblio,
             content_start_file=content_start_file,
             content_start_book=content_start_book,
             skip_paging=skip_paging,
@@ -99,11 +124,17 @@ def harvest(
             extraction_dump_dir=extraction_dump_dir,
         )
     else:
-        console.print(f"[dim]Modo nao-interativo — duplicatas suspeitas: '{duplicate_action}'[/dim]")
+        console.print(
+            f"[dim]Modo nao-interativo — duplicatas suspeitas: '{duplicate_action}'[/dim]"
+        )
         if skip_biblio:
             console.print("[dim]Bibliografia incompleta permitida (--skip-biblio)[/dim]")
         outcome = run_harvest(
-            cfg, db, idx, interactive=False, duplicate_action=duplicate_action,
+            cfg,
+            db,
+            idx,
+            interactive=False,
+            duplicate_action=duplicate_action,
             skip_biblio=skip_biblio,
             content_start_file=content_start_file,
             content_start_book=content_start_book,
@@ -150,12 +181,20 @@ def harvest(
 @app.command()
 def rechunk(
     config: ConfigOption = None,
-    source_id: Annotated[Optional[str], typer.Option(
-        "--source-id", help="Rechunk apenas esta fonte",
-    )] = None,
-    all_sources: Annotated[bool, typer.Option(
-        "--all", help="Rechunk de todas as fontes",
-    )] = False,
+    source_id: Annotated[
+        str | None,
+        typer.Option(
+            "--source-id",
+            help="Rechunk apenas esta fonte",
+        ),
+    ] = None,
+    all_sources: Annotated[
+        bool,
+        typer.Option(
+            "--all",
+            help="Rechunk de todas as fontes",
+        ),
+    ] = False,
     yes: YesOption = False,
     dump_chunks: DumpChunksOption = False,
     dump_dir: ChunkDumpDirOption = None,
@@ -171,9 +210,14 @@ def rechunk(
     chunk_dump_dir = resolve_chunk_dump_dir(cfg, dump_chunks, dump_dir)
 
     from zettel.harvester import run_rechunk
+
     with console.status("[bold blue]Re-chunkando fontes...", spinner="dots"):
         stats = run_rechunk(
-            cfg, db, idx, source_id if source_id else None, dump_dir=chunk_dump_dir,
+            cfg,
+            db,
+            idx,
+            source_id if source_id else None,
+            dump_dir=chunk_dump_dir,
         )
 
     console.print(
@@ -194,9 +238,13 @@ def rechunk(
 def dump_chunks_cmd(
     source_id: DumpSourceIdOption = None,
     all_sources: DumpAllOption = False,
-    dump_dir: Annotated[Optional[str], typer.Option(
-        "--dump-dir", help="Diretorio de saida (default: cache/chunk-dumps)",
-    )] = None,
+    dump_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--dump-dir",
+            help="Diretorio de saida (default: cache/chunk-dumps)",
+        ),
+    ] = None,
     config: ConfigOption = None,
 ):
     """Exportar chunks persistidos como markdown para inspecionar o chunking."""
@@ -209,19 +257,21 @@ def dump_chunks_cmd(
     dest = Path(dump_dir).expanduser().resolve() if dump_dir else None
 
     from zettel.chunk_dump import default_dump_dir, run_dump_chunks
+
     dest = dest or default_dump_dir(cfg)
     try:
         stats = run_dump_chunks(
-            cfg, db, source_id if source_id else None, dump_dir=dest,
+            cfg,
+            db,
+            source_id if source_id else None,
+            dump_dir=dest,
         )
     except ValueError as e:
         console.print(f"[red]{e}[/red]")
         db.close()
         raise typer.Exit(1)
 
-    console.print(
-        f"[green]Dump concluido:[/green] {stats['sources']} fonte(s) em {dest}"
-    )
+    console.print(f"[green]Dump concluido:[/green] {stats['sources']} fonte(s) em {dest}")
     db.close()
 
 
@@ -229,9 +279,13 @@ def dump_chunks_cmd(
 def dump_extraction_cmd(
     source_id: DumpSourceIdOption = None,
     all_sources: DumpAllOption = False,
-    dump_dir: Annotated[Optional[str], typer.Option(
-        "--dump-dir", help="Diretorio de saida (default: cache/extraction-dumps)",
-    )] = None,
+    dump_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--dump-dir",
+            help="Diretorio de saida (default: cache/extraction-dumps)",
+        ),
+    ] = None,
     config: ConfigOption = None,
 ):
     """Exportar o Markdown extraido (Docling/MD) para inspecionar headings H1-H6."""
@@ -244,19 +298,21 @@ def dump_extraction_cmd(
     dest = Path(dump_dir).expanduser().resolve() if dump_dir else None
 
     from zettel.extraction_dump import default_dump_dir, run_dump_extraction
+
     dest = dest or default_dump_dir(cfg)
     try:
         stats = run_dump_extraction(
-            cfg, db, source_id if source_id else None, dump_dir=dest,
+            cfg,
+            db,
+            source_id if source_id else None,
+            dump_dir=dest,
         )
     except ValueError as e:
         console.print(f"[red]{e}[/red]")
         db.close()
         raise typer.Exit(1)
 
-    console.print(
-        f"[green]Dump concluido:[/green] {stats['sources']} fonte(s) em {dest}"
-    )
+    console.print(f"[green]Dump concluido:[/green] {stats['sources']} fonte(s) em {dest}")
     if stats.get("skipped"):
         console.print(
             f"[yellow]{stats['skipped']} fonte(s) pulada(s) sem texto extraido persistido.[/yellow]"
@@ -266,26 +322,43 @@ def dump_extraction_cmd(
 
 @app.command(name="set-paging")
 def set_paging_cmd(
-    source_id: Annotated[str, typer.Option(
-        "--source-id", help="Fonte a corrigir (ex. @Citekey)",
-    )],
-    content_start_file: Annotated[int, typer.Option(
-        "--content-start-file",
-        help="Pagina do arquivo (PDF) onde o conteudo comeca (1-based)",
-    )],
-    content_start_book: Annotated[int, typer.Option(
-        "--content-start-book",
-        help="Numero impresso nessa primeira pagina de conteudo",
-    )] = 1,
-    drop_before_start: Annotated[bool, typer.Option(
-        "--drop-before-start",
-        help="Tambem remove chunks awaiting_review/aprovados antes do inicio",
-    )] = False,
+    source_id: Annotated[
+        str,
+        typer.Option(
+            "--source-id",
+            help="Fonte a corrigir (ex. @Citekey)",
+        ),
+    ],
+    content_start_file: Annotated[
+        int,
+        typer.Option(
+            "--content-start-file",
+            help="Pagina do arquivo (PDF) onde o conteudo comeca (1-based)",
+        ),
+    ],
+    content_start_book: Annotated[
+        int,
+        typer.Option(
+            "--content-start-book",
+            help="Numero impresso nessa primeira pagina de conteudo",
+        ),
+    ] = 1,
+    drop_before_start: Annotated[
+        bool,
+        typer.Option(
+            "--drop-before-start",
+            help="Tambem remove chunks awaiting_review/aprovados antes do inicio",
+        ),
+    ] = False,
     config: ConfigOption = None,
-    yes: Annotated[bool, typer.Option(
-        "--yes", "-y",
-        help="Confirmar automaticamente reprocessamento de embedding se necessario",
-    )] = False,
+    yes: Annotated[
+        bool,
+        typer.Option(
+            "--yes",
+            "-y",
+            help="Confirmar automaticamente reprocessamento de embedding se necessario",
+        ),
+    ] = False,
 ):
     """Corrigir paginacao de uma fonte ja harvestada (sem re-chamar o LLM)."""
     cfg = load_deps(config)
@@ -293,9 +366,13 @@ def set_paging_cmd(
     idx = get_idx(cfg, db=db, yes=yes)
 
     from zettel.harvester import run_set_paging
+
     try:
         stats = run_set_paging(
-            cfg, db, idx, source_id,
+            cfg,
+            db,
+            idx,
+            source_id,
             content_start_file=content_start_file,
             content_start_book=content_start_book,
             drop_before_start=drop_before_start,

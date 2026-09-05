@@ -61,18 +61,14 @@ def sort_chunks(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(chunks, key=_key)
 
 
-def _annotate_overlap(
-    chunks: list[dict[str, Any]], overlap_cap: int
-) -> list[dict[str, Any]]:
+def _annotate_overlap(chunks: list[dict[str, Any]], overlap_cap: int) -> list[dict[str, Any]]:
     ordered = sort_chunks(chunks)
     out: list[dict[str, Any]] = []
     prev_text = ""
     for chunk in ordered:
         item = dict(chunk)
         text = item.get("text") or ""
-        item["overlap_prev"] = (
-            overlap_prefix_len(prev_text, text, overlap_cap) if prev_text else 0
-        )
+        item["overlap_prev"] = overlap_prefix_len(prev_text, text, overlap_cap) if prev_text else 0
         out.append(item)
         prev_text = text
     return out
@@ -141,23 +137,25 @@ def render_chunk_dump(
     for chunk in annotated:
         idx = chunk.get("chunk_index")
         heading_n = int(idx) if idx is not None else 0
-        lines.extend([
-            "",
-            "---",
-            "",
-            f"# Chunk {heading_n:03d}",
-            "",
-            f"- chunk_id: {_fmt(chunk.get('chunk_id'))}",
-            f"- chapter_id: {_fmt(chunk.get('chapter_id'))}",
-            f"- section_path: {_fmt(chunk.get('section_path'))}",
-            f"- page_in_file: {_fmt(chunk.get('page_in_file'))}",
-            f"- page_in_book: {_fmt(chunk.get('page_in_book'))}",
-            f"- page_confidence: {_fmt(chunk.get('page_confidence'))}",
-            f"- chars: {len(chunk.get('text') or '')}",
-            f"- overlap_prev: {chunk['overlap_prev']}",
-            "",
-            chunk.get("text") or "",
-        ])
+        lines.extend(
+            [
+                "",
+                "---",
+                "",
+                f"# Chunk {heading_n:03d}",
+                "",
+                f"- chunk_id: {_fmt(chunk.get('chunk_id'))}",
+                f"- chapter_id: {_fmt(chunk.get('chapter_id'))}",
+                f"- section_path: {_fmt(chunk.get('section_path'))}",
+                f"- page_in_file: {_fmt(chunk.get('page_in_file'))}",
+                f"- page_in_book: {_fmt(chunk.get('page_in_book'))}",
+                f"- page_confidence: {_fmt(chunk.get('page_confidence'))}",
+                f"- chars: {len(chunk.get('text') or '')}",
+                f"- overlap_prev: {chunk['overlap_prev']}",
+                "",
+                chunk.get("text") or "",
+            ]
+        )
 
     body = "\n".join(lines).rstrip() + "\n"
     return compose_note(meta, body)

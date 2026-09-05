@@ -22,9 +22,11 @@ def sign(payload: str) -> str:
 
 
 def session_value(csrf: str) -> str:
-    body = base64.urlsafe_b64encode(
-        json.dumps({"csrf": csrf, "created": int(time.time())}).encode()
-    ).decode().rstrip("=")
+    body = (
+        base64.urlsafe_b64encode(json.dumps({"csrf": csrf, "created": int(time.time())}).encode())
+        .decode()
+        .rstrip("=")
+    )
     return f"{body}.{sign(body)}"
 
 

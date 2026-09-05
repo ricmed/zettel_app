@@ -31,7 +31,10 @@ def node_query_enricher(state: ArticleGraphState, config: RunnableConfig) -> dic
         called = False
     else:
         queries, called = art.enrich_search_queries(
-            cfg, rt.db, state["topic"], state["style"],  # type: ignore[arg-type]
+            cfg,
+            rt.db,
+            state["topic"],
+            state["style"],  # type: ignore[arg-type]
             extra_queries=extras or None,
         )
     out = {
@@ -59,8 +62,13 @@ def node_vector_search_merge(state: ArticleGraphState, config: RunnableConfig) -
     queries = list(state.get("search_queries") or [])
 
     existing, executed = search.run_pending_queries(
-        retriever, queries, executed, existing,
-        topk=topk, mode=mode, use_graph=use_graph,
+        retriever,
+        queries,
+        executed,
+        existing,
+        topk=topk,
+        mode=mode,
+        use_graph=use_graph,
         max_context_notes=art_cfg.max_context_notes,
     )
 
@@ -75,8 +83,12 @@ def node_vector_search_merge(state: ArticleGraphState, config: RunnableConfig) -
         )
 
     retrieval_params = search.snapshot_retrieval_params(
-        cfg, mode=mode, topk=topk, use_graph=use_graph,
-        moc_ids=moc_ids, executed_queries=executed,
+        cfg,
+        mode=mode,
+        topk=topk,
+        use_graph=use_graph,
+        moc_ids=moc_ids,
+        executed_queries=executed,
     )
 
     no_evidence = not existing
@@ -146,9 +158,7 @@ def node_generate_outline(state: ArticleGraphState, config: RunnableConfig) -> d
     rt = runtime_from(config)
     assert rt.catalog is not None
     feedback = state.get("outline_feedback") or None
-    outline, called = art.generate_outline(
-        rt.cfg, rt.db, rt.catalog, feedback=feedback
-    )
+    outline, called = art.generate_outline(rt.cfg, rt.db, rt.catalog, feedback=feedback)
     return {
         "outline": outline.model_dump(),
         "outline_feedback": "",
@@ -317,14 +327,11 @@ def node_finish(state: ArticleGraphState, config: RunnableConfig) -> dict:
     body = state.get("styled_body") or state.get("draft_body") or ""
     warnings = list(state.get("warnings") or [])
     scores = state.get("judge_scores") or {}
-    if (
-        scores.get("verdict") == "REJECTED"
-        and int(state.get("iteration_count") or 0)
-        >= int(state.get("max_judge_iterations") or 3)
+    if scores.get("verdict") == "REJECTED" and int(state.get("iteration_count") or 0) >= int(
+        state.get("max_judge_iterations") or 3
     ):
         warnings.append(
-            "Judge nao aprovou apos max_judge_iterations; "
-            "salvando melhor rascunho disponivel."
+            "Judge nao aprovou apos max_judge_iterations; salvando melhor rascunho disponivel."
         )
 
     catalog = rt.catalog

@@ -27,7 +27,6 @@ from pathlib import Path
 import pytest
 import typer
 from typer.testing import CliRunner
-
 from zettel.cli import app
 from zettel.cli.formatting import fmt_embedding_id, fmt_usd
 from zettel.cli.options import (
@@ -45,21 +44,36 @@ CLI_PKG = Path(__file__).resolve().parents[1] / "zettel" / "cli"
 # list catches.
 EXPECTED_COMMANDS = [
     # maintenance.py — store lifecycle
-    "init", "reindex", "rebuild",
+    "init",
+    "reindex",
+    "rebuild",
     # ingest.py — phase 1 and its repair tools
-    "harvest", "rechunk", "dump-chunks", "dump-extraction", "set-paging",
+    "harvest",
+    "rechunk",
+    "dump-chunks",
+    "dump-extraction",
+    "set-paging",
     # curation.py — phase 2 and the review gate
-    "extract", "review", "retry-failed",
+    "extract",
+    "review",
+    "retry-failed",
     # synthesis.py — phases 3 and 4
-    "connect", "garden",
+    "connect",
+    "garden",
     # purge.py — irreversible deletions
-    "purge-rejected", "delete-source",
+    "purge-rejected",
+    "delete-source",
     # manual.py — hand-written notes
-    "new-note", "sync-manual",
+    "new-note",
+    "sync-manual",
     # pipeline.py / qa.py / writing.py / export.py
-    "run-all", "ask", "article", "skill",
+    "run-all",
+    "ask",
+    "article",
+    "skill",
     # diagnostics.py — read-only inspection
-    "status", "doctor",
+    "status",
+    "doctor",
 ]
 
 # Infrastructure modules: they may be imported by command modules. Anything else
@@ -69,10 +83,7 @@ INFRA_MODULES = {"app", "deps", "formatting", "options"}
 
 def registered_command_names() -> list[str]:
     """Command names as Typer will expose them, in registration order."""
-    return [
-        cmd.name or cmd.callback.__name__.replace("_", "-")
-        for cmd in app.registered_commands
-    ]
+    return [cmd.name or cmd.callback.__name__.replace("_", "-") for cmd in app.registered_commands]
 
 
 def cli_modules() -> list[Path]:
@@ -154,8 +165,7 @@ def test_app_module_imports_nothing_from_the_package():
     ``python -m zettel`` dies on a partially-built module.
     """
     offenders = [
-        name for name in _top_level_imports(CLI_PKG / "app.py")
-        if name.startswith("zettel.")
+        name for name in _top_level_imports(CLI_PKG / "app.py") if name.startswith("zettel.")
     ]
     assert not offenders, (
         f"zettel/cli/app.py importa {offenders}; ele nao pode importar nada do "
@@ -195,8 +205,7 @@ def test_pipeline_modules_are_imported_lazily():
             if name.startswith("zettel.") and not name.startswith("zettel.cli"):
                 offenders.append(f"{path.name}: {name}")
     assert not offenders, (
-        f"import de modulo de dominio no topo: {offenders}. "
-        f"Mova para dentro da funcao de comando."
+        f"import de modulo de dominio no topo: {offenders}. Mova para dentro da funcao de comando."
     )
 
 
@@ -275,4 +284,7 @@ def test_fmt_embedding_id_includes_dimensions_when_set():
     """Dimensions are part of the identity: the same model at a reduced width
     produces vectors that cannot be compared with the others in the store."""
     assert fmt_embedding_id("ollama", "qwen3-embedding", 1024) == "ollama/qwen3-embedding@1024d"
-    assert fmt_embedding_id("openai", "text-embedding-3-small", None) == "openai/text-embedding-3-small"
+    assert (
+        fmt_embedding_id("openai", "text-embedding-3-small", None)
+        == "openai/text-embedding-3-small"
+    )

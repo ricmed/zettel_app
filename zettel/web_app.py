@@ -7,13 +7,12 @@ normal StateDB/VectorIndex dependencies.
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from uuid import uuid4
 
 from zettel.config import AppConfig, load_config
@@ -34,7 +33,15 @@ def safe_error(exc: BaseException) -> str:
     if not text:
         return "A operação falhou. Consulte os logs do servidor."
     # Never echo host paths, API keys or provider response bodies to the UI.
-    sensitive = ("api_key", "api key", "secret", "password", "token", "/home/", "\\users\\")
+    sensitive = (
+        "api_key",
+        "api key",
+        "secret",
+        "password",
+        "token",
+        "/home/",
+        "\\users\\",
+    )
     if any(word in text.lower() for word in sensitive):
         return "A operação falhou. Verifique a configuração e os logs do servidor."
     return text[:300]
@@ -83,13 +90,15 @@ class JobProgress:
         current_index: int | None = None,
         total_items: int | None = None,
     ) -> None:
-        self.emit(ProgressEvent(
-            phase=phase,
-            message=message,
-            current_item=current_item,
-            current_index=current_index,
-            total_items=total_items,
-        ))
+        self.emit(
+            ProgressEvent(
+                phase=phase,
+                message=message,
+                current_item=current_item,
+                current_index=current_index,
+                total_items=total_items,
+            )
+        )
 
 
 class WebWorker:
@@ -164,28 +173,40 @@ class WebWorker:
             result = self._dispatch(cfg, db, progress, operation, payload)
             last_run = db.get_last_run()
             run_id = (
-                last_run["run_id"] if last_run and last_run["run_id"] != previous_run_id
-                else None
+                last_run["run_id"] if last_run and last_run["run_id"] != previous_run_id else None
             )
             db.update_web_job(
-                job_id, state="succeeded", phase="completed",
-                message="Operação concluída.", result=result or {}, run_id=run_id, finished=True,
+                job_id,
+                state="succeeded",
+                phase="completed",
+                message="Operação concluída.",
+                result=result or {},
+                run_id=run_id,
+                finished=True,
             )
             db.add_web_job_event(job_id, "completed", message="Operação concluída.")
         except UserFacingError as exc:
             logger.warning("Trabalho web %s falhou: %s", job_id, exc)
             message = safe_error(exc)
             db.update_web_job(
-                job_id, state="failed", phase="failed",
-                message=message, error_message=message, finished=True,
+                job_id,
+                state="failed",
+                phase="failed",
+                message=message,
+                error_message=message,
+                finished=True,
             )
             db.add_web_job_event(job_id, "failed", message=message)
         except Exception as exc:  # worker must survive a failed job
             logger.error("Trabalho web %s falhou: %s\n%s", job_id, exc, traceback.format_exc())
             message = safe_error(exc)
             db.update_web_job(
-                job_id, state="failed", phase="failed",
-                message=message, error_message=message, finished=True,
+                job_id,
+                state="failed",
+                phase="failed",
+                message=message,
+                error_message=message,
+                finished=True,
             )
             db.add_web_job_event(job_id, "failed", message=message)
         finally:
@@ -193,8 +214,11 @@ class WebWorker:
 
     @staticmethod
     def _dispatch(
-        cfg: AppConfig, db: StateDB, progress: JobProgress,
-        operation: str, payload: dict[str, Any],
+        cfg: AppConfig,
+        db: StateDB,
+        progress: JobProgress,
+        operation: str,
+        payload: dict[str, Any],
     ) -> dict[str, Any]:
         progress.emit(ProgressEvent(operation, f"Carregando dependências para {operation}."))
         if operation == "retry_chunks":
@@ -206,9 +230,13 @@ class WebWorker:
             return {"assets_reset": db.reset_failed_assets()}
         if operation == "manual-ztl-from-lit" and not payload.get("use_llm"):
             from zettel.manual_lit import create_permanent_from_literature
+
             ref = payload.get("ref") or payload["chunk_id"]
             path, used_llm = create_permanent_from_literature(
-                cfg, db, None, ref,
+                cfg,
+                db,
+                None,
+                ref,
                 thesis=payload.get("thesis") or None,
                 use_llm=False,
                 force=bool(payload.get("force")),
@@ -216,6 +244,7 @@ class WebWorker:
             return {"path": str(path), "used_llm": used_llm}
 
         from zettel.index import VectorIndex, index_kwargs
+
         idx = VectorIndex(**index_kwargs(cfg))
         if operation == "run_all":
             from zettel.connector import load_approved_candidates, run_connect
@@ -226,7 +255,10 @@ class WebWorker:
 
             progress.emit(ProgressEvent("harvest", "Fase 1/5 — iniciando harvest."))
             harvest = run_harvest(
-                cfg, db, idx, interactive=False,
+                cfg,
+                db,
+                idx,
+                interactive=False,
                 duplicate_action=payload.get("duplicate_action", "skip"),
                 skip_biblio=bool(payload.get("skip_biblio", False)),
                 skip_paging=bool(payload.get("skip_paging", False)),
@@ -239,14 +271,21 @@ class WebWorker:
 
             progress.emit(ProgressEvent("review", "Fase 3/5 — aprovando drafts elegíveis."))
             review_stats = run_review(
-                cfg, db, idx, auto_approve=True, interactive=False,
+                cfg,
+                db,
+                idx,
+                auto_approve=True,
+                interactive=False,
             )
 
             approved = load_approved_candidates(db)
-            progress.emit(ProgressEvent(
-                "connect", f"Fase 4/5 — gerando {len(approved)} nota(s).",
-                total_items=len(approved),
-            ))
+            progress.emit(
+                ProgressEvent(
+                    "connect",
+                    f"Fase 4/5 — gerando {len(approved)} nota(s).",
+                    total_items=len(approved),
+                )
+            )
             note_ids = run_connect(cfg, db, idx, approved, observer=progress)
 
             progress.emit(ProgressEvent("garden", "Fase 5/5 — atualizando mapas de conteúdo."))
@@ -260,11 +299,21 @@ class WebWorker:
             }
         if operation == "harvest":
             from zettel.harvester import run_harvest
+
             selected = payload.get("selected_file")
             file_path = Path(selected).resolve() if selected else None
-            progress.emit(ProgressEvent("harvest", "Processando documento.", current_item=file_path.name if file_path else None))
+            progress.emit(
+                ProgressEvent(
+                    "harvest",
+                    "Processando documento.",
+                    current_item=file_path.name if file_path else None,
+                )
+            )
             harvest = run_harvest(
-                cfg, db, idx, interactive=False,
+                cfg,
+                db,
+                idx,
+                interactive=False,
                 duplicate_action=payload.get("duplicate_action", "skip"),
                 skip_biblio=bool(payload.get("skip_biblio", False)),
                 content_start_file=payload.get("content_start_file"),
@@ -272,7 +321,9 @@ class WebWorker:
                 skip_paging=bool(payload.get("skip_paging", False)),
                 selected_file=file_path,
                 dump_dir=Path(payload["dump_dir"]) if payload.get("dump_dir") else None,
-                extraction_dump_dir=Path(payload["extraction_dump_dir"]) if payload.get("extraction_dump_dir") else None,
+                extraction_dump_dir=Path(payload["extraction_dump_dir"])
+                if payload.get("extraction_dump_dir")
+                else None,
                 observer=progress,
             )
             sources = harvest.source_ids
@@ -298,10 +349,14 @@ class WebWorker:
         if operation == "manual-ztl-from-lit":
             from zettel.connector import ConnectRejected
             from zettel.manual_lit import create_permanent_from_literature
+
             ref = payload.get("ref") or payload["chunk_id"]
             try:
                 result = create_permanent_from_literature(
-                    cfg, db, idx, ref,
+                    cfg,
+                    db,
+                    idx,
+                    ref,
                     thesis=payload.get("thesis") or None,
                     use_llm=bool(payload.get("use_llm")),
                     force=bool(payload.get("force")),
@@ -312,32 +367,48 @@ class WebWorker:
             return {"path": str(path), "used_llm": used_llm}
         if operation == "extract":
             from zettel.extractor import run_extract
+
             total = len(db.get_pending_chunks())
-            progress.emit(ProgressEvent("extract", f"Extraindo {total} chunk(s).", total_items=total))
+            progress.emit(
+                ProgressEvent("extract", f"Extraindo {total} chunk(s).", total_items=total)
+            )
             candidates = run_extract(cfg, db, idx, auto_approve=False, observer=progress)
             return {"drafts": len(candidates), "auto_approved": False}
         if operation == "review":
-            from zettel.review import approve_chunk, finalize_approved_concepts, reject_chunk
+            from zettel.review import (
+                approve_chunk,
+                finalize_approved_concepts,
+                reject_chunk,
+            )
             from zettel.usage import begin_run, finish_pipeline_run
+
             action = payload.get("action")
             chunk_ids = list(payload.get("chunk_ids") or [])
             if not chunk_ids and payload.get("confidence_below") is not None:
                 chunks = db.get_chunks_by_status("awaiting_review")
                 threshold = float(payload["confidence_below"])
-                chunk_ids = [c["chunk_id"] for c in chunks if (c.get("review_confidence") or 0) < threshold]
+                chunk_ids = [
+                    c["chunk_id"] for c in chunks if (c.get("review_confidence") or 0) < threshold
+                ]
             stats = {"approved": 0, "rejected": 0, "skipped": 0}
             total = len(chunk_ids)
             review_run_id = db.start_run("review")
             begin_run(review_run_id)
             try:
                 for number, chunk_id in enumerate(chunk_ids, 1):
-                    progress.emit(ProgressEvent(
-                        "review", f"Revisando item {number}/{total}.",
-                        current_item=chunk_id[-18:], current_index=number, total_items=total,
-                    ))
+                    progress.emit(
+                        ProgressEvent(
+                            "review",
+                            f"Revisando item {number}/{total}.",
+                            current_item=chunk_id[-18:],
+                            current_index=number,
+                            total_items=total,
+                        )
+                    )
                     ok = (
                         approve_chunk(cfg, db, idx, chunk_id)
-                        if action == "approve" else reject_chunk(cfg, db, idx, chunk_id)
+                        if action == "approve"
+                        else reject_chunk(cfg, db, idx, chunk_id)
                     )
                     stats["approved" if action == "approve" else "rejected"] += int(ok)
                     stats["skipped"] += int(not ok)
@@ -350,19 +421,29 @@ class WebWorker:
             return stats
         if operation == "connect":
             from zettel.connector import load_approved_candidates, run_connect
+
             candidates = load_approved_candidates(db)
-            progress.emit(ProgressEvent("connect", f"Gerando {len(candidates)} nota(s).", total_items=len(candidates)))
+            progress.emit(
+                ProgressEvent(
+                    "connect",
+                    f"Gerando {len(candidates)} nota(s).",
+                    total_items=len(candidates),
+                )
+            )
             return {"notes": run_connect(cfg, db, idx, candidates, observer=progress)}
         if operation == "garden":
             if payload.get("hubs"):
                 from zettel.gardener_hub import run_garden_hubs
+
                 mocs = run_garden_hubs(cfg, db, idx, observer=progress)
             else:
                 from zettel.gardener import run_garden
+
                 mocs = run_garden(cfg, db, idx, observer=progress)
             return {"mocs": mocs}
         if operation == "sync":
             from zettel.sync import run_sync_manual
+
             progress.emit(ProgressEvent("sync", "Sincronizando notas manuais."))
             return run_sync_manual(cfg, db, idx)
         raise ValueError("Operação web desconhecida")

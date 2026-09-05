@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import pytest
-
 from zettel.config import AppConfig, HarvestConfig
 from zettel.extraction_dump import (
     dump_filename,
@@ -71,7 +70,12 @@ def test_dump_filename_sanitizes_citekey():
 def test_list_headings_collects_h1_to_h6():
     text = "# A\n## B\n### C\n#### D\n##### E\n###### F\nplain"
     assert list_headings(text) == [
-        (1, "A"), (2, "B"), (3, "C"), (4, "D"), (5, "E"), (6, "F"),
+        (1, "A"),
+        (2, "B"),
+        (3, "C"),
+        (4, "D"),
+        (5, "E"),
+        (6, "F"),
     ]
     assert list_headings("sem heading") == []
 
@@ -209,8 +213,13 @@ def test_process_file_writes_extraction_dump_when_dir_set(tmp_path: Path):
     dest = tmp_path / "extraction-dumps"
     try:
         sid, stats = _process_file(
-            cfg, db, _FakeIdx(), path, run_id=db.start_run("sig"),
-            interactive=False, skip_biblio=False,
+            cfg,
+            db,
+            _FakeIdx(),
+            path,
+            run_id=db.start_run("sig"),
+            interactive=False,
+            skip_biblio=False,
             extraction_dump_dir=dest,
         )
         assert sid is not None

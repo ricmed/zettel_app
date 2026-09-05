@@ -216,14 +216,23 @@ def run_article_graph(
         while result_state.get("__interrupt__"):
             if hitl_handler is None:
                 # Auto-approve if somehow interrupted without handler
-                resume_val: dict = {"context_decision": "approve", "outline_decision": "approve"}
+                resume_val: dict = {
+                    "context_decision": "approve",
+                    "outline_decision": "approve",
+                }
                 ints = result_state["__interrupt__"]
                 if ints and getattr(ints[0], "value", None):
                     itype = (ints[0].value or {}).get("type")
                     if itype == "outline_review":
-                        resume_val = {"outline_decision": "approve", "outline_feedback": ""}
+                        resume_val = {
+                            "outline_decision": "approve",
+                            "outline_feedback": "",
+                        }
                     else:
-                        resume_val = {"context_decision": "approve", "extra_queries": []}
+                        resume_val = {
+                            "context_decision": "approve",
+                            "extra_queries": [],
+                        }
                 result_state = graph.invoke(Command(resume=resume_val), config)
                 continue
             ints = result_state["__interrupt__"]

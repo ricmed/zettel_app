@@ -20,7 +20,10 @@ def _make_config(vault_path: Path) -> AppConfig:
 
 
 def _write_permanent_note(
-    vault: Path, db: StateDB, note_id: str, title: str,
+    vault: Path,
+    db: StateDB,
+    note_id: str,
+    title: str,
 ) -> Path:
     note_dir = vault / "30_Permanent"
     note_dir.mkdir(parents=True, exist_ok=True)
@@ -65,11 +68,7 @@ def test_sync_moc_backrefs_adds_links_to_permanent_notes(tmp_path):
     vault = tmp_path / "vault"
     db = StateDB(tmp_path / "state.db")
     note_path = _write_permanent_note(vault, db, "NOTE001", "Regressao Linear")
-    moc_body = (
-        "# Topico\n\nResumo.\n\n"
-        "## Secao\n\n"
-        "- [[ZTL - NOTE001 - regressao-linear]]\n"
-    )
+    moc_body = "# Topico\n\nResumo.\n\n## Secao\n\n- [[ZTL - NOTE001 - regressao-linear]]\n"
     moc_path = _write_moc(vault, db, "MOC001", "Topico", moc_body)
 
     sync_moc_backrefs(db, "MOC001", "Topico", moc_path)
@@ -92,17 +91,17 @@ def test_sync_moc_backrefs_removes_stale_links(tmp_path):
         "- [[ZTL - NOTE001 - nota-a]]\n"
         "- [[ZTL - NOTE002 - nota-b]]\n"
     )
-    new_body = (
-        "# Topico\n\nResumo.\n\n"
-        "## Secao\n\n"
-        "- [[ZTL - NOTE001 - nota-a]]\n"
-    )
+    new_body = "# Topico\n\nResumo.\n\n## Secao\n\n- [[ZTL - NOTE001 - nota-a]]\n"
     moc_path = _write_moc(vault, db, "MOC001", "Topico", previous_body)
     sync_moc_backrefs(db, "MOC001", "Topico", moc_path)
 
     sync_moc_backrefs(
-        db, "MOC001", "Topico", moc_path,
-        previous_body=previous_body, new_body=new_body,
+        db,
+        "MOC001",
+        "Topico",
+        moc_path,
+        previous_body=previous_body,
+        new_body=new_body,
     )
 
     block_a = read_managed_block(note_a.read_text(encoding="utf-8"), MOC_BACKREFS_BLOCK)
@@ -118,11 +117,7 @@ def test_clear_moc_backrefs_on_purge(tmp_path):
     vault = tmp_path / "vault"
     db = StateDB(tmp_path / "state.db")
     note_path = _write_permanent_note(vault, db, "NOTE001", "Regressao Linear")
-    moc_body = (
-        "# Topico\n\nResumo.\n\n"
-        "## Secao\n\n"
-        "- [[ZTL - NOTE001 - regressao-linear]]\n"
-    )
+    moc_body = "# Topico\n\nResumo.\n\n## Secao\n\n- [[ZTL - NOTE001 - regressao-linear]]\n"
     moc_path = _write_moc(vault, db, "PIPE001", "Topico", moc_body, origin="pipeline")
     sync_moc_backrefs(db, "PIPE001", "Topico", moc_path)
     assert read_managed_block(note_path.read_text(encoding="utf-8"), MOC_BACKREFS_BLOCK)
@@ -145,11 +140,7 @@ def test_sync_manual_updates_moc_backrefs(tmp_path):
 
     db = StateDB(tmp_path / "state.db")
     note_path = _write_permanent_note(vault, db, "NOTE001", "Nota Manual")
-    moc_body = (
-        "# Manual\n\nResumo.\n\n"
-        "## Secao\n\n"
-        "- [[ZTL - NOTE001 - nota-manual]]\n"
-    )
+    moc_body = "# Manual\n\nResumo.\n\n## Secao\n\n- [[ZTL - NOTE001 - nota-manual]]\n"
     moc_path = vault / "40_MOCs" / "MOC - MANUAL01 - manual.md"
     safe_write_note(
         moc_path,

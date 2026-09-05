@@ -28,26 +28,35 @@ from zettel.web.server import create_app, lifespan
 # isort: off
 # Importing a route module exposes its APIRouter; the order of these statements
 # is the order FastAPI matches paths. Deliberately not alphabetical.
-from zettel.web import auth          # /favicon.ico, /login, /logout
-from zettel.web import dashboard     # /
-from zettel.web import documents     # /documents, /upload, /harvest, /run-all
-from zettel.web import pipeline      # /pipeline
-from zettel.web import review        # /review
-from zettel.web import notes         # /notes (listing)
-from zettel.web import manual        # /notes/new
-from zettel.web import pickers       # /api/pickers/*
-from zettel.web import jobs          # /runs, /jobs, /api/jobs
-from zettel.web import settings      # /settings
-from zettel.web import details       # /sources/{id}, /notes/{id}, /mocs/{id} — LAST
+from zettel.web import auth  # /favicon.ico, /login, /logout
+from zettel.web import dashboard  # /
+from zettel.web import documents  # /documents, /upload, /harvest, /run-all
+from zettel.web import pipeline  # /pipeline
+from zettel.web import review  # /review
+from zettel.web import notes  # /notes (listing)
+from zettel.web import manual  # /notes/new
+from zettel.web import pickers  # /api/pickers/*
+from zettel.web import jobs  # /runs, /jobs, /api/jobs
+from zettel.web import settings  # /settings
+from zettel.web import details  # /sources/{id}, /notes/{id}, /mocs/{id} — LAST
 # isort: on
 
 ROUTE_MODULES = (
-    auth, dashboard, documents, pipeline, review, notes,
-    manual, pickers, jobs, settings, details,
+    auth,
+    dashboard,
+    documents,
+    pipeline,
+    review,
+    notes,
+    manual,
+    pickers,
+    jobs,
+    settings,
+    details,
 )
 
 ROUTERS = tuple(module.router for module in ROUTE_MODULES)
 
 app = create_app()
 
-__all__ = ["ROUTE_MODULES", "ROUTERS", "app", "create_app", "lifespan"]
+__all__ = ["ROUTERS", "ROUTE_MODULES", "app", "create_app", "lifespan"]

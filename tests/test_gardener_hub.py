@@ -111,8 +111,12 @@ def test_find_moc_by_hub_note_id(tmp_path):
     db = _setup_graph_db(tmp_path)
     meta = json.dumps({"hub_note_id": "HUB", "origin": "hub_pipeline"})
     db.upsert_moc(
-        "MOC_HUB", "Tema Hub", "/p/moc.md", "sig",
-        frontmatter_json=meta, origin="hub_pipeline",
+        "MOC_HUB",
+        "Tema Hub",
+        "/p/moc.md",
+        "sig",
+        frontmatter_json=meta,
+        origin="hub_pipeline",
     )
 
     found = db.find_moc_by_hub_note_id("HUB")
@@ -174,8 +178,13 @@ def test_process_hub_cluster_routes_to_incremental(tmp_path):
     )
     safe_write_note(moc_file, meta, body)
     db.upsert_moc(
-        "MOC001", "Tema Hub", str(moc_file), "old_sig",
-        body=body, frontmatter_json=json.dumps(meta), origin="hub_pipeline",
+        "MOC001",
+        "Tema Hub",
+        str(moc_file),
+        "old_sig",
+        body=body,
+        frontmatter_json=json.dumps(meta),
+        origin="hub_pipeline",
     )
 
     prompts_dir = tmp_path / "prompts"
@@ -187,10 +196,12 @@ def test_process_hub_cluster_routes_to_incremental(tmp_path):
     cfg.prompts_path = prompts_dir
 
     incremental_response = MagicMock()
-    incremental_response.content = json.dumps({
-        "placements": [{"note_id": "N1", "subsection": "Vizinhos", "reason": "teste"}],
-        "new_subsections": [],
-    })
+    incremental_response.content = json.dumps(
+        {
+            "placements": [{"note_id": "N1", "subsection": "Vizinhos", "reason": "teste"}],
+            "new_subsections": [],
+        }
+    )
     llm = MagicMock()
     llm.invoke.return_value = incremental_response
     idx = MagicMock()
@@ -199,9 +210,14 @@ def test_process_hub_cluster_routes_to_incremental(tmp_path):
 
     stats = _HubGardenStats()
     result = _process_hub_cluster(
-        cfg, db, idx, llm, "HUB",
+        cfg,
+        db,
+        idx,
+        llm,
+        "HUB",
         ["HUB", "A", "B", "C"],
-        5.0, stats,
+        5.0,
+        stats,
     )
 
     assert result == "MOC001"
@@ -238,8 +254,13 @@ def test_hub_incremental_lists_notes_already_in_the_moc(tmp_path):
     )
     safe_write_note(moc_file, meta, body)
     db.upsert_moc(
-        "MOC002", "Tema Hub", str(moc_file), "old_sig",
-        body=body, frontmatter_json=json.dumps(meta), origin="hub_pipeline",
+        "MOC002",
+        "Tema Hub",
+        str(moc_file),
+        "old_sig",
+        body=body,
+        frontmatter_json=json.dumps(meta),
+        origin="hub_pipeline",
     )
 
     prompts_dir = tmp_path / "prompts"
@@ -259,9 +280,14 @@ def test_hub_incremental_lists_notes_already_in_the_moc(tmp_path):
     from zettel.gardener_hub import _update_hub_moc
 
     _update_hub_moc(
-        cfg, db, MagicMock(), llm,
+        cfg,
+        db,
+        MagicMock(),
+        llm,
         {"moc_id": "MOC002", "topic": "Tema Hub", "path": str(moc_file)},
-        "HUB", ["B", "C"], "new_sig",
+        "HUB",
+        ["B", "C"],
+        "new_sig",
     )
 
     sent = str(llm.invoke.call_args[0][0][-1].content)

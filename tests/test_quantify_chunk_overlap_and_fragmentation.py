@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from quantify_chunk_overlap_and_fragmentation import (  # noqa: E402
+from quantify_chunk_overlap_and_fragmentation import (
     fragmented_rejection_stats,
     overlap_cost_stats,
 )

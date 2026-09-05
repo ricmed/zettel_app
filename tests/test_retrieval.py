@@ -1,7 +1,6 @@
 """Tests for the hybrid Retriever (vector + BM25 RRF + graph expansion)."""
 
 import pytest
-
 from zettel.config import AppConfig
 from zettel.retrieval import RetrievedNote, Retriever
 from zettel.state import StateDB
@@ -24,17 +23,23 @@ class FakeIndex:
         for nid in self._note_ids:
             if exclude_id and nid == exclude_id:
                 continue
-            out.append({
-                "id": nid, "document": f"doc {nid}", "metadata": {"title": f"T {nid}"},
-                "distance": self._distances.get(nid, 0.1),
-            })
+            out.append(
+                {
+                    "id": nid,
+                    "document": f"doc {nid}",
+                    "metadata": {"title": f"T {nid}"},
+                    "distance": self._distances.get(nid, 0.1),
+                }
+            )
             if len(out) >= n_results:
                 break
         return out
 
     def find_similar_chunks(self, texts, n_results=3):
-        return [{"id": cid, "document": f"chunk {cid}", "metadata": {}, "distance": 0.1}
-                for cid in self._chunk_ids[:n_results]]
+        return [
+            {"id": cid, "document": f"chunk {cid}", "metadata": {}, "distance": 0.1}
+            for cid in self._chunk_ids[:n_results]
+        ]
 
 
 @pytest.fixture
@@ -189,7 +194,10 @@ def test_no_hits_when_everything_below_floor_but_candidates_shown(db):
     _seed_notes(db, ["n1", "n2"])
     idx = FakeIndex(
         note_ids=["n1", "n2"],
-        distances={"n1": 0.8, "n2": 0.9},  # similarities 0.60 and 0.55 — both below floor
+        distances={
+            "n1": 0.8,
+            "n2": 0.9,
+        },  # similarities 0.60 and 0.55 — both below floor
     )
     r = Retriever(_cfg(), db, idx)
     result = r.search_notes("pergunta totalmente fora do tema", topk=5, mode="vector")

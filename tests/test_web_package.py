@@ -17,7 +17,6 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
-
 from zettel.web import ROUTERS, app, create_app
 from zettel.web.rendering import templates
 
@@ -114,8 +113,7 @@ def test_parametric_detail_routes_are_registered_last():
 
 def test_server_module_imports_nothing_from_the_package():
     offenders = [
-        name for name in _top_level_imports(WEB_PKG / "server.py")
-        if name.startswith("zettel.web.")
+        name for name in _top_level_imports(WEB_PKG / "server.py") if name.startswith("zettel.web.")
     ]
     assert not offenders, (
         f"zettel/web/server.py importa {offenders}; ele nao pode importar nada do pacote."
@@ -125,7 +123,8 @@ def test_server_module_imports_nothing_from_the_package():
 def test_no_route_module_imports_another_route_module():
     problems: list[str] = []
     route_stems = {
-        path.stem for path in WEB_PKG.glob("*.py")
+        path.stem
+        for path in WEB_PKG.glob("*.py")
         if path.name != "__init__.py" and _is_route_module(path)
     }
     for path in WEB_PKG.glob("*.py"):
@@ -154,16 +153,17 @@ def test_domain_modules_are_imported_lazily():
                 continue
             offenders.append(f"{path.name}: {name}")
     assert not offenders, (
-        f"import de modulo de dominio no topo: {offenders}. "
-        f"Allowlist: {_ALLOWLIST}."
+        f"import de modulo de dominio no topo: {offenders}. Allowlist: {_ALLOWLIST}."
     )
 
 
 def test_route_modules_tuple_covers_the_package():
     from zettel.web import ROUTE_MODULES
+
     bound = {module.__name__.split(".")[-1] for module in ROUTE_MODULES}
     found = {
-        path.stem for path in WEB_PKG.glob("*.py")
+        path.stem
+        for path in WEB_PKG.glob("*.py")
         if path.name != "__init__.py" and _is_route_module(path)
     }
     assert bound == found
@@ -180,6 +180,7 @@ def test_create_app_builds_independent_apps():
 
 def test_package_exposes_the_asgi_app():
     import zettel.web as package
+
     assert isinstance(package.app, FastAPI)
 
 

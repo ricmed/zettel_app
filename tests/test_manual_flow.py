@@ -3,7 +3,6 @@
 import json
 
 import pytest
-
 from zettel.config import AppConfig
 from zettel.hashing import normalize_text_for_hash, sha256_hex
 from zettel.manual_lit import (
@@ -62,10 +61,14 @@ def db(tmp_path):
     d.close()
 
 
-def _fill_literature(path, *, summary="Grafos conexos resistem a remocoes.",
-                     excerpt="Um grafo e conexo quando ha caminho entre dois vertices.",
-                     thesis="Conectividade determina robustez estrutural.",
-                     extra_body=""):
+def _fill_literature(
+    path,
+    *,
+    summary="Grafos conexos resistem a remocoes.",
+    excerpt="Um grafo e conexo quando ha caminho entre dois vertices.",
+    thesis="Conectividade determina robustez estrutural.",
+    extra_body="",
+):
     """Replace the scaffold placeholders with real content, as the user would."""
     meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
     body = body.replace("_Preencha o resumo._", summary)
@@ -78,12 +81,20 @@ def _fill_literature(path, *, summary="Grafos conexos resistem a remocoes.",
 
 def _scaffold_source_and_lit(cfg, db, idx, *, extra_body=""):
     scaffold_manual_note(
-        cfg, "src", "Teoria dos Grafos",
-        citekey="Diestel2017", authors=["Reinhard Diestel"], year=2017,
+        cfg,
+        "src",
+        "Teoria dos Grafos",
+        citekey="Diestel2017",
+        authors=["Reinhard Diestel"],
+        year=2017,
     )
     lit = scaffold_manual_note(
-        cfg, "lit", "Conectividade",
-        source_id="@Diestel2017", granular=True, page=42,
+        cfg,
+        "lit",
+        "Conectividade",
+        source_id="@Diestel2017",
+        granular=True,
+        page=42,
     ).path
     _fill_literature(lit, extra_body=extra_body)
     run_sync_manual(cfg, db, idx)
@@ -95,7 +106,11 @@ def _scaffold_source_and_lit(cfg, db, idx, *, extra_body=""):
 
 def test_source_scaffold_also_creates_literature_index(cfg):
     result = scaffold_manual_note(
-        cfg, "src", "Teoria dos Grafos", citekey="Diestel2017", year=2017,
+        cfg,
+        "src",
+        "Teoria dos Grafos",
+        citekey="Diestel2017",
+        year=2017,
     )
     index = cfg.vault_path / "20_Literature" / "LIT - Diestel2017 - teoria-dos-grafos.md"
     assert index.is_file()
@@ -109,15 +124,18 @@ def test_source_scaffold_also_creates_literature_index(cfg):
 def test_literature_scaffold_honours_source_id(cfg):
     scaffold_manual_note(cfg, "src", "Teoria dos Grafos", citekey="Diestel2017")
     result = scaffold_manual_note(
-        cfg, "lit", "Conectividade", source_id="@Diestel2017", granular=True, page=42,
+        cfg,
+        "lit",
+        "Conectividade",
+        source_id="@Diestel2017",
+        granular=True,
+        page=42,
     )
     assert result.meta["source_id"] == "@Diestel2017"
     assert result.meta["citekey"] == "Diestel2017"
     assert result.path.parent.name == "Diestel2017"
     # The backlink targets the source's index, not the chunk topic.
-    assert "[[LIT - Diestel2017 - teoria-dos-grafos]]" in result.path.read_text(
-        encoding="utf-8"
-    )
+    assert "[[LIT - Diestel2017 - teoria-dos-grafos]]" in result.path.read_text(encoding="utf-8")
 
 
 def test_manual_granular_literature_is_adopted(cfg, db):
@@ -193,7 +211,10 @@ def test_wiki_embed_image_is_adopted(cfg, db):
     (cfg.vault_path / "anexos" / "diagrama.png").write_bytes(PNG_BYTES)
     idx = FakeIndex()
     lit = _scaffold_source_and_lit(
-        cfg, db, idx, extra_body="\n## Figura\n\n![[diagrama.png]]\n",
+        cfg,
+        db,
+        idx,
+        extra_body="\n## Figura\n\n![[diagrama.png]]\n",
     )
 
     assets = db.get_assets_for_source("@Diestel2017")
@@ -213,7 +234,10 @@ def test_markdown_image_is_adopted_keeping_syntax(cfg, db):
     (cfg.vault_path / "figura.png").write_bytes(PNG_BYTES)
     idx = FakeIndex()
     lit = _scaffold_source_and_lit(
-        cfg, db, idx, extra_body="\n## Figura\n\n![Diagrama](figura.png)\n",
+        cfg,
+        db,
+        idx,
+        extra_body="\n## Figura\n\n![Diagrama](figura.png)\n",
     )
 
     asset = db.get_assets_for_source("@Diestel2017")[0]
@@ -235,7 +259,10 @@ def test_image_adoption_does_not_duplicate_on_resync(cfg, db):
     (cfg.vault_path / "figura.png").write_bytes(PNG_BYTES)
     idx = FakeIndex()
     lit = _scaffold_source_and_lit(
-        cfg, db, idx, extra_body="\n![[figura.png]]\n",
+        cfg,
+        db,
+        idx,
+        extra_body="\n![[figura.png]]\n",
     )
     before = lit.read_text(encoding="utf-8")
 
@@ -300,7 +327,7 @@ def test_permanent_from_literature_rejects_non_literature(cfg, db):
 
 def test_permanent_from_literature_with_llm(cfg, db, monkeypatch):
     """The LLM path reuses run_connect, so the note is fully indexed as manual."""
-    import zettel.connector as connector
+    from zettel import connector
     from zettel.schemas import PermanentNoteLLMOutput
 
     idx = FakeIndex()
@@ -323,7 +350,11 @@ def test_permanent_from_literature_with_llm(cfg, db, monkeypatch):
     monkeypatch.setattr(connector, "call_llm", lambda *a, **k: response)
 
     path, via_llm = create_permanent_from_literature(
-        cfg, db, idx, str(lit), use_llm=True,
+        cfg,
+        db,
+        idx,
+        str(lit),
+        use_llm=True,
     )
     assert via_llm is True
 
@@ -339,7 +370,7 @@ def test_permanent_from_literature_with_llm(cfg, db, monkeypatch):
 
 
 def test_permanent_from_literature_llm_rejected_surfaces_reason(cfg, db, monkeypatch):
-    import zettel.connector as connector
+    from zettel import connector
     from zettel.connector import ConnectRejected
     from zettel.schemas import PermanentNoteLLMOutput
 
@@ -430,7 +461,7 @@ def test_sync_manual_consumes_approved_concept_for_existing_ztl(cfg, db):
 
     path, _ = create_permanent_from_literature(cfg, db, idx, str(lit))
     # Re-open the queue as if claim had not run (legacy vault / concept inserted later).
-    chunk_id = parse_frontmatter(lit.read_text(encoding="utf-8"))[0]["chunk_id"]
+    parse_frontmatter(lit.read_text(encoding="utf-8"))[0]["chunk_id"]
     db.conn.execute(
         "UPDATE concepts SET note_id=NULL, status='approved' WHERE concept_id=?",
         (concept_id,),
@@ -450,7 +481,7 @@ def test_sync_manual_consumes_approved_concept_for_existing_ztl(cfg, db):
 
 def test_connect_skips_generation_when_manual_ztl_already_covers(cfg, db, monkeypatch):
     """#132: Connect guard skips LLM when a covering manual note is already indexed."""
-    import zettel.connector as connector
+    from zettel import connector
     from zettel.connector import load_approved_candidates, run_connect
 
     idx = FakeIndex()

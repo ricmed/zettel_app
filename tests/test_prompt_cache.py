@@ -6,14 +6,13 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from langchain_core.messages import HumanMessage, SystemMessage
-
 from zettel.llm import (
     TokenUsage,
+    _extract_usage,
     apply_prompt_cache_hints,
     call_llm,
     fill_template,
     split_prompt_text,
-    _extract_usage,
 )
 from zettel.usage import begin_run, get_tracker, reset
 
@@ -70,7 +69,10 @@ def test_call_llm_sends_system_and_human():
     llm = _CapturingLLM()
     with patch("zettel.pricing.estimate_llm_cost", return_value=0.01):
         text = call_llm(
-            llm, "user payload", system="stable system", label="t",
+            llm,
+            "user payload",
+            system="stable system",
+            label="t",
             provider="openai",
         )
     assert text == "ok"

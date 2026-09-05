@@ -35,7 +35,13 @@ FLOOR_KEYS: tuple[str, ...] = (
     "graph_max_hops",
 )
 
-_REQUIRED = ("condition", "fixture_hash", "question_set_hash", "llm_model", "embedding_model")
+_REQUIRED = (
+    "condition",
+    "fixture_hash",
+    "question_set_hash",
+    "llm_model",
+    "embedding_model",
+)
 
 
 class ManifestError(ValueError):
@@ -88,7 +94,10 @@ def current_commit_sha() -> str:
     try:
         out = subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=5, check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return ""

@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import pytest
-
 from zettel.config import AppConfig, HarvestConfig
 from zettel.harvester import (
     HarvestAborted,
+)
+from zettel.harvester import (
     find_semantic_duplicate_candidates as _find_semantic_duplicate_candidates,
+)
+from zettel.harvester import (
     resolve_duplicate_decision as _resolve_duplicate_decision,
+)
+from zettel.harvester import (
     sample_chunk_texts as _sample_chunk_texts,
 )
 from zettel.harvester.pipeline import _process_file
-from zettel.hashing import normalize_text_for_hash, sha256_hex
 from zettel.state import StateDB
 
 
@@ -84,14 +88,22 @@ def test_sample_chunk_texts_distributes_evenly(cfg):
 
 def test_find_semantic_duplicate_candidates_aggregates_by_source(db, cfg):
     db.upsert_source(
-        source_id="@Existing2024", citekey="Existing2024", title="Fonte Existente",
-        authors=[], year=2024, file_checksum="h", origin_path="/p", origin_type="pdf",
+        source_id="@Existing2024",
+        citekey="Existing2024",
+        title="Fonte Existente",
+        authors=[],
+        year=2024,
+        file_checksum="h",
+        origin_path="/p",
+        origin_type="pdf",
     )
-    idx = FakeVectorIndex(chunk_matches=[
-        {"id": "c1", "distance": 0.10, "metadata": {"source_id": "@Existing2024"}},
-        {"id": "c2", "distance": 0.05, "metadata": {"source_id": "@Existing2024"}},
-        {"id": "c3", "distance": 1.90, "metadata": {"source_id": "@Other2024"}},
-    ])
+    idx = FakeVectorIndex(
+        chunk_matches=[
+            {"id": "c1", "distance": 0.10, "metadata": {"source_id": "@Existing2024"}},
+            {"id": "c2", "distance": 0.05, "metadata": {"source_id": "@Existing2024"}},
+            {"id": "c3", "distance": 1.90, "metadata": {"source_id": "@Other2024"}},
+        ]
+    )
     chapters = [{"title": "Cap", "text": "Algum conteudo qualquer para amostragem de chunks."}]
     candidates = _find_semantic_duplicate_candidates(cfg, db, idx, chapters)
 
@@ -102,9 +114,11 @@ def test_find_semantic_duplicate_candidates_aggregates_by_source(db, cfg):
 
 
 def test_find_semantic_duplicate_candidates_below_threshold_ignored(db, cfg):
-    idx = FakeVectorIndex(chunk_matches=[
-        {"id": "c1", "distance": 1.5, "metadata": {"source_id": "@Distant2024"}},
-    ])
+    idx = FakeVectorIndex(
+        chunk_matches=[
+            {"id": "c1", "distance": 1.5, "metadata": {"source_id": "@Distant2024"}},
+        ]
+    )
     chapters = [{"title": "Cap", "text": "Texto sem relacao com nada existente."}]
     candidates = _find_semantic_duplicate_candidates(cfg, db, idx, chapters)
     assert candidates == []
@@ -154,15 +168,26 @@ def test_process_file_detects_renamed_copy_by_file_hash(db, cfg, tmp_path, monke
 
     idx = FakeVectorIndex()
 
-    sid1, stats1 = _process_file(
-        cfg, db, idx, original, run_id=db.start_run("sig"),
-        interactive=False, skip_biblio=True,
+    sid1, _stats1 = _process_file(
+        cfg,
+        db,
+        idx,
+        original,
+        run_id=db.start_run("sig"),
+        interactive=False,
+        skip_biblio=True,
     )
     assert sid1 is not None
 
     run_id2 = db.start_run("sig2")
     sid2, stats2 = _process_file(
-        cfg, db, idx, copy, run_id=run_id2, interactive=False, skip_biblio=True,
+        cfg,
+        db,
+        idx,
+        copy,
+        run_id=run_id2,
+        interactive=False,
+        skip_biblio=True,
     )
     assert sid2 is None
     assert stats2 == {}
@@ -189,13 +214,25 @@ def test_process_file_detects_cross_format_content_duplicate(db, cfg, tmp_path):
 
     run_id1 = db.start_run("sig1")
     sid1, _ = _process_file(
-        cfg, db, idx, md_file, run_id=run_id1, interactive=False, skip_biblio=True,
+        cfg,
+        db,
+        idx,
+        md_file,
+        run_id=run_id1,
+        interactive=False,
+        skip_biblio=True,
     )
     assert sid1 is not None
 
     run_id2 = db.start_run("sig2")
     sid2, stats2 = _process_file(
-        cfg, db, idx, pdf_like_file, run_id=run_id2, interactive=False, skip_biblio=True,
+        cfg,
+        db,
+        idx,
+        pdf_like_file,
+        run_id=run_id2,
+        interactive=False,
+        skip_biblio=True,
     )
     assert sid2 is None
     assert stats2 == {}
@@ -211,19 +248,35 @@ def test_process_file_semantic_duplicate_skip(db, cfg, tmp_path, monkeypatch):
     inbox = tmp_path / "inbox"
     inbox.mkdir()
     new_file = inbox / "new_article.md"
-    new_file.write_text("# Outro Titulo\n\nTexto totalmente diferente do indexado.", encoding="utf-8")
+    new_file.write_text(
+        "# Outro Titulo\n\nTexto totalmente diferente do indexado.", encoding="utf-8"
+    )
 
     db.upsert_source(
-        source_id="@Similar2024", citekey="Similar2024", title="Fonte Similar",
-        authors=[], year=2024, file_checksum="h", origin_path="/p", origin_type="pdf",
+        source_id="@Similar2024",
+        citekey="Similar2024",
+        title="Fonte Similar",
+        authors=[],
+        year=2024,
+        file_checksum="h",
+        origin_path="/p",
+        origin_type="pdf",
     )
-    idx = FakeVectorIndex(chunk_matches=[
-        {"id": "c1", "distance": 0.05, "metadata": {"source_id": "@Similar2024"}},
-    ])
+    idx = FakeVectorIndex(
+        chunk_matches=[
+            {"id": "c1", "distance": 0.05, "metadata": {"source_id": "@Similar2024"}},
+        ]
+    )
 
     run_id = db.start_run("sig")
     sid, stats = _process_file(
-        cfg, db, idx, new_file, run_id=run_id, interactive=False, duplicate_action="skip",
+        cfg,
+        db,
+        idx,
+        new_file,
+        run_id=run_id,
+        interactive=False,
+        duplicate_action="skip",
         skip_biblio=True,
     )
     assert sid is None
@@ -238,19 +291,36 @@ def test_process_file_semantic_duplicate_continue_creates_source(db, cfg, tmp_pa
     inbox = tmp_path / "inbox"
     inbox.mkdir()
     new_file = inbox / "new_article2.md"
-    new_file.write_text("# Outro Titulo 2\n\nTexto diferente mas sinalizado como suspeito.", encoding="utf-8")
+    new_file.write_text(
+        "# Outro Titulo 2\n\nTexto diferente mas sinalizado como suspeito.",
+        encoding="utf-8",
+    )
 
     db.upsert_source(
-        source_id="@Similar2024b", citekey="Similar2024b", title="Fonte Similar 2",
-        authors=[], year=2024, file_checksum="h", origin_path="/p", origin_type="pdf",
+        source_id="@Similar2024b",
+        citekey="Similar2024b",
+        title="Fonte Similar 2",
+        authors=[],
+        year=2024,
+        file_checksum="h",
+        origin_path="/p",
+        origin_type="pdf",
     )
-    idx = FakeVectorIndex(chunk_matches=[
-        {"id": "c1", "distance": 0.05, "metadata": {"source_id": "@Similar2024b"}},
-    ])
+    idx = FakeVectorIndex(
+        chunk_matches=[
+            {"id": "c1", "distance": 0.05, "metadata": {"source_id": "@Similar2024b"}},
+        ]
+    )
 
     run_id = db.start_run("sig")
     sid, stats = _process_file(
-        cfg, db, idx, new_file, run_id=run_id, interactive=False, duplicate_action="continue",
+        cfg,
+        db,
+        idx,
+        new_file,
+        run_id=run_id,
+        interactive=False,
+        duplicate_action="continue",
         skip_biblio=True,
     )
     assert sid is not None
@@ -263,19 +333,35 @@ def test_process_file_semantic_duplicate_abort_raises(db, cfg, tmp_path):
     inbox = tmp_path / "inbox"
     inbox.mkdir()
     new_file = inbox / "new_article3.md"
-    new_file.write_text("# Titulo 3\n\nConteudo suspeito de duplicidade semantica.", encoding="utf-8")
+    new_file.write_text(
+        "# Titulo 3\n\nConteudo suspeito de duplicidade semantica.", encoding="utf-8"
+    )
 
     db.upsert_source(
-        source_id="@Similar2024c", citekey="Similar2024c", title="Fonte Similar 3",
-        authors=[], year=2024, file_checksum="h", origin_path="/p", origin_type="pdf",
+        source_id="@Similar2024c",
+        citekey="Similar2024c",
+        title="Fonte Similar 3",
+        authors=[],
+        year=2024,
+        file_checksum="h",
+        origin_path="/p",
+        origin_type="pdf",
     )
-    idx = FakeVectorIndex(chunk_matches=[
-        {"id": "c1", "distance": 0.05, "metadata": {"source_id": "@Similar2024c"}},
-    ])
+    idx = FakeVectorIndex(
+        chunk_matches=[
+            {"id": "c1", "distance": 0.05, "metadata": {"source_id": "@Similar2024c"}},
+        ]
+    )
 
     run_id = db.start_run("sig")
     with pytest.raises(HarvestAborted):
         _process_file(
-            cfg, db, idx, new_file, run_id=run_id, interactive=False, duplicate_action="abort",
+            cfg,
+            db,
+            idx,
+            new_file,
+            run_id=run_id,
+            interactive=False,
+            duplicate_action="abort",
             skip_biblio=True,
         )

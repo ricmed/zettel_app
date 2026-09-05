@@ -7,7 +7,6 @@ import types
 from pathlib import Path
 
 import pytest
-
 from zettel.harvester import extract
 from zettel.hashing import normalize_text_for_hash, sha256_hex
 from zettel.text_sanitize import (
@@ -45,7 +44,7 @@ def test_is_idempotent():
 def test_leaves_visible_punctuation_and_nbsp_untouched():
     # normalize_text_for_hash owns visible-text rewriting; the sanitizer must not
     # compete with it (NBSP, hyphens and accents survive here).
-    text = "café   bem-vindo — fim"
+    text = "café \u00a0 bem-vindo — fim"
     clean, removed = strip_invisible_unicode(text)
     assert clean == text
     assert removed == 0
@@ -116,7 +115,8 @@ def test_pdf_extraction_is_sanitized(tmp_path: Path, monkeypatch):
     pdf.write_bytes(b"%PDF-1.4\n")
     monkeypatch.setattr(extract, "assert_pdf_has_text_layer", lambda path: None)
     monkeypatch.setattr(
-        extract, "extract_pdf_docling",
+        extract,
+        "extract_pdf_docling",
         lambda cfg, path: (f"Texto{ZWSP} do PDF{TAG_A}.", {"title": "t"}),
     )
     text, _ = extract.extract_text(_cfg(), pdf, "pdf")
@@ -201,10 +201,11 @@ def test_probe_is_skipped_without_pdfium(tmp_path: Path, monkeypatch):
 
 def test_one_unusable_file_does_not_stop_the_batch(tmp_path: Path):
     """A bad file is reported; the good ones in the same inbox still harvest."""
-    from tests.test_harvester_dedup import FakeVectorIndex
     from zettel.config import AppConfig, HarvestConfig
     from zettel.harvester import run_harvest
     from zettel.state import StateDB
+
+    from tests.test_harvester_dedup import FakeVectorIndex
 
     inbox = tmp_path / "inbox"
     inbox.mkdir()
@@ -223,13 +224,16 @@ def test_one_unusable_file_does_not_stop_the_batch(tmp_path: Path):
     db = StateDB(tmp_path / "state.db")
     try:
         outcome = run_harvest(
-            cfg, db, FakeVectorIndex(), interactive=False,
-            duplicate_action="skip", skip_biblio=True, skip_paging=True,
+            cfg,
+            db,
+            FakeVectorIndex(),
+            interactive=False,
+            duplicate_action="skip",
+            skip_biblio=True,
+            skip_paging=True,
         )
     finally:
         db.close()
 
     assert len(outcome.source_ids) == 1
-    assert [(s.path.name, s.reason) for s in outcome.skipped] == [
-        ("vazio.md", "empty_text_layer")
-    ]
+    assert [(s.path.name, s.reason) for s in outcome.skipped] == [("vazio.md", "empty_text_layer")]

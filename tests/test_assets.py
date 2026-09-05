@@ -1,7 +1,6 @@
 """Tests for image extraction, dedup, and description caching — Fase 3."""
 
 import pytest
-
 from zettel.assets import (
     asset_id_for,
     asset_ids_in_text,
@@ -86,12 +85,16 @@ def test_identical_images_dedup_to_same_file(tmp_path):
 
 
 def test_register_assets_resolves_chapter(tmp_path, db):
-    cfg = _cfg(tmp_path)
+    _cfg(tmp_path)
     db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
     images = [{"checksum": "ck1", "path": "90_Assets/img-abc.png", "context_snippet": "ctx"}]
     chapters = [
         {"title": "Cap1", "text": "sem imagem aqui", "locator": "Cap1"},
-        {"title": "Cap2", "text": "veja 90_Assets/img-abc.png no texto", "locator": "Cap2"},
+        {
+            "title": "Cap2",
+            "text": "veja 90_Assets/img-abc.png no texto",
+            "locator": "Cap2",
+        },
     ]
     register_assets(db, "@S", chapters, images)
     asset = db.get_asset(asset_id_for("@S", "ck1"))
@@ -102,12 +105,19 @@ def test_register_assets_resolves_chapter(tmp_path, db):
 def test_reresolve_asset_chapters_updates_orphan_ids(tmp_path, db):
     db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
     db.upsert_asset(
-        "@S::img::x", "@S", "90_Assets/img-x.png", "ckx",
+        "@S::img::x",
+        "@S",
+        "90_Assets/img-x.png",
+        "ckx",
         chapter_id="@S::ch026",  # orphan from interrupted harvest
     )
     chapters = [
         {"title": "Early", "text": "sem imagem", "locator": "Early"},
-        {"title": "Late", "text": "diagrama 90_Assets/img-x.png aqui", "locator": "Late"},
+        {
+            "title": "Late",
+            "text": "diagrama 90_Assets/img-x.png aqui",
+            "locator": "Late",
+        },
     ]
     n = reresolve_asset_chapters(db, "@S", chapters)
     assert n == 1
@@ -137,8 +147,10 @@ def test_describe_pending_assets_uses_cache(tmp_path, db, monkeypatch):
     class FakeLLM:
         def invoke(self, messages):
             calls["n"] += 1
+
             class R:
                 content = "Um grafico de barras comparando modelos."
+
             return R()
 
     monkeypatch.setattr("zettel.assets.get_llm", lambda *a, **k: FakeLLM())
@@ -214,9 +226,7 @@ def test_describe_rate_limit_exhausted_keeps_pending(tmp_path, db, monkeypatch):
 
     class Always429:
         def invoke(self, messages):
-            raise RuntimeError(
-                "Error code: 429 - {'error': {'code': 'rate_limit_exceeded'}}"
-            )
+            raise RuntimeError("Error code: 429 - {'error': {'code': 'rate_limit_exceeded'}}")
 
     monkeypatch.setattr("zettel.assets.get_llm", lambda *a, **k: Always429())
     monkeypatch.setattr("zettel.assets.time.sleep", lambda s: sleeps.append(s))
@@ -268,7 +278,11 @@ def test_describe_aborts_batch_after_consecutive_rate_limits(tmp_path, db, monke
     assert n == 0
     statuses = {
         a["asset_id"]: a["status"]
-        for a in (db.get_asset("@S::img::a"), db.get_asset("@S::img::b"), db.get_asset("@S::img::c"))
+        for a in (
+            db.get_asset("@S::img::a"),
+            db.get_asset("@S::img::b"),
+            db.get_asset("@S::img::c"),
+        )
     }
     assert statuses == {
         "@S::img::a": "pending",
@@ -299,8 +313,10 @@ def test_describe_uses_configured_language(tmp_path, db, monkeypatch):
     class FakeLLM:
         def invoke(self, messages):
             captured["system"] = str(messages[0].content)
+
             class R:
                 content = "A bar chart comparing models."
+
             return R()
 
     monkeypatch.setattr("zettel.assets.get_llm", lambda *a, **k: FakeLLM())

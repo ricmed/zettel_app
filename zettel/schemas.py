@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-from enum import Enum
-from typing import Literal, Optional
+from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -14,22 +14,20 @@ logger = logging.getLogger(__name__)
 # ── Enums ──────────────────────────────────────────────────────────────
 
 ChunkStatus = Literal["accepted", "rejected"]
-RejectionCategory = Literal[
-    "", "structural", "narrative", "promotional", "trivial", "fragmented"
-]
+RejectionCategory = Literal["", "structural", "narrative", "promotional", "trivial", "fragmented"]
 _REJECTION_CATEGORIES: frozenset[str] = frozenset(
     {"", "structural", "narrative", "promotional", "trivial", "fragmented"}
 )
 
 
-class DedupeDecision(str, Enum):
+class DedupeDecision(StrEnum):
     CREATE_NEW = "create_new"
     IGNORE = "ignore"
     REFINE_EXISTING = "refine_existing"
     MERGE = "merge"
 
 
-class RelationType(str, Enum):
+class RelationType(StrEnum):
     SUPPORTS = "supports"
     CONTRADICTS = "contradicts"
     EXTENDS = "extends"
@@ -43,13 +41,16 @@ class RelationType(str, Enum):
 
 # The author's-judgement fields, in the order they are rendered everywhere.
 JUDGEMENT_FIELDS: tuple[str, ...] = (
-    "decision_rules", "anti_patterns", "named_frameworks",
+    "decision_rules",
+    "anti_patterns",
+    "named_frameworks",
 )
 _MAX_JUDGEMENT_ITEMS = 3
 
 
 class PermanentNoteCandidate(BaseModel):
     """A single atomic concept extracted from a chunk."""
+
     chunk_status: str = Field(default="ok", description="Status do chunk")
     rejection_reason: str = Field(default="", description="Motivo da rejeição")
     rejection_category: str = Field(default="", description="Categoria da rejeição")
@@ -67,7 +68,8 @@ class PermanentNoteCandidate(BaseModel):
     tags: list[str] = Field(default_factory=list)
     relevance_score: int = Field(
         default=3,
-        ge=1, le=5,
+        ge=1,
+        le=5,
         description="Relevancia do candidato (1=trivial, 5=fundamental)",
     )
     relevant_image_ids: list[str] = Field(
@@ -89,9 +91,7 @@ class PermanentNoteCandidate(BaseModel):
         description="Nomes proprios de frameworks/metodos, exatamente como o autor escreve",
     )
 
-    @field_validator(
-        "decision_rules", "anti_patterns", "named_frameworks", mode="after"
-    )
+    @field_validator("decision_rules", "anti_patterns", "named_frameworks", mode="after")
     @classmethod
     def _clean_judgement_list(cls, v: list[str]) -> list[str]:
         """Drop blanks and cap at ``_MAX_JUDGEMENT_ITEMS`` — never reject the candidate.
@@ -104,7 +104,8 @@ class PermanentNoteCandidate(BaseModel):
         if len(cleaned) > _MAX_JUDGEMENT_ITEMS:
             logger.warning(
                 "candidato com %d itens de julgamento -- truncado para %d",
-                len(cleaned), _MAX_JUDGEMENT_ITEMS,
+                len(cleaned),
+                _MAX_JUDGEMENT_ITEMS,
             )
             return cleaned[:_MAX_JUDGEMENT_ITEMS]
         return cleaned
@@ -115,13 +116,12 @@ _SUMMARY_MAX_CHARS = 280
 
 class LiteratureChunkOutput(BaseModel):
     """Output from Prompt 1 for a single chunk — appended to LIT note."""
+
     chunk_status: ChunkStatus = Field(description="Status do chunk")
     rejection_reason: str = Field(description="Motivo da rejeição")
     rejection_category: RejectionCategory = Field(description="Categoria da rejeição")
     summary: str = Field(description="Resumo do chunk em PT-BR")
-    key_concepts: list[str] = Field(
-        default_factory=list, description="Conceitos-chave extraídos"
-    )
+    key_concepts: list[str] = Field(default_factory=list, description="Conceitos-chave extraídos")
     candidates: list[PermanentNoteCandidate] = Field(
         default_factory=list,
         description="Candidatos atômicos a notas permanentes",
@@ -143,7 +143,9 @@ class LiteratureChunkOutput(BaseModel):
         # never burns an LLM call on the generic retry.
         if len(v) > _SUMMARY_MAX_CHARS:
             logger.warning(
-                "summary com %d chars, acima do teto de %d -- truncado", len(v), _SUMMARY_MAX_CHARS
+                "summary com %d chars, acima do teto de %d -- truncado",
+                len(v),
+                _SUMMARY_MAX_CHARS,
             )
             return v[:_SUMMARY_MAX_CHARS].rstrip()
         return v
@@ -151,13 +153,15 @@ class LiteratureChunkOutput(BaseModel):
 
 class DedupeResult(BaseModel):
     """Output from dedupe_decision prompt."""
+
     decision: DedupeDecision
-    target_note_id: Optional[str] = None
+    target_note_id: str | None = None
     reason: str = ""
 
 
 class RelationshipResult(BaseModel):
     """Typed relation between permanent notes (Prompt 2 / connect)."""
+
     related_note_id: str
     relation_type: RelationType
     description: str = ""
@@ -240,6 +244,7 @@ class PermanentNoteLLMOutput(BaseModel):
     therefore optional here and validated by the connector when ``status`` is
     ``accepted``.
     """
+
     status: str = Field(description="Status da nota")
     reason: str = Field(default="", description="Motivo da rejeição")
     category: str = Field(default="", description="Categoria da rejeição (vazio se aceita)")

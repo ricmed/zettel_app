@@ -28,7 +28,11 @@ def context(request: Request, **extra: Any) -> dict[str, Any]:
 
 
 def render(
-    request: Request, name: str, *, status_code: int = 200, **extra: Any,
+    request: Request,
+    name: str,
+    *,
+    status_code: int = 200,
+    **extra: Any,
 ) -> HTMLResponse:
     return templates.TemplateResponse(
         request=request,

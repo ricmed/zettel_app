@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from zettel.evals.replay import RESULT_SCHEMA_VERSION, main, render, replay
 from zettel.evals.score import Verdict
 
@@ -21,7 +20,7 @@ def result() -> dict:
 
 def test_the_shipped_fixture_exercises_every_verdict(result):
     counts = result["counts"]
-    assert counts[Verdict.OK.value] == 2            # one hit + one no-evidence
+    assert counts[Verdict.OK.value] == 2  # one hit + one no-evidence
     assert counts[Verdict.ROUTING_MISS.value] == 1
     assert counts[Verdict.FLOOR_REJECT.value] == 1
     assert counts[Verdict.ANSWER_FAIL.value] == 1
@@ -85,16 +84,31 @@ def test_ask_result_converts_into_a_trajectory():
     from zettel.evals.replay import trajectory_from_ask_result
 
     used = AskSource(
-        note_id="N1", title="T", wiki_link="[[T]]", rrf_score=0.5, hop=0,
-        origin="busca", passed_floor=True, floor_reason="similaridade 0.9 >= piso 0.7",
+        note_id="N1",
+        title="T",
+        wiki_link="[[T]]",
+        rrf_score=0.5,
+        hop=0,
+        origin="busca",
+        passed_floor=True,
+        floor_reason="similaridade 0.9 >= piso 0.7",
     )
     rejected = AskSource(
-        note_id="N2", title="U", wiki_link="[[U]]", rrf_score=0.2, hop=0,
-        origin="busca", passed_floor=False, floor_reason="similaridade 0.4 abaixo do piso (0.70)",
+        note_id="N2",
+        title="U",
+        wiki_link="[[U]]",
+        rrf_score=0.2,
+        hop=0,
+        origin="busca",
+        passed_floor=False,
+        floor_reason="similaridade 0.4 abaixo do piso (0.70)",
     )
     result = AskResult(
-        question="pergunta", answer="resposta",
-        sources=[used], candidates=[used, rejected], llm_called=True,
+        question="pergunta",
+        answer="resposta",
+        sources=[used],
+        candidates=[used, rejected],
+        llm_called=True,
     )
     traj = trajectory_from_ask_result("q1", result)
     assert traj.hit_ids == ["N1"]
@@ -116,6 +130,9 @@ def test_evals_are_not_imported_by_the_production_path():
     )
     out = subprocess.run(
         [sys.executable, "-c", probe],
-        capture_output=True, text=True, cwd=REPO_ROOT, check=True,
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+        check=True,
     )
     assert out.stdout.strip() == "False"

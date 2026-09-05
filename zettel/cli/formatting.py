@@ -8,7 +8,7 @@ framework-agnostic (ADR-026) — a command formats, the domain computes.
 
 from __future__ import annotations
 
-from typing import Iterable, Mapping
+from collections.abc import Iterable, Mapping
 
 from rich.table import Table
 
@@ -16,7 +16,9 @@ from zettel.cli.app import console
 
 
 def fmt_embedding_id(
-    provider: str | None, model: str | None, dimensions: int | None,
+    provider: str | None,
+    model: str | None,
+    dimensions: int | None,
 ) -> str:
     """Human-readable identity of an embedding space, e.g. ``ollama/qwen3@1024d``.
 

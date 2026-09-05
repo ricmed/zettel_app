@@ -17,7 +17,9 @@ class HarvestAborted(Exception):
     """Raised to stop `run_harvest` early when the user chooses to abort."""
 
 
-def sample_chunk_texts(cfg: AppConfig, chapters: list[dict[str, str]], sample_size: int) -> list[str]:
+def sample_chunk_texts(
+    cfg: AppConfig, chapters: list[dict[str, str]], sample_size: int
+) -> list[str]:
     """Split chapters into chunks (without persisting) and return an evenly distributed sample.
 
     Reuses the same structural chunker as the chunking pipeline, so the semantic
@@ -39,7 +41,10 @@ def sample_chunk_texts(cfg: AppConfig, chapters: list[dict[str, str]], sample_si
 
 
 def find_semantic_duplicate_candidates(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, chapters: list[dict[str, str]],
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    chapters: list[dict[str, str]],
 ) -> list[dict[str, Any]]:
     """Query the chunk index for near-duplicates of a sample of this file's chunks.
 
@@ -55,7 +60,8 @@ def find_semantic_duplicate_candidates(
     logger.info(
         "Deduplicacao semantica: consultando Chroma com %d amostras de chunks "
         "(threshold=%.2f) — gera embeddings das amostras",
-        len(sample_texts), threshold,
+        len(sample_texts),
+        threshold,
     )
     matches = idx.find_similar_chunks(sample_texts, n_results=3)
     logger.info(
@@ -78,12 +84,14 @@ def find_semantic_duplicate_candidates(
     candidates: list[dict[str, Any]] = []
     for source_id, similarity in sorted(best_by_source.items(), key=lambda kv: -kv[1]):
         src = db.get_source(source_id)
-        candidates.append({
-            "source_id": source_id,
-            "citekey": src["citekey"] if src else source_id,
-            "title": src["title"] if src else "(desconhecido)",
-            "similarity": similarity,
-        })
+        candidates.append(
+            {
+                "source_id": source_id,
+                "citekey": src["citekey"] if src else source_id,
+                "title": src["title"] if src else "(desconhecido)",
+                "similarity": similarity,
+            }
+        )
     return candidates
 
 
@@ -103,7 +111,8 @@ def resolve_duplicate_decision(
         logger.warning(
             "Suspeita de duplicidade semantica para '%s' (modo nao-interativo, acao='%s'). "
             "Candidatos: %s",
-            file_path.name, action,
+            file_path.name,
+            action,
             ", ".join(f"{c['citekey']} ({c['similarity']:.2f})" for c in candidates),
         )
         return action

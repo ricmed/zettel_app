@@ -17,7 +17,7 @@ a surprise later.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 from rich.table import Table
@@ -30,30 +30,56 @@ from zettel.cli.options import ConfigOption
 @app.command()
 def skill(
     config: ConfigOption = None,
-    source_id: Annotated[Optional[str], typer.Option(
-        "--source-id", help="Recorte por fonte (@Citekey)",
-    )] = None,
-    moc_id: Annotated[Optional[str], typer.Option(
-        "--moc-id", help="Recorte por MOC (ULID)",
-    )] = None,
-    topic: Annotated[Optional[str], typer.Option(
-        "--topic", help="Recorte por categoria da taxonomia do gardener",
-    )] = None,
-    out: Annotated[Optional[str], typer.Option(
-        "--out",
-        help="Diretorio que guarda os packs; o pack vai para <out>/<slug> "
-             "(default: <vault>/.claude/skills)",
-    )] = None,
-    slug: Annotated[Optional[str], typer.Option(
-        "--slug", help="Nome do pack (default: derivado do seletor)",
-    )] = None,
-    overwrite: Annotated[bool, typer.Option(
-        "--overwrite", help="Regenerar por cima de um pack existente",
-    )] = False,
-    include_excerpts: Annotated[bool, typer.Option(
-        "--include-excerpts",
-        help="Copiar o trecho da fonte para os arquivos do pack (default: nao)",
-    )] = False,
+    source_id: Annotated[
+        str | None,
+        typer.Option(
+            "--source-id",
+            help="Recorte por fonte (@Citekey)",
+        ),
+    ] = None,
+    moc_id: Annotated[
+        str | None,
+        typer.Option(
+            "--moc-id",
+            help="Recorte por MOC (ULID)",
+        ),
+    ] = None,
+    topic: Annotated[
+        str | None,
+        typer.Option(
+            "--topic",
+            help="Recorte por categoria da taxonomia do gardener",
+        ),
+    ] = None,
+    out: Annotated[
+        str | None,
+        typer.Option(
+            "--out",
+            help="Diretorio que guarda os packs; o pack vai para <out>/<slug> "
+            "(default: <vault>/.claude/skills)",
+        ),
+    ] = None,
+    slug: Annotated[
+        str | None,
+        typer.Option(
+            "--slug",
+            help="Nome do pack (default: derivado do seletor)",
+        ),
+    ] = None,
+    overwrite: Annotated[
+        bool,
+        typer.Option(
+            "--overwrite",
+            help="Regenerar por cima de um pack existente",
+        ),
+    ] = False,
+    include_excerpts: Annotated[
+        bool,
+        typer.Option(
+            "--include-excerpts",
+            help="Copiar o trecho da fonte para os arquivos do pack (default: nao)",
+        ),
+    ] = False,
 ):
     """Exportar um recorte aprovado do vault como Agent Skill plana."""
     cfg = load_deps(config)
@@ -63,8 +89,11 @@ def skill(
 
     try:
         pack_dir, pack = run_skill_export(
-            cfg, db,
-            source_id=source_id, moc_id=moc_id, topic=topic,
+            cfg,
+            db,
+            source_id=source_id,
+            moc_id=moc_id,
+            topic=topic,
             out=Path(out).expanduser().resolve() if out else None,
             slug=slug,
             overwrite=overwrite,

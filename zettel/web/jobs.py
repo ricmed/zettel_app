@@ -39,7 +39,10 @@ async def job_detail(request: Request, job_id: str):
     if not job:
         return HTMLResponse("Trabalho não encontrado", status_code=404)
     return render(
-        request, "job_detail.html", page="runs", job=job,
+        request,
+        "job_detail.html",
+        page="runs",
+        job=job,
         continue_href=continue_href(job),
     )
 
@@ -74,6 +77,7 @@ async def job_events(request: Request, job_id: str):
             if job and job["state"] in {"succeeded", "failed", "interrupted"}:
                 break
             import asyncio
-            await asyncio.sleep(.5)
+
+            await asyncio.sleep(0.5)
 
     return StreamingResponse(stream(), media_type="text/event-stream")

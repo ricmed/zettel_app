@@ -36,6 +36,7 @@ def load_deps(config_path: str | None = None):
 def get_db(cfg):
     """Open the SQLite state database. Callers are responsible for ``close()``."""
     from zettel.state import StateDB
+
     return StateDB(cfg.state_db_path)
 
 
@@ -48,26 +49,33 @@ def warn_embedding_mismatch(exc) -> None:
     dedupe cutoffs are corpus- and model-specific numbers.
     """
     stored = fmt_embedding_id(
-        exc.stored_provider, exc.stored_model, getattr(exc, "stored_dimensions", None),
+        exc.stored_provider,
+        exc.stored_model,
+        getattr(exc, "stored_dimensions", None),
     )
     current = fmt_embedding_id(
-        exc.current_provider, exc.current_model, getattr(exc, "current_dimensions", None),
+        exc.current_provider,
+        exc.current_model,
+        getattr(exc, "current_dimensions", None),
     )
     from rich.panel import Panel
-    console.print(Panel(
-        f"[yellow]O modelo de embedding mudou.[/yellow]\n\n"
-        f"  Chroma (atual): [bold]{stored}[/bold]\n"
-        f"  Config (novo):  [bold]{current}[/bold]\n\n"
-        f"Os vetores existentes sao incompativeis com o novo espaco. "
-        f"E necessario regenerar TODOS os embeddings a partir do SQLite "
-        f"([bold]zettel reindex --force[/bold]).\n"
-        f"Isso [bold]nao[/bold] reescreve notas .md nem chama o LLM.\n"
-        f"Apos a troca, considere recalibrar "
-        f"`retrieval.relevance_floor.min_vector_similarity` e os limiares de dedupe "
-        f"se a qualidade da busca degradar.",
-        title="Troca de embedding",
-        border_style="yellow",
-    ))
+
+    console.print(
+        Panel(
+            f"[yellow]O modelo de embedding mudou.[/yellow]\n\n"
+            f"  Chroma (atual): [bold]{stored}[/bold]\n"
+            f"  Config (novo):  [bold]{current}[/bold]\n\n"
+            f"Os vetores existentes sao incompativeis com o novo espaco. "
+            f"E necessario regenerar TODOS os embeddings a partir do SQLite "
+            f"([bold]zettel reindex --force[/bold]).\n"
+            f"Isso [bold]nao[/bold] reescreve notas .md nem chama o LLM.\n"
+            f"Apos a troca, considere recalibrar "
+            f"`retrieval.relevance_floor.min_vector_similarity` e os limiares de dedupe "
+            f"se a qualidade da busca degradar.",
+            title="Troca de embedding",
+            border_style="yellow",
+        )
+    )
 
 
 def confirm_embedding_reprocess(yes: bool) -> bool:
@@ -112,14 +120,17 @@ def get_idx(cfg, db=None, yes: bool = False):
         try:
             idx = VectorIndex(**index_kwargs(cfg, reset_mismatched=True))
             from zettel.rebuild import run_reindex
+
             with console.status(
                 "[bold blue]Regenerando embeddings (reindex --force)...",
                 spinner="dots",
             ):
                 stats = run_reindex(cfg, db, idx, force=True)
             metrics_table(
-                "Reindex (troca de embedding)", stats,
-                key_label="Colecao", value_label="Vetores",
+                "Reindex (troca de embedding)",
+                stats,
+                key_label="Colecao",
+                value_label="Vetores",
             )
             return idx
         finally:

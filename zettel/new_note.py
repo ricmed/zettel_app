@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -107,11 +107,7 @@ def normalize_source_id(raw: str) -> str:
 
 def _validate_citekey(key: str) -> str:
     """Reject source identifiers that could escape vault directories."""
-    if (
-        not key
-        or len(key) > 160
-        or re.fullmatch(r"[\w][\w.:-]*", key, flags=re.UNICODE) is None
-    ):
+    if not key or len(key) > 160 or re.fullmatch(r"[\w][\w.:-]*", key, flags=re.UNICODE) is None:
         raise ValueError(
             "source_id/citekey invalido; use apenas letras, numeros, ponto, "
             "hifen, sublinhado ou dois-pontos"
@@ -204,7 +200,12 @@ def _append_src_ztl_hints(
 
 
 def _write_literature_index(
-    cfg: AppConfig, source_id: str, citekey: str, title: str, *, force: bool = False,
+    cfg: AppConfig,
+    source_id: str,
+    citekey: str,
+    title: str,
+    *,
+    force: bool = False,
 ) -> Path:
     """Create the source's literature index note, mirroring what harvest writes.
 
@@ -216,7 +217,10 @@ def _write_literature_index(
     if path.exists() and not force:
         return path
     meta, body = build_literature_index_note(
-        source_id=source_id, citekey=citekey, title=title, origin="manual",
+        source_id=source_id,
+        citekey=citekey,
+        title=title,
+        origin="manual",
     )
     _ensure_parent(path)
     safe_write_note(path, meta, body)
@@ -254,7 +258,7 @@ def scaffold_manual_note(
 ) -> NewNoteResult:
     """Create a manual note file in the vault. Does not index into SQLite/Chroma."""
     normalized = normalize_note_type(note_type)
-    now = datetime.now().isoformat()
+    now = datetime.now(UTC).isoformat()
     author_list = list(authors or [])
 
     if normalized == "source":
@@ -292,7 +296,11 @@ def scaffold_manual_note(
         )
         meta["citekey"] = ck
         body = _append_src_ztl_hints(
-            body, source_id=sid, citekey=ck, title=title, path=path,
+            body,
+            source_id=sid,
+            citekey=ck,
+            title=title,
+            path=path,
         )
         _write_scaffold(path, meta, body, force=force)
         # Never overwrite an index that already carries the auto-lit-index block
@@ -321,12 +329,7 @@ def scaffold_manual_note(
                 page_in_book=page,
                 section_path=title,
             )
-            path = (
-                cfg.vault_path
-                / "20_Literature"
-                / literature_source_dirname(ck)
-                / filename
-            )
+            path = cfg.vault_path / "20_Literature" / literature_source_dirname(ck) / filename
             meta, body = build_literature_chunk_note(
                 source_id=source_id,
                 citekey=ck,
@@ -402,7 +405,10 @@ def scaffold_manual_note(
         )
         _write_scaffold(path, meta, body, force=force)
         return NewNoteResult(
-            path=path, note_type=normalized, meta=meta, warnings=warnings or None,
+            path=path,
+            note_type=normalized,
+            meta=meta,
+            warnings=warnings or None,
         )
 
     if normalized == "moc":

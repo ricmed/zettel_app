@@ -16,7 +16,7 @@ from typing import Any
 import numpy as np
 from ulid import ULID
 
-from zettel.config import AppConfig, DEFAULT_RELATION_WEIGHTS, llm_phase
+from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, llm_phase
 from zettel.gardener_assign import (
     assign_notes_to_categories,
     build_embeddings_by_id,
@@ -36,9 +36,9 @@ from zettel.state import StateDB
 from zettel.taxonomy import TaxonomyLoadError, resolve_allowed_topics
 from zettel.vault import (
     note_filename,
+    parse_frontmatter,
     permanent_wikilink,
     safe_write_note,
-    parse_frontmatter,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,12 @@ class _GardenStats:
 
 
 def run_garden(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, *, recreate: bool = False, observer=None,
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    *,
+    recreate: bool = False,
+    observer=None,
 ) -> list[str]:
     """Cluster permanent notes and generate/update MOCs. Returns moc_ids."""
     from zettel.usage import begin_run, finish_pipeline_run
@@ -84,10 +89,13 @@ def run_garden(
 
     note_count = idx.count_permanent_notes()
     from zettel.progress import report
+
     report(observer, "garden", f"Analisando {note_count} nota(s).", total_items=note_count)
     if note_count < cfg.gardener.min_cluster_size:
         logger.info(
-            "Poucas notas para clusterização (%d < %d)", note_count, cfg.gardener.min_cluster_size
+            "Poucas notas para clusterização (%d < %d)",
+            note_count,
+            cfg.gardener.min_cluster_size,
         )
         finish_pipeline_run(db, run_id)
         return []
@@ -113,7 +121,10 @@ def run_garden(
         domain = gcfg.domain or "Geral"
         try:
             cat_vectors = embed_category_labels(
-                idx, categories, domain, gcfg.category_label_template,
+                idx,
+                categories,
+                domain,
+                gcfg.category_label_template,
             )
             buckets = assign_notes_to_categories(ids, embeddings_by_id, cat_vectors)
             cluster_pairs = cluster_notes_within_buckets(buckets, embeddings_by_id, gcfg)
@@ -127,7 +138,10 @@ def run_garden(
             domain = gcfg.domain or "Geral"
             try:
                 cat_vectors = embed_category_labels(
-                    idx, categories, domain, gcfg.category_label_template,
+                    idx,
+                    categories,
+                    domain,
+                    gcfg.category_label_template,
                 )
                 buckets = assign_notes_to_categories(ids, embeddings_by_id, cat_vectors)
             except Exception:
@@ -152,8 +166,12 @@ def run_garden(
 
     for cluster_index, (category, cluster_ids) in enumerate(cluster_pairs, 1):
         report(
-            observer, "garden", f"Processando cluster {cluster_index}/{len(cluster_pairs)}.",
-            current_item=category, current_index=cluster_index, total_items=len(cluster_pairs),
+            observer,
+            "garden",
+            f"Processando cluster {cluster_index}/{len(cluster_pairs)}.",
+            current_item=category,
+            current_index=cluster_index,
+            total_items=len(cluster_pairs),
         )
         moc_id = _process_cluster(cfg, db, idx, llm, category, cluster_ids, stats)
         if moc_id:
@@ -161,8 +179,11 @@ def run_garden(
 
     logger.info(
         "Garden: %d MOCs, %d incrementais, %d novos, %d skip assinatura, %d rejeitados coesao",
-        len(moc_ids), stats.incremental, stats.created,
-        stats.skipped_signature, stats.rejected_cohesion,
+        len(moc_ids),
+        stats.incremental,
+        stats.created,
+        stats.skipped_signature,
+        stats.rejected_cohesion,
     )
 
     finish_pipeline_run(db, run_id)
@@ -219,7 +240,7 @@ def _extract_cluster_terms(db: StateDB, note_ids: list[str], n_terms: int = 10) 
 
     vectorizer = TfidfVectorizer(max_features=n_terms, stop_words=None)
     try:
-        tfidf = vectorizer.fit_transform(texts)
+        vectorizer.fit_transform(texts)
         terms = vectorizer.get_feature_names_out()
         return list(terms)
     except Exception:
@@ -251,11 +272,18 @@ def _process_cluster(
     overlap_moc = find_moc_by_note_overlap(db, note_ids, cfg.gardener.overlap_threshold)
     if overlap_moc:
         logger.info(
-            "Cluster roteado por overlap para MOC %s", overlap_moc["moc_id"],
+            "Cluster roteado por overlap para MOC %s",
+            overlap_moc["moc_id"],
         )
         stats.incremental += 1
         return _update_existing_moc(
-            cfg, db, idx, llm, overlap_moc, note_ids, cluster_signature,
+            cfg,
+            db,
+            idx,
+            llm,
+            overlap_moc,
+            note_ids,
+            cluster_signature,
         )
 
     if category and category != "_unassigned":
@@ -263,11 +291,18 @@ def _process_cluster(
         if topic_moc:
             logger.info(
                 "Cluster roteado por categoria '%s' para MOC %s",
-                category, topic_moc["moc_id"],
+                category,
+                topic_moc["moc_id"],
             )
             stats.incremental += 1
             return _update_existing_moc(
-                cfg, db, idx, llm, topic_moc, note_ids, cluster_signature,
+                cfg,
+                db,
+                idx,
+                llm,
+                topic_moc,
+                note_ids,
+                cluster_signature,
             )
 
     if cfg.gardener.graph_cohesion_enabled:
@@ -277,13 +312,20 @@ def _process_cluster(
         if min_ratio > 0 and cohesion < min_ratio:
             logger.warning(
                 "Cluster rejeitado: coesao de grafo %.3f < %.3f",
-                cohesion, min_ratio,
+                cohesion,
+                min_ratio,
             )
             stats.rejected_cohesion += 1
             return None
 
     moc_id = _create_new_moc(
-        cfg, db, idx, llm, category, note_ids, cluster_signature,
+        cfg,
+        db,
+        idx,
+        llm,
+        category,
+        note_ids,
+        cluster_signature,
     )
     if moc_id:
         stats.created += 1
@@ -357,8 +399,9 @@ def _create_new_moc(
     moc_id = str(ULID())
     topic = moc_output.topic
 
-    from datetime import datetime
-    now = datetime.now().isoformat()
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat()
     meta = {
         "type": "moc",
         "moc_id": moc_id,
@@ -387,12 +430,22 @@ def _create_new_moc(
     sync_moc_backrefs(db, moc_id, topic, moc_path)
 
     db.upsert_moc(
-        moc_id, topic, str(moc_path), cluster_signature,
-        body=body, frontmatter_json=json.dumps(meta, ensure_ascii=False), origin="pipeline",
+        moc_id,
+        topic,
+        str(moc_path),
+        cluster_signature,
+        body=body,
+        frontmatter_json=json.dumps(meta, ensure_ascii=False),
+        origin="pipeline",
     )
-    idx.upsert_moc(moc_id, _moc_embeddable(topic, moc_output.summary), {
-        "topic": topic, "note_count": len(note_ids),
-    })
+    idx.upsert_moc(
+        moc_id,
+        _moc_embeddable(topic, moc_output.summary),
+        {
+            "topic": topic,
+            "note_count": len(note_ids),
+        },
+    )
 
     logger.info("MOC criado: %s — %s (%d notas)", moc_id, topic, len(note_ids))
     return moc_id
@@ -410,7 +463,11 @@ def _topic_matches_allowed(topic: str, allowed: list[str]) -> bool:
 
 
 def _generate_moc(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, llm: Any, note_ids: list[str],
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    llm: Any,
+    note_ids: list[str],
 ) -> str | None:
     """Backward-compatible entry: process cluster with unknown category."""
     stats = _GardenStats()
@@ -448,13 +505,15 @@ def _validate_moc_topic(cfg: AppConfig, moc_output: MOCGenerationOutput) -> bool
     if cfg.gardener.strict_topics:
         logger.warning(
             "MOC rejeitado: topico '%s' fora da lista permitida. Justificativa: %s",
-            topic, justification or "(nenhuma)",
+            topic,
+            justification or "(nenhuma)",
         )
         return False
     else:
         logger.info(
             "MOC aprovado (modo permissivo): topico '%s' fora da lista. Justificativa: %s",
-            topic, justification or "(nenhuma)",
+            topic,
+            justification or "(nenhuma)",
         )
         return True
 
@@ -555,8 +614,13 @@ def _update_existing_moc(
         logger.info("MOC %s: nenhuma nota nova, atualizando apenas assinatura", moc_id)
         body_snap, fm_snap = _snapshot_moc_file(moc_path)
         db.upsert_moc(
-            moc_id, existing_moc["topic"], str(moc_path), cluster_signature,
-            body=body_snap, frontmatter_json=fm_snap, origin="pipeline",
+            moc_id,
+            existing_moc["topic"],
+            str(moc_path),
+            cluster_signature,
+            body=body_snap,
+            frontmatter_json=fm_snap,
+            origin="pipeline",
         )
         return moc_id
 
@@ -604,19 +668,32 @@ def _update_existing_moc(
         return None
 
     _apply_incremental_placements(
-        db, moc_path, structure, incremental_output,
-        _allowed_note_ids(db, truly_new), alias_to_id,
+        db,
+        moc_path,
+        structure,
+        incremental_output,
+        _allowed_note_ids(db, truly_new),
+        alias_to_id,
     )
 
     body_snap, fm_snap = _snapshot_moc_file(moc_path)
     db.upsert_moc(
-        moc_id, existing_moc["topic"], str(moc_path), cluster_signature,
-        body=body_snap, frontmatter_json=fm_snap, origin="pipeline",
+        moc_id,
+        existing_moc["topic"],
+        str(moc_path),
+        cluster_signature,
+        body=body_snap,
+        frontmatter_json=fm_snap,
+        origin="pipeline",
     )
-    idx.upsert_moc(moc_id, _moc_embeddable(structure["topic"], structure["summary"]), {
-        "topic": existing_moc["topic"],
-        "note_count": len(existing_ids) + len(truly_new),
-    })
+    idx.upsert_moc(
+        moc_id,
+        _moc_embeddable(structure["topic"], structure["summary"]),
+        {
+            "topic": existing_moc["topic"],
+            "note_count": len(existing_ids) + len(truly_new),
+        },
+    )
 
     placed_count = sum(
         1 for p in incremental_output.placements if p.subsection.lower() != "ignorar"
@@ -624,7 +701,10 @@ def _update_existing_moc(
     new_sub_count = len(incremental_output.new_subsections)
     logger.info(
         "MOC %s atualizado: %d notas classificadas, %d ignoradas, %d novas subsecoes",
-        moc_id, placed_count, len(truly_new) - placed_count, new_sub_count,
+        moc_id,
+        placed_count,
+        len(truly_new) - placed_count,
+        new_sub_count,
     )
     return moc_id
 
@@ -648,8 +728,9 @@ def _apply_incremental_placements(
     content = moc_path.read_text(encoding="utf-8")
     meta, previous_body = parse_frontmatter(content)
 
-    from datetime import datetime
-    meta["updated_at"] = datetime.now().isoformat()
+    from datetime import UTC, datetime
+
+    meta["updated_at"] = datetime.now(UTC).isoformat()
 
     placement_map: dict[str, list[str]] = {}
     placed: set[str] = set()
@@ -683,11 +764,11 @@ def _apply_incremental_placements(
     if missing:
         logger.info(
             "MOC incremental: %d nota(s) reconciliada(s) em '%s'",
-            len(missing), _MOC_FALLBACK_SUBSECTION,
+            len(missing),
+            _MOC_FALLBACK_SUBSECTION,
         )
 
     body = f"# {structure['topic']}\n\n{structure['summary']}\n\n"
-    fallback_lines: list[str] = []
 
     for sub in structure["subsections"]:
         title = sub["title"]
@@ -721,7 +802,11 @@ def _apply_incremental_placements(
         from zettel.moc_backrefs import sync_moc_backrefs
 
         sync_moc_backrefs(
-            db, moc_id, meta.get("topic", ""), moc_path, previous_body=previous_body,
+            db,
+            moc_id,
+            meta.get("topic", ""),
+            moc_path,
+            previous_body=previous_body,
         )
 
 
@@ -746,7 +831,9 @@ def _snapshot_moc_file(moc_path: Path) -> tuple[str | None, str | None]:
 
 
 def _build_notes_list(
-    db: StateDB, note_ids: list[str], alias_to_id: dict[str, str] | None = None,
+    db: StateDB,
+    note_ids: list[str],
+    alias_to_id: dict[str, str] | None = None,
 ) -> str:
     id_to_alias = {nid: alias for alias, nid in (alias_to_id or {}).items()}
     parts: list[str] = []
@@ -770,7 +857,9 @@ def _allowed_note_ids(db: StateDB, note_ids: list[str]) -> set[str]:
 
 
 def _resolve_note_ref(
-    ref: str, allowed_ids: set[str], alias_to_id: dict[str, str],
+    ref: str,
+    allowed_ids: set[str],
+    alias_to_id: dict[str, str],
 ) -> str | None:
     """Resolve an LLM note reference (alias or ULID) to a known cluster ID."""
     token = ref.strip()
@@ -806,7 +895,7 @@ def _within_edit_distance_one(a: str, b: str) -> bool:
     if abs(la - lb) > 1:
         return False
     if la == lb:
-        return sum(x != y for x, y in zip(a, b)) == 1
+        return sum(x != y for x, y in zip(a, b, strict=False)) == 1
     if la > lb:
         a, b = b, a
         la, lb = lb, la
@@ -829,7 +918,9 @@ def _note_wikilink(db: StateDB, note_id: str) -> str | None:
         logger.warning("MOC: nota %s ausente no banco, link omitido", note_id)
         return None
     link = permanent_wikilink(
-        note_id, note.get("title", ""), path=note.get("path"),
+        note_id,
+        note.get("title", ""),
+        path=note.get("path"),
     )
     return f"- {link}"
 
@@ -879,7 +970,8 @@ def _build_moc_body(
     if missing:
         logger.info(
             "MOC: %d nota(s) reconciliada(s) em '%s'",
-            len(missing), _MOC_FALLBACK_SUBSECTION,
+            len(missing),
+            _MOC_FALLBACK_SUBSECTION,
         )
         body += f"## {_MOC_FALLBACK_SUBSECTION}\n\n"
         body += _format_note_links(db, sorted(missing))

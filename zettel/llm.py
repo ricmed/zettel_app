@@ -14,20 +14,22 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 USER_SPLIT_MARKER = "<!-- zettel:user -->"
 
 # OpenAI-compatible chat APIs (gateways / local servers).
-_OPENAI_COMPAT_PROVIDERS = frozenset({
-    "openai",
-    "openrouter",
-    "opencode",
-    "azure",
-    "compatible",
-})
+_OPENAI_COMPAT_PROVIDERS = frozenset(
+    {
+        "openai",
+        "openrouter",
+        "opencode",
+        "azure",
+        "compatible",
+    }
+)
 _CHAT_PROVIDERS = _OPENAI_COMPAT_PROVIDERS | frozenset({"anthropic", "ollama", "gemini"})
 
 
@@ -97,6 +99,7 @@ def get_llm(
 
     if is_openai_compatible(provider):
         from langchain_openai import ChatOpenAI
+
         kwargs: dict[str, Any] = {
             "model": spec.model,
             "temperature": temp,
@@ -109,6 +112,7 @@ def get_llm(
 
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
+
         return ChatAnthropic(
             model=spec.model,
             temperature=temp,
@@ -118,6 +122,7 @@ def get_llm(
 
     if provider == "ollama":
         from langchain_ollama import ChatOllama
+
         kwargs = {
             "model": spec.model,
             "temperature": temp,
@@ -129,6 +134,7 @@ def get_llm(
 
     if provider == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
+
         return ChatGoogleGenerativeAI(
             model=spec.model,
             temperature=temp,
@@ -139,7 +145,7 @@ def get_llm(
     raise ValueError(f"LLM provider não suportado: {spec.provider}")
 
 
-def _resolve_model_name(llm: Any, model: Optional[str]) -> str:
+def _resolve_model_name(llm: Any, model: str | None) -> str:
     if model:
         return model
     for attr in ("model", "model_name", "model_id"):
@@ -205,8 +211,7 @@ def _extract_cache_tokens_from_mapping(data: dict[str, Any]) -> tuple[int, int]:
         or data.get("total_cached_tokens")
     )
     cache_write = cache_write or _as_int(
-        data.get("cache_creation_input_tokens")
-        or data.get("cache_write_tokens")
+        data.get("cache_creation_input_tokens") or data.get("cache_write_tokens")
     )
     return cache_read, cache_write
 
@@ -235,11 +240,7 @@ def _extract_usage(response: Any) -> TokenUsage:
     token_usage = meta.get("token_usage") or meta.get("usage") or {}
     if isinstance(token_usage, dict):
         prompt = token_usage.get("prompt_tokens") or token_usage.get("input_tokens") or 0
-        completion = (
-            token_usage.get("completion_tokens")
-            or token_usage.get("output_tokens")
-            or 0
-        )
+        completion = token_usage.get("completion_tokens") or token_usage.get("output_tokens") or 0
         cache_read, cache_write = _extract_cache_tokens_from_mapping(token_usage)
         # OpenAI often nests prompt_tokens_details under token_usage.
         if not cache_read and not cache_write:
@@ -313,11 +314,11 @@ def call_llm(
     *,
     system: str | None = None,
     user: str | None = None,
-    label: Optional[str] = None,
-    step: Optional[int] = None,
-    total: Optional[int] = None,
-    model: Optional[str] = None,
-    provider: Optional[str] = None,
+    label: str | None = None,
+    step: int | None = None,
+    total: int | None = None,
+    model: str | None = None,
+    provider: str | None = None,
     prompt_cache: bool = True,
 ) -> str:
     """Call the LLM and return the response text.
@@ -353,7 +354,9 @@ def call_llm(
         messages.append(SystemMessage(content=system))
     messages.append(HumanMessage(content=user_text))
     messages, invoke_kwargs = apply_prompt_cache_hints(
-        provider, messages, enabled=prompt_cache,
+        provider,
+        messages,
+        enabled=prompt_cache,
     )
 
     response = llm.invoke(messages, **invoke_kwargs)
@@ -474,10 +477,10 @@ def extract_json(text: str) -> str:
     if match:
         return match.group(1).strip()
     text = text.strip()
-    if text.startswith("{") or text.startswith("["):
+    if text.startswith(("{", "[")):
         return text
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1:
-        return text[start: end + 1]
+        return text[start : end + 1]
     raise ValueError("Nenhum JSON encontrado na resposta do LLM")

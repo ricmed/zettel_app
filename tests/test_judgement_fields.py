@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from zettel.connector import _format_judgement
 from zettel.schemas import (
     JUDGEMENT_FIELDS,
@@ -45,7 +44,11 @@ def _candidate(**overrides) -> PermanentNoteCandidate:
 
 def test_fields_default_to_empty_lists():
     cand = _candidate()
-    assert (cand.decision_rules, cand.anti_patterns, cand.named_frameworks) == ([], [], [])
+    assert (cand.decision_rules, cand.anti_patterns, cand.named_frameworks) == (
+        [],
+        [],
+        [],
+    )
 
 
 def test_legacy_json_without_the_keys_still_parses():
@@ -99,7 +102,9 @@ def test_candidate_without_judgement_is_not_rejected():
 
     cfg = AppConfig()
     approved, rejected = _filter_candidates(
-        [_candidate()], cfg, "dropout can be seen as training an implicit ensemble of subnetworks"
+        [_candidate()],
+        cfg,
+        "dropout can be seen as training an implicit ensemble of subnetworks",
     )
     assert len(approved) == 1
     assert rejected == []
@@ -114,10 +119,16 @@ def test_no_block_when_no_candidate_states_anything():
 
 def test_literature_note_omits_the_block_when_empty():
     _, body = build_literature_chunk_note(
-        source_id="@A2020", citekey="A2020Titulo", title="Titulo",
-        chunk_id="c1", chunk_index=0, literature_id="L1",
-        summary="Resumo.", key_concepts=[],
-        candidates=[_candidate().model_dump()], source_text="trecho",
+        source_id="@A2020",
+        citekey="A2020Titulo",
+        title="Titulo",
+        chunk_id="c1",
+        chunk_index=0,
+        literature_id="L1",
+        summary="Resumo.",
+        key_concepts=[],
+        candidates=[_candidate().model_dump()],
+        source_text="trecho",
     )
     assert "auto-decision" not in body
     assert "Julgamento do autor" not in body
@@ -135,9 +146,16 @@ def test_literature_note_renders_the_block_and_deduplicates():
         ).model_dump(),
     ]
     _, body = build_literature_chunk_note(
-        source_id="@A2020", citekey="A2020Titulo", title="Titulo",
-        chunk_id="c1", chunk_index=0, literature_id="L1",
-        summary="Resumo.", key_concepts=[], candidates=candidates, source_text="trecho",
+        source_id="@A2020",
+        citekey="A2020Titulo",
+        title="Titulo",
+        chunk_id="c1",
+        chunk_index=0,
+        literature_id="L1",
+        summary="Resumo.",
+        key_concepts=[],
+        candidates=candidates,
+        source_text="trecho",
     )
     block = read_managed_block(body, "auto-decision")
     assert block is not None
@@ -153,9 +171,14 @@ def test_block_is_managed_so_manual_edits_survive(tmp_path):
 
     path = tmp_path / "LIT - A2020 - p001 - t-0001.md"
     _, body = build_literature_chunk_note(
-        source_id="@A2020", citekey="A2020Titulo", title="Titulo",
-        chunk_id="c1", chunk_index=0, literature_id="L1",
-        summary="Resumo.", key_concepts=[],
+        source_id="@A2020",
+        citekey="A2020Titulo",
+        title="Titulo",
+        chunk_id="c1",
+        chunk_index=0,
+        literature_id="L1",
+        summary="Resumo.",
+        key_concepts=[],
         candidates=[_candidate(decision_rules=["Regra original"]).model_dump()],
         source_text="trecho",
     )

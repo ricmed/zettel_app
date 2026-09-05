@@ -4,7 +4,6 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from zettel.config import AppConfig
 from zettel.review import (
     BAND_HIGH,
@@ -56,43 +55,76 @@ def env(tmp_path):
         state_db_path=tmp_path / "state.db",
         chroma_path=tmp_path / "chroma",
     )
-    for d in ("00_Inbox/Review", "10_Sources", "20_Literature", "30_Permanent", "90_Assets"):
+    for d in (
+        "00_Inbox/Review",
+        "10_Sources",
+        "20_Literature",
+        "30_Permanent",
+        "90_Assets",
+    ):
         (cfg.vault_path / d).mkdir(parents=True, exist_ok=True)
     db = StateDB(cfg.state_db_path)
     db.upsert_source(
-        "@Book2024", "Book2024", "Livro Teste", ["Autor"], 2024,
-        "h", "/x.pdf", "pdf",
+        "@Book2024",
+        "Book2024",
+        "Livro Teste",
+        ["Autor"],
+        2024,
+        "h",
+        "/x.pdf",
+        "pdf",
     )
     db.upsert_chapter("@Book2024::ch000", "@Book2024", "Ch1", "chh")
     db.upsert_chunk(
-        "@Book2024::ch000::abc", "@Book2024", "@Book2024::ch000",
-        "texto do chunk", "ck",
-        chunk_index=3, page_in_file=20, page_in_book=10, page_confidence="inferred",
+        "@Book2024::ch000::abc",
+        "@Book2024",
+        "@Book2024::ch000",
+        "texto do chunk",
+        "ck",
+        chunk_index=3,
+        page_in_file=20,
+        page_in_book=10,
+        page_confidence="inferred",
         status="awaiting_review",
         section_path="Ch1 > Intro",
         literature_id="lit123",
-        summary_json=json.dumps({
-            "summary": "Um resumo",
-            "key_concepts": ["conceito"],
-            "candidates": [{"thesis": "Tese X", "definition": "def " * 5,
-                            "anchor_quote": "citacao ancora de dez palavras aqui sim",
-                            "relevance_score": 4, "chunk_status": "ok",
-                            "rejection_reason": "", "rejection_category": ""}],
-        }),
+        summary_json=json.dumps(
+            {
+                "summary": "Um resumo",
+                "key_concepts": ["conceito"],
+                "candidates": [
+                    {
+                        "thesis": "Tese X",
+                        "definition": "def " * 5,
+                        "anchor_quote": "citacao ancora de dez palavras aqui sim",
+                        "relevance_score": 4,
+                        "chunk_status": "ok",
+                        "rejection_reason": "",
+                        "rejection_category": "",
+                    }
+                ],
+            }
+        ),
         review_confidence=0.9,
     )
     chunk_row = db.get_chunk("@Book2024::ch000::abc")
     fname = literature_chunk_filename_for_row("Book2024", chunk_row)
-    draft_dir = (
-        cfg.vault_path / "00_Inbox" / "Review" / literature_source_dirname("Book2024")
-    )
+    draft_dir = cfg.vault_path / "00_Inbox" / "Review" / literature_source_dirname("Book2024")
     draft_dir.mkdir(parents=True, exist_ok=True)
     meta, body = build_literature_chunk_note(
-        source_id="@Book2024", citekey="Book2024", title="Livro Teste",
-        chunk_id="@Book2024::ch000::abc", chunk_index=3, literature_id="lit123",
-        summary="Um resumo", key_concepts=["conceito"], candidates=[],
+        source_id="@Book2024",
+        citekey="Book2024",
+        title="Livro Teste",
+        chunk_id="@Book2024::ch000::abc",
+        chunk_index=3,
+        literature_id="lit123",
+        summary="Um resumo",
+        key_concepts=["conceito"],
+        candidates=[],
         section_path="Ch1 > Intro",
-        page_in_file=20, page_in_book=10, status="awaiting_review",
+        page_in_file=20,
+        page_in_book=10,
+        status="awaiting_review",
         review_confidence=0.9,
     )
     draft_path = draft_dir / fname
@@ -103,10 +135,12 @@ def env(tmp_path):
         status="awaiting_review",
     )
     db.upsert_concept(
-        "c1", "@Book2024", "@Book2024::ch000::abc",
+        "c1",
+        "@Book2024",
+        "@Book2024::ch000::abc",
         candidate_json='{"thesis":"t","definition":"d","chunk_status":"ok",'
-                       '"rejection_reason":"","rejection_category":"","anchor_quote":"x",'
-                       '"relevance_score":4}',
+        '"rejection_reason":"","rejection_category":"","anchor_quote":"x",'
+        '"relevance_score":4}',
         status="awaiting_review",
     )
     idx = _FakeLitIndex()
@@ -121,9 +155,7 @@ def test_approve_moves_draft_and_embeds(env):
     chunk = db.get_chunk("@Book2024::ch000::abc")
     assert chunk["status"] == "persisted"
     fname = literature_chunk_filename_for_row("Book2024", db.get_chunk("@Book2024::ch000::abc"))
-    dest = (
-        cfg.vault_path / "20_Literature" / literature_source_dirname("Book2024") / fname
-    )
+    dest = cfg.vault_path / "20_Literature" / literature_source_dirname("Book2024") / fname
     assert dest.exists()
     dest_text = dest.read_text(encoding="utf-8")
     assert "texto do chunk" in dest_text
@@ -147,22 +179,36 @@ def test_approve_preserves_candidate_quotes_block_without_duplicating(tmp_path):
         state_db_path=tmp_path / "state.db",
         chroma_path=tmp_path / "chroma",
     )
-    for d in ("00_Inbox/Review", "10_Sources", "20_Literature", "30_Permanent", "90_Assets"):
+    for d in (
+        "00_Inbox/Review",
+        "10_Sources",
+        "20_Literature",
+        "30_Permanent",
+        "90_Assets",
+    ):
         (cfg.vault_path / d).mkdir(parents=True, exist_ok=True)
     db = StateDB(cfg.state_db_path)
     db.upsert_source("@Book2024", "Book2024", "Livro Teste", ["Autor"], 2024, "h", "/x.pdf", "pdf")
     db.upsert_chapter("@Book2024::ch000", "@Book2024", "Ch1", "chh")
-    candidates = [{
-        "thesis": "L1 induz esparsidade nos pesos do modelo",
-        "anchor_quote": "a penalidade L1 empurra pesos irrelevantes para exatamente zero",
-        "relevance_score": 4,
-    }]
+    candidates = [
+        {
+            "thesis": "L1 induz esparsidade nos pesos do modelo",
+            "anchor_quote": "a penalidade L1 empurra pesos irrelevantes para exatamente zero",
+            "relevance_score": 4,
+        }
+    ]
     db.upsert_chunk(
-        "@Book2024::ch000::abc", "@Book2024", "@Book2024::ch000",
-        "texto do chunk", "ck",
-        chunk_index=0, status="awaiting_review",
+        "@Book2024::ch000::abc",
+        "@Book2024",
+        "@Book2024::ch000",
+        "texto do chunk",
+        "ck",
+        chunk_index=0,
+        status="awaiting_review",
         literature_id="lit123",
-        summary_json=json.dumps({"summary": "Um resumo", "key_concepts": [], "candidates": candidates}),
+        summary_json=json.dumps(
+            {"summary": "Um resumo", "key_concepts": [], "candidates": candidates}
+        ),
         review_confidence=0.9,
     )
     chunk_row = db.get_chunk("@Book2024::ch000::abc")
@@ -170,15 +216,25 @@ def test_approve_preserves_candidate_quotes_block_without_duplicating(tmp_path):
     draft_dir = cfg.vault_path / "00_Inbox" / "Review" / literature_source_dirname("Book2024")
     draft_dir.mkdir(parents=True, exist_ok=True)
     meta, body = build_literature_chunk_note(
-        source_id="@Book2024", citekey="Book2024", title="Livro Teste",
-        chunk_id="@Book2024::ch000::abc", chunk_index=0, literature_id="lit123",
-        summary="Um resumo", key_concepts=[], candidates=candidates,
-        page_in_book=10, status="awaiting_review", review_confidence=0.9,
+        source_id="@Book2024",
+        citekey="Book2024",
+        title="Livro Teste",
+        chunk_id="@Book2024::ch000::abc",
+        chunk_index=0,
+        literature_id="lit123",
+        summary="Um resumo",
+        key_concepts=[],
+        candidates=candidates,
+        page_in_book=10,
+        status="awaiting_review",
+        review_confidence=0.9,
     )
     draft_path = draft_dir / fname
     safe_write_note(draft_path, meta, body)
     db.update_chunk_review(
-        "@Book2024::ch000::abc", literature_note_path=str(draft_path), status="awaiting_review",
+        "@Book2024::ch000::abc",
+        literature_note_path=str(draft_path),
+        status="awaiting_review",
     )
     idx = _FakeLitIndex()
 
@@ -225,24 +281,44 @@ def env_no_draft(tmp_path):
         state_db_path=tmp_path / "state.db",
         chroma_path=tmp_path / "chroma",
     )
-    for d in ("00_Inbox/Review", "10_Sources", "20_Literature", "30_Permanent", "90_Assets"):
+    for d in (
+        "00_Inbox/Review",
+        "10_Sources",
+        "20_Literature",
+        "30_Permanent",
+        "90_Assets",
+    ):
         (cfg.vault_path / d).mkdir(parents=True, exist_ok=True)
     db = StateDB(cfg.state_db_path)
     db.upsert_source(
-        "@Book2024", "Book2024", "Livro Teste", ["Autor"], 2024,
-        "h", "/x.pdf", "pdf",
+        "@Book2024",
+        "Book2024",
+        "Livro Teste",
+        ["Autor"],
+        2024,
+        "h",
+        "/x.pdf",
+        "pdf",
     )
     db.upsert_chapter("@Book2024::ch000", "@Book2024", "Ch1", "chh")
     db.upsert_chunk(
-        "@Book2024::ch000::abc", "@Book2024", "@Book2024::ch000",
-        "texto do chunk", "ck",
-        chunk_index=0, status="awaiting_review",
+        "@Book2024::ch000::abc",
+        "@Book2024",
+        "@Book2024::ch000",
+        "texto do chunk",
+        "ck",
+        chunk_index=0,
+        status="awaiting_review",
         literature_id="lit123",
-        summary_json=json.dumps({
-            "summary": "Um resumo", "key_concepts": ["conceito"], "candidates": [],
-            "rejection_reason": "so uma referencia bibliografica",
-            "rejection_category": "structural",
-        }),
+        summary_json=json.dumps(
+            {
+                "summary": "Um resumo",
+                "key_concepts": ["conceito"],
+                "candidates": [],
+                "rejection_reason": "so uma referencia bibliografica",
+                "rejection_category": "structural",
+            }
+        ),
         review_confidence=0.1,
     )
     idx = _FakeLitIndex()
@@ -285,8 +361,8 @@ def test_confidence_band_counts():
     bands = confidence_band_counts(chunks, limiar)
     assert bands == {
         "very_low": 3,  # 0.1, 0.4, None→0
-        "medium": 2,    # 0.5, 0.84
-        "high": 2,      # 0.85, 0.9
+        "medium": 2,  # 0.5, 0.84
+        "high": 2,  # 0.85, 0.9
         "total": 7,
     }
     report = format_confidence_report(bands, limiar)
@@ -368,9 +444,11 @@ def test_format_review_item_includes_summary_and_chunk_text():
         "page_in_book": 3,
         "page_in_file": 3,
         "section_path": "1 Introduction",
-        "summary_json": json.dumps({
-            "summary": "O trecho apresenta o sumario do relatorio tecnico.",
-        }),
+        "summary_json": json.dumps(
+            {
+                "summary": "O trecho apresenta o sumario do relatorio tecnico.",
+            }
+        ),
         "text": "This report is organized as follows. Section 1 introduces GLM-OCR.",
     }
     card = format_review_item(chunk)
@@ -395,28 +473,41 @@ def test_format_review_item_fallbacks_when_empty():
 def _seed_awaiting_chunk(cfg, db, chunk_id, chunk_index, confidence, lit_id):
     text = f"texto {chunk_id}"
     db.upsert_chunk(
-        chunk_id, "@Book2024", "@Book2024::ch000",
-        text, f"ck{chunk_index}",
-        chunk_index=chunk_index, page_in_file=20, page_in_book=10,
+        chunk_id,
+        "@Book2024",
+        "@Book2024::ch000",
+        text,
+        f"ck{chunk_index}",
+        chunk_index=chunk_index,
+        page_in_file=20,
+        page_in_book=10,
         page_confidence="inferred",
         status="awaiting_review",
         section_path="Ch1",
         literature_id=lit_id,
-        summary_json=json.dumps({"summary": f"resumo {chunk_index}", "key_concepts": [], "candidates": []}),
+        summary_json=json.dumps(
+            {"summary": f"resumo {chunk_index}", "key_concepts": [], "candidates": []}
+        ),
         review_confidence=confidence,
     )
     chunk_row = db.get_chunk(chunk_id)
     fname = literature_chunk_filename_for_row("Book2024", chunk_row)
-    draft_dir = (
-        cfg.vault_path / "00_Inbox" / "Review" / literature_source_dirname("Book2024")
-    )
+    draft_dir = cfg.vault_path / "00_Inbox" / "Review" / literature_source_dirname("Book2024")
     draft_dir.mkdir(parents=True, exist_ok=True)
     meta, body = build_literature_chunk_note(
-        source_id="@Book2024", citekey="Book2024", title="Livro Teste",
-        chunk_id=chunk_id, chunk_index=chunk_index, literature_id=lit_id,
-        summary=f"resumo {chunk_index}", key_concepts=[], candidates=[],
+        source_id="@Book2024",
+        citekey="Book2024",
+        title="Livro Teste",
+        chunk_id=chunk_id,
+        chunk_index=chunk_index,
+        literature_id=lit_id,
+        summary=f"resumo {chunk_index}",
+        key_concepts=[],
+        candidates=[],
         section_path="Ch1",
-        page_in_file=20, page_in_book=10, status="awaiting_review",
+        page_in_file=20,
+        page_in_book=10,
+        status="awaiting_review",
         review_confidence=confidence,
     )
     draft_path = draft_dir / fname
@@ -583,8 +674,11 @@ def test_state_vacuum_reclaims_freelist(tmp_path):
     db.upsert_chapter("@S::ch", "@S", "Ch", "chh")
     for i in range(20):
         db.upsert_chunk(
-            f"@S::ch::{i:03d}", "@S", "@S::ch",
-            "texto " * 200, f"ck{i}",
+            f"@S::ch::{i:03d}",
+            "@S",
+            "@S::ch",
+            "texto " * 200,
+            f"ck{i}",
             status="rejected",
         )
     ids = [f"@S::ch::{i:03d}" for i in range(20)]

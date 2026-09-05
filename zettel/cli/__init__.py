@@ -49,17 +49,17 @@ from zettel.cli.app import app, console
 # Importing a command module runs its @app.command() decorators, so the order of
 # these statements is the order of `zettel --help`. Deliberately not alphabetical:
 # do not let an import sorter touch this block.
-from zettel.cli import maintenance   # init, reindex, rebuild
-from zettel.cli import ingest        # harvest, rechunk, dumps, set-paging
-from zettel.cli import curation      # extract, review, retry-failed
-from zettel.cli import synthesis     # connect, garden
-from zettel.cli import purge         # purge-rejected, delete-source
-from zettel.cli import manual        # new-note, sync-manual
-from zettel.cli import pipeline      # run-all
-from zettel.cli import qa            # ask
-from zettel.cli import writing       # article
-from zettel.cli import export        # skill
-from zettel.cli import diagnostics   # status, doctor
+from zettel.cli import maintenance  # init, reindex, rebuild
+from zettel.cli import ingest  # harvest, rechunk, dumps, set-paging
+from zettel.cli import curation  # extract, review, retry-failed
+from zettel.cli import synthesis  # connect, garden
+from zettel.cli import purge  # purge-rejected, delete-source
+from zettel.cli import manual  # new-note, sync-manual
+from zettel.cli import pipeline  # run-all
+from zettel.cli import qa  # ask
+from zettel.cli import writing  # article
+from zettel.cli import export  # skill
+from zettel.cli import diagnostics  # status, doctor
 # isort: on
 
 #: The command modules, in registration order. Bound to a name so the imports
@@ -67,8 +67,17 @@ from zettel.cli import diagnostics   # status, doctor
 #: an "unused import" cleanup would delete — removing one silently drops its
 #: commands from the CLI.
 COMMAND_MODULES = (
-    maintenance, ingest, curation, synthesis, purge,
-    manual, pipeline, qa, writing, export, diagnostics,
+    maintenance,
+    ingest,
+    curation,
+    synthesis,
+    purge,
+    manual,
+    pipeline,
+    qa,
+    writing,
+    export,
+    diagnostics,
 )
 
 __all__ = ["COMMAND_MODULES", "app", "console", "main"]

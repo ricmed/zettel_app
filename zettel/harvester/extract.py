@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 from pathlib import Path
@@ -39,9 +40,7 @@ def extract_year_from_string(s: str | None) -> int | None:
 # ── Text Extraction Dispatch ────────────────────────────────────────────
 
 
-def extract_text(
-    cfg: AppConfig, file_path: Path, origin_type: str
-) -> tuple[str, dict[str, Any]]:
+def extract_text(cfg: AppConfig, file_path: Path, origin_type: str) -> tuple[str, dict[str, Any]]:
     """Extract text and basic metadata from a file.
 
     Extracted images (when images.enabled) are stashed in metadata["_images"] as a
@@ -162,6 +161,7 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
         ) from e
 
     from zettel.config import detect_device
+
     device = detect_device(cfg.device)
 
     accel_device = AcceleratorDevice.CUDA if device == "cuda" else AcceleratorDevice.CPU
@@ -180,7 +180,9 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
         }
     )
     logger.info(
-        "Docling: Iniciando conversao de %s (dispositivo: %s)", file_path.name, device.upper()
+        "Docling: Iniciando conversao de %s (dispositivo: %s)",
+        file_path.name,
+        device.upper(),
     )
 
     try:
@@ -202,6 +204,7 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
     images: list[dict[str, Any]] = []
     if cfg.images.enabled:
         from zettel.assets import extract_docling_images
+
         text, images = extract_docling_images(cfg, result.document, text)
 
     # PDF-only cleanup: merge line-break hyphenation before persistence, so the
@@ -210,7 +213,10 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
     text = dehyphenate_pdf_linebreaks(text)
 
     metadata: dict[str, Any] = {
-        "title": file_path.stem, "authors": [], "year": None, "_images": images,
+        "title": file_path.stem,
+        "authors": [],
+        "year": None,
+        "_images": images,
     }
     try:
         origin = getattr(result.document, "origin", None)
@@ -218,9 +224,7 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
             if getattr(origin, "title", None):
                 metadata["title"] = origin.title
             if getattr(origin, "author", None):
-                metadata["authors"] = [
-                    a.strip() for a in origin.author.split(",") if a.strip()
-                ]
+                metadata["authors"] = [a.strip() for a in origin.author.split(",") if a.strip()]
             if getattr(origin, "date", None):
                 metadata["year"] = extract_year_from_string(origin.date)
     except Exception:
@@ -241,12 +245,15 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
     else:
         logger.warning(
             "Nenhum mapa de paginas Docling disponivel para %s; paging.py cai "
-            "para regex/interpolacao (sem PyMuPDF).", file_path.name,
+            "para regex/interpolacao (sem PyMuPDF).",
+            file_path.name,
         )
 
     logger.info(
         "Docling: Conversao concluida - %s (%d caracteres, %s paginas)",
-        file_path.name, len(text), metadata.get("total_pages_file", "?"),
+        file_path.name,
+        len(text),
+        metadata.get("total_pages_file", "?"),
     )
     return text, metadata
 
@@ -345,29 +352,62 @@ def extract_markdown(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str, An
     # Extract year from frontmatter
     year: int | None = None
     if fm_meta.get("year"):
-        try:
+        with contextlib.suppress(ValueError, TypeError):
             year = int(fm_meta["year"])
-        except (ValueError, TypeError):
-            pass
     if year is None and fm_meta.get("date"):
         year = extract_year_from_string(str(fm_meta["date"]))
 
     from zettel.assets import extract_markdown_images
+
     body, images = extract_markdown_images(cfg, body, file_path)
 
     meta: dict[str, Any] = {
-        "title": title, "authors": authors, "year": year, "_images": images,
+        "title": title,
+        "authors": authors,
+        "year": year,
+        "_images": images,
     }
     # Pass through known bibliographic frontmatter fields for ABNT inference.
     _BIBLIO_KEYS = (
-        "document_type", "subtitle", "edition", "place", "city", "publisher",
-        "editora", "translator", "traducao", "isbn", "journal", "periodico",
-        "volume", "issue", "number", "pages", "paginas", "doi", "url",
-        "accessed_at", "access_date", "site_name", "published_at",
-        "institution", "instituicao", "course", "curso", "discipline",
-        "disciplina", "degree", "advisor", "orientador", "event_name",
-        "report_number", "chapter_title", "book_title", "chapter_authors",
-        "book_editors", "editors",
+        "document_type",
+        "subtitle",
+        "edition",
+        "place",
+        "city",
+        "publisher",
+        "editora",
+        "translator",
+        "traducao",
+        "isbn",
+        "journal",
+        "periodico",
+        "volume",
+        "issue",
+        "number",
+        "pages",
+        "paginas",
+        "doi",
+        "url",
+        "accessed_at",
+        "access_date",
+        "site_name",
+        "published_at",
+        "institution",
+        "instituicao",
+        "course",
+        "curso",
+        "discipline",
+        "disciplina",
+        "degree",
+        "advisor",
+        "orientador",
+        "event_name",
+        "report_number",
+        "chapter_title",
+        "book_title",
+        "chapter_authors",
+        "book_editors",
+        "editors",
     )
     for key in _BIBLIO_KEYS:
         if key in fm_meta and fm_meta[key] not in (None, ""):

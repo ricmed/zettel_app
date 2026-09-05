@@ -11,15 +11,23 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Literal, Optional
+from typing import TYPE_CHECKING, Literal
 
 from .bibliography import display_author_natural, format_abnt_in_text
 from .config import effective_temperature, llm_phase
 from .hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
-from .llm import call_llm, clip_text, extract_json, fill_template, get_llm, load_prompt_parts
+from .llm import (
+    call_llm,
+    clip_text,
+    extract_json,
+    fill_template,
+    get_llm,
+    load_prompt_parts,
+)
 from .retrieval import RetrievedNote
 from .schemas import ArticleOutline, ArticleOutlineSection
 from .vault import _slug, permanent_wikilink, render_frontmatter
@@ -34,16 +42,11 @@ logger = logging.getLogger(__name__)
 ArticleStyle = Literal["blog", "academic"]
 OutlineDecision = Literal["approve", "regenerate", "abort"]
 
-NO_EVIDENCE = (
-    "Nao encontrei evidencia suficiente no vault para escrever um artigo "
-    "sobre esse tema."
-)
+NO_EVIDENCE = "Nao encontrei evidencia suficiente no vault para escrever um artigo sobre esse tema."
 
 _ZTL_WIKILINK = re.compile(r"\[\[ZTL - ([0-9A-HJKMNP-TV-Z]{26})")
 _FIG_EMBED = re.compile(r"!\[\[(90_Assets/[^\]]+)\]\]")
-_CITES_COMMENT = re.compile(
-    r"<!--\s*cites:\s*([^\n>]*?)\s*-->", re.IGNORECASE
-)
+_CITES_COMMENT = re.compile(r"<!--\s*cites:\s*([^\n>]*?)\s*-->", re.IGNORECASE)
 _WIKI_EMBED_ANY = re.compile(r"!\[\[([^\]]+)\]\]")
 
 
@@ -55,7 +58,7 @@ class CatalogAsset:
     asset_id: str
     path: str
     description: str = ""
-    source_id: Optional[str] = None
+    source_id: str | None = None
 
 
 @dataclass
@@ -64,9 +67,9 @@ class CatalogSource:
     citekey: str = ""
     title: str = ""
     authors: list[str] = field(default_factory=list)
-    year: Optional[int] = None
+    year: int | None = None
     abnt_reference: str = ""
-    document_type: Optional[str] = None
+    document_type: str | None = None
 
     @property
     def in_text_cite(self) -> str:
@@ -89,7 +92,7 @@ class CatalogNote:
     title: str
     body: str
     wiki_link: str
-    source_id: Optional[str] = None
+    source_id: str | None = None
     score: float = 0.0
     hop: int = 0
     origin: str = "busca"
@@ -116,7 +119,7 @@ class ArticleResult:
     title: str
     body: str
     frontmatter: dict = field(default_factory=dict)
-    outline: Optional[ArticleOutline] = None
+    outline: ArticleOutline | None = None
     warnings: list[str] = field(default_factory=list)
     llm_called: bool = False
     llm_model: str = ""
@@ -127,31 +130,29 @@ class ArticleResult:
     aborted: bool = False
 
 
-ApproveOutlineFn = Callable[
-    [ArticleOutline], tuple[OutlineDecision, Optional[str]]
-]
+ApproveOutlineFn = Callable[[ArticleOutline], tuple[OutlineDecision, str | None]]
 
 
 # ── Public API ─────────────────────────────────────────────────────────
 
 
 def run_article(
-    cfg: "AppConfig",
-    db: "StateDB",
-    idx: "VectorIndex",
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
     topic: str,
     style: ArticleStyle = "blog",
-    topk: Optional[int] = None,
-    use_graph: Optional[bool] = None,
-    mode: Optional[str] = None,
+    topk: int | None = None,
+    use_graph: bool | None = None,
+    mode: str | None = None,
     outline_only: bool = False,
-    approve_outline: Optional[ApproveOutlineFn] = None,
-    personality: Optional[str] = None,
-    custom_style_notes: Optional[str] = None,
+    approve_outline: ApproveOutlineFn | None = None,
+    personality: str | None = None,
+    custom_style_notes: str | None = None,
     skip_context_review: bool = False,
     skip_judge: bool = False,
-    max_judge_iterations: Optional[int] = None,
-    context_callback: Optional[Callable] = None,
+    max_judge_iterations: int | None = None,
+    context_callback: Callable | None = None,
 ) -> ArticleResult:
     """Generate a structured article via the LangGraph pipeline.
 
@@ -162,7 +163,10 @@ def run_article(
     from .article_graph import run_article_graph
 
     return run_article_graph(
-        cfg, db, idx, topic,
+        cfg,
+        db,
+        idx,
+        topic,
         style=style,
         topk=topk,
         use_graph=use_graph,
@@ -179,10 +183,10 @@ def run_article(
 
 
 def generate_outline(
-    cfg: "AppConfig",
-    db: "StateDB",
+    cfg: AppConfig,
+    db: StateDB,
     catalog: ArticleCatalog,
-    feedback: Optional[str] = None,
+    feedback: str | None = None,
 ) -> tuple[ArticleOutline, bool]:
     """Call the LLM to produce an ArticleOutline. Returns (outline, llm_called)."""
     art_cfg = cfg.retrieval.article
@@ -200,7 +204,11 @@ def generate_outline(
     user = fill_template(prompt_parts.user_template, mapping)
 
     raw, llm_called = _cached_llm(
-        cfg, db, prompt_parts.full_template, system=system, user=user,
+        cfg,
+        db,
+        prompt_parts.full_template,
+        system=system,
+        user=user,
         label=f"outline | tema={clip_text(catalog.topic)}",
     )
     data = json.loads(extract_json(raw))
@@ -210,8 +218,8 @@ def generate_outline(
 
 
 def draft_sections(
-    cfg: "AppConfig",
-    db: "StateDB",
+    cfg: AppConfig,
+    db: StateDB,
     catalog: ArticleCatalog,
     outline: ArticleOutline,
     judge_feedback: str = "",
@@ -219,9 +227,7 @@ def draft_sections(
     """Draft all sections. Returns (bodies, note_ids, llm_called)."""
     art_cfg = cfg.retrieval.article
     prompt_name = (
-        "article_section_blog.md"
-        if catalog.style == "blog"
-        else "article_section_academic.md"
+        "article_section_blog.md" if catalog.style == "blog" else "article_section_academic.md"
     )
     prompt_parts = load_prompt_parts(cfg.prompts_path / prompt_name)
     anti_path = cfg.prompts_path / "article_anti_ai.md"
@@ -257,7 +263,11 @@ def draft_sections(
         if len(packed["note_ids"]) > 2:
             note_preview += f" (+{len(packed['note_ids']) - 2})"
         raw, called = _cached_llm(
-            cfg, db, prompt_parts.full_template, system=system, user=user,
+            cfg,
+            db,
+            prompt_parts.full_template,
+            system=system,
+            user=user,
             temperature=writer_temp,
             label=(
                 f"secao {i}/{len(outline.sections)} | "
@@ -286,8 +296,7 @@ def assemble_article(
     seen_figures: set[str] = set()
 
     citekey_to_source = {
-        (s.citekey or s.source_id.lstrip("@")): s
-        for s in catalog.sources.values()
+        (s.citekey or s.source_id.lstrip("@")): s for s in catalog.sources.values()
     }
     # Also index by full source_id (@citekey)
     for sid, src in catalog.sources.items():
@@ -329,14 +338,15 @@ def assemble_article(
                     src = catalog.sources[asset.source_id]
                     label = src.title or src.source_id
                     lines.append(f"Fonte: adaptado de {label}.")
-            else:
-                if desc:
-                    lines.append(f"*Figura: {desc}*")
+            elif desc:
+                lines.append(f"*Figura: {desc}*")
             return "\n".join(lines)
 
         text = _WIKI_EMBED_ANY.sub(_renumber_fig, text)
         if not text.strip():
-            warnings.append(f"Secao vazia: {outline.sections[i].heading if i < len(outline.sections) else i}")
+            warnings.append(
+                f"Secao vazia: {outline.sections[i].heading if i < len(outline.sections) else i}"
+            )
         cleaned_sections.append(text)
 
     lines: list[str] = [f"# {outline.title}", ""]
@@ -413,7 +423,7 @@ def assemble_article(
                 warnings.append(f"Figura ausente no vault: {path}")
 
     meta = {
-        "created_at": datetime.now().isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "title": outline.title,
     }
     return meta, "\n".join(lines).rstrip() + "\n", cited_source_ids, warnings
@@ -455,17 +465,15 @@ def build_article_note(result: ArticleResult) -> tuple[dict, str]:
     meta.setdefault("style", result.style)
     meta.setdefault("title", result.title)
     meta.setdefault("llm_model", result.llm_model)
-    meta.setdefault("created_at", datetime.now().isoformat())
+    meta.setdefault("created_at", datetime.now(UTC).isoformat())
     return meta, result.body
 
 
-def save_article_note(
-    result: ArticleResult, vault_path: Path, dest: Optional[Path] = None
-) -> Path:
+def save_article_note(result: ArticleResult, vault_path: Path, dest: Path | None = None) -> Path:
     """Persist the article as Markdown under ``00_Inbox/`` by default."""
     meta, body = build_article_note(result)
     if dest is None:
-        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         slug = _slug(result.title or result.topic) or "artigo"
         filename = f"ART - {ts} - {slug}.md"
         dest = Path(vault_path) / "00_Inbox" / filename
@@ -485,7 +493,7 @@ def format_outline_for_display(outline: ArticleOutline) -> str:
 # ── Internals ──────────────────────────────────────────────────────────
 
 
-def _wiki_link(db: "StateDB", note_id: str, title: str, path: str | None = None) -> str:
+def _wiki_link(db: StateDB, note_id: str, title: str, path: str | None = None) -> str:
     if path is None:
         row = db.get_note(note_id)
         path = row.get("path") if row else None
@@ -501,9 +509,7 @@ def _origin_label(hit: RetrievedNote) -> str:
     return f"conexao {rel} a partir de [[ZTL - {anchor}]]"
 
 
-def merge_moc_notes(
-    db: "StateDB", hits: list[RetrievedNote], moc: dict
-) -> list[RetrievedNote]:
+def merge_moc_notes(db: StateDB, hits: list[RetrievedNote], moc: dict) -> list[RetrievedNote]:
     """Add notes linked from a matching MOC body as high-confidence seeds."""
     by_id = {h.note_id: h for h in hits}
     body = moc.get("body") or ""
@@ -533,7 +539,7 @@ def merge_moc_notes(
 
 
 def _populate_catalog(
-    db: "StateDB",
+    db: StateDB,
     catalog: ArticleCatalog,
     hits: list[RetrievedNote],
     max_figures: int,
@@ -577,9 +583,7 @@ def _populate_catalog(
 
         summary = (body or "").strip()
         # Strip managed/figures blocks for summary
-        summary = re.sub(
-            r"## Figuras\n.*?(?=\n## |\Z)", "", summary, flags=re.DOTALL
-        ).strip()
+        summary = re.sub(r"## Figuras\n.*?(?=\n## |\Z)", "", summary, flags=re.DOTALL).strip()
         if len(summary) > 200:
             summary = summary[:200].rstrip() + "..."
 
@@ -592,7 +596,10 @@ def _populate_catalog(
             title=title,
             body=body_trunc,
             wiki_link=_wiki_link(
-                db, hit.note_id, title, path=row.get("path") if row else None,
+                db,
+                hit.note_id,
+                title,
+                path=row.get("path") if row else None,
             ),
             source_id=source_id,
             score=hit.score,
@@ -613,9 +620,7 @@ def _populate_catalog(
         catalog.assets = {k: v for k, v in catalog.assets.items() if k in keep}
 
 
-def _assets_from_note_body(
-    db: "StateDB", body: str, source_id: Optional[str]
-) -> list[CatalogAsset]:
+def _assets_from_note_body(db: StateDB, body: str, source_id: str | None) -> list[CatalogAsset]:
     paths = _FIG_EMBED.findall(body or "")
     if not paths:
         return []
@@ -633,9 +638,7 @@ def _assets_from_note_body(
         row = by_path.get(path)
         if row is None and source_id is None:
             # best-effort: skip unresolved
-            out.append(
-                CatalogAsset(asset_id=f"path::{path}", path=path, description="")
-            )
+            out.append(CatalogAsset(asset_id=f"path::{path}", path=path, description=""))
             continue
         if row is None:
             out.append(
@@ -682,8 +685,7 @@ def _format_notes_for_outline(catalog: ArticleCatalog) -> str:
         parts.append("### Assets disponiveis\n")
         for a in catalog.assets.values():
             parts.append(
-                f"- asset_id: {a.asset_id} | path: {a.path} | "
-                f"desc: {(a.description or '')[:120]}\n"
+                f"- asset_id: {a.asset_id} | path: {a.path} | desc: {(a.description or '')[:120]}\n"
             )
     return "\n".join(parts)
 
@@ -794,8 +796,8 @@ def _pack_section(
 
 
 def _cached_llm(
-    cfg: "AppConfig",
-    db: "StateDB",
+    cfg: AppConfig,
+    db: StateDB,
     prompt_template: str,
     filled: str = "",
     temperature: float | None = None,
@@ -814,8 +816,13 @@ def _cached_llm(
     prompt_hash = sha256_hex(prompt_template)
     filled_hash = sha256_hex(normalize_text_for_hash(filled_for_hash))
     call_checksum = compute_llm_call_checksum(
-        prompt_hash, filled_hash, spec.model, temp, cfg.language,
-        provider=spec.provider, top_p=cfg.llm.top_p,
+        prompt_hash,
+        filled_hash,
+        spec.model,
+        temp,
+        cfg.language,
+        provider=spec.provider,
+        top_p=cfg.llm.top_p,
     )
     cached = db.get_cached_llm_response(call_checksum)
     if cached is not None:
@@ -827,6 +834,7 @@ def _cached_llm(
         else:
             logger.debug("Cache hit (article)")
         from zettel.usage import record_cache_hit
+
         record_cache_hit(label=label or "article", model=spec.model)
         return cached, False
     llm = get_llm(cfg, "article", temperature=temp)
@@ -875,7 +883,7 @@ def _extract_cites_comment(text: str) -> list[str]:
     return [p.strip() for p in raw.split(",") if p.strip()]
 
 
-def _asset_by_path(catalog: ArticleCatalog, path: str) -> Optional[CatalogAsset]:
+def _asset_by_path(catalog: ArticleCatalog, path: str) -> CatalogAsset | None:
     for a in catalog.assets.values():
         if a.path == path:
             return a
@@ -905,9 +913,7 @@ def _match_parenthetical_sources(text: str, catalog: ArticleCatalog) -> list[str
         if not src.authors or not src.year:
             continue
         surname = src.authors[0].strip().split()[-1].upper()
-        pattern = re.compile(
-            rf"\({re.escape(surname)}(?:\s+et\s+al\.)?[^)]*{src.year}"
-        )
+        pattern = re.compile(rf"\({re.escape(surname)}(?:\s+et\s+al\.)?[^)]*{src.year}")
         if pattern.search(text) and sid not in found:
             found.append(sid)
     return found
@@ -972,9 +978,7 @@ def merge_retrieved_notes(
         prev = by_id.get(hit.note_id)
         if prev is None or d["score"] >= float(prev.get("score") or 0.0):
             by_id[hit.note_id] = d
-    merged = sorted(
-        by_id.values(), key=lambda x: float(x.get("score") or 0), reverse=True
-    )
+    merged = sorted(by_id.values(), key=lambda x: float(x.get("score") or 0), reverse=True)
     return merged[:max_notes]
 
 
@@ -991,12 +995,12 @@ def parse_extra_queries(raw: str) -> list[str]:
 
 
 def enrich_search_queries(
-    cfg: "AppConfig",
-    db: "StateDB",
+    cfg: AppConfig,
+    db: StateDB,
     topic: str,
     style: ArticleStyle,
-    extra_queries: Optional[list[str]] = None,
-    count: Optional[int] = None,
+    extra_queries: list[str] | None = None,
+    count: int | None = None,
 ) -> tuple[list[str], bool]:
     """LLM-expand topic into search queries. Returns (queries, llm_called)."""
     art_cfg = cfg.retrieval.article
@@ -1015,7 +1019,11 @@ def enrich_search_queries(
     system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
     user = fill_template(prompt_parts.user_template, mapping)
     raw, called = _cached_llm(
-        cfg, db, prompt_parts.full_template, system=system, user=user,
+        cfg,
+        db,
+        prompt_parts.full_template,
+        system=system,
+        user=user,
         temperature=art_cfg.enrich_temperature,
         label=f"enrich queries | tema={clip_text(topic)} | alvo={count}",
     )
@@ -1032,13 +1040,13 @@ def enrich_search_queries(
 
 
 def catalog_from_retrieved(
-    cfg: "AppConfig",
-    db: "StateDB",
+    cfg: AppConfig,
+    db: StateDB,
     topic: str,
     style: ArticleStyle,
     retrieved_notes: list[dict],
-    moc_ids: Optional[list[str]] = None,
-    retrieval_params: Optional[dict] = None,
+    moc_ids: list[str] | None = None,
+    retrieval_params: dict | None = None,
 ) -> ArticleCatalog:
     """Build ArticleCatalog from accumulated retrieved note dicts."""
     art_cfg = cfg.retrieval.article
@@ -1049,9 +1057,7 @@ def catalog_from_retrieved(
         moc_ids=list(moc_ids or []),
         retrieval_params=dict(retrieval_params or {}),
     )
-    _populate_catalog(
-        db, catalog, hits, art_cfg.max_figures, art_cfg.max_chars_per_note
-    )
+    _populate_catalog(db, catalog, hits, art_cfg.max_figures, art_cfg.max_chars_per_note)
     return catalog
 
 
@@ -1073,8 +1079,8 @@ def load_personalities(path: Path) -> dict[str, dict]:
 
 
 def apply_personality_rewrite(
-    cfg: "AppConfig",
-    db: "StateDB",
+    cfg: AppConfig,
+    db: StateDB,
     body: str,
     personality_id: str,
     custom_style_notes: str = "",
@@ -1090,11 +1096,15 @@ def apply_personality_rewrite(
         return body, False
 
     profiles = load_personalities(Path(art_cfg.personalities_path))
-    profile = profiles.get(pid) or profiles.get("neutral") or {
-        "name": pid,
-        "temperature": 0.7,
-        "style_prompt": notes or "Reescreva com clareza.",
-    }
+    profile = (
+        profiles.get(pid)
+        or profiles.get("neutral")
+        or {
+            "name": pid,
+            "temperature": 0.7,
+            "style_prompt": notes or "Reescreva com clareza.",
+        }
+    )
     prompt_parts = load_prompt_parts(cfg.prompts_path / "article_personality.md")
     mapping = {
         "language": cfg.language,
@@ -1107,15 +1117,20 @@ def apply_personality_rewrite(
     user = fill_template(prompt_parts.user_template, mapping)
     temp = float(profile.get("temperature", 0.7))
     raw, called = _cached_llm(
-        cfg, db, prompt_parts.full_template, system=system, user=user, temperature=temp,
+        cfg,
+        db,
+        prompt_parts.full_template,
+        system=system,
+        user=user,
+        temperature=temp,
         label=f"personality | perfil={pid} | {clip_text(str(profile.get('name') or pid), 40)}",
     )
     return raw.strip(), called
 
 
 def judge_article_body(
-    cfg: "AppConfig",
-    db: "StateDB",
+    cfg: AppConfig,
+    db: StateDB,
     catalog: ArticleCatalog,
     body: str,
 ) -> tuple[dict, bool]:
@@ -1132,7 +1147,11 @@ def judge_article_body(
     system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
     user = fill_template(prompt_parts.user_template, mapping)
     raw, called = _cached_llm(
-        cfg, db, prompt_parts.full_template, system=system, user=user,
+        cfg,
+        db,
+        prompt_parts.full_template,
+        system=system,
+        user=user,
         temperature=art_cfg.judge_temperature,
         label=f"judge | tema={clip_text(catalog.topic)} | estilo={catalog.style}",
     )
@@ -1150,9 +1169,7 @@ def judge_article_body(
     if average < art_cfg.judge_min_score:
         verdict = "REJECTED"
     elif verdict not in ("APPROVED", "REJECTED"):
-        verdict = (
-            "APPROVED" if average >= art_cfg.judge_min_score else "REJECTED"
-        )
+        verdict = "APPROVED" if average >= art_cfg.judge_min_score else "REJECTED"
     return {
         "fidelity": fidelity,
         "coverage": coverage,

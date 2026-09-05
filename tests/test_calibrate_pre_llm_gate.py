@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from calibrate_pre_llm_gate import evaluate_predictions, heuristic_predict  # noqa: E402
+from calibrate_pre_llm_gate import evaluate_predictions, heuristic_predict
 
 
 def test_heuristic_predict_rejects_short_chunk():

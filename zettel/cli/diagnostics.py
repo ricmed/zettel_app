@@ -80,6 +80,7 @@ def status(config: ConfigOption = None):
     console.print(table)
 
     from zettel.harvester import list_incomplete_sources
+
     incomplete = list_incomplete_sources(db)
     if incomplete:
         console.print(
@@ -96,7 +97,8 @@ def status(config: ConfigOption = None):
     session = latest_pipeline_session(recent_runs)
     harvest_run = next(
         (
-            row for row in reversed(session)
+            row
+            for row in reversed(session)
             if pipeline_phase_name(row.get("pipeline_signature")) == "harvest"
         ),
         None,
@@ -104,7 +106,8 @@ def status(config: ConfigOption = None):
     if harvest_run is None:
         harvest_run = next(
             (
-                row for row in recent_runs
+                row
+                for row in recent_runs
                 if pipeline_phase_name(row.get("pipeline_signature")) == "harvest"
             ),
             None,
@@ -156,6 +159,7 @@ def doctor(config: ConfigOption = None):
     # check and tests/test_prompts.py cannot drift apart from what the pipeline
     # actually opens at runtime.
     from zettel.llm import REQUIRED_PROMPTS
+
     for pf in REQUIRED_PROMPTS:
         p = cfg.prompts_path / pf
         checks.append((f"Prompt: {pf}", p.exists(), str(p)))
@@ -163,11 +167,13 @@ def doctor(config: ConfigOption = None):
     # FTS5 (BM25 hybrid search) availability in the SQLite build
     db_check = get_db(cfg)
     try:
-        checks.append((
-            "SQLite FTS5 (busca hibrida)",
-            db_check.fts_enabled,
-            "disponivel" if db_check.fts_enabled else "indisponivel (usa vetor puro)",
-        ))
+        checks.append(
+            (
+                "SQLite FTS5 (busca hibrida)",
+                db_check.fts_enabled,
+                "disponivel" if db_check.fts_enabled else "indisponivel (usa vetor puro)",
+            )
+        )
     finally:
         db_check.close()
 
@@ -206,14 +212,25 @@ def doctor(config: ConfigOption = None):
 
     # GPU / Device
     from zettel.config import get_gpu_info
+
     gpu = get_gpu_info()
-    checks.append((
-        "PyTorch",
-        gpu["torch_version"] != "nao instalado",
-        f"v{gpu['torch_version']}" if gpu["torch_version"] != "nao instalado" else "nao instalado",
-    ))
+    checks.append(
+        (
+            "PyTorch",
+            gpu["torch_version"] != "nao instalado",
+            f"v{gpu['torch_version']}"
+            if gpu["torch_version"] != "nao instalado"
+            else "nao instalado",
+        )
+    )
     if gpu["available"]:
-        checks.append(("GPU (CUDA)", True, f"{gpu['device_name']} ({gpu['vram_gb']} GB, CUDA {gpu['cuda_version']})"))
+        checks.append(
+            (
+                "GPU (CUDA)",
+                True,
+                f"{gpu['device_name']} ({gpu['vram_gb']} GB, CUDA {gpu['cuda_version']})",
+            )
+        )
     else:
         checks.append(("GPU (CUDA)", False, "nenhuma GPU detectada (usara CPU)"))
 
@@ -221,6 +238,7 @@ def doctor(config: ConfigOption = None):
 
     from zettel.config import LLM_PHASES, llm_phase
     from zettel.llm import is_supported_llm_provider
+
     for phase in LLM_PHASES:
         spec = llm_phase(cfg, phase)
         ok = is_supported_llm_provider(spec.provider)
@@ -232,11 +250,17 @@ def doctor(config: ConfigOption = None):
     # MOC taxonomy YAML: only a failure when strict_topics would actually enforce it.
     topics_path = cfg.gardener.topics_path
     if topics_path is None:
-        checks.append(("MOC taxonomy", not cfg.gardener.strict_topics,
-                        "topics_path nao configurado"))
+        checks.append(
+            (
+                "MOC taxonomy",
+                not cfg.gardener.strict_topics,
+                "topics_path nao configurado",
+            )
+        )
     elif topics_path.exists():
         try:
             from zettel.taxonomy import allowed_topic_names, load_moc_taxonomy
+
             tax = load_moc_taxonomy(topics_path)
             n_cat = len(allowed_topic_names(tax))
             checks.append(("MOC taxonomy", True, f"{topics_path.name} ({n_cat} categorias)"))
@@ -247,44 +271,58 @@ def doctor(config: ConfigOption = None):
 
     # Embedding space: config vs Chroma collection markers
     from zettel.index import peek_stored_embedding_identity
+
     stored_p, stored_m, stored_d = peek_stored_embedding_identity(cfg.chroma_path)
     cfg_p, cfg_m, cfg_d = (
-        cfg.embedding.provider, cfg.embedding.model, cfg.embedding.dimensions,
+        cfg.embedding.provider,
+        cfg.embedding.model,
+        cfg.embedding.dimensions,
     )
     cfg_label = fmt_embedding_id(cfg_p, cfg_m, cfg_d)
     if stored_p is None and stored_m is None and stored_d is None:
-        checks.append((
-            "Embedding space",
-            True,
-            f"config={cfg_label} (Chroma sem marcador ou vazio)",
-        ))
+        checks.append(
+            (
+                "Embedding space",
+                True,
+                f"config={cfg_label} (Chroma sem marcador ou vazio)",
+            )
+        )
     elif stored_p == cfg_p and stored_m == cfg_m and stored_d == cfg_d:
-        checks.append((
-            "Embedding space",
-            True,
-            cfg_label,
-        ))
+        checks.append(
+            (
+                "Embedding space",
+                True,
+                cfg_label,
+            )
+        )
     else:
         stored_label = fmt_embedding_id(stored_p, stored_m, stored_d)
-        checks.append((
-            "Embedding space",
-            False,
-            f"drift: Chroma={stored_label} -> config={cfg_label}; "
-            f"rode `zettel reindex --force`",
-        ))
+        checks.append(
+            (
+                "Embedding space",
+                False,
+                (
+                    f"drift: Chroma={stored_label} -> config={cfg_label}; "
+                    f"rode `zettel reindex --force`"
+                ),
+            )
+        )
 
     # Chunking coverage vs extracted_text (interrupted harvest recovery)
     try:
         db = get_db(cfg)
         from zettel.harvester import list_incomplete_sources
+
         incomplete = list_incomplete_sources(db)
         db.close()
         if incomplete:
-            checks.append((
-                "Chunking coverage",
-                False,
-                f"incompleto em {len(incomplete)} fonte(s); rode `zettel rechunk`",
-            ))
+            checks.append(
+                (
+                    "Chunking coverage",
+                    False,
+                    f"incompleto em {len(incomplete)} fonte(s); rode `zettel rechunk`",
+                )
+            )
         else:
             checks.append(("Chunking coverage", True, "todas as fontes cobertas"))
     except Exception as e:

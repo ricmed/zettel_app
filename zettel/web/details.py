@@ -19,9 +19,7 @@ def _decorate_connections(db: Any, note_id: str) -> list[dict]:
     decorated = []
     for edge in db.get_note_connections(note_id):
         related_id = (
-            edge["target_note_id"]
-            if edge["source_note_id"] == note_id
-            else edge["source_note_id"]
+            edge["target_note_id"] if edge["source_note_id"] == note_id else edge["source_note_id"]
         )
         related_note = db.get_note(related_id)
         decorated.append(
@@ -67,8 +65,12 @@ async def note_detail(request: Request, note_id: str):
     if not note:
         return HTMLResponse("Nota não encontrada", status_code=404)
     return render(
-        request, "note_detail.html", page="notes", note=note,
-        rendered_body=render_markdown(note.get("body")), connections=connections,
+        request,
+        "note_detail.html",
+        page="notes",
+        note=note,
+        rendered_body=render_markdown(note.get("body")),
+        connections=connections,
     )
 
 
@@ -84,6 +86,9 @@ async def moc_detail(request: Request, moc_id: str):
     if not moc:
         return HTMLResponse("MOC não encontrado", status_code=404)
     return render(
-        request, "moc_detail.html", page="notes", moc=moc,
+        request,
+        "moc_detail.html",
+        page="notes",
+        moc=moc,
         rendered_body=render_markdown(moc.get("body")),
     )

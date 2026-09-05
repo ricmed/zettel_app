@@ -1,11 +1,8 @@
 """Tests for SQLite state management."""
 
 import sqlite3
-import tempfile
-from pathlib import Path
 
 import pytest
-
 from zettel.state import StateDB, _fts_match_expr
 
 
@@ -20,14 +17,17 @@ def db(tmp_path):
 _OLD_SCHEMA_SQL = """
 CREATE TABLE sources (source_id TEXT PRIMARY KEY, citekey TEXT NOT NULL UNIQUE, title TEXT,
     authors TEXT, year INTEGER, file_checksum TEXT NOT NULL, extraction_checksum TEXT,
-    origin_path TEXT NOT NULL, origin_type TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-CREATE TABLE chunks (chunk_id TEXT PRIMARY KEY, source_id TEXT NOT NULL, chapter_id TEXT NOT NULL,
-    text TEXT NOT NULL, chunk_checksum TEXT NOT NULL, locator TEXT DEFAULT '', status TEXT DEFAULT 'pending',
+    origin_path TEXT NOT NULL, origin_type TEXT NOT NULL, created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL);
+CREATE TABLE chunks (chunk_id TEXT PRIMARY KEY, source_id TEXT NOT NULL,
+    chapter_id TEXT NOT NULL, text TEXT NOT NULL, chunk_checksum TEXT NOT NULL,
+    locator TEXT DEFAULT '', status TEXT DEFAULT 'pending',
     llm_prompt1_hash TEXT, llm_call_checksum_prompt1 TEXT);
 CREATE TABLE concepts (concept_id TEXT PRIMARY KEY, source_id TEXT NOT NULL, chunk_id TEXT NOT NULL,
     anchor_hash TEXT DEFAULT '', thesis_hash TEXT DEFAULT '', note_id TEXT);
 CREATE TABLE notes (note_id TEXT PRIMARY KEY, source_id TEXT, path TEXT, title TEXT,
-    note_semantic_checksum TEXT, auto_checksum TEXT, embedding_input_hash TEXT, embedding_model TEXT,
+    note_semantic_checksum TEXT, auto_checksum TEXT, embedding_input_hash TEXT,
+    embedding_model TEXT,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE mocs (moc_id TEXT PRIMARY KEY, topic TEXT, path TEXT, cluster_signature TEXT,
     embedding_input_hash TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
@@ -124,7 +124,9 @@ def test_get_source_by_extraction_checksum_cross_format(db):
     assert found is not None
     assert found["source_id"] == "@Pdf2024"
 
-    assert db.get_source_by_extraction_checksum("sharedtexthash", exclude_source_id="@Pdf2024") is None
+    assert (
+        db.get_source_by_extraction_checksum("sharedtexthash", exclude_source_id="@Pdf2024") is None
+    )
     assert db.get_source_by_extraction_checksum("") is None
 
 
@@ -162,12 +164,16 @@ def test_get_recent_runs_newest_first(db):
 def test_finish_run_persists_prompt_cache_tokens(db):
     """#64: provider-side prompt cache tokens survive past the run (they didn't before)."""
     run_id = db.start_run("extract")
-    db.finish_run(run_id, "completed", {
-        "cost_usd_total": 0.05,
-        "llm_calls": 3,
-        "prompt_cache_read_tokens": 12000,
-        "prompt_cache_write_tokens": 500,
-    })
+    db.finish_run(
+        run_id,
+        "completed",
+        {
+            "cost_usd_total": 0.05,
+            "llm_calls": 3,
+            "prompt_cache_read_tokens": 12000,
+            "prompt_cache_write_tokens": 500,
+        },
+    )
     row = db.get_last_run()
     assert row["run_id"] == run_id
     assert int(row["prompt_cache_read_tokens"]) == 12000
@@ -198,6 +204,7 @@ def test_migration_adds_new_columns_to_old_db(tmp_path):
 
     db = StateDB(old_path)
     try:
+
         def cols(table):
             return {r["name"] for r in db.conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
@@ -232,8 +239,13 @@ def test_concept_candidate_and_status(db):
     db.upsert_chapter("@S::ch000", "@S", "Ch", "chk")
     db.upsert_chunk("@S::ch000::a", "@S", "@S::ch000", "txt", "ck")
     db.upsert_concept(
-        "@S::concept::a", "@S", "@S::ch000::a", "ah", "th",
-        candidate_json='{"thesis": "x"}', status="extracted",
+        "@S::concept::a",
+        "@S",
+        "@S::ch000::a",
+        "ah",
+        "th",
+        candidate_json='{"thesis": "x"}',
+        status="extracted",
     )
     concept = db.get_concept("@S::concept::a")
     assert concept["candidate_json"] == '{"thesis": "x"}'
@@ -254,8 +266,13 @@ def test_upsert_concept_preserves_hashes_when_not_passed(db):
     db.upsert_chapter("@S::ch000", "@S", "Ch", "chk")
     db.upsert_chunk("@S::ch000::a", "@S", "@S::ch000", "txt", "ck")
     db.upsert_concept(
-        "@S::concept::a", "@S", "@S::ch000::a", "anchorhash123", "thesishash456",
-        candidate_json='{"thesis": "x"}', status="extracted",
+        "@S::concept::a",
+        "@S",
+        "@S::ch000::a",
+        "anchorhash123",
+        "thesishash456",
+        candidate_json='{"thesis": "x"}',
+        status="extracted",
     )
 
     # connect-style call: no hashes passed, only note_id/status touched.
@@ -269,7 +286,11 @@ def test_upsert_concept_preserves_hashes_when_not_passed(db):
 
     # A later call that does pass new hashes still overwrites them.
     db.upsert_concept(
-        "@S::concept::a", "@S", "@S::ch000::a", "newanchor", "newthesis",
+        "@S::concept::a",
+        "@S",
+        "@S::ch000::a",
+        "newanchor",
+        "newthesis",
     )
     concept = db.get_concept("@S::concept::a")
     assert concept["anchor_hash"] == "newanchor"
@@ -289,8 +310,13 @@ def test_upsert_concept_initial_insert_defaults_hashes_to_empty(db):
 
 def test_note_body_and_embedding_hash(db):
     db.upsert_note(
-        "n1", "@S", "/p/n1.md", "Title",
-        body="corpo completo", frontmatter_json='{"type": "permanent"}', origin="pipeline",
+        "n1",
+        "@S",
+        "/p/n1.md",
+        "Title",
+        body="corpo completo",
+        frontmatter_json='{"type": "permanent"}',
+        origin="pipeline",
     )
     note = db.get_note("n1")
     assert note["body"] == "corpo completo"
@@ -303,7 +329,7 @@ def test_note_body_and_embedding_hash(db):
 
 
 def test_moc_body_and_get_moc(db):
-    db.upsert_moc("m1", "Topic", "/p/m1.md", "sig1", body="moc body", frontmatter_json='{}')
+    db.upsert_moc("m1", "Topic", "/p/m1.md", "sig1", body="moc body", frontmatter_json="{}")
     moc = db.get_moc("m1")
     assert moc is not None
     assert moc["body"] == "moc body"
@@ -313,8 +339,12 @@ def test_moc_body_and_get_moc(db):
 def test_assets_crud(db):
     db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
     db.upsert_asset(
-        "@S::img::x", "@S", "90_Assets/S/a.png", "imgck",
-        chapter_id="@S::ch000", context_snippet="around the image",
+        "@S::img::x",
+        "@S",
+        "90_Assets/S/a.png",
+        "imgck",
+        chapter_id="@S::ch000",
+        context_snippet="around the image",
     )
     assets = db.get_assets_for_source("@S")
     assert len(assets) == 1
@@ -371,9 +401,7 @@ def test_fts_match_expr_drops_pt_stopwords():
     # making a bm25 "hit" meaningless as a relevance signal.
     assert _fts_match_expr("Explique, o que e a chuva?") == '"Explique" OR "chuva"'
     # Meaningful content words are preserved even when short stopwords surround them.
-    assert _fts_match_expr("o que e step-back prompting") == (
-        '"step" OR "back" OR "prompting"'
-    )
+    assert _fts_match_expr("o que e step-back prompting") == ('"step" OR "back" OR "prompting"')
     # A query made entirely of stopwords has no usable token.
     assert _fts_match_expr("o que e isso") is None
 
@@ -473,7 +501,8 @@ def test_note_connections_roundtrip_and_batch(db):
     assert len(a_edges) == 2
     b_edges = db.get_note_connections("b")
     assert {e["source_note_id"] + "->" + e["target_note_id"] for e in b_edges} == {
-        "a->b", "b->d",
+        "a->b",
+        "b->d",
     }
 
     # Batch fetch for BFS frontier.
@@ -495,12 +524,24 @@ def test_note_connection_upsert_updates_description(db):
 
 def test_search_sources_folds_and_omits_payload(db):
     db.upsert_source(
-        "@Kahneman2011", "Kahneman2011", "Thinking Fast",
-        ["Daniel Kahneman"], 2011, "h", "/p", "md",
+        "@Kahneman2011",
+        "Kahneman2011",
+        "Thinking Fast",
+        ["Daniel Kahneman"],
+        2011,
+        "h",
+        "/p",
+        "md",
     )
     db.upsert_source(
-        "@Funcao2020", "Funcao2020", "Função cognitiva",
-        ["Ana Silva"], 2020, "h", "/p", "md",
+        "@Funcao2020",
+        "Funcao2020",
+        "Função cognitiva",
+        ["Ana Silva"],
+        2020,
+        "h",
+        "/p",
+        "md",
     )
     db.conn.execute(
         "UPDATE sources SET extracted_text=?, lit_body=? WHERE source_id=?",
@@ -523,16 +564,33 @@ def test_search_literature_chunks_requires_path_and_orders(db):
     db.upsert_source("@S", "S", "Source", [], None, "h", "/p", "md")
     db.upsert_chapter("@S::ch000", "@S", "Ch", "ch")
     db.upsert_chunk(
-        "@S::manual::0002", "@S", "@S::ch000", "SENTINEL_CHUNK_TEXT later", "ck2",
-        section_path="Depois", chunk_index=2, literature_note_path="/later.md",
+        "@S::manual::0002",
+        "@S",
+        "@S::ch000",
+        "SENTINEL_CHUNK_TEXT later",
+        "ck2",
+        section_path="Depois",
+        chunk_index=2,
+        literature_note_path="/later.md",
     )
     db.upsert_chunk(
-        "@S::manual::0001", "@S", "@S::ch000", "SENTINEL_CHUNK_TEXT first", "ck1",
-        section_path="Antes", chunk_index=1, literature_note_path="/first.md",
+        "@S::manual::0001",
+        "@S",
+        "@S::ch000",
+        "SENTINEL_CHUNK_TEXT first",
+        "ck1",
+        section_path="Antes",
+        chunk_index=1,
+        literature_note_path="/first.md",
     )
     db.upsert_chunk(
-        "@S::ch000::raw", "@S", "@S::ch000", "no path", "ck0",
-        section_path="Ignorado", chunk_index=0,
+        "@S::ch000::raw",
+        "@S",
+        "@S::ch000",
+        "no path",
+        "ck0",
+        section_path="Ignorado",
+        chunk_index=0,
     )
     rows = db.search_literature_chunks("", source_id="@S")
     assert [row["chunk_id"] for row in rows] == ["@S::manual::0001", "@S::manual::0002"]
@@ -547,9 +605,14 @@ def test_search_literature_chunks_fts_never_selects_text(db):
     db.upsert_source("@S", "S", "Source", [], None, "h", "/p", "md")
     db.upsert_chapter("@S::ch000", "@S", "Ch", "ch")
     db.upsert_chunk(
-        "@S::manual::0001", "@S", "@S::ch000",
-        "o corpo menciona ancoragem e vies de confirmacao", "ck",
-        section_path="Meta", chunk_index=1, literature_note_path="/x.md",
+        "@S::manual::0001",
+        "@S",
+        "@S::ch000",
+        "o corpo menciona ancoragem e vies de confirmacao",
+        "ck",
+        section_path="Meta",
+        chunk_index=1,
+        literature_note_path="/x.md",
     )
     rows = db.search_literature_chunks_fts("ancoragem", source_id="@S")
     assert rows
@@ -562,7 +625,12 @@ def test_next_manual_chunk_index_starts_at_one(db):
     db.upsert_chapter("@S::ch000", "@S", "Ch", "ch")
     assert db.next_manual_chunk_index("@S") == 1
     db.upsert_chunk(
-        "@S::manual::0001", "@S", "@S::ch000", "t", "ck",
-        chunk_index=1, literature_note_path="/x.md",
+        "@S::manual::0001",
+        "@S",
+        "@S::ch000",
+        "t",
+        "ck",
+        chunk_index=1,
+        literature_note_path="/x.md",
     )
     assert db.next_manual_chunk_index("@S") == 2

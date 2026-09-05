@@ -2,7 +2,6 @@
 
 import pytest
 import yaml
-
 from zettel.config import AppConfig
 from zettel.state import StateDB
 from zettel.sync import (
@@ -101,8 +100,11 @@ def test_manual_literature_links_and_persists_body(cfg, db):
 
 def test_manual_permanent_gets_id_and_origin(cfg, db):
     ztl = cfg.vault_path / "30_Permanent" / "ZTL - nota-manual.md"
-    _write(ztl, {"type": "permanent", "title": "Nota Manual"},
-           "> **Tese**: uma tese manual\n\n## Definicao\n\ntexto")
+    _write(
+        ztl,
+        {"type": "permanent", "title": "Nota Manual"},
+        "> **Tese**: uma tese manual\n\n## Definicao\n\ntexto",
+    )
     idx = FakeIndex()
     stats = run_sync_manual(cfg, db, idx)
 
@@ -118,8 +120,16 @@ def test_manual_permanent_gets_id_and_origin(cfg, db):
 
 def test_pipeline_permanent_is_skipped(cfg, db):
     ztl = cfg.vault_path / "30_Permanent" / "ZTL - 01ABC - pipe.md"
-    _write(ztl, {"type": "permanent", "note_id": "01ABC", "title": "Pipe", "origin": "pipeline"},
-           "> **Tese**: gerada pelo pipeline\n\n## Definicao\n\ntexto")
+    _write(
+        ztl,
+        {
+            "type": "permanent",
+            "note_id": "01ABC",
+            "title": "Pipe",
+            "origin": "pipeline",
+        },
+        "> **Tese**: gerada pelo pipeline\n\n## Definicao\n\ntexto",
+    )
     idx = FakeIndex()
     stats = run_sync_manual(cfg, db, idx)
     assert stats["permanent"] == 0
@@ -132,8 +142,15 @@ def test_pipeline_permanent_does_not_adopt_images_or_reembed(cfg, db):
     source_id = "@Pipe2024"
     note_id = "01HAAAAAAAAAAAAAAAAAAAAAAA"
     db.upsert_source(
-        source_id, "Pipe2024", "Paper", ["Autor"], 2024,
-        "h", "/x.pdf", "pdf", origin="pipeline",
+        source_id,
+        "Pipe2024",
+        "Paper",
+        ["Autor"],
+        2024,
+        "h",
+        "/x.pdf",
+        "pdf",
+        origin="pipeline",
     )
     png = cfg.vault_path / "30_Permanent" / "figura.png"
     png.write_bytes(
@@ -156,8 +173,13 @@ def test_pipeline_permanent_does_not_adopt_images_or_reembed(cfg, db):
         body,
     )
     db.upsert_note(
-        note_id, source_id, str(ztl), "Pipe",
-        body=body, origin="pipeline", note_semantic_checksum="stale",
+        note_id,
+        source_id,
+        str(ztl),
+        "Pipe",
+        body=body,
+        origin="pipeline",
+        note_semantic_checksum="stale",
     )
     idx = FakeIndex()
     stats = run_sync_manual(cfg, db, idx)
@@ -170,8 +192,11 @@ def test_pipeline_permanent_does_not_adopt_images_or_reembed(cfg, db):
 
 def test_resync_unchanged_is_skipped(cfg, db):
     ztl = cfg.vault_path / "30_Permanent" / "ZTL - nota.md"
-    _write(ztl, {"type": "permanent", "title": "Nota"},
-           "> **Tese**: tese estavel\n\n## Definicao\n\ntexto")
+    _write(
+        ztl,
+        {"type": "permanent", "title": "Nota"},
+        "> **Tese**: tese estavel\n\n## Definicao\n\ntexto",
+    )
     idx = FakeIndex()
     run_sync_manual(cfg, db, idx)  # first pass: new
     stats2 = run_sync_manual(cfg, db, idx)  # second pass: unchanged
@@ -185,8 +210,15 @@ def _seed_pipeline_granular_lit(cfg, db, *, path=None):
     chunk_id = f"{source_id}::ch000::abcd"
     lit_id = "lit-pipe-1"
     db.upsert_source(
-        source_id, "Pipe2024", "Paper", ["Autor"], 2024,
-        "h", "/x.pdf", "pdf", origin="pipeline",
+        source_id,
+        "Pipe2024",
+        "Paper",
+        ["Autor"],
+        2024,
+        "h",
+        "/x.pdf",
+        "pdf",
+        origin="pipeline",
     )
     db.upsert_chapter(f"{source_id}::ch000", source_id, "Ch1", "chh")
     lit_dir = cfg.vault_path / "20_Literature" / "Pipe2024"
@@ -206,8 +238,11 @@ def _seed_pipeline_granular_lit(cfg, db, *, path=None):
         "Resumo gerado pelo pipeline.",
     )
     db.upsert_chunk(
-        chunk_id, source_id, f"{source_id}::ch000",
-        "excerpt", "ck",
+        chunk_id,
+        source_id,
+        f"{source_id}::ch000",
+        "excerpt",
+        "ck",
         status="persisted",
         literature_note_path=str(lit),
         literature_id=lit_id,
@@ -281,8 +316,8 @@ def test_wikilink_in_managed_block_is_ignored(db):
     _extract_body_edges(db, _A, body)
     edges = db.get_note_connections(_A)
     targets = {e["target_note_id"] for e in edges} | {e["source_note_id"] for e in edges}
-    assert _B in targets       # body link accepted
-    assert _C not in targets   # suggestion block link ignored
+    assert _B in targets  # body link accepted
+    assert _C not in targets  # suggestion block link ignored
 
 
 def test_self_link_ignored(db):
@@ -319,8 +354,13 @@ def test_existing_reverse_edge_not_duplicated(db):
 def test_rebuild_manual_edges_backfills(db):
     _seed(db, _A, _C)
     # Overwrite _A's body to contain a link to _C.
-    db.upsert_note(_A, "@S", f"/p/{_A}.md", "Nota A",
-                   body=f"## Conexoes\n\n- [[ZTL - {_C} - nota-c]]")
+    db.upsert_note(
+        _A,
+        "@S",
+        f"/p/{_A}.md",
+        "Nota A",
+        body=f"## Conexoes\n\n- [[ZTL - {_C} - nota-c]]",
+    )
     stats = rebuild_manual_edges(db)
     assert stats["edges_created"] == 1
     assert db.count_note_connections() == 1
@@ -328,14 +368,21 @@ def test_rebuild_manual_edges_backfills(db):
 
 def test_edited_moc_returns_updated(cfg, db):
     moc = cfg.vault_path / "40_MOCs" / "MOC - topico.md"
-    _write(moc, {"type": "moc", "topic": "Topico"}, "# Topico\n\nResumo inicial.\n\n## Sub\n\n- a")
+    _write(
+        moc,
+        {"type": "moc", "topic": "Topico"},
+        "# Topico\n\nResumo inicial.\n\n## Sub\n\n- a",
+    )
     idx = FakeIndex()
     run_sync_manual(cfg, db, idx)  # new (moc_id injected)
 
     moc_id = _frontmatter(moc)["moc_id"]
     # Edit the body → semantic checksum changes → must be 'updated', not 'new'.
-    _write(moc, {"type": "moc", "topic": "Topico", "moc_id": moc_id},
-           "# Topico\n\nResumo bem diferente agora.\n\n## Sub\n\n- a\n- b")
+    _write(
+        moc,
+        {"type": "moc", "topic": "Topico", "moc_id": moc_id},
+        "# Topico\n\nResumo bem diferente agora.\n\n## Sub\n\n- a\n- b",
+    )
     stats = run_sync_manual(cfg, db, idx)
     assert stats["updated"] >= 1
 
@@ -372,6 +419,7 @@ def test_repair_permanent_links_rewrites_double_prefix_and_rebuilds_backlinks(cf
     assert f"ZTL - ZTL - {_B}" not in body_a
 
     from zettel.vault import read_managed_block
+
     block = read_managed_block(path_b.read_text(encoding="utf-8"), "auto-backlinks")
     assert block is not None
     assert "GHOST" not in block

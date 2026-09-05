@@ -45,8 +45,16 @@ def test_chunk_and_persist_skips_pages_before_content_start(tmp_path: Path):
 
     # Distinct chapter texts so chunk ids differ; page_map maps start probes.
     chapters = [
-        {"title": "Front", "locator": "Front", "text": "# Front\n\nFRONTMATTERUNIQUE alpha beta gamma delta epsilon.\n"},
-        {"title": "Ch1", "locator": "Ch1", "text": "# Ch1\n\nCONTENTSTARTUNIQUE zeta eta theta iota kappa.\n"},
+        {
+            "title": "Front",
+            "locator": "Front",
+            "text": "# Front\n\nFRONTMATTERUNIQUE alpha beta gamma delta epsilon.\n",
+        },
+        {
+            "title": "Ch1",
+            "locator": "Ch1",
+            "text": "# Ch1\n\nCONTENTSTARTUNIQUE zeta eta theta iota kappa.\n",
+        },
     ]
     page_map = [
         (5, "FRONTMATTERUNIQUE alpha beta gamma delta epsilon."),
@@ -54,13 +62,17 @@ def test_chunk_and_persist_skips_pages_before_content_start(tmp_path: Path):
     ]
     paging = ContentPaging(35, 10, "confirmed")
     n = _chunk_and_persist(
-        cfg, db, _FakeIdx(), "@TestBook", chapters, page_map=page_map, paging=paging,
+        cfg,
+        db,
+        _FakeIdx(),
+        "@TestBook",
+        chapters,
+        page_map=page_map,
+        paging=paging,
     )
     chunks = db.get_chunks_for_source("@TestBook")
     assert n == len(chunks)
-    assert all(
-        c.get("page_in_file") is None or c["page_in_file"] >= 35 for c in chunks
-    )
+    assert all(c.get("page_in_file") is None or c["page_in_file"] >= 35 for c in chunks)
     # Content chunk should map to printed page 10
     content = [c for c in chunks if c.get("page_in_file") == 35]
     assert content
@@ -90,13 +102,21 @@ def test_chunk_and_persist_markdown_has_no_pages(tmp_path: Path):
         origin_path="notes.md",
         origin_type="md",
     )
-    chapters = [{
-        "title": "Aula",
-        "locator": "Aula",
-        "text": "# Aula\n\nPasso 1 do tutorial.\n\n42\n\nContinuacao da anotacao pessoal.",
-    }]
+    chapters = [
+        {
+            "title": "Aula",
+            "locator": "Aula",
+            "text": "# Aula\n\nPasso 1 do tutorial.\n\n42\n\nContinuacao da anotacao pessoal.",
+        }
+    ]
     n = _chunk_and_persist(
-        cfg, db, _FakeIdx(), "@CourseNotes", chapters, page_map=[], paging=ContentPaging(),
+        cfg,
+        db,
+        _FakeIdx(),
+        "@CourseNotes",
+        chapters,
+        page_map=[],
+        paging=ContentPaging(),
         origin_type="md",
     )
     chunks = db.get_chunks_for_source("@CourseNotes")

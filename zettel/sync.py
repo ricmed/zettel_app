@@ -48,8 +48,13 @@ def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, 
     Returns per-type counters plus aggregate new/updated/skipped.
     """
     stats = {
-        "new": 0, "updated": 0, "skipped": 0,
-        "sources": 0, "literature": 0, "permanent": 0, "mocs": 0,
+        "new": 0,
+        "updated": 0,
+        "skipped": 0,
+        "sources": 0,
+        "literature": 0,
+        "permanent": 0,
+        "mocs": 0,
     }
 
     dirs_to_scan = [
@@ -79,9 +84,15 @@ def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, 
         "Sync manual: %d novas, %d atualizadas, %d sem alteração "
         "(sources=%d, literature=%d, permanent=%d, mocs=%d) "
         "(wikilinks_reparados=%d, backlinks_reconstruidos=%d)",
-        stats["new"], stats["updated"], stats["skipped"],
-        stats["sources"], stats["literature"], stats["permanent"], stats["mocs"],
-        stats.get("wikilinks_rewritten", 0), stats.get("backlinks_rebuilt", 0),
+        stats["new"],
+        stats["updated"],
+        stats["skipped"],
+        stats["sources"],
+        stats["literature"],
+        stats["permanent"],
+        stats["mocs"],
+        stats.get("wikilinks_rewritten", 0),
+        stats.get("backlinks_rebuilt", 0),
     )
     return stats
 
@@ -125,7 +136,9 @@ def repair_permanent_links(db: StateDB) -> dict[str, int]:
                 title=meta.get("title") or note.get("title") or "",
                 note_semantic_checksum=semantic_checksum,
                 body=body,
-                frontmatter_json=json.dumps(meta, ensure_ascii=False) if meta else note.get("frontmatter_json"),
+                frontmatter_json=json.dumps(meta, ensure_ascii=False)
+                if meta
+                else note.get("frontmatter_json"),
                 origin=note.get("origin") or "pipeline",
             )
             wikilinks_rewritten += 1
@@ -138,8 +151,11 @@ def repair_permanent_links(db: StateDB) -> dict[str, int]:
 
 
 def _sync_single_note(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex,
-    file_path: Path, note_type: str,
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    file_path: Path,
+    note_type: str,
 ) -> str:
     """Sync a single note file. Returns 'new', 'updated', or 'skipped'."""
     content = file_path.read_text(encoding="utf-8")
@@ -170,7 +186,12 @@ def _is_pipeline_origin(meta: dict) -> bool:
 
 
 def _sync_source(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, file_path: Path, meta: dict, body: str,
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    file_path: Path,
+    meta: dict,
+    body: str,
 ) -> str:
     """Adopt a hand-created SRC note: register the source in the DB + index."""
     from zettel.harvester.citekey import generate_citekey
@@ -181,7 +202,9 @@ def _sync_source(
         citekey = source_id.lstrip("@")
     else:
         citekey = generate_citekey(
-            db, meta.get("author") or meta.get("authors") or [], meta.get("year"),
+            db,
+            meta.get("author") or meta.get("authors") or [],
+            meta.get("year"),
             meta.get("title", file_path.stem),
         )
         source_id = f"@{citekey}"
@@ -201,14 +224,40 @@ def _sync_source(
     year = meta.get("year")
 
     biblio_payload = {
-        k: meta[k] for k in (
-            "document_type", "subtitle", "edition", "place", "publisher",
-            "translator", "isbn", "chapter_authors", "chapter_title", "book_title",
-            "book_editors", "pages", "journal", "volume", "issue", "doi", "url",
-            "accessed_at", "site_name", "published_at", "institution", "course",
-            "discipline", "degree", "advisor", "event_name", "report_number",
-            "title", "authors", "year",
-        ) if k in meta and meta[k] not in (None, "", [])
+        k: meta[k]
+        for k in (
+            "document_type",
+            "subtitle",
+            "edition",
+            "place",
+            "publisher",
+            "translator",
+            "isbn",
+            "chapter_authors",
+            "chapter_title",
+            "book_title",
+            "book_editors",
+            "pages",
+            "journal",
+            "volume",
+            "issue",
+            "doi",
+            "url",
+            "accessed_at",
+            "site_name",
+            "published_at",
+            "institution",
+            "course",
+            "discipline",
+            "degree",
+            "advisor",
+            "event_name",
+            "report_number",
+            "title",
+            "authors",
+            "year",
+        )
+        if k in meta and meta[k] not in (None, "", [])
     }
     if authors and "authors" not in biblio_payload:
         biblio_payload["authors"] = list(authors)
@@ -220,21 +269,38 @@ def _sync_source(
     biblio_json = json.dumps(biblio_payload, ensure_ascii=False) if biblio_payload else None
 
     db.upsert_source(
-        source_id=source_id, citekey=citekey, title=meta.get("title", file_path.stem),
-        authors=list(authors), year=year if isinstance(year, int) else None,
-        file_checksum="", origin_path=str(file_path), origin_type="md", origin=origin,
+        source_id=source_id,
+        citekey=citekey,
+        title=meta.get("title", file_path.stem),
+        authors=list(authors),
+        year=year if isinstance(year, int) else None,
+        file_checksum="",
+        origin_path=str(file_path),
+        origin_type="md",
+        origin=origin,
         document_type=meta.get("document_type"),
         bibliography_json=biblio_json,
         abnt_reference=meta.get("abnt_reference"),
     )
-    idx.upsert_source(source_id, f"{meta.get('title', file_path.stem)} -- {', '.join(authors)}", {
-        "citekey": citekey, "title": meta.get("title", file_path.stem), "origin_type": "md",
-    })
+    idx.upsert_source(
+        source_id,
+        f"{meta.get('title', file_path.stem)} -- {', '.join(authors)}",
+        {
+            "citekey": citekey,
+            "title": meta.get("title", file_path.stem),
+            "origin_type": "md",
+        },
+    )
     return "new"
 
 
 def _sync_literature(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, file_path: Path, meta: dict, body: str,
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    file_path: Path,
+    meta: dict,
+    body: str,
 ) -> str:
     """Adopt a hand-created LIT note (index or granular chunk).
 
@@ -269,9 +335,15 @@ def _sync_literature(
 
     if not db.get_source(source_id):
         db.upsert_source(
-            source_id=source_id, citekey=citekey, title=meta.get("title", file_path.stem),
-            authors=[], year=meta.get("year") if isinstance(meta.get("year"), int) else None,
-            file_checksum="", origin_path=str(file_path), origin_type="md", origin="manual",
+            source_id=source_id,
+            citekey=citekey,
+            title=meta.get("title", file_path.stem),
+            authors=[],
+            year=meta.get("year") if isinstance(meta.get("year"), int) else None,
+            file_checksum="",
+            origin_path=str(file_path),
+            origin_type="md",
+            origin="manual",
         )
 
     # Granular chunk LIT
@@ -287,7 +359,9 @@ def _sync_literature(
     # Index / legacy monolithic LIT → lit_body
     if source_id != meta.get("source_id"):
         meta["source_id"] = source_id
-        meta["type"] = note_type if note_type in ("literature", "literature_index") else "literature_index"
+        meta["type"] = (
+            note_type if note_type in ("literature", "literature_index") else "literature_index"
+        )
         meta.setdefault("origin", "manual")
         _rewrite_frontmatter(file_path, meta, body)
 
@@ -300,7 +374,10 @@ def _sync_literature(
 
 
 def _sync_pipeline_granular_literature(
-    db: StateDB, file_path: Path, meta: dict, chunk_id: str,
+    db: StateDB,
+    file_path: Path,
+    meta: dict,
+    chunk_id: str,
 ) -> str:
     """Keep a pipeline granular LIT's SQLite path in sync without re-adopting it.
 
@@ -326,7 +403,12 @@ def _sync_pipeline_granular_literature(
 
 
 def _sync_permanent(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, file_path: Path, meta: dict, body: str,
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    file_path: Path,
+    meta: dict,
+    body: str,
 ) -> str:
     """Sync a permanent (ZTL) note. Returns 'new', 'updated', or 'skipped'."""
     note_id = meta.get("note_id")
@@ -358,10 +440,15 @@ def _sync_permanent(
     source_id = meta.get("source_id")
     origin = _manual_origin(meta)
     db.upsert_note(
-        note_id=note_id, source_id=source_id, path=str(file_path),
-        title=title, note_semantic_checksum=semantic_checksum,
+        note_id=note_id,
+        source_id=source_id,
+        path=str(file_path),
+        title=title,
+        note_semantic_checksum=semantic_checksum,
         embedding_model=cfg.embedding.model,
-        body=body, frontmatter_json=json.dumps(meta, ensure_ascii=False), origin=origin,
+        body=body,
+        frontmatter_json=json.dumps(meta, ensure_ascii=False),
+        origin=origin,
     )
 
     tags = meta.get("tags", [])
@@ -373,9 +460,15 @@ def _sync_permanent(
         semantic_checksum, cfg.embedding.provider, cfg.embedding.model
     )
     if not existing or existing.get("embedding_input_hash") != emb_hash:
-        idx.upsert_permanent_note(note_id, embeddable, {
-            "title": title, "source_id": source_id or "", "tags": ", ".join(tags),
-        })
+        idx.upsert_permanent_note(
+            note_id,
+            embeddable,
+            {
+                "title": title,
+                "source_id": source_id or "",
+                "tags": ", ".join(tags),
+            },
+        )
         db.update_note_embedding(note_id, emb_hash, cfg.embedding.model)
 
     _extract_body_edges(db, note_id, body)
@@ -387,7 +480,11 @@ def _sync_permanent(
 
 
 def _adopt_note_images(
-    cfg: AppConfig, db: StateDB, file_path: Path, meta: dict, body: str,
+    cfg: AppConfig,
+    db: StateDB,
+    file_path: Path,
+    meta: dict,
+    body: str,
 ) -> str:
     """Adopt images pasted into a note whose frontmatter names a known source.
 
@@ -403,7 +500,12 @@ def _adopt_note_images(
 
     chapter_id = ensure_manual_chapter(db, source_id)
     new_body, adopted = adopt_vault_images(
-        cfg, db, source_id, chapter_id, file_path, body,
+        cfg,
+        db,
+        source_id,
+        chapter_id,
+        file_path,
+        body,
     )
     if adopted and new_body != body:
         _rewrite_frontmatter(file_path, meta, new_body)
@@ -412,7 +514,12 @@ def _adopt_note_images(
 
 
 def _sync_moc(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, file_path: Path, meta: dict, body: str,
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    file_path: Path,
+    meta: dict,
+    body: str,
 ) -> str:
     """Sync a MOC note. Returns 'new', 'updated', or 'skipped'."""
     from zettel.gardener import _moc_embeddable
@@ -441,22 +548,36 @@ def _sync_moc(
     origin = _manual_origin(meta)
     previous_body = existing.get("body") if existing else None
     db.upsert_moc(
-        moc_id, topic, str(file_path), semantic_checksum,
-        body=body, frontmatter_json=json.dumps(meta, ensure_ascii=False), origin=origin,
+        moc_id,
+        topic,
+        str(file_path),
+        semantic_checksum,
+        body=body,
+        frontmatter_json=json.dumps(meta, ensure_ascii=False),
+        origin=origin,
     )
     # Unified MOC embedding text (matches gardener + reindex).
     idx.upsert_moc(moc_id, _moc_embeddable(topic, _moc_summary_from_body(body)), {"topic": topic})
     from zettel.moc_backrefs import sync_moc_backrefs
 
     sync_moc_backrefs(
-        db, moc_id, topic, file_path, previous_body=previous_body, new_body=body,
+        db,
+        moc_id,
+        topic,
+        file_path,
+        previous_body=previous_body,
+        new_body=body,
     )
     return "new" if not existing else "updated"
 
 
 def _suggest_connections(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex,
-    note_id: str, embeddable: str, file_path: Path,
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    note_id: str,
+    embeddable: str,
+    file_path: Path,
 ) -> None:
     """Suggest connections for a note via the auto-connections managed block.
 
@@ -465,9 +586,7 @@ def _suggest_connections(
     suggestion is not an accepted connection).
     """
     retriever = Retriever(cfg, db, idx)
-    similar = retriever.search_notes(
-        embeddable, topk=cfg.linking.topk, exclude_id=note_id
-    ).hits
+    similar = retriever.search_notes(embeddable, topk=cfg.linking.topk, exclude_id=note_id).hits
     if not similar:
         return
 
@@ -476,14 +595,19 @@ def _suggest_connections(
         title = n.title or n.metadata.get("title", "Sem título")
         row = db.get_note(n.note_id)
         wiki = permanent_wikilink(
-            n.note_id, title, path=row.get("path") if row else None,
+            n.note_id,
+            title,
+            path=row.get("path") if row else None,
         )
         links.append(f"- {wiki}")
 
     if links:
-        safe_update_managed_blocks(file_path, {
-            "auto-connections": "\n".join(links),
-        })
+        safe_update_managed_blocks(
+            file_path,
+            {
+                "auto-connections": "\n".join(links),
+            },
+        )
 
 
 def _strip_auto_blocks(body: str) -> str:
@@ -498,7 +622,7 @@ def _strip_auto_blocks(body: str) -> str:
             if end == -1:
                 body = body[:start]
                 break
-            body = body[:start] + body[end + len(end_tag):]
+            body = body[:start] + body[end + len(end_tag) :]
     return body
 
 
@@ -557,5 +681,6 @@ def rebuild_manual_edges(db: StateDB) -> dict[str, int]:
 def _rewrite_frontmatter(file_path: Path, meta: dict, body: str) -> None:
     """Rewrite a file with updated frontmatter."""
     from zettel.vault import compose_note
+
     content = compose_note(meta, body)
     file_path.write_text(content, encoding="utf-8")

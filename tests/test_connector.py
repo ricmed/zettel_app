@@ -13,7 +13,7 @@ from zettel.connector import (
     rebuild_auto_backlinks,
 )
 from zettel.retrieval import RetrievedNote
-from zettel.schemas import RelationType, RelationshipResult
+from zettel.schemas import RelationshipResult, RelationType
 from zettel.state import StateDB
 from zettel.vault import build_permanent_note_body, read_managed_block
 
@@ -51,15 +51,15 @@ def test_inverse_relation_unknown_falls_back():
 
 def test_resolve_connections_with_known_note(tmp_path):
     """When the note has a path on disk, wiki-link uses the file stem."""
-    note_path = _write_note(
-        tmp_path / "ZTL - ABC123 - gradient-descent-adaptativo.md"
+    note_path = _write_note(tmp_path / "ZTL - ABC123 - gradient-descent-adaptativo.md")
+    db = _FakeDB(
+        {
+            "ABC123": {
+                "title": "Gradient Descent Adaptativo",
+                "path": str(note_path),
+            },
+        }
     )
-    db = _FakeDB({
-        "ABC123": {
-            "title": "Gradient Descent Adaptativo",
-            "path": str(note_path),
-        },
-    })
     connections = [
         RelationshipResult(
             related_note_id="ABC123",
@@ -69,7 +69,7 @@ def test_resolve_connections_with_known_note(tmp_path):
     ]
     resolved = _resolve_connections(db, connections)
     assert len(resolved) == 1
-    assert "[[ZTL - ABC123 - gradient-descent-adaptativo]]" == resolved[0]["wiki_link"]
+    assert resolved[0]["wiki_link"] == "[[ZTL - ABC123 - gradient-descent-adaptativo]]"
     assert resolved[0]["relation_type"] == "extends"
     assert resolved[0]["description"] == "Amplia o conceito base"
     assert resolved[0]["related_note_id"] == "ABC123"
@@ -78,9 +78,11 @@ def test_resolve_connections_with_known_note(tmp_path):
 def test_resolve_connections_normalizes_prefixed_ulid(tmp_path):
     ulid = "01HAAAAAAAAAAAAAAAAAAAAAAA"
     note_path = _write_note(tmp_path / f"ZTL - {ulid} - analise-de-series-temporais.md")
-    db = _FakeDB({
-        ulid: {"title": "Analise de series temporais", "path": str(note_path)},
-    })
+    db = _FakeDB(
+        {
+            ulid: {"title": "Analise de series temporais", "path": str(note_path)},
+        }
+    )
     connections = [
         RelationshipResult(
             related_note_id=f"ZTL - ZTL - {ulid}",
@@ -124,12 +126,14 @@ def test_resolve_connections_with_unknown_note():
 
 
 def test_resolve_connections_drops_missing_file(tmp_path):
-    db = _FakeDB({
-        "ABC123": {
-            "title": "Fantasma",
-            "path": str(tmp_path / "nao-existe.md"),
-        },
-    })
+    db = _FakeDB(
+        {
+            "ABC123": {
+                "title": "Fantasma",
+                "path": str(tmp_path / "nao-existe.md"),
+            },
+        }
+    )
     connections = [
         RelationshipResult(related_note_id="ABC123", relation_type="related"),
     ]
@@ -137,20 +141,21 @@ def test_resolve_connections_drops_missing_file(tmp_path):
 
 
 def test_relation_type_value_from_enum():
-    """str Enum members must resolve to the value, not 'RelationType.X'."""
+    """RelationType values must stay plain strings for vault labels."""
     assert _relation_type_value(RelationType.SUPPORTS) == "supports"
     assert _relation_type_value(RelationType.EXTENDS) == "extends"
     assert _relation_type_value("contradicts") == "contradicts"
-    # Regression: f-string of the enum itself is NOT the vault label.
-    assert f"{RelationType.SUPPORTS}" == "RelationType.SUPPORTS"
+    assert f"{RelationType.SUPPORTS}" == "supports"
 
 
 def test_resolve_connections_normalizes_enum_relation_type(tmp_path):
     """Pydantic may leave relation_type as RelationType; vault needs plain str."""
     note_path = _write_note(tmp_path / "note.md")
-    db = _FakeDB({
-        "ABC123": {"title": "Nota Alvo", "path": str(note_path)},
-    })
+    db = _FakeDB(
+        {
+            "ABC123": {"title": "Nota Alvo", "path": str(note_path)},
+        }
+    )
     connections = [
         RelationshipResult(
             related_note_id="ABC123",
@@ -171,11 +176,13 @@ def test_build_permanent_note_body_with_enum_relation_type():
         intuition="",
         example="",
         limits="",
-        connections=[{
-            "wiki_link": "[[ZTL - ABC - titulo]]",
-            "relation_type": RelationType.SUPPORTS,
-            "description": "Reforca",
-        }],
+        connections=[
+            {
+                "wiki_link": "[[ZTL - ABC - titulo]]",
+                "relation_type": RelationType.SUPPORTS,
+                "description": "Reforca",
+            }
+        ],
         literature_ref="[[LIT - @x]]",
         source_locator="",
     )
@@ -212,7 +219,7 @@ def test_build_permanent_note_body_with_connections():
     assert "[[ZTL - DEF - outra-nota]] (contradicts)" in body
     # Second connection has no description, so no " -- " suffix
     lines = body.split("\n")
-    contradicts_line = [l for l in lines if "contradicts" in l][0]
+    contradicts_line = next(line for line in lines if "contradicts" in line)
     assert contradicts_line.endswith("(contradicts)")
 
 
@@ -252,12 +259,19 @@ def test_build_rag_context_two_groups():
     """RAG context separates embedding seeds (hop 0) from graph neighbours (hop 1)."""
     hits = [
         RetrievedNote(
-            note_id="AAA", score=0.9, title="Nota Semente",
-            document="corpo da semente", hop=0, metadata={"tags": "ml"},
+            note_id="AAA",
+            score=0.9,
+            title="Nota Semente",
+            document="corpo da semente",
+            hop=0,
+            metadata={"tags": "ml"},
         ),
         RetrievedNote(
-            note_id="BBB", score=0.4, title="Nota Vizinha",
-            document="corpo vizinho", hop=1,
+            note_id="BBB",
+            score=0.4,
+            title="Nota Vizinha",
+            document="corpo vizinho",
+            hop=1,
             via=[{"from": "AAA", "relation_type": "contradicts", "description": ""}],
         ),
     ]
@@ -324,9 +338,13 @@ def test_rebuild_auto_backlinks_drops_missing_source(tmp_path):
         db.upsert_note_connection("SRC", "TGT", "related", "ainda existe")
         db.upsert_note_connection("GONE", "TGT", "related", "fantasma")
         from zettel.vault import safe_update_managed_blocks
-        safe_update_managed_blocks(target, {
-            "auto-backlinks": "- [[ZTL - GONE - gone]] (relacionado) -- fantasma",
-        })
+
+        safe_update_managed_blocks(
+            target,
+            {
+                "auto-backlinks": "- [[ZTL - GONE - gone]] (relacionado) -- fantasma",
+            },
+        )
         assert rebuild_auto_backlinks(db, "TGT") is True
         block = read_managed_block(target.read_text(encoding="utf-8"), "auto-backlinks")
         assert "SRC" in block
@@ -347,9 +365,13 @@ def test_rebuild_auto_backlinks_uses_current_stem(tmp_path):
         db.upsert_note("SRC", "@S", str(source), "Origem", body="x")
         db.upsert_note_connection("SRC", "TGT", "extends", "amplia")
         from zettel.vault import safe_update_managed_blocks
-        safe_update_managed_blocks(target, {
-            "auto-backlinks": "- [[ZTL - SRC - slug-antigo]] (estendido por) -- amplia",
-        })
+
+        safe_update_managed_blocks(
+            target,
+            {
+                "auto-backlinks": "- [[ZTL - SRC - slug-antigo]] (estendido por) -- amplia",
+            },
+        )
         assert rebuild_auto_backlinks(db, "TGT") is True
         block = read_managed_block(target.read_text(encoding="utf-8"), "auto-backlinks")
         assert "slug-novo" in block
@@ -372,12 +394,16 @@ def test_persist_and_backlink_writes_inverse_on_target(tmp_path):
         db.upsert_note("OLD", "@S", str(tgt), "Velha")
         _persist_and_backlink(
             AppConfig(vault_path=tmp_path),
-            db, "NEW", "Nova",
-            [{
-                "related_note_id": "OLD",
-                "relation_type": "extends",
-                "description": "amplia",
-            }],
+            db,
+            "NEW",
+            "Nova",
+            [
+                {
+                    "related_note_id": "OLD",
+                    "relation_type": "extends",
+                    "description": "amplia",
+                }
+            ],
         )
         edges = db.get_note_connections("NEW")
         assert len(edges) == 1
@@ -405,7 +431,6 @@ def test_parse_permanent_note_accepts_minimal_rejection():
 def test_parse_permanent_note_rejects_accepted_without_body():
     """An accepted answer missing the body is a broken response, not an empty note."""
     import pytest
-
     from zettel.connector import _parse_permanent_note_output
 
     with pytest.raises(ValueError, match="obrigatorios"):
@@ -429,18 +454,29 @@ def test_ptbr_guard_roundtrips_the_json_object(monkeypatch, tmp_path):
         prompts_path=Path(__file__).resolve().parents[1] / "prompts",
     )
     output = PermanentNoteLLMOutput(
-        status="accepted", reason="ok", category="", title="T",
+        status="accepted",
+        reason="ok",
+        category="",
+        title="T",
         thesis="The model learns from data",
         definition="This definition is in English and should be translated",
-        intuition="Like a student", example="An example", limits="Some limits",
+        intuition="Like a student",
+        example="An example",
+        limits="Some limits",
     )
 
     sent: dict[str, str] = {}
 
     def fake_call_llm(llm, user, system=None, **kwargs):
         sent["user"] = user
-        payload = json.loads(user[user.index("{"):user.rindex("}") + 1])
-        assert set(payload) == {"thesis", "definition", "intuition", "example", "limits"}
+        payload = json.loads(user[user.index("{") : user.rindex("}") + 1])
+        assert set(payload) == {
+            "thesis",
+            "definition",
+            "intuition",
+            "example",
+            "limits",
+        }
         return json.dumps({k: f"[ptbr] {v}" for k, v in payload.items()})
 
     monkeypatch.setattr("zettel.connector.call_llm", fake_call_llm)

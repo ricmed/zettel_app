@@ -40,6 +40,7 @@ _WORD_RE = re.compile(r"[^\w\s-]", re.UNICODE)
 @dataclass(frozen=True)
 class TermSource:
     """One note as seen by the index builder."""
+
     note_id: str
     label: str
     frameworks: tuple[str, ...] = ()
@@ -50,6 +51,7 @@ class TermSource:
 @dataclass
 class TermEntry:
     """A term and the notes that answer it, best first."""
+
     term: str
     note_ids: list[str] = field(default_factory=list)
     labels: list[str] = field(default_factory=list)
@@ -149,10 +151,7 @@ def render_topic_index_block(entries: list[TermEntry]) -> str:
     """Markdown for the ``auto-topic-index`` managed block."""
     if not entries:
         return "_Nenhum termo indexado ainda._"
-    return "\n".join(
-        f"- **{entry.term}** -> " + " ".join(entry.labels)
-        for entry in entries
-    )
+    return "\n".join(f"- **{entry.term}** -> " + " ".join(entry.labels) for entry in entries)
 
 
 def sync_topic_index(
@@ -223,13 +222,15 @@ def sources_from_permanent_notes(db: StateDB, note_ids: list[str]) -> list[TermS
         if not row:
             continue
         meta = _load_json(row.get("frontmatter_json"))
-        sources.append(TermSource(
-            note_id=note_id,
-            label=permanent_wikilink(note_id, row.get("title") or "", path=row.get("path")),
-            frameworks=tuple(meta.get("named_frameworks") or []),
-            tags=tuple(str(t) for t in (meta.get("tags") or [])),
-            thesis=_thesis_from_body(row.get("body") or ""),
-        ))
+        sources.append(
+            TermSource(
+                note_id=note_id,
+                label=permanent_wikilink(note_id, row.get("title") or "", path=row.get("path")),
+                frameworks=tuple(meta.get("named_frameworks") or []),
+                tags=tuple(str(t) for t in (meta.get("tags") or [])),
+                thesis=_thesis_from_body(row.get("body") or ""),
+            )
+        )
     return sources
 
 

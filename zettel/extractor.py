@@ -70,7 +70,13 @@ def run_extract(
     If ``auto_approve`` is True, chunks with ``review_confidence`` >= config limiar
     are immediately approved via ``zettel.review.approve_chunk``.
     """
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn
+    from rich.progress import (
+        BarColumn,
+        MofNCompleteColumn,
+        Progress,
+        SpinnerColumn,
+        TextColumn,
+    )
 
     from zettel.usage import begin_run, finish_pipeline_run, get_tracker, set_source
     from zettel.vault import sync_source_costs_to_vault
@@ -79,6 +85,7 @@ def run_extract(
     begin_run(run_id)
 
     from zettel.assets import describe_pending_assets
+
     described = describe_pending_assets(cfg, db, observer=observer)
     if described:
         logger.info("Imagens descritas nesta execucao: %d", described)
@@ -91,6 +98,7 @@ def run_extract(
     total = len(pending)
     logger.info("Chunks pendentes para extracao: %d", total)
     from zettel.progress import report
+
     report(observer, "extract", f"{total} chunk(s) pendente(s).", total_items=total)
 
     all_candidates: list[dict] = []
@@ -109,8 +117,12 @@ def run_extract(
             set_source(source_id)
             progress.update(task, description=f"chunk {i}/{total}", advance=1)
             report(
-                observer, "extract", f"Extraindo chunk {i}/{total}.",
-                current_item=chunk_id, current_index=i, total_items=total,
+                observer,
+                "extract",
+                f"Extraindo chunk {i}/{total}.",
+                current_item=chunk_id,
+                current_index=i,
+                total_items=total,
             )
 
             page_file = chunk_row.get("page_in_file")
@@ -119,18 +131,32 @@ def run_extract(
             logger.info(
                 "[SOURCE=%s] [CHUNK=%s idx=%s/%d] "
                 "[PAGE file=%s book=%s conf=%s] → Iniciando analise LLM",
-                source_id, chunk_id, chunk_row.get("chunk_index"), total,
-                page_file, page_book, page_conf,
+                source_id,
+                chunk_id,
+                chunk_row.get("chunk_index"),
+                total,
+                page_file,
+                page_book,
+                page_conf,
             )
 
             candidates, _output = _process_chunk(
-                cfg, db, idx, llm, chunk_row, prompt_parts, prompt_hash,
-                step=i, total=total,
+                cfg,
+                db,
+                idx,
+                llm,
+                chunk_row,
+                prompt_parts,
+                prompt_hash,
+                step=i,
+                total=total,
             )
             all_candidates.extend(candidates)
             logger.info(
                 "[SOURCE=%s] [CHUNK=%s] → Analise concluida, %d candidatos",
-                source_id, chunk_id, len(candidates),
+                source_id,
+                chunk_id,
+                len(candidates),
             )
 
             db.update_source_paging(
@@ -147,6 +173,7 @@ def run_extract(
 
     if auto_approve:
         from zettel.review import approve_high_confidence
+
         n = approve_high_confidence(cfg, db, idx)
         logger.info("Auto-approve: %d chunks persistidos", n)
 
@@ -186,7 +213,9 @@ def _process_chunk(
         set_progress(step, total, "chunk")
 
     images_context = _build_images_context(
-        db, source_id, chunk_row.get("chapter_id", ""),
+        db,
+        source_id,
+        chunk_row.get("chapter_id", ""),
         page_in_file=chunk_row.get("page_in_file"),
     )
     images_ctx_checksum = (
@@ -195,15 +224,21 @@ def _process_chunk(
 
     spec = llm_phase(cfg, "extract")
     call_checksum = compute_llm_call_checksum(
-        prompt_hash, chunk_checksum, spec.model, effective_temperature(cfg, spec), cfg.language,
+        prompt_hash,
+        chunk_checksum,
+        spec.model,
+        effective_temperature(cfg, spec),
+        cfg.language,
         rag_context_checksum=images_ctx_checksum,
-        provider=spec.provider, top_p=cfg.llm.top_p,
+        provider=spec.provider,
+        top_p=cfg.llm.top_p,
     )
     cached = db.get_cached_llm_response(call_checksum)
     request_payload_json: str | None = None
     if cached:
         logger.debug("Cache hit para chunk %s", chunk_id)
         from zettel.usage import record_cache_hit
+
         record_cache_hit(label=f"extract:{chunk_id}", model=spec.model)
         response_text = cached
     else:
@@ -243,7 +278,9 @@ def _process_chunk(
             )
             logger.info(
                 "[SOURCE=%s] [CHUNK=%s] [LLM_CALL model=%s] → resposta recebida",
-                source_id, chunk_id, spec.model,
+                source_id,
+                chunk_id,
+                spec.model,
             )
         except Exception as e:
             logger.error("Erro no LLM para chunk %s: %s", chunk_id, e)
@@ -255,7 +292,9 @@ def _process_chunk(
         output = _parse_literature_output(response_text)
     except ValidationError as e:
         logger.warning(
-            "Contrato invalido no output do chunk %s: %s -- tentando reparo", chunk_id, e
+            "Contrato invalido no output do chunk %s: %s -- tentando reparo",
+            chunk_id,
+            e,
         )
         try:
             retry_prompt = (
@@ -281,9 +320,7 @@ def _process_chunk(
         # json.JSONDecodeError subclasses ValueError; extract_json's own "no JSON
         # found" error is a plain ValueError -- both are "malformed JSON", not a
         # schema violation.
-        logger.warning(
-            "JSON malformado no output do chunk %s: %s -- tentando retry", chunk_id, e
-        )
+        logger.warning("JSON malformado no output do chunk %s: %s -- tentando retry", chunk_id, e)
         try:
             retry_prompt = (
                 f"O JSON abaixo esta malformado. Corrija e retorne APENAS o JSON valido:\n\n"
@@ -320,24 +357,38 @@ def _process_chunk(
         chunk_row.get("page_in_file"),
     )
     for cand in output.candidates:
-        if locator and (not cand.source_locator or cand.source_locator.startswith("p.?")
-                        or len(cand.source_locator) < 3):
+        if locator and (
+            not cand.source_locator
+            or cand.source_locator.startswith("p.?")
+            or len(cand.source_locator) < 3
+        ):
             cand.source_locator = locator
 
     approved_cands, rejected_cands = _filter_candidates(output.candidates, cfg, chunk_text)
     if rejected_cands:
         logger.info(
             "Chunk %s: %d candidatos rejeitados pela filtragem de qualidade",
-            chunk_id, len(rejected_cands),
+            chunk_id,
+            len(rejected_cands),
         )
 
     literature_id = str(ULID())
     has_content = output.chunk_status != "rejected" and bool(approved_cands)
-    draft_path = _write_literature_draft(
-        cfg, db, chunk_row, output, literature_id, confidence, elapsed_ms,
-        candidates=approved_cands,
-        llm_model=spec.model,
-    ) if has_content else None
+    draft_path = (
+        _write_literature_draft(
+            cfg,
+            db,
+            chunk_row,
+            output,
+            literature_id,
+            confidence,
+            elapsed_ms,
+            candidates=approved_cands,
+            llm_model=spec.model,
+        )
+        if has_content
+        else None
+    )
 
     summary_payload = {
         "summary": output.summary,
@@ -363,30 +414,40 @@ def _process_chunk(
 
     logger.info(
         "[SOURCE=%s] [NOTE=%s] status=AWAITING_REVIEW confidence=%.2f",
-        source_id, draft_path, confidence,
+        source_id,
+        draft_path,
+        confidence,
     )
 
     candidates: list[dict] = []
     for cand in approved_cands:
         if not cand.relevant_image_ids:
             from zettel.assets import asset_ids_in_text
+
             cand.relevant_image_ids = asset_ids_in_text(db, source_id, chunk_text)
 
         concept_id = _compute_concept_id(source_id, chunk_id, cand)
-        candidates.append({
-            "concept_id": concept_id,
-            "source_id": source_id,
-            "chunk_id": chunk_id,
-            "candidate": cand,
-            "literature_id": literature_id,
-        })
+        candidates.append(
+            {
+                "concept_id": concept_id,
+                "source_id": source_id,
+                "chunk_id": chunk_id,
+                "candidate": cand,
+                "literature_id": literature_id,
+            }
+        )
         anchor_hash = (
             sha256_hex(normalize_text_for_hash(cand.anchor_quote)) if cand.anchor_quote else ""
         )
         thesis_hash = sha256_hex(normalize_text_for_hash(cand.thesis))
         db.upsert_concept(
-            concept_id, source_id, chunk_id, anchor_hash, thesis_hash,
-            candidate_json=cand.model_dump_json(), status="awaiting_review",
+            concept_id,
+            source_id,
+            chunk_id,
+            anchor_hash,
+            thesis_hash,
+            candidate_json=cand.model_dump_json(),
+            status="awaiting_review",
         )
 
     clear_progress()
@@ -464,16 +525,20 @@ def _images_for_chunk(db: StateDB, chunk_row: dict) -> list[dict[str, Any]]:
         if page is not None and a.get("page_in_file") is not None:
             if abs(int(a["page_in_file"]) - int(page)) > 1:
                 continue
-        out.append({
-            "path": a["path"],
-            "description": a.get("description") or "",
-            "asset_id": a["asset_id"],
-        })
+        out.append(
+            {
+                "path": a["path"],
+                "description": a.get("description") or "",
+                "asset_id": a["asset_id"],
+            }
+        )
     return out
 
 
 def _score_review_confidence(
-    output: LiteratureChunkOutput, cfg: AppConfig, chunk_text: str = "",
+    output: LiteratureChunkOutput,
+    cfg: AppConfig,
+    chunk_text: str = "",
 ) -> float:
     """Heuristic confidence in [0, 1] for auto-approve decisions.
 
@@ -516,15 +581,15 @@ def _score_review_confidence(
     rel_span = 5 - ext.min_relevance_score
     avg_rel = sum(c.relevance_score for c in approved) / len(approved)
     rel_component = (
-        min(1.0, max(0.0, (avg_rel - ext.min_relevance_score) / rel_span))
-        if rel_span > 0 else 1.0
+        min(1.0, max(0.0, (avg_rel - ext.min_relevance_score) / rel_span)) if rel_span > 0 else 1.0
     )
 
     depth_span = ext.min_definition_words * 5
     avg_def_words = sum(len(c.definition.split()) for c in approved) / len(approved)
     depth_component = (
         min(1.0, max(0.0, (avg_def_words - ext.min_definition_words) / depth_span))
-        if depth_span > 0 else 1.0
+        if depth_span > 0
+        else 1.0
     )
 
     confidence = 0.30 * approval_ratio + 0.30 * rel_component + 0.40 * depth_component
@@ -617,7 +682,9 @@ _INTRA_BATCH_PAIRWISE_MAX = 60
 
 
 def _intra_batch_dedupe(
-    cfg: AppConfig, idx: VectorIndex, candidates: list[dict],
+    cfg: AppConfig,
+    idx: VectorIndex,
+    candidates: list[dict],
 ) -> tuple[list[dict], list[dict]]:
     """Reconcile duplicate candidates within the same approval batch.
 
@@ -654,7 +721,8 @@ def _intra_batch_dedupe(
         for loser in losers:
             loser["duplicate_of"] = winner["concept_id"]
             logger.info(
-                "Candidato duplicado no lote (tese identica): %s", loser["candidate"].thesis[:60]
+                "Candidato duplicado no lote (tese identica): %s",
+                loser["candidate"].thesis[:60],
             )
             duplicates.append(loser)
 
@@ -706,7 +774,13 @@ def deduplicate_candidates(
     permanent notes. The intra-batch pass runs first so the (more expensive,
     LLM-backed) existing-notes pass sees fewer candidates.
     """
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn
+    from rich.progress import (
+        BarColumn,
+        MofNCompleteColumn,
+        Progress,
+        SpinnerColumn,
+        TextColumn,
+    )
 
     if not candidates:
         return []
@@ -715,7 +789,8 @@ def deduplicate_candidates(
     if intra_batch_duplicates:
         logger.info(
             "Dedupe intra-lote: %d / %d candidatos descartados por duplicata no proprio lote",
-            len(intra_batch_duplicates), len(candidates),
+            len(intra_batch_duplicates),
+            len(candidates),
         )
 
     spec = llm_phase(cfg, "review")
@@ -775,7 +850,10 @@ def deduplicate_candidates(
                 approved.append(cand_dict)
             elif result.decision == DedupeDecision.IGNORE:
                 logger.info("Candidato ignorado (duplicata): %s", cand.thesis[:60])
-            elif result.decision in (DedupeDecision.REFINE_EXISTING, DedupeDecision.MERGE):
+            elif result.decision in (
+                DedupeDecision.REFINE_EXISTING,
+                DedupeDecision.MERGE,
+            ):
                 cand_dict["refines_note_id"] = result.target_note_id
                 cand_dict["refine_reason"] = result.reason
                 approved.append(cand_dict)
@@ -792,9 +870,7 @@ def deduplicate_candidates(
 _deduplicate_candidates = deduplicate_candidates
 
 
-def _compute_concept_id(
-    source_id: str, chunk_id: str, cand: PermanentNoteCandidate
-) -> str:
+def _compute_concept_id(source_id: str, chunk_id: str, cand: PermanentNoteCandidate) -> str:
     if cand.anchor_quote:
         anchor_hash = sha256_hex(normalize_text_for_hash(cand.anchor_quote))
         concept_key = sha256_hex(f"{source_id}|{chunk_id}|{anchor_hash}")

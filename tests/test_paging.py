@@ -14,9 +14,11 @@ from zettel.paging import (
     lookup_page_for_chunk,
     page_map_from_marked_markdown,
     parse_biblio_start_page,
-    resolve_content_paging as _resolve_content_paging,
     strip_page_break_markers,
     suggest_content_start,
+)
+from zettel.paging import (
+    resolve_content_paging as _resolve_content_paging,
 )
 
 
@@ -122,10 +124,7 @@ def test_compute_docling_config_hash_changes_with_min_chunk_chars():
 
 
 def test_page_map_from_marked_markdown():
-    marked = (
-        f"# Cover\n\n{PAGE_BREAK_MARKER}\n\n"
-        f"# Chapter 1\n\nOnce upon a unique graph story."
-    )
+    marked = f"# Cover\n\n{PAGE_BREAK_MARKER}\n\n# Chapter 1\n\nOnce upon a unique graph story."
     page_map = page_map_from_marked_markdown(marked)
     assert [p for p, _ in page_map] == [1, 2]
     assert "Cover" in page_map[0][1]
@@ -143,9 +142,7 @@ def test_lookup_page_normalizes_markdown_headings():
 
 
 def test_suggest_content_start_skips_toc_then_finds_chapter():
-    toc = "\n".join(
-        f"Chapter {i} ........ {i * 10}" for i in range(1, 12)
-    )
+    toc = "\n".join(f"Chapter {i} ........ {i * 10}" for i in range(1, 12))
     page_map = [
         (3, toc),
         (21, "# Chapter 1\n\nThe real beginning of the argument with enough text."),
@@ -164,7 +161,7 @@ def test_suggest_content_start_journal_from_biblio_range():
 
 def test_parse_biblio_start_page():
     assert parse_biblio_start_page("200-210") == 200
-    assert parse_biblio_start_page("p. 45–60") == 45
+    assert parse_biblio_start_page("p. 45\u201360") == 45
     assert parse_biblio_start_page("320") is None
     assert parse_biblio_start_page("320 p.") is None
     assert parse_biblio_start_page(None) is None

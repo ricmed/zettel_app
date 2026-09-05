@@ -1,7 +1,6 @@
 """Tests for graph expansion over note_connections."""
 
 import pytest
-
 from zettel.graph import expand_notes
 from zettel.state import StateDB
 

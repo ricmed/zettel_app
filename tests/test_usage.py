@@ -54,6 +54,7 @@ def test_tracker_aggregates_by_source():
 
 def test_cost_log_includes_progress(caplog):
     import logging
+
     begin_run()
     set_progress(3, 10, "chunk")
     with caplog.at_level(logging.INFO, logger="zettel.usage"):
@@ -115,7 +116,9 @@ def test_latest_pipeline_session_groups_run_all():
     newest_first = [garden, extract, harvest, previous_garden]
     session = latest_pipeline_session(newest_first)
     assert [pipeline_phase_name(r["pipeline_signature"]) for r in session] == [
-        "harvest", "extract", "garden",
+        "harvest",
+        "extract",
+        "garden",
     ]
     total = sum_run_usage(session)
     assert abs(total.cost_usd_total - 0.210646) < 1e-9
@@ -154,12 +157,22 @@ def test_latest_pipeline_session_ask_is_standalone():
 def test_record_llm_aggregates_prompt_cache_tokens():
     begin_run(1)
     record_llm(
-        model="gemini-3.5-flash-lite", tokens_in=5000, tokens_out=200, cost_usd=0.001,
-        label="extract", cache_read_tokens=4800, cache_write_tokens=0,
+        model="gemini-3.5-flash-lite",
+        tokens_in=5000,
+        tokens_out=200,
+        cost_usd=0.001,
+        label="extract",
+        cache_read_tokens=4800,
+        cache_write_tokens=0,
     )
     record_llm(
-        model="gemini-3.5-flash-lite", tokens_in=5100, tokens_out=210, cost_usd=0.001,
-        label="extract", cache_read_tokens=4900, cache_write_tokens=100,
+        model="gemini-3.5-flash-lite",
+        tokens_in=5100,
+        tokens_out=210,
+        cost_usd=0.001,
+        label="extract",
+        cache_read_tokens=4900,
+        cache_write_tokens=100,
     )
     summary = get_tracker().summary().as_dict()
     assert summary["prompt_cache_read_tokens"] == 4800 + 4900
@@ -169,7 +182,11 @@ def test_record_llm_aggregates_prompt_cache_tokens():
 def test_usage_from_run_reads_prompt_cache_columns():
     from zettel.usage import usage_from_run
 
-    row = {"tokens_prompt": 5000, "prompt_cache_read_tokens": 4800, "prompt_cache_write_tokens": 0}
+    row = {
+        "tokens_prompt": 5000,
+        "prompt_cache_read_tokens": 4800,
+        "prompt_cache_write_tokens": 0,
+    }
     u = usage_from_run(row)
     assert u.prompt_cache_read_tokens == 4800
     assert u.prompt_cache_write_tokens == 0
@@ -192,5 +209,7 @@ def testfmt_prompt_cache_ratio():
     no_cache = UsageSummary(tokens_prompt=5000)
     assert fmt_prompt_cache_ratio(no_cache) == "-"
 
-    with_cache = UsageSummary(tokens_prompt=5000, prompt_cache_read_tokens=4800, prompt_cache_write_tokens=0)
+    with_cache = UsageSummary(
+        tokens_prompt=5000, prompt_cache_read_tokens=4800, prompt_cache_write_tokens=0
+    )
     assert fmt_prompt_cache_ratio(with_cache) == "4800r/0w (96%)"

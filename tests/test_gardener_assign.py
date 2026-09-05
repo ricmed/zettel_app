@@ -1,7 +1,6 @@
 """Tests for hybrid gardener assignment and graph helpers."""
 
 import numpy as np
-
 from zettel.gardener_assign import (
     assign_notes_to_categories,
     extract_note_ids_from_moc_body,
@@ -20,7 +19,9 @@ def test_assign_notes_to_categories():
         "n2": np.array([0.1, 0.9]),
     }
     buckets = assign_notes_to_categories(
-        ["n1", "n2"], embeddings_by_id, category_vectors,
+        ["n1", "n2"],
+        embeddings_by_id,
+        category_vectors,
     )
     assert buckets["CatA"] == ["n1"]
     assert buckets["CatB"] == ["n2"]
@@ -35,12 +36,20 @@ def test_find_moc_by_note_overlap(tmp_path):
     db = StateDB(tmp_path / "test.db")
     body = "- [[ZTL - NOTE001 - a]]\n- [[ZTL - NOTE002 - b]]"
     db.upsert_moc(
-        "MOC1", "Topic", "/p/moc.md", "sig",
-        body=body, origin="pipeline",
+        "MOC1",
+        "Topic",
+        "/p/moc.md",
+        "sig",
+        body=body,
+        origin="pipeline",
     )
     db.upsert_moc(
-        "MOC2", "Other", "/p/moc2.md", "sig2",
-        body="- [[ZTL - NOTE999 - x]]", origin="pipeline",
+        "MOC2",
+        "Other",
+        "/p/moc2.md",
+        "sig2",
+        body="- [[ZTL - NOTE999 - x]]",
+        origin="pipeline",
     )
 
     match = find_moc_by_note_overlap(db, ["NOTE001", "NOTE003"], threshold=0.4)
@@ -62,7 +71,7 @@ def test_graph_cohesion_internal_edges(tmp_path):
     score = graph_cohesion(db, ["A", "B", "C"])
     assert score > 0
 
-    isolated = graph_cohesion(db, ["A", "B"])
+    graph_cohesion(db, ["A", "B"])
     db.upsert_note_connection("A", "X", "related", "")
     assert graph_cohesion(db, ["A", "B"]) >= 0
     db.close()

@@ -10,9 +10,9 @@ import logging
 import re
 import sqlite3
 import unicodedata
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -24,18 +24,85 @@ _FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 # the entire corpus regardless of topic — which in turn defeats any bm25-based
 # relevance signal (a "hit" stops meaning anything). Comparison is case-insensitive;
 # entries are stored lowercase.
-_PT_STOPWORDS = frozenset({
-    "a", "o", "as", "os", "um", "uma", "uns", "umas",
-    "de", "da", "do", "das", "dos", "em", "na", "no", "nas", "nos",
-    "por", "para", "com", "sem", "sobre", "entre", "ate", "apos",
-    "e", "ou", "mas", "que", "se", "como", "quando", "onde", "porque", "pois",
-    "eu", "tu", "ele", "ela", "voces", "eles", "elas",
-    "seu", "sua", "seus", "suas", "este", "esta", "esse", "essa", "isso",
-    "aquele", "aquela", "aquilo",
-    "sao", "foi", "foram", "ser", "estar", "estao", "tem", "teve", "ha",
-    "nao", "sim", "mais", "muito", "muitos", "muitas",
-    "ja", "ainda", "tambem", "qual", "quais",
-})
+_PT_STOPWORDS = frozenset(
+    {
+        "a",
+        "o",
+        "as",
+        "os",
+        "um",
+        "uma",
+        "uns",
+        "umas",
+        "de",
+        "da",
+        "do",
+        "das",
+        "dos",
+        "em",
+        "na",
+        "no",
+        "nas",
+        "nos",
+        "por",
+        "para",
+        "com",
+        "sem",
+        "sobre",
+        "entre",
+        "ate",
+        "apos",
+        "e",
+        "ou",
+        "mas",
+        "que",
+        "se",
+        "como",
+        "quando",
+        "onde",
+        "porque",
+        "pois",
+        "eu",
+        "tu",
+        "ele",
+        "ela",
+        "voces",
+        "eles",
+        "elas",
+        "seu",
+        "sua",
+        "seus",
+        "suas",
+        "este",
+        "esta",
+        "esse",
+        "essa",
+        "isso",
+        "aquele",
+        "aquela",
+        "aquilo",
+        "sao",
+        "foi",
+        "foram",
+        "ser",
+        "estar",
+        "estao",
+        "tem",
+        "teve",
+        "ha",
+        "nao",
+        "sim",
+        "mais",
+        "muito",
+        "muitos",
+        "muitas",
+        "ja",
+        "ainda",
+        "tambem",
+        "qual",
+        "quais",
+    }
+)
 
 
 def _fts_match_expr(text: str, min_len: int = 2, max_tokens: int = 32) -> str | None:
@@ -52,7 +119,8 @@ def _fts_match_expr(text: str, min_len: int = 2, max_tokens: int = 32) -> str | 
     Returns ``None`` when there is no usable token (caller should treat as empty).
     """
     tokens = [
-        t for t in _FTS_TOKEN_RE.findall(text)
+        t
+        for t in _FTS_TOKEN_RE.findall(text)
         if len(t) >= min_len and t.lower() not in _PT_STOPWORDS
     ]
     if not tokens:
@@ -86,8 +154,7 @@ def _fold(text: str | None) -> str:
 
 _SOURCE_PICKER_COLS = "source_id, citekey, title, authors, year"
 _LIT_PICKER_COLS = (
-    "chunk_id, source_id, section_path, locator, page_in_book, "
-    "chunk_index, literature_note_path"
+    "chunk_id, source_id, section_path, locator, page_in_book, chunk_index, literature_note_path"
 )
 
 _SCHEMA_SQL = """
@@ -375,9 +442,7 @@ class StateDB:
             msg = str(e).lower()
             if "fts5" in msg or "no such module" in msg:
                 self.fts_enabled = False
-                logger.warning(
-                    "SQLite sem suporte a FTS5 — busca hibrida (BM25) desabilitada"
-                )
+                logger.warning("SQLite sem suporte a FTS5 — busca hibrida (BM25) desabilitada")
                 return
             raise
         self.fts_enabled = True
@@ -525,9 +590,9 @@ class StateDB:
     # ── Generic helpers ────────────────────────────────────────────────
 
     def _now(self) -> str:
-        return datetime.now().isoformat()
+        return datetime.now(UTC).isoformat()
 
-    def _fetchone(self, sql: str, params: tuple = ()) -> Optional[dict]:
+    def _fetchone(self, sql: str, params: tuple = ()) -> dict | None:
         row = self.conn.execute(sql, params).fetchone()
         return dict(row) if row else None
 
@@ -538,7 +603,11 @@ class StateDB:
     # ── Files ──────────────────────────────────────────────────────────
 
     def upsert_file(
-        self, path: str, file_checksum: str, origin_type: str, source_id: str | None = None
+        self,
+        path: str,
+        file_checksum: str,
+        origin_type: str,
+        source_id: str | None = None,
     ) -> None:
         self.conn.execute(
             """INSERT INTO files (path, file_checksum, origin_type, source_id, last_seen_at)
@@ -552,10 +621,12 @@ class StateDB:
         )
         self.conn.commit()
 
-    def get_file(self, path: str) -> Optional[dict]:
+    def get_file(self, path: str) -> dict | None:
         return self._fetchone("SELECT * FROM files WHERE path=?", (path,))
 
-    def get_file_by_checksum(self, file_checksum: str, exclude_path: str | None = None) -> Optional[dict]:
+    def get_file_by_checksum(
+        self, file_checksum: str, exclude_path: str | None = None
+    ) -> dict | None:
         """Find any known file (regardless of path/name) with the same raw-byte checksum.
 
         Used to detect a renamed/copied duplicate dropped into the inbox under a
@@ -563,7 +634,8 @@ class StateDB:
         """
         if exclude_path:
             return self._fetchone(
-                "SELECT * FROM files WHERE file_checksum=? AND path<>? ORDER BY last_seen_at ASC LIMIT 1",
+                "SELECT * FROM files WHERE file_checksum=? AND path<>? "
+                "ORDER BY last_seen_at ASC LIMIT 1",
                 (file_checksum, exclude_path),
             )
         return self._fetchone(
@@ -623,22 +695,52 @@ class StateDB:
                  total_pages_file=COALESCE(excluded.total_pages_file, sources.total_pages_file),
                  total_pages_book=COALESCE(excluded.total_pages_book, sources.total_pages_book),
                  page_offset=COALESCE(excluded.page_offset, sources.page_offset),
-                 page_offset_confidence=COALESCE(excluded.page_offset_confidence, sources.page_offset_confidence),
-                 content_start_file_page=COALESCE(excluded.content_start_file_page, sources.content_start_file_page),
-                 content_start_book_page=COALESCE(excluded.content_start_book_page, sources.content_start_book_page),
-                 processing_status=COALESCE(excluded.processing_status, sources.processing_status),
-                 last_chunk_processed=COALESCE(excluded.last_chunk_processed, sources.last_chunk_processed),
+                 page_offset_confidence=COALESCE(
+                     excluded.page_offset_confidence, sources.page_offset_confidence
+                 ),
+                 content_start_file_page=COALESCE(
+                     excluded.content_start_file_page, sources.content_start_file_page
+                 ),
+                 content_start_book_page=COALESCE(
+                     excluded.content_start_book_page, sources.content_start_book_page
+                 ),
+                 processing_status=COALESCE(
+                     excluded.processing_status, sources.processing_status
+                 ),
+                 last_chunk_processed=COALESCE(
+                     excluded.last_chunk_processed, sources.last_chunk_processed
+                 ),
                  total_chunks=COALESCE(excluded.total_chunks, sources.total_chunks),
-                 docling_config_hash=COALESCE(excluded.docling_config_hash, sources.docling_config_hash),
+                 docling_config_hash=COALESCE(
+                     excluded.docling_config_hash, sources.docling_config_hash
+                 ),
                  updated_at=excluded.updated_at""",
             (
-                source_id, citekey, title, json.dumps(authors), year, file_checksum,
-                extraction_checksum, origin_path, origin_type, origin,
-                document_type, bibliography_json, abnt_reference,
-                total_pages_file, total_pages_book, page_offset,
-                page_offset_confidence, content_start_file_page, content_start_book_page,
-                processing_status, last_chunk_processed, total_chunks, docling_config_hash,
-                now, now,
+                source_id,
+                citekey,
+                title,
+                json.dumps(authors),
+                year,
+                file_checksum,
+                extraction_checksum,
+                origin_path,
+                origin_type,
+                origin,
+                document_type,
+                bibliography_json,
+                abnt_reference,
+                total_pages_file,
+                total_pages_book,
+                page_offset,
+                page_offset_confidence,
+                content_start_file_page,
+                content_start_book_page,
+                processing_status,
+                last_chunk_processed,
+                total_chunks,
+                docling_config_hash,
+                now,
+                now,
             ),
         )
         self.conn.commit()
@@ -697,10 +799,18 @@ class StateDB:
                  updated_at=?
                WHERE source_id=?""",
             (
-                total_pages_file, total_pages_book, page_offset, page_offset_confidence,
-                content_start_file_page, content_start_book_page,
-                processing_status, last_chunk_processed, total_chunks, docling_config_hash,
-                self._now(), source_id,
+                total_pages_file,
+                total_pages_book,
+                page_offset,
+                page_offset_confidence,
+                content_start_file_page,
+                content_start_book_page,
+                processing_status,
+                last_chunk_processed,
+                total_chunks,
+                docling_config_hash,
+                self._now(),
+                source_id,
             ),
         )
         self.conn.commit()
@@ -794,18 +904,10 @@ class StateDB:
         for ch in chapters:
             self.conn.execute("DELETE FROM chapters WHERE chapter_id=?", (ch["chapter_id"],))
 
-        cur_concepts = self.conn.execute(
-            "DELETE FROM concepts WHERE source_id=?", (source_id,)
-        )
-        cur_assets = self.conn.execute(
-            "DELETE FROM assets WHERE source_id=?", (source_id,)
-        )
-        cur_files = self.conn.execute(
-            "DELETE FROM files WHERE source_id=?", (source_id,)
-        )
-        cur_source = self.conn.execute(
-            "DELETE FROM sources WHERE source_id=?", (source_id,)
-        )
+        cur_concepts = self.conn.execute("DELETE FROM concepts WHERE source_id=?", (source_id,))
+        cur_assets = self.conn.execute("DELETE FROM assets WHERE source_id=?", (source_id,))
+        cur_files = self.conn.execute("DELETE FROM files WHERE source_id=?", (source_id,))
+        cur_source = self.conn.execute("DELETE FROM sources WHERE source_id=?", (source_id,))
         self.conn.execute(
             "DELETE FROM topic_index_terms WHERE scope_kind='source' AND scope_id=?",
             (source_id,),
@@ -820,15 +922,15 @@ class StateDB:
             "sources": cur_source.rowcount,
         }
 
-    def get_source(self, source_id: str) -> Optional[dict]:
+    def get_source(self, source_id: str) -> dict | None:
         return self._fetchone("SELECT * FROM sources WHERE source_id=?", (source_id,))
 
-    def get_source_by_citekey(self, citekey: str) -> Optional[dict]:
+    def get_source_by_citekey(self, citekey: str) -> dict | None:
         return self._fetchone("SELECT * FROM sources WHERE citekey=?", (citekey,))
 
     def get_source_by_extraction_checksum(
         self, extraction_checksum: str, exclude_source_id: str | None = None
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Find any existing source with the same normalized extracted-text checksum.
 
         Used to detect the same article saved in a different format (e.g. PDF and
@@ -879,7 +981,10 @@ class StateDB:
         )
 
     def search_literature_chunks(
-        self, query: str = "", source_id: str | None = None, limit: int = 20,
+        self,
+        query: str = "",
+        source_id: str | None = None,
+        limit: int = 20,
     ) -> list[dict]:
         """Picker lookup over chunks that already have a literature note on disk.
 
@@ -917,7 +1022,10 @@ class StateDB:
         return self._fetchall(sql, tuple(params))
 
     def search_literature_chunks_fts(
-        self, query: str, source_id: str | None = None, limit: int = 20,
+        self,
+        query: str,
+        source_id: str | None = None,
+        limit: int = 20,
     ) -> list[dict]:
         """Second layer: match the chunk body via FTS5 without selecting ``text``."""
         if not self.fts_enabled:
@@ -963,7 +1071,12 @@ class StateDB:
     # ── Chapters ───────────────────────────────────────────────────────
 
     def upsert_chapter(
-        self, chapter_id: str, source_id: str, title: str, chapter_checksum: str, locator: str = ""
+        self,
+        chapter_id: str,
+        source_id: str,
+        title: str,
+        chapter_checksum: str,
+        locator: str = "",
     ) -> None:
         self.conn.execute(
             """INSERT INTO chapters (chapter_id, source_id, title, chapter_checksum, locator)
@@ -1015,14 +1128,29 @@ class StateDB:
                  page_in_file=COALESCE(excluded.page_in_file, chunks.page_in_file),
                  page_in_book=COALESCE(excluded.page_in_book, chunks.page_in_book),
                  page_confidence=excluded.page_confidence,
-                 literature_note_path=COALESCE(excluded.literature_note_path, chunks.literature_note_path),
+                 literature_note_path=COALESCE(
+                     excluded.literature_note_path, chunks.literature_note_path
+                 ),
                  literature_id=COALESCE(excluded.literature_id, chunks.literature_id),
                  review_confidence=COALESCE(excluded.review_confidence, chunks.review_confidence),
                  summary_json=COALESCE(excluded.summary_json, chunks.summary_json)""",
             (
-                chunk_id, source_id, chapter_id, text, chunk_checksum, locator, section_path,
-                status, chunk_index, page_in_file, page_in_book, page_confidence,
-                literature_note_path, literature_id, review_confidence, summary_json,
+                chunk_id,
+                source_id,
+                chapter_id,
+                text,
+                chunk_checksum,
+                locator,
+                section_path,
+                status,
+                chunk_index,
+                page_in_file,
+                page_in_book,
+                page_confidence,
+                literature_note_path,
+                literature_id,
+                review_confidence,
+                summary_json,
             ),
         )
         self._fts_index_chunk(chunk_id, text)
@@ -1034,9 +1162,7 @@ class StateDB:
         Used after re-chunking a chapter so stale chunks (from an earlier chunking
         config or edited text) don't linger in SQLite and ChromaDB.
         """
-        rows = self._fetchall(
-            "SELECT chunk_id FROM chunks WHERE chapter_id=?", (chapter_id,)
-        )
+        rows = self._fetchall("SELECT chunk_id FROM chunks WHERE chapter_id=?", (chapter_id,))
         removed = [r["chunk_id"] for r in rows if r["chunk_id"] not in keep_ids]
         if removed:
             self.delete_chunks(removed)
@@ -1045,7 +1171,8 @@ class StateDB:
     def get_pending_chunks(self, source_id: str | None = None) -> list[dict]:
         if source_id:
             return self._fetchall(
-                "SELECT * FROM chunks WHERE status='pending' AND source_id=?", (source_id,)
+                "SELECT * FROM chunks WHERE status='pending' AND source_id=?",
+                (source_id,),
             )
         return self._fetchall("SELECT * FROM chunks WHERE status='pending'")
 
@@ -1053,21 +1180,20 @@ class StateDB:
         """Return all chunks with status='failed', optionally filtered by source."""
         if source_id:
             return self._fetchall(
-                "SELECT * FROM chunks WHERE status='failed' AND source_id=?", (source_id,)
+                "SELECT * FROM chunks WHERE status='failed' AND source_id=?",
+                (source_id,),
             )
         return self._fetchall("SELECT * FROM chunks WHERE status='failed'")
 
     def get_chunks_for_source(self, source_id: str) -> list[dict]:
         return self._fetchall("SELECT * FROM chunks WHERE source_id=?", (source_id,))
 
-    def get_chunk(self, chunk_id: str) -> Optional[dict]:
+    def get_chunk(self, chunk_id: str) -> dict | None:
         return self._fetchone("SELECT * FROM chunks WHERE chunk_id=?", (chunk_id,))
 
     def delete_chapter(self, chapter_id: str) -> list[str]:
         """Delete a chapter and all its chunks. Returns removed chunk_ids."""
-        rows = self._fetchall(
-            "SELECT chunk_id FROM chunks WHERE chapter_id=?", (chapter_id,)
-        )
+        rows = self._fetchall("SELECT chunk_id FROM chunks WHERE chapter_id=?", (chapter_id,))
         removed = [r["chunk_id"] for r in rows]
         if removed:
             self.delete_chunks(removed)
@@ -1118,16 +1244,21 @@ class StateDB:
                  llm_call_checksum_prompt1=COALESCE(?, llm_call_checksum_prompt1)
                WHERE chunk_id=?""",
             (
-                status, literature_note_path, literature_id, review_confidence,
-                summary_json, page_in_book, page_confidence,
-                llm_prompt1_hash, llm_call_checksum, chunk_id,
+                status,
+                literature_note_path,
+                literature_id,
+                review_confidence,
+                summary_json,
+                page_in_book,
+                page_confidence,
+                llm_prompt1_hash,
+                llm_call_checksum,
+                chunk_id,
             ),
         )
         self.conn.commit()
 
-    def get_chunks_by_status(
-        self, status: str, source_id: str | None = None
-    ) -> list[dict]:
+    def get_chunks_by_status(self, status: str, source_id: str | None = None) -> list[dict]:
         if source_id:
             return self._fetchall(
                 "SELECT * FROM chunks WHERE status=? AND source_id=? ORDER BY chunk_index ASC",
@@ -1141,7 +1272,10 @@ class StateDB:
     # ── Topic index (term -> note routing) ─────────────────────────────
 
     def replace_topic_index_terms(
-        self, scope_kind: str, scope_id: str, rows: list[dict],
+        self,
+        scope_kind: str,
+        scope_id: str,
+        rows: list[dict],
     ) -> int:
         """Replace every term row for one scope. Returns how many were written.
 
@@ -1160,8 +1294,12 @@ class StateDB:
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 [
                     (
-                        scope_kind, scope_id, r["term"], r["term_folded"],
-                        r["target"], r.get("note_id"),
+                        scope_kind,
+                        scope_id,
+                        r["term"],
+                        r["term_folded"],
+                        r["target"],
+                        r.get("note_id"),
                     )
                     for r in rows
                 ],
@@ -1219,12 +1357,13 @@ class StateDB:
         return {row["note_id"]: row for row in rows if row.get("note_id")}
 
     def get_concepts_for_chunk(self, chunk_id: str) -> list[dict]:
-        return self._fetchall(
-            "SELECT * FROM concepts WHERE chunk_id=?", (chunk_id,)
-        )
+        return self._fetchall("SELECT * FROM concepts WHERE chunk_id=?", (chunk_id,))
 
     def get_concepts_for_source(
-        self, source_id: str, *, without_notes: bool = False,
+        self,
+        source_id: str,
+        *,
+        without_notes: bool = False,
     ) -> list[dict]:
         """Concepts belonging to ``source_id``, optionally only those still without a note."""
         if without_notes:
@@ -1232,14 +1371,10 @@ class StateDB:
                 "SELECT * FROM concepts WHERE source_id=? AND note_id IS NULL",
                 (source_id,),
             )
-        return self._fetchall(
-            "SELECT * FROM concepts WHERE source_id=?", (source_id,)
-        )
+        return self._fetchall("SELECT * FROM concepts WHERE source_id=?", (source_id,))
 
     def update_concepts_status_for_chunk(self, chunk_id: str, status: str) -> None:
-        self.conn.execute(
-            "UPDATE concepts SET status=? WHERE chunk_id=?", (status, chunk_id)
-        )
+        self.conn.execute("UPDATE concepts SET status=? WHERE chunk_id=?", (status, chunk_id))
         self.conn.commit()
 
     # ── Concepts ───────────────────────────────────────────────────────
@@ -1265,18 +1400,25 @@ class StateDB:
                  note_id=COALESCE(excluded.note_id, concepts.note_id),
                  candidate_json=COALESCE(excluded.candidate_json, concepts.candidate_json),
                  status=COALESCE(?, concepts.status)""",
-            (concept_id, source_id, chunk_id, anchor_hash, thesis_hash,
-             note_id, candidate_json, status, status),
+            (
+                concept_id,
+                source_id,
+                chunk_id,
+                anchor_hash,
+                thesis_hash,
+                note_id,
+                candidate_json,
+                status,
+                status,
+            ),
         )
         self.conn.commit()
 
     def update_concept_status(self, concept_id: str, status: str) -> None:
-        self.conn.execute(
-            "UPDATE concepts SET status=? WHERE concept_id=?", (status, concept_id)
-        )
+        self.conn.execute("UPDATE concepts SET status=? WHERE concept_id=?", (status, concept_id))
         self.conn.commit()
 
-    def get_concept(self, concept_id: str) -> Optional[dict]:
+    def get_concept(self, concept_id: str) -> dict | None:
         return self._fetchone("SELECT * FROM concepts WHERE concept_id=?", (concept_id,))
 
     def get_concepts_by_status(self, status: str, without_notes: bool = False) -> list[dict]:
@@ -1323,15 +1465,28 @@ class StateDB:
                  embedding_model=COALESCE(excluded.embedding_model, notes.embedding_model),
                  updated_at=excluded.updated_at""",
             (
-                note_id, source_id, path, title, body, frontmatter_json, origin,
-                note_semantic_checksum, auto_checksum, embedding_model, now, now,
+                note_id,
+                source_id,
+                path,
+                title,
+                body,
+                frontmatter_json,
+                origin,
+                note_semantic_checksum,
+                auto_checksum,
+                embedding_model,
+                now,
+                now,
             ),
         )
         self._fts_index_note(note_id)
         self.conn.commit()
 
     def update_note_embedding(
-        self, note_id: str, embedding_input_hash: str, embedding_model: str | None = None
+        self,
+        note_id: str,
+        embedding_input_hash: str,
+        embedding_model: str | None = None,
     ) -> None:
         """Record which embedding input the note's vector was last built from.
 
@@ -1347,7 +1502,7 @@ class StateDB:
         )
         self.conn.commit()
 
-    def get_note(self, note_id: str) -> Optional[dict]:
+    def get_note(self, note_id: str) -> dict | None:
         return self._fetchone("SELECT * FROM notes WHERE note_id=?", (note_id,))
 
     def list_notes(self) -> list[dict]:
@@ -1373,8 +1528,7 @@ class StateDB:
             return []
         try:
             rows = self.conn.execute(
-                "SELECT note_id, rank FROM fts_notes WHERE fts_notes MATCH ? "
-                "ORDER BY rank LIMIT ?",
+                "SELECT note_id, rank FROM fts_notes WHERE fts_notes MATCH ? ORDER BY rank LIMIT ?",
                 (match, limit),
             ).fetchall()
         except sqlite3.OperationalError as e:
@@ -1415,8 +1569,7 @@ class StateDB:
             "SELECT note_id, COALESCE(title,''), COALESCE(body,'') FROM notes"
         )
         self.conn.execute(
-            "INSERT INTO fts_chunks (chunk_id, text) "
-            "SELECT chunk_id, COALESCE(text,'') FROM chunks"
+            "INSERT INTO fts_chunks (chunk_id, text) SELECT chunk_id, COALESCE(text,'') FROM chunks"
         )
         self.conn.commit()
         n = self.conn.execute("SELECT COUNT(*) AS c FROM fts_notes").fetchone()["c"]
@@ -1426,7 +1579,11 @@ class StateDB:
     # ── Note Connections ──────────────────────────────────────────
 
     def upsert_note_connection(
-        self, source_note_id: str, target_note_id: str, relation_type: str, description: str = ""
+        self,
+        source_note_id: str,
+        target_note_id: str,
+        relation_type: str,
+        description: str = "",
     ) -> None:
         self.conn.execute(
             """INSERT INTO note_connections
@@ -1463,9 +1620,7 @@ class StateDB:
         )
 
     def count_note_connections(self) -> int:
-        row = self.conn.execute(
-            "SELECT COUNT(*) AS c FROM note_connections"
-        ).fetchone()
+        row = self.conn.execute("SELECT COUNT(*) AS c FROM note_connections").fetchone()
         return row["c"] if row else 0
 
     # ── MOCs ───────────────────────────────────────────────────────────
@@ -1493,20 +1648,30 @@ class StateDB:
                  origin=excluded.origin,
                  cluster_signature=excluded.cluster_signature,
                  updated_at=excluded.updated_at""",
-            (moc_id, topic, path, body, frontmatter_json, origin, cluster_signature, now, now),
+            (
+                moc_id,
+                topic,
+                path,
+                body,
+                frontmatter_json,
+                origin,
+                cluster_signature,
+                now,
+                now,
+            ),
         )
         self.conn.commit()
 
-    def get_moc(self, moc_id: str) -> Optional[dict]:
+    def get_moc(self, moc_id: str) -> dict | None:
         return self._fetchone("SELECT * FROM mocs WHERE moc_id=?", (moc_id,))
 
-    def get_moc_by_signature(self, signature: str) -> Optional[dict]:
+    def get_moc_by_signature(self, signature: str) -> dict | None:
         return self._fetchone("SELECT * FROM mocs WHERE cluster_signature=?", (signature,))
 
     def list_mocs(self) -> list[dict]:
         return self._fetchall("SELECT * FROM mocs ORDER BY created_at DESC")
 
-    def find_moc_by_topic(self, topic: str) -> Optional[dict]:
+    def find_moc_by_topic(self, topic: str) -> dict | None:
         """Find existing MOC whose topic has a bidirectional substring match."""
         all_mocs = self.list_mocs()
         topic_lower = topic.lower()
@@ -1533,7 +1698,8 @@ class StateDB:
         return rows
 
     def get_weighted_note_degrees(
-        self, relation_weights: dict[str, float],
+        self,
+        relation_weights: dict[str, float],
     ) -> dict[str, float]:
         """Undirected weighted degree per note from note_connections."""
         from collections import defaultdict
@@ -1562,7 +1728,7 @@ class StateDB:
         """Count notes under ``30_Permanent/`` (path slash style agnostic)."""
         return len(self.list_permanent_note_ids())
 
-    def find_moc_by_hub_note_id(self, hub_note_id: str) -> Optional[dict]:
+    def find_moc_by_hub_note_id(self, hub_note_id: str) -> dict | None:
         """Find hub_pipeline MOC anchored on hub_note_id (from frontmatter_json)."""
         import json
 
@@ -1622,12 +1788,21 @@ class StateDB:
                  path=excluded.path,
                  context_snippet=excluded.context_snippet,
                  page_in_file=COALESCE(excluded.page_in_file, assets.page_in_file)""",
-            (asset_id, source_id, chapter_id, path, image_checksum,
-             context_snippet, status, page_in_file, self._now()),
+            (
+                asset_id,
+                source_id,
+                chapter_id,
+                path,
+                image_checksum,
+                context_snippet,
+                status,
+                page_in_file,
+                self._now(),
+            ),
         )
         self.conn.commit()
 
-    def get_asset(self, asset_id: str) -> Optional[dict]:
+    def get_asset(self, asset_id: str) -> dict | None:
         return self._fetchone("SELECT * FROM assets WHERE asset_id=?", (asset_id,))
 
     def get_assets_for_source(self, source_id: str) -> list[dict]:
@@ -1646,14 +1821,16 @@ class StateDB:
 
     def reset_failed_assets(self) -> int:
         """Reset failed image descriptions back to pending. Returns count reset."""
-        cur = self.conn.execute(
-            "UPDATE assets SET status='pending' WHERE status='failed'"
-        )
+        cur = self.conn.execute("UPDATE assets SET status='pending' WHERE status='failed'")
         self.conn.commit()
         return cur.rowcount
 
     def update_asset_description(
-        self, asset_id: str, description: str, call_checksum: str, status: str = "described"
+        self,
+        asset_id: str,
+        description: str,
+        call_checksum: str,
+        status: str = "described",
     ) -> None:
         self.conn.execute(
             """UPDATE assets SET description=?, description_call_checksum=?, status=?
@@ -1664,17 +1841,17 @@ class StateDB:
 
     # ── LLM Cache ──────────────────────────────────────────────────────
 
-    def get_cached_llm_response(self, call_checksum: str) -> Optional[str]:
+    def get_cached_llm_response(self, call_checksum: str) -> str | None:
         row = self._fetchone(
-            "SELECT response_json FROM llm_cache WHERE call_checksum=?", (call_checksum,)
+            "SELECT response_json FROM llm_cache WHERE call_checksum=?",
+            (call_checksum,),
         )
         return row["response_json"] if row else None
 
-    def cache_llm_response(
-        self, call_checksum: str, request_json: str, response_json: str
-    ) -> None:
+    def cache_llm_response(self, call_checksum: str, request_json: str, response_json: str) -> None:
         self.conn.execute(
-            """INSERT OR REPLACE INTO llm_cache (call_checksum, request_json, response_json, created_at)
+            """INSERT OR REPLACE INTO llm_cache
+               (call_checksum, request_json, response_json, created_at)
                VALUES (?, ?, ?, ?)""",
             (call_checksum, request_json, response_json, self._now()),
         )
@@ -1765,15 +1942,13 @@ class StateDB:
         }.get(kind)
         if not column:
             raise ValueError(f"Tipo de duplicidade desconhecido: {kind}")
-        self.conn.execute(
-            f"UPDATE runs SET {column} = {column} + 1 WHERE run_id=?", (run_id,)
-        )
+        self.conn.execute(f"UPDATE runs SET {column} = {column} + 1 WHERE run_id=?", (run_id,))
         self.conn.commit()
 
-    def get_run(self, run_id: int) -> Optional[dict]:
+    def get_run(self, run_id: int) -> dict | None:
         return self._fetchone("SELECT * FROM runs WHERE run_id=?", (run_id,))
 
-    def get_last_run(self) -> Optional[dict]:
+    def get_last_run(self) -> dict | None:
         return self._fetchone("SELECT * FROM runs ORDER BY run_id DESC LIMIT 1")
 
     def get_recent_runs(self, limit: int = 30) -> list[dict]:
@@ -1831,7 +2006,7 @@ class StateDB:
         self.conn.commit()
         return cur.rowcount == 1
 
-    def get_web_job(self, job_id: str) -> Optional[dict]:
+    def get_web_job(self, job_id: str) -> dict | None:
         row = self._fetchone("SELECT * FROM web_jobs WHERE job_id=?", (job_id,))
         if row:
             row["payload"] = json.loads(row.pop("payload_json") or "{}")
@@ -1842,7 +2017,8 @@ class StateDB:
 
     def list_web_jobs(self, limit: int = 50) -> list[dict]:
         rows = self._fetchall(
-            "SELECT * FROM web_jobs ORDER BY created_at DESC LIMIT ?", (max(1, min(limit, 200)),)
+            "SELECT * FROM web_jobs ORDER BY created_at DESC LIMIT ?",
+            (max(1, min(limit, 200)),),
         )
         for row in rows:
             raw = row.pop("payload_json", "{}")
@@ -1877,23 +2053,45 @@ class StateDB:
             "run_id=COALESCE(?,run_id), finished_at=CASE WHEN ? THEN ? ELSE finished_at END "
             "WHERE job_id=?",
             (
-                state, phase, current_item, current_index, total_items, message,
+                state,
+                phase,
+                current_item,
+                current_index,
+                total_items,
+                message,
                 json.dumps(result) if result is not None else None,
-                error_message, run_id, finished, self._now() if finished else None, job_id,
+                error_message,
+                run_id,
+                finished,
+                self._now() if finished else None,
+                job_id,
             ),
         )
         self.conn.commit()
 
     def add_web_job_event(
-        self, job_id: str, phase: str, *, current_item: str | None = None,
-        current_index: int | None = None, total_items: int | None = None,
+        self,
+        job_id: str,
+        phase: str,
+        *,
+        current_item: str | None = None,
+        current_index: int | None = None,
+        total_items: int | None = None,
         message: str = "",
     ) -> None:
         self.conn.execute(
             "INSERT INTO web_job_events "
             "(job_id,phase,current_item,current_index,total_items,message,created_at) "
             "VALUES (?,?,?,?,?,?,?)",
-            (job_id, phase, current_item, current_index, total_items, message, self._now()),
+            (
+                job_id,
+                phase,
+                current_item,
+                current_index,
+                total_items,
+                message,
+                self._now(),
+            ),
         )
         self.conn.commit()
 
@@ -1906,24 +2104,32 @@ class StateDB:
     def get_web_dashboard(self) -> dict[str, Any]:
         """Return aggregate operational metrics without loading note bodies."""
         stats = self.get_stats()
-        count = lambda sql, params=(): int(
-            self.conn.execute(sql, params).fetchone()["c"]  # type: ignore[index]
+
+        def count(sql, params=()):
+            return int(
+                self.conn.execute(sql, params).fetchone()["c"]  # type: ignore[index]
+            )
+
+        stats.update(
+            {
+                "lit_index": count("SELECT COUNT(*) c FROM sources"),
+                "lit_drafts": count("SELECT COUNT(*) c FROM chunks WHERE status='awaiting_review'"),
+                "lit_approved": count(
+                    "SELECT COUNT(*) c FROM chunks WHERE status IN ('approved','persisted')"
+                ),
+                "permanent_notes": self.count_permanent_notes(),
+                "manual_notes": count("SELECT COUNT(*) c FROM notes WHERE origin='manual'"),
+                "isolated_notes": count(
+                    "SELECT COUNT(*) c FROM notes n WHERE NOT EXISTS "
+                    "(SELECT 1 FROM note_connections c "
+                    "WHERE c.source_note_id=n.note_id OR c.target_note_id=n.note_id)"
+                ),
+                "incomplete_sources": count(
+                    "SELECT COUNT(*) c FROM sources WHERE COALESCE(document_type,'')='' "
+                    "OR COALESCE(abnt_reference,'')=''"
+                ),
+            }
         )
-        stats.update({
-            "lit_index": count("SELECT COUNT(*) c FROM sources"),
-            "lit_drafts": count("SELECT COUNT(*) c FROM chunks WHERE status='awaiting_review'"),
-            "lit_approved": count("SELECT COUNT(*) c FROM chunks WHERE status IN ('approved','persisted')"),
-            "permanent_notes": self.count_permanent_notes(),
-            "manual_notes": count("SELECT COUNT(*) c FROM notes WHERE origin='manual'"),
-            "isolated_notes": count(
-                "SELECT COUNT(*) c FROM notes n WHERE NOT EXISTS "
-                "(SELECT 1 FROM note_connections c WHERE c.source_note_id=n.note_id OR c.target_note_id=n.note_id)"
-            ),
-            "incomplete_sources": count(
-                "SELECT COUNT(*) c FROM sources WHERE COALESCE(document_type,'')='' "
-                "OR COALESCE(abnt_reference,'')=''"
-            ),
-        })
         confidence = self._fetchall(
             "SELECT CASE WHEN review_confidence IS NULL THEN 'sem avaliacao' "
             "WHEN review_confidence < 0.4 THEN 'baixa' "
@@ -1947,19 +2153,30 @@ class StateDB:
             "FROM sources ORDER BY cost_usd_total DESC LIMIT 20"
         )
         from zettel.config import DEFAULT_RELATION_WEIGHTS
-        note_titles = {row["note_id"]: row["title"] for row in self._fetchall(
-            "SELECT note_id,title FROM notes"
-        )}
+
+        note_titles = {
+            row["note_id"]: row["title"]
+            for row in self._fetchall("SELECT note_id,title FROM notes")
+        }
         hubs = [
-            {"note_id": note_id, "title": note_titles.get(note_id, note_id), "degree": degree}
+            {
+                "note_id": note_id,
+                "title": note_titles.get(note_id, note_id),
+                "degree": degree,
+            }
             for note_id, degree in sorted(
                 self.get_weighted_note_degrees(DEFAULT_RELATION_WEIGHTS).items(),
-                key=lambda item: item[1], reverse=True,
+                key=lambda item: item[1],
+                reverse=True,
             )[:10]
         ]
         return {
-            "counts": stats, "confidence": confidence, "relations": relations,
-            "origins": origins, "documents": documents, "sources_cost": sources_cost,
+            "counts": stats,
+            "confidence": confidence,
+            "relations": relations,
+            "origins": origins,
+            "documents": documents,
+            "sources_cost": sources_cost,
             "hubs": hubs,
             "runs": self._fetchall(
                 "SELECT run_id,pipeline_signature,started_at,finished_at,status,"
@@ -1972,7 +2189,16 @@ class StateDB:
     # ── Stats ──────────────────────────────────────────────────────────
 
     def get_stats(self) -> dict[str, int]:
-        tables = ["files", "sources", "chapters", "chunks", "concepts", "notes", "mocs", "assets"]
+        tables = [
+            "files",
+            "sources",
+            "chapters",
+            "chunks",
+            "concepts",
+            "notes",
+            "mocs",
+            "assets",
+        ]
         stats: dict[str, int] = {}
         for t in tables:
             row = self.conn.execute(f"SELECT COUNT(*) as cnt FROM {t}").fetchone()

@@ -125,7 +125,9 @@ def resolve_run_options(
     """
     outline_callback = approve_outline
     if outline_callback is None and hitl_handler is None:
-        outline_callback = lambda _o: ("approve", None)
+
+        def outline_callback(_o):
+            return ("approve", None)
 
     effective_skip_context = skip_context_review
     if hitl_handler is None and context_callback is None:
@@ -210,9 +212,9 @@ def result_from_state(
         warnings=list(state.get("warnings") or []),
         llm_called=bool(state.get("llm_called") or rt.llm_called),
         llm_model=llm_phase(rt.cfg, "article").model,
-        note_ids=list(state.get("used_note_ids") or (
-            list(rt.catalog.notes.keys()) if rt.catalog else []
-        )),
+        note_ids=list(
+            state.get("used_note_ids") or (list(rt.catalog.notes.keys()) if rt.catalog else [])
+        ),
         source_ids=list(state.get("cited_source_ids") or []),
         no_evidence=no_evidence,
         aborted=bool(state.get("aborted")),

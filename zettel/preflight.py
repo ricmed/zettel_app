@@ -84,7 +84,10 @@ def _build(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         cost_usd=estimate_llm_cost(
-            spec.model, input_tokens, output_tokens, provider=spec.provider,
+            spec.model,
+            input_tokens,
+            output_tokens,
+            provider=spec.provider,
         ),
         caveats=caveats or [],
     )
@@ -100,7 +103,8 @@ def estimate_extract(cfg: AppConfig, db: StateDB) -> PreflightEstimate:
     input_tokens = sum(estimate_tokens(c.get("text") or "") for c in chunks)
     input_tokens += overhead * len(chunks)
     return _build(
-        cfg, "extract",
+        cfg,
+        "extract",
         items=len(chunks),
         item_label="chunk(s) pendente(s)",
         input_tokens=input_tokens,
@@ -113,13 +117,13 @@ def estimate_extract(cfg: AppConfig, db: StateDB) -> PreflightEstimate:
 
 
 def estimate_connect(
-    cfg: AppConfig, db: StateDB, candidates: list[dict],
+    cfg: AppConfig,
+    db: StateDB,
+    candidates: list[dict],
 ) -> PreflightEstimate:
     """One Prompt 2 call per approved candidate, plus its RAG context."""
     graph_cfg = cfg.retrieval.graph_expansion
-    context_notes = cfg.linking.topk + (
-        graph_cfg.max_neighbors if graph_cfg.enabled else 0
-    )
+    context_notes = cfg.linking.topk + (graph_cfg.max_neighbors if graph_cfg.enabled else 0)
     context_tokens = estimate_tokens("x" * (context_notes * RAG_CHARS_PER_NOTE))
     overhead = _prompt_tokens(cfg, "permanent_note.md")
 
@@ -132,7 +136,8 @@ def estimate_connect(
         )
         input_tokens += estimate_tokens(text) + context_tokens + overhead
     return _build(
-        cfg, "connect",
+        cfg,
+        "connect",
         items=len(candidates),
         item_label="conceito(s) aprovado(s)",
         input_tokens=input_tokens,
@@ -159,7 +164,8 @@ def estimate_article(cfg: AppConfig) -> PreflightEstimate:
     input_tokens += art.max_judge_iterations * section_tokens * art.max_sections
     output_tokens = art.max_sections * section_tokens + art.max_judge_iterations * 500
     return _build(
-        cfg, "article",
+        cfg,
+        "article",
         items=calls,
         item_label="chamada(s) (piso)",
         input_tokens=input_tokens,

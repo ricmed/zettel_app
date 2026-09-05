@@ -26,9 +26,8 @@ def _is_local_model(model: str) -> bool:
     if not m:
         return True
     return (
-        m.startswith("ollama/")
-        or m.startswith("ollama:")
-        or "/" not in m and ":" in m  # e.g. qwen3.5:4b
+        m.startswith(("ollama/", "ollama:"))
+        or ("/" not in m and ":" in m)
         or m in {"sentence-transformers", "default"}
     )
 
@@ -37,7 +36,7 @@ def _normalize_model(model: str) -> str:
     """Strip provider prefixes LiteLLM sometimes needs inverted."""
     m = (model or "").strip()
     if m.startswith("openai/"):
-        return m[len("openai/"):]
+        return m[len("openai/") :]
     if m.startswith("anthropic/"):
         return m
     return m
@@ -105,7 +104,8 @@ def _warn_once(model: str, exc: Any) -> None:
     _warned_models.add(model)
     logger.warning(
         "Preco LiteLLM indisponivel para modelo %r (%s) — custo registrado como 0",
-        model, exc,
+        model,
+        exc,
     )
 
 

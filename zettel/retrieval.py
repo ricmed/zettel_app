@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from . import graph
 
@@ -36,18 +36,18 @@ class RetrievedNote:
     """A single retrieval result, carrying provenance for downstream rendering."""
 
     note_id: str
-    score: float                          # fused RRF score (+ graph boost)
+    score: float  # fused RRF score (+ graph boost)
     title: str = ""
-    document: str = ""                    # embeddable text / note body snippet
+    document: str = ""  # embeddable text / note body snippet
     metadata: dict = field(default_factory=dict)
-    vector_rank: Optional[int] = None
-    bm25_rank: Optional[int] = None
-    vector_distance: Optional[float] = None
-    hop: int = 0                          # 0 = search seed; >=1 = graph neighbour
+    vector_rank: int | None = None
+    bm25_rank: int | None = None
+    vector_distance: float | None = None
+    hop: int = 0  # 0 = search seed; >=1 = graph neighbour
     via: list[dict] = field(default_factory=list)  # graph path (see graph.py)
-    passed_floor: bool = True             # absolute relevance floor (see _apply_relevance_floor)
-    floor_reason: str = ""                # human-readable explanation of the floor verdict
-    origin: str = "search"                # "search" | "topic_index" (routing hint, see ADR-036)
+    passed_floor: bool = True  # absolute relevance floor (see _apply_relevance_floor)
+    floor_reason: str = ""  # human-readable explanation of the floor verdict
+    origin: str = "search"  # "search" | "topic_index" (routing hint, see ADR-036)
 
 
 @dataclass
@@ -68,7 +68,7 @@ class NoteSearchResult:
 class Retriever:
     """Compose vector search, BM25 search and graph expansion behind one API."""
 
-    def __init__(self, cfg: "AppConfig", db: "StateDB", idx: "VectorIndex"):
+    def __init__(self, cfg: AppConfig, db: StateDB, idx: VectorIndex):
         self.cfg = cfg
         self.db = db
         self.idx = idx
@@ -79,12 +79,12 @@ class Retriever:
     def search_notes(
         self,
         query: str,
-        topk: Optional[int] = None,
-        exclude_id: Optional[str] = None,
-        mode: Optional[str] = None,
-        expand_graph: Optional[bool] = None,
-        relevance_floor: Optional[bool] = None,
-        min_vector_similarity: Optional[float] = None,
+        topk: int | None = None,
+        exclude_id: str | None = None,
+        mode: str | None = None,
+        expand_graph: bool | None = None,
+        relevance_floor: bool | None = None,
+        min_vector_similarity: float | None = None,
     ) -> NoteSearchResult:
         """Retrieve permanent notes for ``query``.
 
@@ -111,12 +111,8 @@ class Retriever:
 
         pool = max(topk * 3, 20)
         vector_hits = self._vector_notes(query, pool, exclude_id)
-        bm25_hits = (
-            self._bm25_notes(query, pool, exclude_id) if mode == "hybrid" else []
-        )
-        vector_hits, topic_seed_ids = self._add_topic_index_seeds(
-            query, vector_hits, exclude_id
-        )
+        bm25_hits = self._bm25_notes(query, pool, exclude_id) if mode == "hybrid" else []
+        vector_hits, topic_seed_ids = self._add_topic_index_seeds(query, vector_hits, exclude_id)
 
         fused = self._rrf_fuse_notes(vector_hits, bm25_hits)
         for hit in fused:
@@ -136,7 +132,7 @@ class Retriever:
 
     # ── Vector / BM25 source rankings ──────────────────────────────────
 
-    def _vector_notes(self, query: str, pool: int, exclude_id: Optional[str]) -> list[dict]:
+    def _vector_notes(self, query: str, pool: int, exclude_id: str | None) -> list[dict]:
         try:
             return self.idx.query_similar_notes(query, n_results=pool, exclude_id=exclude_id)
         except Exception as e:  # pragma: no cover - defensive around Chroma
@@ -144,7 +140,10 @@ class Retriever:
             return []
 
     def _add_topic_index_seeds(
-        self, query: str, vector_hits: list[dict], exclude_id: Optional[str],
+        self,
+        query: str,
+        vector_hits: list[dict],
+        exclude_id: str | None,
     ) -> tuple[list[dict], set[str]]:
         """Add notes the topic index routes this query to, as extra vector hits.
 
@@ -166,7 +165,8 @@ class Retriever:
         already = {h["id"] for h in vector_hits}
         matches = self.db.match_topic_index(fold(query))
         wanted = [
-            m["note_id"] for m in matches
+            m["note_id"]
+            for m in matches
             if m["note_id"] not in already and m["note_id"] != exclude_id
         ][: self.cfg.retrieval.topic_index_max_seeds]
         if not wanted:
@@ -187,7 +187,7 @@ class Retriever:
         )
         return merged, {hit["id"] for hit in extra}
 
-    def _bm25_notes(self, query: str, pool: int, exclude_id: Optional[str]) -> list[dict]:
+    def _bm25_notes(self, query: str, pool: int, exclude_id: str | None) -> list[dict]:
         if not getattr(self.db, "fts_enabled", False):
             self._warn_no_fts()
             return []
@@ -199,8 +199,8 @@ class Retriever:
     def _apply_relevance_floor(
         self,
         fused: list[RetrievedNote],
-        relevance_floor: Optional[bool],
-        min_vector_similarity: Optional[float],
+        relevance_floor: bool | None,
+        min_vector_similarity: float | None,
     ) -> None:
         """Mark each hit's ``passed_floor``/``floor_reason`` in place.
 
@@ -291,9 +291,7 @@ class Retriever:
 
     def _warn_no_fts(self) -> None:
         if not self._warned_no_fts:
-            logger.warning(
-                "FTS5 indisponivel — busca hibrida degradada para vetorial pura"
-            )
+            logger.warning("FTS5 indisponivel — busca hibrida degradada para vetorial pura")
             self._warned_no_fts = True
 
     # ── RRF fusion ─────────────────────────────────────────────────────
@@ -348,7 +346,7 @@ class Retriever:
     # ── Graph expansion ────────────────────────────────────────────────
 
     def _expand_with_graph(
-        self, seeds: list[RetrievedNote], exclude_id: Optional[str]
+        self, seeds: list[RetrievedNote], exclude_id: str | None
     ) -> list[RetrievedNote]:
         gcfg = self.cfg.retrieval.graph_expansion
         by_id = {s.note_id: s for s in seeds}

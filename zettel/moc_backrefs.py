@@ -74,7 +74,8 @@ def _remove_moc_link_from_note(note_path: Path, moc_id: str) -> None:
     if not existing:
         return
     lines = [
-        line for line in existing.splitlines()
+        line
+        for line in existing.splitlines()
         if line.strip() and not _link_references_moc(line, moc_id)
     ]
     safe_update_managed_blocks(note_path, {MOC_BACKREFS_BLOCK: "\n".join(lines)})
@@ -114,7 +115,10 @@ def sync_moc_backrefs(
 
 
 def _sync_moc_topic_index(
-    db: StateDB, moc_id: str, path: Path, note_ids: set[str],
+    db: StateDB,
+    moc_id: str,
+    path: Path,
+    note_ids: set[str],
 ) -> None:
     """Refresh the MOC's `auto-topic-index` block and its lookup rows.
 
@@ -128,7 +132,9 @@ def _sync_moc_topic_index(
     )
 
     sync_topic_index(
-        db, SCOPE_MOC, moc_id,
+        db,
+        SCOPE_MOC,
+        moc_id,
         sources_from_permanent_notes(db, sorted(note_ids)),
         note_path=path,
     )

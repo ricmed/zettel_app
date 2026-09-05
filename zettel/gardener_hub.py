@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -116,7 +116,7 @@ def build_hub_neighborhood(
         reverse=True,
     )
     neighbor_ids = [nid for nid, _, _ in ranked[:max_neighbor_slots]]
-    return [hub_id] + neighbor_ids
+    return [hub_id, *neighbor_ids]
 
 
 def dedup_hub_neighborhoods(
@@ -181,7 +181,12 @@ def get_neighbor_graph_context(
 
 
 def run_garden_hubs(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, *, recreate: bool = False, observer=None,
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    *,
+    recreate: bool = False,
+    observer=None,
 ) -> list[str]:
     """Generate/update hub-anchored MOCs. Returns moc_ids."""
     from zettel.usage import begin_run, finish_pipeline_run
@@ -198,7 +203,13 @@ def run_garden_hubs(
 
     ranked = rank_note_hubs(db, hcfg)
     from zettel.progress import report
-    report(observer, "garden_hubs", f"{len(ranked)} hub(s) candidato(s).", total_items=len(ranked))
+
+    report(
+        observer,
+        "garden_hubs",
+        f"{len(ranked)} hub(s) candidato(s).",
+        total_items=len(ranked),
+    )
     if not ranked:
         logger.info("Nenhum hub encontrado no grafo")
         finish_pipeline_run(db, run_id)
@@ -225,7 +236,8 @@ def run_garden_hubs(
 
     logger.info(
         "Vizinhancas hub: %d (dedup descartou %d)",
-        len(cluster_pairs), stats.skipped_dedup,
+        len(cluster_pairs),
+        stats.skipped_dedup,
     )
 
     llm = get_llm(cfg, "garden")
@@ -234,12 +246,22 @@ def run_garden_hubs(
 
     for hub_index, (hub_id, note_ids) in enumerate(cluster_pairs, 1):
         report(
-            observer, "garden_hubs", f"Processando hub {hub_index}/{len(cluster_pairs)}.",
-            current_item=hub_id, current_index=hub_index, total_items=len(cluster_pairs),
+            observer,
+            "garden_hubs",
+            f"Processando hub {hub_index}/{len(cluster_pairs)}.",
+            current_item=hub_id,
+            current_index=hub_index,
+            total_items=len(cluster_pairs),
         )
         moc_id = _process_hub_cluster(
-            cfg, db, idx, llm, hub_id, note_ids,
-            degree_by_hub.get(hub_id, 0.0), stats,
+            cfg,
+            db,
+            idx,
+            llm,
+            hub_id,
+            note_ids,
+            degree_by_hub.get(hub_id, 0.0),
+            stats,
         )
         if moc_id:
             moc_ids.append(moc_id)
@@ -247,8 +269,12 @@ def run_garden_hubs(
     logger.info(
         "Garden hubs: %d MOCs, %d incrementais, %d novos, %d skip assinatura, "
         "%d vizinhanca pequena, %d dedup",
-        len(moc_ids), stats.incremental, stats.created,
-        stats.skipped_signature, stats.skipped_small, stats.skipped_dedup,
+        len(moc_ids),
+        stats.incremental,
+        stats.created,
+        stats.skipped_signature,
+        stats.skipped_small,
+        stats.skipped_dedup,
     )
 
     finish_pipeline_run(db, run_id)
@@ -298,7 +324,14 @@ def _process_hub_cluster(
     if existing:
         stats.incremental += 1
         return _update_hub_moc(
-            cfg, db, idx, llm, existing, hub_id, note_ids, cluster_signature,
+            cfg,
+            db,
+            idx,
+            llm,
+            existing,
+            hub_id,
+            note_ids,
+            cluster_signature,
         )
 
     existing_sig = db.get_moc_by_signature(cluster_signature)
@@ -308,7 +341,14 @@ def _process_hub_cluster(
         return existing_sig["moc_id"]
 
     moc_id = _create_new_hub_moc(
-        cfg, db, idx, llm, hub_id, note_ids, cluster_signature, weighted_degree,
+        cfg,
+        db,
+        idx,
+        llm,
+        hub_id,
+        note_ids,
+        cluster_signature,
+        weighted_degree,
     )
     if moc_id:
         stats.created += 1
@@ -372,7 +412,7 @@ def _create_new_hub_moc(
 
     moc_id = str(ULID())
     topic = moc_output.topic
-    now = datetime.now().isoformat()
+    now = datetime.now(UTC).isoformat()
     meta = {
         "type": "hub_moc",
         "moc_id": moc_id,
@@ -386,8 +426,14 @@ def _create_new_hub_moc(
     }
 
     body = _build_hub_moc_body(
-        db, topic, moc_output.summary, moc_output.hub_role, hub_id,
-        moc_output.subsections, allowed, alias_to_id,
+        db,
+        topic,
+        moc_output.summary,
+        moc_output.hub_role,
+        hub_id,
+        moc_output.subsections,
+        allowed,
+        alias_to_id,
     )
 
     filename = note_filename("HUB", moc_id, topic)
@@ -399,15 +445,31 @@ def _create_new_hub_moc(
     sync_moc_backrefs(db, moc_id, topic, moc_path)
 
     db.upsert_moc(
-        moc_id, topic, str(moc_path), cluster_signature,
-        body=body, frontmatter_json=json.dumps(meta, ensure_ascii=False),
+        moc_id,
+        topic,
+        str(moc_path),
+        cluster_signature,
+        body=body,
+        frontmatter_json=json.dumps(meta, ensure_ascii=False),
         origin=_HUB_ORIGIN,
     )
-    idx.upsert_moc(moc_id, _moc_embeddable(topic, moc_output.summary), {
-        "topic": topic, "note_count": len(note_ids), "hub_note_id": hub_id,
-    })
+    idx.upsert_moc(
+        moc_id,
+        _moc_embeddable(topic, moc_output.summary),
+        {
+            "topic": topic,
+            "note_count": len(note_ids),
+            "hub_note_id": hub_id,
+        },
+    )
 
-    logger.info("MOC hub criado: %s — %s (hub %s, %d notas)", moc_id, topic, hub_id, len(note_ids))
+    logger.info(
+        "MOC hub criado: %s — %s (hub %s, %d notas)",
+        moc_id,
+        topic,
+        hub_id,
+        len(note_ids),
+    )
     return moc_id
 
 
@@ -450,8 +512,13 @@ def _update_hub_moc(
         logger.info("MOC hub %s: nenhuma nota nova, atualizando assinatura", moc_id)
         body_snap, fm_snap = _snapshot_moc_file(moc_path)
         db.upsert_moc(
-            moc_id, existing_moc["topic"], str(moc_path), cluster_signature,
-            body=body_snap, frontmatter_json=fm_snap, origin=_HUB_ORIGIN,
+            moc_id,
+            existing_moc["topic"],
+            str(moc_path),
+            cluster_signature,
+            body=body_snap,
+            frontmatter_json=fm_snap,
+            origin=_HUB_ORIGIN,
         )
         return moc_id
 
@@ -497,20 +564,33 @@ def _update_hub_moc(
         return None
 
     _apply_incremental_placements(
-        db, moc_path, structure, incremental_output,
-        _allowed_note_ids(db, truly_new), alias_to_id,
+        db,
+        moc_path,
+        structure,
+        incremental_output,
+        _allowed_note_ids(db, truly_new),
+        alias_to_id,
     )
 
     body_snap, fm_snap = _snapshot_moc_file(moc_path)
     db.upsert_moc(
-        moc_id, existing_moc["topic"], str(moc_path), cluster_signature,
-        body=body_snap, frontmatter_json=fm_snap, origin=_HUB_ORIGIN,
+        moc_id,
+        existing_moc["topic"],
+        str(moc_path),
+        cluster_signature,
+        body=body_snap,
+        frontmatter_json=fm_snap,
+        origin=_HUB_ORIGIN,
     )
-    idx.upsert_moc(moc_id, _moc_embeddable(structure["topic"], structure["summary"]), {
-        "topic": existing_moc["topic"],
-        "note_count": len(existing_ids) + len(truly_new),
-        "hub_note_id": hub_id,
-    })
+    idx.upsert_moc(
+        moc_id,
+        _moc_embeddable(structure["topic"], structure["summary"]),
+        {
+            "topic": existing_moc["topic"],
+            "note_count": len(existing_ids) + len(truly_new),
+            "hub_note_id": hub_id,
+        },
+    )
 
     logger.info("MOC hub %s atualizado com %d notas novas", moc_id, len(truly_new))
     return moc_id
@@ -560,8 +640,7 @@ def _format_neighbors_list(
         rel = ctx.get("relation", "?")
         weight = ctx.get("weight", "?")
         parts.append(
-            f"- **{label}**: {note.get('title', '')} "
-            f"(hop={hop}, rel={rel}, peso={weight})",
+            f"- **{label}**: {note.get('title', '')} (hop={hop}, rel={rel}, peso={weight})",
         )
     return "\n".join(parts) if parts else "_(Sem vizinhos)_"
 
@@ -600,7 +679,9 @@ def _build_hub_moc_body(
     hub_note = db.get_note(hub_note_id)
     if hub_note:
         link = permanent_wikilink(
-            hub_note_id, hub_note.get("title", ""), path=hub_note.get("path"),
+            hub_note_id,
+            hub_note.get("title", ""),
+            path=hub_note.get("path"),
         )
         body += f"- {link}\n\n"
         placed.add(hub_note_id)
@@ -623,7 +704,8 @@ def _build_hub_moc_body(
     if missing:
         logger.info(
             "MOC hub: %d nota(s) reconciliada(s) em '%s'",
-            len(missing), _MOC_FALLBACK_SUBSECTION,
+            len(missing),
+            _MOC_FALLBACK_SUBSECTION,
         )
         body += f"## {_MOC_FALLBACK_SUBSECTION}\n\n"
         body += _format_note_links(db, sorted(missing))

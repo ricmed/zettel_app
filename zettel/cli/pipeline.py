@@ -41,9 +41,13 @@ from zettel.cli.options import (
 @app.command(name="run-all")
 def run_all(
     config: ConfigOption = None,
-    dry_run: Annotated[bool, typer.Option(
-        "--dry-run", help="Simular sem escrever",
-    )] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Simular sem escrever",
+        ),
+    ] = False,
     yes: NonInteractiveYesOption = False,
     skip_duplicates: SkipDuplicatesOption = False,
     force: ForceDuplicatesOption = False,
@@ -59,8 +63,13 @@ def run_all(
     # Phase 1: Harvest
     console.rule("[bold blue]Fase 1 — Harvest")
     from zettel.harvester import run_harvest
+
     harvest_outcome = run_harvest(
-        cfg, db, idx, interactive=interactive, duplicate_action=duplicate_action,
+        cfg,
+        db,
+        idx,
+        interactive=interactive,
+        duplicate_action=duplicate_action,
         skip_biblio=skip_biblio,
         skip_paging=False,
     )
@@ -80,14 +89,18 @@ def run_all(
     # Phase 2: Extract
     console.rule("[bold blue]Fase 2 — Extract")
     from zettel.extractor import run_extract
+
     candidates = run_extract(cfg, db, idx, auto_approve=False)
     console.print(f"  Drafts / candidatos: {len(candidates)}")
 
     # Phase 2b: Review
     console.rule("[bold blue]Fase 2b — Review")
     from zettel.review import run_review
+
     rev = run_review(
-        cfg, db, idx,
+        cfg,
+        db,
+        idx,
         auto_approve=yes or not interactive,
         interactive=interactive and not yes,
     )
@@ -105,6 +118,7 @@ def run_all(
     # Phase 3: Connect (from DB approved concepts)
     console.rule("[bold blue]Fase 3 — Connect")
     from zettel.connector import load_approved_candidates, run_connect
+
     connect_cands = load_approved_candidates(db)
     note_ids = run_connect(cfg, db, idx, connect_cands)
     console.print(f"  Notas permanentes: {len(note_ids)}")
@@ -112,6 +126,7 @@ def run_all(
     # Phase 4: Garden
     console.rule("[bold blue]Fase 4 — Garden")
     from zettel.gardener import run_garden
+
     moc_ids = run_garden(cfg, db, idx)
     console.print(f"  MOCs: {len(moc_ids)}")
 

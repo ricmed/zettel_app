@@ -82,7 +82,8 @@ def write_extraction_dump(
     citekey = source.get("citekey") or source.get("source_id") or "unknown"
     path = dump_dir / dump_filename(str(citekey))
     path.write_text(
-        render_extraction_dump(source, extracted_text, cfg), encoding="utf-8",
+        render_extraction_dump(source, extracted_text, cfg),
+        encoding="utf-8",
     )
     return path
 

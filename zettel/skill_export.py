@@ -51,6 +51,7 @@ def estimate_tokens(text: str) -> int:
 @dataclass
 class SkillNote:
     """One note as it will appear in the pack."""
+
     note_id: str
     kind: str  # "permanent" | "literature"
     title: str
@@ -76,6 +77,7 @@ class SkillNote:
 @dataclass
 class SkillPack:
     """Everything the renderer needs; no database access below this point."""
+
     slug: str
     title: str
     origin: str
@@ -99,9 +101,7 @@ def resolve_slice(
     """Resolve one selector into ``(title, origin_label, note_rows)``."""
     selectors = [bool(source_id), bool(moc_id), bool(topic)]
     if sum(selectors) != 1:
-        raise SkillExportError(
-            "Informe exatamente um seletor: --source-id, --moc-id ou --topic."
-        )
+        raise SkillExportError("Informe exatamente um seletor: --source-id, --moc-id ou --topic.")
     if source_id:
         return _slice_from_source(db, source_id)
     if moc_id:
@@ -114,10 +114,7 @@ def _slice_from_source(db: StateDB, source_id: str) -> tuple[str, str, list[dict
     source = db.get_source(sid)
     if not source:
         raise SkillExportError(f"Fonte nao encontrada: {sid}")
-    rows = [
-        note for note in db.get_notes_for_source(sid)
-        if _is_permanent(note)
-    ]
+    rows = [note for note in db.get_notes_for_source(sid) if _is_permanent(note)]
     return source.get("title") or sid, f"fonte {sid}", rows
 
 
@@ -136,9 +133,9 @@ def _slice_from_topic(cfg: AppConfig, db: StateDB, topic: str) -> tuple[str, str
         raise SkillExportError("--topic vazio.")
 
     matches = [
-        moc for moc in db.list_mocs()
-        if wanted in (moc.get("topic") or "").lower()
-        or (moc.get("topic") or "").lower() in wanted
+        moc
+        for moc in db.list_mocs()
+        if wanted in (moc.get("topic") or "").lower() or (moc.get("topic") or "").lower() in wanted
     ]
     if not matches:
         known = sorted({moc.get("topic") or "" for moc in db.list_mocs()} - {""})
@@ -171,7 +168,10 @@ def _is_permanent(note: dict) -> bool:
 
 
 def load_notes(
-    cfg: AppConfig, db: StateDB, note_rows: list[dict], source_id: str | None = None,
+    cfg: AppConfig,
+    db: StateDB,
+    note_rows: list[dict],
+    source_id: str | None = None,
 ) -> list[SkillNote]:
     """Turn note rows into `SkillNote`s, falling back to approved LIT when empty.
 
@@ -195,22 +195,24 @@ def load_notes(
         meta = _frontmatter(row)
         candidate = _candidate(concepts.get(note_id))
         body = row.get("body") or ""
-        notes.append(SkillNote(
-            note_id=note_id,
-            kind="permanent",
-            title=row.get("title") or meta.get("title") or note_id,
-            thesis=_thesis_from_body(body),
-            body=body,
-            citekey=str(meta.get("source_id") or row.get("source_id") or ""),
-            locator=str(meta.get("source_locator") or ""),
-            tags=[str(t) for t in (meta.get("tags") or [])],
-            limits=_section(body, "Limites"),
-            decision_rules=_judgement(meta, candidate, "decision_rules"),
-            anti_patterns=_judgement(meta, candidate, "anti_patterns"),
-            named_frameworks=_judgement(meta, candidate, "named_frameworks"),
-            relevance=int(candidate.get("relevance_score") or 3),
-            degree=float(degrees.get(note_id, 0.0)),
-        ))
+        notes.append(
+            SkillNote(
+                note_id=note_id,
+                kind="permanent",
+                title=row.get("title") or meta.get("title") or note_id,
+                thesis=_thesis_from_body(body),
+                body=body,
+                citekey=str(meta.get("source_id") or row.get("source_id") or ""),
+                locator=str(meta.get("source_locator") or ""),
+                tags=[str(t) for t in (meta.get("tags") or [])],
+                limits=_section(body, "Limites"),
+                decision_rules=_judgement(meta, candidate, "decision_rules"),
+                anti_patterns=_judgement(meta, candidate, "anti_patterns"),
+                named_frameworks=_judgement(meta, candidate, "named_frameworks"),
+                relevance=int(candidate.get("relevance_score") or 3),
+                degree=float(degrees.get(note_id, 0.0)),
+            )
+        )
     return _with_filenames(sorted(notes, key=lambda n: n.rank))
 
 
@@ -228,21 +230,23 @@ def _literature_notes(db: StateDB, source_id: str) -> list[SkillNote]:
             best = max(candidates, key=lambda c: c.get("relevance_score") or 0)
             path = chunk.get("literature_note_path")
             body = Path(path).read_text(encoding="utf-8") if path and Path(path).is_file() else ""
-            notes.append(SkillNote(
-                note_id=chunk.get("literature_id") or chunk["chunk_id"],
-                kind="literature",
-                title=(summary.get("summary") or best.get("thesis") or "")[:100],
-                thesis=str(best.get("thesis") or ""),
-                body=parse_frontmatter(body)[1] if body else "",
-                citekey=f"@{citekey}",
-                locator=str(best.get("source_locator") or ""),
-                tags=[str(t) for t in (best.get("tags") or [])],
-                limits=str(best.get("limits") or ""),
-                decision_rules=list(best.get("decision_rules") or []),
-                anti_patterns=list(best.get("anti_patterns") or []),
-                named_frameworks=list(best.get("named_frameworks") or []),
-                relevance=int(best.get("relevance_score") or 3),
-            ))
+            notes.append(
+                SkillNote(
+                    note_id=chunk.get("literature_id") or chunk["chunk_id"],
+                    kind="literature",
+                    title=(summary.get("summary") or best.get("thesis") or "")[:100],
+                    thesis=str(best.get("thesis") or ""),
+                    body=parse_frontmatter(body)[1] if body else "",
+                    citekey=f"@{citekey}",
+                    locator=str(best.get("source_locator") or ""),
+                    tags=[str(t) for t in (best.get("tags") or [])],
+                    limits=str(best.get("limits") or ""),
+                    decision_rules=list(best.get("decision_rules") or []),
+                    anti_patterns=list(best.get("anti_patterns") or []),
+                    named_frameworks=list(best.get("named_frameworks") or []),
+                    relevance=int(best.get("relevance_score") or 3),
+                )
+            )
     return _with_filenames(sorted(notes, key=lambda n: n.rank))
 
 
@@ -279,7 +283,10 @@ def build_pack(
     generated_on: str | None = None,
 ) -> SkillPack:
     return SkillPack(
-        slug=slug, title=title, origin=origin, notes=notes,
+        slug=slug,
+        title=title,
+        origin=origin,
+        notes=notes,
         contradictions=contradictions,
         generated_on=generated_on or datetime.now(UTC).date().isoformat(),
         include_excerpts=include_excerpts,
@@ -294,13 +301,18 @@ def render_skill_md(pack: SkillPack) -> str:
     file. A slice big enough to push the indexes past the budget is a slice that
     wants a narrower selector, and the CLI reports the estimate so that shows up.
     """
-    terms = build_term_map([
-        TermSource(
-            note_id=n.note_id, label=n.filename,
-            frameworks=tuple(n.named_frameworks), tags=tuple(n.tags), thesis=n.thesis,
-        )
-        for n in pack.notes
-    ])
+    terms = build_term_map(
+        [
+            TermSource(
+                note_id=n.note_id,
+                label=n.filename,
+                frameworks=tuple(n.named_frameworks),
+                tags=tuple(n.tags),
+                thesis=n.thesis,
+            )
+            for n in pack.notes
+        ]
+    )
     header, topics, notes = _skill_header(pack), _topic_index(terms), _note_index(pack)
     fixed_tokens = estimate_tokens(header + topics + notes)
     core = _core_section(pack, budget=max(0, SKILL_TOKEN_BUDGET - fixed_tokens))
@@ -309,8 +321,7 @@ def render_skill_md(pack: SkillPack) -> str:
 
 def _skill_header(pack: SkillPack) -> str:
     description = (
-        f"Acervo Zettel derivado de {pack.title}. "
-        f"Use ao aplicar {_description_terms(pack)}."
+        f"Acervo Zettel derivado de {pack.title}. Use ao aplicar {_description_terms(pack)}."
     )
     frontmatter = json.dumps(description, ensure_ascii=False)
     return (
@@ -367,8 +378,7 @@ def _core_section(pack: SkillPack, budget: int) -> str:
         lines.append("_Nenhuma tese registrada neste recorte._\n")
     if omitted:
         lines.append(
-            f"\n_{omitted} nota(s) fora do Core por orçamento de contexto — "
-            "veja o Note Index._\n"
+            f"\n_{omitted} nota(s) fora do Core por orçamento de contexto — veja o Note Index._\n"
         )
     return "".join(lines) + "\n"
 
@@ -460,8 +470,7 @@ def write_pack(pack: SkillPack, pack_dir: Path, *, overwrite: bool = False) -> P
     if pack_dir.exists() and any(pack_dir.iterdir()):
         if not overwrite:
             raise SkillExportError(
-                f"Destino ja existe e nao esta vazio: {pack_dir}. "
-                "Use --overwrite para regenerar."
+                f"Destino ja existe e nao esta vazio: {pack_dir}. Use --overwrite para regenerar."
             )
         for existing in sorted(pack_dir.rglob("*"), reverse=True):
             existing.unlink() if existing.is_file() else existing.rmdir()
@@ -489,13 +498,15 @@ def run_skill_export(
 ) -> tuple[Path, SkillPack]:
     """Export one vault slice as a flat Agent Skill. Deterministic, no LLM."""
     title, origin, rows = resolve_slice(
-        cfg, db, source_id=source_id, moc_id=moc_id, topic=topic,
+        cfg,
+        db,
+        source_id=source_id,
+        moc_id=moc_id,
+        topic=topic,
     )
     notes = load_notes(cfg, db, rows, source_id=source_id)
     if not notes:
-        raise SkillExportError(
-            f"Recorte vazio ({origin}): nenhuma nota aprovada para exportar."
-        )
+        raise SkillExportError(f"Recorte vazio ({origin}): nenhuma nota aprovada para exportar.")
 
     pack = build_pack(
         slug=slug or _default_slug(source_id, moc_id, topic, title),
@@ -515,7 +526,10 @@ def run_skill_export(
 
 
 def _default_slug(
-    source_id: str | None, moc_id: str | None, topic: str | None, title: str,
+    source_id: str | None,
+    moc_id: str | None,
+    topic: str | None,
+    title: str,
 ) -> str:
     if source_id:
         return _slug(source_id.lstrip("@"), 60)

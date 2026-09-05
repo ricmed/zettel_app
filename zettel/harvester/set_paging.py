@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from pathlib import Path
-from typing import Any
 
 from zettel.config import AppConfig
 from zettel.index import VectorIndex
@@ -108,9 +108,7 @@ def run_set_paging(
                 path = new_path
             except OSError:
                 continue
-            db.update_chunk_review(
-                chunk["chunk_id"], literature_note_path=str(path)
-            )
+            db.update_chunk_review(chunk["chunk_id"], literature_note_path=str(path))
         try:
             meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
         except OSError:
@@ -131,10 +129,8 @@ def run_set_paging(
                 stats["dropped_pending"] += 1
             lit = ch.get("literature_note_path")
             if lit:
-                try:
+                with contextlib.suppress(OSError):
                     Path(lit).unlink(missing_ok=True)
-                except OSError:
-                    pass
         db.delete_chunks(drop_ids)
         idx.delete_chunks(drop_ids)
 
@@ -151,13 +147,15 @@ def run_set_paging(
         try:
             raw = json.loads(src["bibliography_json"])
             biblio_fm = {
-                k: v for k, v in raw.items()
+                k: v
+                for k, v in raw.items()
                 if k not in ("document_type", "title", "authors", "year", "confidence")
             }
         except (json.JSONDecodeError, TypeError):
             biblio_fm = None
 
     from .pipeline import _create_vault_notes
+
     _create_vault_notes(
         cfg,
         source_id,
@@ -184,6 +182,7 @@ def run_set_paging(
     )
 
     from zettel.review import _refresh_literature_index
+
     _refresh_literature_index(cfg, db, source_id)
     logger.info(
         "set-paging %s: updated=%d dropped_pending=%d dropped_other=%d notes=%d remaining=%d",

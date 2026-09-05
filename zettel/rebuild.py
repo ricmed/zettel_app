@@ -11,9 +11,9 @@ Two rebuilders, both LLM-free:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Any
 
@@ -86,8 +86,11 @@ _ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS, COL_LITERA
 
 
 def run_reindex(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex,
-    collection: str | None = None, force: bool = False,
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    collection: str | None = None,
+    force: bool = False,
 ) -> dict[str, int]:
     """Rebuild ChromaDB collections from the SQLite state (no LLM calls).
 
@@ -146,11 +149,17 @@ def rebuild_topic_index(cfg: AppConfig, db: StateDB) -> int:
     for src in db.list_sources():
         source_id = src["source_id"]
         approved = [
-            c for c in db.get_chunks_for_source(source_id)
+            c
+            for c in db.get_chunks_for_source(source_id)
             if c.get("status") in ("approved", "persisted")
         ]
-        lit_path = cfg.vault_path / "20_Literature" / literature_index_filename(
-            src["citekey"], src["title"],
+        lit_path = (
+            cfg.vault_path
+            / "20_Literature"
+            / literature_index_filename(
+                src["citekey"],
+                src["title"],
+            )
         )
         _refresh_source_topic_index(db, source_id, src["citekey"], approved, lit_path)
         total += len(db.match_topic_index_scope(SCOPE_SOURCE, source_id))
@@ -159,7 +168,10 @@ def rebuild_topic_index(cfg: AppConfig, db: StateDB) -> int:
         body = moc.get("body") or ""
         path = Path(moc["path"]) if moc.get("path") else Path()
         _sync_moc_topic_index(
-            db, moc["moc_id"], path, extract_note_ids_from_moc_body(body),
+            db,
+            moc["moc_id"],
+            path,
+            extract_note_ids_from_moc_body(body),
         )
         total += len(db.match_topic_index_scope(SCOPE_MOC, moc["moc_id"]))
     return total
@@ -173,10 +185,15 @@ def _reindex_sources(db: StateDB, idx: VectorIndex) -> int:
         existing = idx.existing_ids(COL_SOURCES, [src["source_id"]])
         if src["source_id"] in existing:
             continue
-        idx.upsert_source(src["source_id"], summary, {
-            "citekey": src["citekey"], "title": src["title"],
-            "origin_type": src["origin_type"],
-        })
+        idx.upsert_source(
+            src["source_id"],
+            summary,
+            {
+                "citekey": src["citekey"],
+                "title": src["title"],
+                "origin_type": src["origin_type"],
+            },
+        )
         n += 1
     return n
 
@@ -190,10 +207,16 @@ def _reindex_chunks(db: StateDB, idx: VectorIndex) -> int:
         for c in chunks:
             if c["chunk_id"] in already:
                 continue
-            idx.upsert_chunk(c["chunk_id"], c["text"], {
-                "source_id": c["source_id"], "chapter_id": c["chapter_id"],
-                "locator": c.get("locator", ""), "section_path": c.get("section_path", ""),
-            })
+            idx.upsert_chunk(
+                c["chunk_id"],
+                c["text"],
+                {
+                    "source_id": c["source_id"],
+                    "chapter_id": c["chapter_id"],
+                    "locator": c.get("locator", ""),
+                    "section_path": c.get("section_path", ""),
+                },
+            )
             n += 1
     return n
 
@@ -211,10 +234,16 @@ def _reindex_permanent(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
         embeddable = extract_embeddable_text(body)
         semantic_checksum = sha256_hex(normalize_text_for_hash(embeddable))
         tags = _tags_from_frontmatter(note.get("frontmatter_json"))
-        idx.upsert_permanent_note(note["note_id"], embeddable, {
-            "title": note.get("title", ""), "source_id": note.get("source_id") or "",
-            "tags": ", ".join(tags), "note_semantic_checksum": semantic_checksum,
-        })
+        idx.upsert_permanent_note(
+            note["note_id"],
+            embeddable,
+            {
+                "title": note.get("title", ""),
+                "source_id": note.get("source_id") or "",
+                "tags": ", ".join(tags),
+                "note_semantic_checksum": semantic_checksum,
+            },
+        )
         emb_hash = compute_embedding_input_hash(
             semantic_checksum, cfg.embedding.provider, cfg.embedding.model
         )
@@ -229,9 +258,13 @@ def _reindex_mocs(db: StateDB, idx: VectorIndex) -> int:
     n = 0
     for moc in db.list_mocs():
         summary = _moc_summary_from_body(moc.get("body") or "")
-        idx.upsert_moc(moc["moc_id"], _moc_embeddable(moc["topic"], summary), {
-            "topic": moc["topic"],
-        })
+        idx.upsert_moc(
+            moc["moc_id"],
+            _moc_embeddable(moc["topic"], summary),
+            {
+                "topic": moc["topic"],
+            },
+        )
         n += 1
     return n
 
@@ -251,20 +284,26 @@ def _reindex_literature(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
             elif chunk.get("summary_json"):
                 try:
                     data = json.loads(chunk["summary_json"])
-                    embed_text = f"{data.get('summary', '')}\n{' '.join(data.get('key_concepts') or [])}"
+                    embed_text = (
+                        f"{data.get('summary', '')}\n{' '.join(data.get('key_concepts') or [])}"
+                    )
                 except json.JSONDecodeError:
                     embed_text = chunk.get("text", "")[:1500]
             else:
                 embed_text = (chunk.get("text") or "")[:1500]
             if not embed_text.strip():
                 continue
-            idx.upsert_literature_note(lit_id, embed_text, {
-                "source_id": src["source_id"],
-                "chunk_id": chunk["chunk_id"],
-                "citekey": src["citekey"],
-                "chunk_index": chunk.get("chunk_index") or 0,
-                "page_in_book": chunk.get("page_in_book") or -1,
-            })
+            idx.upsert_literature_note(
+                lit_id,
+                embed_text,
+                {
+                    "source_id": src["source_id"],
+                    "chunk_id": chunk["chunk_id"],
+                    "citekey": src["citekey"],
+                    "chunk_index": chunk.get("chunk_index") or 0,
+                    "page_in_book": chunk.get("page_in_book") or -1,
+                },
+            )
             n += 1
     return n
 
@@ -273,7 +312,10 @@ def _reindex_literature(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
 
 
 def run_rebuild_vault(
-    cfg: AppConfig, db: StateDB, force: bool = False, dry_run: bool = False,
+    cfg: AppConfig,
+    db: StateDB,
+    force: bool = False,
+    dry_run: bool = False,
 ) -> dict[str, int]:
     """Recreate vault .md files from the persisted bodies in SQLite.
 
@@ -281,8 +323,15 @@ def run_rebuild_vault(
     only for records whose origin is 'pipeline' (never clobbers manual notes).
     Returns counts per note type plus 'written' and 'skipped'.
     """
-    stats = {"sources": 0, "literature": 0, "permanent": 0, "mocs": 0,
-             "written": 0, "skipped": 0, "missing_body": 0}
+    stats = {
+        "sources": 0,
+        "literature": 0,
+        "permanent": 0,
+        "mocs": 0,
+        "written": 0,
+        "skipped": 0,
+        "missing_body": 0,
+    }
 
     def _write(path: Path, content: str, origin: str) -> bool:
         if path.exists():
@@ -312,16 +361,23 @@ def run_rebuild_vault(
             try:
                 raw = json.loads(src["bibliography_json"])
                 biblio_fields = {
-                    k: v for k, v in raw.items()
+                    k: v
+                    for k, v in raw.items()
                     if k not in ("document_type", "title", "authors", "year", "confidence")
                 }
             except (json.JSONDecodeError, TypeError):
                 biblio_fields = None
 
         src_meta, src_body = build_source_note(
-            src["source_id"], citekey, title, authors, src.get("year"),
-            src.get("origin_path", ""), src.get("origin_type", "md"),
-            src.get("file_checksum", ""), origin=origin,
+            src["source_id"],
+            citekey,
+            title,
+            authors,
+            src.get("year"),
+            src.get("origin_path", ""),
+            src.get("origin_type", "md"),
+            src.get("file_checksum", ""),
+            origin=origin,
             document_type=src.get("document_type"),
             biblio_fields=biblio_fields,
             abnt_reference=src.get("abnt_reference"),
@@ -359,7 +415,9 @@ def run_rebuild_vault(
             if chunk.get("status") not in ("approved", "persisted"):
                 continue
             dest = (
-                cfg.vault_path / "20_Literature" / literature_source_dirname(citekey)
+                cfg.vault_path
+                / "20_Literature"
+                / literature_source_dirname(citekey)
                 / literature_chunk_filename_for_row(citekey, chunk)
             )
             if chunk.get("literature_note_path") and Path(chunk["literature_note_path"]).exists():
@@ -368,16 +426,12 @@ def run_rebuild_vault(
                     stats["literature"] += 1
                     if not dry_run and dest.exists():
                         excerpt = (chunk.get("text") or "").strip() or "_Trecho nao disponivel._"
-                        safe_update_managed_blocks(
-                            dest, {"auto-source-excerpt": excerpt}
-                        )
+                        safe_update_managed_blocks(dest, {"auto-source-excerpt": excerpt})
                 continue
             summary_data: dict[str, Any] = {}
             if chunk.get("summary_json"):
-                try:
+                with contextlib.suppress(json.JSONDecodeError):
                     summary_data = json.loads(chunk["summary_json"])
-                except json.JSONDecodeError:
-                    pass
             meta, body = build_literature_chunk_note(
                 source_id=src["source_id"],
                 citekey=citekey,
@@ -411,9 +465,14 @@ def run_rebuild_vault(
         if not meta.get("title") and note.get("title"):
             meta["title"] = note["title"][:100]
         path_str = note.get("path")
-        note_path = Path(path_str) if path_str else (
-            cfg.vault_path / "30_Permanent"
-            / note_filename("ZTL", note["note_id"], note.get("title", ""))
+        note_path = (
+            Path(path_str)
+            if path_str
+            else (
+                cfg.vault_path
+                / "30_Permanent"
+                / note_filename("ZTL", note["note_id"], note.get("title", ""))
+            )
         )
         if _write(note_path, compose_note(meta, body), note.get("origin", "pipeline")):
             stats["permanent"] += 1
@@ -427,8 +486,10 @@ def run_rebuild_vault(
             continue
         meta = json.loads(fm_json)
         path_str = moc.get("path")
-        moc_path = Path(path_str) if path_str else (
-            cfg.vault_path / "40_MOCs" / note_filename("MOC", moc["moc_id"], moc["topic"])
+        moc_path = (
+            Path(path_str)
+            if path_str
+            else (cfg.vault_path / "40_MOCs" / note_filename("MOC", moc["moc_id"], moc["topic"]))
         )
         if _write(moc_path, compose_note(meta, body), moc.get("origin", "pipeline")):
             stats["mocs"] += 1

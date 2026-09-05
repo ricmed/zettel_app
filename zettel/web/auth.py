@@ -22,8 +22,12 @@ async def favicon():
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     if not secret():
-        return render(request, "login.html", error="SESSION_SECRET não está configurado.",
-                      login_csrf="")
+        return render(
+            request,
+            "login.html",
+            error="SESSION_SECRET não está configurado.",
+            login_csrf="",
+        )
     if authenticated(request):
         return RedirectResponse("/", status_code=303)
     return render(request, "login.html", login_csrf=sign("login"))
@@ -37,13 +41,21 @@ async def login(request: Request, instance_secret: str = Form(...), login_csrf: 
     if not valid_login_csrf:
         return HTMLResponse("CSRF inválido", status_code=403)
     if not hmac.compare_digest(instance_secret, secret()):
-        return render(request, "login.html", error="Segredo inválido.", status_code=401,
-                      login_csrf=sign("login"))
+        return render(
+            request,
+            "login.html",
+            error="Segredo inválido.",
+            status_code=401,
+            login_csrf=sign("login"),
+        )
     response = RedirectResponse("/", status_code=303)
     forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
     response.set_cookie(
-        "zettel_session", session_value(secrets.token_urlsafe(24)),
-        httponly=True, samesite="lax", secure=forwarded_proto == "https",
+        "zettel_session",
+        session_value(secrets.token_urlsafe(24)),
+        httponly=True,
+        samesite="lax",
+        secure=forwarded_proto == "https",
         max_age=86400,
     )
     return response

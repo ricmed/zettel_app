@@ -44,9 +44,7 @@ def run_pending_queries(
             total_q,
             art.clip_text(q),
         )
-        pool = retriever.search_notes(
-            q, topk=topk, mode=mode, expand_graph=bool(use_graph)
-        )
+        pool = retriever.search_notes(q, topk=topk, mode=mode, expand_graph=bool(use_graph))
         existing = art.merge_retrieved_notes(existing, pool.hits, max_context_notes)
         executed.append(q)
         logger.info(
@@ -119,9 +117,9 @@ def expand_extra_hops(
             "passed_floor": True,
             "floor_reason": "vizinho de grafo (article max_hops)",
         }
-    return sorted(
-        by_id.values(), key=lambda x: float(x.get("score") or 0), reverse=True
-    )[:article_cfg.max_context_notes]
+    return sorted(by_id.values(), key=lambda x: float(x.get("score") or 0), reverse=True)[
+        : article_cfg.max_context_notes
+    ]
 
 
 def snapshot_retrieval_params(

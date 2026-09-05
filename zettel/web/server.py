@@ -21,7 +21,9 @@ from zettel.web_app import WebApplication
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    service = WebApplication(getattr(app.state, "config_path", None) or os.environ.get("ZETTEL_CONFIG"))
+    service = WebApplication(
+        getattr(app.state, "config_path", None) or os.environ.get("ZETTEL_CONFIG")
+    )
     app.state.service = service
     service.start()
     yield
@@ -36,6 +38,7 @@ def create_app(config_path: str | Path | None = None, routers=None) -> FastAPI:
     application.mount("/static", StaticFiles(directory=str(root / "static")), name="static")
     if routers is None:
         from zettel.web import ROUTERS
+
         routers = ROUTERS
     for router in routers:
         application.include_router(router)

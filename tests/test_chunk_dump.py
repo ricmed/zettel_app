@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import pytest
-
 from zettel.chunk_dump import (
     dump_filename,
     dump_source_chunks,
@@ -116,7 +115,7 @@ def test_render_orders_by_chunk_index_and_reports_overlap():
     assert "- overlap_prev: 0" in md
     assert "- overlap_prev: 6" in md
     # Sumario lists index 000 before 001 despite input order
-    sumario = md[md.index("## Sumario"):md.index("# Chunk 000")]
+    sumario = md[md.index("## Sumario") : md.index("# Chunk 000")]
     assert sumario.index("#000") < sumario.index("#001")
 
 
@@ -157,14 +156,28 @@ def test_run_dump_chunks_writes_from_sqlite(tmp_path: Path):
         db.upsert_source("@S", "S", "Titulo", [], None, "h", "/p", "md")
         db.upsert_chapter("@S::ch000", "@S", "Cap", "ch_hash")
         db.upsert_chunk(
-            "@S::ch000::a", "@S", "@S::ch000", "texto alpha", "cka",
-            section_path="Cap > Alpha", chunk_index=0,
-            page_in_file=1, page_in_book=1, page_confidence="mapped",
+            "@S::ch000::a",
+            "@S",
+            "@S::ch000",
+            "texto alpha",
+            "cka",
+            section_path="Cap > Alpha",
+            chunk_index=0,
+            page_in_file=1,
+            page_in_book=1,
+            page_confidence="mapped",
         )
         db.upsert_chunk(
-            "@S::ch000::b", "@S", "@S::ch000", "texto beta", "ckb",
-            section_path="Cap > Beta", chunk_index=1,
-            page_in_file=2, page_in_book=2, page_confidence="mapped",
+            "@S::ch000::b",
+            "@S",
+            "@S::ch000",
+            "texto beta",
+            "ckb",
+            section_path="Cap > Beta",
+            chunk_index=1,
+            page_in_file=2,
+            page_in_book=2,
+            page_confidence="mapped",
         )
         dest = tmp_path / "dumps"
         stats = run_dump_chunks(_cfg(), db, "@S", dump_dir=dest)
@@ -195,7 +208,11 @@ def test_dump_source_chunks_loads_db(tmp_path: Path):
         db.upsert_source("@S", "S", "Titulo", [], None, "h", "/p", "md")
         db.upsert_chapter("@S::ch000", "@S", "Cap", "ch_hash")
         db.upsert_chunk(
-            "@S::ch000::a", "@S", "@S::ch000", "hello", "cka",
+            "@S::ch000::a",
+            "@S",
+            "@S::ch000",
+            "hello",
+            "cka",
             chunk_index=0,
         )
         path = dump_source_chunks(_cfg(), db, "@S", tmp_path)

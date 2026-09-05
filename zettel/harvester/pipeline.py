@@ -37,6 +37,7 @@ SUPPORTED_EXTENSIONS = {".pdf", ".md", ".markdown", ".txt"}
 @dataclass(frozen=True)
 class HarvestSkip:
     """A file the harvest refused to ingest, with the reason to show the operator."""
+
     path: Path
     reason: str
     message: str
@@ -45,6 +46,7 @@ class HarvestSkip:
 @dataclass
 class HarvestOutcome:
     """What one harvest run produced: new sources plus the files it refused."""
+
     source_ids: list[str] = field(default_factory=list)
     skipped: list[HarvestSkip] = field(default_factory=list)
 
@@ -75,14 +77,17 @@ def run_harvest(
     outcome = HarvestOutcome()
     inbox = cfg.inbox_path
 
-    signature = compute_pipeline_signature({
-        "chunking": cfg.chunking.model_dump(),
-        "harvest": cfg.harvest.model_dump(),
-        "images": cfg.images.model_dump(),
-        "docling_config_hash": compute_docling_config_hash(cfg),
-    })
+    signature = compute_pipeline_signature(
+        {
+            "chunking": cfg.chunking.model_dump(),
+            "harvest": cfg.harvest.model_dump(),
+            "images": cfg.images.model_dump(),
+            "docling_config_hash": compute_docling_config_hash(cfg),
+        }
+    )
     run_id = db.start_run(signature)
     from zettel.usage import begin_run, finish_pipeline_run
+
     begin_run(run_id)
     run_status = "completed"
 
@@ -100,23 +105,38 @@ def run_harvest(
         files = [selected_file] if selected_file.is_file() else []
     else:
         files = [
-            f for f in inbox.rglob("*")
-            if f.suffix.lower() in SUPPORTED_EXTENSIONS and f.is_file()
+            f for f in inbox.rglob("*") if f.suffix.lower() in SUPPORTED_EXTENSIONS and f.is_file()
         ]
     logger.info("Encontrados %d arquivos no inbox", len(files))
     from zettel.progress import report
-    report(observer, "harvest", f"{len(files)} arquivo(s) encontrado(s).", total_items=len(files))
+
+    report(
+        observer,
+        "harvest",
+        f"{len(files)} arquivo(s) encontrado(s).",
+        total_items=len(files),
+    )
 
     total_stats = {"text_len": 0, "chapters": 0, "chunks": 0}
     try:
         for item_index, file_path in enumerate(files, 1):
             report(
-                observer, "harvest", f"Processando {file_path.name}.",
-                current_item=file_path.name, current_index=item_index, total_items=len(files),
+                observer,
+                "harvest",
+                f"Processando {file_path.name}.",
+                current_item=file_path.name,
+                current_index=item_index,
+                total_items=len(files),
             )
             try:
                 sid, stats = _process_file(
-                    cfg, db, idx, file_path, run_id, interactive, duplicate_action,
+                    cfg,
+                    db,
+                    idx,
+                    file_path,
+                    run_id,
+                    interactive,
+                    duplicate_action,
                     skip_biblio=skip_biblio,
                     content_start_file=content_start_file,
                     content_start_book=content_start_book,
@@ -146,8 +166,10 @@ def run_harvest(
     if outcome.source_ids:
         logger.info(
             "Harvest concluido: %d fontes, %d caracteres, %d capitulos, %d chunks",
-            len(outcome.source_ids), total_stats["text_len"],
-            total_stats["chapters"], total_stats["chunks"],
+            len(outcome.source_ids),
+            total_stats["text_len"],
+            total_stats["chapters"],
+            total_stats["chunks"],
         )
 
     finish_pipeline_run(db, run_id, run_status)
@@ -176,7 +198,8 @@ def run_rechunk(
         if not text:
             logger.warning(
                 "Fonte %s nao tem texto extraido persistido (anterior a Fase 0). "
-                "Reprocesse o arquivo original via harvest.", sid,
+                "Reprocesse o arquivo original via harvest.",
+                sid,
             )
             stats["skipped"] += 1
             continue
@@ -188,7 +211,13 @@ def run_rechunk(
         )
         page_map = extract.page_map_for_source(src)
         n = chunking.chunk_and_persist(
-            cfg, db, idx, sid, chapters, page_map=page_map, paging=paging,
+            cfg,
+            db,
+            idx,
+            sid,
+            chapters,
+            page_map=page_map,
+            paging=paging,
             origin_type=src.get("origin_type") or "",
         )
         _finalize_source_chunking(db, idx, sid, chapters)
@@ -248,7 +277,10 @@ def _process_file(
                 logger.warning(
                     "Fonte %s: docling_config_hash mudou (%s -> %s). "
                     "Use `zettel rechunk --source-id %s` para reaplicar chunking.",
-                    sid, src["docling_config_hash"], config_hash, sid,
+                    sid,
+                    src["docling_config_hash"],
+                    config_hash,
+                    sid,
                 )
             if source_chunking_incomplete(db, sid):
                 return _complete_incomplete_source(cfg, db, idx, sid)
@@ -260,7 +292,9 @@ def _process_file(
         logger.info(
             "Arquivo '%s' e uma copia identica de '%s' (mesmo hash de arquivo). "
             "Associando ao mesmo source_id (%s) em vez de reprocessar.",
-            file_path.name, Path(renamed_from["path"]).name, renamed_from["source_id"],
+            file_path.name,
+            Path(renamed_from["path"]).name,
+            renamed_from["source_id"],
         )
         sid = renamed_from["source_id"]
         db.upsert_file(str(file_path), checksum, file_path.suffix.lower().lstrip("."), sid)
@@ -285,7 +319,9 @@ def _process_file(
         logger.info(
             "Conteudo de '%s' e identico (apos normalizacao) a fonte existente %s "
             "(%s). Reaproveitando fonte, sem gerar novo citekey/SRC/LIT/chunks.",
-            file_path.name, sid, cross_format_source["citekey"],
+            file_path.name,
+            sid,
+            cross_format_source["citekey"],
         )
         db.upsert_file(str(file_path), checksum, origin_type, sid)
         db.record_duplicate(run_id, "content")
@@ -301,9 +337,14 @@ def _process_file(
         primary_authors,
         primary_title,
     )
+
     biblio = build_bibliographic_metadata(cfg, db, metadata, text, file_path.name)
     biblio = resolve_bibliography(
-        file_path, biblio, interactive, skip_biblio, cfg,
+        file_path,
+        biblio,
+        interactive,
+        skip_biblio,
+        cfg,
     )
     if biblio is None:
         logger.warning(
@@ -324,6 +365,7 @@ def _process_file(
     source_id = f"@{citekey}"
 
     from zettel.usage import get_tracker, set_source
+
     set_source(source_id)
 
     existing_source = db.get_source(source_id)
@@ -340,7 +382,11 @@ def _process_file(
     dup_candidates = duplicates.find_semantic_duplicate_candidates(cfg, db, idx, chapters)
     if dup_candidates:
         decision = duplicates.resolve_duplicate_decision(
-            file_path, dup_candidates, interactive, duplicate_action, cfg,
+            file_path,
+            dup_candidates,
+            interactive,
+            duplicate_action,
+            cfg,
         )
         if decision == "abort":
             set_source(None)
@@ -349,7 +395,8 @@ def _process_file(
         if decision == "skip":
             logger.warning(
                 "Arquivo '%s' pulado por suspeita de duplicidade semantica (candidatos: %s).",
-                file_path.name, ", ".join(c["citekey"] for c in dup_candidates),
+                file_path.name,
+                ", ".join(c["citekey"] for c in dup_candidates),
             )
             set_source(None)
             return None, empty_stats
@@ -382,9 +429,15 @@ def _process_file(
 
     db.upsert_file(str(file_path), checksum, origin_type, source_id)
     db.upsert_source(
-        source_id=source_id, citekey=citekey, title=title, authors=authors,
-        year=year, file_checksum=checksum, origin_path=str(file_path),
-        origin_type=origin_type, extraction_checksum=extraction_checksum,
+        source_id=source_id,
+        citekey=citekey,
+        title=title,
+        authors=authors,
+        year=year,
+        file_checksum=checksum,
+        origin_path=str(file_path),
+        origin_type=origin_type,
+        extraction_checksum=extraction_checksum,
         document_type=biblio.document_type,
         bibliography_json=biblio_json,
         abnt_reference=abnt_reference or None,
@@ -404,8 +457,15 @@ def _process_file(
         source_id,
     )
     _create_vault_notes(
-        cfg, source_id, citekey, title, authors, year,
-        str(file_path), origin_type, checksum,
+        cfg,
+        source_id,
+        citekey,
+        title,
+        authors,
+        year,
+        str(file_path),
+        origin_type,
+        checksum,
         document_type=biblio.document_type,
         biblio_fields=biblio_fm,
         abnt_reference=abnt_reference or None,
@@ -418,16 +478,24 @@ def _process_file(
         docling_config_hash=config_hash,
         db=db,
     )
-    idx.upsert_source(source_id, f"{title} -- {', '.join(authors)}", {
-        "citekey": citekey, "title": title, "origin_type": origin_type,
-    })
+    idx.upsert_source(
+        source_id,
+        f"{title} -- {', '.join(authors)}",
+        {
+            "citekey": citekey,
+            "title": title,
+            "origin_type": origin_type,
+        },
+    )
 
     images = metadata.get("_images") or []
     if images:
         from zettel.assets import register_assets
+
         logger.info(
             "[SOURCE=%s] Registrando %d imagens extraidas...",
-            source_id, len(images),
+            source_id,
+            len(images),
         )
         register_assets(db, source_id, chapters, images)
     else:
@@ -436,10 +504,15 @@ def _process_file(
     logger.info(
         "[SOURCE=%s] Iniciando chunking estrutural (%d capitulos) "
         "e indexacao vetorial dos chunks...",
-        source_id, len(chapters),
+        source_id,
+        len(chapters),
     )
     chunk_count = chunking.chunk_and_persist(
-        cfg, db, idx, source_id, chapters,
+        cfg,
+        db,
+        idx,
+        source_id,
+        chapters,
         page_map=page_map,
         paging=paging,
         origin_type=origin_type,
@@ -473,8 +546,15 @@ def _process_file(
         db.add_source_usage(source_id, delta)
 
     _create_vault_notes(
-        cfg, source_id, citekey, title, authors, year,
-        str(file_path), origin_type, checksum,
+        cfg,
+        source_id,
+        citekey,
+        title,
+        authors,
+        year,
+        str(file_path),
+        origin_type,
+        checksum,
         document_type=biblio.document_type,
         biblio_fields=biblio_fm,
         abnt_reference=abnt_reference or None,
@@ -494,7 +574,10 @@ def _process_file(
     stats = {"text_len": len(text), "chapters": len(chapters), "chunks": chunk_count}
     logger.info(
         "Fonte processada: %s (%d capitulos, %d chunks, %d caracteres)",
-        source_id, len(chapters), chunk_count, len(text),
+        source_id,
+        len(chapters),
+        chunk_count,
+        len(text),
     )
     return source_id, stats
 
@@ -506,9 +589,7 @@ def _expected_chapter_ids(source_id: str, chapters: list[dict[str, str]]) -> set
     return {f"{source_id}::ch{i:03d}" for i in range(len(chapters))}
 
 
-def _chapters_fully_persisted(
-    db: StateDB, source_id: str, chapters: list[dict[str, str]]
-) -> bool:
+def _chapters_fully_persisted(db: StateDB, source_id: str, chapters: list[dict[str, str]]) -> bool:
     expected = _expected_chapter_ids(source_id, chapters)
     if not expected:
         return True
@@ -517,22 +598,30 @@ def _chapters_fully_persisted(
 
 
 def _maybe_dump_chunks(
-    cfg: AppConfig, db: StateDB, source_id: str, dump_dir: Path | None,
+    cfg: AppConfig,
+    db: StateDB,
+    source_id: str,
+    dump_dir: Path | None,
 ) -> None:
     """Write a markdown chunk dump when ``dump_dir`` is set (harvest/rechunk opt-in)."""
     if dump_dir is None:
         return
     from zettel.chunk_dump import dump_source_chunks
+
     dump_source_chunks(cfg, db, source_id, dump_dir)
 
 
 def _maybe_dump_extraction(
-    cfg: AppConfig, db: StateDB, source_id: str, dump_dir: Path | None,
+    cfg: AppConfig,
+    db: StateDB,
+    source_id: str,
+    dump_dir: Path | None,
 ) -> None:
     """Write extraction Markdown when ``dump_dir`` is set (harvest opt-in)."""
     if dump_dir is None:
         return
     from zettel.extraction_dump import dump_source_extraction
+
     dump_source_extraction(cfg, db, source_id, dump_dir)
 
 
@@ -546,6 +635,7 @@ def _finalize_source_chunking(
     keep = _expected_chapter_ids(source_id, chapters)
     _prune_orphan_chapters(db, idx, source_id, keep)
     from zettel.assets import reresolve_asset_chapters
+
     reresolve_asset_chapters(db, source_id, chapters)
 
 
@@ -562,7 +652,10 @@ def _prune_orphan_chapters(
 
 
 def _complete_incomplete_source(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, source_id: str,
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    source_id: str,
 ) -> tuple[str | None, dict[str, int]]:
     """Resume chunking for a source whose extracted_text was not fully persisted."""
     src = db.get_source(source_id)
@@ -579,10 +672,17 @@ def _complete_incomplete_source(
 
     logger.info(
         "[SOURCE=%s] Completando chunking incompleto (%d capitulos)...",
-        source_id, len(chapters),
+        source_id,
+        len(chapters),
     )
     chunk_count = chunking.chunk_and_persist(
-        cfg, db, idx, source_id, chapters, page_map=page_map, paging=paging,
+        cfg,
+        db,
+        idx,
+        source_id,
+        chapters,
+        page_map=page_map,
+        paging=paging,
         origin_type=src.get("origin_type") or "",
     )
     _finalize_source_chunking(db, idx, source_id, chapters)
@@ -604,7 +704,11 @@ def _complete_incomplete_source(
         processing_status="completed",
         total_chunks=chunk_count,
     )
-    return source_id, {"text_len": len(src.get("extracted_text") or ""), "chapters": len(chapters), "chunks": chunk_count}
+    return source_id, {
+        "text_len": len(src.get("extracted_text") or ""),
+        "chapters": len(chapters),
+        "chunks": chunk_count,
+    }
 
 
 def _create_vault_notes(
@@ -641,7 +745,14 @@ def _create_vault_notes(
 
     # Write SRC note
     src_meta, src_body = build_source_note(
-        source_id, citekey, title, authors, year, origin_path, origin_type, file_checksum,
+        source_id,
+        citekey,
+        title,
+        authors,
+        year,
+        origin_path,
+        origin_type,
+        file_checksum,
         document_type=document_type,
         biblio_fields=biblio_fields,
         abnt_reference=abnt_reference,

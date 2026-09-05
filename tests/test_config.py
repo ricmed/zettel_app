@@ -8,8 +8,7 @@ from typing import Any, Union, get_args, get_origin
 
 import yaml
 from pydantic import BaseModel
-
-from zettel.config import AppConfig, _REPO_ROOT, load_config
+from zettel.config import _REPO_ROOT, AppConfig, load_config
 
 _CONFIG_YAML = _REPO_ROOT / "config" / "config.yaml"
 _PYTHON_ONLY_PATHS = frozenset({"gardener.allowed_topics"})

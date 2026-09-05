@@ -12,7 +12,6 @@ import unicodedata
 from difflib import SequenceMatcher
 from pathlib import Path
 
-
 _HYPHEN_LINEBREAK_RE = re.compile(r"(\w)-[ \t]*\n[ \t]*(\w)")
 
 
@@ -34,11 +33,13 @@ def dehyphenate_pdf_linebreaks(text: str) -> str:
 
     Idempotent: re-running on already-merged text is a no-op.
     """
+
     def _join(m: re.Match[str]) -> str:
         before, after = m.group(1), m.group(2)
         if after.isupper():
             return m.group(0)
         return f"{before}{after}"
+
     return _HYPHEN_LINEBREAK_RE.sub(_join, text)
 
 

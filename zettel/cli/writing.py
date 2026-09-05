@@ -31,7 +31,7 @@ may already have cost several LLM calls.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 from rich.panel import Panel
@@ -51,43 +51,89 @@ from zettel.cli.options import (
 @app.command()
 def article(
     topic: Annotated[str, typer.Argument(help="Tema do artigo")],
-    style: Annotated[str, typer.Option(
-        "--style", "-s", help="blog | academic",
-    )] = "blog",
+    style: Annotated[
+        str,
+        typer.Option(
+            "--style",
+            "-s",
+            help="blog | academic",
+        ),
+    ] = "blog",
     config: ConfigOption = None,
     topk: SeedTopkOption = None,
     no_graph: NoGraphOption = False,
     mode: RetrievalModeOption = None,
-    personality: Annotated[Optional[str], typer.Option(
-        "--personality", "-p", help="Perfil em config/personalities.yaml",
-    )] = None,
-    style_notes: Annotated[Optional[str], typer.Option(
-        "--style-notes", help="Override textual de estilo",
-    )] = None,
-    show_context: Annotated[bool, typer.Option(
-        "--show-context", help="Exibe notas recuperadas (debug)",
-    )] = False,
-    outline_only: Annotated[bool, typer.Option(
-        "--outline-only", help="Gera so o outline e encerra",
-    )] = False,
-    skip_context_review: Annotated[bool, typer.Option(
-        "--skip-context-review", help="Pula revisao humana do contexto",
-    )] = False,
-    skip_judge: Annotated[bool, typer.Option(
-        "--skip-judge", help="Pula o juiz automatico de qualidade",
-    )] = False,
-    max_judge_iterations: Annotated[Optional[int], typer.Option(
-        "--max-judge-iterations", help="Max. ciclos de reescrita do juiz",
-    )] = None,
-    save: Annotated[bool, typer.Option(
-        "--save", help="Salva o artigo em .md no local padrao (sem perguntar)",
-    )] = False,
-    save_to: Annotated[Optional[str], typer.Option(
-        "--save-to", help="Salva o artigo em .md no caminho informado",
-    )] = None,
-    no_save_prompt: Annotated[bool, typer.Option(
-        "--no-save-prompt", help="Nao perguntar se deve salvar (para scripts)",
-    )] = False,
+    personality: Annotated[
+        str | None,
+        typer.Option(
+            "--personality",
+            "-p",
+            help="Perfil em config/personalities.yaml",
+        ),
+    ] = None,
+    style_notes: Annotated[
+        str | None,
+        typer.Option(
+            "--style-notes",
+            help="Override textual de estilo",
+        ),
+    ] = None,
+    show_context: Annotated[
+        bool,
+        typer.Option(
+            "--show-context",
+            help="Exibe notas recuperadas (debug)",
+        ),
+    ] = False,
+    outline_only: Annotated[
+        bool,
+        typer.Option(
+            "--outline-only",
+            help="Gera so o outline e encerra",
+        ),
+    ] = False,
+    skip_context_review: Annotated[
+        bool,
+        typer.Option(
+            "--skip-context-review",
+            help="Pula revisao humana do contexto",
+        ),
+    ] = False,
+    skip_judge: Annotated[
+        bool,
+        typer.Option(
+            "--skip-judge",
+            help="Pula o juiz automatico de qualidade",
+        ),
+    ] = False,
+    max_judge_iterations: Annotated[
+        int | None,
+        typer.Option(
+            "--max-judge-iterations",
+            help="Max. ciclos de reescrita do juiz",
+        ),
+    ] = None,
+    save: Annotated[
+        bool,
+        typer.Option(
+            "--save",
+            help="Salva o artigo em .md no local padrao (sem perguntar)",
+        ),
+    ] = False,
+    save_to: Annotated[
+        str | None,
+        typer.Option(
+            "--save-to",
+            help="Salva o artigo em .md no caminho informado",
+        ),
+    ] = None,
+    no_save_prompt: Annotated[
+        bool,
+        typer.Option(
+            "--no-save-prompt",
+            help="Nao perguntar se deve salvar (para scripts)",
+        ),
+    ] = False,
     yes: YesOption = False,
 ):
     """Gerar artigo estruturado (blog ou academico) via LangGraph."""
@@ -103,6 +149,7 @@ def article(
     from rich.prompt import Prompt
 
     from zettel.preflight import estimate_article
+
     preflight_gate(estimate_article(cfg), yes, db)
 
     from zettel.article import parse_extra_queries, save_article_note
@@ -141,9 +188,7 @@ def article(
                 return {"context_decision": "approve", "extra_queries": []}
             if choice == "q":
                 return {"context_decision": "abort", "extra_queries": []}
-            raw = Prompt.ask(
-                "Queries extras (separadas por ; ou linhas)", default=""
-            )
+            raw = Prompt.ask("Queries extras (separadas por ; ou linhas)", default="")
             extras = parse_extra_queries(raw)
             # An "enrich" with nothing to enrich would re-run the identical search.
             if not extras:
@@ -151,9 +196,7 @@ def article(
             return {"context_decision": "enrich", "extra_queries": extras}
 
         if itype == "outline_review":
-            console.print(
-                Panel(str(payload.get("preview") or ""), title="Outline proposto")
-            )
+            console.print(Panel(str(payload.get("preview") or ""), title="Outline proposto"))
             choice = Prompt.ask(
                 "Outline: [a]provar / [r]egenerar / [q]uit",
                 choices=["a", "r", "q"],
@@ -163,9 +206,7 @@ def article(
                 return {"outline_decision": "approve", "outline_feedback": ""}
             if choice == "q":
                 return {"outline_decision": "abort", "outline_feedback": ""}
-            feedback = Prompt.ask(
-                "Feedback para regenerar (opcional)", default=""
-            )
+            feedback = Prompt.ask("Feedback para regenerar (opcional)", default="")
             return {
                 "outline_decision": "regenerate",
                 "outline_feedback": feedback.strip(),
@@ -174,7 +215,10 @@ def article(
 
     console.print("[dim]Pipeline de artigo (LangGraph)...[/dim]")
     result = run_article_graph(
-        cfg, db, idx, topic,
+        cfg,
+        db,
+        idx,
+        topic,
         style=style_norm,  # type: ignore[arg-type]
         topk=topk,
         use_graph=not no_graph,
@@ -222,6 +266,7 @@ def article(
         saved_path = save_article_note(result, cfg.vault_path)
     elif not no_save_prompt:
         from rich.prompt import Confirm
+
         try:
             if Confirm.ask("Salvar este artigo como nota .md?", default=True):
                 saved_path = save_article_note(result, cfg.vault_path)

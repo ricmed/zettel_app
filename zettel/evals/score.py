@@ -12,15 +12,15 @@ explicitly.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 
-class Verdict(str, Enum):
+class Verdict(StrEnum):
     OK = "ok"
-    ROUTING_MISS = "routing_miss"      # target never reached the candidate pool
-    FLOOR_REJECT = "floor_reject"      # target was in the pool, floor rejected it
-    ANSWER_FAIL = "answer_fail"        # target was used, the answer missed the rubric
-    UNKNOWN = "unknown"                # the gold does not name a target
+    ROUTING_MISS = "routing_miss"  # target never reached the candidate pool
+    FLOOR_REJECT = "floor_reject"  # target was in the pool, floor rejected it
+    ANSWER_FAIL = "answer_fail"  # target was used, the answer missed the rubric
+    UNKNOWN = "unknown"  # the gold does not name a target
 
 
 @dataclass
@@ -158,9 +158,7 @@ def score_question(gold: GoldQuestion, trajectory: Trajectory) -> QuestionScore:
         return score
 
     score.verdict = (
-        Verdict.OK.value
-        if _rubric_holds(gold, trajectory.answer)
-        else Verdict.ANSWER_FAIL.value
+        Verdict.OK.value if _rubric_holds(gold, trajectory.answer) else Verdict.ANSWER_FAIL.value
     )
     return score
 
@@ -174,11 +172,17 @@ def _rubric_holds(gold: GoldQuestion, answer: str) -> bool:
 
 
 def score_run(
-    gold_questions: list[GoldQuestion], trajectories: list[Trajectory],
+    gold_questions: list[GoldQuestion],
+    trajectories: list[Trajectory],
 ) -> RunScore:
     """Score a whole question set. A question with no trajectory is a routing miss."""
     by_id = {t.question_id: t for t in trajectories}
-    return RunScore(questions=[
-        score_question(gold, by_id.get(gold.question_id, Trajectory(gold.question_id, gold.question)))
-        for gold in sorted(gold_questions, key=lambda g: g.question_id)
-    ])
+    return RunScore(
+        questions=[
+            score_question(
+                gold,
+                by_id.get(gold.question_id, Trajectory(gold.question_id, gold.question)),
+            )
+            for gold in sorted(gold_questions, key=lambda g: g.question_id)
+        ]
+    )

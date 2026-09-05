@@ -156,7 +156,9 @@ def test_filter_candidates_verified_quote_with_editorial_ellipsis_passes():
 
 def test_filter_candidates_verified_quote_paraphrase_rejected():
     cfg = _make_config(verify_anchor_quote=True)
-    paraphrase = "taxas de aprendizado adaptativas convergem mais rapido na pratica que agendas fixas"
+    paraphrase = (
+        "taxas de aprendizado adaptativas convergem mais rapido na pratica que agendas fixas"
+    )
     candidates = [_make_candidate(anchor_quote=paraphrase)]
     approved, rejected = _filter_candidates(candidates, cfg, _CHUNK_TEXT)
     assert len(approved) == 0
@@ -206,14 +208,25 @@ def test_write_literature_draft_records_llm_model(tmp_path):
     (cfg.vault_path / "00_Inbox" / "Review").mkdir(parents=True)
     db = StateDB(cfg.state_db_path)
     db.upsert_source(
-        "@Book2024", "Book2024", "Livro", ["Autor"], 2024,
-        "h", "/x.pdf", "pdf",
+        "@Book2024",
+        "Book2024",
+        "Livro",
+        ["Autor"],
+        2024,
+        "h",
+        "/x.pdf",
+        "pdf",
     )
     db.upsert_chapter("@Book2024::ch000", "@Book2024", "Ch1", "chh")
     db.upsert_chunk(
-        "@Book2024::ch000::abc", "@Book2024", "@Book2024::ch000",
-        "texto do chunk com conteudo suficiente", "ck",
-        chunk_index=0, page_in_file=1, page_in_book=145,
+        "@Book2024::ch000::abc",
+        "@Book2024",
+        "@Book2024::ch000",
+        "texto do chunk com conteudo suficiente",
+        "ck",
+        chunk_index=0,
+        page_in_file=1,
+        page_in_book=145,
         status="pending",
     )
     chunk_row = db.get_chunk("@Book2024::ch000::abc")
@@ -226,8 +239,15 @@ def test_write_literature_draft_records_llm_model(tmp_path):
         candidates=[],
     )
     path = _write_literature_draft(
-        cfg, db, chunk_row, output, "01HTESTLITID00000000000000",
-        0.8, 12, candidates=[], llm_model="gpt-4o-mini",
+        cfg,
+        db,
+        chunk_row,
+        output,
+        "01HTESTLITID00000000000000",
+        0.8,
+        12,
+        candidates=[],
+        llm_model="gpt-4o-mini",
     )
     assert path is not None and path.is_file()
     meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
@@ -263,10 +283,17 @@ def test_process_chunk_payload_carries_section_language_and_domain(tmp_path, mon
     db.upsert_source("@Book2024", "Book2024", "Livro", ["Autor"], 2024, "h", "/x.pdf", "pdf")
     db.upsert_chapter("@Book2024::ch000", "@Book2024", "Ch1", "chh")
     db.upsert_chunk(
-        "@Book2024::ch000::abc", "@Book2024", "@Book2024::ch000",
-        "texto do chunk com conteudo suficiente", "ck",
-        locator="Ch1", section_path="3 Retrieval > 3.2 Reranking",
-        chunk_index=0, page_in_file=12, page_in_book=145, status="pending",
+        "@Book2024::ch000::abc",
+        "@Book2024",
+        "@Book2024::ch000",
+        "texto do chunk com conteudo suficiente",
+        "ck",
+        locator="Ch1",
+        section_path="3 Retrieval > 3.2 Reranking",
+        chunk_index=0,
+        page_in_file=12,
+        page_in_book=145,
+        status="pending",
     )
     chunk_row = db.get_chunk("@Book2024::ch000::abc")
 
@@ -275,14 +302,16 @@ def test_process_chunk_payload_carries_section_language_and_domain(tmp_path, mon
     def fake_call_llm(llm, user, system=None, **kwargs):
         captured["user"] = user
         captured["system"] = system or ""
-        return json.dumps({
-            "chunk_status": "rejected",
-            "rejection_reason": "sem conceito",
-            "rejection_category": "narrative",
-            "summary": "Trecho de transicao.",
-            "key_concepts": [],
-            "candidates": [],
-        })
+        return json.dumps(
+            {
+                "chunk_status": "rejected",
+                "rejection_reason": "sem conceito",
+                "rejection_category": "narrative",
+                "summary": "Trecho de transicao.",
+                "key_concepts": [],
+                "candidates": [],
+            }
+        )
 
     monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
 
@@ -317,9 +346,13 @@ def _process_chunk_test_setup(tmp_path):
     db.upsert_source("@Book2024", "Book2024", "Livro", ["Autor"], 2024, "h", "/x.pdf", "pdf")
     db.upsert_chapter("@Book2024::ch000", "@Book2024", "Ch1", "chh")
     db.upsert_chunk(
-        "@Book2024::ch000::abc", "@Book2024", "@Book2024::ch000",
-        "texto do chunk com conteudo suficiente", "ck",
-        chunk_index=0, status="pending",
+        "@Book2024::ch000::abc",
+        "@Book2024",
+        "@Book2024::ch000",
+        "texto do chunk com conteudo suficiente",
+        "ck",
+        chunk_index=0,
+        status="pending",
     )
     return cfg, db, db.get_chunk("@Book2024::ch000::abc")
 
@@ -334,14 +367,16 @@ def test_process_chunk_persists_rejection_taxonomy(tmp_path, monkeypatch):
     cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
 
     def fake_call_llm(llm, user, system=None, **kwargs):
-        return json.dumps({
-            "chunk_status": "rejected",
-            "rejection_reason": "trecho e so uma referencia bibliografica",
-            "rejection_category": "structural",
-            "summary": "Trecho estrutural.",
-            "key_concepts": [],
-            "candidates": [],
-        })
+        return json.dumps(
+            {
+                "chunk_status": "rejected",
+                "rejection_reason": "trecho e so uma referencia bibliografica",
+                "rejection_category": "structural",
+                "summary": "Trecho estrutural.",
+                "key_concepts": [],
+                "candidates": [],
+            }
+        )
 
     monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
     prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
@@ -364,14 +399,16 @@ def test_process_chunk_normalizes_unknown_rejection_category(tmp_path, monkeypat
     cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
 
     def fake_call_llm(llm, user, system=None, **kwargs):
-        return json.dumps({
-            "chunk_status": "rejected",
-            "rejection_reason": "motivo qualquer",
-            "rejection_category": "categoria-inventada-pelo-llm",
-            "summary": "Trecho.",
-            "key_concepts": [],
-            "candidates": [],
-        })
+        return json.dumps(
+            {
+                "chunk_status": "rejected",
+                "rejection_reason": "motivo qualquer",
+                "rejection_category": "categoria-inventada-pelo-llm",
+                "summary": "Trecho.",
+                "key_concepts": [],
+                "candidates": [],
+            }
+        )
 
     monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
     prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
@@ -401,14 +438,18 @@ def test_process_chunk_persists_rejected_candidates_with_reason(tmp_path, monkey
     }
 
     def fake_call_llm(llm, user, system=None, **kwargs):
-        return json.dumps({
-            "chunk_status": "accepted",
-            "rejection_reason": "",
-            "rejection_category": "",
-            "summary": "Resumo com conteudo suficiente para pontuar bem no calculo de confianca.",
-            "key_concepts": ["conceito"],
-            "candidates": [low_relevance_candidate],
-        })
+        return json.dumps(
+            {
+                "chunk_status": "accepted",
+                "rejection_reason": "",
+                "rejection_category": "",
+                "summary": (
+                    "Resumo com conteudo suficiente para pontuar bem no calculo de confianca."
+                ),
+                "key_concepts": ["conceito"],
+                "candidates": [low_relevance_candidate],
+            }
+        )
 
     monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
     prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
@@ -436,14 +477,16 @@ def test_process_chunk_rejected_writes_no_draft_file(tmp_path, monkeypatch):
     cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
 
     def fake_call_llm(llm, user, system=None, **kwargs):
-        return json.dumps({
-            "chunk_status": "rejected",
-            "rejection_reason": "so uma referencia bibliografica",
-            "rejection_category": "structural",
-            "summary": "Trecho estrutural.",
-            "key_concepts": [],
-            "candidates": [],
-        })
+        return json.dumps(
+            {
+                "chunk_status": "rejected",
+                "rejection_reason": "so uma referencia bibliografica",
+                "rejection_category": "structural",
+                "summary": "Trecho estrutural.",
+                "key_concepts": [],
+                "candidates": [],
+            }
+        )
 
     monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
     prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
@@ -459,7 +502,8 @@ def test_process_chunk_rejected_writes_no_draft_file(tmp_path, monkeypatch):
 
 
 def test_process_chunk_accepted_but_all_candidates_filtered_writes_no_draft_file(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ):
     """chunk_status=accepted but the deterministic filter drops every candidate."""
     import json
@@ -479,14 +523,18 @@ def test_process_chunk_accepted_but_all_candidates_filtered_writes_no_draft_file
     }
 
     def fake_call_llm(llm, user, system=None, **kwargs):
-        return json.dumps({
-            "chunk_status": "accepted",
-            "rejection_reason": "",
-            "rejection_category": "",
-            "summary": "Resumo com conteudo suficiente para pontuar bem no calculo de confianca.",
-            "key_concepts": ["conceito"],
-            "candidates": [low_relevance_candidate],
-        })
+        return json.dumps(
+            {
+                "chunk_status": "accepted",
+                "rejection_reason": "",
+                "rejection_category": "",
+                "summary": (
+                    "Resumo com conteudo suficiente para pontuar bem no calculo de confianca."
+                ),
+                "key_concepts": ["conceito"],
+                "candidates": [low_relevance_candidate],
+            }
+        )
 
     monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
     prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
@@ -508,7 +556,9 @@ def test_process_chunk_accepted_with_approved_candidate_writes_draft_file(tmp_pa
     from zettel.llm import load_prompt_parts
 
     cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
-    cfg.extraction.verify_anchor_quote = False  # chunk text is too short to host a 10-25 word anchor
+    cfg.extraction.verify_anchor_quote = (
+        False  # chunk text is too short to host a 10-25 word anchor
+    )
 
     good_candidate = {
         "thesis": "Gradient descent converge mais rapido com learning rate adaptativo no treino",
@@ -521,14 +571,18 @@ def test_process_chunk_accepted_with_approved_candidate_writes_draft_file(tmp_pa
     }
 
     def fake_call_llm(llm, user, system=None, **kwargs):
-        return json.dumps({
-            "chunk_status": "accepted",
-            "rejection_reason": "",
-            "rejection_category": "",
-            "summary": "Resumo com conteudo suficiente para pontuar bem no calculo de confianca.",
-            "key_concepts": ["conceito"],
-            "candidates": [good_candidate],
-        })
+        return json.dumps(
+            {
+                "chunk_status": "accepted",
+                "rejection_reason": "",
+                "rejection_category": "",
+                "summary": (
+                    "Resumo com conteudo suficiente para pontuar bem no calculo de confianca."
+                ),
+                "key_concepts": ["conceito"],
+                "candidates": [good_candidate],
+            }
+        )
 
     monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
     prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
@@ -553,14 +607,16 @@ def test_process_chunk_caches_repaired_response_not_broken_one(tmp_path, monkeyp
 
     cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
 
-    good_response = json.dumps({
-        "chunk_status": "rejected",
-        "rejection_reason": "estrutural",
-        "rejection_category": "structural",
-        "summary": "Trecho estrutural.",
-        "key_concepts": [],
-        "candidates": [],
-    })
+    good_response = json.dumps(
+        {
+            "chunk_status": "rejected",
+            "rejection_reason": "estrutural",
+            "rejection_category": "structural",
+            "summary": "Trecho estrutural.",
+            "key_concepts": [],
+            "candidates": [],
+        }
+    )
     calls = {"n": 0}
 
     def fake_call_llm(llm, user, system=None, **kwargs):
@@ -576,9 +632,14 @@ def test_process_chunk_caches_repaired_response_not_broken_one(tmp_path, monkeyp
     assert calls["n"] == 2  # primary call + repair retry
 
     checksum = compute_llm_call_checksum(
-        "prompthash", chunk_row["chunk_checksum"], cfg.llm.extract.model,
-        cfg.llm.temperature, cfg.language, rag_context_checksum="",
-        provider=cfg.llm.extract.provider, top_p=cfg.llm.top_p,
+        "prompthash",
+        chunk_row["chunk_checksum"],
+        cfg.llm.extract.model,
+        cfg.llm.temperature,
+        cfg.language,
+        rag_context_checksum="",
+        provider=cfg.llm.extract.provider,
+        top_p=cfg.llm.top_p,
     )
     assert db.get_cached_llm_response(checksum) == good_response
     db.close()
@@ -593,32 +654,43 @@ def test_process_chunk_validation_error_prompt_includes_error_message(tmp_path, 
 
     cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
 
-    invalid_response = json.dumps({
-        "chunk_status": "accepted",
-        "rejection_reason": "",
-        "rejection_category": "",
-        "summary": "Resumo valido com bastante conteudo para pontuar razoavelmente bem.",
-        "key_concepts": ["conceito"],
-        "candidates": [{
-            "thesis": "Uma tese qualquer com palavras suficientes para passar no filtro",
-            "definition": "Uma definicao qualquer com bastante texto explicativo sobre o tema",
-            "anchor_quote": "",
-            "relevance_score": 9,  # out of the 1-5 range -> ValidationError, not a filter rejection
-        }],
-    })
+    invalid_response = json.dumps(
+        {
+            "chunk_status": "accepted",
+            "rejection_reason": "",
+            "rejection_category": "",
+            "summary": "Resumo valido com bastante conteudo para pontuar razoavelmente bem.",
+            "key_concepts": ["conceito"],
+            "candidates": [
+                {
+                    "thesis": ("Uma tese qualquer com palavras suficientes para passar no filtro"),
+                    "definition": (
+                        "Uma definicao qualquer com bastante texto explicativo sobre o tema"
+                    ),
+                    "anchor_quote": "",
+                    # out of 1-5 range -> ValidationError, not filter rejection
+                    "relevance_score": 9,
+                }
+            ],
+        }
+    )
     captured_retry_prompts: list[str] = []
 
     def fake_call_llm(llm, user, system=None, **kwargs):
         if kwargs.get("label", "").startswith("extract-retry"):
             captured_retry_prompts.append(user)
-            return json.dumps({
-                "chunk_status": "accepted",
-                "rejection_reason": "",
-                "rejection_category": "",
-                "summary": "Resumo valido com bastante conteudo para pontuar razoavelmente bem.",
-                "key_concepts": ["conceito"],
-                "candidates": [],
-            })
+            return json.dumps(
+                {
+                    "chunk_status": "accepted",
+                    "rejection_reason": "",
+                    "rejection_category": "",
+                    "summary": (
+                        "Resumo valido com bastante conteudo para pontuar razoavelmente bem."
+                    ),
+                    "key_concepts": ["conceito"],
+                    "candidates": [],
+                }
+            )
         return invalid_response
 
     monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
@@ -645,10 +717,16 @@ def test_process_chunk_json_decode_error_uses_generic_repair_prompt(tmp_path, mo
     def fake_call_llm(llm, user, system=None, **kwargs):
         if kwargs.get("label", "").startswith("extract-retry"):
             captured_retry_prompts.append(user)
-            return json.dumps({
-                "chunk_status": "rejected", "rejection_reason": "x", "rejection_category": "",
-                "summary": "s", "key_concepts": [], "candidates": [],
-            })
+            return json.dumps(
+                {
+                    "chunk_status": "rejected",
+                    "rejection_reason": "x",
+                    "rejection_category": "",
+                    "summary": "s",
+                    "key_concepts": [],
+                    "candidates": [],
+                }
+            )
         return "{ isto: nao fecha"
 
     monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
@@ -694,33 +772,35 @@ def test_process_chunk_draft_filename_and_h1_share_the_same_thesis(tmp_path, mon
     cfg.extraction.verify_anchor_quote = False  # chunk text is too short for a 10-25 word anchor
 
     def fake_call_llm(llm, user, system=None, **kwargs):
-        return json.dumps({
-            "chunk_status": "accepted",
-            "rejection_reason": "",
-            "rejection_category": "",
-            "summary": "Resumo generico que nao deveria vencer a tese.",
-            "key_concepts": ["conceito"],
-            "candidates": [
-                {
-                    "thesis": "Tese fraca e menos relevante para o tema principal",
-                    "definition": (
-                        "Definicao qualquer com palavras suficientes para passar pelo "
-                        "filtro minimo de tamanho estabelecido na configuracao"
-                    ),
-                    "anchor_quote": "texto do chunk",
-                    "relevance_score": 2,
-                },
-                {
-                    "thesis": "Backpropagation calcula gradientes via regra da cadeia",
-                    "definition": (
-                        "Definicao qualquer com palavras suficientes para passar pelo "
-                        "filtro minimo de tamanho estabelecido na configuracao"
-                    ),
-                    "anchor_quote": "texto do chunk",
-                    "relevance_score": 5,
-                },
-            ],
-        })
+        return json.dumps(
+            {
+                "chunk_status": "accepted",
+                "rejection_reason": "",
+                "rejection_category": "",
+                "summary": "Resumo generico que nao deveria vencer a tese.",
+                "key_concepts": ["conceito"],
+                "candidates": [
+                    {
+                        "thesis": "Tese fraca e menos relevante para o tema principal",
+                        "definition": (
+                            "Definicao qualquer com palavras suficientes para passar pelo "
+                            "filtro minimo de tamanho estabelecido na configuracao"
+                        ),
+                        "anchor_quote": "texto do chunk",
+                        "relevance_score": 2,
+                    },
+                    {
+                        "thesis": "Backpropagation calcula gradientes via regra da cadeia",
+                        "definition": (
+                            "Definicao qualquer com palavras suficientes para passar pelo "
+                            "filtro minimo de tamanho estabelecido na configuracao"
+                        ),
+                        "anchor_quote": "texto do chunk",
+                        "relevance_score": 5,
+                    },
+                ],
+            }
+        )
 
     monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
     prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
@@ -736,6 +816,7 @@ def test_process_chunk_draft_filename_and_h1_share_the_same_thesis(tmp_path, mon
     assert "Backpropagation calcula gradientes via regra da cadeia" in h1
 
     from zettel.vault import literature_chunk_filename_for_row
+
     assert literature_chunk_filename_for_row("Book2024", row) == Path(draft_path).name
     db.close()
 
@@ -814,10 +895,12 @@ def test_score_review_confidence_partial_filter_rejection_lowers_score():
     weak = _make_candidate(relevance_score=1)  # gets filtered out
 
     all_good = _score_review_confidence(
-        _make_output(candidates=[good, _make_candidate(relevance_score=5)]), cfg,
+        _make_output(candidates=[good, _make_candidate(relevance_score=5)]),
+        cfg,
     )
     half_filtered = _score_review_confidence(
-        _make_output(candidates=[good, weak]), cfg,
+        _make_output(candidates=[good, weak]),
+        cfg,
     )
     assert all_good > half_filtered
 
@@ -849,6 +932,7 @@ def test_score_review_confidence_handles_degenerate_definition_floor():
 def test_score_review_confidence_never_calls_llm():
     """No `llm` argument exists on the signature -- purely a function of output/cfg."""
     import inspect
+
     params = inspect.signature(_score_review_confidence).parameters
     assert "llm" not in params
 
@@ -871,7 +955,7 @@ def test_summary_within_cap_is_untouched():
 
 # ── #63: intra-batch candidate dedupe ─────────────────────────────────
 
-from zettel.extractor import _intra_batch_dedupe, deduplicate_candidates  # noqa: E402
+from zettel.extractor import _intra_batch_dedupe, deduplicate_candidates
 
 
 class _FakeDedupeIndex:
@@ -964,6 +1048,7 @@ def test_intra_batch_dedupe_skips_pairwise_above_cap():
     cfg = _make_config()
     idx = _FakeDedupeIndex()
     from zettel.extractor import _INTRA_BATCH_PAIRWISE_MAX
+
     candidates = [
         _cand_dict(f"c{i}", thesis=f"Tese numero {i} totalmente distinta das outras aqui")
         for i in range(_INTRA_BATCH_PAIRWISE_MAX + 1)
@@ -975,7 +1060,8 @@ def test_intra_batch_dedupe_skips_pairwise_above_cap():
 
 
 def test_deduplicate_candidates_intra_batch_duplicate_marked_before_existing_notes_pass(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ):
     """A batch-internal duplicate never reaches the (LLM-backed) existing-notes pass."""
     from pathlib import Path

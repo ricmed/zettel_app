@@ -66,9 +66,7 @@ def _anchor_relative_paths(data: dict[str, Any], base: Path) -> dict[str, Any]:
         if isinstance(article, dict) and "personalities_path" in article:
             retrieval = dict(retrieval)
             article = dict(article)
-            article["personalities_path"] = _anchor_path_value(
-                article["personalities_path"], base
-            )
+            article["personalities_path"] = _anchor_path_value(article["personalities_path"], base)
             retrieval["article"] = article
             out["retrieval"] = retrieval
 
@@ -106,7 +104,7 @@ class LLMPhaseConfig(BaseModel):
 
     provider: str = "openai"
     model: str = "gpt-4o-mini"
-    base_url: str | None = None       # gateways OpenAI-compatible / Ollama; None = default do provider
+    base_url: str | None = None  # gateways OpenAI-compatible / Ollama; None = default do provider
     temperature: float | None = None  # None = herda llm.temperature; override so desta fase
 
 
@@ -119,9 +117,9 @@ class LLMConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     temperature: float = 0
-    top_p: float = 1                  # nucleus sampling; encaminhado em get_llm
+    top_p: float = 1  # nucleus sampling; encaminhado em get_llm
     max_retries: int = 2
-    prompt_cache: bool = True         # prefix cache do provedor; ≠ llm_cache SQLite
+    prompt_cache: bool = True  # prefix cache do provedor; ≠ llm_cache SQLite
     harvest: LLMPhaseConfig = Field(default_factory=LLMPhaseConfig)
     extract: LLMPhaseConfig = Field(default_factory=LLMPhaseConfig)
     review: LLMPhaseConfig = Field(default_factory=LLMPhaseConfig)
@@ -139,7 +137,7 @@ class EmbeddingConfig(BaseModel):
     model: str = "text-embedding-3-small"
     # ollama: host nativo (http://localhost:11434); sufixo /v1 legado e removido
     base_url: str | None = None
-    allow_fallback: bool = False      # False = erro se faltar key (evita Chroma 384-d)
+    allow_fallback: bool = False  # False = erro se faltar key (evita Chroma 384-d)
     # MRL: ollama (langchain_ollama) e openai text-embedding-3-* (EF Chroma).
     # null = dimensao nativa do modelo. Trocar exige reindex --force.
     dimensions: int | None = None
@@ -155,10 +153,10 @@ class EmbeddingConfig(BaseModel):
 
 
 class ChunkingConfig(BaseModel):
-    chunk_size: int = 2500             # caracteres (nao tokens)
+    chunk_size: int = 2500  # caracteres (nao tokens)
     chunk_overlap: int = 400
-    min_section_chars: int = 200      # secoes menores sao fundidas com a seguinte
-    min_chunk_chars: int = 200        # pedacos menores sao fundidos no anterior
+    min_section_chars: int = 200  # secoes menores sao fundidas com a seguinte
+    min_chunk_chars: int = 200  # pedacos menores sao fundidos no anterior
 
 
 class LinkingConfig(BaseModel):
@@ -180,13 +178,13 @@ class HarvestConfig(BaseModel):
 
 
 class ExtractionConfig(BaseModel):
-    min_relevance_score: int = 3      # candidatos abaixo sao descartados
-    min_thesis_words: int = 5         # palavras minimas na tese
-    require_anchor_quote: bool = True # descartar se anchor_quote vazio
-    min_definition_words: int = 10    # palavras minimas na definicao
+    min_relevance_score: int = 3  # candidatos abaixo sao descartados
+    min_thesis_words: int = 5  # palavras minimas na tese
+    require_anchor_quote: bool = True  # descartar se anchor_quote vazio
+    min_definition_words: int = 10  # palavras minimas na definicao
     verify_anchor_quote: bool = True  # checa faixa de palavras e ancoragem no chunk
     anchor_quote_min_ratio: float = 0.85  # cobertura minima na checagem fuzzy
-    anchor_quote_min_words: int = 10      # faixa que o prompt ja exige
+    anchor_quote_min_words: int = 10  # faixa que o prompt ja exige
     anchor_quote_max_words: int = 25
     # Alvo de saida por chunk, usado APENAS na estimativa de pre-voo (nao e teto).
     preflight_output_tokens_per_chunk: int = 800
@@ -196,43 +194,43 @@ class LiteratureReviewConfig(BaseModel):
     """Aprovacao seletiva de Notas de Literatura granulares (por chunk)."""
 
     auto_approve_min_confidence: float = 0.85
-    batch_sample_size: int = 20       # max drafts de baixa confianca a listar no review interativo
+    batch_sample_size: int = 20  # max drafts de baixa confianca a listar no review interativo
     drafts_subdir: str = "00_Inbox/Review"
 
 
 class ImagesConfig(BaseModel):
     """Extracao de imagens no harvest (Docling/Markdown) e descricao multimodal."""
 
-    enabled: bool = False             # extrai/descreve imagens de PDF (Docling) e Markdown
-    scale: float = 2.0               # images_scale do Docling
-    min_width: int = 64              # descarta imagens menores (icones/logos)
+    enabled: bool = False  # extrai/descreve imagens de PDF (Docling) e Markdown
+    scale: float = 2.0  # images_scale do Docling
+    min_width: int = 64  # descarta imagens menores (icones/logos)
     min_height: int = 64
-    context_chars: int = 600         # caracteres ao redor da imagem usados como contexto
+    context_chars: int = 600  # caracteres ao redor da imagem usados como contexto
     # Pacing + resiliencia a TPM (visao estoura tokens/min bem mais rapido que texto):
-    min_interval_seconds: float = 0.4       # pausa minima entre chamadas LLM de imagem
-    rate_limit_max_retries: int = 8         # tentativas por imagem em 429
-    rate_limit_backoff_max: float = 60.0    # teto de espera (s) entre retries
-    rate_limit_abort_after: int = 5         # 429 esgotados consecutivos => para o lote
+    min_interval_seconds: float = 0.4  # pausa minima entre chamadas LLM de imagem
+    rate_limit_max_retries: int = 8  # tentativas por imagem em 429
+    rate_limit_backoff_max: float = 60.0  # teto de espera (s) entre retries
+    rate_limit_abort_after: int = 5  # 429 esgotados consecutivos => para o lote
 
 
 class GardenerConfig(BaseModel):
     min_cluster_size: int = 5
     min_notes_for_moc: int = 3
-    domain: str = ""                               # ex: "Ciencia de Dados"
+    domain: str = ""  # ex: "Ciencia de Dados"
     # Default ja aponta para o YAML da taxonomia. None = taxonomia nao configurada
     # (TaxonomyLoadError se strict_topics). Nao confundir None com "usar o default".
     topics_path: Path | None = Path("config/moc_topics.yaml")
     # Override de testes; nao e knob do config.yaml (whitelist vem de topics_path).
     allowed_topics: list[str] = Field(default_factory=list)
-    strict_topics: bool = True                      # rejeitar topic fora das categorias
+    strict_topics: bool = True  # rejeitar topic fora das categorias
     # Pipeline hibrido: taxonomia -> cluster por categoria -> grafo -> LLM.
     cluster_within_category: bool = True
     category_label_template: str = "{domain}: {categoria}"
-    overlap_threshold: float = 0.4                  # overlap cluster/MOC -> incremental
+    overlap_threshold: float = 0.4  # overlap cluster/MOC -> incremental
     graph_cohesion_enabled: bool = True
-    graph_cohesion_min_ratio: float = 0.0           # 0 = metrica apenas; >0 rejeita MOC novo
-    umap_n_neighbors: int | None = None             # None = auto (min(15, n-1))
-    hdbscan_min_samples: int | None = None          # None = default HDBSCAN
+    graph_cohesion_min_ratio: float = 0.0  # 0 = metrica apenas; >0 rejeita MOC novo
+    umap_n_neighbors: int | None = None  # None = auto (min(15, n-1))
+    hdbscan_min_samples: int | None = None  # None = default HDBSCAN
 
     @field_validator("topics_path", mode="before")
     @classmethod
@@ -274,9 +272,9 @@ class GraphExpansionConfig(BaseModel):
     """Expansao 1-N saltos sobre note_connections apos a fusao hibrida."""
 
     enabled: bool = True
-    max_hops: int = 1                 # 1 salto ja traz o valor do GraphRAG leve
-    decay: float = 0.5                # atenuacao do score por salto adicional
-    max_neighbors: int = 10           # teto de vizinhos trazidos para o contexto
+    max_hops: int = 1  # 1 salto ja traz o valor do GraphRAG leve
+    decay: float = 0.5  # atenuacao do score por salto adicional
+    max_neighbors: int = 10  # teto de vizinhos trazidos para o contexto
     relation_weights: dict[str, float] = Field(
         default_factory=lambda: dict(DEFAULT_RELATION_WEIGHTS)
     )
@@ -286,8 +284,8 @@ class AskConfig(BaseModel):
     """Comando `zettel ask` — QA sobre o vault."""
 
     topk: int = 8
-    max_context_notes: int = 8        # teto de notas montadas no contexto do LLM
-    max_chars_per_note: int = 1500    # truncagem do corpo de cada nota no contexto
+    max_context_notes: int = 8  # teto de notas montadas no contexto do LLM
+    max_chars_per_note: int = 1500  # truncagem do corpo de cada nota no contexto
 
 
 class ArticleConfig(BaseModel):
@@ -296,7 +294,7 @@ class ArticleConfig(BaseModel):
     topk: int = 20
     max_context_notes: int = 24
     max_chars_per_note: int = 1200
-    max_hops: int = 2                 # expansao de grafo mais ampla que o ask
+    max_hops: int = 2  # expansao de grafo mais ampla que o ask
     max_sections: int = 8
     max_figures: int = 6
     chars_per_section_draft: int = 2500
@@ -305,7 +303,7 @@ class ArticleConfig(BaseModel):
     enrich_query_count: int = 6
     max_judge_iterations: int = 3
     judge_min_score: float = 7.0
-    writer_temperature: float | None = None   # None = cfg.llm.temperature
+    writer_temperature: float | None = None  # None = cfg.llm.temperature
     judge_temperature: float = 0.2
     enrich_temperature: float = 0.2
 
@@ -328,7 +326,7 @@ class RetrievalConfig(BaseModel):
     """
 
     mode: Literal["vector", "hybrid"] = "hybrid"
-    rrf_k: int = 60                   # constante do Reciprocal Rank Fusion (canonica)
+    rrf_k: int = 60  # constante do Reciprocal Rank Fusion (canonica)
     # Termo da pergunta que casa com o Topic Index vira semente EXTRA -- e passa
     # pelo mesmo piso de relevancia. Nunca fura o piso (ver ADR-036).
     topic_index_boost: bool = True
@@ -406,7 +404,7 @@ def load_config(path: Path | str | None = None) -> AppConfig:
     data: dict[str, Any] = {}
 
     if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             raw = yaml.safe_load(f)
             if isinstance(raw, dict):
                 data = raw
@@ -428,14 +426,11 @@ def llm_phase(cfg: Any, phase: str) -> LLMPhaseConfig:
     """
     if phase not in LLM_PHASES:
         raise ValueError(
-            f"Fase LLM desconhecida: {phase!r}. "
-            f"Valores validos: {', '.join(LLM_PHASES)}"
+            f"Fase LLM desconhecida: {phase!r}. Valores validos: {', '.join(LLM_PHASES)}"
         )
     spec = getattr(cfg.llm, phase)
     if not isinstance(spec, LLMPhaseConfig):
-        raise TypeError(
-            f"llm.{phase} deve ser LLMPhaseConfig, obtido {type(spec).__name__}"
-        )
+        raise TypeError(f"llm.{phase} deve ser LLMPhaseConfig, obtido {type(spec).__name__}")
     return spec
 
 
@@ -450,8 +445,8 @@ def setup_logging(level: str = "INFO") -> None:
     Uses stderr so log messages flow correctly alongside Rich console.status() spinners.
     Quiets noisy HTTP client loggers so pipeline progress (X/Y) stays readable.
     """
-    from rich.logging import RichHandler
     from rich.console import Console
+    from rich.logging import RichHandler
 
     handler = RichHandler(
         console=Console(stderr=True),
@@ -504,6 +499,7 @@ def _cuda_available() -> bool:
     """Check if CUDA-capable GPU is available via PyTorch."""
     try:
         import torch
+
         return torch.cuda.is_available()
     except ImportError:
         return False
@@ -513,6 +509,7 @@ def _gpu_name() -> str:
     """Return the name of the current CUDA device."""
     try:
         import torch
+
         if torch.cuda.is_available():
             return torch.cuda.get_device_name(0)
     except Exception:
@@ -525,6 +522,7 @@ def get_gpu_info() -> dict[str, Any]:
     info: dict[str, Any] = {"available": False}
     try:
         import torch
+
         info["torch_version"] = torch.__version__
         info["cuda_built"] = torch.cuda.is_available()
         if torch.cuda.is_available():
@@ -532,7 +530,7 @@ def get_gpu_info() -> dict[str, Any]:
             info["device_name"] = torch.cuda.get_device_name(0)
             info["device_count"] = torch.cuda.device_count()
             mem = torch.cuda.get_device_properties(0).total_memory
-            info["vram_gb"] = round(mem / (1024 ** 3), 1)
+            info["vram_gb"] = round(mem / (1024**3), 1)
             info["cuda_version"] = torch.version.cuda or "N/A"
     except ImportError:
         info["torch_version"] = "nao instalado"

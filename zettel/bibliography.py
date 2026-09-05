@@ -6,12 +6,16 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from zettel.config import AppConfig, effective_temperature, llm_phase
-from zettel.hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
+from zettel.hashing import (
+    compute_llm_call_checksum,
+    normalize_text_for_hash,
+    sha256_hex,
+)
 from zettel.llm import call_llm, extract_json, fill_template, get_llm, load_prompt_parts
 from zettel.state import StateDB
 
@@ -53,8 +57,13 @@ DOCUMENT_TYPE_LABELS: dict[DocumentType, str] = {
 REQUIRED_FIELDS: dict[DocumentType, tuple[str, ...]] = {
     "livro": ("authors", "title", "place", "publisher", "year"),
     "capitulo_livro": (
-        "chapter_authors", "chapter_title", "book_title",
-        "place", "publisher", "year", "pages",
+        "chapter_authors",
+        "chapter_title",
+        "book_title",
+        "place",
+        "publisher",
+        "year",
+        "pages",
     ),
     "artigo_periodico": ("authors", "title", "journal", "year"),
     "artigo_internet": ("title", "url", "accessed_at"),
@@ -127,50 +136,61 @@ FIELD_LABELS: dict[str, str] = {
 }
 
 _MONTHS_PT = (
-    "", "jan.", "fev.", "mar.", "abr.", "maio", "jun.",
-    "jul.", "ago.", "set.", "out.", "nov.", "dez.",
+    "",
+    "jan.",
+    "fev.",
+    "mar.",
+    "abr.",
+    "maio",
+    "jun.",
+    "jul.",
+    "ago.",
+    "set.",
+    "out.",
+    "nov.",
+    "dez.",
 )
 
 
 class BibliographicMetadata(BaseModel):
     """Typed bibliographic record for ABNT references."""
 
-    document_type: Optional[DocumentType] = None
+    document_type: DocumentType | None = None
     confidence: float = 0.0
 
-    title: Optional[str] = None
-    subtitle: Optional[str] = None
+    title: str | None = None
+    subtitle: str | None = None
     authors: list[str] = Field(default_factory=list)
-    year: Optional[int] = None
-    edition: Optional[str] = None
-    place: Optional[str] = None
-    publisher: Optional[str] = None
-    translator: Optional[str] = None
-    isbn: Optional[str] = None
+    year: int | None = None
+    edition: str | None = None
+    place: str | None = None
+    publisher: str | None = None
+    translator: str | None = None
+    isbn: str | None = None
 
     chapter_authors: list[str] = Field(default_factory=list)
-    chapter_title: Optional[str] = None
-    book_title: Optional[str] = None
+    chapter_title: str | None = None
+    book_title: str | None = None
     book_editors: list[str] = Field(default_factory=list)
-    pages: Optional[str] = None
+    pages: str | None = None
 
-    journal: Optional[str] = None
-    volume: Optional[str] = None
-    issue: Optional[str] = None
-    doi: Optional[str] = None
+    journal: str | None = None
+    volume: str | None = None
+    issue: str | None = None
+    doi: str | None = None
 
-    url: Optional[str] = None
-    accessed_at: Optional[str] = None
-    site_name: Optional[str] = None
-    published_at: Optional[str] = None
+    url: str | None = None
+    accessed_at: str | None = None
+    site_name: str | None = None
+    published_at: str | None = None
 
-    institution: Optional[str] = None
-    course: Optional[str] = None
-    discipline: Optional[str] = None
-    degree: Optional[str] = None
-    advisor: Optional[str] = None
-    event_name: Optional[str] = None
-    report_number: Optional[str] = None
+    institution: str | None = None
+    course: str | None = None
+    discipline: str | None = None
+    degree: str | None = None
+    advisor: str | None = None
+    event_name: str | None = None
+    report_number: str | None = None
 
 
 # ── Field helpers ──────────────────────────────────────────────────────
@@ -190,9 +210,7 @@ def _field_empty(meta: BibliographicMetadata, field: str) -> bool:
         return not bool(value)
     if value is None:
         return True
-    if isinstance(value, str) and not value.strip():
-        return True
-    return False
+    return bool(isinstance(value, str) and not value.strip())
 
 
 def missing_required(meta: BibliographicMetadata) -> list[str]:
@@ -348,9 +366,7 @@ def format_abnt_in_text(
     if len(cleaned) == 1:
         cite_authors = _author_surname(cleaned[0])
     elif len(cleaned) == 2:
-        cite_authors = (
-            f"{_author_surname(cleaned[0])}; {_author_surname(cleaned[1])}"
-        )
+        cite_authors = f"{_author_surname(cleaned[0])}; {_author_surname(cleaned[1])}"
     elif len(cleaned) == 3:
         cite_authors = (
             f"{_author_surname(cleaned[0])}; "
@@ -571,7 +587,11 @@ def _abnt_tese(meta: BibliographicMetadata) -> str:
     parts.append(f"{year}." if year else "")
     loc_bits = [b for b in [inst, place] if b]
     if loc_bits:
-        parts.append(f"{degree} — {', '.join(loc_bits)}, {year}." if year else f"{degree} — {', '.join(loc_bits)}.")
+        parts.append(
+            f"{degree} — {', '.join(loc_bits)}, {year}."
+            if year
+            else f"{degree} — {', '.join(loc_bits)}."
+        )
     else:
         parts.append(f"{degree}.")
     if meta.advisor:
@@ -666,7 +686,10 @@ def infer_from_file_metadata(
     url_match = re.search(r"https?://[^\s\)\]\>\"']+", text_sample or "")
     has_url = bool(url_match) or bool(metadata.get("url"))
 
-    if any(k in sample_lower for k in ("tese (", "disserta", "trabalho de conclus")) or "tese" in fname_lower:
+    if (
+        any(k in sample_lower for k in ("tese (", "disserta", "trabalho de conclus"))
+        or "tese" in fname_lower
+    ):
         doc_type = "tese"
         confidence = 0.55
     elif any(k in sample_lower for k in ("disciplina", "plano de aula", "material did")) or any(
@@ -674,16 +697,24 @@ def infer_from_file_metadata(
     ):
         doc_type = "material_curso"
         confidence = 0.5
-    elif any(k in sample_lower for k in ("anais", "congresso", "simpósio", "simposio", "proceedings")):
+    elif any(
+        k in sample_lower for k in ("anais", "congresso", "simpósio", "simposio", "proceedings")
+    ):
         doc_type = "anais_evento"
         confidence = 0.5
-    elif re.search(r"\bin:\s", sample_lower) or "capítulo" in sample_lower or "capitulo" in sample_lower:
+    elif (
+        re.search(r"\bin:\s", sample_lower)
+        or "capítulo" in sample_lower
+        or "capitulo" in sample_lower
+    ):
         doc_type = "capitulo_livro"
         confidence = 0.45
     elif any(k in sample_lower for k in ("revista", "journal", "vol.", "v. ", "n. ", "doi:")):
         doc_type = "artigo_periodico"
         confidence = 0.5
-    elif has_url and (".html" in fname_lower or "http" in sample_lower[:500] or metadata.get("url")):
+    elif has_url and (
+        ".html" in fname_lower or "http" in sample_lower[:500] or metadata.get("url")
+    ):
         doc_type = "artigo_internet"
         confidence = 0.5
     elif any(k in sample_lower for k in ("relatório", "relatorio tecnico", "technical report")):
@@ -758,9 +789,7 @@ def _value_empty(value: Any) -> bool:
         return True
     if isinstance(value, list):
         return not bool(value)
-    if isinstance(value, str) and not value.strip():
-        return True
-    return False
+    return bool(isinstance(value, str) and not value.strip())
 
 
 def _merge_biblio(
@@ -810,7 +839,9 @@ def enrich_with_llm(
     """Call LLM to enrich bibliographic metadata; uses deterministic cache."""
     if not getattr(cfg.harvest, "biblio_llm_enabled", True):
         if raise_on_error:
-            raise RuntimeError("O enriquecimento bibliográfico por LLM está desligado na configuração.")
+            raise RuntimeError(
+                "O enriquecimento bibliográfico por LLM está desligado na configuração."
+            )
         return seed
 
     prompt_path = cfg.prompts_path / "bibliographic_metadata.md"
@@ -823,9 +854,15 @@ def enrich_with_llm(
     prompt_parts = load_prompt_parts(prompt_path)
     prompt_hash = sha256_hex(prompt_parts.full_template)
     sample_checksum = sha256_hex(normalize_text_for_hash(text_sample))
-    seed_checksum = sha256_hex(normalize_text_for_hash(json.dumps(
-        seed.model_dump(), sort_keys=True, ensure_ascii=False,
-    )))
+    seed_checksum = sha256_hex(
+        normalize_text_for_hash(
+            json.dumps(
+                seed.model_dump(),
+                sort_keys=True,
+                ensure_ascii=False,
+            )
+        )
+    )
 
     spec = llm_phase(cfg, "harvest")
     call_checksum = compute_llm_call_checksum(
@@ -841,6 +878,7 @@ def enrich_with_llm(
     cached = db.get_cached_llm_response(call_checksum)
     if cached:
         from zettel.usage import record_cache_hit
+
         record_cache_hit(label=f"biblio:{filename}", model=spec.model)
         response_text = cached
     else:
@@ -870,7 +908,8 @@ def enrich_with_llm(
             logger.warning("Falha no LLM bibliografico para %s: %s", filename, e)
             if raise_on_error:
                 raise RuntimeError(
-                    "O LLM não conseguiu completar a bibliografia. Tente de novo ou monte a ABNT sem o modelo."
+                    "O LLM não conseguiu completar a bibliografia. "
+                    "Tente de novo ou monte a ABNT sem o modelo."
                 ) from e
             return seed
 
@@ -887,9 +926,7 @@ def enrich_with_llm(
     except Exception as e:
         logger.warning("Falha ao parsear metadados bibliograficos de %s: %s", filename, e)
         if raise_on_error:
-            raise RuntimeError(
-                "O LLM não devolveu metadados bibliográficos válidos."
-            ) from e
+            raise RuntimeError("O LLM não devolveu metadados bibliográficos válidos.") from e
         return seed
 
 
@@ -944,6 +981,11 @@ def preview_manual_bibliography(
     sample_chars = getattr(cfg.harvest, "biblio_text_sample_chars", 5000)
     sample = (text_sample or "")[:sample_chars]
     return enrich_with_llm(
-        cfg, db, seed, sample, "manual-src",
-        prefer_seed=True, raise_on_error=True,
+        cfg,
+        db,
+        seed,
+        sample,
+        "manual-src",
+        prefer_seed=True,
+        raise_on_error=True,
     )

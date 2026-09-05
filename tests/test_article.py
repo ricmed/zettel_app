@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 import zettel.article as article_mod
 from zettel.article import (
     ArticleCatalog,
@@ -26,7 +25,6 @@ from zettel.config import AppConfig
 from zettel.retrieval import NoteSearchResult, RetrievedNote
 from zettel.schemas import ArticleOutline, ArticleOutlineSection
 from zettel.state import StateDB
-
 
 NOTE_A = "01KZ6QKMSE8K4MWBDQ97N40F5Y"
 NOTE_B = "01KZ6QKWGZAQVXBXPVC0T5MB40"
@@ -111,26 +109,16 @@ class FakeIndex:
 
 def test_format_abnt_in_text_variants():
     assert format_abnt_in_text(["João Silva Santos"], 2020) == "(SANTOS, 2020)"
+    assert format_abnt_in_text(["Ana Silva", "Bruno Souza"], 2019) == "(SILVA; SOUZA, 2019)"
     assert (
-        format_abnt_in_text(["Ana Silva", "Bruno Souza"], 2019)
-        == "(SILVA; SOUZA, 2019)"
-    )
-    assert (
-        format_abnt_in_text(
-            ["Alessandro Negro", "Vlasta Kus", "Giuseppe Futia", "X Y"], 2026
-        )
+        format_abnt_in_text(["Alessandro Negro", "Vlasta Kus", "Giuseppe Futia", "X Y"], 2026)
         == "(NEGRO et al., 2026)"
     )
-    assert (
-        format_abnt_in_text(["Ana Silva"], 2020, pages="p. 10")
-        == "(SILVA, 2020, p. 10)"
-    )
+    assert format_abnt_in_text(["Ana Silva"], 2020, pages="p. 10") == "(SILVA, 2020, p. 10)"
     assert display_author_natural(["Alessandro Negro", "Vlasta Kus"]) == (
         "Alessandro Negro e Vlasta Kus"
     )
-    assert display_author_natural(
-        ["A", "B", "C", "D"]
-    ) == "A et al."
+    assert display_author_natural(["A", "B", "C", "D"]) == "A et al."
 
 
 def test_catalog_from_retrieved_joins_source_and_assets(db, seeded):
@@ -176,9 +164,7 @@ def test_merge_retrieved_notes_keeps_best_score():
     a = RetrievedNote(note_id=NOTE_A, score=0.5, title="A")
     b = RetrievedNote(note_id=NOTE_B, score=0.8, title="B")
     a2 = RetrievedNote(note_id=NOTE_A, score=0.9, title="A better")
-    merged = merge_retrieved_notes(
-        [retrieved_note_to_dict(a)], [b, a2], max_notes=10
-    )
+    merged = merge_retrieved_notes([retrieved_note_to_dict(a)], [b, a2], max_notes=10)
     by_id = {d["note_id"]: d for d in merged}
     assert by_id[NOTE_A]["score"] == 0.9
     assert by_id[NOTE_A]["title"] == "A better"
@@ -244,9 +230,7 @@ def test_assemble_academic_with_cites_and_figure(seeded):
         "![[90_Assets/img-deadbeef12345678.png]]\n\n"
         "<!-- cites: @Negro2026KnowledgeGraphs -->\n"
     )
-    meta, body, cited, warnings = assemble_article(
-        outline, [section], catalog, seeded
-    )
+    _meta, body, cited, _warnings = assemble_article(outline, [section], catalog, seeded)
     assert "Grafos e LLMs" in body
     assert "## Referencias" in body
     assert "NEGRO, Alessandro" in body
@@ -275,9 +259,7 @@ def test_assemble_blog_light_reading_list():
     outline = ArticleOutline(
         title="Blog post",
         thesis="Tese curta.",
-        sections=[
-            ArticleOutlineSection(heading="Gancho", goal="g", note_ids=[NOTE_A])
-        ],
+        sections=[ArticleOutlineSection(heading="Gancho", goal="g", note_ids=[NOTE_A])],
     )
     section = (
         "## Gancho\n\n"
@@ -296,9 +278,7 @@ def test_outline_schema_and_display():
         title="T",
         thesis="Tes.",
         sections=[
-            ArticleOutlineSection(
-                heading="A", goal="g", note_ids=[NOTE_A], figure_asset_ids=[]
-            )
+            ArticleOutlineSection(heading="A", goal="g", note_ids=[NOTE_A], figure_asset_ids=[])
         ],
     )
     text = format_outline_for_display(outline)
@@ -310,17 +290,13 @@ def test_run_article_no_evidence(db, monkeypatch):
     def fake_search(self, *a, **k):
         return NoteSearchResult(hits=[], candidates=[])
 
-    monkeypatch.setattr(
-        "zettel.retrieval.Retriever.search_notes", fake_search
-    )
+    monkeypatch.setattr("zettel.retrieval.Retriever.search_notes", fake_search)
     monkeypatch.setattr(
         article_mod,
         "call_llm",
         lambda llm, prompt, **kwargs: json.dumps({"queries": ["tema inexistente"]}),
     )
-    monkeypatch.setattr(
-        article_mod, "get_llm", lambda *a, **k: object()
-    )
+    monkeypatch.setattr(article_mod, "get_llm", lambda *a, **k: object())
 
     prompts = Path(__file__).resolve().parents[1] / "prompts"
     result = run_article(
@@ -360,9 +336,7 @@ def test_run_article_full_mock(db, seeded, monkeypatch, tmp_path):
                     "heading": "O que e prompting",
                     "goal": "Definir",
                     "note_ids": [NOTE_A],
-                    "figure_asset_ids": [
-                        "@Negro2026KnowledgeGraphs::img::deadbeef"
-                    ],
+                    "figure_asset_ids": ["@Negro2026KnowledgeGraphs::img::deadbeef"],
                 },
                 {
                     "heading": "Conclusao",
@@ -391,9 +365,7 @@ def test_run_article_full_mock(db, seeded, monkeypatch, tmp_path):
         return responses.pop(0)
 
     monkeypatch.setattr(article_mod, "call_llm", fake_llm)
-    monkeypatch.setattr(
-        article_mod, "get_llm", lambda *a, **k: object()
-    )
+    monkeypatch.setattr(article_mod, "get_llm", lambda *a, **k: object())
 
     prompts = Path(__file__).resolve().parents[1] / "prompts"
     root = Path(__file__).resolve().parents[1]
@@ -401,7 +373,10 @@ def test_run_article_full_mock(db, seeded, monkeypatch, tmp_path):
     cfg.retrieval.article.personalities_path = root / "config" / "personalities.yaml"
 
     result = run_article(
-        cfg, db, FakeIndex(), "prompt engineering",
+        cfg,
+        db,
+        FakeIndex(),
+        "prompt engineering",
         style="blog",
         approve_outline=lambda o: ("approve", None),
         skip_judge=True,

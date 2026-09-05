@@ -5,7 +5,6 @@ from __future__ import annotations
 import sys
 
 import pytest
-
 from zettel.config import AppConfig
 from zettel.harvester.extract import (
     PdfExtractionError,
@@ -30,9 +29,7 @@ def test_extract_pdf_docling_missing_raises_pdf_extraction_error(monkeypatch, tm
         extract_pdf_docling(_cfg(), pdf)
 
 
-def test_extract_pdf_docling_conversion_failure_raises_pdf_extraction_error(
-    monkeypatch, tmp_path
-):
+def test_extract_pdf_docling_conversion_failure_raises_pdf_extraction_error(monkeypatch, tmp_path):
     """A Docling conversion error is fatal, with a message distinct from 'not installed'."""
     pdf = tmp_path / "doc.pdf"
     pdf.write_bytes(b"%PDF-1.4 fake")
@@ -44,9 +41,7 @@ def test_extract_pdf_docling_conversion_failure_raises_pdf_extraction_error(
         def convert(self, path):
             raise RuntimeError("modelo indisponivel")
 
-    monkeypatch.setattr(
-        "docling.document_converter.DocumentConverter", _BoomConverter
-    )
+    monkeypatch.setattr("docling.document_converter.DocumentConverter", _BoomConverter)
 
     with pytest.raises(PdfExtractionError, match="conversao Docling lancou um erro"):
         extract_pdf_docling(_cfg(), pdf)
@@ -92,9 +87,7 @@ def test_extract_pdf_docling_success_builds_text_and_page_map(monkeypatch, tmp_p
     pdf = tmp_path / "doc.pdf"
     pdf.write_bytes(b"%PDF-1.4 fake")
 
-    monkeypatch.setattr(
-        "docling.document_converter.DocumentConverter", _FakeConverter
-    )
+    monkeypatch.setattr("docling.document_converter.DocumentConverter", _FakeConverter)
 
     text, metadata = extract_pdf_docling(_cfg(), pdf)
 
@@ -124,9 +117,7 @@ def test_extract_pdf_docling_merges_lowercase_continuation_hyphenation(monkeypat
     """A word split across a PDF line break ("pala-\\nvra") is merged before persistence."""
     pdf = tmp_path / "doc.pdf"
     pdf.write_bytes(b"%PDF-1.4 fake")
-    monkeypatch.setattr(
-        "docling.document_converter.DocumentConverter", _HyphenatedConverter
-    )
+    monkeypatch.setattr("docling.document_converter.DocumentConverter", _HyphenatedConverter)
     text, _metadata = extract_pdf_docling(_cfg(), pdf)
     assert "palavra quebrada" in text
     assert "pala-\nvra" not in text
@@ -136,9 +127,7 @@ def test_extract_pdf_docling_preserves_uppercase_continuation_hyphenation(monkey
     """An uppercase continuation is treated as a likely genuine compound and left alone."""
     pdf = tmp_path / "doc.pdf"
     pdf.write_bytes(b"%PDF-1.4 fake")
-    monkeypatch.setattr(
-        "docling.document_converter.DocumentConverter", _HyphenatedConverter
-    )
+    monkeypatch.setattr("docling.document_converter.DocumentConverter", _HyphenatedConverter)
     text, _metadata = extract_pdf_docling(_cfg(), pdf)
     assert "bem-\nVinda" in text
 
@@ -147,10 +136,8 @@ def test_extract_pdf_dispatches_only_to_docling(monkeypatch, tmp_path):
     """extract_pdf always uses Docling — there is no pdf_extractor config to select PyMuPDF."""
     pdf = tmp_path / "doc.pdf"
     pdf.write_bytes(b"%PDF-1.4 fake")
-    monkeypatch.setattr(
-        "docling.document_converter.DocumentConverter", _FakeConverter
-    )
-    text, metadata = extract_pdf(_cfg(), pdf)
+    monkeypatch.setattr("docling.document_converter.DocumentConverter", _FakeConverter)
+    text, _metadata = extract_pdf(_cfg(), pdf)
     assert PAGE_BREAK_MARKER in text
     assert not hasattr(AppConfig(), "pdf_extractor")
 

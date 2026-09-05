@@ -33,11 +33,9 @@ def embed_category_labels(
     """Embed category names for taxonomy-first assignment."""
     if not categories:
         return {}
-    labels = [
-        template.format(domain=domain or "Geral", categoria=cat) for cat in categories
-    ]
+    labels = [template.format(domain=domain or "Geral", categoria=cat) for cat in categories]
     vectors = idx.embed_texts(labels)
-    return {cat: np.array(vec, dtype=float) for cat, vec in zip(categories, vectors)}
+    return {cat: np.array(vec, dtype=float) for cat, vec in zip(categories, vectors, strict=False)}
 
 
 def assign_notes_to_categories(
@@ -183,7 +181,7 @@ def find_moc_by_note_overlap(
 
 
 def build_embeddings_by_id(ids: list[str], embeddings: list[list[float]]) -> dict[str, np.ndarray]:
-    return {nid: np.array(vec, dtype=float) for nid, vec in zip(ids, embeddings)}
+    return {nid: np.array(vec, dtype=float) for nid, vec in zip(ids, embeddings, strict=False)}
 
 
 def _cosine_similarity_batch(vec: np.ndarray, matrix: np.ndarray) -> np.ndarray:
@@ -196,12 +194,14 @@ def _cosine_similarity_batch(vec: np.ndarray, matrix: np.ndarray) -> np.ndarray:
 
 
 def _cluster_embeddings(
-    embeddings: np.ndarray, ids: list[str], cfg: GardenerConfig,
+    embeddings: np.ndarray,
+    ids: list[str],
+    cfg: GardenerConfig,
 ) -> list[list[str]]:
     min_cluster_size = cfg.min_cluster_size
     try:
-        import umap
         import hdbscan
+        import umap
     except ImportError:
         logger.warning("umap-learn ou hdbscan nao instalados. Usando KMeans.")
         return _cluster_kmeans(embeddings, ids, min_cluster_size)
@@ -251,7 +251,9 @@ def _cluster_embeddings(
 
 
 def _cluster_kmeans(
-    embeddings: np.ndarray, ids: list[str], min_cluster_size: int,
+    embeddings: np.ndarray,
+    ids: list[str],
+    min_cluster_size: int,
 ) -> list[list[str]]:
     try:
         from sklearn.cluster import KMeans

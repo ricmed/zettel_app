@@ -19,7 +19,7 @@ covers them directly.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 
@@ -27,84 +27,137 @@ from zettel.cli.app import console
 
 # ── Shared option aliases ─────────────────────────────────────────────
 
-ConfigOption = Annotated[Optional[str], typer.Option("--config", "-c")]
+ConfigOption = Annotated[str | None, typer.Option("--config", "-c")]
 
-YesOption = Annotated[bool, typer.Option(
-    "--yes", "-y",
-    help="Confirmar automaticamente: pre-voo de custo e reprocessamento de embedding",
-)]
+YesOption = Annotated[
+    bool,
+    typer.Option(
+        "--yes",
+        "-y",
+        help="Confirmar automaticamente: pre-voo de custo e reprocessamento de embedding",
+    ),
+]
 
 # harvest / run-all: --yes also selects the config default for suspected duplicates.
-NonInteractiveYesOption = Annotated[bool, typer.Option(
-    "--yes", "-y",
-    help=(
-        "Modo nao-interativo: default da config para duplicatas; "
-        "confirma reprocessamento se embedding mudou"
+NonInteractiveYesOption = Annotated[
+    bool,
+    typer.Option(
+        "--yes",
+        "-y",
+        help=(
+            "Modo nao-interativo: default da config para duplicatas; "
+            "confirma reprocessamento se embedding mudou"
+        ),
     ),
-)]
+]
 
 # purge-rejected / delete-source: --yes waives an irreversible-deletion prompt.
-ConfirmDeleteYesOption = Annotated[bool, typer.Option(
-    "--yes", "-y",
-    help="Confirmar exclusao permanente sem prompt",
-)]
+ConfirmDeleteYesOption = Annotated[
+    bool,
+    typer.Option(
+        "--yes",
+        "-y",
+        help="Confirmar exclusao permanente sem prompt",
+    ),
+]
 
-SkipDuplicatesOption = Annotated[bool, typer.Option(
-    "--skip-duplicates",
-    help="Modo nao-interativo: sempre pula arquivos com suspeita de duplicidade",
-)]
+SkipDuplicatesOption = Annotated[
+    bool,
+    typer.Option(
+        "--skip-duplicates",
+        help="Modo nao-interativo: sempre pula arquivos com suspeita de duplicidade",
+    ),
+]
 
-ForceDuplicatesOption = Annotated[bool, typer.Option(
-    "--force",
-    help="Modo nao-interativo: sempre trata arquivos suspeitos como novas fontes",
-)]
+ForceDuplicatesOption = Annotated[
+    bool,
+    typer.Option(
+        "--force",
+        help="Modo nao-interativo: sempre trata arquivos suspeitos como novas fontes",
+    ),
+]
 
-SkipBiblioOption = Annotated[bool, typer.Option(
-    "--skip-biblio",
-    help="Modo nao-interativo: permite seguir com metadados bibliograficos incompletos",
-)]
+SkipBiblioOption = Annotated[
+    bool,
+    typer.Option(
+        "--skip-biblio",
+        help="Modo nao-interativo: permite seguir com metadados bibliograficos incompletos",
+    ),
+]
 
-SourceFilterOption = Annotated[Optional[str], typer.Option(
-    "--source-id", help="Filtrar por fonte",
-)]
+SourceFilterOption = Annotated[
+    str | None,
+    typer.Option(
+        "--source-id",
+        help="Filtrar por fonte",
+    ),
+]
 
-DumpChunksOption = Annotated[bool, typer.Option(
-    "--dump-chunks",
-    help="Salvar markdown com todos os chunks da fonte para inspecao",
-)]
+DumpChunksOption = Annotated[
+    bool,
+    typer.Option(
+        "--dump-chunks",
+        help="Salvar markdown com todos os chunks da fonte para inspecao",
+    ),
+]
 
-ChunkDumpDirOption = Annotated[Optional[str], typer.Option(
-    "--dump-dir",
-    help="Diretorio do dump de chunks (implica --dump-chunks; default: cache/chunk-dumps)",
-)]
+ChunkDumpDirOption = Annotated[
+    str | None,
+    typer.Option(
+        "--dump-dir",
+        help="Diretorio do dump de chunks (implica --dump-chunks; default: cache/chunk-dumps)",
+    ),
+]
 
-DumpSourceIdOption = Annotated[Optional[str], typer.Option(
-    "--source-id", help="Exportar apenas esta fonte",
-)]
+DumpSourceIdOption = Annotated[
+    str | None,
+    typer.Option(
+        "--source-id",
+        help="Exportar apenas esta fonte",
+    ),
+]
 
-DumpAllOption = Annotated[bool, typer.Option(
-    "--all", help="Exportar todas as fontes",
-)]
+DumpAllOption = Annotated[
+    bool,
+    typer.Option(
+        "--all",
+        help="Exportar todas as fontes",
+    ),
+]
 
-SeedTopkOption = Annotated[Optional[int], typer.Option(
-    "--topk", help="Numero de notas semente",
-)]
+SeedTopkOption = Annotated[
+    int | None,
+    typer.Option(
+        "--topk",
+        help="Numero de notas semente",
+    ),
+]
 
-NoGraphOption = Annotated[bool, typer.Option(
-    "--no-graph", help="Desliga expansao por grafo",
-)]
+NoGraphOption = Annotated[
+    bool,
+    typer.Option(
+        "--no-graph",
+        help="Desliga expansao por grafo",
+    ),
+]
 
-RetrievalModeOption = Annotated[Optional[str], typer.Option(
-    "--mode", help="vector | hybrid",
-)]
+RetrievalModeOption = Annotated[
+    str | None,
+    typer.Option(
+        "--mode",
+        help="vector | hybrid",
+    ),
+]
 
 
 # ── Flag resolvers ────────────────────────────────────────────────────
 
 
 def resolve_duplicate_flags(
-    yes: bool, skip_duplicates: bool, force: bool,
-) -> tuple[bool, Optional[str]]:
+    yes: bool,
+    skip_duplicates: bool,
+    force: bool,
+) -> tuple[bool, str | None]:
     """Translate the duplicate flags into ``(interactive, duplicate_action)``.
 
     Layer 3 of duplicate detection (semantic similarity, ADR-011) is the only one
@@ -134,8 +187,10 @@ def resolve_duplicate_flags(
 
 
 def resolve_chunk_dump_dir(
-    cfg, dump_chunks: bool, dump_dir: Optional[str],
-) -> Optional[Path]:
+    cfg,
+    dump_chunks: bool,
+    dump_dir: str | None,
+) -> Path | None:
     """Resolve ``--dump-chunks`` / ``--dump-dir`` to a directory, or None when off.
 
     An explicit ``--dump-dir`` implies ``--dump-chunks``: asking where to write the
@@ -145,17 +200,21 @@ def resolve_chunk_dump_dir(
         return Path(dump_dir).expanduser().resolve()
     if dump_chunks:
         from zettel.chunk_dump import default_dump_dir
+
         return default_dump_dir(cfg)
     return None
 
 
 def resolve_extraction_dump_dir(
-    cfg, dump_extraction: bool, dump_extraction_dir: Optional[str],
-) -> Optional[Path]:
+    cfg,
+    dump_extraction: bool,
+    dump_extraction_dir: str | None,
+) -> Path | None:
     """Same contract as ``resolve_chunk_dump_dir``, for the extraction dump."""
     if dump_extraction_dir:
         return Path(dump_extraction_dir).expanduser().resolve()
     if dump_extraction:
         from zettel.extraction_dump import default_dump_dir
+
         return default_dump_dir(cfg)
     return None

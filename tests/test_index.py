@@ -3,7 +3,6 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from zettel.index import (
     EmbeddingSpaceMismatch,
     VectorIndex,
@@ -18,7 +17,12 @@ def test_fail_fast_without_api_key(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
     with pytest.raises(RuntimeError):
-        VectorIndex(tmp_path / "chroma", "openai", "text-embedding-3-small", allow_fallback=False)
+        VectorIndex(
+            tmp_path / "chroma",
+            "openai",
+            "text-embedding-3-small",
+            allow_fallback=False,
+        )
 
 
 def test_unknown_provider_fails_fast(tmp_path):
@@ -52,8 +56,11 @@ def test_collection_metadata_marks_provider(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
     idx = VectorIndex(
-        tmp_path / "chroma", "provider-invalido", "meu-modelo",
-        allow_fallback=True, dimensions=1024,
+        tmp_path / "chroma",
+        "provider-invalido",
+        "meu-modelo",
+        allow_fallback=True,
+        dimensions=1024,
     )
     meta = idx._collection_metadata()
     assert meta["embedding_provider"] == "provider-invalido"
@@ -71,8 +78,16 @@ def test_embedding_space_matches_empty_and_same(tmp_path, monkeypatch):
     path = tmp_path / "chroma"
     idx = VectorIndex(path, "provider-invalido", "modelo-a", allow_fallback=True)
     assert idx.embedding_space_matches() is True
-    assert idx.get_stored_embedding_identity() == ("provider-invalido", "modelo-a", None)
-    assert peek_stored_embedding_identity(path) == ("provider-invalido", "modelo-a", None)
+    assert idx.get_stored_embedding_identity() == (
+        "provider-invalido",
+        "modelo-a",
+        None,
+    )
+    assert peek_stored_embedding_identity(path) == (
+        "provider-invalido",
+        "modelo-a",
+        None,
+    )
 
 
 def test_embedding_space_mismatch_raises(tmp_path, monkeypatch):
@@ -93,13 +108,19 @@ def test_embedding_dimensions_mismatch_raises(tmp_path, monkeypatch):
     monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
     path = tmp_path / "chroma"
     VectorIndex(
-        path, "provider-invalido", "modelo-a",
-        allow_fallback=True, dimensions=1024,
+        path,
+        "provider-invalido",
+        "modelo-a",
+        allow_fallback=True,
+        dimensions=1024,
     )
     with pytest.raises(EmbeddingSpaceMismatch) as ei:
         VectorIndex(
-            path, "provider-invalido", "modelo-a",
-            allow_fallback=True, dimensions=512,
+            path,
+            "provider-invalido",
+            "modelo-a",
+            allow_fallback=True,
+            dimensions=512,
         )
     assert ei.value.stored_dimensions == 1024
     assert ei.value.current_dimensions == 512
@@ -114,11 +135,18 @@ def test_embedding_space_reset_mismatched(tmp_path, monkeypatch):
     assert idx_a.chunks.count() == 1
 
     idx_b = VectorIndex(
-        path, "provider-invalido", "modelo-b",
-        allow_fallback=True, reset_mismatched=True,
+        path,
+        "provider-invalido",
+        "modelo-b",
+        allow_fallback=True,
+        reset_mismatched=True,
     )
     assert idx_b.embedding_space_matches() is True
-    assert idx_b.get_stored_embedding_identity() == ("provider-invalido", "modelo-b", None)
+    assert idx_b.get_stored_embedding_identity() == (
+        "provider-invalido",
+        "modelo-b",
+        None,
+    )
     # Collections were reset — old vectors gone.
     assert idx_b.chunks.count() == 0
 
@@ -226,11 +254,18 @@ def test_ollama_build_from_config_roundtrip():
 
 
 def test_sanitize_metadata_types():
-    out = _sanitize_metadata({
-        "s": "x", "i": 3, "f": 1.5, "b": True,
-        "none": None, "list": ["a", "b"], "obj": object(),
-    })
+    out = _sanitize_metadata(
+        {
+            "s": "x",
+            "i": 3,
+            "f": 1.5,
+            "b": True,
+            "none": None,
+            "list": ["a", "b"],
+            "obj": object(),
+        }
+    )
     assert out["s"] == "x" and out["i"] == 3 and out["f"] == 1.5 and out["b"] is True
-    assert "none" not in out          # None dropped
-    assert out["list"] == "a, b"      # list joined
+    assert "none" not in out  # None dropped
+    assert out["list"] == "a, b"  # list joined
     assert isinstance(out["obj"], str)

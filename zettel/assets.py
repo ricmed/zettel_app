@@ -57,6 +57,7 @@ def _save_image(vault_path: Path, data: bytes, ext: str) -> str:
 
 def sha256_hex_bytes(data: bytes) -> str:
     import hashlib
+
     return hashlib.sha256(data).hexdigest()
 
 
@@ -95,11 +96,13 @@ def extract_markdown_images(
             return match.group(0)
         checksum = sha256_hex_bytes(data)
         relpath = _save_image(cfg.vault_path, data, img_path.suffix or ".png")
-        images.append({
-            "checksum": checksum,
-            "path": relpath,
-            "context_snippet": _context_snippet(body, match.start(), cfg.images.context_chars),
-        })
+        images.append(
+            {
+                "checksum": checksum,
+                "path": relpath,
+                "context_snippet": _context_snippet(body, match.start(), cfg.images.context_chars),
+            }
+        )
         return f"![Imagem]({relpath})"
 
     new_body = _MD_IMAGE_RE.sub(_replace, body)
@@ -128,7 +131,9 @@ def extract_docling_images(
     logger.info(
         "Docling: extraindo imagens — %d pictures detectadas "
         "(min %dx%d px; placeholders <!-- image -->)",
-        len(pictures), cfg.images.min_width, cfg.images.min_height,
+        len(pictures),
+        cfg.images.min_width,
+        cfg.images.min_height,
     )
 
     images: list[dict[str, Any]] = []
@@ -145,7 +150,7 @@ def extract_docling_images(
         if pil_image.width < cfg.images.min_width or pil_image.height < cfg.images.min_height:
             skipped_small += 1
             if idx != -1:
-                text = text[:idx] + text[idx + len(_DOCLING_PLACEHOLDER):]
+                text = text[:idx] + text[idx + len(_DOCLING_PLACEHOLDER) :]
             continue
 
         data = _png_bytes(pil_image)
@@ -157,24 +162,32 @@ def extract_docling_images(
         provs = getattr(pic, "prov", None) or []
         if provs:
             page_in_file = getattr(provs[0], "page_no", None)
-        images.append({
-            "checksum": checksum,
-            "path": relpath,
-            "context_snippet": _context_snippet(text, context_pos, cfg.images.context_chars),
-            "page_in_file": page_in_file,
-        })
+        images.append(
+            {
+                "checksum": checksum,
+                "path": relpath,
+                "context_snippet": _context_snippet(text, context_pos, cfg.images.context_chars),
+                "page_in_file": page_in_file,
+            }
+        )
         if idx != -1:
-            text = text[:idx] + ref + text[idx + len(_DOCLING_PLACEHOLDER):]
+            text = text[:idx] + ref + text[idx + len(_DOCLING_PLACEHOLDER) :]
         else:
             text = f"{text}\n\n{ref}"
         logger.info(
             "Docling: imagem %d/%d salva → %s (%dx%d)",
-            pi, len(pictures), relpath, pil_image.width, pil_image.height,
+            pi,
+            len(pictures),
+            relpath,
+            pil_image.width,
+            pil_image.height,
         )
 
     logger.info(
         "Docling: imagens concluidas — %d salvas, %d pequenas ignoradas, %d falhas",
-        len(images), skipped_small, skipped_fail,
+        len(images),
+        skipped_small,
+        skipped_fail,
     )
     return text, images
 
@@ -191,6 +204,7 @@ def _docling_pil(picture: Any, document: Any) -> Any:
 
 def _png_bytes(pil_image: Any) -> bytes:
     import io
+
     buf = io.BytesIO()
     pil_image.save(buf, format="PNG")
     return buf.getvalue()
@@ -200,7 +214,10 @@ def _png_bytes(pil_image: Any) -> bytes:
 
 
 def register_assets(
-    db: StateDB, source_id: str, chapters: list[dict[str, str]], images: list[dict[str, Any]]
+    db: StateDB,
+    source_id: str,
+    chapters: list[dict[str, str]],
+    images: list[dict[str, Any]],
 ) -> None:
     """Register extracted images in the DB, resolving which chapter each fell into.
 
@@ -220,13 +237,12 @@ def register_assets(
         )
     logger.info(
         "[SOURCE=%s] %d imagens registradas no StateDB (90_Assets)",
-        source_id, len(images),
+        source_id,
+        len(images),
     )
 
 
-def reresolve_asset_chapters(
-    db: StateDB, source_id: str, chapters: list[dict[str, str]]
-) -> int:
+def reresolve_asset_chapters(db: StateDB, source_id: str, chapters: list[dict[str, str]]) -> int:
     """Re-bind each asset of a source to the chapter that currently contains its path.
 
     Needed after rechunk/heading changes so orphan chapter_ids (e.g. ch026 after an
@@ -242,7 +258,8 @@ def reresolve_asset_chapters(
     if updated:
         logger.info(
             "Assets re-resolvidos para %s: %d chapter_id(s) atualizado(s)",
-            source_id, updated,
+            source_id,
+            updated,
         )
     return updated
 
@@ -273,8 +290,16 @@ def _resolve_chapter_id(
 
 _WIKI_IMAGE_RE = re.compile(r"!\[\[([^\]|]+?)(\|[^\]]*)?\]\]")
 _IMAGE_SUFFIXES = {
-    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg",
-    ".tif", ".tiff", ".avif",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".bmp",
+    ".svg",
+    ".tif",
+    ".tiff",
+    ".avif",
 }
 
 
@@ -380,7 +405,7 @@ def adopt_vault_images(
         relpath = _handle(match.group(1), match.start())
         if relpath is None:
             return match.group(0)
-        alt = match.group(0)[2:match.group(0).index("](")]
+        alt = match.group(0)[2 : match.group(0).index("](")]
         return f"![{alt}]({relpath})"
 
     new_body = _WIKI_IMAGE_RE.sub(_replace_wiki, body)
@@ -388,7 +413,10 @@ def adopt_vault_images(
     new_body = _MD_IMAGE_RE.sub(_replace_md, new_body)
     if adopted:
         logger.info(
-            "[SOURCE=%s] %d imagem(ns) adotada(s) de %s", source_id, adopted, note_path.name,
+            "[SOURCE=%s] %d imagem(ns) adotada(s) de %s",
+            source_id,
+            adopted,
+            note_path.name,
         )
     return new_body, adopted
 
@@ -441,23 +469,21 @@ def _parse_retry_after_seconds(exc: BaseException) -> float | None:
         return None
     value = float(match.group(1))
     unit = match.group(2).lower()
-    if unit.startswith("ms") or unit.startswith("millisecond"):
+    if unit.startswith(("ms", "millisecond")):
         return value / 1000.0
     if unit.startswith("m") and not unit.startswith("ms"):
         return value * 60.0
     return value
 
 
-def _rate_limit_wait_seconds(
-    exc: BaseException, attempt: int, backoff_max: float
-) -> float:
+def _rate_limit_wait_seconds(exc: BaseException, attempt: int, backoff_max: float) -> float:
     """Prefer provider hint; else exponential backoff capped at backoff_max."""
     hinted = _parse_retry_after_seconds(exc)
     if hinted is not None:
         # Provider hints are often sub-second while the TPM window is still full;
         # keep a small floor so we don't immediately re-hit the same limit.
         return min(backoff_max, max(hinted, 0.6))
-    return min(backoff_max, (2 ** attempt) * 1.0)
+    return min(backoff_max, (2**attempt) * 1.0)
 
 
 def describe_pending_assets(cfg: AppConfig, db: StateDB, *, observer=None) -> int:
@@ -477,7 +503,7 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB, *, observer=None) -> in
     if not pending:
         return 0
 
-    from zettel.llm import fill_template, load_prompt_parts
+    from zettel.llm import load_prompt_parts
 
     prompt_parts = load_prompt_parts(cfg.prompts_path / "image_description.md")
     prompt_hash = sha256_hex(prompt_parts.full_template)
@@ -495,15 +521,19 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB, *, observer=None) -> in
     last_llm_call_at = 0.0
     total_images = len(pending)
 
-    from zettel.usage import clear_progress, set_progress
     from zettel.progress import report
+    from zettel.usage import clear_progress, set_progress
 
     for idx, asset in enumerate(pending):
         step = idx + 1
         set_progress(step, total_images, "imagem")
         report(
-            observer, "assets", f"Descrevendo asset {step}/{total_images}.",
-            current_item=asset["asset_id"], current_index=step, total_items=total_images,
+            observer,
+            "assets",
+            f"Descrevendo asset {step}/{total_images}.",
+            current_item=asset["asset_id"],
+            current_index=step,
+            total_items=total_images,
         )
         img_file = cfg.vault_path / asset["path"]
         if not img_file.exists():
@@ -518,6 +548,7 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB, *, observer=None) -> in
         cached = db.get_cached_llm_response(call_checksum)
         if cached is not None:
             from zettel.usage import record_cache_hit
+
             record_cache_hit(label=f"image:{asset['asset_id']}", model=model)
             db.update_asset_description(asset["asset_id"], cached, call_checksum)
             described += 1
@@ -554,7 +585,9 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB, *, observer=None) -> in
             consecutive_exhausted += 1
             logger.warning(
                 "Rate limit ao descrever %s apos %d tentativas — mantendo pending (%s)",
-                asset["asset_id"], max_retries + 1, e,
+                asset["asset_id"],
+                max_retries + 1,
+                e,
             )
             if consecutive_exhausted >= abort_after:
                 remaining = len(pending) - idx
@@ -562,7 +595,8 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB, *, observer=None) -> in
                     "Abortando descricao de imagens: %d rate limits consecutivos "
                     "(TPM saturado). %d imagem(ns) permanecem pending — "
                     "rode extract de novo apos a janela TPM.",
-                    consecutive_exhausted, remaining,
+                    consecutive_exhausted,
+                    remaining,
                 )
                 break
             # Cooldown before the next asset so the TPM window can recover.
@@ -598,9 +632,15 @@ def _describe_with_rate_limit_retry(
     for attempt in range(attempts):
         try:
             return _describe_one(
-                llm, prompt_parts, img_file, context,
-                language=language, step=step, total=total,
-                provider=provider, prompt_cache=prompt_cache,
+                llm,
+                prompt_parts,
+                img_file,
+                context,
+                language=language,
+                step=step,
+                total=total,
+                provider=provider,
+                prompt_cache=prompt_cache,
             )
         except Exception as e:
             if not _is_rate_limit_error(e) or attempt >= max_retries:
@@ -610,7 +650,10 @@ def _describe_with_rate_limit_retry(
             wait = _rate_limit_wait_seconds(e, attempt, backoff_max)
             logger.warning(
                 "Rate limit na imagem %s (tentativa %d/%d) — aguardando %.2fs",
-                asset_id, attempt + 1, attempts, wait,
+                asset_id,
+                attempt + 1,
+                attempts,
+                wait,
             )
             time.sleep(wait)
     raise RateLimitExhausted(f"esgotadas {attempts} tentativas para {asset_id}")
@@ -632,10 +675,10 @@ def _describe_one(
 
     from zettel.llm import (
         _extract_usage,
+        _message_text,
         _resolve_model_name,
         apply_prompt_cache_hints,
         fill_template,
-        _message_text,
     )
     from zettel.pricing import estimate_llm_cost
     from zettel.usage import record_llm
@@ -652,13 +695,20 @@ def _describe_one(
     if system:
         messages.append(SystemMessage(content=system))
     messages.append(
-        HumanMessage(content=[
-            {"type": "text", "text": user_text},
-            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
-        ])
+        HumanMessage(
+            content=[
+                {"type": "text", "text": user_text},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{b64}"},
+                },
+            ]
+        )
     )
     messages, invoke_kwargs = apply_prompt_cache_hints(
-        provider, messages, enabled=prompt_cache,
+        provider,
+        messages,
+        enabled=prompt_cache,
     )
     response = llm.invoke(messages, **invoke_kwargs)
     content = _message_text(response.content)
@@ -666,7 +716,10 @@ def _describe_one(
     model_name = _resolve_model_name(llm, None)
     usage = _extract_usage(response)
     cost = estimate_llm_cost(
-        model_name, usage.prompt_tokens, usage.completion_tokens, provider=provider,
+        model_name,
+        usage.prompt_tokens,
+        usage.completion_tokens,
+        provider=provider,
     )
     record_llm(
         model=model_name or "unknown",

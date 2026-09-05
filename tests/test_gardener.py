@@ -2,23 +2,22 @@
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-
 from zettel.config import AppConfig, GardenerConfig
 from zettel.gardener import (
     _MOC_FALLBACK_SUBSECTION,
-    _validate_moc_topic,
-    _parse_moc_structure,
-    _parse_incremental_output,
-    _update_existing_moc,
+    _allowed_note_ids,
     _apply_incremental_placements,
     _build_moc_body,
     _build_note_alias_map,
-    _resolve_note_ref,
-    _allowed_note_ids,
     _note_wikilink,
+    _parse_incremental_output,
+    _parse_moc_structure,
+    _resolve_note_ref,
+    _update_existing_moc,
+    _validate_moc_topic,
     purge_pipeline_mocs,
 )
 from zettel.schemas import (
@@ -106,7 +105,9 @@ def test_load_moc_taxonomy(mini_taxonomy_path: Path):
 def test_allowed_topic_names_are_categories(mini_taxonomy_path: Path):
     tax = load_moc_taxonomy(mini_taxonomy_path)
     assert allowed_topic_names(tax) == [
-        "Categoria Um", "Categoria Dois", "Categoria Tres",
+        "Categoria Um",
+        "Categoria Dois",
+        "Categoria Tres",
     ]
 
 
@@ -127,7 +128,9 @@ def test_resolve_allowed_topics_from_file(mini_taxonomy_path: Path):
 
 def test_resolve_allowed_topics_override(mini_taxonomy_path: Path):
     allowed, detail = resolve_allowed_topics(
-        mini_taxonomy_path, override=["So Esta"], strict=True,
+        mini_taxonomy_path,
+        override=["So Esta"],
+        strict=True,
     )
     assert allowed == ["So Esta"]
     assert "## Pilar: Pilar A" in detail  # detail still from file
@@ -152,8 +155,10 @@ def test_load_project_moc_topics_yaml():
     tax = load_moc_taxonomy(path.resolve())
     names = allowed_topic_names(tax)
     assert len(names) >= 10
-    assert "Aplicações de LLMs" in names or "Aplicacoes de LLMs" in names or any(
-        "LLM" in n for n in names
+    assert (
+        "Aplicações de LLMs" in names
+        or "Aplicacoes de LLMs" in names
+        or any("LLM" in n for n in names)
     )
 
 
@@ -342,13 +347,23 @@ def test_find_moc_by_topic_case_insensitive(tmp_path):
 
 def test_parse_incremental_output_basic():
     """Parse a valid incremental JSON response."""
-    llm_response = json.dumps({
-        "placements": [
-            {"note_id": "NOTE004", "subsection": "Algoritmos Supervisionados", "reason": "E supervisionado"},
-            {"note_id": "NOTE005", "subsection": "ignorar", "reason": "Nao se encaixa"},
-        ],
-        "new_subsections": [],
-    })
+    llm_response = json.dumps(
+        {
+            "placements": [
+                {
+                    "note_id": "NOTE004",
+                    "subsection": "Algoritmos Supervisionados",
+                    "reason": "E supervisionado",
+                },
+                {
+                    "note_id": "NOTE005",
+                    "subsection": "ignorar",
+                    "reason": "Nao se encaixa",
+                },
+            ],
+            "new_subsections": [],
+        }
+    )
     result = _parse_incremental_output(llm_response)
     assert isinstance(result, MOCIncrementalOutput)
     assert len(result.placements) == 2
@@ -360,14 +375,24 @@ def test_parse_incremental_output_basic():
 
 def test_parse_incremental_output_with_new_subsection():
     """Parse response that includes new subsections."""
-    llm_response = json.dumps({
-        "placements": [
-            {"note_id": "NOTE004", "subsection": "Nova Subsecao", "reason": "Pertence aqui"},
-        ],
-        "new_subsections": [
-            {"title": "Nova Subsecao", "note_ids": ["NOTE004"], "description": "Algo novo"},
-        ],
-    })
+    llm_response = json.dumps(
+        {
+            "placements": [
+                {
+                    "note_id": "NOTE004",
+                    "subsection": "Nova Subsecao",
+                    "reason": "Pertence aqui",
+                },
+            ],
+            "new_subsections": [
+                {
+                    "title": "Nova Subsecao",
+                    "note_ids": ["NOTE004"],
+                    "description": "Algo novo",
+                },
+            ],
+        }
+    )
     result = _parse_incremental_output(llm_response)
     assert len(result.new_subsections) == 1
     assert result.new_subsections[0].title == "Nova Subsecao"
@@ -376,12 +401,14 @@ def test_parse_incremental_output_with_new_subsection():
 
 def test_parse_incremental_output_markdown_wrapped():
     """Parse response wrapped in markdown code block."""
-    inner = json.dumps({
-        "placements": [
-            {"note_id": "NOTE004", "subsection": "Algo", "reason": "Test"},
-        ],
-        "new_subsections": [],
-    })
+    inner = json.dumps(
+        {
+            "placements": [
+                {"note_id": "NOTE004", "subsection": "Algo", "reason": "Test"},
+            ],
+            "new_subsections": [],
+        }
+    )
     llm_response = f"```json\n{inner}\n```"
     result = _parse_incremental_output(llm_response)
     assert len(result.placements) == 1
@@ -420,9 +447,13 @@ def _setup_moc_file(tmp_path):
     db = StateDB(tmp_path / "test.db")
     db.upsert_moc("MOC001", "Machine Learning Classico", str(moc_file), "old_sig")
     # Register notes
-    for nid, title in [("NOTE001", "Regressao Linear"), ("NOTE002", "Arvores de Decisao"),
-                        ("NOTE003", "K-Means Clustering"), ("NOTE004", "SVM"),
-                        ("NOTE005", "Random Forest")]:
+    for nid, title in [
+        ("NOTE001", "Regressao Linear"),
+        ("NOTE002", "Arvores de Decisao"),
+        ("NOTE003", "K-Means Clustering"),
+        ("NOTE004", "SVM"),
+        ("NOTE005", "Random Forest"),
+    ]:
         db.upsert_note(nid, "SRC001", None, title)
 
     return db, moc_file
@@ -430,7 +461,7 @@ def _setup_moc_file(tmp_path):
 
 def test_update_existing_moc_no_new_notes(tmp_path):
     """When all notes already exist in MOC, only signature is updated."""
-    db, moc_file = _setup_moc_file(tmp_path)
+    db, _moc_file = _setup_moc_file(tmp_path)
     cfg = _make_config()
     cfg.prompts_path = tmp_path / "prompts"
 
@@ -439,7 +470,11 @@ def test_update_existing_moc_no_new_notes(tmp_path):
 
     existing_moc = db.find_moc_by_topic("Machine Learning Classico")
     result = _update_existing_moc(
-        cfg, db, idx, llm, existing_moc,
+        cfg,
+        db,
+        idx,
+        llm,
+        existing_moc,
         ["NOTE001", "NOTE002", "NOTE003"],  # all existing
         "new_sig",
     )
@@ -473,7 +508,11 @@ def test_update_existing_moc_with_placements(tmp_path):
     # Mock LLM to return placement
     llm_response_data = {
         "placements": [
-            {"note_id": "NOTE004", "subsection": "Algoritmos Supervisionados", "reason": "SVM e supervisionado"},
+            {
+                "note_id": "NOTE004",
+                "subsection": "Algoritmos Supervisionados",
+                "reason": "SVM e supervisionado",
+            },
         ],
         "new_subsections": [],
     }
@@ -484,7 +523,11 @@ def test_update_existing_moc_with_placements(tmp_path):
 
     existing_moc = db.find_moc_by_topic("Machine Learning Classico")
     result = _update_existing_moc(
-        cfg, db, idx, llm, existing_moc,
+        cfg,
+        db,
+        idx,
+        llm,
+        existing_moc,
         ["NOTE001", "NOTE002", "NOTE003", "NOTE004"],  # NOTE004 is new
         "new_sig",
     )
@@ -521,7 +564,11 @@ def test_incremental_ignores_notes(tmp_path):
     # LLM says to ignore NOTE005
     llm_response_data = {
         "placements": [
-            {"note_id": "NOTE005", "subsection": "ignorar", "reason": "Nao se encaixa no MOC"},
+            {
+                "note_id": "NOTE005",
+                "subsection": "ignorar",
+                "reason": "Nao se encaixa no MOC",
+            },
         ],
         "new_subsections": [],
     }
@@ -532,7 +579,11 @@ def test_incremental_ignores_notes(tmp_path):
 
     existing_moc = db.find_moc_by_topic("Machine Learning Classico")
     result = _update_existing_moc(
-        cfg, db, idx, llm, existing_moc,
+        cfg,
+        db,
+        idx,
+        llm,
+        existing_moc,
         ["NOTE001", "NOTE003", "NOTE005"],  # NOTE005 is new
         "new_sig",
     )
@@ -566,12 +617,23 @@ def test_update_existing_moc_with_new_subsection(tmp_path):
 
     llm_response_data = {
         "placements": [
-            {"note_id": "NOTE004", "subsection": "Metodos Ensemble", "reason": "SVM combina modelos"},
-            {"note_id": "NOTE005", "subsection": "Metodos Ensemble", "reason": "Random Forest e ensemble"},
+            {
+                "note_id": "NOTE004",
+                "subsection": "Metodos Ensemble",
+                "reason": "SVM combina modelos",
+            },
+            {
+                "note_id": "NOTE005",
+                "subsection": "Metodos Ensemble",
+                "reason": "Random Forest e ensemble",
+            },
         ],
         "new_subsections": [
-            {"title": "Metodos Ensemble", "note_ids": ["NOTE004", "NOTE005"],
-             "description": "Metodos que combinam multiplos modelos."},
+            {
+                "title": "Metodos Ensemble",
+                "note_ids": ["NOTE004", "NOTE005"],
+                "description": "Metodos que combinam multiplos modelos.",
+            },
         ],
     }
     mock_response = MagicMock()
@@ -581,7 +643,11 @@ def test_update_existing_moc_with_new_subsection(tmp_path):
 
     existing_moc = db.find_moc_by_topic("Machine Learning Classico")
     result = _update_existing_moc(
-        cfg, db, idx, llm, existing_moc,
+        cfg,
+        db,
+        idx,
+        llm,
+        existing_moc,
         ["NOTE001", "NOTE002", "NOTE003", "NOTE004", "NOTE005"],
         "new_sig",
     )
@@ -604,7 +670,7 @@ def test_update_existing_moc_with_new_subsection(tmp_path):
 
 def test_generate_moc_routes_to_incremental(tmp_path):
     """_process_cluster routes to incremental when category matches existing MOC."""
-    db, moc_file = _setup_moc_file(tmp_path)
+    db, _moc_file = _setup_moc_file(tmp_path)
     cfg = _make_config()
 
     prompts_dir = tmp_path / "prompts"
@@ -619,21 +685,31 @@ def test_generate_moc_routes_to_incremental(tmp_path):
     idx = MagicMock()
 
     incremental_response = MagicMock()
-    incremental_response.content = json.dumps({
-        "placements": [
-            {"note_id": "N1", "subsection": "Algoritmos Supervisionados", "reason": "Teste"},
-        ],
-        "new_subsections": [],
-    })
+    incremental_response.content = json.dumps(
+        {
+            "placements": [
+                {
+                    "note_id": "N1",
+                    "subsection": "Algoritmos Supervisionados",
+                    "reason": "Teste",
+                },
+            ],
+            "new_subsections": [],
+        }
+    )
 
     llm = MagicMock()
     llm.invoke.return_value = incremental_response
 
-    from zettel.gardener import _process_cluster, _GardenStats
+    from zettel.gardener import _GardenStats, _process_cluster
 
     stats = _GardenStats()
     result = _process_cluster(
-        cfg, db, idx, llm, "Machine Learning Classico",
+        cfg,
+        db,
+        idx,
+        llm,
+        "Machine Learning Classico",
         ["NOTE001", "NOTE002", "NOTE003", "NOTE004"],
         stats,
     )
@@ -648,13 +724,13 @@ def test_generate_moc_routes_to_incremental(tmp_path):
 def test_process_cluster_routes_by_overlap(tmp_path):
     """High note overlap with existing MOC skips generation and calls incremental only."""
     db, moc_file = _setup_moc_file(tmp_path)
-    body = (
-        "# Outro Topico\n\n"
-        "- [[ZTL - NOTE001 - a]]\n"
-        "- [[ZTL - NOTE002 - b]]\n"
-    )
+    body = "# Outro Topico\n\n- [[ZTL - NOTE001 - a]]\n- [[ZTL - NOTE002 - b]]\n"
     db.upsert_moc(
-        "MOC001", "Outro Topico", str(moc_file), "old_sig", body=body,
+        "MOC001",
+        "Outro Topico",
+        str(moc_file),
+        "old_sig",
+        body=body,
     )
 
     cfg = _make_config()
@@ -669,20 +745,30 @@ def test_process_cluster_routes_by_overlap(tmp_path):
 
     idx = MagicMock()
     incremental_response = MagicMock()
-    incremental_response.content = json.dumps({
-        "placements": [
-            {"note_id": "N3", "subsection": "Algoritmos Supervisionados", "reason": "Teste"},
-        ],
-        "new_subsections": [],
-    })
+    incremental_response.content = json.dumps(
+        {
+            "placements": [
+                {
+                    "note_id": "N3",
+                    "subsection": "Algoritmos Supervisionados",
+                    "reason": "Teste",
+                },
+            ],
+            "new_subsections": [],
+        }
+    )
     llm = MagicMock()
     llm.invoke.return_value = incremental_response
 
-    from zettel.gardener import _process_cluster, _GardenStats
+    from zettel.gardener import _GardenStats, _process_cluster
 
     stats = _GardenStats()
     result = _process_cluster(
-        cfg, db, idx, llm, "_unassigned",
+        cfg,
+        db,
+        idx,
+        llm,
+        "_unassigned",
         ["NOTE001", "NOTE002", "NOTE005"],
         stats,
     )
@@ -770,7 +856,9 @@ def test_apply_incremental_ghost_id_ignored(tmp_path):
 
     output = MOCIncrementalOutput(
         placements=[
-            MOCNotePlacement(note_id="GHOST", subsection="Algoritmos Supervisionados", reason="bad"),
+            MOCNotePlacement(
+                note_id="GHOST", subsection="Algoritmos Supervisionados", reason="bad"
+            ),
         ],
         new_subsections=[],
     )
@@ -787,7 +875,8 @@ def test_note_wikilink_uses_file_stem_not_title_slug(tmp_path):
     db.upsert_note(
         "01KZ7YZNCQPT3693DP17PC3PVV",
         "SRC001",
-        "/vault/30_Permanent/ZTL - 01KZ7YZNCQPT3693DP17PC3PVV - importancia-de-interfaces-interativas-em-sistemas.md",
+        "/vault/30_Permanent/ZTL - 01KZ7YZNCQPT3693DP17PC3PVV - "
+        "importancia-de-interfaces-interativas-em-sistemas.md",
         "Importancia de interfaces interativas em sistemas de questionamento",
     )
     link = _note_wikilink(db, "01KZ7YZNCQPT3693DP17PC3PVV")

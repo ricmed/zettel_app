@@ -19,7 +19,9 @@ def test_compute_embedding_input_hash():
     assert a == b  # deterministic
     # Any component change alters the hash.
     assert a != compute_embedding_input_hash("sem124", "openai", "text-embedding-3-small")
-    assert a != compute_embedding_input_hash("sem123", "sentence-transformers", "text-embedding-3-small")
+    assert a != compute_embedding_input_hash(
+        "sem123", "sentence-transformers", "text-embedding-3-small"
+    )
     assert a != compute_embedding_input_hash("sem123", "openai", "outro-modelo")
 
 
@@ -125,10 +127,15 @@ def test_normalize_text_for_hash_preserves_uppercase_continuation_hyphen():
 
 
 def _base_checksum(**overrides) -> str:
-    kwargs = dict(
-        prompt_hash="ph", chunk_checksum="cc", model="gpt-4o-mini",
-        temperature=0.0, language="pt-BR", provider="openai", top_p=1.0,
-    )
+    kwargs = {
+        "prompt_hash": "ph",
+        "chunk_checksum": "cc",
+        "model": "gpt-4o-mini",
+        "temperature": 0.0,
+        "language": "pt-BR",
+        "provider": "openai",
+        "top_p": 1.0,
+    }
     kwargs.update(overrides)
     return compute_llm_call_checksum(**kwargs)
 

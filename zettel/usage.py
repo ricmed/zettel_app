@@ -6,7 +6,7 @@ import logging
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 # Named pipeline phases in run-all order. Harvest uses a JSON config checksum as
 # pipeline_signature; ``pipeline_phase_name`` maps that blob back to "harvest".
@@ -32,7 +32,7 @@ class UsageEvent:
     tokens_out: int = 0
     cost_usd: float = 0.0
     label: str = ""
-    source_id: Optional[str] = None
+    source_id: str | None = None
     progress: str = ""
     # Provider prompt-prefix cache (not SQLite llm_cache hits).
     cache_read_tokens: int = 0
@@ -68,7 +68,7 @@ class UsageSummary:
             "prompt_cache_write_tokens": self.prompt_cache_write_tokens,
         }
 
-    def add(self, other: "UsageSummary") -> None:
+    def add(self, other: UsageSummary) -> None:
         self.cost_usd_total += other.cost_usd_total
         self.cost_usd_llm += other.cost_usd_llm
         self.cost_usd_embedding += other.cost_usd_embedding
@@ -87,7 +87,7 @@ def pipeline_phase_name(signature: str | None) -> str:
     sig = (signature or "").strip()
     if sig in _PHASE_ORDER or sig in _STANDALONE_PHASES:
         return sig
-    if sig.startswith("{") or sig.startswith("["):
+    if sig.startswith(("{", "[")):
         return "harvest"
     return sig[:40] or "run"
 
@@ -172,8 +172,8 @@ def latest_pipeline_session(
 
 
 def format_progress(
-    step: Optional[int] = None,
-    total: Optional[int] = None,
+    step: int | None = None,
+    total: int | None = None,
     kind: str = "",
 ) -> str:
     """Human progress label, e.g. ``imagem 3/40`` or ``3/40``."""
@@ -194,9 +194,9 @@ def format_progress_from_context() -> str:
 
 
 def _progress_tag(
-    step: Optional[int] = None,
-    total: Optional[int] = None,
-    kind: Optional[str] = None,
+    step: int | None = None,
+    total: int | None = None,
+    kind: str | None = None,
 ) -> str:
     """Resolve progress for a COST line: explicit args win over context."""
     ctx = _progress.get()
@@ -209,7 +209,7 @@ def _progress_tag(
 
 @dataclass
 class CostTracker:
-    run_id: Optional[int] = None
+    run_id: int | None = None
     events: list[UsageEvent] = field(default_factory=list)
     _by_source: dict[str, UsageSummary] = field(default_factory=dict)
     _total: UsageSummary = field(default_factory=UsageSummary)
@@ -222,10 +222,10 @@ class CostTracker:
         tokens_out: int,
         cost_usd: float,
         label: str = "",
-        source_id: Optional[str] = None,
-        step: Optional[int] = None,
-        total: Optional[int] = None,
-        kind: Optional[str] = None,
+        source_id: str | None = None,
+        step: int | None = None,
+        total: int | None = None,
+        kind: str | None = None,
         cache_read_tokens: int = 0,
         cache_write_tokens: int = 0,
     ) -> UsageEvent:
@@ -266,13 +266,24 @@ class CostTracker:
         if prog:
             logger.info(
                 "COST llm [%s] model=%s in=%d out=%d usd=%.6f label=%s source=%s%s",
-                prog, model, tokens_in, tokens_out, cost_usd, label or "-", sid or "-",
+                prog,
+                model,
+                tokens_in,
+                tokens_out,
+                cost_usd,
+                label or "-",
+                sid or "-",
                 cache_tag,
             )
         else:
             logger.info(
                 "COST llm model=%s in=%d out=%d usd=%.6f label=%s source=%s%s",
-                model, tokens_in, tokens_out, cost_usd, label or "-", sid or "-",
+                model,
+                tokens_in,
+                tokens_out,
+                cost_usd,
+                label or "-",
+                sid or "-",
                 cache_tag,
             )
         return event
@@ -284,10 +295,10 @@ class CostTracker:
         tokens: int,
         cost_usd: float,
         label: str = "",
-        source_id: Optional[str] = None,
-        step: Optional[int] = None,
-        total: Optional[int] = None,
-        kind: Optional[str] = None,
+        source_id: str | None = None,
+        step: int | None = None,
+        total: int | None = None,
+        kind: str | None = None,
     ) -> UsageEvent:
         sid = source_id if source_id is not None else get_source_id()
         prog = _progress_tag(step, total, kind)
@@ -315,12 +326,21 @@ class CostTracker:
         if prog:
             logger.info(
                 "COST embed [%s] model=%s tokens=%d usd=%.6f label=%s source=%s",
-                prog, model, tokens, cost_usd, label or "-", sid or "-",
+                prog,
+                model,
+                tokens,
+                cost_usd,
+                label or "-",
+                sid or "-",
             )
         else:
             logger.info(
                 "COST embed model=%s tokens=%d usd=%.6f label=%s source=%s",
-                model, tokens, cost_usd, label or "-", sid or "-",
+                model,
+                tokens,
+                cost_usd,
+                label or "-",
+                sid or "-",
             )
         return event
 
@@ -328,11 +348,11 @@ class CostTracker:
         self,
         *,
         label: str = "",
-        source_id: Optional[str] = None,
+        source_id: str | None = None,
         model: str = "",
-        step: Optional[int] = None,
-        total: Optional[int] = None,
-        kind: Optional[str] = None,
+        step: int | None = None,
+        total: int | None = None,
+        kind: str | None = None,
     ) -> UsageEvent:
         sid = source_id if source_id is not None else get_source_id()
         prog = _progress_tag(step, total, kind)
@@ -351,12 +371,15 @@ class CostTracker:
         if prog:
             logger.info(
                 "COST cache_hit [%s] label=%s source=%s usd=0",
-                prog, label or "-", sid or "-",
+                prog,
+                label or "-",
+                sid or "-",
             )
         else:
             logger.info(
                 "COST cache_hit label=%s source=%s usd=0",
-                label or "-", sid or "-",
+                label or "-",
+                sid or "-",
             )
         return event
 
@@ -370,15 +393,16 @@ class CostTracker:
         return list(self._by_source.keys())
 
 
-_tracker: ContextVar[Optional[CostTracker]] = ContextVar("cost_tracker", default=None)
-_source_id: ContextVar[Optional[str]] = ContextVar("cost_source_id", default=None)
+_tracker: ContextVar[CostTracker | None] = ContextVar("cost_tracker", default=None)
+_source_id: ContextVar[str | None] = ContextVar("cost_source_id", default=None)
 # (step, total, kind) e.g. (3, 40, "imagem")
-_progress: ContextVar[Optional[tuple[int, Optional[int], str]]] = ContextVar(
-    "cost_progress", default=None,
+_progress: ContextVar[tuple[int, int | None, str] | None] = ContextVar(
+    "cost_progress",
+    default=None,
 )
 
 
-def begin_run(run_id: Optional[int] = None) -> CostTracker:
+def begin_run(run_id: int | None = None) -> CostTracker:
     """Start a fresh tracker for a pipeline command."""
     tracker = CostTracker(run_id=run_id)
     _tracker.set(tracker)
@@ -387,7 +411,7 @@ def begin_run(run_id: Optional[int] = None) -> CostTracker:
     return tracker
 
 
-def get_tracker() -> Optional[CostTracker]:
+def get_tracker() -> CostTracker | None:
     return _tracker.get()
 
 
@@ -398,17 +422,17 @@ def require_tracker() -> CostTracker:
     return tracker
 
 
-def set_source(source_id: Optional[str]) -> None:
+def set_source(source_id: str | None) -> None:
     _source_id.set(source_id)
 
 
-def get_source_id() -> Optional[str]:
+def get_source_id() -> str | None:
     return _source_id.get()
 
 
 def set_progress(
     step: int,
-    total: Optional[int] = None,
+    total: int | None = None,
     kind: str = "",
 ) -> None:
     """Set current item position for COST logs (e.g. imagem 3/40)."""
@@ -432,10 +456,10 @@ def record_llm(
     tokens_out: int,
     cost_usd: float,
     label: str = "",
-    source_id: Optional[str] = None,
-    step: Optional[int] = None,
-    total: Optional[int] = None,
-    kind: Optional[str] = None,
+    source_id: str | None = None,
+    step: int | None = None,
+    total: int | None = None,
+    kind: str | None = None,
     cache_read_tokens: int = 0,
     cache_write_tokens: int = 0,
 ) -> None:
@@ -460,10 +484,10 @@ def record_embed(
     tokens: int,
     cost_usd: float,
     label: str = "",
-    source_id: Optional[str] = None,
-    step: Optional[int] = None,
-    total: Optional[int] = None,
-    kind: Optional[str] = None,
+    source_id: str | None = None,
+    step: int | None = None,
+    total: int | None = None,
+    kind: str | None = None,
 ) -> None:
     require_tracker().record_embed(
         model=model,
@@ -480,11 +504,11 @@ def record_embed(
 def record_cache_hit(
     *,
     label: str = "",
-    source_id: Optional[str] = None,
+    source_id: str | None = None,
     model: str = "",
-    step: Optional[int] = None,
-    total: Optional[int] = None,
-    kind: Optional[str] = None,
+    step: int | None = None,
+    total: int | None = None,
+    kind: str | None = None,
 ) -> None:
     require_tracker().record_cache_hit(
         label=label,

@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-
 from zettel.hashing import file_sha256
 from zettel.web import create_app
 
@@ -15,16 +14,18 @@ from zettel.web import create_app
 def web_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     config = tmp_path / "config.yaml"
     config.write_text(
-        "\n".join([
-            f"vault_path: {tmp_path / 'vault'}",
-            f"inbox_path: {tmp_path / 'inbox'}",
-            f"chroma_path: {tmp_path / 'chroma'}",
-            f"state_db_path: {tmp_path / 'state.db'}",
-            f"cache_path: {tmp_path / 'cache'}",
-            f"prompts_path: {Path('prompts').resolve()}",
-            "images:",
-            "  enabled: false",
-        ]),
+        "\n".join(
+            [
+                f"vault_path: {tmp_path / 'vault'}",
+                f"inbox_path: {tmp_path / 'inbox'}",
+                f"chroma_path: {tmp_path / 'chroma'}",
+                f"state_db_path: {tmp_path / 'state.db'}",
+                f"cache_path: {tmp_path / 'cache'}",
+                f"prompts_path: {Path('prompts').resolve()}",
+                "images:",
+                "  enabled: false",
+            ]
+        ),
         encoding="utf-8",
     )
     monkeypatch.setenv("SESSION_SECRET", "web-test-secret")
@@ -36,7 +37,8 @@ def _login(client: TestClient) -> str:
     login_page = client.get("/login")
     login_csrf = re.search(r'name="login_csrf" value="([^"]+)"', login_page.text).group(1)
     response = client.post(
-        "/login", data={"instance_secret": "web-test-secret", "login_csrf": login_csrf},
+        "/login",
+        data={"instance_secret": "web-test-secret", "login_csrf": login_csrf},
         follow_redirects=False,
     )
     assert response.status_code == 303
@@ -52,17 +54,30 @@ def test_authentication_and_csrf_protect_mutations(web_client):
     assert client.get("/", follow_redirects=False).status_code == 303
     login_page = client.get("/login")
     token = re.search(r'name="login_csrf" value="([^"]+)"', login_page.text).group(1)
-    assert client.post(
-        "/login", data={"instance_secret": "wrong", "login_csrf": token},
-    ).status_code == 401
-    assert client.post(
-        "/login", data={"instance_secret": "web-test-secret", "login_csrf": "wrong"},
-    ).status_code == 403
+    assert (
+        client.post(
+            "/login",
+            data={"instance_secret": "wrong", "login_csrf": token},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            "/login",
+            data={"instance_secret": "web-test-secret", "login_csrf": "wrong"},
+        ).status_code
+        == 403
+    )
     csrf = _login(client)
     assert client.post("/pipeline/retry_assets", data={"csrf": "wrong"}).status_code == 403
-    assert client.post(
-        "/pipeline/retry_assets", data={"csrf": csrf}, follow_redirects=False,
-    ).status_code == 303
+    assert (
+        client.post(
+            "/pipeline/retry_assets",
+            data={"csrf": csrf},
+            follow_redirects=False,
+        ).status_code
+        == 303
+    )
 
 
 def test_upload_rejects_traversal_and_collisions(web_client):
@@ -119,7 +134,9 @@ def test_navigation_and_retry_job_flow(web_client):
         assert text in response.text
 
     response = client.post(
-        "/pipeline/retry_assets", data={"csrf": csrf}, follow_redirects=False,
+        "/pipeline/retry_assets",
+        data={"csrf": csrf},
+        follow_redirects=False,
     )
     job_id = response.headers["location"].rsplit("/", 1)[-1]
     for _ in range(30):
@@ -204,29 +221,45 @@ def test_manual_source_document_type_is_a_dropdown_of_abnt_types(web_client):
 def test_manual_source_scaffold_can_be_created_without_overwrite(web_client):
     client, tmp_path = web_client
     csrf = _login(client)
-    response = client.post("/notes/new", data={
-        "csrf": csrf, "note_type": "SRC", "title": "Thinking Fast",
-        "citekey": "Kahneman2011", "authors": "Daniel Kahneman", "year": "2011",
-        "document_type": "book",
-    })
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "SRC",
+            "title": "Thinking Fast",
+            "citekey": "Kahneman2011",
+            "authors": "Daniel Kahneman",
+            "year": "2011",
+            "document_type": "book",
+        },
+    )
     assert response.status_code == 201
     assert "Nota criada" in response.text
     created = list((tmp_path / "vault" / "10_Sources").glob("*.md"))
     assert len(created) == 1
-    duplicate = client.post("/notes/new", data={
-        "csrf": csrf, "note_type": "SRC", "title": "Thinking Fast",
-        "citekey": "Kahneman2011",
-    })
+    duplicate = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "SRC",
+            "title": "Thinking Fast",
+            "citekey": "Kahneman2011",
+        },
+    )
     assert duplicate.status_code == 400
 
 
 def test_manual_ztl_uses_single_title_as_thesis(web_client):
     client, tmp_path = web_client
     csrf = _login(client)
-    response = client.post("/notes/new", data={
-        "csrf": csrf, "note_type": "ZTL",
-        "title": "Heurísticas reduzem esforço cognitivo",
-    })
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "ZTL",
+            "title": "Heurísticas reduzem esforço cognitivo",
+        },
+    )
     assert response.status_code == 201
     note = next((tmp_path / "vault" / "30_Permanent").glob("*.md"))
     content = note.read_text(encoding="utf-8")
@@ -241,10 +274,16 @@ def test_manual_ztl_uses_single_title_as_thesis(web_client):
 def test_manual_lit_rejects_forged_source_ids(web_client, source_id):
     client, tmp_path = web_client
     csrf = _login(client)
-    response = client.post("/notes/new", data={
-        "csrf": csrf, "note_type": "LIT", "title": "Tentativa",
-        "source_id": source_id, "granular": "1",
-    })
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "LIT",
+            "title": "Tentativa",
+            "source_id": source_id,
+            "granular": "1",
+        },
+    )
     assert response.status_code == 400
     assert not (tmp_path / "outside").exists()
 
@@ -289,7 +328,10 @@ def test_documents_hide_completed_file_but_show_changed_copy(web_client, monkeyp
             processing_status="completed",
         )
         db.upsert_file(
-            str(completed.resolve()), checksum, "md", source_id="@completed",
+            str(completed.resolve()),
+            checksum,
+            "md",
+            source_id="@completed",
         )
         db.upsert_source(
             source_id="@incomplete",
@@ -307,7 +349,9 @@ def test_documents_hide_completed_file_but_show_changed_copy(web_client, monkeyp
             extracted_text="# Capítulo incompleto\n\nConteúdo que ainda precisa de chunks.",
         )
         db.upsert_file(
-            str(incomplete.resolve()), incomplete_checksum, "md",
+            str(incomplete.resolve()),
+            incomplete_checksum,
+            "md",
             source_id="@incomplete",
         )
     finally:
@@ -363,28 +407,55 @@ def test_note_and_moc_details_render_sanitized_markdown(web_client):
     db = client.app.state.service.db()
     try:
         db.upsert_note(
-            "note-markdown", None, None, title="Nota formatada", body=markdown,
+            "note-markdown",
+            None,
+            None,
+            title="Nota formatada",
+            body=markdown,
         )
         db.upsert_note(
-            "note-target", None, None, title="Nota relacionada", body="# Destino",
+            "note-target",
+            None,
+            None,
+            title="Nota relacionada",
+            body="# Destino",
         )
         db.upsert_note(
-            "note-target-2", None, None, title="Outra nota relacionada", body="# Outro destino",
+            "note-target-2",
+            None,
+            None,
+            title="Outra nota relacionada",
+            body="# Outro destino",
         )
         db.upsert_note(
-            "note-target-3", None, None, title="Nota de apoio", body="# Apoio",
+            "note-target-3",
+            None,
+            None,
+            title="Nota de apoio",
+            body="# Apoio",
         )
         db.upsert_note_connection(
-            "note-markdown", "note-target", "extends", "Amplia o assunto",
+            "note-markdown",
+            "note-target",
+            "extends",
+            "Amplia o assunto",
         )
         db.upsert_note_connection(
-            "note-markdown", "note-target-2", "extends", "Amplia outro aspecto",
+            "note-markdown",
+            "note-target-2",
+            "extends",
+            "Amplia outro aspecto",
         )
         db.upsert_note_connection(
-            "note-markdown", "note-target-3", "supports", "Sustenta a tese",
+            "note-markdown",
+            "note-target-3",
+            "supports",
+            "Sustenta a tese",
         )
         db.upsert_moc(
-            "moc-markdown", "Mapa formatado", body="## Seção\n\n`código`",
+            "moc-markdown",
+            "Mapa formatado",
+            body="## Seção\n\n`código`",
         )
     finally:
         db.close()
@@ -433,7 +504,9 @@ def test_documents_can_queue_full_pipeline(web_client, monkeypatch):
     assert "Executar pipeline completo" in page.text
 
     response = client.post(
-        "/documents/run-all", data={"csrf": csrf}, follow_redirects=False,
+        "/documents/run-all",
+        data={"csrf": csrf},
+        follow_redirects=False,
     )
     assert response.status_code == 303
     assert response.headers["location"] == "/jobs/run-all-job"
@@ -451,7 +524,14 @@ def _seed_source(client, source_id="@Kahneman2011", citekey="Kahneman2011", titl
     db = client.app.state.service.db()
     try:
         db.upsert_source(
-            source_id, citekey, title, ["Daniel Kahneman"], 2011, "h", "/p", "md",
+            source_id,
+            citekey,
+            title,
+            ["Daniel Kahneman"],
+            2011,
+            "h",
+            "/p",
+            "md",
         )
         db.conn.execute(
             "UPDATE sources SET extracted_text=?, lit_body=? WHERE source_id=?",
@@ -463,17 +543,29 @@ def _seed_source(client, source_id="@Kahneman2011", citekey="Kahneman2011", titl
 
 
 def _seed_literature_chunk(
-    client, *, source_id="@Kahneman2011", chunk_index=1, section="Sistema 1",
-    text="SENTINEL_CHUNK_TEXT", path=None,
+    client,
+    *,
+    source_id="@Kahneman2011",
+    chunk_index=1,
+    section="Sistema 1",
+    text="SENTINEL_CHUNK_TEXT",
+    path=None,
 ):
     db = client.app.state.service.db()
     try:
         db.upsert_chapter(f"{source_id}::ch000", source_id, "Manual", "ch")
         chunk_id = f"{source_id}::manual::{chunk_index:04d}"
         db.upsert_chunk(
-            chunk_id, source_id, f"{source_id}::ch000", text, "ck",
-            locator="p. 20", section_path=section, chunk_index=chunk_index,
-            page_in_book=20, literature_note_path=str(path or f"/vault/{chunk_id}.md"),
+            chunk_id,
+            source_id,
+            f"{source_id}::ch000",
+            text,
+            "ck",
+            locator="p. 20",
+            section_path=section,
+            chunk_index=chunk_index,
+            page_in_book=20,
+            literature_note_path=str(path or f"/vault/{chunk_id}.md"),
         )
         return chunk_id
     finally:
@@ -541,9 +633,14 @@ def test_biblio_preview_requires_session(web_client):
 def test_biblio_preview_rejects_bad_csrf(web_client):
     client, _ = web_client
     _login(client)
-    response = client.post("/notes/new/biblio-preview", data={
-        "csrf": "wrong", "document_type": "livro", "title": "O Capital",
-    })
+    response = client.post(
+        "/notes/new/biblio-preview",
+        data={
+            "csrf": "wrong",
+            "document_type": "livro",
+            "title": "O Capital",
+        },
+    )
     assert response.status_code == 403
     assert response.json() == {"error": "csrf"}
 
@@ -551,11 +648,18 @@ def test_biblio_preview_rejects_bad_csrf(web_client):
 def test_biblio_preview_formats_abnt_without_writing_vault(web_client):
     client, tmp_path = web_client
     csrf = _login(client)
-    response = client.post("/notes/new/biblio-preview", data={
-        "csrf": csrf, "title": "O Capital", "authors": "Karl Marx",
-        "year": "2013", "document_type": "livro",
-        "place": "Sao Paulo", "publisher": "Boitempo",
-    })
+    response = client.post(
+        "/notes/new/biblio-preview",
+        data={
+            "csrf": csrf,
+            "title": "O Capital",
+            "authors": "Karl Marx",
+            "year": "2013",
+            "document_type": "livro",
+            "place": "Sao Paulo",
+            "publisher": "Boitempo",
+        },
+    )
     assert response.status_code == 200
     body = response.json()
     assert body["abnt_reference"].startswith("MARX, Karl.")
@@ -568,9 +672,15 @@ def test_biblio_preview_formats_abnt_without_writing_vault(web_client):
 def test_biblio_preview_requires_document_type_without_llm(web_client):
     client, _ = web_client
     csrf = _login(client)
-    response = client.post("/notes/new/biblio-preview", data={
-        "csrf": csrf, "title": "O Capital", "authors": "Karl Marx", "year": "2013",
-    })
+    response = client.post(
+        "/notes/new/biblio-preview",
+        data={
+            "csrf": csrf,
+            "title": "O Capital",
+            "authors": "Karl Marx",
+            "year": "2013",
+        },
+    )
     assert response.status_code == 400
     assert "tipo de documento" in response.json()["error"].lower()
 
@@ -578,9 +688,15 @@ def test_biblio_preview_requires_document_type_without_llm(web_client):
 def test_biblio_preview_refuses_llm_without_evidence(web_client):
     client, _ = web_client
     csrf = _login(client)
-    response = client.post("/notes/new/biblio-preview", data={
-        "csrf": csrf, "enrich": "1", "document_type": "livro", "title": "O Capital",
-    })
+    response = client.post(
+        "/notes/new/biblio-preview",
+        data={
+            "csrf": csrf,
+            "enrich": "1",
+            "document_type": "livro",
+            "title": "O Capital",
+        },
+    )
     assert response.status_code == 400
     assert "DOI" in response.json()["error"]
 
@@ -589,10 +705,16 @@ def test_biblio_preview_enrich_without_llm_is_conflict(web_client, monkeypatch):
     client, tmp_path = web_client
     csrf = _login(client)
     monkeypatch.setattr("zettel.web.manual._biblio_llm_ok", lambda cfg: False)
-    response = client.post("/notes/new/biblio-preview", data={
-        "csrf": csrf, "enrich": "1", "document_type": "livro", "title": "O Capital",
-        "doi": "https://doi.org/10.1234/x",
-    })
+    response = client.post(
+        "/notes/new/biblio-preview",
+        data={
+            "csrf": csrf,
+            "enrich": "1",
+            "document_type": "livro",
+            "title": "O Capital",
+            "doi": "https://doi.org/10.1234/x",
+        },
+    )
     assert response.status_code == 409
     assert "credencial" in response.json()["error"].lower()
     assert not list((tmp_path / "vault").rglob("*.md"))
@@ -603,7 +725,9 @@ def test_biblio_preview_enrich_fills_empty_fields_without_writing(web_client, mo
     csrf = _login(client)
     monkeypatch.setattr("zettel.web.manual._biblio_llm_ok", lambda cfg: True)
 
-    def fake_enrich(cfg, db, seed, text_sample, filename, *, prefer_seed=False, raise_on_error=False):
+    def fake_enrich(
+        cfg, db, seed, text_sample, filename, *, prefer_seed=False, raise_on_error=False
+    ):
         assert prefer_seed is True
         assert filename == "manual-src"
         assert "10.1234/x" in text_sample
@@ -612,11 +736,19 @@ def test_biblio_preview_enrich_fills_empty_fields_without_writing(web_client, mo
         return seed
 
     monkeypatch.setattr("zettel.bibliography.enrich_with_llm", fake_enrich)
-    response = client.post("/notes/new/biblio-preview", data={
-        "csrf": csrf, "enrich": "1", "title": "O Capital", "authors": "Karl Marx",
-        "year": "2013", "document_type": "livro", "doi": "https://doi.org/10.1234/x",
-        "publisher": "Boitempo",
-    })
+    response = client.post(
+        "/notes/new/biblio-preview",
+        data={
+            "csrf": csrf,
+            "enrich": "1",
+            "title": "O Capital",
+            "authors": "Karl Marx",
+            "year": "2013",
+            "document_type": "livro",
+            "doi": "https://doi.org/10.1234/x",
+            "publisher": "Boitempo",
+        },
+    )
     assert response.status_code == 200
     body = response.json()
     assert body["enriched"] is True
@@ -629,13 +761,21 @@ def test_biblio_preview_enrich_fills_empty_fields_without_writing(web_client, mo
 def test_manual_source_keeps_edited_abnt_reference(web_client):
     client, tmp_path = web_client
     csrf = _login(client)
-    response = client.post("/notes/new", data={
-        "csrf": csrf, "note_type": "SRC", "title": "O Capital",
-        "citekey": "Marx2013", "authors": "Karl Marx", "year": "2013",
-        "document_type": "livro",
-        "abnt_reference": "MARX, Karl. O Capital. Sao Paulo: Boitempo, 2013.",
-        "publisher": "Boitempo", "biblio_sample": "nao deve ir para a nota",
-    })
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "SRC",
+            "title": "O Capital",
+            "citekey": "Marx2013",
+            "authors": "Karl Marx",
+            "year": "2013",
+            "document_type": "livro",
+            "abnt_reference": "MARX, Karl. O Capital. Sao Paulo: Boitempo, 2013.",
+            "publisher": "Boitempo",
+            "biblio_sample": "nao deve ir para a nota",
+        },
+    )
     assert response.status_code == 201
     created = list((tmp_path / "vault" / "10_Sources").glob("*.md"))
     assert len(created) == 1
@@ -648,11 +788,18 @@ def test_manual_lit_granular_creates_chunk_file(web_client):
     client, tmp_path = web_client
     csrf = _login(client)
     _seed_source(client)
-    response = client.post("/notes/new", data={
-        "csrf": csrf, "note_type": "LIT", "title": "Sistema 1",
-        "source_id": "@Kahneman2011", "granular": "1",
-        "chunk_index": "1", "page_number": "20",
-    })
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "LIT",
+            "title": "Sistema 1",
+            "source_id": "@Kahneman2011",
+            "granular": "1",
+            "chunk_index": "1",
+            "page_number": "20",
+        },
+    )
     assert response.status_code == 201
     assert "Próximo passo" in response.text
     created = list((tmp_path / "vault" / "20_Literature" / "Kahneman2011").glob("*.md"))
@@ -668,15 +815,22 @@ def test_manual_lit_granular_writes_body(web_client):
     client, tmp_path = web_client
     csrf = _login(client)
     _seed_source(client)
-    response = client.post("/notes/new", data={
-        "csrf": csrf, "note_type": "LIT", "title": "Sistema 1",
-        "source_id": "@Kahneman2011", "granular": "1",
-        "chunk_index": "1", "page_number": "20",
-        "lit_excerpt": "O sistema 1 opera automatica e rapidamente.",
-        "lit_summary": "Pensar rapido e o modo padrao, sem esforco deliberado.",
-        "lit_concepts": "sistema 1\nheuristica",
-        "lit_candidate": "O sistema 1 e o modo padrao da mente.",
-    })
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "LIT",
+            "title": "Sistema 1",
+            "source_id": "@Kahneman2011",
+            "granular": "1",
+            "chunk_index": "1",
+            "page_number": "20",
+            "lit_excerpt": "O sistema 1 opera automatica e rapidamente.",
+            "lit_summary": "Pensar rapido e o modo padrao, sem esforco deliberado.",
+            "lit_concepts": "sistema 1\nheuristica",
+            "lit_candidate": "O sistema 1 e o modo padrao da mente.",
+        },
+    )
     assert response.status_code == 201
     created = list((tmp_path / "vault" / "20_Literature" / "Kahneman2011").glob("*.md"))
     assert len(created) == 1
@@ -691,23 +845,41 @@ def test_manual_lit_granular_writes_body(web_client):
 
 
 def test_manual_lit_index_collides_without_force(web_client):
-    client, tmp_path = web_client
+    client, _tmp_path = web_client
     csrf = _login(client)
     _seed_source(client)
-    first = client.post("/notes/new", data={
-        "csrf": csrf, "note_type": "SRC", "title": "Thinking Fast",
-        "citekey": "Kahneman2011",
-    })
+    first = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "SRC",
+            "title": "Thinking Fast",
+            "citekey": "Kahneman2011",
+        },
+    )
     assert first.status_code == 201
-    collision = client.post("/notes/new", data={
-        "csrf": csrf, "note_type": "LIT", "title": "Thinking Fast",
-        "source_id": "@Kahneman2011", "granular": "",
-    })
+    collision = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "LIT",
+            "title": "Thinking Fast",
+            "source_id": "@Kahneman2011",
+            "granular": "",
+        },
+    )
     assert collision.status_code == 400
-    forced = client.post("/notes/new", data={
-        "csrf": csrf, "note_type": "LIT", "title": "Thinking Fast",
-        "source_id": "@Kahneman2011", "granular": "", "force": "1",
-    })
+    forced = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "LIT",
+            "title": "Thinking Fast",
+            "source_id": "@Kahneman2011",
+            "granular": "",
+            "force": "1",
+        },
+    )
     assert forced.status_code == 201
 
 
@@ -715,11 +887,15 @@ def test_manual_ztl_renders_missing_src_warning(web_client):
     client, _ = web_client
     csrf = _login(client)
     _seed_source(client, source_id="@Ghost2020", citekey="Ghost2020", title="Fantasma")
-    response = client.post("/notes/new", data={
-        "csrf": csrf, "note_type": "ZTL",
-        "title": "Uma tese sem SRC no vault",
-        "source_id": "@Ghost2020",
-    })
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "ZTL",
+            "title": "Uma tese sem SRC no vault",
+            "source_id": "@Ghost2020",
+        },
+    )
     assert response.status_code == 201
     assert "SRC nao encontrada" in response.text
 
@@ -789,10 +965,15 @@ def test_pickers_are_accent_insensitive_and_clamp_limit(web_client):
 def test_from_lit_unknown_chunk_is_rejected(web_client):
     client, _ = web_client
     csrf = _login(client)
-    response = client.post("/notes/new", data={
-        "csrf": csrf, "note_type": "ZTL", "ztl_origin": "from_lit",
-        "from_lit": "@nope::manual::0001",
-    })
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "ZTL",
+            "ztl_origin": "from_lit",
+            "from_lit": "@nope::manual::0001",
+        },
+    )
     assert response.status_code == 400
     assert "LIT granular" in response.text
 
@@ -802,10 +983,15 @@ def test_from_lit_source_id_is_not_a_chunk(web_client):
     client, _ = web_client
     csrf = _login(client)
     _seed_source(client)
-    response = client.post("/notes/new", data={
-        "csrf": csrf, "note_type": "ZTL", "ztl_origin": "from_lit",
-        "from_lit": "@Kahneman2011",
-    })
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "ZTL",
+            "ztl_origin": "from_lit",
+            "from_lit": "@Kahneman2011",
+        },
+    )
     assert response.status_code == 400
     assert "LIT granular" in response.text
 
@@ -833,8 +1019,11 @@ def test_from_lit_chunk_id_enqueues(web_client, monkeypatch):
     response = client.post(
         "/notes/new",
         data={
-            "csrf": csrf, "note_type": "ZTL", "ztl_origin": "from_lit",
-            "from_lit": chunk_id, "lit_thesis": "Heurísticas guiam o julgamento.",
+            "csrf": csrf,
+            "note_type": "ZTL",
+            "ztl_origin": "from_lit",
+            "from_lit": chunk_id,
+            "lit_thesis": "Heurísticas guiam o julgamento.",
         },
         follow_redirects=False,
     )
@@ -843,20 +1032,28 @@ def test_from_lit_chunk_id_enqueues(web_client, monkeypatch):
     assert captured["payload"]["ref"] == chunk_id
 
 
-@pytest.mark.parametrize("path", [
-    "../../etc/passwd",
-    "/etc/passwd",
-    r"C:\Windows\win.ini",
-    "30_Permanent/other.md",
-    "20_Literature/../../secret.md",
-])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "../../etc/passwd",
+        "/etc/passwd",
+        r"C:\Windows\win.ini",
+        "30_Permanent/other.md",
+        "20_Literature/../../secret.md",
+    ],
+)
 def test_from_lit_path_cannot_escape_literature_dir(web_client, path):
     client, tmp_path = web_client
     csrf = _login(client)
-    response = client.post("/notes/new", data={
-        "csrf": csrf, "note_type": "ZTL", "ztl_origin": "from_lit",
-        "from_lit_path": path,
-    })
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "ZTL",
+            "ztl_origin": "from_lit",
+            "from_lit_path": path,
+        },
+    )
     assert response.status_code == 400
     assert not (tmp_path / "secret.md").exists()
     assert not list((tmp_path / "vault" / "30_Permanent").glob("*.md"))
@@ -869,10 +1066,15 @@ def test_from_lit_index_note_is_rejected(web_client):
     index = tmp_path / "vault" / "20_Literature" / "LIT - Kahneman2011 - index.md"
     index.parent.mkdir(parents=True, exist_ok=True)
     index.write_text("---\ntype: literature_index\n---\n# Index\n", encoding="utf-8")
-    response = client.post("/notes/new", data={
-        "csrf": csrf, "note_type": "ZTL", "ztl_origin": "from_lit",
-        "from_lit_path": "20_Literature/LIT - Kahneman2011 - index.md",
-    })
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "ZTL",
+            "ztl_origin": "from_lit",
+            "from_lit_path": "20_Literature/LIT - Kahneman2011 - index.md",
+        },
+    )
     assert response.status_code == 400
 
 
@@ -887,11 +1089,17 @@ def test_from_lit_llm_without_sqlite_source_is_conflict(web_client):
         "source_id: '@Orphan2020'\n---\n## Resumo\n\nUma tese real o suficiente.\n",
         encoding="utf-8",
     )
-    response = client.post("/notes/new", data={
-        "csrf": csrf, "note_type": "ZTL", "ztl_origin": "from_lit",
-        "from_lit_path": "20_Literature/Orphan2020/LIT - Orphan2020 - p001 - tema-0001.md",
-        "use_llm": "1", "lit_thesis": "Uma tese",
-    })
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "ZTL",
+            "ztl_origin": "from_lit",
+            "from_lit_path": "20_Literature/Orphan2020/LIT - Orphan2020 - p001 - tema-0001.md",
+            "use_llm": "1",
+            "lit_thesis": "Uma tese",
+        },
+    )
     assert response.status_code == 409
     assert "Pipeline" in response.text
 
@@ -908,10 +1116,15 @@ def test_from_lit_scaffold_without_thesis_is_rejected(web_client):
         "source_id: '@Kahneman2011'\n---\n## Resumo\n\n_Preencha o resumo._\n",
         encoding="utf-8",
     )
-    response = client.post("/notes/new", data={
-        "csrf": csrf, "note_type": "ZTL", "ztl_origin": "from_lit",
-        "from_lit_path": "20_Literature/Kahneman2011/LIT - Kahneman2011 - p001 - tema-0001.md",
-    })
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "ZTL",
+            "ztl_origin": "from_lit",
+            "from_lit_path": "20_Literature/Kahneman2011/LIT - Kahneman2011 - p001 - tema-0001.md",
+        },
+    )
     assert response.status_code == 400
 
 
@@ -938,8 +1151,11 @@ def test_from_lit_enqueues_ref_thesis_and_force(web_client, monkeypatch):
     response = client.post(
         "/notes/new",
         data={
-            "csrf": csrf, "note_type": "ZTL", "ztl_origin": "from_lit",
-            "from_lit_path": rel, "lit_thesis": "Heurísticas guiam o julgamento.",
+            "csrf": csrf,
+            "note_type": "ZTL",
+            "ztl_origin": "from_lit",
+            "from_lit_path": rel,
+            "lit_thesis": "Heurísticas guiam o julgamento.",
             "force": "1",
         },
         follow_redirects=False,

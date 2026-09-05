@@ -10,7 +10,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from zettel.config import AppConfig, LLMConfig, LLMPhaseConfig
 from zettel.preflight import (
     estimate_article,
@@ -42,8 +41,14 @@ def cfg(tmp_path: Path) -> AppConfig:
 def db(tmp_path: Path):
     database = StateDB(tmp_path / "state.db")
     database.upsert_source(
-        "@Autor2020", citekey="Autor2020", title="Livro", authors=["A"], year=2020,
-        file_checksum="c", origin_path="/x.pdf", origin_type="pdf",
+        "@Autor2020",
+        citekey="Autor2020",
+        title="Livro",
+        authors=["A"],
+        year=2020,
+        file_checksum="c",
+        origin_path="/x.pdf",
+        origin_type="pdf",
     )
     database.upsert_chapter("@Autor2020::ch000", "@Autor2020", "Cap", "chk")
     yield database
@@ -53,8 +58,11 @@ def db(tmp_path: Path):
 def _pending_chunks(db: StateDB, count: int, chars: int = 4000) -> None:
     for i in range(count):
         db.upsert_chunk(
-            f"@Autor2020::ch000::c{i:04d}", "@Autor2020", "@Autor2020::ch000",
-            "x" * chars, f"chk{i}",
+            f"@Autor2020::ch000::c{i:04d}",
+            "@Autor2020",
+            "@Autor2020::ch000",
+            "x" * chars,
+            f"chk{i}",
         )
 
 
@@ -65,7 +73,8 @@ def _candidates(count: int) -> list[dict]:
             "source_id": "@Autor2020",
             "chunk_id": "chunk",
             "candidate": PermanentNoteCandidate(
-                thesis="t" * 100, definition="d" * 400,
+                thesis="t" * 100,
+                definition="d" * 400,
             ),
         }
         for i in range(count)
@@ -205,7 +214,6 @@ def test_gate_passes_through_with_yes(cfg, db):
 
 def test_gate_aborts_without_calling_anything(cfg, db, monkeypatch):
     import typer
-
     from zettel.cli.deps import preflight_gate
 
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
@@ -218,12 +226,12 @@ def test_gate_aborts_without_calling_anything(cfg, db, monkeypatch):
 
 def test_gate_does_not_block_a_non_tty(cfg, db, monkeypatch):
     import typer
-
     from zettel.cli.deps import preflight_gate
 
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
     monkeypatch.setattr(
-        typer, "confirm",
+        typer,
+        "confirm",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("nao deve perguntar")),
     )
     _pending_chunks(db, 1)
