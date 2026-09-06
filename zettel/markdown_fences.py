@@ -1,15 +1,10 @@
 """CommonMark fenced-block scanning.
 
 A leaf module on purpose: pure text in, spans out, no config, no SQLite, no
-Chroma. Two subsystems need this fact about a document and they must not each
-grow their own scanner — `harvester.chunking` uses it to keep a fence atomic
-while splitting (ADR-014), and `extractor`/`preflight` use it to recognise a
-chunk that is mostly code before spending an LLM call on it (issue #154).
-
-It used to live in `harvester/chunking.py`, which reaches `zettel.index` and so
-loads chromadb. Importing that from `preflight` — documented as pure functions
-that read only SQLite and config — cost 1.6s and 651 extra modules for a
-character count.
+Chroma. `harvester.chunking` uses it to keep a fence atomic while splitting
+(ADR-014), and anything that needs to reason about where the code blocks are can
+import it without paying for chromadb — which is what `harvester/chunking.py`,
+its previous home, drags in through `zettel.index`.
 """
 
 from __future__ import annotations
@@ -63,16 +58,3 @@ def iter_fenced_spans(text: str) -> list[tuple[int, int]]:
 
 def offset_is_fenced(offset: int, spans: list[tuple[int, int]]) -> bool:
     return any(start <= offset < end for start, end in spans)
-
-
-def fenced_char_ratio(text: str) -> float:
-    """Fraction of `text` that sits inside fenced blocks, in [0, 1].
-
-    The signal behind the pre-LLM gate: a chunk that is mostly a listing is read
-    by the extract model as an illustration rather than a concept, and rejected.
-    Empty text has no code, so it scores 0.0 and is never gated on this account.
-    """
-    if not text:
-        return 0.0
-    fenced = sum(end - start for start, end in iter_fenced_spans(text))
-    return fenced / len(text)

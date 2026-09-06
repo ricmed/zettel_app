@@ -97,39 +97,22 @@ def _build(
 
 
 def estimate_extract(cfg: AppConfig, db: StateDB) -> PreflightEstimate:
-    """One Prompt 1 call per pending chunk the pre-LLM gate will not bar."""
-    # `markdown_fences` is a leaf (pure text, no config/SQLite/Chroma) precisely
-    # so this module can ask about fences without loading chromadb — see #154.
-    from zettel.markdown_fences import fenced_char_ratio
-
-    max_fence = cfg.extraction.max_fence_ratio
-    billable, n_gated = [], 0
-    for chunk in db.get_pending_chunks():
-        if max_fence < 1.0 and fenced_char_ratio(chunk.get("text") or "") > max_fence:
-            n_gated += 1
-            continue
-        billable.append(chunk)
-
+    """One Prompt 1 call per pending chunk."""
+    chunks = db.get_pending_chunks()
     overhead = _prompt_tokens(cfg, "literature_note.md")
-    input_tokens = sum(estimate_tokens(c.get("text") or "") for c in billable)
-    input_tokens += overhead * len(billable)
-    caveats = [
-        "Imagens pendentes (llm.images) nao entram nesta conta.",
-        "Hits do cache SQLite nao estao descontados.",
-    ]
-    if n_gated:
-        caveats.append(
-            f"{n_gated} chunk(s) barrados pelo gate de codigo "
-            f"(extraction.max_fence_ratio={max_fence:.0%}) nao geram chamada."
-        )
+    input_tokens = sum(estimate_tokens(c.get("text") or "") for c in chunks)
+    input_tokens += overhead * len(chunks)
     return _build(
         cfg,
         "extract",
-        items=len(billable),
+        items=len(chunks),
         item_label="chunk(s) pendente(s)",
         input_tokens=input_tokens,
-        output_tokens=len(billable) * cfg.extraction.preflight_output_tokens_per_chunk,
-        caveats=caveats,
+        output_tokens=len(chunks) * cfg.extraction.preflight_output_tokens_per_chunk,
+        caveats=[
+            "Imagens pendentes (llm.images) nao entram nesta conta.",
+            "Hits do cache SQLite nao estao descontados.",
+        ],
     )
 
 

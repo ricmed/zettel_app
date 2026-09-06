@@ -136,36 +136,6 @@ def test_extract_flags_what_it_does_not_count(cfg, db):
     assert "imagens" in caveats.lower()
 
 
-def _fenced_chunk(db: StateDB, chunk_id: str, fence_lines: int, prose_words: int) -> None:
-    fence = "```python\n" + ("x = compute_value(1)  # exemplo\n" * fence_lines) + "```"
-    prose = " ".join(f"palavra{i}" for i in range(prose_words))
-    db.upsert_chunk(chunk_id, "@Autor2020", "@Autor2020::ch000", f"{prose}\n\n{fence}", chunk_id)
-
-
-def test_extract_discounts_chunks_the_fence_gate_will_bar(cfg, db):
-    """An estimate that bills for calls the gate prevents is not an estimate."""
-    _pending_chunks(db, 2, chars=4000)
-    _fenced_chunk(db, "@Autor2020::ch000::code", fence_lines=60, prose_words=5)
-    cfg.extraction.max_fence_ratio = 0.65
-
-    est = estimate_extract(cfg, db)
-
-    assert est.items == 2  # the code-dominated chunk is not billed
-    assert est.input_tokens == 2 * (1000 + 100)
-    assert "gate de codigo" in " ".join(est.caveats)
-
-
-def test_extract_counts_every_chunk_when_the_gate_is_off(cfg, db):
-    _pending_chunks(db, 2, chars=4000)
-    _fenced_chunk(db, "@Autor2020::ch000::code", fence_lines=60, prose_words=5)
-    assert cfg.extraction.max_fence_ratio == 1.0
-
-    est = estimate_extract(cfg, db)
-
-    assert est.items == 3
-    assert not any("gate de codigo" in c for c in est.caveats)
-
-
 # ── connect ────────────────────────────────────────────────────────────
 
 
