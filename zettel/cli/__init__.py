@@ -18,7 +18,7 @@ Module map:
 ``curation.py``      extract, review, retry-failed
 ``synthesis.py``     connect, garden
 ``purge.py``         purge-rejected, delete-source
-``manual.py``        new-note, sync-manual
+``manual.py``        new-note, sync-manual, suggest-links
 ``pipeline.py``      run-all
 ``qa.py``            ask
 ``writing.py``       article
@@ -54,7 +54,7 @@ from zettel.cli import ingest  # harvest, rechunk, dumps, set-paging
 from zettel.cli import curation  # extract, review, retry-failed
 from zettel.cli import synthesis  # connect, garden
 from zettel.cli import purge  # purge-rejected, delete-source
-from zettel.cli import manual  # new-note, sync-manual
+from zettel.cli import manual  # new-note, sync-manual, suggest-links
 from zettel.cli import pipeline  # run-all
 from zettel.cli import qa  # ask
 from zettel.cli import writing  # article

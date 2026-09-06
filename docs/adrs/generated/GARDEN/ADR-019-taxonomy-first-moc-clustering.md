@@ -70,3 +70,7 @@ The silent fallback from UMAP+HDBSCAN to KMeans on `ImportError` (or any excepti
 * `zettel/gardener_assign.py:27-105` — `embed_category_labels()`, `assign_notes_to_categories()`, `cluster_notes_within_buckets()`
 * `zettel/gardener_assign.py:198-239` — `_cluster_embeddings()`: UMAP+HDBSCAN configuration and silent KMeans fallback
 * `config/moc_topics.yaml` — taxonomy structure driving category assignment
+
+## Amendment (2026-09-06)
+
+Category labels default to `"{pilar}: {categoria}"`. A shared `domain` prefix on every label collapsed cosine argmax in a mixed vault. `embed_category_labels` takes `(pilar, categoria)` pairs; `domain` remains available on the template for a custom override. Category names must be globally unique (`duplicate_category_names`). The transversal pillar "Problemas Transversais" is the intended home for bridge notes. After this change, `zettel garden --recreate` is required.

@@ -1,7 +1,8 @@
 """Hand-written notes: scaffolding them, and adopting them into the stores.
 
-* ``new-note``    — write a note skeleton into the vault with ``origin: manual``;
-* ``sync-manual`` — scan the vault for manual/hand-edited notes and index them.
+* ``new-note``      — write a note skeleton into the vault with ``origin: manual``;
+* ``sync-manual``   — scan the vault for manual/hand-edited notes and index them;
+* ``suggest-links`` — RAG suggestions into ``auto-connections`` without rewriting.
 
 The two are two halves of one flow, and the split between them is deliberate
 (ADR-030): ``new-note`` touches **only** the filesystem, so a half-written note
@@ -336,3 +337,28 @@ def sync_manual(
     metrics_table("Sync Manual", stats, key_label="Métrica", capitalize_keys=True)
 
     db.close()
+
+
+@app.command(name="suggest-links")
+def suggest_links(
+    note: Annotated[
+        str,
+        typer.Argument(help="Caminho da ZTL ou note_id ja indexado"),
+    ],
+    config: ConfigOption = None,
+    yes: YesOption = False,
+):
+    """Sugerir conexoes para uma ZTL manual sem reescrever o texto (RAG + analogias)."""
+    cfg = load_deps(config)
+    db = get_db(cfg)
+    idx = get_idx(cfg, db=db, yes=yes)
+    from zettel.manual_lit import suggest_connections_for_permanent
+
+    try:
+        n = suggest_connections_for_permanent(cfg, db, idx, note)
+    except (FileNotFoundError, ValueError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    finally:
+        db.close()
+    console.print(f"[green]Sugestoes gravadas em auto-connections:[/green] {n}")

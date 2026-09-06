@@ -79,7 +79,10 @@ def expand_notes(
             tgt = edge["target_note_id"]
             rel = edge["relation_type"]
             desc = edge.get("description") or ""
-            rel_weight = weights.get(rel, weights.get("related", 0.5))
+            if (edge.get("origin") or "llm") == "manual":
+                rel_weight = weights.get("manual", 0.95)
+            else:
+                rel_weight = weights.get(rel, weights.get("related", 0.5))
             # Consider the edge from whichever endpoint is on the current frontier.
             for anchor, other in ((src, tgt), (tgt, src)):
                 if anchor not in frontier or not other:

@@ -376,7 +376,7 @@ def _create_new_hub_moc(
     graph_ctx = get_neighbor_graph_context(db, hub_id, note_ids, cfg.hub_mocs)
 
     prompt_parts = load_prompt_parts(cfg.prompts_path / "moc_hub_generation.md")
-    domain = cfg.gardener.domain or "Geral"
+    domain = cfg.domain.name
     try:
         _, taxonomy_detail = resolve_allowed_topics(
             cfg.gardener.topics_path,

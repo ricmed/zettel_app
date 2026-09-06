@@ -106,6 +106,8 @@ linking:
   topk: 5                    # default do Retriever e RAG de connect/sync (CLI pode sobrescrever)
   dedupe_threshold: 0.85     # similaridade; distancia L2 = 2 * (1 - threshold) no extract
   preflight_output_tokens_per_note: 1200  # alvo de saida por nota no pre-voo de custo (nao e teto)
+  distant_analogy_topk: 5    # busca secundaria do connect (fora do bucket taxonomico)
+  distant_analogy_min_similarity: 0.40  # piso LOCAL desta busca; nao altera relevance_floor
 
 # ── Harvest (Deduplicação de Arquivos + ABNT) ──────────────────────────
 harvest:
@@ -193,15 +195,19 @@ images:
   rate_limit_backoff_max: 60 # teto de espera (s) entre retries
   rate_limit_abort_after: 5  # falhas 429 consecutivas (apos retries) => para o lote
 
+# ── Dominio do acervo (prompts de extract/connect/garden + few-shots) ──
+domain:
+  name: "Ciencia de Dados e Filosofia"  # preenche {domain} nos 4 prompts
+  examples_path: ./config/domain_examples.yaml  # few-shots dos dois dominios (T2)
+
 # ── Gardener (MOCs taxonomicos; zettel garden) ─────────────────────────
 gardener:
   min_cluster_size: 5                  # notas minimas para tentar clusterizar
   min_notes_for_moc: 10                 # cluster menor que isso nao vira MOC
-  domain: "Ciencia de Dados"           # preenchido nos prompts de MOC
   strict_topics: true                  # rejeitar topic fora das categorias de moc_topics.yaml
   topics_path: ./config/moc_topics.yaml  # pilar > categoria > topicos; categorias = whitelist
   cluster_within_category: true        # clusteriza dentro de cada bucket da taxonomia
-  category_label_template: "{domain}: {categoria}"  # texto embeddado p/ atribuir notas
+  category_label_template: "{pilar}: {categoria}"  # texto embeddado p/ atribuir notas
   overlap_threshold: 0.4               # fracao do cluster ja no MOC -> update incremental
   graph_cohesion_enabled: true         # mede coesao via note_connections
   graph_cohesion_min_ratio: 0.0        # 0 = so log; >0 exige coesao minima p/ MOC novo
@@ -254,6 +260,7 @@ retrieval:
       supports: 0.8
       exemplifies: 0.7
       related: 0.5                 # relacao tematica fraca
+      manual: 0.95                 # peso quando origin=manual (wikilink no corpo)
   ask:
     topk: 45                        # notas semente do comando `zettel ask`
     max_context_notes: 75           # teto de notas montadas no contexto do LLM

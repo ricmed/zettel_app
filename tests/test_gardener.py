@@ -30,6 +30,8 @@ from zettel.state import StateDB
 from zettel.taxonomy import (
     TaxonomyLoadError,
     allowed_topic_names,
+    category_pillar_pairs,
+    duplicate_category_names,
     format_taxonomy_for_prompt,
     load_moc_taxonomy,
     resolve_allowed_topics,
@@ -111,6 +113,16 @@ def test_allowed_topic_names_are_categories(mini_taxonomy_path: Path):
     ]
 
 
+def test_category_pillar_pairs(mini_taxonomy_path: Path):
+    tax = load_moc_taxonomy(mini_taxonomy_path)
+    assert category_pillar_pairs(tax) == [
+        ("Pilar A", "Categoria Um"),
+        ("Pilar A", "Categoria Dois"),
+        ("Pilar B", "Categoria Tres"),
+    ]
+    assert duplicate_category_names(tax) == []
+
+
 def test_format_taxonomy_for_prompt(mini_taxonomy_path: Path):
     tax = load_moc_taxonomy(mini_taxonomy_path)
     md = format_taxonomy_for_prompt(tax)
@@ -159,6 +171,15 @@ def test_load_project_moc_topics_yaml():
         "Aplicações de LLMs" in names
         or "Aplicacoes de LLMs" in names
         or any("LLM" in n for n in names)
+    )
+    assert "Epistemologia" in names
+    assert "Mente, Cognição e Representação" in names or any(
+        "Cognição" in n or "Cognicao" in n for n in names
+    )
+    assert duplicate_category_names(tax) == []
+    pairs = category_pillar_pairs(tax)
+    assert ("Filosofia Teórica", "Epistemologia") in pairs or any(
+        p == "Filosofia Teórica" and c == "Epistemologia" for p, c in pairs
     )
 
 

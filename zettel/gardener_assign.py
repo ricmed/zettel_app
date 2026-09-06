@@ -10,7 +10,7 @@ import numpy as np
 
 from zettel.config import DEFAULT_RELATION_WEIGHTS, GardenerConfig
 from zettel.index import VectorIndex
-from zettel.taxonomy import allowed_topic_names, load_moc_taxonomy
+from zettel.taxonomy import category_pillar_pairs, load_moc_taxonomy
 
 if TYPE_CHECKING:
     from zettel.state import StateDB
@@ -26,16 +26,28 @@ def extract_note_ids_from_moc_body(body: str) -> set[str]:
 
 def embed_category_labels(
     idx: VectorIndex,
-    categories: list[str],
+    categories: list[tuple[str, str]],
     domain: str,
     template: str,
 ) -> dict[str, np.ndarray]:
-    """Embed category names for taxonomy-first assignment."""
+    """Embed ``(pilar, categoria)`` labels for taxonomy-first assignment.
+
+    ``domain`` stays available on the template so a custom
+    ``{domain}: {categoria}`` still works; the default is ``{pilar}: {categoria}``.
+    """
     if not categories:
         return {}
-    labels = [template.format(domain=domain or "Geral", categoria=cat) for cat in categories]
+    labels = [
+        template.format(
+            pilar=pilar or domain or "Geral",
+            categoria=cat,
+            domain=domain or "Geral",
+        )
+        for pilar, cat in categories
+    ]
     vectors = idx.embed_texts(labels)
-    return {cat: np.array(vec, dtype=float) for cat, vec in zip(categories, vectors, strict=False)}
+    names = [cat for _pilar, cat in categories]
+    return {cat: np.array(vec, dtype=float) for cat, vec in zip(names, vectors, strict=False)}
 
 
 def assign_notes_to_categories(
@@ -60,6 +72,19 @@ def assign_notes_to_categories(
         buckets[cat_names[best_idx]].append(nid)
 
     return buckets
+
+
+def assign_vector_to_category(
+    vec: np.ndarray,
+    category_vectors: dict[str, np.ndarray],
+) -> str | None:
+    """Return the category name with highest cosine similarity to ``vec``."""
+    if not category_vectors:
+        return None
+    cat_names = list(category_vectors.keys())
+    cat_matrix = np.stack([category_vectors[c] for c in cat_names])
+    sims = _cosine_similarity_batch(np.asarray(vec, dtype=float), cat_matrix)
+    return cat_names[int(np.argmax(sims))]
 
 
 def cluster_notes_within_buckets(
@@ -274,12 +299,13 @@ def _cluster_kmeans(
     return [c for c in clusters.values() if len(c) >= min_cluster_size]
 
 
-def load_category_names(topics_path) -> list[str]:
+def load_category_names(topics_path) -> list[tuple[str, str]]:
+    """Load ``(pilar, categoria)`` pairs for label embedding."""
     if topics_path is None:
         return []
     try:
         tax = load_moc_taxonomy(topics_path)
-        return allowed_topic_names(tax)
+        return category_pillar_pairs(tax)
     except Exception as e:
         logger.warning("Nao foi possivel carregar categorias: %s", e)
         return []

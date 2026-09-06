@@ -14,6 +14,7 @@ Tudo que se ajusta sem tocar em código: o catálogo completo de `config/config.
 | [`zettel/config.py`](../zettel/config.py) | Schema Pydantic (tipos, validators) + **fallback de fábrica**. Só entra em ação quando o YAML falta, quando uma chave é omitida, ou nos testes que instanciam `AppConfig()`. |
 | `.env` | Segredos (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `SESSION_SECRET`). **Nunca** no YAML. |
 | [`config/moc_topics.yaml`](../config/moc_topics.yaml) | Taxonomia de tópicos dos MOCs (pilar > categoria > tópicos). Veja [prompts.md](prompts.md#taxonomia-de-topicos-para-mocs). |
+| [`config/domain_examples.yaml`](../config/domain_examples.yaml) | Few-shots de domínio (extract/connect). Caminho: `domain.examples_path`. |
 | [`config/personalities.yaml`](../config/personalities.yaml) | Personalidades de reescrita do `zettel article`. |
 
 `load_config` faz `AppConfig(**yaml)`: chave presente no YAML vence; chave ausente cai no `Field` default do schema. Um teste ([`tests/test_config.py`](../tests/test_config.py)) exige que **toda** chave do schema exista no YAML, com uma exceção — `gardener.allowed_topics`, que é override só de teste.
@@ -117,6 +118,8 @@ linking:
   topk: 5                    # default do Retriever e do RAG de connect/sync
   dedupe_threshold: 0.90     # similaridade; L2 = 2 * (1 - threshold) no extract
   preflight_output_tokens_per_note: 1200  # alvo de saida por nota no pre-voo (nao e teto)
+  distant_analogy_topk: 5
+  distant_analogy_min_similarity: 0.40
 
 # ── Harvest (duplicatas + metadados bibliograficos ABNT) ───────────────
 harvest:
@@ -167,6 +170,7 @@ retrieval:
       supports: 0.8
       exemplifies: 0.7
       related: 0.5
+      manual: 0.95           # peso quando origin=manual (wikilink no corpo)
   ask:
     topk: 8                  # notas semente do comando `ask`
     max_context_notes: 8     # teto de notas no contexto do LLM
@@ -188,15 +192,19 @@ retrieval:
     judge_temperature: 0.2
     enrich_temperature: 0.2
 
+# ── Dominio do acervo (prompts + few-shots) ────────────────────────────
+domain:
+  name: "Geral"              # preenche {domain} em extract/connect/garden
+  examples_path: ./config/domain_examples.yaml
+
 # ── Gardener (MOCs taxonomicos; zettel garden) ─────────────────────────
 gardener:
   min_cluster_size: 5        # notas minimas por cluster
   min_notes_for_moc: 3       # cluster menor que isso nao vira MOC
-  domain: ""                 # dominio do acervo (ex.: "Ciencia de Dados")
   strict_topics: true        # rejeitar MOCs fora das categorias da taxonomia
   topics_path: ./config/moc_topics.yaml  # pilar > categoria > topicos
   cluster_within_category: true          # clusteriza dentro de cada bucket da taxonomia
-  category_label_template: "{domain}: {categoria}"  # texto embeddado por categoria
+  category_label_template: "{pilar}: {categoria}"  # texto embeddado por categoria
   overlap_threshold: 0.4     # fracao do cluster ja no MOC -> update incremental
   graph_cohesion_enabled: true
   graph_cohesion_min_ratio: 0.0  # 0 = so log; >0 rejeita cluster fraco

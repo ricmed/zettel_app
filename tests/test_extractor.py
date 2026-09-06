@@ -321,7 +321,7 @@ def test_process_chunk_payload_carries_section_language_and_domain(tmp_path, mon
         prompts_path=Path(__file__).resolve().parents[1] / "prompts",
     )
     cfg.language = "pt-BR"
-    cfg.gardener.domain = "Ciencia de Dados"
+    cfg.domain.name = "Ciencia de Dados"
     (cfg.vault_path / "00_Inbox" / "Review").mkdir(parents=True)
 
     db = StateDB(cfg.state_db_path)
@@ -372,6 +372,7 @@ def test_process_chunk_payload_carries_section_language_and_domain(tmp_path, mon
     for half in captured.values():
         assert "{language}" not in half and "{domain}" not in half
         assert "{section_path}" not in half and "{chunk_text}" not in half
+        assert "{relevance_examples}" not in half and "{accepted_example}" not in half
 
 
 def _process_chunk_test_setup(tmp_path):

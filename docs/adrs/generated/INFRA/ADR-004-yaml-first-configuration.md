@@ -62,3 +62,7 @@ Without an enforcement tool, the "every Field must be in YAML" contract can erod
 * zettel/config.py:256 — `AppConfig` schema definition
 * zettel/config.py:42 — `LLMConfig`, an example nested config class with Field defaults
 * config/config.yaml — the operational source of truth
+
+## Amendment (2026-09-06)
+
+`domain` is a top-level block (`DomainConfig`: `name`, `examples_path`), not a gardener field. `examples_path` is anchored like `gardener.topics_path`. See [ADR-042](./ADR-042-domain-as-first-class-config.md).

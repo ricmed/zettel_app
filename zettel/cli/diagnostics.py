@@ -269,6 +269,23 @@ def doctor(config: ConfigOption = None):
     else:
         checks.append(("MOC taxonomy", False, f"arquivo nao encontrado: {topics_path}"))
 
+    examples_path = cfg.domain.examples_path
+    if examples_path is None:
+        checks.append(("Domain examples", False, "examples_path nao configurado"))
+    elif examples_path.exists():
+        try:
+            from zettel.domain_examples import load_domain_examples
+
+            loaded = load_domain_examples(examples_path)
+            n_lit = sum(1 for v in loaded.literature_note.model_dump().values() if str(v).strip())
+            checks.append(
+                ("Domain examples", True, f"{examples_path.name} ({n_lit} secoes de extract)")
+            )
+        except Exception as e:
+            checks.append(("Domain examples", False, f"invalida: {e}"))
+    else:
+        checks.append(("Domain examples", False, f"arquivo nao encontrado: {examples_path}"))
+
     # Embedding space: config vs Chroma collection markers
     from zettel.index import peek_stored_embedding_identity
 

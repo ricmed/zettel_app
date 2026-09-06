@@ -93,6 +93,12 @@ def run_extract(
     llm = get_llm(cfg, "extract")
     prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
     prompt_hash = sha256_hex(prompt_parts.full_template)
+    from zettel.domain_examples import load_domain_examples, render_for_prompt
+
+    example_fields = render_for_prompt(
+        load_domain_examples(cfg.domain.examples_path),
+        "literature_note",
+    )
 
     pending = db.get_pending_chunks()
     total = len(pending)
@@ -148,6 +154,7 @@ def run_extract(
                 chunk_row,
                 prompt_parts,
                 prompt_hash,
+                example_fields=example_fields,
                 step=i,
                 total=total,
             )
@@ -197,6 +204,7 @@ def _process_chunk(
     prompt_parts: PromptParts,
     prompt_hash: str,
     *,
+    example_fields: dict[str, str] | None = None,
     step: int | None = None,
     total: int | None = None,
 ) -> tuple[list[dict], LiteratureChunkOutput | None]:
@@ -251,15 +259,22 @@ def _process_chunk(
             chunk_row.get("page_in_file"),
         ) or chunk_row.get("locator", "")
 
+        examples = example_fields or {}
         mapping = {
             "language": cfg.language,
-            "domain": cfg.gardener.domain or "Geral",
+            "domain": cfg.domain.name,
             "source_id": source_id,
             "source_title": source_title,
             "section_path": section_path,
             "locator": locator,
             "images_context": images_context,
             "chunk_text": chunk_text,
+            "relevance_examples": examples.get("relevance_examples", ""),
+            "thesis_examples": examples.get("thesis_examples", ""),
+            "judgement_examples": examples.get("judgement_examples", ""),
+            "tag_examples": examples.get("tag_examples", ""),
+            "rejection_examples": examples.get("rejection_examples", ""),
+            "accepted_example": examples.get("accepted_example", ""),
         }
         system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
         user = fill_template(prompt_parts.user_template, mapping)

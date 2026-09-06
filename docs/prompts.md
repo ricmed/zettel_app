@@ -17,7 +17,7 @@ Os prompts em [`prompts/`](../prompts) são templates Markdown com placeholders 
 - **Seletividade**: regras de relevancia e filtragem em `literature_note.md`
 - **Imagens → candidatos/ZTL**: criterios de `relevant_image_ids` e extracao a partir de diagramas em `literature_note.md`; tom da descricao em `image_description.md`; uso de figuras no Prompt 2 em `permanent_note.md`
 - **Taxonomia de MOCs**: edite `config/moc_topics.yaml` (pilares, categorias e topicos)
-- **Dominio e categorias**: `{domain}` vem de `gardener.domain` e chega a `moc_generation.md`, `moc_hub_generation.md`, `literature_note.md` e `permanent_note.md`; `{allowed_topics_section}` em `moc_generation.md` vem do YAML da taxonomia
+- **Dominio e categorias**: `{domain}` vem de `domain.name` e chega a `moc_generation.md`, `moc_hub_generation.md`, `literature_note.md` e `permanent_note.md`; few-shots vêm de `domain.examples_path`; `{allowed_topics_section}` em `moc_generation.md` vem do YAML da taxonomia
 - **Classificacao incremental**: edite `moc_incremental.md` para ajustar como novas notas sao classificadas em MOCs existentes
 
 O sistema detecta automaticamente quando um prompt muda (via `llm_call_checksum`) e reprocessa apenas os artefatos afetados.
@@ -62,11 +62,11 @@ Para personalizar:
 
 1. Edite `config/moc_topics.yaml`
 2. Ajuste `gardener.topics_path` em `config/config.yaml` se o arquivo estiver em outro caminho
-3. Ajuste `gardener.domain` para refletir a área do seu acervo
+3. Ajuste `domain.name` para refletir a área do seu acervo e `domain.examples_path` para os few-shots
 
 Se `strict_topics: true` (padrão), MOCs com `topic` fora das categorias serão rejeitados. Use `strict_topics: false` para permitir tópicos fora da lista (com aviso no log).
 
-A taxonomia também é usada **antes** do LLM: `gardener_assign.py` embedda o rótulo de cada categoria (`category_label_template`, ex. `"{domain}: {categoria}"`) e atribui cada nota ao bucket mais próximo, para então clusterizar dentro dele. Veja [pipeline.md](pipeline.md#fase-4--garden-jardim).
+A taxonomia também é usada **antes** do LLM: `gardener_assign.py` embedda o rótulo de cada categoria (`category_label_template`, ex. `"{pilar}: {categoria}"`) e atribui cada nota ao bucket mais próximo, para então clusterizar dentro dele. Veja [pipeline.md](pipeline.md#fase-4--garden-jardim).
 
 ---
 

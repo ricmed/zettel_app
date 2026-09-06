@@ -138,6 +138,35 @@ def upsert_managed_block(content: str, block_name: str, new_inner: str) -> str:
 # ── Safe File I/O ──────────────────────────────────────────────────────
 
 
+def write_auto_connections(
+    path: Path,
+    lines: list[str],
+    *,
+    vault_timezone: str,
+) -> None:
+    """Replace the ``auto-connections`` managed block. Suggestions, not edges."""
+    safe_update_managed_blocks(
+        path,
+        {"auto-connections": "\n".join(lines)},
+        vault_timezone=vault_timezone,
+    )
+
+
+def format_suggestion_line(
+    wiki: str,
+    *,
+    relation_type: str = "",
+    description: str = "",
+) -> str:
+    """One auto-connections bullet. Wikilinks here never become graph edges."""
+    line = f"- {wiki}"
+    if relation_type:
+        line += f" ({relation_type})"
+    if description:
+        line += f" -- {description}"
+    return line
+
+
 def safe_write_note(path: Path, metadata: dict[str, Any], body: str) -> None:
     """Write a note file, creating directories as needed."""
     path.parent.mkdir(parents=True, exist_ok=True)

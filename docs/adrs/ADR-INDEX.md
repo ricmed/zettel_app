@@ -1,7 +1,7 @@
-# zettel_app ADR Index (41 Decisions)
+# zettel_app ADR Index (43 Decisions)
 
-**Last Updated**: 2026-09-05  
-**Status**: Complete — 41 formal ADRs across 12 modules
+**Last Updated**: 2026-09-06  
+**Status**: Complete — 43 formal ADRs across 12 modules
 
 ---
 
@@ -9,8 +9,8 @@
 
 | Module | Count | ADRs |
 |--------|-------|------|
-| **INFRA** | 9 | [001–008, 041](#infra-core-infrastructure) |
-| **RETRIEVAL** | 3 | [009–010, 036](#retrieval-hybrid-search--graph) |
+| **INFRA** | 10 | [001–008, 041–042](#infra-core-infrastructure) |
+| **RETRIEVAL** | 4 | [009–010, 036, 043](#retrieval-hybrid-search--graph) |
 | **HARVEST** | 6 | [011–014, 027, 033](#harvest-ingestion--paging) |
 | **EXTRACT** | 2 | [015, 034](#extract-literature-notes) |
 | **REVIEW** | 1 | [016](#review-approval-gate) |
@@ -97,6 +97,15 @@
 
 ---
 
+### ADR-042: Domain as First-Class Config and Externalized Few-Shots
+
+- **Status**: Accepted
+- **Date**: 2026-09-06
+- **Summary**: `domain.name` / `domain.examples_path` at the top level; few-shots leave the prompts. `gardener.domain` is gone. Category labels no longer share a domain prefix.
+- **Link**: [`ADR-042-domain-as-first-class-config.md`](./generated/INFRA/ADR-042-domain-as-first-class-config.md)
+
+---
+
 ### ADR-041: Dual Timezone — UTC in SQLite, Vault Timezone in Frontmatter
 
 - **Status**: Accepted
@@ -123,6 +132,15 @@
 - **Date**: 2026-07-18
 - **Summary**: `NoteSearchResult` carries both `hits` (results cleared the relevance floor) and `candidates` (raw RRF-ranked pool before the floor), each with provenance fields (`floor_reason`, `vector_rank`, `bm25_rank`), making filtering transparent rather than opaque.
 - **Link**: [`ADR-010-retrieval-result-transparency-hits-vs-candidates.md`](./generated/RETRIEVAL/ADR-010-retrieval-result-transparency-hits-vs-candidates.md)
+
+---
+
+### ADR-043: Distant Analogies as Suggestions, Not Graph Edges
+
+- **Status**: Accepted
+- **Date**: 2026-09-06
+- **Summary**: Connect's third RAG group uses a local similarity floor and notes outside the candidate's taxonomy bucket. Those connections land in `auto-connections`, not `note_connections`.
+- **Link**: [`ADR-043-distant-analogies-as-suggestions.md`](./generated/RETRIEVAL/ADR-043-distant-analogies-as-suggestions.md)
 
 ---
 
@@ -420,11 +438,17 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 41 |
-| **Accepted** | 41 |
+| **Total ADRs** | 43 |
+| **Accepted** | 43 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 42 |
 | **Modules Covered** | 12 |
+
+---
+
+## Status Update (2026-09-06)
+
+✅ **ADR-042 and ADR-043 added** — domain is first-class config with externalized few-shots (issues #156–#160); distant analogies are suggestions, not edges (issues #161, #165). ADR-004, ADR-009, ADR-019 and ADR-030 gained amendments (pillar labels, `note_connections.origin`, `zettel suggest-links`).
 
 ---
 
@@ -466,7 +490,7 @@
 
 ## Ungenerated Potential ADRs (7 of 34 identified, reserved for future decisions)
 
-- **CONNECT** (2): RAG context handling, permanent note generation routing
+- **CONNECT** (1): permanent note generation routing (RAG provenance groups: ADR-043)
 - **QA-WRITING** (1): ABNT bibliography citation formatting
 - **Consider-Priority** (4): Various lower-priority architectural observations across modules
 

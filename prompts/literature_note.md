@@ -58,8 +58,9 @@ Retorne `"chunk_status": "rejected"` e `"candidates": []` se o chunk for **prima
 - Conhecimento básico amplamente difundido
 
 ### 5. Conteúdo Fragmentado/Incompleto
-- Fragmentos de código sem explicação conceitual
-- Tabelas de dados sem interpretação
+- Fragmentos de código, notação ou fórmula sem explicação conceitual
+- Tabelas de dados ou de silogismos sem interpretação
+- Citações em língua antiga (grego, latim) sem tradução nem glosa
 - Exemplos isolados sem generalização
 - Trechos que dependem criticamente de contexto anterior/posterior
 
@@ -119,31 +120,28 @@ O corte é aplicado depois, pela política do sistema — sua tarefa é pontuar 
 - Definições de dicionário sem elaboração
 - Senso comum amplamente conhecido
 - Afirmações óbvias ou tautológicas
-- **Exemplo**: "Machine learning é usado em IA"
 
 ### 2 - INFORMATIVO BÁSICO
 - Informação correta mas genérica
 - Conceitos introdutórios sem profundidade
 - Descrições superficiais sem mecanismo
-- **Exemplo**: "Redes neurais têm camadas de neurônios"
 
 ### 3 - CONCEITO TÉCNICO VÁLIDO
 - Conceito técnico bem definido
 - Explicação de mecanismo ou princípio
 - Informação útil mas não surpreendente
-- **Exemplo**: "Normalização Batch reduz covariate shift interno durante treinamento"
 
 ### 4 - INSIGHT RELEVANTE (alvo preferencial)
 - Nuance importante de conceito conhecido
 - Relação não-óbvia entre conceitos
 - Limitação ou exceção importante
-- **Exemplo**: "Dropout funciona como ensemble implícito ao treinar subconjuntos de pesos"
 
 ### 5 - CONCEITO FUNDAMENTAL (raro, reservar para ideias-chave)
 - Ideia central de uma teoria ou framework
 - Princípio unificador de múltiplos fenômenos
 - Mudança de paradigma ou perspectiva
-- **Exemplo**: "Attention permite modelagem de dependências de longo alcance sem recorrência"
+
+{relevance_examples}
 
 ---
 
@@ -167,8 +165,7 @@ O corte é aplicado depois, pela política do sistema — sua tarefa é pontuar 
 - Uma afirmação completa e específica
 - Máximo 3 frases curtas e diretas
 - Deve capturar a essência conceitual, não apenas nomear o conceito
-- **BOM**: "Regularização L1 induz esparsidade nos pesos ao adicionar penalidade proporcional ao valor absoluto"
-- **RUIM**: "Regularização L1" (é tópico, não tese)
+{thesis_examples}
 
 ### Definição
 
@@ -190,32 +187,7 @@ O corte é aplicado depois, pela política do sistema — sua tarefa é pontuar 
 - Seja honesto sobre fronteiras do conceito
 - Opcional: pode ser omitida se não houver limites claros na fonte
 
-### Regras de Decisão (decision_rules) — opcional
-
-- Só preencha quando o trecho **enunciar** a regra; jamais deduza uma a partir da tese
-- Formato: "Quando X, faça Y, porque Z" (em {language})
-- Máximo 3 itens; cada item é uma frase completa e autônoma
-- **BOM**: "Quando o custo de um falso positivo for maior que o de um falso negativo, prefira precisão a revocação, porque o erro caro é a inclusão indevida"
-- **RUIM**: "Use precisão e revocação" (não é regra: não diz quando nem por quê)
-- **RUIM**: inventar "Quando o dataset for pequeno, use validação cruzada" porque parece razoável — se o autor não disse, não entra
-
-### Anti-Padrões (anti_patterns) — opcional
-
-- Só preencha quando o trecho nomear a prática errada **e** o motivo da falha
-- Formato: "O que evitar: ... — por que falha: ..."
-- Máximo 3 itens
-- **BOM**: "O que evitar: avaliar o modelo no mesmo conjunto usado para escolher hiperparâmetros — por que falha: a estimativa de erro passa a incluir a informação já usada na seleção"
-- **RUIM**: "Evite overfitting" (genérico, sem mecanismo de falha)
-- **Não duplique `limits`**: uma ressalva sobre quando a tese não vale é `limits`; anti-padrão é uma **prática** que alguém executa e que falha
-
-### Frameworks Nomeados (named_frameworks) — opcional
-
-- Apenas nomes próprios que o autor **usa como nome**: "The 5 Whys", "OODA Loop", "Conway's Law"
-- Preserve o nome **exatamente** como está na fonte, na língua original — não traduza, não expanda a sigla, não normalize maiúsculas
-- Máximo 3 itens; só o nome, sem explicação (a explicação já está na definição)
-- **BOM**: `["The 5 Whys"]`
-- **RUIM**: `["Os 5 Porquês"]` (traduzido), `["The 5 Whys — técnica de análise de causa raiz"]` (não é só o nome)
-- **RUIM**: `["aprendizado supervisionado"]` (termo de domínio, não nome próprio de framework)
+{judgement_examples}
 
 ### Citação-Âncora (anchor_quote)
 
@@ -233,12 +205,7 @@ O corte é aplicado depois, pela política do sistema — sua tarefa é pontuar 
 
 ### Tags
 
-- 2-5 tags por candidato
-- Minúsculas, sem acentos
-- Tags compostas: palavra1_palavra2
-- Devem representar **conceitos-chave**, não palavras genéricas
-- **BOM**: ["gradient_descent", "otimizacao", "convergencia"]
-- **RUIM**: ["machine_learning", "importante", "tecnica"]
+{tag_examples}
 
 ---
 
@@ -269,14 +236,14 @@ Texto do chunk:
    mecanismo, pipeline, modelo de dados), inclua o `asset_id` correspondente em
    `relevant_image_ids` daquele candidato. Nao inclua imagens meramente decorativas
    nem capturas de codigo sem valor conceitual.
-2. Se o texto do chunk for fino (listing, codigo, transicao) mas a **descricao da
-   figura** trouxer um conceito atomizavel (ex.: step-back prompting, parent
-   document retriever), **gere o candidato a partir da descricao**. Use trecho da
-   descricao (ou legenda textual proxima) como `anchor_quote` e indique o
-   localizador do trecho/figura.
-3. Chunks que seriam rejeitados como "fragmented" (so codigo) **nao devem ser
-   rejeitados** se houver figura conceitual no `images_context` do mesmo capitulo
-   — extraia o conceito da figura.
+2. Se o texto do chunk for fino (listing, notacao sem glosa, transicao) mas a
+   **descricao da figura** trouxer um conceito atomizavel (diagrama de mecanismo,
+   esquema de um argumento), **gere o candidato a partir da descricao**. Use
+   trecho da descricao (ou legenda textual proxima) como `anchor_quote` e
+   indique o localizador do trecho/figura.
+3. Chunks que seriam rejeitados como "fragmented" (so codigo, notacao ou citacao
+   crua) **nao devem ser rejeitados** se houver figura conceitual no
+   `images_context` do mesmo capitulo — extraia o conceito da figura.
 
 ---
 
@@ -335,71 +302,19 @@ quando o trecho não os enunciar. Listas vazias são o caso comum e esperado.
 - `narrative`: introdução vaga, transição, preâmbulo sem conceito
 - `promotional`: propaganda, marketing, descrição comercial
 - `trivial`: senso comum, definição básica, obviedade
-- `fragmented`: código isolado, tabela sem interpretação, exemplo incompleto
+- `fragmented`: código isolado, notação sem glosa, citação sem tradução, tabela sem interpretação, exemplo incompleto
 
 ---
 
 ## EXEMPLOS DE REJEIÇÃO
 
-**REJEITADO - Structural:**
-```
-Input: "Capítulo 3: Redes Neurais ... 3.1 Introdução ... 3.2 Arquiteturas ... 3.3 Treinamento ..."
-Reason: "Índice de capítulo sem conteúdo conceitual"
-Category: structural
-```
-
-**REJEITADO - Narrative:**
-```
-Input: "Neste capítulo, exploraremos técnicas avançadas de machine learning que revolucionarão sua prática..."
-Reason: "Preâmbulo introdutório genérico sem conceitos específicos"
-Category: narrative
-```
-
-**REJEITADO - Promotional:**
-```
-Input: "TensorFlow 2.0 oferece APIs intuitivas, suporte eager execution e integração com Keras..."
-Reason: "Descrição de features de produto sem conceito técnico subjacente"
-Category: promotional
-```
-
-**REJEITADO - Trivial:**
-```
-Input: "Inteligência Artificial é o campo que estuda como fazer máquinas inteligentes. É muito importante hoje em dia."
-Reason: "Definição genérica de dicionário sem densidade conceitual"
-Category: trivial
-```
+{rejection_examples}
 
 ---
 
 ## EXEMPLO DE CHUNK ACEITO
 
-Um único candidato, com figura essencial referenciada em `relevant_image_ids`:
-
-```json
-{
-  "chunk_status": "accepted",
-  "rejection_reason": "",
-  "rejection_category": "",
-  "summary": "Recuperação por similaridade em RAG: pergunta e documentos passam pelo mesmo modelo de embedding antes da busca no indice vetorial.",
-  "key_concepts": ["rag", "embedding", "indice_vetorial"],
-  "candidates": [
-    {
-      "thesis": "Em RAG com busca por similaridade, a pergunta e os documentos passam pelo mesmo modelo de embedding antes da recuperacao no indice vetorial.",
-      "definition": "O pipeline separa a pergunta do usuario e o corpus em representacoes vetoriais comparaveis. O modelo de embedding projeta ambos no mesmo espaco; o banco com indice vetorial devolve os trechos mais proximos para o gerador.",
-      "intuition": "Como um catalogo que indexa livros e pedidos de emprestimo com o mesmo codigo de prateleira.",
-      "limits": "Falha se o modelo de embedding mudar entre indexacao e consulta.",
-      "anchor_quote": "question and documents are processed by an embedding model",
-      "source_locator": "p.42 / secao 2.2",
-      "tags": ["rag", "embedding", "indice_vetorial"],
-      "relevance_score": 5,
-      "relevant_image_ids": ["@Fonte::img::5c97880b"],
-      "decision_rules": [],
-      "anti_patterns": [],
-      "named_frameworks": []
-    }
-  ]
-}
-```
+{accepted_example}
 
 ---
 

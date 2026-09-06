@@ -246,6 +246,22 @@ def test_language_and_domain_reach_extract_connect_and_images():
     assert "{language}" in (PROMPTS_DIR / "image_description.md").read_text(encoding="utf-8")
 
 
+def test_domain_example_placeholders_are_declared():
+    lit = (PROMPTS_DIR / "literature_note.md").read_text(encoding="utf-8")
+    for key in (
+        "relevance_examples",
+        "thesis_examples",
+        "judgement_examples",
+        "tag_examples",
+        "rejection_examples",
+        "accepted_example",
+    ):
+        assert "{" + key + "}" in lit, key
+    ztl = (PROMPTS_DIR / "permanent_note.md").read_text(encoding="utf-8")
+    assert "{thesis_examples}" in ztl
+    assert "{decision_examples}" in ztl
+
+
 # ── JSON examples ↔ Pydantic schemas ──────────────────────────────────
 
 
