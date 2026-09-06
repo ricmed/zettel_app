@@ -8,7 +8,7 @@
 ![ADRs](https://img.shields.io/badge/ADRs-43%20decisões-0A7EA4)
 ![Licença](https://img.shields.io/badge/licença-MIT-green)
 
-Sistema em Python que lê arquivos (PDF, Markdown) e gera **Notas de Literatura** e **Notas Permanentes** seguindo rigorosamente o método Zettelkasten, com saída compatível com **Obsidian**.
+Sistema em Python que transforma PDFs e Markdown num Zettelkasten vivo no Obsidian: extrai apenas ideias que merecem virar nota, escreve Notas de Literatura e Permanentes de forma atômica e rastreáveis, com revisão humana.
 
 ```
 Arquivo (PDF/MD)
