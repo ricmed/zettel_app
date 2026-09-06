@@ -118,17 +118,71 @@ Separately, and not previously documented at all: **the overlap is not uniform a
 
 This resolves the `[NEEDS INPUT]` above about an accepted ceiling for the overlap-driven cost: there is no single ceiling to accept, because the actual overshoot is a property of how many sections exceed `chunk_size` in a given corpus, not a fixed percentage.
 
+## Addendum (2026-09-05): a fence and its own prose are one unit (`fence_section_slack`)
+
+**Status:** Accepted amendment — extends the 2026-09-02 size exception from the bare fence to the fence plus the prose that frames it.
+
+The 2026-09-02 addendum made the fence atomic and granted it an oversized-chunk exception, but `_split_preserving_fences` still cut at *both* fence boundaries. When a section is only modestly larger than `chunk_size`, that cut separates a code block from the prose that introduces and comments on it, and both halves stop being interpretable.
+
+Measured on `@2026EstruturaçãoDePrompts`, chapter `## 5. Exemplos Práticos Extras` (3355 chars against `chunk_size: 2500`, of which only 1044 are prose) split into three chunks and the extractor rejected two of them and underrated the third:
+
+| chunk | len | content | extract verdict |
+| --- | --- | --- | --- |
+| #12 | 351 | callout introducing the example | `rejected` / `narrative` |
+| #13 | 2339 | the structured prompt (bare fence) | `rejected` / `fragmented` |
+| #14 | 693 | "Por que esse prompt funciona bem?" | accepted, `conf=0.69` — analysing a prompt absent from its own chunk |
+
+Three LLM calls produced one mediocre candidate.
+
+**Measured outcome (2026-09-05, after reprocessing) — the premise above was wrong.** The amendment does what it says structurally: chapter 5 is now a single 3387-char chunk with its prose and its fence together. The extractor still rejects it, as `fragmented`: *"consiste essencialmente em um exemplo prático expandido de prompt estruturado para machine learning"*. Worse, the section now yields **zero** candidates where the three-way split yielded one — merging diluted the prose that had been carrying it.
+
+The reason is visible once measured: the chunk is **69% fenced characters** (2340 of 3387). The model was not rejecting for want of context; it rejects because a passage that is mostly an illustration is not a concept, which is a defensible reading. Adding the prose back did not change what dominates the chunk.
+
+The amendment is kept anyway, on narrower grounds than it was adopted: one whole chunk is a more faithful representation of an illustrative section than three fragments, and it costs one LLM call instead of three. It is **not** a fix for extraction yield, and nothing here should be cited as evidence that keeping a fence with its prose recovers concepts. `fence_section_slack: 1.0` restores the old split for an operator who prefers the fragments.
+
+The real saving is not to call the model at all for a chunk this code-dominated — tracked as issue #154, which uses the fence ratio this measurement produced.
+
+Amendment:
+
+* New knob `chunking.fence_section_slack` (default `1.5`). A section that **contains a fence** and whose total length is within `chunk_size * fence_section_slack` is emitted whole (`_fits_as_whole_fenced_section`), instead of being cut at the fence boundaries. `1.0` restores the previous behaviour exactly.
+* Above that budget the cut still happens, but `_absorb_orphan_prose` glues a prose *remainder* back onto the fence it belongs to — left neighbour first (an introduction is usually bound to its fence by a colon), then right, never exceeding the same budget and never absorbing the same piece twice.
+* A prose piece the splitter filled to `chunk_size` is a chunk in its own right and is **never** absorbed: only remainders (`len < chunk_size`) are. This is what keeps the rule from quietly defeating `chunk_size` on prose-heavy sections.
+* `fence_section_slack` joins the other chunking knobs in `compute_docling_config_hash`, so a corpus chunked under the old rule is flagged for `zettel rechunk` rather than silently re-chunked.
+
+The budget is a tolerance for a modest overshoot, not a new ceiling: a section far above it is still cut, and `chunk_size` remains the target for prose.
+
+## Addendum (2026-09-05): a single leading H1 is the document title, not a chapter
+
+**Status:** Accepted amendment — narrows the first stage for native Markdown only.
+
+`split_into_chapters` matches `^(#{1,2})`, making the H1 that titles a Markdown document a peer of the H2 sections beneath it. Two costs, both measured on `@2026EstruturaçãoDePrompts`:
+
+* The H1 became a chapter holding only the document's metadata callout (342 chars). Together with the front-matter preamble (108 chars) that is **2 of 20 extract calls (10%) spent on metadata**, both rejected as `structural`, plus two valueless vectors in the Chroma `chunks` collection, where they participate in dedupe and FTS.
+* No `section_path` carried the document title: chunk #16 was located as `"7. Pontos de Atenção e Anti-Padrões"`, with nothing saying the source is about prompt engineering. The extract prompt compensates via `source_title`, but the locator persisted on the LIT note and the text embedded into Chroma do not.
+
+Amendment:
+
+* For Markdown origins only (`md`/`markdown`/`txt`), when a document has **exactly one** H1, that H1 is the **first** heading, and at least one further heading remains to become a chapter, the H1 is read as the document title (`_document_title_match`) rather than a chapter.
+* The front matter above the H1 and the H1's own body become **one** preamble chapter, not two chapters.
+* Every chapter carries `doc_title`, which `_section_base_path` prefixes onto the `section_path`: `"Documento > Capítulo > Subseção"`. The `chapters` row still stores the bare chapter title — only the locator changes.
+* PDF/Docling is deliberately untouched: its heading levels are inferred by the converter, not authored, so the "single leading H1" signal does not carry the same meaning. Documents with several H1 keep the historical split.
+
+Net effect on the measured source: 20 chunks to 17 (this amendment removes one, the `fence_section_slack` amendment removes two), with every locator now rooted at the document title. As with every chunking change, already-harvested sources keep their chunks until `zettel rechunk`.
+
+**Cost to weigh before changing `section_path` again:** the locator is part of the extract prompt payload, so prefixing the document title changes `llm_call_checksum` for **every chunk of every Markdown source**. The whole corpus misses the SQLite response cache once, and borderline verdicts can flip — on reprocessing, chapter 6 (`6. Aplicações e Casos de Uso`, 0% fenced, byte-identical text) went from accepted to `rejected`/`narrative` purely because it was a different call. That is not a defect of this amendment, but any future edit to how `section_path` is built pays the same price and carries the same risk.
+
 ## References
 
-Paths refreshed 2026-09-02 (chunking addenda); 2026-09-03 (`min_chunk_chars` addendum, overlap-ratio correction). The original references pointed into the monolithic
+Paths refreshed 2026-09-02 (chunking addenda); 2026-09-03 (`min_chunk_chars` addendum, overlap-ratio correction); 2026-09-05 (`fence_section_slack` and document-title addenda). The original references pointed into the monolithic
 `zettel/harvester.py`, which ADR-027 split into a package; symbols are cited instead of
 line ranges, since the line ranges are what rotted.
 
 * `zettel/harvester/chunking.py` — `split_into_chapters` (H1/H2 chapter boundaries), `split_chapter_into_sections` (H3-H6 sub-sections; builds the `section_path` carried in chunk metadata), `merge_small_sections` (`min_section_chars` folding), `split_chapter_into_chunks` (recursive-splitter fallback), `chunk_and_persist` (persistence and indexing)
 * `zettel/harvester/chunking.py` — addendum: `iter_fenced_spans` (fence scanner), `_headings_outside_fences` (heading filter), `_split_preserving_fences` (atomic fence in the size split); heading-prefix addendum: `_glue_orphan_heading`, `headings` on section records, prefix on first piece in `split_chapter_into_chunks`
 * `zettel/harvester/chunking.py` — `min_chunk_chars` addendum: `_merge_short_pieces` (post-splitter floor)
+* `zettel/harvester/chunking.py` — `fence_section_slack` addendum: `_fits_as_whole_fenced_section` (whole fenced section), `_absorb_orphan_prose` (orphan prose glued back onto its fence); document-title addendum: `_document_title_match` (single leading H1 in Markdown), `_section_base_path` (`doc_title` prefix on `section_path`)
 * `tests/test_harvester_sections.py` — section splitting and merge rules; addendum: fence atomicity, info-string/marker-family rules, unclosed fence, oversized fence; heading prefix on first chunk, fence-only section, merge heading placement, checksum identity; `min_chunk_chars` floor: merge-back, merge-forward, all-short collapse, integration via `split_chapter_into_chunks`
-* `zettel/config.py` — `ChunkingConfig`: `chunk_size`, `chunk_overlap`, `min_section_chars`, `min_chunk_chars`
+* `zettel/config.py` — `ChunkingConfig`: `chunk_size`, `chunk_overlap`, `min_section_chars`, `min_chunk_chars`, `fence_section_slack`
 * `config/config.yaml` — operational chunking defaults (`chunking.*`)
 * `zettel/paging.py` — `compute_docling_config_hash` (includes `min_chunk_chars`); page-inference helpers consumed by `chunk_and_persist` (see ADR-013) — the heading path itself is built in `zettel/harvester/chunking.py`, not here
 * [ADR-027: Harvest Phase as Python Package](./ADR-027-harvest-phase-as-python-package.md) — the module extraction that moved this code

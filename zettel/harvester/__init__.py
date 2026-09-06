@@ -6,7 +6,6 @@ Supports: PDF (Docling, mandatory), Markdown.
 from .biblio_hitl import resolve_bibliography
 from .chunking import (
     chunk_and_persist,
-    iter_fenced_spans,
     merge_small_sections,
     split_chapter_into_chunks,
     split_chapter_into_sections,
@@ -66,7 +65,6 @@ __all__ = [
     "find_semantic_duplicate_candidates",
     # Citekey
     "generate_citekey",
-    "iter_fenced_spans",
     "list_incomplete_sources",
     "merge_small_sections",
     "page_map_for_source",

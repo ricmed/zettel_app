@@ -158,6 +158,9 @@ class ChunkingConfig(BaseModel):
     chunk_overlap: int = 400
     min_section_chars: int = 200  # secoes menores sao fundidas com a seguinte
     min_chunk_chars: int = 200  # pedacos menores sao fundidos no anterior
+    # Secao com fence cujo total cabe em chunk_size * slack fica inteira num
+    # chunk, em vez de ser cortada nas bordas do fence (prosa e codigo juntos).
+    fence_section_slack: float = 1.5
 
 
 class LinkingConfig(BaseModel):
@@ -187,6 +190,10 @@ class ExtractionConfig(BaseModel):
     anchor_quote_min_ratio: float = 0.85  # cobertura minima na checagem fuzzy
     anchor_quote_min_words: int = 10  # faixa que o prompt ja exige
     anchor_quote_max_words: int = 25
+    # Margem sobre o teto antes de descartar o candidato inteiro. O modelo erra a
+    # contagem por pouco e sempre para cima; `quote_is_grounded` e quem testa a
+    # propriedade real. 1.0 = corte rigido (comportamento anterior a #153).
+    anchor_quote_max_words_tolerance: float = 1.5
     # Alvo de saida por chunk, usado APENAS na estimativa de pre-voo (nao e teto).
     preflight_output_tokens_per_chunk: int = 800
 
@@ -194,7 +201,10 @@ class ExtractionConfig(BaseModel):
 class LiteratureReviewConfig(BaseModel):
     """Aprovacao seletiva de Notas de Literatura granulares (por chunk)."""
 
-    auto_approve_min_confidence: float = 0.85
+    # Placed just under 0.80 — the score a flawless chunk earns at the relevance
+    # floor — so every defect-free chunk auto-approves and every chunk with a
+    # detected defect does not. Kept in sync with config/config.yaml (issue #152).
+    auto_approve_min_confidence: float = 0.75
     batch_sample_size: int = 20  # max drafts de baixa confianca a listar no review interativo
     drafts_subdir: str = "00_Inbox/Review"
 

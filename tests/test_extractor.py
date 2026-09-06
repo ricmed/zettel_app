@@ -173,13 +173,58 @@ def test_filter_candidates_verified_quote_too_short_rejected():
     assert len(rejected) == 1
 
 
-def test_filter_candidates_verified_quote_too_long_rejected():
+def test_filter_candidates_paragraph_sized_quote_still_rejected():
+    """Past the tolerated ceiling (25 * 1.5 = 37) it is a paragraph, not a quote."""
     cfg = _make_config(verify_anchor_quote=True)
     long_quote = " ".join(["palavra"] * 40)
     candidates = [_make_candidate(anchor_quote=long_quote)]
     approved, rejected = _filter_candidates(candidates, cfg, "palavra " * 50)
     assert len(approved) == 0
     assert len(rejected) == 1
+
+
+def test_filter_candidates_quote_slightly_over_the_ceiling_is_kept():
+    """Two words over the prompt's 25 must not cost the whole candidate (#153).
+
+    The model overshoots the count by small margins and always upward; the word
+    range is a proxy for the property `quote_is_grounded` tests directly.
+    """
+    cfg = _make_config(verify_anchor_quote=True)
+    chunk = "prefixo " + " ".join(f"palavra{i}" for i in range(27)) + " sufixo"
+    quote = " ".join(f"palavra{i}" for i in range(27))  # 27 words, ceiling is 25
+    approved, rejected = _filter_candidates([_make_candidate(anchor_quote=quote)], cfg, chunk)
+    assert len(approved) == 1
+    assert len(rejected) == 0
+
+
+def test_filter_candidates_over_ceiling_quote_still_must_be_grounded():
+    """The tolerance relaxes the count, never the grounding check."""
+    cfg = _make_config(verify_anchor_quote=True)
+    paraphrase = " ".join(f"inventado{i}" for i in range(27))
+    approved, rejected = _filter_candidates(
+        [_make_candidate(anchor_quote=paraphrase)], cfg, _CHUNK_TEXT
+    )
+    assert len(approved) == 0
+    assert "nao encontrada" in rejected[0][1]
+
+
+def test_filter_candidates_tolerance_of_one_restores_the_hard_cut():
+    cfg = _make_config(verify_anchor_quote=True, anchor_quote_max_words_tolerance=1.0)
+    chunk = "prefixo " + " ".join(f"palavra{i}" for i in range(27)) + " sufixo"
+    quote = " ".join(f"palavra{i}" for i in range(27))
+    approved, rejected = _filter_candidates([_make_candidate(anchor_quote=quote)], cfg, chunk)
+    assert len(approved) == 0
+    assert len(rejected) == 1
+
+
+def test_filter_candidates_short_quote_reason_names_the_floor():
+    """Floor and ceiling are separate rules now, so the reason must say which."""
+    cfg = _make_config(verify_anchor_quote=True)
+    approved, rejected = _filter_candidates(
+        [_make_candidate(anchor_quote="adaptive learning rates converge")], cfg, _CHUNK_TEXT
+    )
+    assert not approved
+    assert "< 10" in rejected[0][1]
 
 
 def test_filter_candidates_verify_anchor_quote_false_restores_old_behavior():
@@ -461,6 +506,49 @@ def test_process_chunk_persists_rejected_candidates_with_reason(tmp_path, monkey
     rejected = persisted["rejected_candidates"][0]
     assert rejected["thesis"] == low_relevance_candidate["thesis"]
     assert "relevance_score" in rejected["reason"]
+    db.close()
+
+
+def test_process_chunk_persists_the_discarded_anchor_quote(tmp_path, monkeypatch):
+    """The dropped quote must survive for audit, not just the thesis (#153).
+
+    Without it an audit cannot see what was thrown away without re-running the
+    model — the exact gap that stopped `scripts/calibrate_review_confidence.py`
+    from rebuilding the integrity term out of history.
+    """
+    import json
+
+    from zettel.extractor import _process_chunk
+    from zettel.llm import load_prompt_parts
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+    quote = "uma citacao literal que precisa sobreviver ao descarte para auditoria posterior"
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        return json.dumps(
+            {
+                "chunk_status": "accepted",
+                "rejection_reason": "",
+                "rejection_category": "",
+                "summary": "Resumo com conteudo suficiente para pontuar no calculo de confianca.",
+                "key_concepts": ["conceito"],
+                "candidates": [
+                    {
+                        "thesis": "Uma tese qualquer com palavras suficientes para o filtro",
+                        "definition": "Uma definicao com bastante texto explicativo sobre o tema",
+                        "anchor_quote": quote,
+                        "relevance_score": 1,  # dropped by the relevance floor
+                    }
+                ],
+            }
+        )
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+
+    persisted = json.loads(db.get_chunk("@Book2024::ch000::abc")["summary_json"])
+    assert persisted["rejected_candidates"][0]["anchor_quote"] == quote
     db.close()
 
 
@@ -860,32 +948,65 @@ def test_score_review_confidence_all_candidates_filtered_out_is_low():
 
 
 def test_score_review_confidence_has_real_dispersion_not_saturated():
-    """The old formula converged on ~0.98 for any reasonably-formed chunk.
+    """Relevance, not verbosity, is what separates two chunks (issue #152).
 
-    A thin candidate (short definition, floor relevance) and a well-developed
-    one (long definition, high relevance) must land in visibly different
-    places, not both pinned near 1.0.
+    An earlier formula converged on ~0.98 for any well-formed chunk; the one
+    that replaced it separated on `definition` word count. Separation must come
+    from the model's own judgement of the concept.
     """
     cfg = _make_config()
-    thin = _make_candidate(
-        relevance_score=3,
-        definition="Definicao curta com poucas palavras apenas o minimo necessario aqui",
+    floor = _make_candidate(relevance_score=3)
+    fundamental = _make_candidate(relevance_score=5)
+
+    floor_score = _score_review_confidence(_make_output(candidates=[floor]), cfg)
+    top_score = _score_review_confidence(_make_output(candidates=[fundamental]), cfg)
+
+    assert top_score > floor_score
+    assert top_score - floor_score >= 0.19  # meaningfully separated, not a rounding blip
+    assert floor_score < top_score <= 1.0
+
+
+def test_score_review_confidence_ignores_definition_length():
+    """Word count is not a quality signal and must not move the score.
+
+    The concrete regression: a candidate whose definition ran 47 words failed
+    the gate while an otherwise identical 48-word one passed.
+    """
+    cfg = _make_config()
+    terse = _make_candidate(definition=" ".join(f"palavra{i}" for i in range(12)))
+    verbose = _make_candidate(definition=" ".join(f"palavra{i}" for i in range(120)))
+
+    assert _score_review_confidence(
+        _make_output(candidates=[terse]), cfg
+    ) == _score_review_confidence(_make_output(candidates=[verbose]), cfg)
+
+
+def test_score_review_confidence_floor_relevance_can_reach_the_threshold():
+    """No valid `relevance_score` may be structurally barred from auto-approve.
+
+    Before #152 a chunk at `min_relevance_score` had a ceiling of 0.70 against
+    a 0.75 threshold, so an entire class of valid candidates could never pass
+    however clean it was.
+    """
+    cfg = _make_config()
+    flawless_at_floor = _make_output(
+        candidates=[_make_candidate(relevance_score=cfg.extraction.min_relevance_score)]
     )
-    rich = _make_candidate(
-        relevance_score=5,
-        definition=(
-            "Uma definicao bem mais desenvolvida, com varias frases substantivas "
-            "explicando o conceito em profundidade, cobrindo nuances, excecoes e "
-            "conexoes com ideias correlatas, para que o leitor entenda o mecanismo "
-            "completo sem precisar consultar a fonte original de novo"
-        ),
-    )
-    thin_score = _score_review_confidence(_make_output(candidates=[thin]), cfg)
-    rich_score = _score_review_confidence(_make_output(candidates=[rich]), cfg)
-    assert rich_score > thin_score
-    assert rich_score - thin_score >= 0.2  # meaningfully separated, not a rounding blip
-    assert thin_score < 0.85  # neither pinned at the old ~0.98 ceiling
-    assert rich_score < 0.95
+    score = _score_review_confidence(flawless_at_floor, cfg)
+    assert score >= cfg.literature_review.auto_approve_min_confidence
+
+
+def test_score_review_confidence_drops_when_depth_fields_are_missing():
+    """`intuition`/`limits` are optional in the schema; their absence is a signal."""
+    cfg = _make_config()
+    complete = _make_candidate()
+    bare = _make_candidate(intuition="", limits="")
+
+    full_score = _score_review_confidence(_make_output(candidates=[complete]), cfg)
+    bare_score = _score_review_confidence(_make_output(candidates=[bare]), cfg)
+
+    assert bare_score < full_score
+    assert bare_score < cfg.literature_review.auto_approve_min_confidence
 
 
 def test_score_review_confidence_partial_filter_rejection_lowers_score():

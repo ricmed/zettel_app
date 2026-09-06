@@ -9,6 +9,7 @@ from typing import Any
 from zettel.config import AppConfig
 from zettel.hashing import normalize_text_for_hash, sha256_hex, short_hash
 from zettel.index import VectorIndex
+from zettel.markdown_fences import iter_fenced_spans, offset_is_fenced
 from zettel.paging import (
     ContentPaging,
     apply_page_inference,
@@ -22,66 +23,39 @@ from zettel.state import StateDB
 logger = logging.getLogger(__name__)
 
 
-# ── Fenced code scanner (CommonMark) ──────────────────────────────────
-
-# Opening/closing fence line: up to 3 spaces of indent, 3+ backticks or tildes,
-# optional info string. Indented code, tables and HTML are out of scope.
-_FENCE_LINE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
-
-
-def iter_fenced_spans(text: str) -> list[tuple[int, int]]:
-    """Return character spans of CommonMark fenced code blocks.
-
-    A fence closes only with the same marker family (backtick never closes tilde),
-    a marker at least as long as the opening one and no info string. An unclosed
-    fence spans to EOF. Spans are returned in order and never overlap.
-    """
-    spans: list[tuple[int, int]] = []
-    open_char = ""
-    open_len = 0
-    start = 0
-    pos = 0
-
-    for line in (text or "").splitlines(keepends=True):
-        line_start = pos
-        pos += len(line)
-        m = _FENCE_LINE_RE.match(line.rstrip("\r\n"))
-        if not m:
-            continue
-        marker, info = m.group(1), m.group(2)
-
-        if open_char:
-            # Closing fence: same family, at least as long, no info string.
-            if marker[0] == open_char and len(marker) >= open_len and not info.strip():
-                spans.append((start, pos))
-                open_char = ""
-            continue
-
-        # Backtick fences cannot carry a backtick in the info string.
-        if marker[0] == "`" and "`" in info:
-            continue
-        open_char = marker[0]
-        open_len = len(marker)
-        start = line_start
-
-    if open_char:
-        spans.append((start, len(text or "")))
-    return spans
-
-
-def _offset_is_fenced(offset: int, spans: list[tuple[int, int]]) -> bool:
-    return any(start <= offset < end for start, end in spans)
-
-
 def _headings_outside_fences(pattern: re.Pattern[str], text: str) -> list[re.Match[str]]:
     """Headings of `pattern` whose offset does not fall inside a fenced block."""
     spans = iter_fenced_spans(text)
     if not spans:
         return list(pattern.finditer(text))
-    return [m for m in pattern.finditer(text) if not _offset_is_fenced(m.start(), spans)]
+    return [m for m in pattern.finditer(text) if not offset_is_fenced(m.start(), spans)]
 
 
 # ── Chapter Splitting ─────────────────────────────────────────────────
+
+
+_MARKDOWN_ORIGINS = {"md", "markdown", "txt"}
+
+
+def _document_title_match(matches: list[re.Match[str]], origin_type: str) -> re.Match[str] | None:
+    """The H1 that titles a Markdown document, when there is exactly one.
+
+    In native Markdown the single leading H1 is the document's title, not a
+    peer of the H2 sections under it. Treating it as a chapter produced a
+    spurious chapter holding only front matter, and left every ``section_path``
+    without the document it belongs to.
+
+    Returns ``None`` — keeping the historical behaviour — unless the document
+    is Markdown, has exactly one H1, that H1 is the first heading, and at least
+    one further heading remains to become a chapter. PDF/Docling is untouched:
+    its heading levels are inferred, not authored.
+    """
+    if (origin_type or "").lower() not in _MARKDOWN_ORIGINS:
+        return None
+    h1s = [m for m in matches if len(m.group(1)) == 1]
+    if len(h1s) != 1 or h1s[0] is not matches[0] or len(matches) < 2:
+        return None
+    return matches[0]
 
 
 def split_into_chapters(text: str, origin_type: str) -> list[dict[str, str]]:
@@ -90,6 +64,11 @@ def split_into_chapters(text: str, origin_type: str) -> list[dict[str, str]]:
     Real H1/H2 chapters carry ``heading`` (the original ATX line) so the first
     chunk of the chapter can restore it in the persisted text. Synthetic
     chapters (``Documento completo``, ``Introdução``) omit ``heading``.
+
+    When a Markdown document is titled by a single leading H1 (see
+    `_document_title_match`), that H1 becomes ``doc_title`` on every chapter —
+    prefixed onto the ``section_path`` — instead of a chapter of its own, and
+    its body joins the preamble rather than forming a second metadata chapter.
     """
     text = strip_page_break_markers(text or "")
     chapters: list[dict[str, str]] = []
@@ -100,10 +79,26 @@ def split_into_chapters(text: str, origin_type: str) -> list[dict[str, str]]:
     if not matches:
         return [{"title": "Documento completo", "text": text.strip(), "locator": ""}]
 
-    if matches[0].start() > 0:
-        preamble = text[: matches[0].start()].strip()
+    title_match = _document_title_match(matches, origin_type)
+    doc_title = title_match.group(2).strip() if title_match else ""
+    if title_match is not None:
+        # Front matter and the H1's own body are one preamble, not two chapters.
+        preamble_end = matches[1].start()
+        matches = matches[1:]
+    else:
+        preamble_end = matches[0].start()
+
+    if preamble_end > 0:
+        preamble = text[:preamble_end].strip()
         if preamble:
-            chapters.append({"title": "Introdução", "text": preamble, "locator": "preâmbulo"})
+            chapters.append(
+                {
+                    "title": "Introdução",
+                    "text": preamble,
+                    "locator": "preâmbulo",
+                    "doc_title": doc_title,
+                }
+            )
 
     for i, m in enumerate(matches):
         title = m.group(2).strip()
@@ -117,6 +112,7 @@ def split_into_chapters(text: str, origin_type: str) -> list[dict[str, str]]:
                     "text": chapter_text,
                     "locator": title,
                     "heading": m.group(0).strip(),
+                    "doc_title": doc_title,
                 }
             )
 
@@ -297,33 +293,109 @@ def _merge_short_pieces(pieces: list[str], min_chunk_chars: int) -> list[str]:
     return merged
 
 
-def _split_preserving_fences(text: str, splitter: Any, chunk_size: int) -> list[str]:
+def _absorb_orphan_prose(
+    pieces: list[tuple[str, bool]], chunk_size: int, fence_budget: int
+) -> list[str]:
+    """Glue leftover prose onto the fence it belongs to, within `fence_budget`.
+
+    Runs only for a section too large to stay whole, where cutting at the fence
+    boundaries is unavoidable. What must not survive that cut is an *orphan*: a
+    prose remainder too short to have been a chunk on its own, stranded next to
+    the fence it introduces or comments on.
+
+    A piece the splitter filled to `chunk_size` is a chunk in its own right and
+    is never absorbed — only a remainder (``len < chunk_size``) is, and only
+    while the fence chunk stays within `fence_budget`. Absorption goes left
+    first (the prose that introduces a fence is usually bound to it by a colon),
+    then right, and no piece is absorbed twice.
+    """
+    taken = [False] * len(pieces)
+    merged: list[str | None] = [text for text, _ in pieces]
+
+    for i, (_, is_fence) in enumerate(pieces):
+        if not is_fence or taken[i]:
+            continue
+        current = merged[i] or ""
+        for j in (i - 1, i + 1):
+            if not (0 <= j < len(pieces)) or taken[j] or pieces[j][1]:
+                continue
+            neighbour = merged[j]
+            if neighbour is None or len(neighbour) >= chunk_size:
+                continue
+            candidate = f"{neighbour}\n\n{current}" if j < i else f"{current}\n\n{neighbour}"
+            if len(candidate) > fence_budget:
+                continue
+            current = candidate
+            taken[j] = True
+            merged[j] = None
+        merged[i] = current
+
+    return [text for text in merged if text is not None]
+
+
+def _split_preserving_fences(
+    text: str, splitter: Any, chunk_size: int, fence_budget: int
+) -> list[str]:
     """Split `text` by size while keeping each fenced block atomic.
 
     Prose between fences goes through the generic splitter; every fence is emitted
     whole, even when it is longer than `chunk_size` (documented oversized-chunk
     exception to ADR-014 — cutting a template/code block is worse than one big chunk).
+    Prose left orphaned by that cut is glued back onto its fence by
+    `_absorb_orphan_prose`.
     """
     spans = iter_fenced_spans(text)
     if not spans:
         return splitter.split_text(text)
 
-    def _prose(segment: str) -> list[str]:
+    def _prose(segment: str) -> list[tuple[str, bool]]:
         segment = segment.strip()
         if not segment:
             return []
-        return [segment] if len(segment) <= chunk_size else splitter.split_text(segment)
+        if len(segment) <= chunk_size:
+            return [(segment, False)]
+        return [(piece, False) for piece in splitter.split_text(segment)]
 
-    pieces: list[str] = []
+    pieces: list[tuple[str, bool]] = []
     cursor = 0
     for start, end in spans:
         pieces.extend(_prose(text[cursor:start]))
         fence = text[start:end].strip()
         if fence:
-            pieces.append(fence)
+            pieces.append((fence, True))
         cursor = end
     pieces.extend(_prose(text[cursor:]))
-    return pieces
+    return _absorb_orphan_prose(pieces, chunk_size, fence_budget)
+
+
+def _section_base_path(chapter: dict[str, str]) -> str:
+    """Root of every ``section_path`` in this chapter.
+
+    Prefixed with the document title when `split_into_chapters` identified one,
+    so a locator reads "Documento > Capitulo > Subsecao" instead of starting at
+    a bare section number. ``chapter["title"]`` is left alone — that is what the
+    `chapters` row stores.
+    """
+    title = chapter["title"]
+    doc_title = (chapter.get("doc_title") or "").strip()
+    return f"{doc_title} > {title}" if doc_title and doc_title != title else title
+
+
+def _fits_as_whole_fenced_section(text: str, fence_budget: int) -> bool:
+    """True when a fenced section is worth keeping whole instead of cutting it.
+
+    A fence and the prose that introduces and comments on it are one semantic
+    unit: cutting at the fence boundary leaves the code without its explanation
+    and the explanation without its code. Both halves then read as fragments —
+    the extractor rejects them as ``fragmented`` / ``narrative``.
+
+    So a section that *contains* a fence and fits within `fence_budget`
+    (``chunk_size * fence_section_slack``) is emitted whole, extending the
+    oversized-chunk exception ADR-014 already grants a bare fence to the fence
+    plus its own prose. Beyond the budget the section is cut as before —
+    the point is to tolerate a modest overshoot, not to defeat `chunk_size`.
+    """
+    return len(text) <= fence_budget and bool(iter_fenced_spans(text))
 
 
 def split_chapter_into_chunks(cfg: AppConfig, chapter: dict[str, str]) -> list[tuple[str, str]]:
@@ -348,7 +420,7 @@ def split_chapter_into_chunks(cfg: AppConfig, chapter: dict[str, str]) -> list[t
     pairs: list[tuple[str, str]] = []
     chapter_heading = (chapter.get("heading") or "").strip()
     sections = split_chapter_into_sections(
-        chapter["title"],
+        _section_base_path(chapter),
         chapter["text"],
         cfg.chunking.min_section_chars,
         chapter_heading=chapter_heading,
@@ -358,14 +430,17 @@ def split_chapter_into_chunks(cfg: AppConfig, chapter: dict[str, str]) -> list[t
         if chapter_heading not in first_heads:
             sections[0]["headings"] = [chapter_heading, *first_heads]
 
+    fence_budget = int(cfg.chunking.chunk_size * cfg.chunking.fence_section_slack)
     for sec in sections:
         text = sec["text"]
         if not text:
             continue
-        if len(text) <= cfg.chunking.chunk_size:
+        if len(text) <= cfg.chunking.chunk_size or _fits_as_whole_fenced_section(
+            text, fence_budget
+        ):
             pieces = [text]
         else:
-            pieces = _split_preserving_fences(text, splitter, cfg.chunking.chunk_size)
+            pieces = _split_preserving_fences(text, splitter, cfg.chunking.chunk_size, fence_budget)
         pieces = _glue_orphan_heading(pieces)
         pieces = _merge_short_pieces(pieces, cfg.chunking.min_chunk_chars)
         prefix = _join_headings(_headings_of(sec))

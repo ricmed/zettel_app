@@ -397,8 +397,13 @@ def _process_chunk(
         "rejection_reason": output.rejection_reason,
         "rejection_category": output.rejection_category,
         "candidates": [c.model_dump() for c in approved_cands],
+        # `anchor_quote` travels with the dropped candidate so an audit can see
+        # what was thrown away without re-running the model (issue #153). Without
+        # it, `scripts/calibrate_review_confidence.py` cannot rebuild the
+        # integrity term from history — it can count drops but not inspect them.
         "rejected_candidates": [
-            {"thesis": cand.thesis, "reason": reason} for cand, reason in rejected_cands
+            {"thesis": cand.thesis, "anchor_quote": cand.anchor_quote, "reason": reason}
+            for cand, reason in rejected_cands
         ],
     }
     db.update_chunk_review(
@@ -536,6 +541,30 @@ def _images_for_chunk(db: StateDB, chunk_row: dict) -> list[dict[str, Any]]:
     return out
 
 
+# Weights of the three review-confidence terms (issue #152). Relevance leads
+# because it is the only field that judges the *concept*; the other two report
+# how cleanly the chunk was extracted.
+_W_RELEVANCE = 0.50
+_W_INTEGRITY = 0.30
+_W_COMPLETENESS = 0.20
+
+# Credit a candidate sitting exactly at `min_relevance_score` already earns.
+# It passed the filter, and the prompt's own scale calls that level a valid
+# technical concept ("útil mas não surpreendente") — not a defect.
+_RELEVANCE_FLOOR_CREDIT = 0.6
+
+
+def _candidate_completeness(cand: PermanentNoteCandidate) -> float:
+    """Share of the optional depth fields this candidate actually carries.
+
+    `intuition` and `limits` default to "" in the schema, so their absence is
+    the model declining to elaborate — a structural signal, unlike the word
+    count this term replaced.
+    """
+    present = sum(1 for field in (cand.intuition, cand.limits) if field.strip())
+    return present / 2
+
+
 def _score_review_confidence(
     output: LiteratureChunkOutput,
     cfg: AppConfig,
@@ -544,28 +573,38 @@ def _score_review_confidence(
     """Heuristic confidence in [0, 1] for auto-approve decisions.
 
     Optimized for *separation*, not a calibrated probability (there is no
-    ground truth to calibrate against). The previous version scored form —
-    summary length, key-concept count, anchor-quote *presence* — with binary
-    bonuses that saturated almost immediately: `require_anchor_quote` already
-    filters out quote-less candidates before this runs, so that term was
-    `+0.2` on every accepted chunk, not a signal. Measured on the corpus,
-    every accepted chunk with >=3 key concepts and a 20-word summary hit the
-    same ~0.98, and the "medium" confidence band was empty.
+    ground truth to calibrate against). Every term answers one question:
+    **is there concrete evidence a human should look at this chunk?** A term
+    that cannot name a defect does not belong here.
 
-    Three components with real variance in the corpus instead:
-      - `approval_ratio`: candidates the deterministic filter kept vs. the
-        chunk's total. A chunk where the filter dropped half its candidates
-        is a weaker chunk than one where nothing was dropped.
-      - `rel_component`: mean `relevance_score` of approved candidates,
-        normalized over the filter's own floor..5 range (not /5 — the
-        filter already cuts everything below `min_relevance_score`, so
-        dividing by 5 compresses every surviving chunk toward the top).
-      - `depth_component`: mean `definition` word count, normalized over
-        `min_definition_words`..5x that floor. Not a correctness signal —
-        a long definition isn't automatically a truer one — but it has
-        real spread in the corpus (33-88 words) where relevance_score
-        mostly doesn't (the LLM rarely uses the full 1-5 scale in practice),
-        so it does the work of actually separating chunks.
+    The previous version scored *verbosity*: 40% of the weight was the mean
+    `definition` word count. Measured on the corpus (issue #152), that made
+    the gate equivalent to "`relevance_score == 4` **and** definition >= 48
+    words" — a candidate with a 56-word definition failed while a 50-word one
+    passed, because the model had scored it 3 instead of 4. Worse, a chunk at
+    `min_relevance_score` had a mathematical ceiling of 0.70 against a 0.75
+    threshold: no rel-3 chunk could ever auto-approve, however good it was.
+
+    Three terms, none of which is a length:
+      - `rel_component`: mean `relevance_score`, normalized over the filter's
+        own floor..5 range. The floor maps to `_RELEVANCE_FLOOR_CREDIT`, not
+        to 0: a candidate at `min_relevance_score` already cleared the filter,
+        and the prompt deliberately compresses the scale (it tells the model
+        to pick the *lower* level when in doubt and reserves 5 for rare
+        fundamental ideas), so a floor score is "valid but unsurprising",
+        not "worthless". Mapping it to 0 is what made the ceiling unreachable.
+      - `integrity`: candidates the deterministic filter kept vs. the chunk's
+        total. A chunk where the filter dropped candidates is one where the
+        model produced junk alongside signal — worth human eyes.
+      - `completeness`: how many of the optional depth fields (`intuition`,
+        `limits`) the candidates actually carry. Structural presence, not
+        length: a candidate reduced to thesis + definition is thinner than
+        one that also states an intuition and its limits, regardless of how
+        many words either used.
+
+    Every failure therefore has a nameable cause — the filter dropped
+    something, the model itself scored the concept at the floor, or the
+    candidates lack the optional depth fields.
     """
     if output.chunk_status == "rejected":
         return 0.1
@@ -577,23 +616,21 @@ def _score_review_confidence(
 
     ext = cfg.extraction
     n_total = len(approved) + len(rejected)
-    approval_ratio = (len(approved) / n_total) if n_total else 1.0
+    integrity = (len(approved) / n_total) if n_total else 1.0
 
     rel_span = 5 - ext.min_relevance_score
     avg_rel = sum(c.relevance_score for c in approved) / len(approved)
-    rel_component = (
-        min(1.0, max(0.0, (avg_rel - ext.min_relevance_score) / rel_span)) if rel_span > 0 else 1.0
-    )
+    if rel_span > 0:
+        above_floor = min(1.0, max(0.0, (avg_rel - ext.min_relevance_score) / rel_span))
+        rel_component = _RELEVANCE_FLOOR_CREDIT + (1.0 - _RELEVANCE_FLOOR_CREDIT) * above_floor
+    else:
+        rel_component = 1.0
 
-    depth_span = ext.min_definition_words * 5
-    avg_def_words = sum(len(c.definition.split()) for c in approved) / len(approved)
-    depth_component = (
-        min(1.0, max(0.0, (avg_def_words - ext.min_definition_words) / depth_span))
-        if depth_span > 0
-        else 1.0
-    )
+    completeness = sum(_candidate_completeness(c) for c in approved) / len(approved)
 
-    confidence = 0.30 * approval_ratio + 0.30 * rel_component + 0.40 * depth_component
+    confidence = (
+        _W_RELEVANCE * rel_component + _W_INTEGRITY * integrity + _W_COMPLETENESS * completeness
+    )
     return round(min(1.0, max(0.0, confidence)), 3)
 
 
@@ -667,10 +704,25 @@ def _check_candidate(cand: PermanentNoteCandidate, ext: Any, chunk_text: str = "
         return "anchor_quote vazio"
     if ext.verify_anchor_quote and cand.anchor_quote.strip():
         anchor_words = len(cand.anchor_quote.split())
-        if not (ext.anchor_quote_min_words <= anchor_words <= ext.anchor_quote_max_words):
-            return (
-                f"anchor_quote_words={anchor_words} fora de "
-                f"[{ext.anchor_quote_min_words},{ext.anchor_quote_max_words}]"
+        # The floor and the ceiling mean different things, so they are enforced
+        # differently (issue #153). Under the floor there is no quote to judge:
+        # three words ground nothing. Over the ceiling there *is* a quote, just a
+        # wordier one than asked for, and the word count is only a proxy for the
+        # property `quote_is_grounded` measures directly. Dropping a whole
+        # candidate — thesis, definition and all — because the model overshot by
+        # two words trades a formatting miss for lost content, so the ceiling
+        # gets a tolerance band and only a paragraph-sized "quote" is refused.
+        max_words = int(ext.anchor_quote_max_words * ext.anchor_quote_max_words_tolerance)
+        if anchor_words < ext.anchor_quote_min_words:
+            return f"anchor_quote_words={anchor_words} < {ext.anchor_quote_min_words}"
+        if anchor_words > max_words:
+            return f"anchor_quote_words={anchor_words} > {max_words} (teto tolerado)"
+        if anchor_words > ext.anchor_quote_max_words:
+            logger.debug(
+                "anchor_quote com %d palavras, acima de %d mas dentro da tolerancia: %s",
+                anchor_words,
+                ext.anchor_quote_max_words,
+                cand.thesis[:60],
             )
         if not quote_is_grounded(cand.anchor_quote, chunk_text, ext.anchor_quote_min_ratio):
             return "anchor_quote nao encontrada no chunk"

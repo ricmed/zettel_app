@@ -5,9 +5,6 @@ from zettel.harvester import (
     chunk_and_persist as _chunk_and_persist,
 )
 from zettel.harvester import (
-    iter_fenced_spans as _iter_fenced_spans,
-)
-from zettel.harvester import (
     merge_small_sections as _merge_small_sections,
 )
 from zettel.harvester import (
@@ -23,6 +20,7 @@ from zettel.harvester import (
     split_into_chapters as _split_into_chapters,
 )
 from zettel.harvester.chunking import _merge_short_pieces
+from zettel.markdown_fences import iter_fenced_spans as _iter_fenced_spans
 from zettel.state import StateDB
 
 
@@ -173,6 +171,69 @@ def test_split_into_chapters_regression_no_headings():
     chapters = _split_into_chapters("Sem nenhum heading aqui.", "md")
     assert len(chapters) == 1
     assert chapters[0]["title"] == "Documento completo"
+
+
+# ── H1 as document title, not a chapter (issue #151) ─────────────────
+
+_TITLED_DOC = (
+    "Instituicao: Full Cycle\nAno: 2026\n\n"
+    "# Titulo do Documento\n\n"
+    "> Metadados: nivel intermediario.\n\n"
+    "## 1. Primeira Secao\n\n"
+    "Corpo da primeira secao com conteudo suficiente.\n\n"
+    "## 2. Segunda Secao\n\n"
+    "Corpo da segunda secao com conteudo suficiente.\n"
+)
+
+
+def test_single_h1_becomes_document_title_not_a_chapter():
+    chapters = _split_into_chapters(_TITLED_DOC, "md")
+    titles = [c["title"] for c in chapters]
+    assert titles == ["Introdução", "1. Primeira Secao", "2. Segunda Secao"]
+    assert all(c["doc_title"] == "Titulo do Documento" for c in chapters)
+
+
+def test_front_matter_and_h1_body_share_one_preamble():
+    """The metadata above and below the H1 is one chunk, not two chapters."""
+    chapters = _split_into_chapters(_TITLED_DOC, "md")
+    preamble = chapters[0]
+    assert preamble["title"] == "Introdução"
+    assert "Instituicao: Full Cycle" in preamble["text"]
+    assert "Metadados: nivel intermediario." in preamble["text"]
+
+
+def test_section_path_starts_with_the_document_title():
+    cfg = _cfg(chunk_size=2000, chunk_overlap=0, min_section_chars=20, min_chunk_chars=0)
+    chapters = _split_into_chapters(_TITLED_DOC, "md")
+    chapter = next(c for c in chapters if c["title"] == "1. Primeira Secao")
+
+    paths = [path for path, _ in _split_chapter_into_chunks(cfg, chapter)]
+
+    assert paths == ["Titulo do Documento > 1. Primeira Secao"]
+    assert chapter["title"] == "1. Primeira Secao"  # the chapters row is untouched
+
+
+def test_two_h1_keep_the_legacy_chapter_split():
+    text = "# Parte A\n\nCorpo A suficiente.\n\n# Parte B\n\nCorpo B suficiente.\n"
+    chapters = _split_into_chapters(text, "md")
+    assert [c["title"] for c in chapters] == ["Parte A", "Parte B"]
+    assert all(not c["doc_title"] for c in chapters)
+
+
+def test_pdf_origin_keeps_the_h1_as_a_chapter():
+    chapters = _split_into_chapters(_TITLED_DOC, "pdf")
+    assert [c["title"] for c in chapters] == [
+        "Introdução",
+        "Titulo do Documento",
+        "1. Primeira Secao",
+        "2. Segunda Secao",
+    ]
+
+
+def test_h1_without_any_following_heading_stays_a_chapter():
+    text = "# Unico Titulo\n\nCorpo do documento inteiro sem outras secoes.\n"
+    chapters = _split_into_chapters(text, "md")
+    assert [c["title"] for c in chapters] == ["Unico Titulo"]
 
 
 def test_chunk_and_persist_writes_section_path(tmp_path):
@@ -482,6 +543,88 @@ def test_long_prose_without_fence_still_splits():
     pairs = _split_chapter_into_chunks(cfg, chapter)
     assert len(pairs) > 1
     assert all(len(t) <= cfg.chunking.chunk_size for _, t in pairs)
+
+
+# ── Fenced section stays with its own prose (issue #150) ─────────────
+
+
+def _fence_of(n_lines: int) -> str:
+    return "```python\n" + ("x = compute_value(1)  # linha de exemplo\n" * n_lines) + "```"
+
+
+def test_fenced_section_within_slack_stays_whole():
+    """Prose + fence + prose under the slack budget is one chunk, not three."""
+    cfg = _cfg(chunk_size=600, chunk_overlap=50, min_section_chars=50, min_chunk_chars=200)
+    fence = _fence_of(15)
+    intro = "Este trecho introduz o bloco abaixo. "
+    analysis = "Por que esse bloco funciona bem: ele delimita o escopo. " * 4
+    text = f"{intro}\n\n{fence}\n\n{analysis}"
+    assert cfg.chunking.chunk_size < len(text) <= 900  # over chunk_size, under budget
+
+    pairs = _split_chapter_into_chunks(cfg, {"title": "Cap", "text": text, "locator": "Cap"})
+
+    assert len(pairs) == 1
+    body = pairs[0][1]
+    assert intro.strip() in body
+    assert fence in body
+    assert analysis.strip() in body
+
+
+def test_fenced_section_above_slack_still_splits_with_atomic_fence():
+    cfg = _cfg(chunk_size=300, chunk_overlap=20, min_section_chars=50, min_chunk_chars=100)
+    fence = _fence_of(20)
+    text = f"{_filler(6)}\n\n{fence}\n\n{_filler(20)}"
+    assert len(text) > cfg.chunking.chunk_size * cfg.chunking.fence_section_slack
+
+    texts = [
+        t
+        for _, t in _split_chapter_into_chunks(
+            cfg, {"title": "Cap", "text": text, "locator": "Cap"}
+        )
+    ]
+
+    assert len(texts) > 1
+    assert sum(1 for t in texts if fence in t) == 1  # fence whole, exactly once
+
+
+def test_orphan_prose_is_absorbed_into_the_adjacent_fence():
+    """Above the budget the cut is unavoidable, but the intro must not be stranded."""
+    cfg = _cfg(chunk_size=2500, chunk_overlap=200, min_section_chars=200, min_chunk_chars=200)
+    fence = _fence_of(75)
+    intro = "Prosa que introduz o bloco abaixo. " * 6
+    analysis = "Analise do bloco acima e suas consequencias. " * 20
+    text = f"{intro}\n\n{fence}\n\n{analysis}"
+    assert len(text) > cfg.chunking.chunk_size * cfg.chunking.fence_section_slack
+
+    texts = [
+        t
+        for _, t in _split_chapter_into_chunks(
+            cfg, {"title": "Cap", "text": text, "locator": "Cap"}
+        )
+    ]
+
+    fence_chunks = [t for t in texts if fence in t]
+    assert len(fence_chunks) == 1
+    assert intro.strip() in fence_chunks[0]  # the orphan intro travelled with its fence
+    assert intro.strip() not in "".join(t for t in texts if t not in fence_chunks)
+
+
+def test_full_size_prose_piece_is_never_absorbed_by_a_fence():
+    """A piece the splitter filled to chunk_size is a chunk of its own."""
+    cfg = _cfg(chunk_size=400, chunk_overlap=0, min_section_chars=50, min_chunk_chars=100)
+    fence = _fence_of(6)
+    text = f"{_filler(40)}\n\n{fence}"
+    assert len(text) > cfg.chunking.chunk_size * cfg.chunking.fence_section_slack
+
+    texts = [
+        t
+        for _, t in _split_chapter_into_chunks(
+            cfg, {"title": "Cap", "text": text, "locator": "Cap"}
+        )
+    ]
+
+    fence_chunk = next(t for t in texts if fence in t)
+    assert len(fence_chunk) <= cfg.chunking.chunk_size * cfg.chunking.fence_section_slack
 
 
 # ── Heading prefix on the first chunk of each section ─────────────────
