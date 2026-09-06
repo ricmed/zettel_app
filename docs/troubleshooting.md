@@ -97,6 +97,7 @@ Monitore o volume por faixa após harvest/extract. Se a carga do operador ficar 
   - Adicione/ajuste a categoria em `config/moc_topics.yaml`
   - Use `strict_topics: false` para aprovar todos os tópicos (com aviso no log)
   - Confirme que `gardener.topics_path` aponta para o YAML correto
+- Depois de mudar `category_label_template` ou a taxonomia, os MOCs existentes ficam desalinhados: `zettel garden --recreate`
 
 ---
 

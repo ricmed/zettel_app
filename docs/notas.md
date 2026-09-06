@@ -215,8 +215,8 @@ Leitura dos campos:
 - `literature_ref` aponta para a **LIT granular** do chunk que originou a nota (fallback: o índice da fonte).
 - `source_locator` é o localizador humano (`p.{page_in_book} / {section_path}`).
 - `origin: pipeline | manual` distingue o que foi gerado do que foi escrito à mão.
-- `## Conexões` é escrito pelo LLM com o **tipo da relação** (`supports`, `contradicts`, `extends`, `depends_on`, `exemplifies`, `related`); esses tipos alimentam o grafo usado pela [expansão por grafo](recuperacao.md) e pelos [MOCs hub](pipeline.md#fase-4b--garden-hub-porta-de-entrada-tematica).
-- Os três blocos `auto-*` são gerenciados: qualquer coisa fora deles é preservada em atualizações. Veja [arquitetura.md](arquitetura.md#blocos-gerenciados).
+- `## Conexões` é escrito pelo LLM com o **tipo da relação** (`supports`, `contradicts`, `extends`, `depends_on`, `exemplifies`, `related`); esses tipos alimentam o grafo usado pela [expansão por grafo](recuperacao.md) e pelos [MOCs hub](pipeline.md#fase-4b--garden-hub-porta-de-entrada-tematica). Analogias distantes **não** entram aqui: vão para o bloco `auto-connections` até o autor endossá-las na prosa.
+- Os blocos `auto-*` são gerenciados: qualquer coisa fora deles é preservada em atualizações. Veja [arquitetura.md](arquitetura.md#blocos-gerenciados).
 
 ---
 

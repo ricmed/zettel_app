@@ -25,7 +25,7 @@
 
 | Guia | O que responde |
 |---|---|
-| [Notas manuais](notas-manuais.md) | `new-note`, `sync-manual`, adoção de LIT e de imagens, caminho LIT → ZTL |
+| [Notas manuais](notas-manuais.md) | `new-note`, `sync-manual`, `suggest-links`, adoção de LIT e de imagens, caminho LIT → ZTL |
 | [Interface web](interface-web.md) | Subir a UI, páginas, fila de jobs, o que é exclusivo da CLI |
 
 ## Operando
@@ -34,13 +34,13 @@
 |---|---|
 | [Operação](operacao.md) | Retenção, `reindex`/`rebuild`/`rechunk`, dumps, purga, remoção de fonte, backup |
 | [Solução de problemas](troubleshooting.md) | Sintomas comuns e como sair deles |
-| [Prompts e taxonomia](prompts.md) | Personalizar `prompts/`, `moc_topics.yaml` e as personalidades do `article` |
+| [Prompts e taxonomia](prompts.md) | Personalizar `prompts/`, `domain_examples.yaml`, `moc_topics.yaml` e as personalidades do `article` |
 
 ## Decisões de arquitetura
 
 | Documento | Conteúdo |
 |---|---|
-| [Índice de ADRs](adrs/ADR-INDEX.md) | 31 decisões formais em 12 módulos |
+| [Índice de ADRs](adrs/ADR-INDEX.md) | 43 decisões formais em 12 módulos |
 | [Visão geral dos ADRs](adrs/ADR-OVERVIEW.md) | Panorama e relações entre decisões |
 | [RUNBOOK](adrs/RUNBOOK.md) | Procedimentos operacionais e critérios de ajuste de limiares |
 | [Checklist de code review](code-review-adr-checklist.md) | O que verificar em mudanças que tocam decisões registradas |

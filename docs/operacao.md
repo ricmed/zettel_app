@@ -80,6 +80,17 @@ python -m zettel retry-failed --assets               # imagens com falha -> pend
 
 Depois de resetar, rode `extract` novamente.
 
+### `zettel garden --recreate`
+
+Depois de mudar `category_label_template` ou `config/moc_topics.yaml`, os MOCs existentes ficam desalinhados com os rótulos embeddados. Regenere:
+
+```bash
+python -m zettel garden --recreate -y
+python -m zettel garden --hubs --recreate -y   # so os MOCs de hub
+```
+
+`--recreate` no pipeline taxonômico não apaga MOCs `origin=hub_pipeline`, e o inverso também vale.
+
 ---
 
 ## `purge-rejected`

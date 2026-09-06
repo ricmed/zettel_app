@@ -2,7 +2,7 @@
 
 [← Voltar ao README](../README.md)
 
-Como personalizar o que o LLM recebe: os templates em `prompts/` e a taxonomia de tópicos em `config/moc_topics.yaml`.
+Como personalizar o que o LLM recebe: os templates em `prompts/`, os few-shots em `config/domain_examples.yaml` e a taxonomia de tópicos em `config/moc_topics.yaml`.
 
 ---
 
@@ -13,7 +13,7 @@ Os prompts em [`prompts/`](../prompts) são templates Markdown com placeholders 
 - **Estilo das notas**: mais academico, mais informal, etc.
 - **Idioma**: `{language}` ja e preenchido a partir de `language` no config em `ask.md`, `article_*.md`, `literature_note.md`, `permanent_note.md` e `image_description.md` — altere o config, nao o texto do prompt
 - **Profundidade**: mais ou menos detalhes por nota
-- **Tags**: criterios para sugestao de tags
+- **Tags**: criterios para sugestao de tags (pelo menos uma estrutural/transferível ao lado das específicas; os exemplos moram em `domain_examples.yaml`)
 - **Seletividade**: regras de relevancia e filtragem em `literature_note.md`
 - **Imagens → candidatos/ZTL**: criterios de `relevant_image_ids` e extracao a partir de diagramas em `literature_note.md`; tom da descricao em `image_description.md`; uso de figuras no Prompt 2 em `permanent_note.md`
 - **Taxonomia de MOCs**: edite `config/moc_topics.yaml` (pilares, categorias e topicos)
@@ -62,7 +62,7 @@ Para personalizar:
 
 1. Edite `config/moc_topics.yaml`
 2. Ajuste `gardener.topics_path` em `config/config.yaml` se o arquivo estiver em outro caminho
-3. Ajuste `domain.name` para refletir a área do seu acervo e `domain.examples_path` para os few-shots
+3. Ajuste `domain.name` para refletir a área do seu acervo e `domain.examples_path` para os few-shots. Edite [`config/domain_examples.yaml`](../config/domain_examples.yaml) — um arquivo só, com âncoras dos dois domínios lado a lado, para a escala 1–5 medir densidade conceitual e não proximidade de campo. Few-shots novos só valem para material extraído **dali em diante** (`extract` não tem `--force`).
 
 Se `strict_topics: true` (padrão), MOCs com `topic` fora das categorias serão rejeitados. Use `strict_topics: false` para permitir tópicos fora da lista (com aviso no log).
 
@@ -78,6 +78,6 @@ A taxonomia também é usada **antes** do LLM: `gardener_assign.py` embedda o r�
 
 ## Ver também
 
-- [Configuração](configuracao.md) — `prompts_path`, `language`, identidade de LLM por fase
+- [Configuração](configuracao.md) — `prompts_path`, `domain.*`, `language`, identidade de LLM por fase
 - [Pipeline](pipeline.md) — em que ponto cada prompt é chamado
 - [Recuperação](recuperacao.md#gerar-artigo-a-partir-do-vault-zettel-article) — o grafo de nós do `article`
