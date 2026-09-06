@@ -47,7 +47,7 @@ class RetrievedNote:
     via: list[dict] = field(default_factory=list)  # graph path (see graph.py)
     passed_floor: bool = True  # absolute relevance floor (see _apply_relevance_floor)
     floor_reason: str = ""  # human-readable explanation of the floor verdict
-    origin: str = "search"  # "search" | "topic_index" (routing hint, see ADR-036)
+    origin: str = "search"  # "search" | "topic_index" | "distant_analogy"
 
 
 @dataclass
@@ -129,6 +129,39 @@ class Retriever:
         return NoteSearchResult(
             hits=self._expand_with_graph(seeds, exclude_id), candidates=candidates
         )
+
+    def search_distant_analogies(
+        self,
+        query: str,
+        *,
+        exclude_id: str | None,
+        exclude_ids: set[str],
+        topk: int,
+        min_vector_similarity: float,
+    ) -> list[RetrievedNote]:
+        """Secondary connect search: local floor, no graph, other-bucket notes.
+
+        Does **not** touch ``RelevanceFloorConfig`` defaults — the lower
+        similarity is an argument, local to this call (issue #161).
+        """
+        if topk <= 0:
+            return []
+        result = self.search_notes(
+            query,
+            topk=max(topk * 4, 16),
+            exclude_id=exclude_id,
+            expand_graph=False,
+            min_vector_similarity=min_vector_similarity,
+        )
+        hits: list[RetrievedNote] = []
+        for hit in result.hits:
+            if hit.note_id in exclude_ids:
+                continue
+            hit.origin = "distant_analogy"
+            hits.append(hit)
+            if len(hits) >= topk:
+                break
+        return hits
 
     # ── Vector / BM25 source rankings ──────────────────────────────────
 

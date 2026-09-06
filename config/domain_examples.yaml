@@ -1,0 +1,221 @@
+# Few-shots de dominio para extract (Prompt 1) e connect (Prompt 2).
+# Um arquivo so, com os dois dominios lado a lado: um "nivel 5" de ML ao
+# lado de um "nivel 5" de Filosofia ensina que a escala mede densidade
+# conceitual, nao proximidade com um campo.
+# Consumido por zettel/domain_examples.py. Caminho: domain.examples_path.
+
+literature_note:
+  relevance_examples: |
+    **Exemplos (os dois dominios medem a mesma densidade, nao a proximidade com um campo):**
+
+    1 — TRIVIAL
+    - Ciencia de Dados: "Aprendizado de maquina e usado em inteligencia artificial"
+    - Filosofia: "Conhecimento e uma crenca verdadeira"
+
+    2 — INFORMATIVO BASICO
+    - Ciencia de Dados: "Redes neurais organizam unidades de processamento em camadas"
+    - Filosofia: "Platao distingue opiniao (doxa) de conhecimento (episteme)"
+
+    3 — CONCEITO TECNICO VALIDO
+    - Ciencia de Dados: "Normalizar ativações por lote reduz o deslocamento interno da distribuicao durante o treino"
+    - Filosofia: "A justificacao epistemica exige razoes que o proprio sujeito possa reconhecer"
+
+    4 — INSIGHT RELEVANTE
+    - Ciencia de Dados: "Desligar unidades ao acaso no treino funciona como um ensemble implicito de sub-redes"
+    - Filosofia: "O ceticismo cartesiano nao nega o mundo: suspende o assentimento ate achar um criterio de certeza"
+
+    5 — CONCEITO FUNDAMENTAL (raro)
+    - Ciencia de Dados: "Atencao permite modelar dependencias de longo alcance sem recorrencia"
+    - Filosofia: "O schematismo kantiano e a regra pela qual a imaginacao subsume intuicoes sob categorias"
+
+  thesis_examples: |
+    - **BOM** (Ciencia de Dados): "Regularizacao L1 induz esparsidade nos pesos ao adicionar penalidade proporcional ao valor absoluto"
+    - **BOM** (Filosofia): "Uma crenca justificada ainda pode falhar como conhecimento se a justificacao nao estiver conectada ao fato que a torna verdadeira"
+    - **RUIM**: "Regularizacao L1" (e topico, nao tese)
+    - **RUIM**: "O problema de Gettier" (e nome de debate, nao afirmação)
+
+  judgement_examples: |
+    #### Regras de Decisao (decision_rules) — opcional
+
+    - So preencha quando o trecho **enunciar** a regra; jamais deduza uma a partir da tese
+    - Formato: "Quando X, faca Y, porque Z" (no idioma da nota)
+    - Maximo 3 itens; cada item e uma frase completa e autonoma
+    - **BOM** (Ciencia de Dados): "Quando o custo de um falso positivo for maior que o de um falso negativo, prefira precisao a revocacao, porque o erro caro e a inclusao indevida"
+    - **BOM** (Filosofia): "Quando uma crenca for verdadeira so por acaso, recuse chama-la de conhecimento, porque falta conexao entre justificacao e fato"
+    - **RUIM**: "Use precisao e revocacao" (nao e regra: nao diz quando nem por que)
+    - **RUIM**: inventar "Quando o corpus for pequeno, use validacao cruzada" porque parece razoavel — se o autor nao disse, nao entra
+
+    #### Anti-Padroes (anti_patterns) — opcional
+
+    - So preencha quando o trecho nomear a pratica errada **e** o motivo da falha
+    - Formato: "O que evitar: ... — por que falha: ..."
+    - Maximo 3 itens
+    - **BOM** (Ciencia de Dados): "O que evitar: avaliar o modelo no mesmo conjunto usado para escolher hiperparametros — por que falha: a estimativa de erro passa a incluir a informacao ja usada na selecao"
+    - **BOM** (Filosofia): "O que evitar: tratar 'parece-me verdadeiro' como justificacao — por que falha: a fenomenologia do assentimento nao distingue crenca de conhecimento"
+    - **RUIM**: "Evite sobreajuste" (generico, sem mecanismo de falha)
+    - **Nao duplique `limits`**: uma ressalva sobre quando a tese nao vale e `limits`; anti-padrao e uma **pratica** que alguem executa e que falha
+
+    #### Frameworks Nomeados (named_frameworks) — opcional
+
+    - Apenas nomes proprios que o autor **usa como nome**: "The 5 Whys", "OODA Loop", "Conway's Law", "OODA", "Gettier cases"
+    - Preserve o nome **exatamente** como esta na fonte, na lingua original — nao traduza, nao expanda a sigla, nao normalize maiusculas
+    - Maximo 3 itens; so o nome, sem explicacao (a explicacao ja esta na definicao)
+    - **BOM**: `["The 5 Whys"]`, `["OODA Loop"]`
+    - **RUIM**: `["Os 5 Porques"]` (traduzido), `["The 5 Whys — tecnica de analise de causa raiz"]` (nao e so o nome)
+    - **RUIM**: `["aprendizado supervisionado"]` ou `["dualismo"]` (termo de dominio, nao nome proprio de framework)
+
+  tag_examples: |
+    - 2-5 tags por candidato
+    - Minusculas, sem acentos
+    - Tags compostas: palavra1_palavra2
+    - Exija **pelo menos uma tag estrutural/transferivel** (o conceito que a nota instancia, nao o vocabulario do campo) ao lado das especificas
+    - Transferivel (boa): `dualismo`, `emergencia`, `intencionalidade`, `representacao`, `justificacao`, `esparsidade`
+    - Generica (ruim): `importante`, `tecnica`, `filosofia`, `ciencia_de_dados`
+    - **BOM** (Ciencia de Dados): `["descida_gradiente", "otimizacao", "convergencia"]` — especifica + transferivel
+    - **BOM** (Filosofia): `["res_cogitans", "substancia", "dualismo"]` — especifica + transferivel
+    - **RUIM**: `["importante", "tecnica"]` (genericas) ou so jargao de um campo sem ponte (`["batch_norm"]` sozinho)
+
+  rejection_examples: |
+    **REJEITADO - Structural:**
+    ```
+    Input: "Capitulo 3: Arquiteturas ... 3.1 Introducao ... 3.2 Componentes ... 3.3 Treinamento ..."
+    Reason: "Indice de capitulo sem conteudo conceitual"
+    Category: structural
+    ```
+
+    **REJEITADO - Narrative:**
+    ```
+    Input: "Neste capitulo, exploraremos ideias que mudarao sua pratica e iluminarao o debate..."
+    Reason: "Preambulo introdutorio generico sem conceitos especificos"
+    Category: narrative
+    ```
+
+    **REJEITADO - Narrative (ficcao sem principio):**
+    ```
+    Input: "Ela caminhou ate a estacao, pensando no que diria ao chefe. O trem atrasou dez minutos e ela ficou olhando as pessoas ao redor, ansiosa."
+    Reason: "Cena cotidiana sem principio extraivel — nenhum mecanismo, regra ou tensao conceitual sustenta a passagem"
+    Category: narrative
+    ```
+
+    **REJEITADO - Promotional:**
+    ```
+    Input: "A plataforma oferece APIs intuitivas, execucao imediata e integracao com o ecossistema popular..."
+    Reason: "Descricao de features de produto sem conceito tecnico subjacente"
+    Category: promotional
+    ```
+
+    **REJEITADO - Trivial:**
+    ```
+    Input: "Inteligencia artificial e o campo que estuda como fazer maquinas inteligentes. E muito importante hoje em dia."
+    Reason: "Definicao generica de dicionario sem densidade conceitual"
+    Category: trivial
+    ```
+
+    **REJEITADO - Fragmented:**
+    ```
+    Input: uma tabela de silogismos sem glosa; uma formula em notacao logica sem interpretacao; uma citacao em grego sem traducao; um bloco de codigo sem comentario conceitual
+    Reason: "Fragmento sem interpretacao — notacao, codigo ou citacao crua nao instanciam um conceito"
+    Category: fragmented
+    ```
+
+  accepted_example: |
+    Um unico candidato, com figura essencial referenciada em `relevant_image_ids`:
+
+    ```json
+    {
+      "chunk_status": "accepted",
+      "rejection_reason": "",
+      "rejection_category": "",
+      "summary": "Recuperacao por similaridade: pergunta e documentos passam pelo mesmo modelo de representacao antes da busca no indice.",
+      "key_concepts": ["recuperacao", "representacao", "indice"],
+      "candidates": [
+        {
+          "thesis": "Em recuperacao por similaridade, a pergunta e os documentos passam pelo mesmo modelo de representacao antes da consulta ao indice.",
+          "definition": "O pipeline separa a pergunta do usuario e o corpus em representacoes comparaveis. O modelo projeta ambos no mesmo espaco; o indice devolve os trechos mais proximos para o gerador.",
+          "intuition": "Como um catalogo que indexa livros e pedidos de emprestimo com o mesmo codigo de prateleira.",
+          "limits": "Falha se o modelo de representacao mudar entre indexacao e consulta.",
+          "anchor_quote": "question and documents are processed by the same representation model",
+          "source_locator": "p.42 / secao 2.2",
+          "tags": ["recuperacao", "representacao", "indice"],
+          "relevance_score": 5,
+          "relevant_image_ids": ["@Fonte::img::5c97880b"],
+          "decision_rules": [],
+          "anti_patterns": [],
+          "named_frameworks": []
+        }
+      ]
+    }
+    ```
+
+    **Narrativa/ficcao que carrega um conceito** (a cena ilustra o mecanismo, nao e so enredo —
+    para ficcao a narrativa e a carga, nao o invólucro):
+
+    ```json
+    {
+      "chunk_status": "accepted",
+      "rejection_reason": "",
+      "rejection_category": "",
+      "summary": "Classificacao algoritmica de cidadania: uma cena de ficcao encena um sistema de pontuacao publica que condiciona o acesso a servicos, dramatizando o principio de exclusao por classificacao.",
+      "key_concepts": ["classificacao_social", "exclusao_algoritmica"],
+      "candidates": [
+        {
+          "thesis": "Um sistema de pontuacao publica que condiciona o acesso a servicos ao historico do individuo transforma uma metrica em portao de cidadania.",
+          "definition": "A cena encena um score unico que resume o comportamento passado de uma pessoa e passa a decidir, sozinho, quais servicos ela pode usar. O mecanismo generaliza para qualquer sistema de classificacao que vira pre-requisito de acesso: a pontuacao deixa de descrever o passado e passa a determinar o futuro.",
+          "intuition": "Como um score de credito que, em vez de julgar so emprestimos, decidisse tambem que trem voce pode pegar.",
+          "limits": "So se aplica quando a pontuacao e condicao de acesso, nao apenas informacao — um score consultivo sem poder de veto e um caso diferente.",
+          "anchor_quote": "sem o numero certo na tela, a porta simplesmente nao abria para ela",
+          "source_locator": "cap. 4",
+          "tags": ["classificacao_social", "exclusao_algoritmica", "etica_aplicada"],
+          "relevance_score": 4,
+          "relevant_image_ids": [],
+          "decision_rules": [],
+          "anti_patterns": [],
+          "named_frameworks": []
+        }
+      ]
+    }
+    ```
+
+permanent_note:
+  thesis_examples: |
+    - Exemplo BOM (Ciencia de Dados): "Agentes com memoria episodica tomam decisoes mais contextualizadas em ambientes dinamicos"
+    - Exemplo BOM (Filosofia): "Uma crenca justificada ainda pode falhar como conhecimento se a justificacao nao estiver conectada ao fato"
+    - Exemplo RUIM: "Memoria em agentes" (nao e tese, e topico)
+    - Exemplo RUIM: "O dualismo e importante" (sem substancia conceitual)
+
+  decision_examples: |
+    **REJEITADO - Promotional:**
+    ```
+    Input: "O aplicativo e uma ferramenta poderosa para organizacao pessoal com diversos recursos"
+    Reason: "Descricao de produto especifico sem conceito generalizavel ou principio transferivel"
+    ```
+
+    **REJEITADO - Generic:**
+    ```
+    Input: "Aprendizado de maquina e importante na pratica contemporanea"
+    Reason: "Afirmacao generica sem densidade conceitual, mecanismo ou nuance — qualquer pessoa diria isso"
+    ```
+
+    **REJEITADO - Context Dependent:**
+    ```
+    Input: "O autor apresenta 5 passos para melhorar produtividade no capitulo 3"
+    Reason: "Lista especifica e numerada da fonte sem principio subjacente extraivel"
+    ```
+
+    **ACEITO - Conceito tecnico estabelecido com substancia:**
+    ```
+    Input: "A analise de series temporais envolve modelar fenomenos e avaliar fatores que influenciam seu comportamento"
+    Reason: "Conceito tecnico com substancia explicativa: descreve uma abordagem metodologica com estrutura clara (modelagem + avaliacao de fatores), transferivel para multiplos dominios, conectavel a outros conceitos"
+    ```
+
+    **ACEITO - Principio com mecanismo claro:**
+    ```
+    Input: "Agentes com memoria episodica tomam decisoes mais contextualizadas em ambientes dinamicos"
+    Reason: "Tese substantiva com mecanismo claro (memoria episodica → contextualizacao), debatavel, aplicavel alem do dominio original"
+    ```
+
+    **ACEITO - Ponte entre dominios:**
+    ```
+    Input: "Tratar mente e corpo como substancias distintas implica que um sistema puramente simbolico nao tem o que o dualista chama de mente"
+    Reason: "Tese com mecanismo transferivel (criterio de substancia → limite de um sistema sem corporeidade), debatavel nos dois dominios"
+    ```

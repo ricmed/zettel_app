@@ -18,7 +18,7 @@ Recuse a criação de nota **somente** quando o conteúdo apresentar um destes p
 - Textos publicitários ou marketing disfarçado de conteúdo
 
 ### 2. Vazio Conceitual Real
-- Afirmações que qualquer pessoa faria sem nenhum conhecimento específico do domínio ("dados são importantes", "IA está crescendo")
+- Afirmações que qualquer pessoa faria sem nenhum conhecimento específico do domínio ("o tema é importante", "o campo está crescendo")
 - Listas de passos puramente procedurais sem princípio subjacente algum
 - Frases que não contêm nenhuma informação além do óbvio cultural
 
@@ -27,9 +27,9 @@ Recuse a criação de nota **somente** quando o conteúdo apresentar um destes p
 - Dependência de **numeração** de figuras/tabelas da fonte (ex.: "veja a Figura 3.2") sem princípio extraível
 - Casos anedóticos sem nenhum princípio extraível
 
-> **Figuras vs. conceitos**: um conceito autônomo **ilustrado** por diagrama (pipeline RAG,
-> step-back, parent retriever) é **válido**. Rejeite apenas quando a ideia se resume a
-> apontar para uma figura sem enunciado transferível.
+> **Figuras vs. conceitos**: um conceito autônomo **ilustrado** por diagrama (pipeline,
+> esquema de um argumento, mapa de relações) é **válido**. Rejeite apenas quando a ideia
+> se resume a apontar para uma figura sem enunciado transferível.
 
 ### 4. Ambiguidade Irremediável
 - Conceitos tão vagos que não é possível formular um título claro
@@ -48,7 +48,7 @@ Para criar a nota, o conceito deve atender a **maioria** destes critérios (não
 ✓ **Clareza conceitual**: o conceito central está identificável e delimitável
 ✓ **Valor de conexão**: pode ser conectado a outros conceitos no vault (mesmo que as conexões não sejam óbvias agora)
 
-> **Nota sobre "originalidade"**: conceitos técnicos bem estabelecidos (ex.: métodos estatísticos, arquiteturas de sistema, frameworks teóricos) são **válidos para registro** mesmo sem serem novos para a literatura — o valor está em documentá-los e conectá-los ao seu vault.
+> **Nota sobre "originalidade"**: conceitos técnicos ou filosóficos bem estabelecidos (ex.: métodos, arquiteturas, argumentos clássicos, frameworks teóricos) são **válidos para registro** mesmo sem serem novos para a literatura — o valor está em documentá-los e conectá-los ao seu vault.
 
 ---
 
@@ -80,10 +80,7 @@ Responda mentalmente antes de decidir:
 - Deve ser uma afirmação completa, não uma pergunta ou fragmento
 - Deve conter o conceito central + sua característica ou função distintiva
 - Máximo de 1-3 frases curtas e diretas
-- Exemplo BOM: "Agentes de IA com memória episódica tomam decisões mais contextualizadas em ambientes dinâmicos"
-- Exemplo BOM: "A análise de séries temporais decompõe fenômenos temporais em componentes mensuráveis para identificar padrões e antecipar comportamentos futuros"
-- Exemplo RUIM: "Memória em agentes de IA" (não é tese, é tópico)
-- Exemplo RUIM: "IA é importante" (sem substância conceitual)
+{thesis_examples}
 
 ### Definição (Campo Crítico)
 
@@ -179,16 +176,21 @@ Notas existentes relacionadas (use APENAS para conexões):
 <rag_context>
 ```
 
-O bloco de notas relacionadas pode vir em dois grupos:
+O bloco de notas relacionadas pode vir em até três grupos:
 
 - **Similares por embedding**: recuperadas por proximidade semântica com o conceito.
 - **Vizinhas por conexão no grafo**: já ligadas por uma conexão explícita a alguma
   nota similar. Vizinhas marcadas como `contradicts` (tensão) ou `extends`
   (aprofundamento) costumam render as conexões mais informativas — avalie-as com
   atenção especial antes de propor `connections`.
+- **Analogias distantes (outro dominio)**: notas de **outro bucket taxonomico**.
+  Aqui o criterio nao e vocabulario compartilhado — e **mecanismo que transfere**.
+  Prefira `exemplifies` (o mesmo esquema em outro campo) ou `contradicts` (o
+  embedding nao captura tensao). Uma analogia especulativa e valida como proposta;
+  o sistema a gravara como sugestao, nao como aresta.
 
-Use ambos os grupos apenas como candidatos a conexão; continue priorizando
-qualidade (0-3 conexões) e só conecte quando houver relação conceitual genuína.
+Use os grupos apenas como candidatos a conexão; continue priorizando
+qualidade (0-3 conexões duras) e só conecte quando houver relação conceitual genuína.
 Em `related_note_id` copie **apenas** o valor de `note_id:` (ULID de 26 caracteres),
 nunca o wikilink nem o prefixo `ZTL`.
 
@@ -253,35 +255,7 @@ No caso **accepted**, `category` não carrega motivo de rejeição: devolva stri
 
 ## Exemplos de Decisão
 
-**REJEITADO - Promotional:**
-```
-Input: "O Notion é uma ferramenta poderosa para organização pessoal com diversos recursos"
-Reason: "Descrição de produto específico sem conceito generalizável ou princípio transferível"
-```
-
-**REJEITADO - Generic:**
-```
-Input: "Machine Learning é importante na ciência de dados moderna"
-Reason: "Afirmação genérica sem densidade conceitual, mecanismo ou nuance — qualquer pessoa diria isso"
-```
-
-**REJEITADO - Context Dependent:**
-```
-Input: "O autor apresenta 5 passos para melhorar produtividade no capítulo 3"
-Reason: "Lista específica e numerada da fonte sem princípio subjacente extraível"
-```
-
-**ACEITO - Conceito técnico estabelecido com substância:**
-```
-Input: "A análise de séries temporais envolve modelar fenômenos e avaliar fatores que influenciam seu comportamento"
-Reason: "Conceito técnico com substância explicativa: descreve uma abordagem metodológica com estrutura clara (modelagem + avaliação de fatores), transferível para múltiplos domínios (clima, finanças, sensores), conectável a outros conceitos de ML e estatística"
-```
-
-**ACEITO - Princípio com mecanismo claro:**
-```
-Input: "Agentes de IA com memória episódica tomam decisões mais contextualizadas em ambientes dinâmicos"
-Reason: "Tese substantiva com mecanismo claro (memória episódica → contextualização), debatível, aplicável além do domínio original"
-```
+{decision_examples}
 
 ---
 

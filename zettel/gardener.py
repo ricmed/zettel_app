@@ -114,12 +114,12 @@ def run_garden(
 
     categories = load_category_names(gcfg.topics_path)
     if not categories and gcfg.allowed_topics:
-        categories = list(gcfg.allowed_topics)
+        categories = [("", name) for name in gcfg.allowed_topics]
 
     cluster_pairs: list[tuple[str, list[str]]] = []
+    domain = cfg.domain.name
 
     if categories and gcfg.cluster_within_category:
-        domain = gcfg.domain or "Geral"
         try:
             cat_vectors = embed_category_labels(
                 idx,
@@ -136,7 +136,6 @@ def run_garden(
     if not cluster_pairs:
         global_clusters = cluster_notes_global(ids, embeddings_array, gcfg)
         if categories:
-            domain = gcfg.domain or "Geral"
             try:
                 cat_vectors = embed_category_labels(
                     idx,
@@ -348,7 +347,7 @@ def _create_new_moc(
 
     prompt_parts = load_prompt_parts(cfg.prompts_path / "moc_generation.md")
 
-    domain = cfg.gardener.domain or "Geral"
+    domain = cfg.domain.name
     try:
         allowed_topics, taxonomy_detail = resolve_allowed_topics(
             cfg.gardener.topics_path,

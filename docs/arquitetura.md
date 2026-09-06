@@ -4,7 +4,7 @@
 
 Mapa do repositório, papel de cada módulo, estrutura do vault, as camadas de proteção contra drift e como os custos de LLM/embedding são registrados.
 
-Decisões de fundo estão documentadas nos [ADRs](adrs/ADR-INDEX.md) — 31 decisões formais em 12 módulos.
+Decisões de fundo estão documentadas nos [ADRs](adrs/ADR-INDEX.md) — 43 decisões formais em 12 módulos.
 
 ---
 
@@ -13,7 +13,7 @@ Decisões de fundo estão documentadas nos [ADRs](adrs/ADR-INDEX.md) — 31 deci
 ```
 zettel_app/
 ├── zettel/                  # Pacote principal
-│   ├── cli.py               # Interface CLI (Typer + Rich)
+│   ├── cli/                 # Interface CLI (Typer + Rich; pacote, ADR-032)
 │   ├── config.py            # Schema Pydantic + fallback; load_config le o YAML
 │   ├── schemas.py           # Modelos Pydantic (dados + saidas estruturadas do LLM)
 │   ├── hashing.py           # Hashing canonico em camadas
@@ -43,6 +43,7 @@ zettel_app/
 │   ├── gardener_assign.py   # Atribuicao por taxonomia, cluster por categoria, coesao de grafo
 │   ├── gardener_hub.py      # Fase 4b: MOCs ancorados em notas-hub do grafo
 │   ├── taxonomy.py          # Carga do YAML de topicos (pilar > categoria > topicos)
+│   ├── domain_examples.py   # Loader folha dos few-shots (domain.examples_path)
 │   ├── moc_backrefs.py      # Bloco auto-moc-backrefs em notas permanentes
 │   ├── retrieval.py         # Recuperacao hibrida (vetor + BM25) com fusao RRF
 │   ├── graph.py             # Expansao por grafo sobre as conexoes tipadas (GraphRAG leve)
@@ -52,7 +53,7 @@ zettel_app/
 │   ├── assets.py            # Extracao, adocao e descricao multimodal de imagens
 │   ├── rebuild.py           # Reconstrucao do Chroma (reindex) e do vault (rebuild)
 │   ├── sync.py              # Sincronizacao de notas manuais (SRC/LIT/ZTL/MOC) + grafo
-│   ├── manual_lit.py        # Adocao de LIT manual e caminho LIT -> ZTL (ADR-030)
+│   ├── manual_lit.py        # Adocao de LIT manual, LIT -> ZTL e suggest-links
 │   ├── new_note.py          # Scaffold de notas manuais (zettel new-note)
 │   ├── purge_source.py      # Remocao completa de fonte (zettel delete-source)
 │   ├── progress.py          # Protocolo ProgressObserver (CLI + web)
@@ -64,6 +65,7 @@ zettel_app/
 ├── config/
 │   ├── config.yaml          # Fonte operacional (todos os knobs do schema)
 │   ├── moc_topics.yaml      # Taxonomia hierarquica de topicos para MOCs
+│   ├── domain_examples.yaml # Few-shots de dominio (extract/connect)
 │   └── personalities.yaml   # Perfis de reescrita do `zettel article`
 ├── prompts/                        # Templates de prompts para o LLM
 │   ├── bibliographic_metadata.md   # Extracao de metadados bibliograficos (ABNT)
@@ -188,7 +190,7 @@ Blocos usados pelo pipeline:
 | Bloco | Onde | Atualizado por |
 |-------|------|----------------|
 | `auto-backlinks` | ZTL alvo de conexoes | `connect` |
-| `auto-connections` | ZTL (sugestoes) | `sync-manual` |
+| `auto-connections` | ZTL (sugestoes) | `sync-manual`, `connect` (analogias distantes), `suggest-links` |
 | `auto-lit-index` | indice LIT | `review` |
 | `auto-source-excerpt` | LIT granular | `extract` |
 | `auto-moc-backrefs` | ZTL listada em MOCs | `garden`, `garden --hubs`, `sync-manual`; removido em `garden --recreate` / `garden --hubs --recreate` |

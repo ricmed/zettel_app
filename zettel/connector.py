@@ -41,13 +41,16 @@ from zettel.schemas import (
 from zettel.state import StateDB
 from zettel.vault import (
     build_permanent_note_body,
+    format_suggestion_line,
     judgement_frontmatter,
     normalize_note_id,
     note_filename,
+    parse_frontmatter,
     permanent_wikilink,
     read_managed_block,
     safe_update_managed_blocks,
     safe_write_note,
+    write_auto_connections,
 )
 
 logger = logging.getLogger(__name__)
@@ -182,7 +185,14 @@ def run_connect(
 
     llm = get_llm(cfg, "connect")
     prompt_parts = load_prompt_parts(cfg.prompts_path / "permanent_note.md")
+    from zettel.domain_examples import load_domain_examples, render_for_prompt
+
+    example_fields = render_for_prompt(
+        load_domain_examples(cfg.domain.examples_path),
+        "permanent_note",
+    )
     retriever = Retriever(cfg, db, idx)
+    taxonomy = _load_connect_taxonomy(cfg, idx)
 
     created_ids: list[str] = []
     rejection: ConnectRejected | None = None
@@ -222,6 +232,8 @@ def run_connect(
                     cand_dict,
                     prompt_parts,
                     retriever,
+                    example_fields=example_fields,
+                    taxonomy=taxonomy,
                     step=i,
                     total=total,
                     origin=origin,
@@ -261,6 +273,8 @@ def _process_candidate(
     prompt_parts: PromptParts,
     retriever: Retriever,
     *,
+    example_fields: dict[str, str] | None = None,
+    taxonomy: tuple[dict, dict[str, str]] | None = None,
     step: int | None = None,
     total: int | None = None,
     origin: str = "pipeline",
@@ -344,16 +358,20 @@ def _process_candidate(
 
     query_text = f"{cand.thesis} {cand.definition}"
     similar = retriever.search_notes(query_text, topk=cfg.linking.topk, exclude_id=note_id).hits
-    rag_context = _build_rag_context(db, similar)
+    distant = _search_distant_for_candidate(
+        cfg, idx, retriever, query_text, note_id, similar, taxonomy
+    )
+    rag_context = _build_rag_context(db, similar, distant)
 
     # SECURITY NOTE: cand.thesis, cand.definition, and other candidate fields originate
     # from LLM output derived from user-supplied files. Sanitize prompt delimiters
     # (e.g. strip "---", "</s>", "###SYSTEM") before interpolation if untrusted input
     # is expected, to reduce prompt-injection risk.
     images_context = _build_candidate_images_context(db, cand)
+    examples = example_fields or {}
     mapping = {
         "language": cfg.language,
-        "domain": cfg.gardener.domain or "Geral",
+        "domain": cfg.domain.name,
         "thesis": cand.thesis,
         "definition": cand.definition,
         "intuition": cand.intuition or "",
@@ -366,6 +384,8 @@ def _process_candidate(
         "literature_ref": literature_ref,
         "rag_context": rag_context,
         "images_context": images_context,
+        "thesis_examples": examples.get("thesis_examples", ""),
+        "decision_examples": examples.get("decision_examples", ""),
     }
     system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
     user = fill_template(prompt_parts.user_template, mapping)
@@ -486,6 +506,9 @@ def _process_candidate(
             )
 
     resolved_connections = _resolve_connections(db, connections)
+    distant_ids = {n.note_id for n in distant}
+    edge_connections = [c for c in resolved_connections if c["related_note_id"] not in distant_ids]
+    suggested_connections = [c for c in resolved_connections if c["related_note_id"] in distant_ids]
     images = _resolve_images(db, image_ids)
 
     body = build_permanent_note_body(
@@ -494,7 +517,7 @@ def _process_candidate(
         intuition=note_output.intuition,
         example=note_output.example,
         limits=note_output.limits,
-        connections=resolved_connections,
+        connections=edge_connections,
         literature_ref=literature_ref,
         source_locator=cand.source_locator or "",
         images=images,
@@ -572,7 +595,8 @@ def _process_candidate(
         )
         db.update_note_embedding(note_id, emb_hash, cfg.embedding.model)
 
-    _persist_and_backlink(cfg, db, note_id, title, resolved_connections)
+    _persist_and_backlink(cfg, db, note_id, title, edge_connections)
+    _write_distant_suggestions(cfg, db, note_id, note_path, suggested_connections)
 
     clear_progress()
     return note_id
@@ -678,14 +702,33 @@ def _resolve_connections(db: StateDB, connections: list[RelationshipResult]) -> 
 # ── RAG Context ───────────────────────────────────────────────────────
 
 
-def _build_rag_context(db: StateDB, similar_notes: list[RetrievedNote]) -> str:
-    """Build RAG context from retrieved notes, split into two provenance groups.
+def _rag_note_line(db: StateDB, n: RetrievedNote, extra: str = "") -> str:
+    title = n.title or n.metadata.get("title", "Sem titulo")
+    doc = (n.document or "")[:150]
+    tags = n.metadata.get("tags", "")
+    row = db.get_note(n.note_id)
+    wiki = permanent_wikilink(
+        n.note_id,
+        title,
+        path=row.get("path") if row else None,
+    )
+    suffix = extra or f" (tags: {tags})"
+    return f"- note_id: {n.note_id} | **{wiki}**: {doc}...{suffix}"
 
-    Search seeds (hop 0) and graph neighbours (hop >= 1) are rendered under
-    separate headings so the LLM can weigh a typed connection (e.g. contradicts)
-    differently from a plain embedding match when proposing connections.
+
+def _build_rag_context(
+    db: StateDB,
+    similar_notes: list[RetrievedNote],
+    distant_notes: list[RetrievedNote] | None = None,
+) -> str:
+    """Build RAG context from retrieved notes, split by provenance.
+
+    Search seeds (hop 0), graph neighbours (hop >= 1) and distant analogies
+    (other taxonomy bucket) are separate headings so the LLM can weigh each
+    differently. Distant hits are suggestions, not hard edges.
     """
-    if not similar_notes:
+    distant_notes = distant_notes or []
+    if not similar_notes and not distant_notes:
         return "Nenhuma nota existente encontrada."
 
     embedding_hits = [n for n in similar_notes if n.hop == 0]
@@ -696,40 +739,127 @@ def _build_rag_context(db: StateDB, similar_notes: list[RetrievedNote]) -> str:
     if embedding_hits:
         parts.append("### Similares por embedding")
         for n in embedding_hits:
-            title = n.title or n.metadata.get("title", "Sem titulo")
-            doc = (n.document or "")[:150]
-            tags = n.metadata.get("tags", "")
-            row = db.get_note(n.note_id)
-            wiki = permanent_wikilink(
-                n.note_id,
-                title,
-                path=row.get("path") if row else None,
-            )
-            parts.append(f"- note_id: {n.note_id} | **{wiki}**: {doc}... (tags: {tags})")
+            parts.append(_rag_note_line(db, n))
 
     if graph_hits:
         parts.append("")
         parts.append("### Vizinhas por conexao no grafo")
         for n in graph_hits:
-            title = n.title or n.metadata.get("title", "Sem titulo")
-            doc = (n.document or "")[:150]
             rel = "related"
             anchor = ""
             if n.via:
                 rel = n.via[-1].get("relation_type", "related")
                 anchor = n.via[-1].get("from", "")
             anchor_txt = f" a partir de note_id: {anchor}" if anchor else ""
-            row = db.get_note(n.note_id)
-            wiki = permanent_wikilink(
-                n.note_id,
-                title,
-                path=row.get("path") if row else None,
-            )
-            parts.append(
-                f"- note_id: {n.note_id} | **{wiki}** (relacao: {rel}{anchor_txt}): {doc}..."
-            )
+            parts.append(_rag_note_line(db, n, extra=f" (relacao: {rel}{anchor_txt})"))
+
+    if distant_notes:
+        if parts:
+            parts.append("")
+        parts.append("### Analogias distantes (outro dominio)")
+        for n in distant_notes:
+            parts.append(_rag_note_line(db, n, extra=" (analogia: outro bucket taxonomico)"))
 
     return "\n".join(parts)
+
+
+def _load_connect_taxonomy(cfg: AppConfig, idx: VectorIndex) -> tuple[dict, dict[str, str]]:
+    """Embed category labels once per connect run; map note_id -> category."""
+    from zettel.gardener_assign import (
+        assign_notes_to_categories,
+        build_embeddings_by_id,
+        embed_category_labels,
+        load_category_names,
+    )
+
+    pairs = load_category_names(cfg.gardener.topics_path)
+    if not pairs and cfg.gardener.allowed_topics:
+        pairs = [("", name) for name in cfg.gardener.allowed_topics]
+    if not pairs:
+        return {}, {}
+    try:
+        cat_vectors = embed_category_labels(
+            idx, pairs, cfg.domain.name, cfg.gardener.category_label_template
+        )
+    except Exception as e:
+        logger.warning("Rotulos de categoria indisponiveis para analogias distantes: %s", e)
+        return {}, {}
+    ids, embeddings = idx.get_all_permanent_embeddings()
+    if embeddings is None or not ids:
+        return cat_vectors, {}
+    buckets = assign_notes_to_categories(ids, build_embeddings_by_id(ids, embeddings), cat_vectors)
+    note_to_cat = {nid: cat for cat, nids in buckets.items() for nid in nids}
+    return cat_vectors, note_to_cat
+
+
+def _search_distant_for_candidate(
+    cfg: AppConfig,
+    idx: VectorIndex,
+    retriever: Retriever,
+    query_text: str,
+    note_id: str,
+    similar: list[RetrievedNote],
+    taxonomy: tuple[dict, dict[str, str]] | None,
+) -> list[RetrievedNote]:
+    if cfg.linking.distant_analogy_topk <= 0:
+        return []
+    cat_vectors, note_to_cat = taxonomy or ({}, {})
+    if not cat_vectors:
+        return []
+    try:
+        query_vec = idx.embed_texts([query_text])[0]
+    except Exception as e:
+        logger.warning("Nao foi possivel embeddar o candidato para analogia distante: %s", e)
+        return []
+    from zettel.gardener_assign import assign_vector_to_category
+
+    cand_cat = assign_vector_to_category(query_vec, cat_vectors)
+    if not cand_cat:
+        return []
+    same_bucket = {nid for nid, cat in note_to_cat.items() if cat == cand_cat}
+    already = {n.note_id for n in similar} | {note_id} | same_bucket
+    return retriever.search_distant_analogies(
+        query_text,
+        exclude_id=note_id,
+        exclude_ids=already,
+        topk=cfg.linking.distant_analogy_topk,
+        min_vector_similarity=cfg.linking.distant_analogy_min_similarity,
+    )
+
+
+def _write_distant_suggestions(
+    cfg: AppConfig,
+    db: StateDB,
+    note_id: str,
+    note_path: Path,
+    suggested: list[dict],
+) -> None:
+    if not suggested or not note_path.exists():
+        return
+    lines = [
+        format_suggestion_line(
+            c.get("wiki_link") or c["related_note_id"],
+            relation_type=c.get("relation_type") or "",
+            description=c.get("description") or "",
+        )
+        for c in suggested
+    ]
+    write_auto_connections(note_path, lines, vault_timezone=cfg.vault_timezone)
+    _meta, body = parse_frontmatter(note_path.read_text(encoding="utf-8"))
+    existing = db.get_note(note_id)
+    if not existing:
+        return
+    db.upsert_note(
+        note_id=note_id,
+        source_id=existing.get("source_id") or "",
+        path=existing.get("path") or str(note_path),
+        title=existing.get("title") or "",
+        note_semantic_checksum=existing.get("note_semantic_checksum") or "",
+        embedding_model=existing.get("embedding_model") or cfg.embedding.model,
+        body=body,
+        frontmatter_json=existing.get("frontmatter_json") or "",
+        origin=existing.get("origin") or "pipeline",
+    )
 
 
 # ── Backlinking with typed relations ─────────────────────────────────
@@ -750,6 +880,7 @@ def _persist_and_backlink(
             target_note_id=target_id,
             relation_type=conn.get("relation_type") or "related",
             description=conn.get("description") or "",
+            origin="llm",
         )
         rebuild_auto_backlinks(db, target_id, vault_timezone=cfg.vault_timezone)
     rebuild_auto_backlinks(db, new_note_id, vault_timezone=cfg.vault_timezone)

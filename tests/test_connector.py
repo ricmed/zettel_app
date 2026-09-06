@@ -297,6 +297,23 @@ def test_build_rag_context_empty():
     assert _build_rag_context(_FakeDB({}), []) == "Nenhuma nota existente encontrada."
 
 
+def test_build_rag_context_distant_group():
+    similar = [RetrievedNote(note_id="AAA", score=0.9, title="Semente", hop=0)]
+    distant = [
+        RetrievedNote(
+            note_id="CCC",
+            score=0.4,
+            title="Ponte",
+            hop=0,
+            origin="distant_analogy",
+        )
+    ]
+    ctx = _build_rag_context(_FakeDB({}), similar, distant)
+    assert "### Analogias distantes (outro dominio)" in ctx
+    assert "note_id: CCC" in ctx
+    assert "analogia: outro bucket taxonomico" in ctx
+
+
 def test_fallback_image_ids_from_chunk_text(tmp_path):
     db = StateDB(tmp_path / "s.db")
     try:

@@ -304,6 +304,7 @@ CREATE TABLE IF NOT EXISTS note_connections (
     target_note_id TEXT NOT NULL,
     relation_type  TEXT NOT NULL,
     description    TEXT DEFAULT '',
+    origin         TEXT NOT NULL DEFAULT 'llm',
     created_at     TEXT NOT NULL,
     PRIMARY KEY (source_note_id, target_note_id, relation_type)
 );
@@ -565,6 +566,7 @@ class StateDB:
             ("chunks", "review_confidence", "REAL"),
             ("chunks", "summary_json", "TEXT"),
             ("assets", "page_in_file", "INTEGER"),
+            ("note_connections", "origin", "TEXT NOT NULL DEFAULT 'llm'"),
         ]
         for table, column, coltype in migrations:
             try:
@@ -1585,14 +1587,22 @@ class StateDB:
         target_note_id: str,
         relation_type: str,
         description: str = "",
+        origin: str = "llm",
     ) -> None:
         self.conn.execute(
             """INSERT INTO note_connections
-               (source_note_id, target_note_id, relation_type, description, created_at)
-               VALUES (?, ?, ?, ?, ?)
+               (source_note_id, target_note_id, relation_type, description, origin, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)
                ON CONFLICT(source_note_id, target_note_id, relation_type) DO UPDATE SET
                  description=excluded.description, created_at=excluded.created_at""",
-            (source_note_id, target_note_id, relation_type, description, self._now()),
+            (
+                source_note_id,
+                target_note_id,
+                relation_type,
+                description,
+                origin,
+                self._now(),
+            ),
         )
         self.conn.commit()
 
@@ -1707,11 +1717,14 @@ class StateDB:
 
         degrees: dict[str, float] = defaultdict(float)
         rows = self._fetchall(
-            "SELECT source_note_id, target_note_id, relation_type FROM note_connections",
+            "SELECT source_note_id, target_note_id, relation_type, origin FROM note_connections",
         )
         for row in rows:
             rel = row.get("relation_type") or "related"
-            weight = relation_weights.get(rel, relation_weights.get("related", 0.5))
+            if (row.get("origin") or "llm") == "manual":
+                weight = relation_weights.get("manual", 0.95)
+            else:
+                weight = relation_weights.get(rel, relation_weights.get("related", 0.5))
             degrees[row["source_note_id"]] += weight
             degrees[row["target_note_id"]] += weight
         return dict(degrees)

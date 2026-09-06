@@ -69,3 +69,7 @@ Relation weights live in `config.yaml` as static values rather than being learne
 * `zettel/graph.py` — `expand_notes()`, the undirected weighted BFS traversal (114 lines)
 * `zettel/retrieval.py:299-331` — `_expand_with_graph()`, orchestrates expansion after RRF fusion
 * `zettel/config.py:111-173` — `GraphExpansionConfig` and `DEFAULT_RELATION_WEIGHTS` defaults
+
+## Amendment (2026-09-06)
+
+`note_connections.origin` distinguishes `llm` from `manual`. A body wikilink (`_extract_body_edges`) is stored as `related` with `origin=manual` and weighted as `manual` (0.95), not as thematic `related` (0.5). An already-typed LLM edge is never downgraded. See issue #164.

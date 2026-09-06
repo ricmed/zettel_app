@@ -47,6 +47,10 @@ def yaml_has_path(data: dict[str, Any], dotted: str) -> bool:
 def test_load_config_yaml_smoke():
     cfg = load_config(_CONFIG_YAML)
     assert cfg.vault_timezone == "America/Sao_Paulo"
+    assert cfg.domain.name
+    assert cfg.domain.examples_path.name == "domain_examples.yaml"
+    assert cfg.gardener.category_label_template == "{pilar}: {categoria}"
+    assert "manual" in cfg.retrieval.graph_expansion.relation_weights
     assert cfg.retrieval.mode == "hybrid"
     assert cfg.retrieval.relevance_floor.min_vector_similarity == 0.65
     assert cfg.hub_mocs.selection_mode in ("percentile", "absolute")

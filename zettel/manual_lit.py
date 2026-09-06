@@ -560,3 +560,87 @@ def create_permanent_from_literature(
     # later `zettel connect` cannot mint a duplicate pipeline note.
     claim_concepts_for_note(db, note_id, note_meta, note_body)
     return note_path, False
+
+
+_TESE_RE = re.compile(r"^>\s*\*\*Tese\*\*:\s*(.+)$", re.MULTILINE)
+
+
+def query_from_permanent_body(body: str) -> str:
+    """Thesis + definition from a ZTL body — the query connect would use."""
+    thesis = ""
+    match = _TESE_RE.search(body or "")
+    if match:
+        thesis = match.group(1).strip()
+    definition = _section(body, "Definição") or _section(body, "Definicao")
+    return f"{thesis} {definition}".strip()
+
+
+def suggest_connections_for_permanent(
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    ref: str,
+) -> int:
+    """Write retrieval suggestions into ``auto-connections``. Does not rewrite the note.
+
+    The note must already be indexed (``sync-manual``). Distant analogies use
+    the same local floor as connect. Nothing is persisted as a graph edge.
+    """
+    from zettel.connector import _load_connect_taxonomy, _search_distant_for_candidate
+    from zettel.retrieval import Retriever
+    from zettel.vault import (
+        format_suggestion_line,
+        parse_frontmatter,
+        permanent_wikilink,
+        write_auto_connections,
+    )
+
+    path = Path(ref)
+    if not path.is_file():
+        row = db.get_note(ref)
+        if row and row.get("path"):
+            path = Path(row["path"])
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Nota permanente nao encontrada: {ref!r} "
+            "(informe o caminho do .md ou um note_id ja indexado)."
+        )
+    meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+    if str(meta.get("type") or "") != "permanent":
+        raise ValueError(f"{path.name} nao e uma nota permanente (type: permanent).")
+    note_id = str(meta.get("note_id") or "")
+    if not note_id or db.get_note(note_id) is None:
+        raise ValueError(f"{path.name} ainda nao esta indexada. Rode: zettel sync-manual")
+
+    query = query_from_permanent_body(body)
+    if not query:
+        raise ValueError(
+            f"{path.name} sem tese/definicao — preencha o corpo antes de sugerir conexoes."
+        )
+
+    retriever = Retriever(cfg, db, idx)
+    similar = retriever.search_notes(query, topk=cfg.linking.topk, exclude_id=note_id).hits
+    taxonomy = _load_connect_taxonomy(cfg, idx)
+    distant = _search_distant_for_candidate(cfg, idx, retriever, query, note_id, similar, taxonomy)
+
+    lines: list[str] = []
+    for n in similar:
+        row = db.get_note(n.note_id)
+        wiki = permanent_wikilink(
+            n.note_id,
+            n.title or (row or {}).get("title") or "",
+            path=(row or {}).get("path"),
+        )
+        kind = "grafo" if n.hop >= 1 else "embedding"
+        lines.append(format_suggestion_line(wiki, description=kind))
+    for n in distant:
+        row = db.get_note(n.note_id)
+        wiki = permanent_wikilink(
+            n.note_id,
+            n.title or (row or {}).get("title") or "",
+            path=(row or {}).get("path"),
+        )
+        lines.append(format_suggestion_line(wiki, description="analogia distante"))
+
+    write_auto_connections(path, lines, vault_timezone=cfg.vault_timezone)
+    return len(lines)

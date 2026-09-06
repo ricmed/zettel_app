@@ -131,9 +131,9 @@ Módulo: [`review.py`](../zettel/review.py).
 
 Módulo: [`connector.py`](../zettel/connector.py).
 
-1. Para cada candidato aprovado, busca **top-k notas similares** (RAG híbrido) — apenas para conexões
+1. Para cada candidato aprovado, busca **top-k notas similares** (RAG híbrido) — apenas para conexões — e uma busca secundária de **analogias distantes** (fora do bucket taxonômico, piso local `linking.distant_analogy_min_similarity`; o piso global de `ask`/`article` não muda)
 2. Chama o LLM com o **Prompt 2** (`permanent_note.md`):
-   - Conceito + contexto RAG + opcionalmente `{images_context}` das figuras do candidato → nota permanente completa
+   - Conceito + contexto RAG (embedding / grafo / analogias distantes) + opcionalmente `{images_context}` das figuras do candidato → nota permanente completa
 3. Valida idioma PT-BR (guardrail automático)
 4. Resolve imagens do candidato (`relevant_image_ids`, com fallback por path no chunk se a lista estiver vazia) e cria o arquivo **ZTL** em `30_Permanent/` com:
    - Frontmatter YAML (type, note_id, source_id, tags, origin, etc.)
@@ -146,7 +146,7 @@ Módulo: [`connector.py`](../zettel/connector.py).
    ```
 6. Indexa no ChromaDB e registra no SQLite, **persistindo o corpo e o frontmatter completos** (`notes.body`/`frontmatter_json`) — o que permite recriar o `.md` sem reprocessar o LLM. O re-embedding é pulado quando o conteúdo semântico e o modelo não mudaram (`embedding_input_hash`). A chamada do Prompt 2 também é cacheada.
 
-O `literature_ref` aponta para a **LIT granular aprovada** daquele chunk (com fallback para o índice da fonte). Valores de `related_note_id` são canonicalizados (removendo `ZTL -` e wrappers de wikilink até sobrar o ULID) e **descartados** se o alvo não existir no SQLite ou o arquivo tiver sumido — nada de wikilinks fantasma `[[ZTL - ZTL - ULID]]`. O bloco `auto-backlinks` é **reconstruído** a partir das arestas de entrada em `note_connections` (stem do arquivo atual + relação inversa), nunca apenas concatenado.
+O `literature_ref` aponta para a **LIT granular aprovada** daquele chunk (com fallback para o índice da fonte). Valores de `related_note_id` são canonicalizados (removendo `ZTL -` e wrappers de wikilink até sobrar o ULID) e **descartados** se o alvo não existir no SQLite ou o arquivo tiver sumido — nada de wikilinks fantasma `[[ZTL - ZTL - ULID]]`. O bloco `auto-backlinks` é **reconstruído** a partir das arestas de entrada em `note_connections` (stem do arquivo atual + relação inversa), nunca apenas concatenado. Conexões cujo alvo veio do grupo de analogias distantes vão para `auto-connections`, não para o grafo.
 
 Quando uma nota permanente entra ou sai de um MOC, o pipeline atualiza o bloco **`auto-moc-backrefs`** na ZTL (ver Fase 4 e [notas-manuais.md](notas-manuais.md)).
 
@@ -159,7 +159,7 @@ Módulos: [`gardener.py`](../zettel/gardener.py), [`gardener_assign.py`](../zett
 Pipeline **híbrido** (taxonomia → cluster por categoria → grafo → roteamento LLM) — [ADR-019](adrs/generated/GARDEN/ADR-019-taxonomy-first-moc-clustering.md) e [ADR-021](adrs/generated/GARDEN/ADR-021-single-llm-call-per-cluster-routing.md):
 
 1. Carrega embeddings de todas as notas permanentes
-2. **Atribuição taxonomia-first** (`gardener_assign.py`): embedda labels das categorias de `config/moc_topics.yaml` e agrupa cada nota no bucket de maior similaridade
+2. **Atribuição taxonomia-first** (`gardener_assign.py`): embedda labels `{pilar}: {categoria}` de `config/moc_topics.yaml` e agrupa cada nota no bucket de maior similaridade. Nomes de categoria precisam ser **globalmente únicos**.
 3. **Clusterização por bucket**: UMAP + HDBSCAN (ou KMeans como fallback) **dentro de cada categoria**, alinhando clusters ao guarda-chuva da taxonomia
 4. Extrai termos representativos via **TF-IDF**
 5. **Roteamento inteligente** (`_process_cluster`) — no máximo **1 chamada LLM por cluster**:
@@ -180,14 +180,14 @@ Parâmetros híbridos em `config.yaml` (`gardener.*`):
 | Parametro | Proposito |
 |-----------|-----------|
 | `cluster_within_category` | Ativa pipeline taxonomia-first (default `true`) |
-| `category_label_template` | Texto embeddavel por categoria (ex. `"{domain}: {categoria}"`) |
+| `category_label_template` | Texto embeddavel por categoria (default `"{pilar}: {categoria}"`; `domain` continua disponível num template customizado) |
 | `overlap_threshold` | Fracao do cluster ja presente em um MOC → update incremental direto |
 | `graph_cohesion_enabled` | Calcula score interno do cluster via `note_connections` |
 | `graph_cohesion_min_ratio` | `0` = so log; `>0` rejeita cluster fraco antes de criar MOC novo |
 | `umap_n_neighbors` | `null` = auto |
 | `hdbscan_min_samples` | Opcional; ajuste fino do HDBSCAN |
 
-`zettel garden --recreate` apaga os MOCs gerados pelo pipeline (`origin='pipeline'`) e regenera do zero, preservando MOCs manuais. Antes de apagar cada MOC, **`clear_moc_backrefs`** remove os links dele dos blocos `auto-moc-backrefs` das notas permanentes. Ao criar ou atualizar um MOC, **`sync_moc_backrefs`** adiciona/remove wikilinks do MOC nas ZTL listadas no corpo do mapa.
+`zettel garden --recreate` apaga os MOCs gerados pelo pipeline (`origin='pipeline'`) e regenera do zero, preservando MOCs manuais. É **obrigatório** depois de mudar o template de rótulo ou a taxonomia — os MOCs existentes ficam desalinhados. Antes de apagar cada MOC, **`clear_moc_backrefs`** remove os links dele dos blocos `auto-moc-backrefs` das notas permanentes. Ao criar ou atualizar um MOC, **`sync_moc_backrefs`** adiciona/remove wikilinks do MOC nas ZTL listadas no corpo do mapa.
 
 ---
 

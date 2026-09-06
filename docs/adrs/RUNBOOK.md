@@ -2,7 +2,7 @@
 
 **Purpose**: Answer "Which ADRs should I read?" for common tasks  
 **How to use**: Search by task type, then consult linked ADRs  
-**Updated**: 2026-09-01
+**Updated**: 2026-09-06
 
 ---
 
@@ -181,11 +181,14 @@ Read ADRs:
      → Each relation type has a weight (contradicts highest priority)
   3. ADR-003 (Hybrid retrieval)
      → Graph expansion uses these weights to score neighbors
+  4. ADR-009 amendment (manual origin)
+     → Body wikilinks are `related` + `origin=manual` and weighted as `manual` (0.95)
 
 Before changing:
   - Update weights in DEFAULT_RELATION_WEIGHTS (config.py)
   - Re-run `zettel sync-manual --rebuild-graph` if you change existing edges
   - Test retrieval with new weights
+  - Do not downgrade an already-typed LLM edge when the author also writes the wikilink
 ```
 
 ---
@@ -196,9 +199,9 @@ Before changing:
 ```
 Read ADRs:
   1. ADR-019 (Taxonomy-first MOC clustering with UMAP+HDBSCAN)
-     → Primary: embed category labels, assign notes to categories, cluster within
-  2. ADR-004 (YAML-first configuration)
-     → moc_topics.yaml defines category labels
+     → Primary: embed category labels as `{pilar}: {categoria}`, assign, cluster within
+  2. ADR-004 / ADR-042 (YAML-first; domain is top-level, not a gardener field)
+     → moc_topics.yaml defines category labels; category names must be globally unique
   3. ADR-021 (Single LLM call per cluster routing)
      → Each cluster routed through signature match → overlap → category → generation
 
@@ -457,14 +460,14 @@ Recommended:
 | Module | Key ADRs | Governance |
 |--------|----------|-----------|
 | **harvester/** (package) | 011, 012, 013, 014, 027 | Extraction strategy, chunking, dedup, paging, package layout |
-| **extractor.py** | 015, 016, 025 | Literature note format, dedup timing, prompting |
+| **extractor.py** | 015, 016, 025, 042 | Literature note format, dedup timing, prompting, domain few-shots |
 | **review.py** | 016, 017, 018 | Approval gate, thresholds, validation |
-| **connector.py** | 003, 009, 010, 025 | Retrieval (RAG), graph expansion, prompting |
-| **retrieval.py** | 003, 009, 010 | Hybrid fusion, floor, graph expansion |
-| **gardener.py** | 019, 021, 025 | Taxonomy clustering, routing, prompting |
+| **connector.py** | 003, 009, 010, 025, 043 | Retrieval (RAG), graph expansion, distant analogies as suggestions |
+| **retrieval.py** | 003, 009, 010, 043 | Hybrid fusion, floor, graph expansion, distant-analogy search |
+| **gardener.py** | 019, 021, 025, 042 | Taxonomy clustering, routing, prompting |
 | **gardener_hub.py** | 020, 021, 025 | Hub MOCs, routing, prompting |
 | **web/ (pacote), web_app.py** | 022, 023, 018, 039, 040 | Server rendering, job queue, validation, JSON pickers |
-| **config.py** | 004, 006 | YAML-first, Pydantic schema |
+| **config.py** | 004, 006, 042 | YAML-first, Pydantic schema, DomainConfig |
 | **state.py** | 001, 005, 007, 008 | SQLite persistence, hashing, repository pattern |
 | **index.py** | 002, 008 | ChromaDB, repository pattern |
 | **llm.py** | 024, 025 | Multi-provider, prompt caching |
@@ -472,6 +475,8 @@ Recommended:
 | **article_graph/** (package) | 028, 029 | LangGraph orchestration (13 nodes, HITL interrupts, judge loop), package layout |
 | **ask.py** | 003, 009, 010 | Hybrid retrieval, relevance floor, graph expansion |
 | **cli/** (package) | 026, 032 | Typer/Rich framework (all commands routed through), package layout |
+| **domain_examples.py** | 042 | Leaf loader for few-shots (`domain.examples_path`) |
+| **manual_lit.py** | 030, 043 | Manual LIT adoption; `suggest-links` without Prompt 2 |
 
 ---
 

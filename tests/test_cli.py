@@ -3,7 +3,7 @@
 Everything here is offline and cheap: no LLM, no embedding, no database, no
 vault. What is locked:
 
-* **the command surface** — the 22 commands and the order they appear in
+* **the command surface** — the commands and the order they appear in
   ``zettel --help``, so the split of ``cli.py`` into ``zettel/cli/`` (and any
   later reshuffle) cannot silently drop or reorder one;
 * **every command's parser builds** — an ``Annotated`` signature that Typer
@@ -66,6 +66,7 @@ EXPECTED_COMMANDS = [
     # manual.py — hand-written notes
     "new-note",
     "sync-manual",
+    "suggest-links",
     # pipeline.py / qa.py / writing.py / export.py
     "run-all",
     "ask",
@@ -105,7 +106,7 @@ def _top_level_imports(path: Path) -> list[str]:
 
 
 def test_every_command_is_registered_in_order():
-    """The 22 commands, in the documented order.
+    """The registered commands, in the documented order.
 
     A command lost during a refactor disappears from the CLI without any import
     error — the module simply stops being imported, or its decorator is dropped.

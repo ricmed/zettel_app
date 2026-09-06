@@ -2,7 +2,7 @@
 
 [← Voltar ao README](../README.md)
 
-Como o sistema encontra as notas que alimentam o RAG do `connect`, as sugestões do `sync-manual`, o comando `ask` e o `article` — e por que existe um piso absoluto de relevância além do ranking.
+Como o sistema encontra as notas que alimentam o RAG do `connect`, as sugestões do `sync-manual` / `suggest-links`, o comando `ask` e o `article` — e por que existe um piso absoluto de relevância além do ranking.
 
 Módulos: [`retrieval.py`](../zettel/retrieval.py), [`graph.py`](../zettel/graph.py), [`ask.py`](../zettel/ask.py), [`article.py`](../zettel/article.py) / [`article_graph/`](../zettel/article_graph/) (pacote — runtime, search, nodes, graph).
 
@@ -14,7 +14,7 @@ A recuperação de notas combina três sinais complementares ([ADR-003](adrs/gen
 
 1. **Busca vetorial (densa)** — similaridade semântica no ChromaDB.
 2. **Busca lexical BM25** — índice full-text **SQLite FTS5** no próprio `state.db` (tokenizer `unicode61` com `remove_diacritics`, então "conexao" casa "conexão"). Cobre o ponto fraco do embedding: termos técnicos exatos, siglas e nomes próprios. Palavras funcionais de altíssima frequência em PT-BR (artigos, preposições, conjunções — ex. "que", "de", "para") são filtradas da consulta antes do MATCH: sem isso, uma palavra como "que" aparece em quase toda nota do acervo e o "match" lexical deixa de significar qualquer coisa.
-3. **Expansão por grafo (GraphRAG leve)** — as **conexões tipadas** já geradas pelo pipeline (tabela `note_connections`: `supports`, `contradicts`, `extends`, `depends_on`, `exemplifies`, `related`) são percorridas a partir das notas recuperadas. Vizinhos entram no contexto ponderados por tipo de relação (`contradicts`/`extends` pesam mais — trazem informação que a similaridade vetorial **não** captura) e por decaimento por salto ([ADR-009](adrs/generated/RETRIEVAL/ADR-009-graph-based-note-discovery-weighted-bfs.md)).
+3. **Expansão por grafo (GraphRAG leve)** — as **conexões tipadas** já geradas pelo pipeline (tabela `note_connections`: `supports`, `contradicts`, `extends`, `depends_on`, `exemplifies`, `related`) são percorridas a partir das notas recuperadas. Vizinhos entram no contexto ponderados por tipo de relação (`contradicts`/`extends` pesam mais — trazem informação que a similaridade vetorial **não** captura) e por decaimento por salto ([ADR-009](adrs/generated/RETRIEVAL/ADR-009-graph-based-note-discovery-weighted-bfs.md)). Uma aresta que o autor escreveu no corpo (`origin=manual`) usa o peso `manual` (0.95), não o de `related` (0.5).
 
 As listas densa e lexical são fundidas por **Reciprocal Rank Fusion (RRF)**, que usa apenas o *ranking* de cada id (não os scores brutos), dispensando calibração entre escalas incompatíveis (distância L2 vs. bm25). Os ids são compartilhados entre Chroma e SQLite, então a fusão é direta.
 
@@ -33,7 +33,7 @@ As listas densa e lexical são fundidas por **Reciprocal Rank Fusion (RRF)**, qu
 
 Cada `RetrievedNote` carrega a proveniência: `vector_rank`, `bm25_rank`, `hop`, `via`, `passed_floor` e um `floor_reason` legível.
 
-Consumidores migrados para o `Retriever`: RAG do connector (`.hits`), sugestões do sync (`.hits`), o comando `ask` (`.hits` + `.candidates`) e o `article` (`.hits` + catálogo).
+Consumidores migrados para o `Retriever`: RAG do connector (`.hits`), analogias distantes do `connect` (`search_distant_analogies`), sugestões do sync e do `suggest-links` (`.hits`), o comando `ask` (`.hits` + `.candidates`) e o `article` (`.hits` + catálogo).
 
 ---
 
@@ -72,7 +72,7 @@ O índice se materializa no `review` (fonte) e no `garden`/`sync-manual` (MOC). 
 
 ## Expansão por grafo
 
-`expand_notes` ([`graph.py`](../zettel/graph.py)) faz BFS em Python (não CTE recursiva em SQL) sobre `note_connections`, de forma não-direcionada, com peso por tipo de relação (`DEFAULT_RELATION_WEIGHTS` em `config.py`; `contradicts` no topo — é o sinal que embeddings não capturam) e decaimento por salto. As sementes entram com o próprio score RRF (`seed_weights`), e cada fronteira faz **uma** consulta em lote (`StateDB.get_connections_for_notes`).
+`expand_notes` ([`graph.py`](../zettel/graph.py)) faz BFS em Python (não CTE recursiva em SQL) sobre `note_connections`, de forma não-direcionada, com peso por tipo de relação (`DEFAULT_RELATION_WEIGHTS` em `config.py`; `contradicts` no topo — é o sinal que embeddings não capturam) e decaimento por salto. Arestas com `origin=manual` usam o peso `manual` (0.95). As sementes entram com o próprio score RRF (`seed_weights`), e cada fronteira faz **uma** consulta em lote (`StateDB.get_connections_for_notes`).
 
 Só sementes que **passaram do piso** alimentam a expansão — evita ampliar ruído.
 
@@ -132,9 +132,17 @@ O HITL usa `interrupt()` do LangGraph com prompts Rich; o checkpointer é um `Me
 
 ---
 
+## Analogias distantes (outro domínio)
+
+O `connect` (e o `suggest-links`) faz uma busca secundária pequena, com piso **local** (`linking.distant_analogy_min_similarity`, default 0.40), restrita a notas **fora** do bucket taxonômico do candidato. `retrieval.relevance_floor` não muda — o remédio do `connect` não pode virar doença no `ask`.
+
+Essas notas entram no Prompt 2 como o terceiro grupo do RAG (`### Analogias distantes`). O critério é **mecanismo que transfere**, não vocabulário compartilhado. O resultado vai para `auto-connections`, não para `note_connections`: uma analogia especulativa só vira aresta quando o autor move o wikilink para a prosa.
+
+---
+
 ## Fechando o ciclo do grafo (notas manuais)
 
-Notas escritas à mão no Obsidian também alimentam o grafo: no `sync-manual`, os `[[wikilinks]]` presentes **no corpo** de uma nota permanente (fora dos blocos gerenciados `auto-connections`, `auto-backlinks` e `auto-moc-backrefs`, que são gerados automaticamente) são persistidos como arestas `related`. Uma aresta já tipada nunca é rebaixada. Use `zettel sync-manual --rebuild-graph` para re-derivar essas arestas de todo o vault a partir dos corpos já persistidos no SQLite.
+Notas escritas à mão no Obsidian também alimentam o grafo: no `sync-manual`, os `[[wikilinks]]` presentes **no corpo** de uma nota permanente (fora dos blocos gerenciados `auto-connections`, `auto-backlinks` e `auto-moc-backrefs`, que são gerados automaticamente) são persistidos como arestas `related` com `origin=manual`. Uma aresta já tipada nunca é rebaixada. Use `zettel sync-manual --rebuild-graph` para re-derivar essas arestas de todo o vault a partir dos corpos já persistidos no SQLite.
 
 MOCs manuais ou editados no Obsidian também disparam **`sync_moc_backrefs`**: notas permanentes linkadas no corpo do MOC ganham (ou perdem) entradas no bloco `auto-moc-backrefs`.
 
@@ -144,5 +152,5 @@ MOCs manuais ou editados no Obsidian também disparam **`sync_moc_backrefs`**: n
 
 - [Configuração](configuracao.md) — o bloco `retrieval.*` completo
 - [Comandos](cli.md#ask) — flags de `ask` e `article`
-- [Notas manuais](notas-manuais.md) — como notas escritas à mão entram na recuperação
+- [Notas manuais](notas-manuais.md) — como notas escritas à mão entram na recuperação (`suggest-links` sem reescrita)
 - [Pipeline](pipeline.md#fase-3--connect-conexao) — onde o RAG é usado na geração de notas

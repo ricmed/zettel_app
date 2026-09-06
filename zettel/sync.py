@@ -658,7 +658,7 @@ def _extract_body_edges(db: StateDB, note_id: str, body: str) -> int:
             continue  # only link to notes the pipeline knows about
         if frozenset((note_id, target)) in connected_pairs:
             continue  # already connected (any type / direction) — do not downgrade
-        db.upsert_note_connection(note_id, target, "related", "wikilink manual")
+        db.upsert_note_connection(note_id, target, "related", "wikilink manual", origin="manual")
         connected_pairs.add(frozenset((note_id, target)))
         created += 1
     return created

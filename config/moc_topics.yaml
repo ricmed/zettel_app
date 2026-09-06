@@ -199,3 +199,52 @@ taxonomia_conhecimento:
           - "Credit Scoring"
           - "Saúde Pública"
           - "Saúde Suplementar"
+
+  - pilar: "Filosofia Teórica"
+    categorias:
+      - nome: "Metafísica e Ontologia"
+        topicos:
+          - "Substância"
+          - "Causalidade"
+          - "Universais"
+      - nome: "Epistemologia"
+        topicos:
+          - "Ceticismo"
+          - "Justificação"
+          - "A priori/A posteriori"
+
+  - pilar: "Filosofia Prática"
+    categorias:
+      - nome: "Ética Normativa e Metaética"
+        topicos:
+          - "Deontologia"
+          - "Consequencialismo"
+          - "Virtude"
+      - nome: "Filosofia Política e Justiça"
+        topicos:
+          - "Liberdade"
+          - "Autoridade"
+          - "Igualdade"
+
+  - pilar: "Problemas Transversais"
+    categorias:
+      - nome: "Mente, Cognição e Representação"
+        topicos:
+          - "Dualismo"
+          - "Intencionalidade"
+          - "Cognição Incorporada"
+      - nome: "Agência, Autonomia e Decisão"
+        topicos:
+          - "Livre-arbítrio"
+          - "Responsabilidade"
+          - "Escolha sob Incerteza"
+      - nome: "Linguagem, Signo e Significado"
+        topicos:
+          - "Referência"
+          - "Uso e Convenção"
+          - "Interpretação"
+      - nome: "Ética Aplicada e Responsabilidade"
+        topicos:
+          - "Responsabilidade de Sistemas"
+          - "Viés e Justiça"
+          - "Autonomia Técnica"

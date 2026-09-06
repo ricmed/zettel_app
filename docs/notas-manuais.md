@@ -2,7 +2,7 @@
 
 [← Voltar ao README](../README.md)
 
-Como escrever notas à mão no Obsidian e fazer o pipeline adotá-las com os mesmos direitos das notas geradas: `sync-manual`, `new-note`, adoção de LIT manual e o caminho LIT → ZTL.
+Como escrever notas à mão no Obsidian e fazer o pipeline adotá-las com os mesmos direitos das notas geradas: `sync-manual`, `new-note`, `suggest-links`, adoção de LIT manual e o caminho LIT → ZTL.
 
 Módulos: [`sync.py`](../zettel/sync.py), [`new_note.py`](../zettel/new_note.py), [`manual_lit.py`](../zettel/manual_lit.py), [`assets.py`](../zettel/assets.py).
 
@@ -21,7 +21,7 @@ Notas criadas à mão no Obsidian são adotadas pelo pipeline com **`zettel sync
 Além disso, o sync:
 
 - Escreve sugestões de conexão num bloco gerenciado `auto-connections` (usando o mesmo `Retriever` do `connect`).
-- Persiste como arestas `related` os `[[wikilinks]]` encontrados **no corpo** das notas, fora dos blocos gerenciados — sem nunca rebaixar uma aresta já tipada. Veja [recuperacao.md](recuperacao.md#fechando-o-ciclo-do-grafo-notas-manuais).
+- Persiste como arestas `related` com `origin=manual` os `[[wikilinks]]` encontrados **no corpo** das notas, fora dos blocos gerenciados — sem nunca rebaixar uma aresta já tipada. O grafo pondera essas arestas como `manual` (0.95), não como `related` (0.5). Veja [recuperacao.md](recuperacao.md#fechando-o-ciclo-do-grafo-notas-manuais).
 - Roda `repair_permanent_links`, que reescreve alvos `[[ZTL - ULID]]` nus ou com prefixo duplicado para o stem atual do arquivo, e reconstrói todo bloco `auto-backlinks` a partir do grafo.
 - Chama `sync_moc_backrefs` para MOCs manuais ou editados à mão.
 
@@ -93,9 +93,26 @@ A adoção completa de uma LIT escrita à mão ([ADR-030](adrs/generated/MANUAL/
 
 ---
 
+## Conexões sem reescrita (`zettel suggest-links`)
+
+Para ficção, filme ou nota autoral, o caminho é SRC → ZTL à mão — **não** harvest + extract do livro inteiro:
+
+```bash
+python -m zettel new-note src --citekey Kling2017 --author "Kling, Marc-Uwe" --year 2017 --document-type livro --title "QualityLand"
+python -m zettel new-note ztl --title "Classificacao de cidadaos como condicao de acesso" --source-id @Kling2017
+python -m zettel sync-manual
+python -m zettel suggest-links 01HABC00000000000000000000
+```
+
+`suggest-links` grava RAG (incluindo analogias distantes) em `auto-connections` e **deixa o texto do autor intacto**. Não chama o Prompt 2 e não herda o portão `ConnectRejected` — esse portão foi desenhado para saída de LLM. Uma sugestão só vira aresta quando você move o wikilink para a prosa.
+
+A nota precisa estar indexada (`sync-manual` antes). Flags em [cli.md](cli.md#suggest-links).
+
+---
+
 ## Ver também
 
-- [Comandos](cli.md#new-note) — todas as flags de `new-note` e `sync-manual`
+- [Comandos](cli.md#new-note) — flags de `new-note`, `sync-manual` e `suggest-links`
 - [Notas geradas](notas.md) — o formato que suas notas manuais devem seguir
 - [Recuperação](recuperacao.md) — como as notas manuais entram no grafo e no `ask`
 - [Operação](operacao.md) — `rebuild` nunca sobrescreve uma nota `origin: manual`

@@ -43,6 +43,7 @@ O `run-all` encadeia `harvest → extract → review → connect → garden`. Em
 | [`skill`](#skill) | Exporta um recorte aprovado como Agent Skill plana |
 | [`new-note`](#new-note) | Scaffold de notas manuais |
 | [`sync-manual`](#sync-manual) | Adota notas escritas à mão no Obsidian |
+| [`suggest-links`](#suggest-links) | Sugere conexões numa ZTL sem reescrever o texto |
 | [`delete-source`](#delete-source) | Remove uma fonte por completo (irreversível) |
 | [`dump-chunks`](#dump-chunks) | Exporta os chunks persistidos como markdown |
 | [`dump-extraction`](#dump-extraction) | Exporta o Markdown extraído |
@@ -220,6 +221,8 @@ python -m zettel connect --dedupe-threshold 0.90 # limiar de deduplicacao
 
 Se não houver candidato aprovado, o comando falha pedindo `extract` + `review` primeiro.
 
+O RAG do `connect` tem três grupos: similares por embedding, vizinhas no grafo e **analogias distantes** (notas fora do bucket taxonômico, piso local `linking.distant_analogy_min_similarity`). Essas analogias vão para o bloco `auto-connections`, não para `note_connections` — só viram aresta quando o autor move o wikilink para a prosa.
+
 > **Pré-voo de custo.** Igual ao `extract`: painel com modelo, conceitos, tokens e USD antes de qualquer chamada. O contexto RAG entra na conta como `linking.topk + graph_expansion.max_neighbors` notas ([ADR-037](adrs/generated/CLI/ADR-037-llm-cost-preflight-estimate.md)).
 
 ---
@@ -234,6 +237,7 @@ python -m zettel garden
 python -m zettel garden --hubs
 
 # Apagar os MOCs do pipeline taxonomico (no vault, no banco e no indice) e regenerar
+# Obrigatorio apos mudar category_label_template ou a taxonomia (moc_topics.yaml)
 python -m zettel garden --recreate
 
 # Idem, apenas para os MOCs hub
@@ -389,6 +393,19 @@ Veja [notas-manuais.md](notas-manuais.md).
 
 ---
 
+## `suggest-links`
+
+Escreve sugestões de conexão (RAG + analogias distantes) no bloco `auto-connections` de uma ZTL **já indexada**. Não chama o Prompt 2 e não reescreve o texto.
+
+```bash
+python -m zettel suggest-links "vault/30_Permanent/ZTL - 01HABC... - minha-tese.md"
+python -m zettel suggest-links 01HABC00000000000000000000
+```
+
+A nota precisa ter passado por `sync-manual` (ter `note_id` no SQLite). Flags: `--yes` / `-y` confirma se o embedding mudou.
+
+---
+
 ## `delete-source`
 
 ```bash
@@ -497,7 +514,7 @@ Mostra o funil (fontes, chunks por status, notas, MOCs), duplicatas detectadas p
 python -m zettel doctor
 ```
 
-Checa Docling, bibliotecas de clustering, disponibilidade de FTS5, integridade dos caminhos, cobertura de capítulos e drift do espaço de embedding.
+Checa Docling, bibliotecas de clustering, disponibilidade de FTS5, integridade dos caminhos, cobertura de capítulos, drift do espaço de embedding, a taxonomia de MOCs e o arquivo de few-shots (`domain.examples_path`).
 
 ---
 
@@ -544,5 +561,5 @@ python -m zettel run-all --dry-run
 
 - [Pipeline](pipeline.md) — o que cada fase faz por dentro
 - [Operação](operacao.md) — reconstrução, purga e remoção de dados
-- [Notas manuais](notas-manuais.md) — `new-note` e `sync-manual` em detalhe
+- [Notas manuais](notas-manuais.md) — `new-note`, `sync-manual` e `suggest-links` em detalhe
 - [Interface web](interface-web.md) — o que está exposto na web e o que é exclusivo da CLI

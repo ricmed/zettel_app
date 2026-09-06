@@ -56,6 +56,29 @@ def allowed_topic_names(tax: MocTaxonomy) -> list[str]:
     return names
 
 
+def category_pillar_pairs(tax: MocTaxonomy) -> list[tuple[str, str]]:
+    """Return ``(pilar, categoria)`` in YAML order, one pair per category.
+
+    Duplicate category names across pillars are kept (the uniqueness check
+    lives in tests against the shipped file). ``allowed_topic_names`` remains
+    the whitelist and still dedupes by name.
+    """
+    pairs: list[tuple[str, str]] = []
+    for pilar in tax.taxonomia_conhecimento:
+        for cat in pilar.categorias:
+            if cat.nome:
+                pairs.append((pilar.pilar, cat.nome))
+    return pairs
+
+
+def duplicate_category_names(tax: MocTaxonomy) -> list[str]:
+    """Category names that appear under more than one pilar."""
+    seen: dict[str, int] = {}
+    for _pilar, nome in category_pillar_pairs(tax):
+        seen[nome] = seen.get(nome, 0) + 1
+    return [nome for nome, n in seen.items() if n > 1]
+
+
 def format_taxonomy_for_prompt(tax: MocTaxonomy) -> str:
     """Render the full hierarchy as markdown for the LLM reference section."""
     lines: list[str] = []

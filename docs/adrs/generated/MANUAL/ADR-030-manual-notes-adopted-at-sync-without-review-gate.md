@@ -99,3 +99,7 @@ This decision supersedes the DISCARD verdict recorded for "Decision 4: Manual No
 * `zettel/vault.py` — `literature_chunk_wikilink_for_row` prefers the on-disk path
 * `zettel/state.py:138-150` — `concepts.chunk_id` NOT NULL with FK to `chunks`
 * `tests/test_manual_flow.py` — end-to-end coverage of SRC → LIT → ZTL
+
+## Amendment (2026-09-06)
+
+SRC→ZTL for fiction and authorial notes does **not** run Prompt 2. `zettel suggest-links` writes retrieval (including distant analogies) into `auto-connections` and leaves the author's prose intact. The review/connect rejection gate was designed for LLM output; applying it to the author's own idea is out of scope. See issue #165 and [ADR-043](../RETRIEVAL/ADR-043-distant-analogies-as-suggestions.md).

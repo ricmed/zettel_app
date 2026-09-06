@@ -13,7 +13,7 @@ Escreva em **{language}**.
 1. Tom formal, preciso e objetivo.
 2. Toda afirmacao substantiva deve trazer citacao autor-data usando
    **exatamente** a forma em `citacao_abnt` fornecida no contexto
-   (ex.: `(NEGRO et al., 2026)`). Nao invente sobrenomes nem anos.
+   (ex.: `(AUTOR et al., 2020)`). Nao invente sobrenomes nem anos.
 3. **Nao** use wikilinks `[[ZTL - ...]]` no corpo.
 4. Se houver figura sugerida e for pertinente, embuta com
    `![[90_Assets/...]]` e uma legenda descritiva.

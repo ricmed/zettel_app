@@ -5,7 +5,7 @@
 ![Obsidian](https://img.shields.io/badge/saída-Obsidian-7C3AED?logo=obsidian&logoColor=white)
 ![LangChain](https://img.shields.io/badge/LLM-LangChain%20%2B%20LangGraph-1C3C3C)
 ![Stores](https://img.shields.io/badge/stores-SQLite%20FTS5%20%2B%20ChromaDB-003B57?logo=sqlite&logoColor=white)
-![ADRs](https://img.shields.io/badge/ADRs-31%20decisões-0A7EA4)
+![ADRs](https://img.shields.io/badge/ADRs-43%20decisões-0A7EA4)
 ![Licença](https://img.shields.io/badge/licença-MIT-green)
 
 Sistema em Python que lê arquivos (PDF, Markdown) e gera **Notas de Literatura** e **Notas Permanentes** seguindo rigorosamente o método Zettelkasten, com saída compatível com **Obsidian**.
@@ -51,13 +51,13 @@ MOCs (Mapas de Conteúdo) por clusterização semântica
 | [Pipeline](docs/pipeline.md)                    | O que cada fase faz por dentro, incluindo paginação arquivo vs. impressa                 |
 | [Notas geradas](docs/notas.md)                  | Formato de SRC, índice LIT, LIT granular e ZTL; tipos documentais ABNT                   |
 | [Recuperação](docs/recuperacao.md)              | Busca híbrida (vetor + BM25 + RRF), GraphRAG, piso de relevância, `ask` e `article`      |
-| [Notas manuais](docs/notas-manuais.md)          | `new-note`, `sync-manual`, adoção de LIT e de imagens, caminho LIT → ZTL                 |
+| [Notas manuais](docs/notas-manuais.md)          | `new-note`, `sync-manual`, `suggest-links`, adoção de LIT e de imagens, caminho LIT → ZTL |
 | [Interface web](docs/interface-web.md)          | Subir a UI, páginas, fila de jobs, o que é exclusivo da CLI                              |
 | [Operação](docs/operacao.md)                    | Retenção, `reindex`/`rebuild`/`rechunk`, dumps, purga, remoção de fonte, backup          |
 | [Solução de problemas](docs/troubleshooting.md) | Sintomas comuns e como sair deles                                                        |
-| [Prompts e taxonomia](docs/prompts.md)          | Personalizar `prompts/`, `moc_topics.yaml` e as personalidades do `article`              |
+| [Prompts e taxonomia](docs/prompts.md)          | Personalizar `prompts/`, `domain_examples.yaml`, `moc_topics.yaml` e as personalidades do `article` |
 | [Avaliação do `ask`](evals/README.md)         | Replay offline de trajetórias, veredictos e guardrail de afirmações       |
-| [ADRs](docs/adrs/ADR-INDEX.md)                  | 38 decisões de arquitetura, com contexto e alternativas                                  |
+| [ADRs](docs/adrs/ADR-INDEX.md)                  | 43 decisões de arquitetura, com contexto e alternativas                                  |
 
 
 Índice completo em [docs/INDICE.md](docs/INDICE.md).
@@ -95,7 +95,7 @@ Os exemplos abaixo usam `python -m zettel ...`; prefixe com `uv run` se o ambien
 
 
 
-## Comandos principaismanu
+## Comandos principais
 
 
 | Comando                           | O que faz                                                                    |
@@ -111,6 +111,7 @@ Os exemplos abaixo usam `python -m zettel ...`; prefixe com `uv run` se o ambien
 | `zettel skill`                    | Exporta um recorte aprovado do vault como Agent Skill plana                  |
 | `zettel new-note`                 | Scaffold de nota manual (`ztl`/`src`/`lit`/`moc`)                            |
 | `zettel sync-manual`              | Adota notas escritas à mão no Obsidian (índice, grafo, backrefs)             |
+| `zettel suggest-links`            | Sugere conexões (incl. analogias distantes) sem reescrever a ZTL             |
 | `zettel status` / `zettel doctor` | Estatísticas do pipeline / diagnóstico de config e dependências              |
 | `zettel run-all`                  | Pipeline completo, do inbox aos MOCs                                         |
 
@@ -190,9 +191,11 @@ A **fonte operacional** é `[config/config.yaml](config/config.yaml)` — é o a
 | `vault_path`, `inbox_path`, `chroma_path`, `state_db_path`, `cache_path`, `prompts_path` | Caminhos do projeto                                                                                                                  |
 | `llm.*`                                                                                  | Identidade de LLM **por fase** (`harvest`, `extract`, `review`, `connect`, `garden`, `ask`, `article`, `images`) + amostragem global |
 | `embedding.*`                                                                            | Provider, modelo, `dimensions` (MRL) e política de fallback                                                                          |
+| `domain.*`                                                                               | Nome do acervo (`{domain}` nos prompts) e caminho dos few-shots (`examples_path`)                                                    |
 | `chunking.*`, `harvest.*`, `extraction.*`, `literature_review.*`                         | Ingestão, duplicatas, filtragem de candidatos e portão de aprovação                                                                  |
 | `retrieval.*`                                                                            | Busca híbrida, piso de relevância, expansão por grafo, `ask` e `article`                                                             |
-| `gardener.*`, `hub_mocs.*`                                                               | Clusterização e geração de MOCs                                                                                                      |
+| `linking.*`                                                                              | RAG do `connect`, analogias distantes (piso local) e pesos de aresta                                                                 |
+| `gardener.*`, `hub_mocs.*`                                                               | Clusterização e geração de MOCs (rótulo `{pilar}: {categoria}`)                                                                      |
 | `images.*`                                                                               | Extração e descrição multimodal de imagens                                                                                           |
 | `language`, `log_level`, `device`                                                        | Idioma do conteúdo gerado, logging e dispositivo (CPU/CUDA)                                                                          |
 

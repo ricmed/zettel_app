@@ -302,6 +302,7 @@ def test_body_wikilink_creates_related_edge(db):
     edges = db.get_note_connections(_A)
     assert len(edges) == 1
     assert edges[0]["relation_type"] == "related"
+    assert edges[0]["origin"] == "manual"
     assert {edges[0]["source_note_id"], edges[0]["target_note_id"]} == {_A, _B}
 
 
@@ -318,6 +319,24 @@ def test_wikilink_in_managed_block_is_ignored(db):
     targets = {e["target_note_id"] for e in edges} | {e["source_note_id"] for e in edges}
     assert _B in targets  # body link accepted
     assert _C not in targets  # suggestion block link ignored
+
+
+def test_distant_suggestion_is_not_an_edge_until_moved_out_of_block(db):
+    """Issue #161: analogia no bloco gerenciado nao vira aresta."""
+    _seed(db, _A, _C)
+    body = (
+        f"> **Tese**: ponte\n\n"
+        f"<!-- zettel:auto-connections:start -->\n"
+        f"- [[ZTL - {_C} - nota-c]] (exemplifies) -- analogia distante\n"
+        f"<!-- zettel:auto-connections:end -->\n"
+    )
+    assert _extract_body_edges(db, _A, body) == 0
+    assert db.get_note_connections(_A) == []
+    body_endorsed = body + f"\n\n## Conexoes\n\n- [[ZTL - {_C} - nota-c]]\n"
+    assert _extract_body_edges(db, _A, body_endorsed) == 1
+    edges = db.get_note_connections(_A)
+    assert edges[0]["origin"] == "manual"
+    assert edges[0]["relation_type"] == "related"
 
 
 def test_self_link_ignored(db):

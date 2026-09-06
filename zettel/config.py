@@ -61,6 +61,12 @@ def _anchor_relative_paths(data: dict[str, Any], base: Path) -> dict[str, Any]:
         gardener["topics_path"] = _anchor_path_value(gardener["topics_path"], base)
         out["gardener"] = gardener
 
+    domain = out.get("domain")
+    if isinstance(domain, dict) and "examples_path" in domain:
+        domain = dict(domain)
+        domain["examples_path"] = _anchor_path_value(domain["examples_path"], base)
+        out["domain"] = domain
+
     retrieval = out.get("retrieval")
     if isinstance(retrieval, dict):
         article = retrieval.get("article")
@@ -168,6 +174,10 @@ class LinkingConfig(BaseModel):
     dedupe_threshold: float = 0.85
     # Alvo de saida por nota, usado APENAS na estimativa de pre-voo (nao e teto).
     preflight_output_tokens_per_note: int = 1200
+    # Busca secundaria do connect: analogias fora do bucket taxonomico.
+    # Piso LOCAL — nao altera retrieval.relevance_floor (compartilhado com ask).
+    distant_analogy_topk: int = 5
+    distant_analogy_min_similarity: float = 0.40
 
 
 class HarvestConfig(BaseModel):
@@ -224,10 +234,33 @@ class ImagesConfig(BaseModel):
     rate_limit_abort_after: int = 5  # 429 esgotados consecutivos => para o lote
 
 
+class DomainConfig(BaseModel):
+    """Identidade do acervo e few-shots. Lido por extract, connect e garden."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = "Geral"
+    examples_path: Path = Path("config/domain_examples.yaml")
+
+    @field_validator("name")
+    @classmethod
+    def name_not_blank(cls, v: str) -> str:
+        name = (v or "").strip()
+        if not name:
+            raise ValueError("domain.name nao pode ser vazio")
+        return name
+
+    @field_validator("examples_path", mode="before")
+    @classmethod
+    def resolve_examples_path(cls, v: Any) -> Path:
+        if v is None or v == "":
+            return Path("config/domain_examples.yaml").resolve()
+        return Path(v).resolve()
+
+
 class GardenerConfig(BaseModel):
     min_cluster_size: int = 5
     min_notes_for_moc: int = 3
-    domain: str = ""  # ex: "Ciencia de Dados"
     # Default ja aponta para o YAML da taxonomia. None = taxonomia nao configurada
     # (TaxonomyLoadError se strict_topics). Nao confundir None com "usar o default".
     topics_path: Path | None = Path("config/moc_topics.yaml")
@@ -236,7 +269,7 @@ class GardenerConfig(BaseModel):
     strict_topics: bool = True  # rejeitar topic fora das categorias
     # Pipeline hibrido: taxonomia -> cluster por categoria -> grafo -> LLM.
     cluster_within_category: bool = True
-    category_label_template: str = "{domain}: {categoria}"
+    category_label_template: str = "{pilar}: {categoria}"
     overlap_threshold: float = 0.4  # overlap cluster/MOC -> incremental
     graph_cohesion_enabled: bool = True
     graph_cohesion_min_ratio: float = 0.0  # 0 = metrica apenas; >0 rejeita MOC novo
@@ -276,6 +309,9 @@ DEFAULT_RELATION_WEIGHTS: dict[str, float] = {
     "supports": 0.8,
     "exemplifies": 0.7,
     "related": 0.5,
+    # Aresta que o autor afirmou no corpo da nota (origin=manual). Nao e um
+    # relation_type persistido — e o peso aplicado quando a origem e manual.
+    "manual": 0.95,
 }
 
 
@@ -369,6 +405,7 @@ class AppConfig(BaseModel):
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
     literature_review: LiteratureReviewConfig = Field(default_factory=LiteratureReviewConfig)
     images: ImagesConfig = Field(default_factory=ImagesConfig)
+    domain: DomainConfig = Field(default_factory=DomainConfig)
     gardener: GardenerConfig = Field(default_factory=GardenerConfig)
     hub_mocs: HubMocsConfig = Field(default_factory=HubMocsConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)

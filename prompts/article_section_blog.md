@@ -11,8 +11,8 @@ Escreva em **{language}**.
 
 1. Tom acessivel, direto, sem jargao desnecessario.
 2. Quando usar uma ideia de uma fonte, faca uma **mencao leve e narrativa**,
-   por exemplo: "Como observa Alessandro Negro em *Knowledge Graphs and LLMs
-   in Action*, ...". Use o campo `mencao_leve` / `autor_natural` / `titulo`
+   por exemplo: "Como observa Autor Exemplo em *Titulo da Obra*, ...". Use o
+   campo `mencao_leve` / `autor_natural` / `titulo`
    fornecidos — nao invente autores nem titulos.
 3. **Nao** use citacao formal autor-data `(SOBRENOME, ano)`.
 4. **Nao** inclua wikilinks `[[ZTL - ...]]` no corpo.
