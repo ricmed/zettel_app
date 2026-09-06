@@ -90,6 +90,13 @@ literature_note:
     Category: narrative
     ```
 
+    **REJEITADO - Narrative (ficcao sem principio):**
+    ```
+    Input: "Ela caminhou ate a estacao, pensando no que diria ao chefe. O trem atrasou dez minutos e ela ficou olhando as pessoas ao redor, ansiosa."
+    Reason: "Cena cotidiana sem principio extraivel — nenhum mecanismo, regra ou tensao conceitual sustenta a passagem"
+    Category: narrative
+    ```
+
     **REJEITADO - Promotional:**
     ```
     Input: "A plataforma oferece APIs intuitivas, execucao imediata e integracao com o ecossistema popular..."
@@ -132,6 +139,35 @@ literature_note:
           "tags": ["recuperacao", "representacao", "indice"],
           "relevance_score": 5,
           "relevant_image_ids": ["@Fonte::img::5c97880b"],
+          "decision_rules": [],
+          "anti_patterns": [],
+          "named_frameworks": []
+        }
+      ]
+    }
+    ```
+
+    **Narrativa/ficcao que carrega um conceito** (a cena ilustra o mecanismo, nao e so enredo —
+    para ficcao a narrativa e a carga, nao o invólucro):
+
+    ```json
+    {
+      "chunk_status": "accepted",
+      "rejection_reason": "",
+      "rejection_category": "",
+      "summary": "Classificacao algoritmica de cidadania: uma cena de ficcao encena um sistema de pontuacao publica que condiciona o acesso a servicos, dramatizando o principio de exclusao por classificacao.",
+      "key_concepts": ["classificacao_social", "exclusao_algoritmica"],
+      "candidates": [
+        {
+          "thesis": "Um sistema de pontuacao publica que condiciona o acesso a servicos ao historico do individuo transforma uma metrica em portao de cidadania.",
+          "definition": "A cena encena um score unico que resume o comportamento passado de uma pessoa e passa a decidir, sozinho, quais servicos ela pode usar. O mecanismo generaliza para qualquer sistema de classificacao que vira pre-requisito de acesso: a pontuacao deixa de descrever o passado e passa a determinar o futuro.",
+          "intuition": "Como um score de credito que, em vez de julgar so emprestimos, decidisse tambem que trem voce pode pegar.",
+          "limits": "So se aplica quando a pontuacao e condicao de acesso, nao apenas informacao — um score consultivo sem poder de veto e um caso diferente.",
+          "anchor_quote": "sem o numero certo na tela, a porta simplesmente nao abria para ela",
+          "source_locator": "cap. 4",
+          "tags": ["classificacao_social", "exclusao_algoritmica", "etica_aplicada"],
+          "relevance_score": 4,
+          "relevant_image_ids": [],
           "decision_rules": [],
           "anti_patterns": [],
           "named_frameworks": []

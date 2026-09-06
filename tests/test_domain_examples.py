@@ -31,6 +31,21 @@ def test_load_shipped_domain_examples():
     assert perm["thesis_examples"].strip()
 
 
+def test_accepted_example_covers_fiction_with_extractable_principle():
+    """Issue: 'narrative' rejection had no positive counter-example — ficcao
+
+    sem principio e ficcao com principio pareciam identicas ao modelo. O
+    arquivo shippado precisa ensinar as duas faces.
+    """
+    examples = load_domain_examples(_REPO / "config" / "domain_examples.yaml")
+    accepted = examples.literature_note.accepted_example
+    rejection = examples.literature_note.rejection_examples
+    assert "ficcao" in accepted.lower() or "ficção" in accepted.lower()
+    assert '"chunk_status": "accepted"' in accepted
+    # o par negativo continua existindo: narrativa SEM principio ainda rejeita
+    assert "ficcao sem principio" in rejection.lower()
+
+
 def test_missing_file_raises(tmp_path: Path):
     with pytest.raises(DomainExamplesLoadError, match="nao encontrado"):
         load_domain_examples(tmp_path / "ausente.yaml")
