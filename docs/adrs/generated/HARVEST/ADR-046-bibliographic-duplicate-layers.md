@@ -33,9 +33,15 @@ DOI and ISBN were stored only inside the `bibliography_json` blob: no column, no
 4. Layer 4 **ignores `harvest.non_interactive_duplicate_action`** and defaults to `continue` without a TTY. This is the one place the layers disagree, and deliberately: merging is the irreversible direction (ADR-011: separating two documents again "is not a defined operation"), and title collisions between genuinely distinct works — book vs. chapter, edition vs. edition, translation vs. original — are common. A false positive silently loses a unique source; a false negative leaves two sources the user can `delete-source`.
 5. Both layers run **after** `build_bibliographic_metadata` and **before** `generate_citekey`, so a duplicate never burns a disambiguated citekey on its way to being rejected.
 
-### Why layer 5 stays
+### Why layer 5 stays — but ships disabled
 
 The new layers do not replace semantic similarity; they run in front of it. Layer 5 is the only net for material whose metadata is unusable — a handout, a PDF with no cover page, a title the extractor guessed. Removing it would trade a documented-but-imperfect net for no net at all in exactly the cases the new layers cannot serve.
+
+It nonetheless ships **off** (`harvest.semantic_duplicate_enabled: false`). Layer 5 answers one binary question per ingested file, and the price is embedding *every chunk of every source* to keep the target index alive: the cost scales with the corpus, the use with new files. Once layers 3 and 4 cover catalogued material deterministically, that trade is only worth making for a corpus dominated by metadata-less documents — which the operator knows and this ADR cannot.
+
+The flag gates **write and read together**, and that coupling is the design, not an implementation detail: querying an index the pipeline stopped populating produces a *silent false negative*, not an error. `run_reindex` also leaves the `chunks` collection entirely alone while the flag is off — not even `--force` resets it, since resetting without repopulating would empty it as a side effect of a command whose contract is "rebuild". Turning the flag on requires `zettel reindex --collection chunks` to populate the target index from the existing corpus.
+
+This also means `duplicate_chunk_threshold: 0.88` is inert by default. The uncalibrated knob ADR-011 flags is no longer on the default path.
 
 ### The scanned-PDF case
 
@@ -47,6 +53,8 @@ Layers 3 and 4 are pure SQLite and run before any embedding is computed, so the 
 
 An exact DOI or ISBN is now an identity claim with no threshold to calibrate, answering ADR-011's first open question for the cases it covers. Layer 3's `0.88` remains uncalibrated for the cases it still owns; this ADR narrows its blast radius rather than fixing it.
 
+Layer 5 being off by default is a **behavioural change** for anyone relying on it: two acquisitions of the same untitled handout now both ingest. That is the accepted cost of not paying for the index on every harvest, and it is reversible by one flag plus a reindex.
+
 `db.record_duplicate` gains a `biblio` kind and `runs.duplicate_biblio_count`, surfaced in `zettel status`. `sources` gains two columns and two indexes; no backfill was written, as the vault is recreated from scratch.
 
 Layer 4 scans `list_sources_with_authors()` linearly — a projection without the text blobs, since `extracted_text` and `lit_body` can be megabytes each. Fine at vault scale; if it ever is not, a normalized-title index is the next step.
@@ -54,6 +62,7 @@ Layer 4 scans `list_sources_with_authors()` linearly — a projection without th
 ## References
 
 * `zettel/harvester/biblio_dedupe.py`, `zettel/harvester/pipeline.py` (`_process_file`)
+* `zettel/harvester/chunking.py` (`chunk_and_persist`), `zettel/rebuild.py` (`run_reindex`) — the other two ends of the layer-5 flag
 * `zettel/state.py` (`sources.doi`/`isbn`, `get_source_by_doi`, `get_source_by_isbn`, `list_sources_with_authors`, `record_duplicate`)
 * `zettel/hashing.py` (`fold_for_match`, reused rather than duplicated)
 * `tests/test_harvester_dedup.py`

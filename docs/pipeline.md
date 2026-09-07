@@ -53,7 +53,23 @@ Cada camada é mais barata e mais certeira que a seguinte, e roda antes de o arq
 | 2 | **Hash de extração** (`get_source_by_extraction_checksum`) | Bytes diferentes, texto extraído normalizado idêntico (ex.: mesmo paper em PDF re-exportado e em Markdown) | Reusa a fonte existente |
 | 3 | **DOI / ISBN exato** (`find_exact_bibliographic_match`) | Igualdade sobre `sources.doi` / `sources.isbn` (colunas indexadas, normalizadas: `doi:` e URLs do doi.org removidos, prefixo `10.` exigido; ISBN sem pontuação, 10 ou 13 dígitos) | **Identidade**: reusa a fonte sem perguntar |
 | 4 | **Título + autor** (`find_title_author_candidates`) | Exige título normalizado idêntico **e** sobrenome de autor em comum. `normalize_title` reusa `hashing.fold_for_match` e descarta o subtítulo após `:`; sobrenomes comparam o último token, então "D. Kahneman" casa com "Daniel Kahneman" | **Heurística**: sempre pergunta, nunca funde sozinha. Sem TTY o default é **`continue`** (cria fonte nova) |
-| 5 | **Similaridade semântica** (`find_semantic_duplicate_candidates`) | Amostra chunks do arquivo novo e consulta o Chroma por chunks quase idênticos (`harvest.duplicate_chunk_threshold`, default `0.88`) pertencentes a **outras** fontes | Se houver candidatos, `resolve_duplicate_decision` pergunta (Rich `Prompt`) ou aplica `harvest.non_interactive_duplicate_action` (`skip`/`continue`/`abort`) |
+| 5 | **Similaridade semântica** (`find_semantic_duplicate_candidates`) — **desligada por padrão**, ver abaixo | Amostra chunks do arquivo novo e consulta o Chroma por chunks quase idênticos (`harvest.duplicate_chunk_threshold`, default `0.88`) pertencentes a **outras** fontes | Se houver candidatos, `resolve_duplicate_decision` pergunta (Rich `Prompt`) ou aplica `harvest.non_interactive_duplicate_action` (`skip`/`continue`/`abort`) |
+
+#### A camada 5 vem desligada (`harvest.semantic_duplicate_enabled: false`)
+
+Ela responde uma pergunta binária por arquivo ingerido — "este arquivo é a mesma obra que uma fonte que já tenho?" — mas o preço é **embedar todo chunk de toda fonte** para manter o índice-alvo. O gasto cresce com o acervo; o uso, com os arquivos novos. Na prática é o maior item isolado do tempo de harvest.
+
+O flag governa **escrita e leitura ao mesmo tempo**, e isso não é opcional: consultar um índice que o pipeline parou de povoar não dá erro, dá **falso negativo silencioso** — a duplicata passa e você não fica sabendo. Por isso ele gateia os dois lados juntos:
+
+| Ponto | Efeito com `false` |
+|---|---|
+| `chunking.chunk_and_persist` | não gera embedding de chunk (SQLite e FTS5 seguem completos) |
+| `pipeline._process_file` | a camada 5 não é consultada |
+| `rebuild.run_reindex` | a coleção `chunks` não é tocada — nem repovoada, nem resetada |
+
+**Para ligar**: mude o flag e rode `zettel reindex --collection chunks` para povoar o índice-alvo com o acervo que já existe. Sem isso a camada roda contra uma coleção vazia e não detecta nada.
+
+**Quando ligar vale a pena**: se o seu acervo tem muito material sem metadado utilizável (apostila, handout, PDF sem capa, título que o extrator chutou), a camada 5 é a única rede que sobra — as camadas 3 e 4 dependem de DOI/ISBN ou de título e autor confiáveis. Se você importa sobretudo material catalogado, elas já cobrem, de forma determinística e sem limiar para calibrar.
 
 As camadas 3 e 4 são SQLite puro e rodam **antes de qualquer embedding**, então baratearam o caso comum. Elas **não** substituem a camada 5: a similaridade semântica é a única rede para material sem metadado utilizável (um handout, um PDF sem capa, um título que o extrator chutou).
 

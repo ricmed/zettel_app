@@ -462,6 +462,8 @@ python -m zettel reindex --force --yes
 | `--force` | Reseta a coleção antes de repovoar. Necessário após troca de embedding. |
 | `--yes` / `-y` | Confirma sem prompt. |
 
+A coleção `chunks` é **ignorada** enquanto `harvest.semantic_duplicate_enabled` for `false` — nem repovoada, nem resetada por `--force`. Ela só serve à camada 5 de dedupe; repovoá-la ali pagaria de volta, silenciosamente, todo o custo de embedding que o flag existe para evitar. Depois de ligar o flag, `zettel reindex --collection chunks` é justamente o que popula o índice com o acervo já existente.
+
 Um `reindex` completo também reconstrói o índice lexical FTS5. Veja [operacao.md](operacao.md#retencao-e-reconstrucao).
 
 ---

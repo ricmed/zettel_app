@@ -76,6 +76,8 @@ def cfg(tmp_path):
     c = AppConfig(
         vault_path=tmp_path / "vault",
         harvest=HarvestConfig(
+            # Layer 5 is off by default; this module is what tests it.
+            semantic_duplicate_enabled=True,
             duplicate_chunk_threshold=0.85,
             biblio_llm_enabled=False,
         ),
@@ -551,3 +553,54 @@ def test_process_file_reuses_source_on_identical_doi(db, cfg, tmp_path, monkeypa
     assert stats2 == {}
     assert db.get_file(str(second))["source_id"] == sid1
     assert db.get_run(run2)["duplicate_biblio_count"] == 1
+
+
+# ── Layer 5 flag: write and read are gated together, never separately ──
+
+
+def test_layer5_off_skips_chunk_embeddings_and_the_check(db, cfg, tmp_path, monkeypatch):
+    """The flag governs both sides at once.
+
+    Gating only the write would leave the check querying an index the pipeline
+    stopped populating — a silent false negative, not an error.
+    """
+    cfg.harvest.semantic_duplicate_enabled = False
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    f = inbox / "artigo.md"
+    f.write_text(
+        "# Artigo\n\n" + ("conteudo suficiente para gerar chunks. " * 60), encoding="utf-8"
+    )
+
+    idx = FakeVectorIndex()
+    monkeypatch.setattr(
+        idx,
+        "find_similar_chunks",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("camada 5 nao deveria consultar")),
+    )
+
+    run_id = db.start_run("sig")
+    sid, _ = _process_file(cfg, db, idx, f, run_id=run_id, interactive=False, skip_biblio=True)
+
+    assert sid is not None, "o arquivo deve ser ingerido normalmente"
+    # SQLite keeps every chunk; only the vector index is skipped.
+    assert db.get_chunks_for_source(sid), "chunks devem existir no SQLite"
+    assert idx.upserted_chunks == [], "nenhum chunk deve ser embedado"
+    assert db.get_run(run_id)["duplicate_semantic_count"] == 0
+
+
+def test_layer5_on_still_embeds_and_checks(db, cfg, tmp_path):
+    """The same file with the flag on: chunks are embedded and the check runs."""
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    f = inbox / "artigo.md"
+    f.write_text(
+        "# Artigo\n\n" + ("conteudo suficiente para gerar chunks. " * 60), encoding="utf-8"
+    )
+
+    idx = FakeVectorIndex()
+    run_id = db.start_run("sig")
+    sid, _ = _process_file(cfg, db, idx, f, run_id=run_id, interactive=False, skip_biblio=True)
+
+    assert sid is not None
+    assert idx.upserted_chunks, "com a camada 5 ligada, os chunks alimentam o indice-alvo"

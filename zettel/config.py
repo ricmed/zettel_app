@@ -187,8 +187,23 @@ class LinkingConfig(BaseModel):
 
 
 class HarvestConfig(BaseModel):
-    """Dedupe em 3 camadas (hash arquivo/texto + similaridade) e metadados ABNT."""
+    """Dedupe em 5 camadas (hash, DOI/ISBN, titulo+autor, similaridade) e ABNT."""
 
+    # Camada 5 — similaridade semantica de chunks (ADR-011/ADR-046).
+    #
+    # DESLIGADA por default. Ela responde uma pergunta binaria por arquivo
+    # ingerido ("este arquivo e a mesma obra que uma fonte que ja tenho?"), mas
+    # o preco e embedar TODO chunk de TODA fonte para manter o indice-alvo: o
+    # gasto cresce com o acervo, o uso cresce com os arquivos novos. As camadas
+    # 3 e 4 (DOI/ISBN exato, titulo+autor) cobrem material catalogado de forma
+    # deterministica e sem limiar para calibrar.
+    #
+    # Ligar custa um repovoamento: `zettel reindex --collection chunks`. Nao
+    # desligue com a colecao ja parcialmente povoada esperando que a camada 5
+    # continue correta — este flag governa **escrita e leitura ao mesmo tempo**
+    # justamente porque consultar um indice incompleto produz falso negativo
+    # silencioso, e nao um erro.
+    semantic_duplicate_enabled: bool = False
     duplicate_chunk_threshold: float = 0.88
     duplicate_sample_size: int = 5
     non_interactive_duplicate_action: Literal["skip", "continue", "abort"] = "skip"

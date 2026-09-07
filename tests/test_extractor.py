@@ -557,7 +557,8 @@ def test_process_chunk_persists_the_discarded_anchor_quote(tmp_path, monkeypatch
 
 
 def test_process_chunk_rejected_writes_no_draft_file(tmp_path, monkeypatch):
-    """chunk_status=rejected: no LIT draft file, but the chunk state is complete."""
+    """chunk_status=rejected: no LIT draft file, and the chunk lands in `rejected`
+    (not `awaiting_review` with nothing to review)."""
     import json
 
     from zettel.extractor import _process_chunk
@@ -583,7 +584,7 @@ def test_process_chunk_rejected_writes_no_draft_file(tmp_path, monkeypatch):
 
     row = db.get_chunk("@Book2024::ch000::abc")
     assert row["literature_note_path"] is None
-    assert row["status"] == "awaiting_review"
+    assert row["status"] == "rejected"
     assert json.loads(row["summary_json"])["rejection_category"] == "structural"
     review_dir = cfg.vault_path / "00_Inbox" / "Review"
     assert list(review_dir.rglob("*.md")) == []
@@ -1215,4 +1216,93 @@ def test_deduplicate_candidates_intra_batch_duplicate_marked_before_existing_not
     assert [c["concept_id"] for c in approved] == ["c2"]
     assert db.get_concept("c1")["status"] == "duplicate"
     assert db.get_concept("c2")["status"] == "approved"
+    db.close()
+
+
+# ── Dedupe is scoped to one source; cross-source hits are corroboration ──
+
+
+class _FakeNeighbourIndex(_FakeDedupeIndex):
+    """Returns one near-identical existing permanent note for every candidate."""
+
+    def __init__(self, note_id: str):
+        super().__init__()
+        self._note_id = note_id
+
+    def query_similar_notes(self, query_text, n_results=5, exclude_id=None):
+        # distance 0.0 => similarity 1.0, well inside dedupe_threshold
+        return [{"id": self._note_id, "distance": 0.0, "document": "doc", "metadata": {}}]
+
+
+def _dedupe_env(tmp_path, note_source_id: str):
+    """A vault with one existing permanent note belonging to ``note_source_id``."""
+    from pathlib import Path
+
+    from zettel.state import StateDB
+
+    cfg = _make_config()
+    cfg.prompts_path = Path(__file__).resolve().parents[1] / "prompts"
+
+    db = StateDB(tmp_path / "state.db")
+    for sid in {"@S", note_source_id}:
+        db.upsert_source(sid, sid.lstrip("@"), "T", [], None, f"h{sid}", f"/{sid}.md", "md")
+    db.upsert_chapter("@S::ch000", "@S", "Ch", "chk")
+    db.upsert_chunk("@S::ch000::a", "@S", "@S::ch000", "txt", "ck")
+    db.upsert_note("N1", note_source_id, "/n1.md", title="Nota existente", body="corpo")
+    return cfg, db
+
+
+def test_dedupe_skips_llm_when_nearest_note_is_from_another_source(tmp_path, monkeypatch):
+    """Cross-source overlap is corroboration: never dropped, never worth an LLM call.
+
+    This is where the cost saving lives — the old code paid for a decision whose
+    only admissible answer was already known from `source_id`.
+    """
+    cfg, db = _dedupe_env(tmp_path, note_source_id="@Other")
+    cand = _cand_dict("c1", thesis="Redes profundas generalizam por vies implicito")
+    db.upsert_concept("c1", "@S", "@S::ch000::a", status="extracted")
+
+    monkeypatch.setattr(
+        "zettel.extractor.call_llm",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("LLM should not be called")),
+    )
+
+    approved = deduplicate_candidates(cfg, db, _FakeNeighbourIndex("N1"), object(), [cand])
+
+    assert [c["concept_id"] for c in approved] == ["c1"]
+    assert db.get_concept("c1")["status"] == "approved"
+    db.close()
+
+
+def test_dedupe_still_drops_a_repeat_within_the_same_source(tmp_path, monkeypatch):
+    """A chunk repeated inside one book is still noise: `ignore` stays reachable."""
+    cfg, db = _dedupe_env(tmp_path, note_source_id="@S")
+    cand = _cand_dict("c1", thesis="Redes profundas generalizam por vies implicito")
+    db.upsert_concept("c1", "@S", "@S::ch000::a", status="extracted")
+
+    monkeypatch.setattr(
+        "zettel.extractor.call_llm",
+        lambda *a, **k: '{"decision": "ignore", "target_note_id": null, "reason": "repetido"}',
+    )
+
+    approved = deduplicate_candidates(cfg, db, _FakeNeighbourIndex("N1"), object(), [cand])
+
+    assert approved == []
+    assert db.get_concept("c1")["status"] == "duplicate"
+    db.close()
+
+
+def test_dedupe_same_source_can_still_refine(tmp_path, monkeypatch):
+    """An author expanding a concept as the book advances is kept and linked."""
+    cfg, db = _dedupe_env(tmp_path, note_source_id="@S")
+    cand = _cand_dict("c1", thesis="Redes profundas generalizam por vies implicito")
+    db.upsert_concept("c1", "@S", "@S::ch000::a", status="extracted")
+
+    refine = '{"decision": "refine_existing", "target_note_id": "N1", "reason": "nuance"}'
+    monkeypatch.setattr("zettel.extractor.call_llm", lambda *a, **k: refine)
+
+    approved = deduplicate_candidates(cfg, db, _FakeNeighbourIndex("N1"), object(), [cand])
+
+    assert [c["concept_id"] for c in approved] == ["c1"]
+    assert approved[0]["refines_note_id"] == "N1"
     db.close()

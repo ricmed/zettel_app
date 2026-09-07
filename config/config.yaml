@@ -108,10 +108,21 @@ linking:
   preflight_output_tokens_per_note: 1200  # alvo de saida por nota no pre-voo de custo (nao e teto)
   distant_analogy_topk: 5    # busca secundaria do connect (fora do bucket taxonomico)
   distant_analogy_min_similarity: 0.40  # piso LOCAL desta busca; nao altera relevance_floor
+  # Corroboracao entre fontes: mesma ideia em source_id diferentes vira duas ZTL
+  # ligadas por `corroborates`, em vez de uma nota so. Derivada dos hits que o
+  # Retriever ja trouxe no connect — nao custa embedding nem chamada de LLM.
+  corroborates_min_similarity: 0.85
+  corroborates_max_edges: 3  # teto de arestas de corroboracao por nota
 
 # ── Harvest (Deduplicação de Arquivos + ABNT) ──────────────────────────
 harvest:
-  duplicate_chunk_threshold: 0.88     # similaridade minima p/ suspeita semantica (camada 3)
+  # Camada 5 (similaridade semantica). Desligada: manter o indice-alvo exige
+  # embedar todo chunk de toda fonte, e as camadas 3 e 4 (DOI/ISBN, titulo+autor)
+  # ja cobrem material catalogado sem limiar para calibrar. Governa escrita E
+  # leitura juntas — consultar um indice incompleto daria falso negativo mudo.
+  # Ligar exige repovoar: `zettel reindex --collection chunks`.
+  semantic_duplicate_enabled: false
+  duplicate_chunk_threshold: 0.88     # similaridade minima p/ suspeita semantica (camada 5)
   duplicate_sample_size: 5            # chunks amostrados do arquivo p/ checagem semantica
   # Sem interacao (--yes / --skip-duplicates / --force / scripts):
   #   skip     -> pula o arquivo suspeito e loga aviso (mais seguro)
@@ -242,7 +253,11 @@ retrieval:
   topic_index_max_seeds: 5         # teto de notas trazidas pelo indice de topicos
   relevance_floor:
     enabled: true
-    min_vector_similarity: 0.65    # similaridade coseno minima (sem match lexical forte)
+    # Similaridade coseno minima (sem match lexical forte). 0.70 medido em
+    # 2026-09-06 com ollama/qwen3-embedding@1024d: consulta fora do dominio
+    # marca ~0.67, dentro do dominio ~0.80. Em 0.65 o ruido passava.
+    # Re-medir com scripts/probe_relevance_floor.py ao trocar o embedding.
+    min_vector_similarity: 0.70
     bm25_hit_bypasses_floor: true  # match BM25 forte pode dispensar a similaridade vetorial
     bm25_bypass_max_rank: 5        # bypass so se o hit BM25 estiver no top-N do pool
     absolute_min_similarity: 0.15  # piso rigido; nem o bypass BM25 fura (quase-ortogonal)
@@ -260,6 +275,10 @@ retrieval:
       supports: 0.8
       exemplifies: 0.7
       related: 0.5                 # relacao tematica fraca
+      # Peso governa TRAVESSIA, nao importancia. Baixo de proposito: o clique de
+      # notas corroborantes serve ao leitor, mas encheria max_neighbors de
+      # parafrases se competisse com as arestas que trazem informacao nova.
+      corroborates: 0.45           # convergencia de autoria (fontes diferentes)
       manual: 0.95                 # peso quando origin=manual (wikilink no corpo)
   ask:
     topk: 45                        # notas semente do comando `zettel ask`

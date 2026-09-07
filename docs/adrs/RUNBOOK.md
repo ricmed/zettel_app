@@ -45,6 +45,45 @@ Debug steps:
   - Check page-break markers in extracted text (<!-- zettel:page-break -->)
 ```
 
+#### "I want to turn semantic duplicate detection (layer 5) on or off"
+```
+Flag: harvest.semantic_duplicate_enabled (default: false)
+
+Read ADRs:
+  1. ADR-046 (Bibliographic duplicate layers)
+     -> Layers 3-4 (DOI/ISBN, title+author) cover catalogued material
+        deterministically; layer 5 is the net for metadata-less documents
+  2. ADR-011 (Three-layer duplicate detection)
+     -> duplicate_chunk_threshold 0.88 is uncalibrated; inert while flag is off
+
+The flag gates THREE points at once. Never split them:
+  - chunking.chunk_and_persist  -> no chunk embeddings
+  - pipeline._process_file      -> layer 5 not consulted
+  - rebuild.run_reindex         -> `chunks` collection untouched (not even --force reset)
+
+Turning it ON:
+  1. Set harvest.semantic_duplicate_enabled: true in config/config.yaml
+  2. Run `zettel reindex --collection chunks` to populate the target index
+     from the corpus you already have
+  - Without step 2 the layer queries an empty collection and detects nothing
+
+Turning it OFF with the collection already populated:
+  - Safe. Deletes (rechunk/purge/delete-source) stay unconditional, so cleanup
+    still works. The stale collection is simply ignored.
+
+Impact:
+  - Chunk embedding is the largest single slice of harvest wall-clock
+    (~2s/chunk on a local model; a 47-chunk source is ~90s)
+  - SQLite and FTS5 keep every chunk in BOTH modes -- only the vector index
+    is skipped. Nothing else reads that collection.
+  - Gating only the write side would make layer 5 query an index the pipeline
+    stopped populating: a SILENT FALSE NEGATIVE, not an error
+
+Decide by corpus, not by taste:
+  - Mostly catalogued material (DOI/ISBN, reliable title+author) -> leave off
+  - Lots of handouts, coursepacks, coverless PDFs -> turn on and reindex
+```
+
 #### "I want to change chunk size or overlap"
 ```
 Read ADRs:
@@ -56,7 +95,8 @@ Read ADRs:
 
 Impact:
   - ⚠️ All previously harvested sources will have different chunk hashes
-  - ⚠️ Dedup layer-3 (semantic) will re-trigger on "previously seen" content
+  - ⚠️ Dedup layer-5 (semantic) will re-trigger on "previously seen" content
+       (only when harvest.semantic_duplicate_enabled is true — off by default)
   - ⚠️ No automatic migration; operator must decide which sources to rechunk
 
 Before changing:

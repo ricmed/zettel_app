@@ -126,6 +126,10 @@ linking:
 
 # ── Harvest (duplicatas + metadados bibliograficos ABNT) ───────────────
 harvest:
+  # Camada 5 (similaridade semantica). Desligada: manter o indice-alvo exige
+  # embedar todo chunk de toda fonte. Governa escrita E leitura juntas.
+  # Ligar exige `zettel reindex --collection chunks`. Ver pipeline.md.
+  semantic_duplicate_enabled: false
   duplicate_chunk_threshold: 0.88   # similaridade minima p/ suspeita semantica (camada 5)
   duplicate_sample_size: 5          # chunks amostrados do arquivo novo
   non_interactive_duplicate_action: skip   # skip | continue | abort
@@ -395,7 +399,7 @@ Sem `--force` após uma troca de modelo, sources/chunks já indexados **não** s
 Depois da troca, se a qualidade da busca degradar, recalibre:
 
 - `retrieval.relevance_floor.min_vector_similarity` — o piso é dependente do modelo;
-- `linking.dedupe_threshold` e `harvest.duplicate_chunk_threshold` — limiares de dedupe, calibrados sobre distância L2 crua.
+- `linking.dedupe_threshold` e `harvest.duplicate_chunk_threshold` — limiares de dedupe, calibrados sobre distância L2 crua. O segundo só tem efeito com `harvest.semantic_duplicate_enabled: true`.
 - `linking.corroborates_min_similarity` — também sobre similaridade vetorial crua, derivada dos hits que o `Retriever` já trouxe no `connect`. Não custa embedding nem chamada de LLM adicionais.
 
 O `zettel doctor` também reporta drift de embedding.

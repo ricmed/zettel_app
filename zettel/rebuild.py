@@ -101,6 +101,12 @@ def run_reindex(
     When the embedding provider/model changes, callers **must** pass
     ``force=True`` (or reset collections first). Without force, sources/chunks
     already present under the old vector space are skipped and the spaces mix.
+
+    The ``chunks`` collection is skipped entirely while
+    ``harvest.semantic_duplicate_enabled`` is False — it exists only to serve
+    dedupe layer 5, so repopulating it here would silently re-pay the whole
+    harvest embedding cost the flag was set to avoid. Turning the flag on and
+    running ``zettel reindex --collection chunks`` is what populates it.
     """
     targets = [collection] if collection else _ALL_COLLECTIONS
     for t in targets:
@@ -109,6 +115,16 @@ def run_reindex(
 
     stats: dict[str, int] = {}
     for t in targets:
+        # While layer 5 is off, `chunks` is not touched at all — not even reset.
+        # Resetting without repopulating would empty the collection as a side
+        # effect of a command whose contract is "rebuild", not "clear".
+        if t == COL_CHUNKS and not cfg.harvest.semantic_duplicate_enabled:
+            stats[t] = 0
+            logger.info(
+                "Colecao 'chunks' ignorada: harvest.semantic_duplicate_enabled=false "
+                "(dedupe camada 5 desligada; nada consome esta colecao)"
+            )
+            continue
         if force:
             idx.reset_collection(t)
         if t == COL_SOURCES:

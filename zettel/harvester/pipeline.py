@@ -422,7 +422,14 @@ def _process_file(
 
     chapters = chunking.split_into_chapters(text, origin_type)
 
-    dup_candidates = duplicates.find_semantic_duplicate_candidates(cfg, db, idx, chapters)
+    # Layer 5 — gated by the same flag as the chunk embeddings it queries. The
+    # two are never separated: querying an index the pipeline stopped populating
+    # yields a silent false negative, not an error.
+    dup_candidates = (
+        duplicates.find_semantic_duplicate_candidates(cfg, db, idx, chapters)
+        if cfg.harvest.semantic_duplicate_enabled
+        else []
+    )
     if dup_candidates:
         decision = duplicates.resolve_duplicate_decision(
             file_path,
