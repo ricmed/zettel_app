@@ -103,3 +103,9 @@ This decision supersedes the DISCARD verdict recorded for "Decision 4: Manual No
 ## Amendment (2026-09-06)
 
 SRC→ZTL for fiction and authorial notes does **not** run Prompt 2. `zettel suggest-links` writes retrieval (including distant analogies) into `auto-connections` and leaves the author's prose intact. The review/connect rejection gate was designed for LLM output; applying it to the author's own idea is out of scope. See issue #165 and [ADR-043](../RETRIEVAL/ADR-043-distant-analogies-as-suggestions.md).
+
+## Amendment (2026-09-07)
+
+Adoption no longer embeds into `literature_notes` — that collection was removed ([ADR-015 amendment](../EXTRACT/ADR-015-granular-literature-notes-readable-filenames.md)). The rationale above rests on five behaviours the synthesized `chunks` row unlocks for free; four survive (the `auto-lit-index` refresh, `connector._literature_ref_for_chunk`, the `delete-source` cascade, FTS). The argument weakens rather than breaks: the chunk row is still the only thing the downstream machinery was missing.
+
+Correction to the surrounding docs: an adopted manual LIT does **not** appear in `ask`/`article`. The `Retriever` scores permanent notes, never LIT (ADR-036) — that was true before this change and is now also true of the vector store.

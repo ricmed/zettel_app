@@ -178,11 +178,32 @@ class LinkingConfig(BaseModel):
     # Piso LOCAL — nao altera retrieval.relevance_floor (compartilhado com ask).
     distant_analogy_topk: int = 5
     distant_analogy_min_similarity: float = 0.40
+    # Corroboracao entre fontes: duas ZTL de source_id diferentes que dizem a
+    # mesma coisa viram duas notas ligadas por `corroborates`, nao uma so.
+    # Derivado por codigo a partir dos hits que o Retriever ja trouxe no connect
+    # (zero embedding e zero chamada de LLM adicionais).
+    corroborates_min_similarity: float = 0.85
+    corroborates_max_edges: int = 3
 
 
 class HarvestConfig(BaseModel):
-    """Dedupe em 3 camadas (hash arquivo/texto + similaridade) e metadados ABNT."""
+    """Dedupe em 5 camadas (hash, DOI/ISBN, titulo+autor, similaridade) e ABNT."""
 
+    # Camada 5 — similaridade semantica de chunks (ADR-011/ADR-046).
+    #
+    # DESLIGADA por default. Ela responde uma pergunta binaria por arquivo
+    # ingerido ("este arquivo e a mesma obra que uma fonte que ja tenho?"), mas
+    # o preco e embedar TODO chunk de TODA fonte para manter o indice-alvo: o
+    # gasto cresce com o acervo, o uso cresce com os arquivos novos. As camadas
+    # 3 e 4 (DOI/ISBN exato, titulo+autor) cobrem material catalogado de forma
+    # deterministica e sem limiar para calibrar.
+    #
+    # Ligar custa um repovoamento: `zettel reindex --collection chunks`. Nao
+    # desligue com a colecao ja parcialmente povoada esperando que a camada 5
+    # continue correta — este flag governa **escrita e leitura ao mesmo tempo**
+    # justamente porque consultar um indice incompleto produz falso negativo
+    # silencioso, e nao um erro.
+    semantic_duplicate_enabled: bool = False
     duplicate_chunk_threshold: float = 0.88
     duplicate_sample_size: int = 5
     non_interactive_duplicate_action: Literal["skip", "continue", "abort"] = "skip"
@@ -309,6 +330,13 @@ DEFAULT_RELATION_WEIGHTS: dict[str, float] = {
     "supports": 0.8,
     "exemplifies": 0.7,
     "related": 0.5,
+    # Convergencia de autoria (fontes diferentes, mesma ideia). Peso BAIXO de
+    # proposito: o peso governa travessia, nao importancia. Um clique de N notas
+    # quase identicas e valioso para quem escreve ("segundo A, corroborado por
+    # B"), e toxico para uma fronteira de recuperacao que busca informacao nova —
+    # com peso alto ele consome as vagas de max_neighbors com parafrases.
+    # A relacao ganha destaque na renderizacao (Conexoes/backlinks), nao aqui.
+    "corroborates": 0.45,
     # Aresta que o autor afirmou no corpo da nota (origin=manual). Nao e um
     # relation_type persistido — e o peso aplicado quando a origem e manual.
     "manual": 0.95,

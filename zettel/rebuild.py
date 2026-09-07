@@ -26,7 +26,6 @@ from zettel.hashing import (
 )
 from zettel.index import (
     COL_CHUNKS,
-    COL_LITERATURE,
     COL_MOCS,
     COL_PERMANENT,
     COL_SOURCES,
@@ -82,7 +81,7 @@ def _tags_from_frontmatter(frontmatter_json: str | None) -> list[str]:
 
 # ── Reindex ChromaDB from SQLite ───────────────────────────────────────
 
-_ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS, COL_LITERATURE]
+_ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS]
 
 
 def run_reindex(
@@ -102,6 +101,12 @@ def run_reindex(
     When the embedding provider/model changes, callers **must** pass
     ``force=True`` (or reset collections first). Without force, sources/chunks
     already present under the old vector space are skipped and the spaces mix.
+
+    The ``chunks`` collection is skipped entirely while
+    ``harvest.semantic_duplicate_enabled`` is False — it exists only to serve
+    dedupe layer 5, so repopulating it here would silently re-pay the whole
+    harvest embedding cost the flag was set to avoid. Turning the flag on and
+    running ``zettel reindex --collection chunks`` is what populates it.
     """
     targets = [collection] if collection else _ALL_COLLECTIONS
     for t in targets:
@@ -110,6 +115,16 @@ def run_reindex(
 
     stats: dict[str, int] = {}
     for t in targets:
+        # While layer 5 is off, `chunks` is not touched at all — not even reset.
+        # Resetting without repopulating would empty the collection as a side
+        # effect of a command whose contract is "rebuild", not "clear".
+        if t == COL_CHUNKS and not cfg.harvest.semantic_duplicate_enabled:
+            stats[t] = 0
+            logger.info(
+                "Colecao 'chunks' ignorada: harvest.semantic_duplicate_enabled=false "
+                "(dedupe camada 5 desligada; nada consome esta colecao)"
+            )
+            continue
         if force:
             idx.reset_collection(t)
         if t == COL_SOURCES:
@@ -120,8 +135,6 @@ def run_reindex(
             stats[t] = _reindex_permanent(cfg, db, idx)
         elif t == COL_MOCS:
             stats[t] = _reindex_mocs(db, idx)
-        elif t == COL_LITERATURE:
-            stats[t] = _reindex_literature(cfg, db, idx)
 
     # The FTS5 lexical index is another disposable cache reconstructible from
     # SQLite — rebuild it whenever a full reindex runs (no specific collection).
@@ -274,45 +287,6 @@ def _reindex_mocs(db: StateDB, idx: VectorIndex) -> int:
             },
         )
         n += 1
-    return n
-
-
-def _reindex_literature(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
-    """Re-embed approved/persisted granular literature notes from vault or summary_json."""
-    n = 0
-    for src in db.list_sources():
-        for chunk in db.get_chunks_for_source(src["source_id"]):
-            if chunk.get("status") not in ("approved", "persisted"):
-                continue
-            lit_id = chunk.get("literature_id") or chunk["chunk_id"]
-            path_str = chunk.get("literature_note_path")
-            embed_text = ""
-            if path_str and Path(path_str).exists():
-                embed_text = Path(path_str).read_text(encoding="utf-8")[:3000]
-            elif chunk.get("summary_json"):
-                try:
-                    data = json.loads(chunk["summary_json"])
-                    embed_text = (
-                        f"{data.get('summary', '')}\n{' '.join(data.get('key_concepts') or [])}"
-                    )
-                except json.JSONDecodeError:
-                    embed_text = chunk.get("text", "")[:1500]
-            else:
-                embed_text = (chunk.get("text") or "")[:1500]
-            if not embed_text.strip():
-                continue
-            idx.upsert_literature_note(
-                lit_id,
-                embed_text,
-                {
-                    "source_id": src["source_id"],
-                    "chunk_id": chunk["chunk_id"],
-                    "citekey": src["citekey"],
-                    "chunk_index": chunk.get("chunk_index") or 0,
-                    "page_in_book": chunk.get("page_in_book") or -1,
-                },
-            )
-            n += 1
     return n
 
 

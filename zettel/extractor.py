@@ -421,9 +421,15 @@ def _process_chunk(
             for cand, reason in rejected_cands
         ],
     }
+    # `has_content=False` means no draft was written (chunk_status=="rejected" or
+    # zero approved candidates survived filtering) -- there is nothing for `zettel
+    # review` to show, so the chunk goes straight to its terminal `rejected` state
+    # instead of sitting in `awaiting_review` with no file to back it (issue found
+    # via `zettel status` reporting drafts that don't exist on disk).
+    final_status = "awaiting_review" if has_content else "rejected"
     db.update_chunk_review(
         chunk_id,
-        status="awaiting_review",
+        status=final_status,
         literature_note_path=str(draft_path) if draft_path else None,
         literature_id=literature_id,
         review_confidence=confidence,
@@ -433,9 +439,10 @@ def _process_chunk(
     )
 
     logger.info(
-        "[SOURCE=%s] [NOTE=%s] status=AWAITING_REVIEW confidence=%.2f",
+        "[SOURCE=%s] [NOTE=%s] status=%s confidence=%.2f",
         source_id,
         draft_path,
+        final_status.upper(),
         confidence,
     )
 
@@ -838,9 +845,18 @@ def deduplicate_candidates(
     llm: Any,
     candidates: list[dict],
 ) -> list[dict]:
-    """Deduplicate within the batch first, then semantically against existing
-    permanent notes. The intra-batch pass runs first so the (more expensive,
-    LLM-backed) existing-notes pass sees fewer candidates.
+    """Deduplicate within the batch first, then against existing permanent notes
+    **from the same source**. The intra-batch pass runs first so the (more
+    expensive, LLM-backed) existing-notes pass sees fewer candidates.
+
+    Dedupe is scoped to one source by design. A chunk repeated inside a book is
+    still noise, and an author expanding a concept as the book advances is what
+    ``refine_existing`` is for. But two *different* authors stating the same idea
+    is the product of research, not a duplicate: those candidates never reach the
+    LLM here (they can never be dropped), and ``connect`` links the resulting
+    notes with a ``corroborates`` edge. Skipping that call is also where the
+    cost saving comes from — the cross-source case used to pay for a decision
+    whose only correct answer was already known.
     """
     from rich.progress import (
         BarColumn,
@@ -880,18 +896,21 @@ def deduplicate_candidates(
             logger.info("Deduplicando candidato %d/%d: %s", i, total, cand.thesis[:50])
             query_text = f"{cand.thesis} {cand.definition}"
             similar = idx.query_similar_notes(query_text, n_results=cfg.linking.topk)
+            # Only notes from this same source can make the candidate redundant.
+            # A hit from another source is corroboration, resolved by `connect`.
+            same_source = _same_source_notes(db, similar, cand_dict.get("source_id") or "")
 
-            if not similar:
+            if not same_source:
                 approved.append(cand_dict)
                 continue
 
-            closest_distance = similar[0].get("distance", 999)
+            closest_distance = same_source[0].get("distance", 999)
             similarity_threshold_distance = 2 * (1 - cfg.linking.dedupe_threshold)
             if closest_distance > similarity_threshold_distance:
                 approved.append(cand_dict)
                 continue
 
-            existing_notes_text = _format_existing_notes(similar)
+            existing_notes_text = _format_existing_notes(same_source)
             mapping = {
                 "new_thesis": cand.thesis,
                 "new_definition": cand.definition,
@@ -958,6 +977,23 @@ def _parse_dedupe_result(text: str) -> DedupeResult:
     json_text = extract_json(text)
     data = json.loads(json_text)
     return DedupeResult(**data)
+
+
+def _same_source_notes(db: StateDB, notes: list[dict], source_id: str) -> list[dict]:
+    """Keep only the hits that belong to ``source_id``, preserving rank order.
+
+    ``query_similar_notes`` searches the whole ``permanent_notes`` collection, so
+    the raw hits mix sources. Deduplication only applies within one source (see
+    :func:`deduplicate_candidates`); the rest is corroboration.
+    """
+    if not source_id:
+        return []
+    kept: list[dict] = []
+    for note in notes:
+        row = db.get_note(note.get("id") or "")
+        if row and (row.get("source_id") or "") == source_id:
+            kept.append(note)
+    return kept
 
 
 def _format_existing_notes(notes: list[dict]) -> str:

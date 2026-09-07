@@ -125,6 +125,10 @@ def status(config: ConfigOption = None):
             str(harvest_run.get("duplicate_content_count", 0)),
         )
         dup_table.add_row(
+            "Por metadados (DOI/ISBN ou titulo+autor)",
+            str(harvest_run.get("duplicate_biblio_count", 0)),
+        )
+        dup_table.add_row(
             "Por similaridade semantica",
             str(harvest_run.get("duplicate_semantic_count", 0)),
         )

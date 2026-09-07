@@ -602,21 +602,36 @@ def chunk_and_persist(
                 before,
             )
 
+        # The Chroma `chunks` collection has exactly one reader: harvest dedupe
+        # layer 5. With it off there is no target index to maintain, so the
+        # embeddings are skipped entirely — this is the single largest slice of
+        # harvest wall-clock. SQLite (and FTS5) still get every chunk.
+        embed_enabled = cfg.harvest.semantic_duplicate_enabled
         already = (
             idx.existing_ids("chunks", [s["chunk_id"] for s in pending_specs])
-            if pending_specs
+            if pending_specs and embed_enabled
             else set()
         )
-        to_embed = [s for s in pending_specs if s["chunk_id"] not in already]
-        logger.info(
-            "[SOURCE=%s] Persistindo %d chunks no SQLite; "
-            "gerando embeddings no Chroma para %d novos "
-            "(%d ja indexados, pulados)",
-            source_id,
-            len(pending_specs),
-            len(to_embed),
-            len(already),
+        to_embed = (
+            [s for s in pending_specs if s["chunk_id"] not in already] if embed_enabled else []
         )
+        if embed_enabled:
+            logger.info(
+                "[SOURCE=%s] Persistindo %d chunks no SQLite; "
+                "gerando embeddings no Chroma para %d novos "
+                "(%d ja indexados, pulados)",
+                source_id,
+                len(pending_specs),
+                len(to_embed),
+                len(already),
+            )
+        else:
+            logger.info(
+                "[SOURCE=%s] Persistindo %d chunks no SQLite; sem embeddings "
+                "(harvest.semantic_duplicate_enabled=false — dedupe camada 5 desligada)",
+                source_id,
+                len(pending_specs),
+            )
         embed_i = 0
         for spec in pending_specs:
             db.upsert_chunk(
@@ -632,7 +647,7 @@ def chunk_and_persist(
                 page_in_book=spec.get("page_in_book"),
                 page_confidence=spec.get("page_confidence", "unknown"),
             )
-            if spec["chunk_id"] not in already:
+            if embed_enabled and spec["chunk_id"] not in already:
                 embed_i += 1
                 idx.upsert_chunk(
                     spec["chunk_id"],

@@ -9,7 +9,6 @@ from zettel.review import (
     BAND_HIGH,
     BAND_MEDIUM,
     BAND_VERY_LOW,
-    _literature_embed_text,
     approve_chunk,
     ask_review_decision,
     chunk_confidence_band,
@@ -32,16 +31,10 @@ from zettel.vault import (
 
 
 class _FakeLitIndex:
+    """Literature notes are never embedded — only `chunks` deletes reach Chroma."""
+
     def __init__(self):
-        self.upserts = []
-        self.deletes = []
         self.chunk_deletes = []
-
-    def upsert_literature_note(self, lit_id, text, meta):
-        self.upserts.append((lit_id, text, meta))
-
-    def delete_literature_notes(self, ids):
-        self.deletes.extend(ids)
 
     def delete_chunks(self, chunk_ids):
         self.chunk_deletes.extend(chunk_ids)
@@ -148,7 +141,8 @@ def env(tmp_path):
     db.close()
 
 
-def test_approve_moves_draft_and_embeds(env):
+def test_approve_moves_draft_without_embedding(env):
+    """Approval persists to the vault and SQLite for audit, and embeds nothing."""
     cfg, db, idx = env
     ok = approve_chunk(cfg, db, idx, "@Book2024::ch000::abc")
     assert ok
@@ -160,13 +154,12 @@ def test_approve_moves_draft_and_embeds(env):
     dest_text = dest.read_text(encoding="utf-8")
     assert "texto do chunk" in dest_text
     assert "zettel:auto-source-excerpt:start" in dest_text
-    embed = _literature_embed_text(dest)
-    assert "texto do chunk" not in embed
-    assert "Um resumo" in embed
+    assert "Um resumo" in dest_text
     assert not (
         cfg.vault_path / "00_Inbox" / "Review" / literature_source_dirname("Book2024") / fname
     ).exists()
-    assert len(idx.upserts) == 1
+    # The audit trail lives in the vault and in SQLite, never in the vector store.
+    assert chunk["literature_note_path"] == str(dest)
     concepts = db.get_concepts_for_chunk("@Book2024::ch000::abc")
     assert concepts[0]["status"] == "extracted"
 
@@ -645,12 +638,10 @@ def test_purge_rejected_removes_sqlite_and_chroma(env):
 
     result = purge_rejected(cfg, db, idx, compact=False)
     assert result["chunks"] == 1
-    assert result["literature_notes"] == 1
     assert result["compacted"] is False
     assert db.get_chunk("@Book2024::ch000::abc") is None
     assert db.get_concepts_for_chunk("@Book2024::ch000::abc") == []
     assert db.get_chunk("@Book2024::ch000::keep") is not None
-    assert "lit123" in idx.deletes
     assert idx.chunk_deletes == ["@Book2024::ch000::abc"]
 
 
@@ -661,7 +652,6 @@ def test_purge_rejected_empty(env):
     # fixture chunk is awaiting_review, not rejected
     result = purge_rejected(cfg, db, idx)
     assert result["chunks"] == 0
-    assert result["literature_notes"] == 0
     assert result["compacted"] is False
     assert db.get_chunk("@Book2024::ch000::abc") is not None
 

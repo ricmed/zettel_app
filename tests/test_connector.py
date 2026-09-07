@@ -2,8 +2,11 @@
 
 from pathlib import Path
 
+from zettel.config import AppConfig
 from zettel.connector import (
     _build_rag_context,
+    _corroborating_note_ids,
+    _demote_llm_corroborates,
     _fallback_image_ids,
     _inverse_relation,
     _persist_and_backlink,
@@ -42,11 +45,117 @@ def test_inverse_relation_mapping():
     assert _inverse_relation("depends_on") == "base para"
     assert _inverse_relation("exemplifies") == "exemplificado por"
     assert _inverse_relation("related") == "relacionado"
+    assert _inverse_relation("corroborates") == "corroborado por"
 
 
 def test_inverse_relation_unknown_falls_back():
     """Unknown relation type defaults to 'relacionado'."""
     assert _inverse_relation("unknown_type") == "relacionado"
+
+
+# ── Corroboration: an edge derived from source_id, never from the model ──
+
+
+def _hit(note_id: str, distance: float, hop: int = 0):
+    return RetrievedNote(note_id=note_id, score=1.0, vector_distance=distance, hop=hop)
+
+
+def test_corroborating_note_ids_picks_other_sources_above_threshold():
+    cfg = AppConfig()
+    db = _FakeDB(
+        {
+            "SAME": {"source_id": "@A"},  # same source -> dedupe territory, not corroboration
+            "OTHER": {"source_id": "@B"},
+            "WEAK": {"source_id": "@C"},
+            "NEIGHBOUR": {"source_id": "@D"},
+        }
+    )
+    hits = [
+        _hit("SAME", 0.10),
+        _hit("OTHER", 0.10),  # similarity 0.95 >= 0.85
+        _hit("WEAK", 0.60),  # similarity 0.70 < 0.85
+        _hit("NEIGHBOUR", 0.10, hop=1),  # arrived by traversal: no similarity to judge
+    ]
+    assert _corroborating_note_ids(cfg, db, hits, "@A", "SELF") == ["OTHER"]
+
+
+def test_corroborating_note_ids_respects_max_edges():
+    cfg = AppConfig()
+    cfg.linking.corroborates_max_edges = 2
+    db = _FakeDB({nid: {"source_id": f"@{nid}"} for nid in ("B1", "B2", "B3")})
+    hits = [_hit("B1", 0.30), _hit("B2", 0.10), _hit("B3", 0.20)]
+    # Ranked by similarity, so the closest two win.
+    assert _corroborating_note_ids(cfg, db, hits, "@A", "SELF") == ["B2", "B3"]
+
+
+def test_corroborating_note_ids_ignores_notes_without_a_source():
+    """A manual note with no source_id cannot be evidence of a second author."""
+    cfg = AppConfig()
+    db = _FakeDB({"ORPHAN": {"source_id": None}})
+    assert _corroborating_note_ids(cfg, db, [_hit("ORPHAN", 0.0)], "@A", "SELF") == []
+
+
+def test_llm_emitted_corroborates_is_demoted_to_supports():
+    """The prompt never offers it; a model that emits it anyway means `supports`."""
+    conns = [
+        RelationshipResult(
+            related_note_id="X",
+            relation_type=RelationType.CORROBORATES,
+            description="tambem concorda",
+        ),
+        RelationshipResult(related_note_id="Y", relation_type="extends", description="amplia"),
+    ]
+    demoted = _demote_llm_corroborates(conns)
+    assert _relation_type_value(demoted[0].relation_type) == "supports"
+    assert _relation_type_value(demoted[1].relation_type) == "extends"
+
+
+def test_corroborates_edge_is_persisted_with_derived_origin(tmp_path):
+    """An audit must be able to tell a code-derived edge from a model-proposed one."""
+    db = StateDB(tmp_path / "state.db")
+    for nid in ("SRC1", "TGT1", "TGT2"):
+        path = _write_note(tmp_path / f"ZTL - {nid} - nota.md")
+        db.upsert_note(nid, "@S", str(path), title=f"Nota {nid}", body="corpo")
+    _persist_and_backlink(
+        AppConfig(vault_path=tmp_path),
+        db,
+        "SRC1",
+        "Nota SRC1",
+        [
+            {
+                "related_note_id": "TGT1",
+                "relation_type": "corroborates",
+                "description": "outra fonte",
+                "wiki_link": "[[ZTL - TGT1 - nota]]",
+            },
+            {
+                "related_note_id": "TGT2",
+                "relation_type": "extends",
+                "description": "amplia",
+                "wiki_link": "[[ZTL - TGT2 - nota]]",
+            },
+        ],
+    )
+    origins = {r["target_note_id"]: r["origin"] for r in db.get_note_connections("SRC1")}
+    assert origins == {"TGT1": "derived", "TGT2": "llm"}
+    db.close()
+
+
+def test_resolve_connections_preserves_injected_corroborates(tmp_path):
+    """The demotion guards the LLM boundary only — injected edges must survive."""
+    note_path = _write_note(tmp_path / "ZTL - BBB222 - mesma-ideia-outro-autor.md")
+    db = _FakeDB({"BBB222": {"title": "Mesma ideia", "path": str(note_path)}})
+    resolved = _resolve_connections(
+        db,
+        [
+            RelationshipResult(
+                related_note_id="BBB222",
+                relation_type=RelationType.CORROBORATES,
+                description="Outra fonte sustenta a mesma ideia",
+            )
+        ],
+    )
+    assert resolved[0]["relation_type"] == "corroborates"
 
 
 def test_resolve_connections_with_known_note(tmp_path):
@@ -236,6 +345,57 @@ def test_build_permanent_note_body_without_connections():
         source_locator="",
     )
     assert "## Conexões" not in body
+
+
+def test_permanent_note_source_section_renders_structural_page():
+    """The page is its own field, distinct from the LLM-authored locator."""
+    body = build_permanent_note_body(
+        thesis="Tese",
+        definition="Def",
+        intuition="",
+        example="",
+        limits="",
+        connections=[],
+        literature_ref="[[Book2024/LIT - Book2024 - p042 - topico-0001|p. 42 — Topico]]",
+        source_locator="p.42 / Capitulo 1",
+        page=42,
+    )
+    assert "- Página: 42" in body
+    assert "- Localizador: p.42 / Capitulo 1" in body
+    assert "|p. 42 — Topico]]" in body
+
+
+def test_permanent_note_source_section_omits_page_without_paging():
+    """Native Markdown has no pages (ADR-013): omit the field, never render null."""
+    body = build_permanent_note_body(
+        thesis="Tese",
+        definition="Def",
+        intuition="",
+        example="",
+        limits="",
+        connections=[],
+        literature_ref="[[LIT - @x]]",
+        source_locator="Documento > Secao",
+        page=None,
+    )
+    assert "Página" not in body
+    assert "- Localizador: Documento > Secao" in body
+
+
+def test_permanent_note_source_section_omits_empty_literature_ref():
+    """A blank ref used to render a dangling '- Ref. literatura: ' line."""
+    body = build_permanent_note_body(
+        thesis="Tese",
+        definition="Def",
+        intuition="",
+        example="",
+        limits="",
+        connections=[],
+        literature_ref="",
+        source_locator="",
+    )
+    assert "Ref. literatura" not in body
+    assert "## Fonte" in body
 
 
 def test_build_permanent_note_body_with_figures():

@@ -135,6 +135,24 @@
 
 ---
 
+### ADR-046: Bibliographic Duplicate Layers Before the Semantic One
+
+- **Status**: Accepted
+- **Date**: 2026-09-07
+- **Summary**: Harvest dedupe goes from three layers to five. Exact DOI/ISBN (an identity) reuses the source silently; title + author (a heuristic) always asks and never merges on its own. Both are pure SQLite and run before any embedding.
+- **Link**: [`ADR-046-bibliographic-duplicate-layers.md`](./generated/HARVEST/ADR-046-bibliographic-duplicate-layers.md)
+
+---
+
+### ADR-045: Cross-Source Overlap Is Corroboration, Not Duplication
+
+- **Status**: Accepted
+- **Date**: 2026-09-07
+- **Summary**: Concept dedupe is scoped to one `source_id`. Two sources stating one idea yield two notes plus a `corroborates` edge derived by code at connect — never offered to the LLM, and weighted 0.45 because weight governs traversal, not importance.
+- **Link**: [`ADR-045-cross-source-overlap-is-corroboration.md`](./generated/REVIEW/ADR-045-cross-source-overlap-is-corroboration.md)
+
+---
+
 ### ADR-043: Distant Analogies as Suggestions, Not Graph Edges
 
 - **Status**: Accepted
@@ -447,6 +465,8 @@
 ---
 
 ## Status Update (2026-09-06)
+
+✅ **ADR-045 and ADR-046 added (2026-09-07)** — cross-source overlap becomes corroboration instead of deduplication (ADR-045); harvest dedupe gains two bibliographic layers (ADR-046). Amendments: ADR-011 (five layers), ADR-015 (`literature_notes` collection removed — it was write-only), ADR-016 (scope superseded, timing intact), ADR-030 (adoption no longer embeds), ADR-009 (`corroborates` weight 0.45), ADR-043 (carve-out: code-derived edges are not LLM judgement).
 
 ✅ **ADR-042 and ADR-043 added** — domain is first-class config with externalized few-shots (issues #156–#160); distant analogies are suggestions, not edges (issues #161, #165). ADR-004, ADR-009, ADR-019 and ADR-030 gained amendments (pillar labels, `note_connections.origin`, `zettel suggest-links`).
 

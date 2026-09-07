@@ -117,13 +117,20 @@ images:
 linking:
   topk: 5                    # default do Retriever e do RAG de connect/sync
   dedupe_threshold: 0.90     # similaridade; L2 = 2 * (1 - threshold) no extract
+                             # aplicado SO a notas da mesma fonte (ver pipeline.md)
   preflight_output_tokens_per_note: 1200  # alvo de saida por nota no pre-voo (nao e teto)
   distant_analogy_topk: 5
   distant_analogy_min_similarity: 0.40
+  corroborates_min_similarity: 0.85  # mesma ideia em fonte diferente => aresta corroborates
+  corroborates_max_edges: 3          # teto de arestas de corroboracao por nota
 
 # ── Harvest (duplicatas + metadados bibliograficos ABNT) ───────────────
 harvest:
-  duplicate_chunk_threshold: 0.88   # similaridade minima p/ suspeita semantica (camada 3)
+  # Camada 5 (similaridade semantica). Desligada: manter o indice-alvo exige
+  # embedar todo chunk de toda fonte. Governa escrita E leitura juntas.
+  # Ligar exige `zettel reindex --collection chunks`. Ver pipeline.md.
+  semantic_duplicate_enabled: false
+  duplicate_chunk_threshold: 0.88   # similaridade minima p/ suspeita semantica (camada 5)
   duplicate_sample_size: 5          # chunks amostrados do arquivo novo
   non_interactive_duplicate_action: skip   # skip | continue | abort
   biblio_confidence_threshold: 0.7  # abaixo disso, pede confirmacao do tipo documental
@@ -170,6 +177,7 @@ retrieval:
       supports: 0.8
       exemplifies: 0.7
       related: 0.5
+      corroborates: 0.45     # convergencia de autoria; peso governa TRAVESSIA, nao importancia
       manual: 0.95           # peso quando origin=manual (wikilink no corpo)
   ask:
     topk: 8                  # notas semente do comando `ask`
@@ -391,7 +399,8 @@ Sem `--force` após uma troca de modelo, sources/chunks já indexados **não** s
 Depois da troca, se a qualidade da busca degradar, recalibre:
 
 - `retrieval.relevance_floor.min_vector_similarity` — o piso é dependente do modelo;
-- `linking.dedupe_threshold` e `harvest.duplicate_chunk_threshold` — limiares de dedupe, calibrados sobre distância L2 crua.
+- `linking.dedupe_threshold` e `harvest.duplicate_chunk_threshold` — limiares de dedupe, calibrados sobre distância L2 crua. O segundo só tem efeito com `harvest.semantic_duplicate_enabled: true`.
+- `linking.corroborates_min_similarity` — também sobre similaridade vetorial crua, derivada dos hits que o `Retriever` já trouxe no `connect`. Não custa embedding nem chamada de LLM adicionais.
 
 O `zettel doctor` também reporta drift de embedding.
 

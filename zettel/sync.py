@@ -310,7 +310,7 @@ def _sync_literature(
     Granular notes (type=literature with chunk_id) are adopted through
     ``manual_lit.adopt_manual_literature`` when they are the user's own content:
     that synthesizes the chunk row a hand-written note never had, so the note
-    reaches ``literature_notes`` and the source index like an approved one.
+    reaches SQLite and the source index like an approved one.
     Pipeline-authored granular notes keep the lightweight path (their chunk row
     already carries the real extracted text and checksum): skip when path and
     literature_id already match, and never copy frontmatter ``status: approved``

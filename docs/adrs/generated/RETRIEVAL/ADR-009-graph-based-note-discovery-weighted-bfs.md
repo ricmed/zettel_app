@@ -73,3 +73,11 @@ Relation weights live in `config.yaml` as static values rather than being learne
 ## Amendment (2026-09-06)
 
 `note_connections.origin` distinguishes `llm` from `manual`. A body wikilink (`_extract_body_edges`) is stored as `related` with `origin=manual` and weighted as `manual` (0.95), not as thematic `related` (0.5). An already-typed LLM edge is never downgraded. See issue #164.
+
+## Amendment (2026-09-07)
+
+`corroborates` joins `DEFAULT_RELATION_WEIGHTS` at **0.45** — below `related` (0.5) — per [ADR-045](../REVIEW/ADR-045-cross-source-overlap-is-corroboration.md).
+
+The low value is the point, and it follows directly from this ADR's own Consequences. Weight governs **traversal**, not importance. N sources stating one idea form a clique of near-identical notes: valuable to a human reading the vault, and the worst possible use of `max_neighbors` slots, since each such hop returns a paraphrase instead of new information. Because all four consumers share one graph configuration, a high weight here would degrade `ask` and `article` to buy nothing. The relation earns its prominence in rendered `## Conexões` / `auto-backlinks` instead. `tests/test_config.py` pins `corroborates <= related`.
+
+`note_connections.origin` gains a third value, **`derived`**, for edges the pipeline computes rather than receives from a model. Weighting is unchanged by it — only `manual` overrides the relation weight — but it keeps `origin='llm'` an honest audit filter.

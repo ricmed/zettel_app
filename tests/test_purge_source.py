@@ -22,15 +22,11 @@ from zettel.vault import (
 class _FakeIndex:
     def __init__(self):
         self.chunk_deletes: list[str] = []
-        self.lit_deletes: list[str] = []
         self.source_deletes: list[str] = []
         self.permanent_deletes: list[str] = []
 
     def delete_chunks(self, chunk_ids):
         self.chunk_deletes.extend(chunk_ids)
-
-    def delete_literature_notes(self, ids):
-        self.lit_deletes.extend(ids)
 
     def delete_sources(self, ids):
         self.source_deletes.extend(ids)
@@ -193,7 +189,6 @@ def test_purge_source_removes_vault_sqlite_chroma(env):
     assert not (cfg.vault_path / "00_Inbox/Review" / literature_source_dirname(citekey)).exists()
 
     assert "@Book2024::ch000::abc" in idx.chunk_deletes
-    assert "lit123" in idx.lit_deletes
     assert "@Book2024" in idx.source_deletes
 
 

@@ -205,7 +205,7 @@ python -m zettel purge-rejected --no-compact   # so apaga, sem compactar disco
 python -m zettel purge-rejected --source-id @Citekey
 ```
 
-Remove permanentemente os chunks `rejected` (SQLite `chunks`/`concepts`/FTS, Chroma `chunks` e `literature_notes` se houver). Não afeta notas permanentes nem LITs aprovadas. Veja [operacao.md](operacao.md#purge-rejected).
+Remove permanentemente os chunks `rejected` (SQLite `chunks`/`concepts`/FTS e Chroma `chunks`). Não afeta notas permanentes nem LITs aprovadas. Veja [operacao.md](operacao.md#purge-rejected).
 
 ---
 
@@ -461,6 +461,8 @@ python -m zettel reindex --force --yes
 | `--collection` | Reindexa apenas `sources`, `chunks`, `permanent_notes` ou `mocs`. |
 | `--force` | Reseta a coleção antes de repovoar. Necessário após troca de embedding. |
 | `--yes` / `-y` | Confirma sem prompt. |
+
+A coleção `chunks` é **ignorada** enquanto `harvest.semantic_duplicate_enabled` for `false` — nem repovoada, nem resetada por `--force`. Ela só serve à camada 5 de dedupe; repovoá-la ali pagaria de volta, silenciosamente, todo o custo de embedding que o flag existe para evitar. Depois de ligar o flag, `zettel reindex --collection chunks` é justamente o que popula o índice com o acervo já existente.
 
 Um `reindex` completo também reconstrói o índice lexical FTS5. Veja [operacao.md](operacao.md#retencao-e-reconstrucao).
 

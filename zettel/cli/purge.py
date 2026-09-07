@@ -53,10 +53,9 @@ def purge_rejected_cmd(
 ):
     """Apagar chunks rejeitados do SQLite e do Chroma (irreversivel).
 
-    Remove linhas em chunks/concepts, embeddings em Chroma chunks e
-    literature_notes associados. Por padrao compacta state.db e chroma.sqlite3
-    com VACUUM (nao altera dados logicos restantes). Nao afeta notas permanentes
-    nem LITs aprovadas.
+    Remove linhas em chunks/concepts e embeddings em Chroma chunks.
+    Por padrao compacta state.db e chroma.sqlite3 com VACUUM (nao altera dados
+    logicos restantes). Nao afeta notas permanentes nem LITs aprovadas.
     """
     cfg = load_deps(config)
     db = get_db(cfg)
@@ -88,10 +87,7 @@ def purge_rejected_cmd(
         source_id=source_id,
         compact=not no_compact,
     )
-    console.print(
-        f"[green]Removidos: {result['chunks']} chunks "
-        f"({result['literature_notes']} literature_ids no Chroma).[/green]"
-    )
+    console.print(f"[green]Removidos: {result['chunks']} chunks (SQLite + Chroma).[/green]")
     if result.get("compacted"):
         console.print(
             f"[green]Compactado: state.db "
@@ -178,10 +174,7 @@ def delete_source_cmd(
         f"{sqlite.get('chapters', 0)} chapters, "
         f"{sqlite.get('concepts', 0)} concepts."
     )
-    console.print(
-        f"[green]Chroma:[/green] {result['chunks_chroma']} chunks, "
-        f"{result['literature_chroma']} literature_notes, 1 source."
-    )
+    console.print(f"[green]Chroma:[/green] {result['chunks_chroma']} chunks, 1 source.")
     if result["permanent_deleted"]:
         console.print(f"[green]Permanentes apagadas:[/green] {result['permanent_deleted']}")
     if result["wikilinks_cleaned"]:

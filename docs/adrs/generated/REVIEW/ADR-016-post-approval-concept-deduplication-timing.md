@@ -68,3 +68,9 @@ If dedup fails partway through a batch (LLM error, timeout), the current code re
 * `zettel/review.py:475-477` — status transition from `awaiting_review` to `extracted` on chunk approval
 * `zettel/extractor.py` — `deduplicate_candidates()`, the LLM-based merge logic shared with extraction-time dedup
 * `zettel/state.py` — `get_concepts_by_status()`, `update_concept_status()`, backing the status-driven handoff to CONNECT
+
+## Amendment (2026-09-07)
+
+The **timing** decided here is unchanged: dedupe still runs post-approval, still gates the `extracted` → `approved` transition, and every approval path must still call `_dedupe_approved_concepts()`.
+
+Its **scope** is superseded by [ADR-045](./ADR-045-cross-source-overlap-is-corroboration.md): the comparison is now filtered to the candidate's own `source_id`. Note that this ADR never decided the scope — its Context describes candidate collection as "scoped to the source being reviewed", while the *comparison* was global purely because `permanent_notes` is one collection. A hit from another source is corroboration, gets a typed edge at `connect`, and never reaches the LLM here.

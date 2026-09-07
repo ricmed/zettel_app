@@ -37,6 +37,7 @@ from zettel.schemas import (
     PermanentNoteCandidate,
     PermanentNoteLLMOutput,
     RelationshipResult,
+    RelationType,
 )
 from zettel.state import StateDB
 from zettel.vault import (
@@ -73,6 +74,9 @@ _INVERSE_RELATION: dict[str, str] = {
     "depends_on": "base para",
     "exemplifies": "exemplificado por",
     "related": "relacionado",
+    # Simetrica: se A corrobora B, B corrobora A. Uma linha so e gravada; a
+    # travessia ja e nao-direcionada e o backlink renderiza o outro lado.
+    "corroborates": "corroborado por",
 }
 
 
@@ -95,26 +99,80 @@ def _relation_type_value(relation_type: Any) -> str:
     return str(relation_type or "related")
 
 
+def _demote_llm_corroborates(connections: list[Any]) -> list[Any]:
+    """Downgrade a model-emitted ``corroborates`` to ``supports``.
+
+    Corroboration is a fact about authorship (two different ``source_id``), so
+    only :func:`_corroborating_note_ids` may assert it. ``permanent_note.md``
+    deliberately omits it from the relation menu, but a model that emits it
+    anyway is claiming conceptual agreement — which is what ``supports`` means.
+    Applied to the LLM's own output only, never to the edges this module injects.
+    """
+    for conn in connections:
+        if _relation_type_value(conn.relation_type) == RelationType.CORROBORATES.value:
+            logger.debug("Relacao corroborates emitida pelo LLM rebaixada para supports")
+            conn.relation_type = RelationType.SUPPORTS
+    return connections
+
+
+def _corroborating_note_ids(
+    cfg: AppConfig,
+    db: StateDB,
+    similar: list[Any],
+    source_id: str,
+    note_id: str,
+) -> list[str]:
+    """Permanent notes from *other* sources that state this same idea.
+
+    Two authors converging on one idea is the product of research, not a
+    duplicate to collapse — so the second note is written and the pair is linked
+    by ``corroborates`` instead of one being dropped.
+
+    Derived from the hits ``Retriever.search_notes`` already returned for the RAG
+    context, so it costs no extra embedding and no LLM call. Only search seeds
+    (``hop == 0``) carry a real distance; graph neighbours arrived by traversal
+    and have no similarity to judge.
+
+    Processing order closes itself: if A was connected before B existed, B links
+    B->A on its own run, and traversal is undirected while the backlink block
+    renders the other side.
+    """
+    threshold = cfg.linking.corroborates_min_similarity
+    scored: list[tuple[float, str]] = []
+    for hit in similar:
+        if hit.hop != 0 or hit.vector_distance is None or hit.note_id == note_id:
+            continue
+        similarity = 1.0 - hit.vector_distance / 2.0
+        if similarity < threshold:
+            continue
+        note = db.get_note(hit.note_id)
+        other = (note or {}).get("source_id") or ""
+        if not other or other == source_id:
+            continue
+        scored.append((similarity, hit.note_id))
+    scored.sort(key=lambda pair: (-pair[0], pair[1]))
+    return [note_id for _, note_id in scored[: cfg.linking.corroborates_max_edges]]
+
+
 def _format_judgement(items: list[str]) -> str:
     """Render an author-judgement list for the Prompt 2 payload."""
     return "; ".join(items) if items else "(nenhuma)"
 
 
 def _literature_ref_for_chunk(
-    cfg: AppConfig,
-    db: StateDB,
-    source_id: str,
     citekey: str,
     title_src: str,
-    chunk_id: str | None,
+    chunk: dict[str, Any] | None,
 ) -> str:
-    """Wikilink to the approved granular LIT for this chunk (fallback: index)."""
+    """Wikilink to the approved granular LIT for this chunk (fallback: index).
+
+    The alias carries the printed page, so the reader sees ``p. 42 — Topico``
+    instead of a bare filename.
+    """
     from zettel.vault import literature_chunk_wikilink_for_row, literature_index_stem
 
-    if chunk_id:
-        chunk = db.get_chunk(chunk_id)
-        if chunk and chunk.get("status") in ("approved", "persisted"):
-            return literature_chunk_wikilink_for_row(citekey, chunk)
+    if chunk and chunk.get("status") in ("approved", "persisted"):
+        return literature_chunk_wikilink_for_row(citekey, chunk, with_alias=True)
     return f"[[{literature_index_stem(citekey, title_src)}]]"
 
 
@@ -340,14 +398,10 @@ def _process_candidate(
     source = db.get_source(source_id)
     citekey = source["citekey"] if source else "unknown"
     title_src = source["title"] if source else ""
-    literature_ref = _literature_ref_for_chunk(
-        cfg,
-        db,
-        source_id,
-        citekey,
-        title_src,
-        cand_dict.get("chunk_id"),
-    )
+    chunk_row = db.get_chunk(cand_dict["chunk_id"]) if cand_dict.get("chunk_id") else None
+    literature_ref = _literature_ref_for_chunk(citekey, title_src, chunk_row)
+    # Structural page, read from the chunk row — not the LLM-authored locator.
+    page_in_book = chunk_row.get("page_in_book") if chunk_row else None
 
     # Prefer LLM-provided image ids; fall back to paths embedded in the source chunk.
     image_ids = list(getattr(cand, "relevant_image_ids", None) or [])
@@ -491,7 +545,7 @@ def _process_candidate(
             cache_hit,
         )
 
-    connections = list(note_output.connections)
+    connections = _demote_llm_corroborates(list(note_output.connections))
 
     # If this is a refine_existing candidate, inject an "extends" connection
     if refines_note_id:
@@ -504,6 +558,19 @@ def _process_candidate(
                     description=cand_dict.get("refine_reason", "Refina nota existente"),
                 )
             )
+
+    # Another author saying the same thing: a real edge, derived from source_id,
+    # never a model judgement. Injected after the demotion above so it survives.
+    for target in _corroborating_note_ids(cfg, db, similar, source_id, note_id):
+        if any(c.related_note_id == target for c in connections):
+            continue
+        connections.append(
+            RelationshipResult(
+                related_note_id=target,
+                relation_type=RelationType.CORROBORATES,
+                description="Outra fonte sustenta a mesma ideia",
+            )
+        )
 
     resolved_connections = _resolve_connections(db, connections)
     distant_ids = {n.note_id for n in distant}
@@ -520,6 +587,7 @@ def _process_candidate(
         connections=edge_connections,
         literature_ref=literature_ref,
         source_locator=cand.source_locator or "",
+        page=page_in_book,
         images=images,
     )
 
@@ -535,6 +603,7 @@ def _process_candidate(
         "source_id": source_id,
         "literature_ref": literature_ref,
         "source_locator": cand.source_locator or "",
+        "chunk_id": cand_dict.get("chunk_id") or "",
         "tags": tags,
         "origin": origin,
         "created_at": now,
@@ -544,6 +613,9 @@ def _process_candidate(
         "llm_tokens_completion": note_tokens_out,
         "llm_cache_hit": cache_hit,
     }
+    # Omitted rather than null for a source without pages (native Markdown).
+    if page_in_book is not None:
+        meta["page"] = page_in_book
     # The author's judgement travels verbatim from the candidate, not through the
     # LLM: the export (`zettel skill`) reads it from here instead of re-parsing the
     # LIT draft. Absent keys mean the chunk stated none — noise-free by default.
@@ -872,15 +944,23 @@ def _persist_and_backlink(
     new_title: str,
     connections: list[dict],
 ) -> None:
-    """Persist resolved connections to DB and rebuild auto-backlinks from the graph."""
+    """Persist resolved connections to DB and rebuild auto-backlinks from the graph.
+
+    ``origin`` records who asserted the edge, so an audit can tell them apart:
+    ``corroborates`` is derived from ``source_id`` by :func:`_corroborating_note_ids`
+    and was never proposed by a model, which is the whole basis for writing it as a
+    real edge rather than an ``auto-connections`` suggestion (ADR-045 / ADR-043).
+    Graph weighting is unaffected — only ``manual`` overrides the relation weight.
+    """
     for conn in connections:
         target_id = conn["related_note_id"]
+        relation = conn.get("relation_type") or "related"
         db.upsert_note_connection(
             source_note_id=new_note_id,
             target_note_id=target_id,
-            relation_type=conn.get("relation_type") or "related",
+            relation_type=relation,
             description=conn.get("description") or "",
-            origin="llm",
+            origin="derived" if relation == RelationType.CORROBORATES.value else "llm",
         )
         rebuild_auto_backlinks(db, target_id, vault_timezone=cfg.vault_timezone)
     rebuild_auto_backlinks(db, new_note_id, vault_timezone=cfg.vault_timezone)

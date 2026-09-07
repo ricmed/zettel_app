@@ -9,7 +9,13 @@ from typing import Any, Union, get_args, get_origin
 import pytest
 import yaml
 from pydantic import BaseModel, ValidationError
-from zettel.config import _REPO_ROOT, AppConfig, load_config
+from zettel.config import (
+    _REPO_ROOT,
+    DEFAULT_RELATION_WEIGHTS,
+    AppConfig,
+    RelevanceFloorConfig,
+    load_config,
+)
 
 _CONFIG_YAML = _REPO_ROOT / "config" / "config.yaml"
 _PYTHON_ONLY_PATHS = frozenset({"gardener.allowed_topics"})
@@ -52,9 +58,30 @@ def test_load_config_yaml_smoke():
     assert cfg.gardener.category_label_template == "{pilar}: {categoria}"
     assert "manual" in cfg.retrieval.graph_expansion.relation_weights
     assert cfg.retrieval.mode == "hybrid"
-    assert cfg.retrieval.relevance_floor.min_vector_similarity == 0.65
+    # O YAML tem que concordar com o default do schema: em 0.65 consultas fora
+    # do dominio passavam no piso (medido em scripts/probe_relevance_floor.py).
+    assert cfg.retrieval.relevance_floor.min_vector_similarity == 0.70
+    assert (
+        cfg.retrieval.relevance_floor.min_vector_similarity
+        == RelevanceFloorConfig().min_vector_similarity
+    )
     assert cfg.hub_mocs.selection_mode in ("percentile", "absolute")
     assert "contradicts" in cfg.retrieval.graph_expansion.relation_weights
+
+
+def test_corroborates_weight_is_low_on_purpose():
+    """Weight governs traversal, not importance.
+
+    A corroboration clique (N sources, one idea) is what the researcher wants to
+    read and the worst thing to spend `max_neighbors` slots on — every extra hop
+    returns a paraphrase instead of new information. Keeping it at or below
+    `related` is the primary mitigation; the relation earns its prominence in the
+    rendered Conexoes/backlinks instead.
+    """
+    weights = load_config(_CONFIG_YAML).retrieval.graph_expansion.relation_weights
+    assert weights["corroborates"] == DEFAULT_RELATION_WEIGHTS["corroborates"]
+    assert weights["corroborates"] <= weights["related"]
+    assert weights["corroborates"] < weights["supports"]
 
 
 def test_config_yaml_covers_schema_keys():
