@@ -459,17 +459,17 @@ Recommended:
 
 | Module | Key ADRs | Governance |
 |--------|----------|-----------|
-| **harvester/** (package) | 011, 012, 013, 014, 027 | Extraction strategy, chunking, dedup, paging, package layout |
-| **extractor.py** | 015, 016, 025, 042 | Literature note format, dedup timing, prompting, domain few-shots |
-| **review.py** | 016, 017, 018 | Approval gate, thresholds, validation |
-| **connector.py** | 003, 009, 010, 025, 043 | Retrieval (RAG), graph expansion, distant analogies as suggestions |
+| **harvester/** (package) | 011, 012, 013, 014, 027, 033, 046 | Extraction strategy, chunking, dedup (5 camadas), paging, package layout |
+| **extractor.py** | 015, 016, 025, 034, 042, 045 | Literature note format, dedup timing + **scope (per-source)**, prompting, domain few-shots |
+| **review.py** | 016, 017, 018, 045 | Approval gate, thresholds, validation, dedupe escopada por fonte |
+| **connector.py** | 003, 009, 010, 025, 043, 045 | Retrieval (RAG), graph expansion, distant analogies as suggestions, corroboracao entre fontes |
 | **retrieval.py** | 003, 009, 010, 043 | Hybrid fusion, floor, graph expansion, distant-analogy search |
 | **gardener.py** | 019, 021, 025, 042 | Taxonomy clustering, routing, prompting |
 | **gardener_hub.py** | 020, 021, 025 | Hub MOCs, routing, prompting |
 | **web/ (pacote), web_app.py** | 022, 023, 018, 039, 040 | Server rendering, job queue, validation, JSON pickers |
 | **config.py** | 004, 006, 042 | YAML-first, Pydantic schema, DomainConfig |
 | **state.py** | 001, 005, 007, 008 | SQLite persistence, hashing, repository pattern |
-| **index.py** | 002, 008 | ChromaDB, repository pattern |
+| **index.py** | 002, 008, 015 | ChromaDB (4 colecoes; `literature_notes` removida), repository pattern |
 | **llm.py** | 024, 025 | Multi-provider, prompt caching |
 | **article.py** | 028, 003, 009, 010, 024, 025 | Article domain helpers: catalog, outline, drafting, assembly, judge |
 | **article_graph/** (package) | 028, 029 | LangGraph orchestration (13 nodes, HITL interrupts, judge loop), package layout |

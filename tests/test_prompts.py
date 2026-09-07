@@ -305,7 +305,21 @@ def test_permanent_note_documents_ulid_connections():
     assert "ULID" in text
     assert "note_id:" in text
     for relation in RelationType:
+        if relation is RelationType.CORROBORATES:
+            continue
         assert relation.value in text
+
+
+def test_permanent_note_never_offers_corroborates():
+    """Corroboration is a fact about authorship, not a judgement the LLM makes.
+
+    Offered in the relation menu, the model would emit it rhetorically ("this
+    note also agrees") and the signal — two *different* sources converging —
+    would be indistinguishable from `supports`. Only `connect` writes this edge,
+    derived from `source_id`; see `connector._demote_llm_corroborates`.
+    """
+    text = (PROMPTS_DIR / "permanent_note.md").read_text(encoding="utf-8")
+    assert RelationType.CORROBORATES.value not in text
 
 
 # ── Prompt-specific contracts ─────────────────────────────────────────

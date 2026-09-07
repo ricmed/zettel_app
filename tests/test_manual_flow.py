@@ -28,7 +28,6 @@ class FakeIndex:
         self.sources: list[str] = []
         self.permanent: list[str] = []
         self.mocs: list[str] = []
-        self.literature: list[tuple[str, str, dict]] = []
 
     def upsert_source(self, sid, summary, meta):
         self.sources.append(sid)
@@ -38,9 +37,6 @@ class FakeIndex:
 
     def upsert_moc(self, mid, text, meta):
         self.mocs.append(mid)
-
-    def upsert_literature_note(self, lid, text, meta):
-        self.literature.append((lid, text, meta))
 
     def query_similar_notes(self, text, n_results=5, exclude_id=None):
         return []
@@ -153,15 +149,8 @@ def test_manual_granular_literature_is_adopted(cfg, db):
     # Chapter FK satisfied by the synthetic manual chapter.
     assert db.get_chapters_for_source("@Diestel2017")[0]["title"] == "Manual"
 
-    # Embedded into literature_notes with the same metadata shape as approve_chunk.
-    assert len(idx.literature) == 1
-    lit_id, text, lmeta = idx.literature[0]
-    assert lit_id == meta["literature_id"]
-    assert lmeta["citekey"] == "Diestel2017"
-    assert lmeta["page_in_book"] == 42
-    # The excerpt lives in a managed block and must not be embedded.
-    assert "Grafos conexos resistem" in text
-    assert "caminho entre dois vertices" not in text
+    # Adoption is SQLite + vault only; LIT notes are never embedded.
+    assert meta["literature_id"] == chunk["literature_id"]
 
     # summary_json rebuilt from the body sections.
     payload = json.loads(chunk["summary_json"])
@@ -183,12 +172,13 @@ def test_adopted_literature_appears_in_source_index(cfg, db):
 
 def test_adoption_is_idempotent(cfg, db):
     idx = FakeIndex()
-    _scaffold_source_and_lit(cfg, db, idx)
-    assert len(idx.literature) == 1
+    lit = _scaffold_source_and_lit(cfg, db, idx)
+    meta, _ = parse_frontmatter(lit.read_text(encoding="utf-8"))
+    before = db.get_chunk(meta["chunk_id"])["summary_json"]
 
     stats = run_sync_manual(cfg, db, idx)
-    assert stats["literature"] == 0
-    assert len(idx.literature) == 1, "nota inalterada nao deve ser re-embedada"
+    assert stats["literature"] == 0, "nota inalterada nao deve ser re-adotada"
+    assert db.get_chunk(meta["chunk_id"])["summary_json"] == before
 
 
 def test_edited_literature_is_re_adopted(cfg, db):
@@ -200,7 +190,7 @@ def test_edited_literature_is_re_adopted(cfg, db):
     stats = run_sync_manual(cfg, db, idx)
 
     assert stats["literature"] == 1
-    assert len(idx.literature) == 2
+    assert "toleram falhas" in db.get_chunk(meta["chunk_id"])["summary_json"]
 
 
 # -- Images -------------------------------------------------------------
@@ -300,8 +290,12 @@ def test_permanent_from_literature_without_llm(cfg, db):
     assert meta["origin"] == "manual"
     assert meta["source_id"] == "@Diestel2017"
     assert meta["source_locator"] == "p.42 / Conectividade"
-    # literature_ref points at the granular LIT, not at the source index.
-    assert meta["literature_ref"] == f"[[Diestel2017/{lit.stem}]]"
+    # literature_ref points at the granular LIT, not at the source index, and its
+    # alias carries the printed page so the link is readable on its own.
+    assert meta["literature_ref"].startswith(f"[[Diestel2017/{lit.stem}|p. 42 ")
+    # The page is structural data, read from the chunk row — not the LLM locator.
+    assert meta["page"] == 42
+    assert "- Página: 42" in body
     assert "Conectividade determina robustez" in body
     # No approval gate and no concept row on the hand-written path.
     assert db.get_concepts_by_status("approved") == []
@@ -360,7 +354,8 @@ def test_permanent_from_literature_with_llm(cfg, db, monkeypatch):
 
     meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
     assert meta["origin"] == "manual"
-    assert meta["literature_ref"] == f"[[Diestel2017/{lit.stem}]]"
+    assert meta["literature_ref"].startswith(f"[[Diestel2017/{lit.stem}|p. 42 ")
+    assert meta["page"] == 42
 
     row = db.get_note(meta["note_id"])
     assert row is not None and row["origin"] == "manual"

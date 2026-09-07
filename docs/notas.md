@@ -143,7 +143,7 @@ The System 1 operates automatically and quickly, with little or no effort...
 Pontos importantes:
 
 - O **draft** gerado pelo `extract` fica em `00_Inbox/Review/{Citekey}/` com o **mesmo basename** da nota aprovada — aprovar é mover, não regravar.
-- O bloco `auto-source-excerpt` guarda o trecho integral da fonte. Ele é **removido do texto embeddado** em `literature_notes`: o índice vetorial guarda a interpretação, não o texto-fonte cru (que já vive na coleção `chunks`).
+- O bloco `auto-source-excerpt` guarda o trecho integral da fonte, para auditoria lado a lado com o que o LLM produziu. A nota LIT **não é embeddada**: o texto-fonte já vive na coleção `chunks` e nada nunca consultou uma coleção de literatura.
 - Uma LIT granular escrita à mão pode ser adotada pelo pipeline — veja [notas-manuais.md](notas-manuais.md).
 - O bloco `auto-decision` só aparece quando algum candidato do chunk **enunciou** uma regra de decisão, um anti-padrão ou um framework nomeado. É gerenciado: edições fora dele sobrevivem. Como todo bloco `auto-*`, fica **fora** do texto embeddado ([ADR-034](adrs/generated/EXTRACT/ADR-034-optional-author-judgement-fields.md)).
 
@@ -194,12 +194,14 @@ Diagrama do Sistema 1 versus Sistema 2 (quando o candidato marca a imagem como e
 
 ## Fonte
 
-- Ref. literatura: [[Kahneman2011ThinkingFast/LIT - Kahneman2011 - p020 - sistema-1-0001]]
+- Ref. literatura: [[Kahneman2011ThinkingFast/LIT - Kahneman2011 - p020 - sistema-1-0001|p. 20 — Sistema 1]]
+- Página: 20
 - Localizador: p.20-25 / Capítulo 1
 
 ## Conexões
 
-- [[ZTL - 01HABC... - vieses-cognitivos]]: estende (heurísticas como mecanismo gerador de vieses)
+- [[ZTL - 01HABC... - vieses-cognitivos]] (extends) -- heurísticas como mecanismo gerador de vieses
+- [[ZTL - 01HGHI... - dois-sistemas-de-raciocinio]] (corroborates) -- Outra fonte sustenta a mesma ideia
 
 <!-- zettel:auto-backlinks:start -->
 - [[ZTL - 01HDEF... - racionalidade-limitada]]
@@ -212,10 +214,11 @@ Diagrama do Sistema 1 versus Sistema 2 (quando o candidato marca a imagem como e
 
 Leitura dos campos:
 
-- `literature_ref` aponta para a **LIT granular** do chunk que originou a nota (fallback: o índice da fonte).
-- `source_locator` é o localizador humano (`p.{page_in_book} / {section_path}`).
+- `literature_ref` aponta para a **LIT granular** do chunk que originou a nota (fallback: o índice da fonte). O alias carrega a página, então o link se lê sozinho.
+- `page` é a **página impressa estrutural**, lida de `chunks.page_in_book` — é o campo para voltar ao material original. Ele também vai para o frontmatter, junto de `chunk_id`, então a nota tem trilha estrutural até o chunk. Fonte em Markdown nativo não tem página ([ADR-013](adrs/generated/HARVEST/ADR-013-three-layer-page-inference-strategy.md)): o campo é **omitido**, nunca escrito como nulo.
+- `source_locator` é o localizador humano (`p.{page_in_book} / {section_path}`), **escrito pelo LLM** no Prompt 1 — o extractor só o preenche quando vem vazio ou com menos de 3 caracteres. Por isso ele é descritivo (útil para `section_path`), e não a página de referência: use `page`.
 - `origin: pipeline | manual` distingue o que foi gerado do que foi escrito à mão.
-- `## Conexões` é escrito pelo LLM com o **tipo da relação** (`supports`, `contradicts`, `extends`, `depends_on`, `exemplifies`, `related`); esses tipos alimentam o grafo usado pela [expansão por grafo](recuperacao.md) e pelos [MOCs hub](pipeline.md#fase-4b--garden-hub-porta-de-entrada-tematica). Analogias distantes **não** entram aqui: vão para o bloco `auto-connections` até o autor endossá-las na prosa.
+- `## Conexões` é escrito pelo LLM com o **tipo da relação** (`supports`, `contradicts`, `extends`, `depends_on`, `exemplifies`, `related`) mais o `corroborates` que o **código** injeta quando outra fonte sustenta a mesma ideia (ver [pipeline.md](pipeline.md#fase-3--connect)); esse tipo não é oferecido ao LLM, e um `corroborates` que ele emita mesmo assim é rebaixado para `supports`; esses tipos alimentam o grafo usado pela [expansão por grafo](recuperacao.md) e pelos [MOCs hub](pipeline.md#fase-4b--garden-hub-porta-de-entrada-tematica). Analogias distantes **não** entram aqui: vão para o bloco `auto-connections` até o autor endossá-las na prosa.
 - Os blocos `auto-*` são gerenciados: qualquer coisa fora deles é preservada em atualizações. Veja [arquitetura.md](arquitetura.md#blocos-gerenciados).
 
 ---

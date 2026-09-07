@@ -862,12 +862,17 @@ def build_permanent_note_body(
     literature_ref: str = "",
     source_ref: str = "",
     source_locator: str = "",
+    page: int | None = None,
     images: list[dict] | None = None,
 ) -> str:
     """Build the Markdown body for a Permanent (ZTL) note.
 
     `images` is a list of {"path": ..., "description": ...} for figures deemed
     essential to the concept; rendered as a "## Figuras" section with embeds.
+
+    `page` is the printed page (``chunks.page_in_book``) — structural data read
+    from the chunk row, not the LLM-authored `source_locator`. It is None for
+    native Markdown, which has no pages (ADR-013), and the field is then omitted.
     """
     parts: list[str] = []
     parts.append(f"> **Tese**: {thesis}\n")
@@ -885,11 +890,16 @@ def build_permanent_note_body(
             desc = img.get("description") or ""
             fig_lines.append(f"{embed}\n\n{desc}\n" if desc else f"{embed}\n")
         parts.append("## Figuras\n\n" + "\n".join(fig_lines))
-    parts.append(f"## Fonte\n\n- Ref. literatura: {literature_ref}")
+    source_lines = ["## Fonte\n"]
+    if literature_ref:
+        source_lines.append(f"- Ref. literatura: {literature_ref}")
     if source_ref:
-        parts.append(f"- Fonte (SRC): {source_ref}")
+        source_lines.append(f"- Fonte (SRC): {source_ref}")
+    if page is not None:
+        source_lines.append(f"- Página: {page}")
     if source_locator:
-        parts.append(f"- Localizador: {source_locator}")
+        source_lines.append(f"- Localizador: {source_locator}")
+    parts.append("\n".join(source_lines))
     parts.append("")
     if connections:
         conn_lines: list[str] = []

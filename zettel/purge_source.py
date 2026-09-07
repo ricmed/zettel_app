@@ -245,14 +245,6 @@ def purge_source(
     title = source.get("title") or citekey
     chunks = db.get_chunks_for_source(source_id)
     chunk_ids = [c["chunk_id"] for c in chunks]
-    lit_ids = [
-        lit
-        for lit in (
-            [c.get("literature_id") for c in chunks if c.get("literature_id")]
-            + [f"{source_id}::index"]
-        )
-        if lit
-    ]
     permanent_ids = db.get_note_ids_for_source(source_id)
     link_targets = collect_link_targets(
         citekey=citekey,
@@ -302,11 +294,6 @@ def purge_source(
 
     if chunk_ids:
         idx.delete_chunks(chunk_ids)
-    if lit_ids:
-        try:
-            idx.delete_literature_notes(lit_ids)
-        except Exception as e:
-            logger.warning("Falha ao limpar literature_notes no Chroma: %s", e)
     try:
         idx.delete_sources([source_id])
     except Exception as e:
@@ -324,7 +311,6 @@ def purge_source(
         "wikilinks_cleaned": wikilinks_cleaned,
         "sqlite": sqlite_removed,
         "chunks_chroma": len(chunk_ids),
-        "literature_chroma": len(lit_ids),
         "compacted": False,
         "state_mb_before": 0.0,
         "state_mb_after": 0.0,

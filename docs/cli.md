@@ -205,7 +205,7 @@ python -m zettel purge-rejected --no-compact   # so apaga, sem compactar disco
 python -m zettel purge-rejected --source-id @Citekey
 ```
 
-Remove permanentemente os chunks `rejected` (SQLite `chunks`/`concepts`/FTS, Chroma `chunks` e `literature_notes` se houver). Não afeta notas permanentes nem LITs aprovadas. Veja [operacao.md](operacao.md#purge-rejected).
+Remove permanentemente os chunks `rejected` (SQLite `chunks`/`concepts`/FTS e Chroma `chunks`). Não afeta notas permanentes nem LITs aprovadas. Veja [operacao.md](operacao.md#purge-rejected).
 
 ---
 

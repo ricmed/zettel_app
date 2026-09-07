@@ -182,6 +182,11 @@ CREATE TABLE IF NOT EXISTS sources (
     origin               TEXT NOT NULL DEFAULT 'pipeline',
     document_type        TEXT,
     bibliography_json    TEXT,
+    -- Chaves bibliograficas de alta precisao, promovidas para fora do blob
+    -- bibliography_json para poderem ser indexadas. Normalizadas (minusculas,
+    -- sem pontuacao/hifens) por harvester.biblio_dedupe.
+    doi                  TEXT,
+    isbn                 TEXT,
     abnt_reference       TEXT,
     total_pages_file     INTEGER,
     total_pages_book     INTEGER,
@@ -332,6 +337,7 @@ CREATE TABLE IF NOT EXISTS runs (
     duplicate_file_count     INTEGER NOT NULL DEFAULT 0,
     duplicate_content_count  INTEGER NOT NULL DEFAULT 0,
     duplicate_semantic_count INTEGER NOT NULL DEFAULT 0,
+    duplicate_biblio_count   INTEGER NOT NULL DEFAULT 0,
     cost_usd_total      REAL NOT NULL DEFAULT 0,
     cost_usd_llm        REAL NOT NULL DEFAULT 0,
     cost_usd_embedding  REAL NOT NULL DEFAULT 0,
@@ -388,6 +394,8 @@ CREATE INDEX IF NOT EXISTS idx_nc_target        ON note_connections(target_note_
 CREATE INDEX IF NOT EXISTS idx_topic_terms_folded ON topic_index_terms(term_folded);
 CREATE INDEX IF NOT EXISTS idx_assets_source    ON assets(source_id);
 CREATE INDEX IF NOT EXISTS idx_assets_status    ON assets(status);
+CREATE INDEX IF NOT EXISTS idx_sources_doi      ON sources(doi);
+CREATE INDEX IF NOT EXISTS idx_sources_isbn     ON sources(isbn);
 """
 
 # FTS5 virtual tables for BM25 lexical search, kept in sync with notes/chunks.
@@ -512,6 +520,9 @@ class StateDB:
             ("runs", "duplicate_file_count", "INTEGER NOT NULL DEFAULT 0"),
             ("runs", "duplicate_content_count", "INTEGER NOT NULL DEFAULT 0"),
             ("runs", "duplicate_semantic_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("runs", "duplicate_biblio_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("sources", "doi", "TEXT"),
+            ("sources", "isbn", "TEXT"),
             # Fase 0 — retencao maxima no SQLite
             ("sources", "extracted_text", "TEXT"),
             ("sources", "lit_body", "TEXT"),
@@ -662,6 +673,8 @@ class StateDB:
         origin: str = "pipeline",
         document_type: str | None = None,
         bibliography_json: str | None = None,
+        doi: str | None = None,
+        isbn: str | None = None,
         abnt_reference: str | None = None,
         total_pages_file: int | None = None,
         total_pages_book: int | None = None,
@@ -680,13 +693,15 @@ class StateDB:
         self.conn.execute(
             """INSERT INTO sources (source_id, citekey, title, authors, year, file_checksum,
                                     extraction_checksum, origin_path, origin_type, origin,
-                                    document_type, bibliography_json, abnt_reference,
+                                    document_type, bibliography_json, doi, isbn,
+                                    abnt_reference,
                                     total_pages_file, total_pages_book, page_offset,
                                     page_offset_confidence, content_start_file_page,
                                     content_start_book_page, processing_status,
                                     last_chunk_processed, total_chunks, docling_config_hash,
                                     created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       ?, ?)
                ON CONFLICT(source_id) DO UPDATE SET
                  title=excluded.title, authors=excluded.authors, year=excluded.year,
                  file_checksum=excluded.file_checksum,
@@ -694,6 +709,8 @@ class StateDB:
                  origin=excluded.origin,
                  document_type=COALESCE(excluded.document_type, sources.document_type),
                  bibliography_json=COALESCE(excluded.bibliography_json, sources.bibliography_json),
+                 doi=COALESCE(excluded.doi, sources.doi),
+                 isbn=COALESCE(excluded.isbn, sources.isbn),
                  abnt_reference=COALESCE(excluded.abnt_reference, sources.abnt_reference),
                  total_pages_file=COALESCE(excluded.total_pages_file, sources.total_pages_file),
                  total_pages_book=COALESCE(excluded.total_pages_book, sources.total_pages_book),
@@ -731,6 +748,8 @@ class StateDB:
                 origin,
                 document_type,
                 bibliography_json,
+                doi,
+                isbn,
                 abnt_reference,
                 total_pages_file,
                 total_pages_book,
@@ -950,6 +969,36 @@ class StateDB:
         return self._fetchone(
             "SELECT * FROM sources WHERE extraction_checksum=? ORDER BY created_at ASC LIMIT 1",
             (extraction_checksum,),
+        )
+
+    def get_source_by_doi(self, doi: str) -> dict | None:
+        """Exact match on the normalized DOI — an identity, not a similarity.
+
+        Callers must pass the value already normalized by
+        ``harvester.biblio_dedupe.normalize_doi``; the column stores it that way.
+        """
+        if not doi:
+            return None
+        return self._fetchone(
+            "SELECT * FROM sources WHERE doi=? ORDER BY created_at ASC LIMIT 1", (doi,)
+        )
+
+    def get_source_by_isbn(self, isbn: str) -> dict | None:
+        """Exact match on the normalized ISBN (see :meth:`get_source_by_doi`)."""
+        if not isbn:
+            return None
+        return self._fetchone(
+            "SELECT * FROM sources WHERE isbn=? ORDER BY created_at ASC LIMIT 1", (isbn,)
+        )
+
+    def list_sources_with_authors(self) -> list[dict]:
+        """Rows needed to match a work by title + author, without the text blobs.
+
+        ``extracted_text`` / ``lit_body`` can be megabytes each, and the
+        bibliographic layer only reads identity fields.
+        """
+        return self._fetchall(
+            "SELECT source_id, citekey, title, authors, year FROM sources ORDER BY created_at ASC"
         )
 
     def list_sources(self) -> list[dict]:
@@ -1947,11 +1996,12 @@ class StateDB:
     def record_duplicate(self, run_id: int, kind: str) -> None:
         """Increment a duplicate counter on the run row.
 
-        kind: one of "file", "content", "semantic".
+        kind: one of "file", "content", "biblio", "semantic".
         """
         column = {
             "file": "duplicate_file_count",
             "content": "duplicate_content_count",
+            "biblio": "duplicate_biblio_count",
             "semantic": "duplicate_semantic_count",
         }.get(kind)
         if not column:
@@ -2195,7 +2245,8 @@ class StateDB:
             "runs": self._fetchall(
                 "SELECT run_id,pipeline_signature,started_at,finished_at,status,"
                 "cost_usd_total,tokens_prompt,tokens_completion,cache_hits,"
-                "duplicate_file_count,duplicate_content_count,duplicate_semantic_count "
+                "duplicate_file_count,duplicate_content_count,duplicate_biblio_count,"
+                "duplicate_semantic_count "
                 "FROM runs ORDER BY run_id DESC LIMIT 10"
             ),
         }

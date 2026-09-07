@@ -24,7 +24,7 @@ from zettel.paging import (
 from zettel.state import StateDB
 from zettel.vault import build_source_note, safe_write_note
 
-from . import chunking, duplicates, extract
+from . import biblio_dedupe, chunking, duplicates, extract
 from .biblio_hitl import resolve_bibliography
 from .citekey import generate_citekey
 from .duplicates import HarvestAborted
@@ -361,6 +361,49 @@ def _process_file(
     biblio_json = json.dumps(bibliography_dict(biblio), ensure_ascii=False)
     biblio_fm = frontmatter_biblio_fields(biblio)
 
+    doi = biblio_dedupe.normalize_doi(biblio.doi)
+    isbn = biblio_dedupe.normalize_isbn(biblio.isbn)
+
+    # Layer 3 — DOI/ISBN. An identity, not a similarity: reuse without asking.
+    # Runs before generate_citekey so a duplicate never burns a disambiguated
+    # citekey (Silva2020Obra -> Silva2020Obraa) on the way to being rejected.
+    exact = biblio_dedupe.find_exact_bibliographic_match(db, doi=doi, isbn=isbn)
+    if exact:
+        existing, key_kind = exact
+        sid = existing["source_id"]
+        logger.info(
+            "Arquivo '%s' tem o mesmo %s da fonte %s (%s). Reaproveitando fonte, "
+            "sem gerar novo citekey/SRC/LIT/chunks.",
+            file_path.name,
+            key_kind.upper(),
+            sid,
+            existing["citekey"],
+        )
+        db.upsert_file(str(file_path), checksum, origin_type, sid)
+        db.record_duplicate(run_id, "biblio")
+        if source_chunking_incomplete(db, sid):
+            return _complete_incomplete_source(cfg, db, idx, sid)
+        return None, empty_stats
+
+    # Layer 4 — title + author. A heuristic, so it asks and never merges alone.
+    title_matches = biblio_dedupe.find_title_author_candidates(
+        db, title=title, authors=authors, year=year
+    )
+    if title_matches:
+        decision = biblio_dedupe.resolve_title_author_decision(
+            file_path, title_matches, interactive
+        )
+        if decision == "abort":
+            raise HarvestAborted(f"Usuario abortou o harvest ao processar {file_path.name}")
+        db.record_duplicate(run_id, "biblio")
+        if decision == "skip":
+            logger.warning(
+                "Arquivo '%s' pulado: titulo e autor ja cadastrados (candidatos: %s).",
+                file_path.name,
+                ", ".join(c["citekey"] for c in title_matches),
+            )
+            return None, empty_stats
+
     citekey = generate_citekey(db, authors, year, title)
     source_id = f"@{citekey}"
 
@@ -440,6 +483,9 @@ def _process_file(
         extraction_checksum=extraction_checksum,
         document_type=biblio.document_type,
         bibliography_json=biblio_json,
+        # Normalizados, para que o lookup da camada 3 seja uma igualdade simples.
+        doi=doi or None,
+        isbn=isbn or None,
         abnt_reference=abnt_reference or None,
         total_pages_file=total_pages_file,
         page_offset=paging.page_offset,

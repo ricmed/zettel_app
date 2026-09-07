@@ -71,3 +71,11 @@ The three-layer path is stable and fully test-covered, so it functions as a fixe
 * `zettel/harvester/duplicates.py` — `find_semantic_duplicate_candidates`, Layer 3 embedding query and candidate ranking; `resolve_duplicate_decision`, interactive/non-interactive decision routing; `sample_chunk_texts`, the chunk sample Layer 3 queries with; `HarvestAborted`, raised by the `abort` action
 * `zettel/state.py` — `get_file_by_checksum`, `get_source_by_extraction_checksum`, `record_duplicate`
 * `config/config.yaml` — `harvest.duplicate_chunk_threshold`, `harvest.duplicate_sample_size`, `harvest.non_interactive_duplicate_action`
+
+## Amendment (2026-09-07)
+
+Extended to **five** layers by [ADR-046](./ADR-046-bibliographic-duplicate-layers.md). Two SQLite-only layers were inserted between the hashes and the semantic check: **exact DOI/ISBN** (an identity — reuses the source with no prompt) and **title + author** (a heuristic — always asks, and defaults to `continue` without a TTY, ignoring `non_interactive_duplicate_action`, because merging is the irreversible direction this ADR flags).
+
+The sequencing principle here is preserved and reinforced: both new layers are cheaper than the semantic one and run before any embedding is computed. Layer 3 (now layer 5) was **not** replaced — it remains the only net for material whose metadata is unusable.
+
+This narrows, but does not close, the two open questions above. An exact DOI or ISBN is an identity claim with no threshold to calibrate; `duplicate_chunk_threshold: 0.88` remains uncalibrated for the cases the semantic layer still owns.

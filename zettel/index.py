@@ -19,9 +19,8 @@ COL_SOURCES = "sources"
 COL_CHUNKS = "chunks"
 COL_PERMANENT = "permanent_notes"
 COL_MOCS = "mocs"
-COL_LITERATURE = "literature_notes"
 
-_ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS, COL_LITERATURE]
+_ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS]
 
 _DEFAULT_OLLAMA_URL = "http://localhost:11434"
 _SUPPORTED_PROVIDERS = ("openai", "sentence-transformers", "ollama")
@@ -187,7 +186,7 @@ def peek_stored_embedding_identity(
 
 
 def _identity_from_client(client: Any) -> tuple[str | None, str | None, int | None]:
-    for name in (COL_PERMANENT, COL_CHUNKS, COL_SOURCES, COL_MOCS, COL_LITERATURE):
+    for name in (COL_PERMANENT, COL_CHUNKS, COL_SOURCES, COL_MOCS):
         try:
             col = client.get_collection(name)
         except Exception:
@@ -300,7 +299,6 @@ class VectorIndex:
         self.chunks = None  # type: ignore[assignment]
         self.permanent = None  # type: ignore[assignment]
         self.mocs_col = None  # type: ignore[assignment]
-        self.literature = None  # type: ignore[assignment]
         self.client = None  # type: ignore[assignment]
         self.embedding_fn = None  # type: ignore[assignment]
 
@@ -505,7 +503,6 @@ class VectorIndex:
         self.chunks = self._get_or_create(COL_CHUNKS, **kwargs)
         self.permanent = self._get_or_create(COL_PERMANENT, **kwargs)
         self.mocs_col = self._get_or_create(COL_MOCS, **kwargs)
-        self.literature = self._get_or_create(COL_LITERATURE, **kwargs)
         logger.debug("Coleções ChromaDB prontas")
 
     def reset_collection(self, name: str) -> Any:
@@ -522,7 +519,6 @@ class VectorIndex:
             COL_CHUNKS: "chunks",
             COL_PERMANENT: "permanent",
             COL_MOCS: "mocs_col",
-            COL_LITERATURE: "literature",
         }.get(name)
         if attr:
             setattr(self, attr, col)
@@ -602,7 +598,6 @@ class VectorIndex:
             COL_CHUNKS: self.chunks,
             COL_PERMANENT: self.permanent,
             COL_MOCS: self.mocs_col,
-            COL_LITERATURE: self.literature,
         }.get(collection_name)
         if collection is None:
             raise ValueError(f"Colecao desconhecida: {collection_name}")
@@ -628,31 +623,6 @@ class VectorIndex:
         self.permanent.upsert(ids=[note_id], documents=[embeddable_text], metadatas=[safe_meta])
         self._record_embed_usage(embeddable_text, label=f"note:{note_id}")
         logger.debug("Index: upsert nota permanente %s", note_id)
-
-    def upsert_literature_note(
-        self, literature_id: str, embeddable_text: str, metadata: dict[str, Any]
-    ) -> None:
-        """Index an approved granular literature note (only after review)."""
-        safe_meta = _sanitize_metadata(metadata)
-        from zettel.llm import clip_text
-
-        self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
-        logger.info(
-            "Embedding [%d] upsert LIT %s | %s",
-            self._embed_call_count,
-            literature_id,
-            clip_text(embeddable_text),
-        )
-        self.literature.upsert(
-            ids=[literature_id], documents=[embeddable_text], metadatas=[safe_meta]
-        )
-        self._record_embed_usage(embeddable_text, label=f"lit:{literature_id}")
-        logger.debug("Index: upsert literature_note %s", literature_id)
-
-    def delete_literature_notes(self, literature_ids: list[str]) -> None:
-        if literature_ids:
-            self.literature.delete(ids=literature_ids)
-            logger.debug("Index: %d literature_notes removidos", len(literature_ids))
 
     def delete_sources(self, source_ids: list[str]) -> None:
         if source_ids:

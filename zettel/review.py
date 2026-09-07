@@ -388,7 +388,12 @@ def finalize_approved_concepts(
 
 
 def approve_chunk(cfg: AppConfig, db: StateDB, idx: VectorIndex, chunk_id: str) -> bool:
-    """Move draft to 20_Literature, embed literature_notes, promote concepts."""
+    """Move draft to 20_Literature and promote concepts.
+
+    The note is persisted to the vault and to SQLite for audit, but is **not**
+    embedded: nothing ever queried the old ``literature_notes`` collection, and
+    the LIT body is derived from a chunk whose text is already indexed.
+    """
     chunk = db.get_chunk(chunk_id)
     if not chunk or chunk.get("status") != "awaiting_review":
         logger.warning("Chunk %s nao esta awaiting_review", chunk_id)
@@ -449,22 +454,6 @@ def approve_chunk(cfg: AppConfig, db: StateDB, idx: VectorIndex, chunk_id: str) 
         dest_path, {"auto-source-excerpt": excerpt}, vault_timezone=cfg.vault_timezone
     )
 
-    # Embed literature note (summary + concepts; source excerpt is a managed block)
-    embed_text = _literature_embed_text(dest_path)
-    lit_id = chunk.get("literature_id") or chunk_id
-    idx.upsert_literature_note(
-        lit_id,
-        embed_text,
-        {
-            "source_id": chunk["source_id"],
-            "chunk_id": chunk_id,
-            "citekey": citekey,
-            "path": str(dest_path.relative_to(cfg.vault_path)).replace("\\", "/"),
-            "chunk_index": chunk_index,
-            "page_in_book": chunk.get("page_in_book") or -1,
-        },
-    )
-
     db.update_chunk_review(
         chunk_id,
         status="persisted",
@@ -476,7 +465,7 @@ def approve_chunk(cfg: AppConfig, db: StateDB, idx: VectorIndex, chunk_id: str) 
             db.update_concept_status(concept["concept_id"], "extracted")
 
     _refresh_literature_index(cfg, db, chunk["source_id"])
-    logger.info("[NOTE=%s] APPROVED → persistido no vetorial literature_notes", dest_path)
+    logger.info("[NOTE=%s] APPROVED → persistido no cofre e em SQLite", dest_path)
     return True
 
 
@@ -493,11 +482,6 @@ def reject_chunk(cfg: AppConfig, db: StateDB, idx: VectorIndex, chunk_id: str) -
                 p.unlink()
             except OSError as e:
                 logger.warning("Nao foi possivel apagar draft %s: %s", p, e)
-
-    lit_id = chunk.get("literature_id")
-    if lit_id:
-        with contextlib.suppress(Exception):
-            idx.delete_literature_notes([lit_id])
 
     db.update_chunk_review(chunk_id, status="rejected", literature_note_path=None)
     db.update_concepts_status_for_chunk(chunk_id, "rejected")
@@ -518,8 +502,8 @@ def purge_rejected(
     Deletes:
     - SQLite ``chunks`` rows (+ FTS) and related ``concepts``
     - Chroma ``chunks`` embeddings (harvest index)
-    - Chroma ``literature_notes`` ids, if any (normally absent — reject runs
-      before approve)
+
+    Literature notes are not embedded, so there is no vector cleanup for them.
 
     When ``compact`` is True and something was deleted, runs SQLite VACUUM on
     ``state.db`` and ``chroma.sqlite3`` to reclaim disk (no logical data change).
@@ -530,7 +514,6 @@ def purge_rejected(
     if not rows:
         return {
             "chunks": 0,
-            "literature_notes": 0,
             "compacted": False,
             "state_mb_before": 0.0,
             "state_mb_after": 0.0,
@@ -539,25 +522,14 @@ def purge_rejected(
         }
 
     chunk_ids = [r["chunk_id"] for r in rows]
-    lit_ids = [r["literature_id"] for r in rows if r.get("literature_id")]
 
     removed_sqlite = db.delete_chunks(chunk_ids)
     idx.delete_chunks(chunk_ids)
-    if lit_ids:
-        try:
-            idx.delete_literature_notes(lit_ids)
-        except Exception as e:
-            logger.warning("Falha ao limpar literature_notes no Chroma: %s", e)
 
-    logger.info(
-        "Purge rejected: %d chunks SQLite, %d literature_ids Chroma",
-        removed_sqlite,
-        len(lit_ids),
-    )
+    logger.info("Purge rejected: %d chunks SQLite + Chroma", removed_sqlite)
 
     result: dict[str, int | float | bool] = {
         "chunks": removed_sqlite,
-        "literature_notes": len(lit_ids),
         "compacted": False,
         "state_mb_before": 0.0,
         "state_mb_after": 0.0,
@@ -586,15 +558,6 @@ def purge_rejected(
             result["chroma_mb_after"],
         )
     return result
-
-
-def _literature_embed_text(path: Path) -> str:
-    from zettel.hashing import extract_embeddable_text
-
-    content = path.read_text(encoding="utf-8")
-    meta, _ = parse_frontmatter(content)
-    title = meta.get("chunk_id", path.stem)
-    return f"{title}\n\n{extract_embeddable_text(content)}"
 
 
 def _refresh_literature_index(cfg: AppConfig, db: StateDB, source_id: str) -> None:
