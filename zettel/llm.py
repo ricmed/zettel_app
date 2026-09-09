@@ -448,6 +448,8 @@ REQUIRED_PROMPTS: tuple[str, ...] = (
     "article_query_enrich.md",
     "article_personality.md",
     "article_judge.md",
+    "chapter_summary.md",
+    "source_summary.md",
 )
 
 

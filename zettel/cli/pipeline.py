@@ -1,9 +1,13 @@
-"""``run-all``: the five phases back to back in one process.
+"""``run-all``: the whole pipeline back to back in one process.
 
 This is a convenience wrapper, not a separate implementation — it calls the same
 ``run_*`` functions the individual commands call, in the documented order:
 
-    harvest -> extract -> review -> connect -> garden
+    harvest -> extract -> review -> summarize -> connect -> garden
+
+``summarize`` sits after ``review`` and before ``connect`` because it only needs
+the chapter text, and because ``connect`` refreshes the chapter map it wrote —
+so the per-chapter note counts are current by the time the run ends.
 
 Two things differ from running the commands by hand, and both are deliberate:
 
@@ -53,7 +57,7 @@ def run_all(
     force: ForceDuplicatesOption = False,
     skip_biblio: SkipBiblioOption = False,
 ):
-    """Executar pipeline completo: harvest > extract > review > connect > garden."""
+    """Executar pipeline completo: harvest > extract > review > summarize > connect > garden."""
     cfg = load_deps(config)
     db = get_db(cfg)
     idx = get_idx(cfg, db=db, yes=yes)
@@ -114,6 +118,17 @@ def run_all(
         print_cost_by_phase(db, title="Custo por fase desta execucao")
         db.close()
         return
+
+    # Phase 2c: Summarize (chapter + source summaries)
+    console.rule("[bold blue]Fase 2c — Summarize")
+    from zettel.summarize import generate_summaries
+
+    summary_outcome = generate_summaries(cfg, db, idx)
+    console.print(
+        f"  Capitulos resumidos: {summary_outcome.chapters_summarized} "
+        f"(inalterados: {summary_outcome.chapters_skipped}) | "
+        f"resumos gerais: {summary_outcome.sources_summarized}"
+    )
 
     # Phase 3: Connect (from DB approved concepts)
     console.rule("[bold blue]Fase 3 — Connect")

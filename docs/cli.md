@@ -21,7 +21,7 @@ python -m zettel run-all
 #    Aponte para a pasta ./vault
 ```
 
-O `run-all` encadeia `harvest → extract → review → connect → garden`. Em uso diário é comum rodar fase a fase, porque o `review` é um portão humano.
+O `run-all` encadeia `harvest → extract → review → summarize → connect → garden`. Em uso diário é comum rodar fase a fase, porque o `review` é um portão humano.
 
 ---
 
@@ -35,10 +35,12 @@ O `run-all` encadeia `harvest → extract → review → connect → garden`. Em
 | [`rechunk`](#rechunk) | Re-chunka a partir do texto já extraído |
 | [`extract`](#extract) | Prompt 1: gera drafts de LIT granular |
 | [`review`](#review) | Aprova/rejeita os drafts (portão humano) |
+| [`summarize`](#summarize) | Resume cada capítulo e o material como um todo |
 | [`purge-rejected`](#purge-rejected) | Apaga definitivamente os chunks rejeitados |
 | [`connect`](#connect) | Prompt 2: gera notas permanentes (ZTL) |
 | [`garden`](#garden) | Clusteriza notas e gera/atualiza MOCs |
 | [`ask`](#ask) | QA sobre o vault com recuperação híbrida |
+| [`catalog`](#catalog) | Quais fontes tratam de um assunto, e em que capítulos |
 | [`article`](#article) | Artigo longo a partir do vault (LangGraph) |
 | [`skill`](#skill) | Exporta um recorte aprovado como Agent Skill plana |
 | [`new-note`](#new-note) | Scaffold de notas manuais |
@@ -282,6 +284,64 @@ python -m zettel ask "O que e RAG?" --no-save-prompt      # nao pergunta se deve
 | `--no-save-prompt` | Não pergunta se deve salvar (scripts). |
 
 Detalhes da recuperação e do relatório em [recuperacao.md](recuperacao.md#perguntar-ao-acervo-zettel-ask).
+
+---
+
+## `summarize`
+
+Resume cada **capítulo** a partir do texto real da fonte e reduz os resumos de
+capítulo num **resumo geral** do material. Os dois viram blocos gerenciados na
+nota índice de literatura (`## Resumo geral` e `## Mapa de capítulos`).
+
+```bash
+python -m zettel summarize                              # todas as fontes pendentes
+python -m zettel summarize --source-id @Latorre2005AnaliseDe
+python -m zettel summarize --yes                        # sem confirmar o pre-voo
+```
+
+| Flag | Efeito |
+|---|---|
+| `--source-id @Citekey` | Resume apenas essa fonte. |
+| `--yes` | Passa direto pelo pré-voo de custo. |
+
+**Só regenera o que mudou.** Cada capítulo guarda o `chapter_checksum` que gerou
+o resumo; enquanto ele bater, o capítulo é pulado sem nenhuma chamada de LLM —
+rodar de novo num vault estável custa zero. Um `rechunk` ou re-harvest muda o
+checksum e o resumo passa a ser marcado como **defasado** (nunca apagado).
+
+O mapa de capítulos mostra, por capítulo: faixa de páginas, **quantidade de notas
+permanentes**, o resumo, e os wikilinks para as LIT granulares e as ZTL daquele
+capítulo — é a porta de entrada para as notas do capítulo. As contagens são
+atualizadas de graça a cada `connect`, sem regerar texto.
+
+---
+
+## `catalog`
+
+Responde "quais livros/artigos falam sobre X?" — devolve a fonte, os capítulos
+relevantes e quantas notas permanentes cada capítulo gerou.
+
+```bash
+python -m zettel catalog "series temporais"
+python -m zettel catalog "series temporais" --show-context   # pool bruto + parametros
+```
+
+| Flag | Efeito |
+|---|---|
+| `--show-context` | Mostra os capítulos avaliados (inclusive os barrados, com o motivo) e os parâmetros de recuperação. |
+
+**Não chama LLM nenhum.** A resposta é uma tabela ranqueada mais um agregado SQL;
+`ask` continua sendo o lugar das respostas em prosa.
+
+Um capítulo pode aparecer por dois caminhos, e a coluna "Achado por" diz qual:
+
+- **notas** — o capítulo produziu notas permanentes que casaram com a pergunta.
+  É o sinal mais forte, porque a nota já passou pelo portão humano.
+- **resumo** — o capítulo casou pelo resumo. É o que encontra o capítulo que
+  **não** virou nota nenhuma (extração de baixo rendimento, ou fonte ainda não
+  passada pelo `connect`).
+
+Requer `zettel summarize` antes para o segundo sinal existir.
 
 ---
 

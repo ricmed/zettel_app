@@ -160,3 +160,35 @@ def retry_failed(
         f"Execute 'extract' para reprocessar.[/green]"
     )
     db.close()
+
+
+@app.command()
+def summarize(
+    config: ConfigOption = None,
+    source_id: SourceFilterOption = None,
+    yes: YesOption = False,
+):
+    """Resumir capitulos (texto real) e reduzir num resumo geral por fonte."""
+    cfg = load_deps(config)
+    db = get_db(cfg)
+    idx = get_idx(cfg, db=db, yes=yes)
+
+    from zettel.preflight import estimate_summarize
+
+    preflight_gate(estimate_summarize(cfg, db, source_id), yes, db)
+
+    from zettel.summarize import generate_summaries
+
+    with console.status("Resumindo capitulos..."):
+        outcome = generate_summaries(cfg, db, idx, source_id)
+
+    console.print(
+        f"[green]Capitulos resumidos: {outcome.chapters_summarized}[/green] "
+        f"(inalterados: {outcome.chapters_skipped}) | "
+        f"resumos gerais: {outcome.sources_summarized} | "
+        f"chamadas LLM: {outcome.llm_calls}, cache: {outcome.cache_hits}"
+    )
+    for msg in outcome.skipped:
+        console.print(f"[yellow]{msg}[/yellow]")
+
+    db.close()

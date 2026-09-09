@@ -57,6 +57,7 @@ EXPECTED_COMMANDS = [
     "extract",
     "review",
     "retry-failed",
+    "summarize",
     # synthesis.py — phases 3 and 4
     "connect",
     "garden",
@@ -70,6 +71,7 @@ EXPECTED_COMMANDS = [
     # pipeline.py / qa.py / writing.py / export.py
     "run-all",
     "ask",
+    "catalog",
     "article",
     "skill",
     # diagnostics.py — read-only inspection

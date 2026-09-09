@@ -461,7 +461,7 @@ def test_rebuild_fts_counts(db):
     db.upsert_chunk("@S::ch000::a", "@S", "@S::ch000", "texto", "cka")
     db.upsert_note("n1", "@S", "/p/n1.md", "Titulo", body="corpo")
     counts = db.rebuild_fts()
-    assert counts == {"fts_notes": 1, "fts_chunks": 1}
+    assert counts == {"fts_notes": 1, "fts_chunks": 1, "fts_chapter_summaries": 0}
 
 
 def test_fts_backfill_on_preexisting_db(tmp_path):

@@ -27,11 +27,17 @@ make every similarity in the system — and this threshold — meaningless.
 Cost: **no LLM calls.** It does embed each probe query (local Ollama by default),
 which is the only way to obtain a real distance.
 
+`--collection chapter_summaries` probes `retrieval.chapter_floor` instead
+(ADR-047). It is a separate threshold on purpose: a chapter summary is longer and
+more diffuse than a note, so it scores lower against the same query, and the note
+floor would over-reject. Self-match there uses chapter titles.
+
 Usage:
     .venv/Scripts/python.exe scripts/probe_relevance_floor.py
     .venv/Scripts/python.exe scripts/probe_relevance_floor.py --samples 20
     .venv/Scripts/python.exe scripts/probe_relevance_floor.py --off-domain-file mine.txt
     .venv/Scripts/python.exe scripts/probe_relevance_floor.py --json out.json
+    .venv/Scripts/python.exe scripts/probe_relevance_floor.py --collection chapter_summaries
 
 Caveat the operator must keep in mind: a probe is only as wide as its corpus. The
 script prints how many notes it measured and refuses to suggest a threshold from
@@ -150,12 +156,17 @@ def _collections(idx: VectorIndex) -> list[tuple[str, Any]]:
         ("permanent_notes", idx.permanent),
         ("chunks", idx.chunks),
         ("sources", idx.sources),
+        ("chapter_summaries", idx.chapter_summaries),
     ]
 
 
-def top1_similarity(idx: VectorIndex, query: str) -> float | None:
-    """Top-1 cosine similarity of ``query`` against permanent notes."""
-    res = idx.permanent.query(query_texts=[query], n_results=1)
+def target_collection(idx: VectorIndex, name: str) -> Any:
+    return idx.chapter_summaries if name == "chapter_summaries" else idx.permanent
+
+
+def top1_similarity(idx: VectorIndex, query: str, collection: str) -> float | None:
+    """Top-1 cosine similarity of ``query`` against the probed collection."""
+    res = target_collection(idx, collection).query(query_texts=[query], n_results=1)
     distances = res.get("distances") or [[]]
     if not distances[0]:
         return None
@@ -170,10 +181,21 @@ def load_note_titles(db: StateDB, limit: int) -> list[str]:
     return [(r["title"] if not isinstance(r, tuple) else r[0]) for r in rows]
 
 
-def measure(idx: VectorIndex, name: str, queries: list[str]) -> Band:
+def load_chapter_titles(db: StateDB, limit: int) -> list[str]:
+    """Self-match queries for the chapter probe: titles of summarized chapters."""
+    rows = db.conn.execute(
+        "SELECT title FROM chapters "
+        "WHERE summary IS NOT NULL AND summary != '' AND title IS NOT NULL AND title != '' "
+        "ORDER BY chapter_id LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [(r["title"] if not isinstance(r, tuple) else r[0]) for r in rows]
+
+
+def measure(idx: VectorIndex, name: str, queries: list[str], collection: str) -> Band:
     band = Band(name=name)
     for q in queries:
-        sim = top1_similarity(idx, q)
+        sim = top1_similarity(idx, q, collection)
         if sim is None:
             continue
         band.similarities.append(sim)
@@ -187,8 +209,14 @@ def build_report(
     norm: NormalisationCheck,
     off: Band,
     self_match: Band,
+    collection: str = "permanent_notes",
 ) -> dict[str, Any]:
-    current = cfg.retrieval.relevance_floor.min_vector_similarity
+    floor_cfg = (
+        cfg.retrieval.chapter_floor
+        if collection == "chapter_summaries"
+        else cfg.retrieval.relevance_floor
+    )
+    current = floor_cfg.min_vector_similarity
     margin = self_match.lo - off.hi if off.similarities and self_match.similarities else None
     suggestion: float | None = None
     if margin is not None and margin > 0 and note_count >= MIN_NOTES_FOR_SUGGESTION:
@@ -203,6 +231,12 @@ def build_report(
             "model": cfg.embedding.model,
             "dimensions": cfg.embedding.dimensions,
         },
+        "collection": collection,
+        "floor_key": (
+            "retrieval.chapter_floor"
+            if collection == "chapter_summaries"
+            else "retrieval.relevance_floor"
+        ),
         "corpus": {"permanent_notes": note_count},
         "normalisation": {
             "ok": norm.ok,
@@ -327,6 +361,15 @@ def main() -> int:
         default=None,
         help="Arquivo com uma consulta fora-do-dominio por linha (substitui as embutidas)",
     )
+    parser.add_argument(
+        "--collection",
+        choices=("permanent_notes", "chapter_summaries"),
+        default="permanent_notes",
+        help=(
+            "Colecao a sondar. chapter_summaries mede retrieval.chapter_floor "
+            "(ADR-047), um limiar separado por medir outra distribuicao de texto."
+        ),
+    )
     parser.add_argument("--json", type=Path, default=None, help="Grava o relatorio como JSON")
     args = parser.parse_args()
 
@@ -338,10 +381,16 @@ def main() -> int:
     db = StateDB(cfg.state_db_path)
     idx = VectorIndex(**index_kwargs(cfg))
 
-    titles = load_note_titles(db, args.samples)
-    if not titles:
-        print("Nenhuma nota permanente. Rode o pipeline ate `zettel connect` antes.")
-        return 1
+    if args.collection == "chapter_summaries":
+        titles = load_chapter_titles(db, args.samples)
+        if not titles:
+            print("Nenhum capitulo resumido. Rode `zettel summarize` antes.")
+            return 1
+    else:
+        titles = load_note_titles(db, args.samples)
+        if not titles:
+            print("Nenhuma nota permanente. Rode o pipeline ate `zettel connect` antes.")
+            return 1
 
     if args.off_domain_file:
         off_queries = [
@@ -359,12 +408,17 @@ def main() -> int:
             "--off-domain-file com consultas realmente alheias a ele.\n"
         )
 
-    note_count = db.conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
+    if args.collection == "chapter_summaries":
+        note_count = db.conn.execute(
+            "SELECT COUNT(*) FROM chapters WHERE summary IS NOT NULL AND summary != ''"
+        ).fetchone()[0]
+    else:
+        note_count = db.conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
     norm = check_normalisation(idx, off_queries[0])
-    off = measure(idx, "fora-dominio", off_queries)
-    self_match = measure(idx, "self-match", titles)
+    off = measure(idx, "fora-dominio", off_queries, args.collection)
+    self_match = measure(idx, "self-match", titles, args.collection)
 
-    report = build_report(cfg, note_count, norm, off, self_match)
+    report = build_report(cfg, note_count, norm, off, self_match, args.collection)
     print(render(report, off, self_match))
 
     if args.json:

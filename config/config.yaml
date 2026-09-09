@@ -66,6 +66,11 @@ llm:
     model: gpt-4o-mini      # descricao multimodal (precisa ser vision)
     base_url: null
     temperature: null       # null = herda llm.temperature
+  summarize:
+    provider: openai
+    model: gpt-4o-mini      # resumo de capitulo e de fonte (zettel summarize)
+    base_url: null
+    temperature: 0.0        # saida estruturada: contrato fechado, cache determinístico
 
 # ── Embeddings ──────────────────────────────────────────────────────────
 # Providers: openai | sentence-transformers | ollama
@@ -260,7 +265,34 @@ retrieval:
     min_vector_similarity: 0.70
     bm25_hit_bypasses_floor: true  # match BM25 forte pode dispensar a similaridade vetorial
     bm25_bypass_max_rank: 5        # bypass so se o hit BM25 estiver no top-N do pool
+    # Rank e criterio RELATIVO ("foi bem entre os que casaram"); num pool de 4
+    # notas, "top 5" quer dizer "todas". Cobertura e o criterio ABSOLUTO: quanto
+    # da pergunta esta de fato na nota. Medido em 2026-09-09 (ADR-003 addendum):
+    # fora-do-dominio no maximo 0.50, dentro-do-dominio no minimo 0.50, e uma
+    # consulta de uma palavra so (sigla) marca 1.00 -- o caso de uso do bypass
+    # continua intacto. 0.0 restaura o comportamento antigo (so rank).
+    bm25_bypass_min_coverage: 0.5
     absolute_min_similarity: 0.15  # piso rigido; nem o bypass BM25 fura (quase-ortogonal)
+  # Piso PROPRIO dos resumos de capitulo (ADR-047). E um objeto separado do de
+  # cima porque mede outra distribuicao de texto: um resumo de capitulo e mais
+  # longo e difuso que uma nota. Que os dois numeros hoje coincidam em 0.70 e
+  # coincidencia de duas medicoes independentes, nao heranca.
+  #
+  # Medido em 2026-09-07 com scripts/probe_relevance_floor.py
+  # --collection chapter_summaries, sobre 71 capitulos resumidos
+  # (ollama/qwen3-embedding@1024d):
+  #   fora-do-dominio (6 consultas): min 0.676 | mediana 0.685 | max 0.693
+  #   self-match      (20 titulos):  min 0.745 | mediana 0.821 | max 0.883
+  #   margem 0.052 -- o piso pertence a (0.693, 0.72], perto do limite inferior
+  # O 0.60 anterior deixava passar as 6 consultas fora do dominio.
+  # Re-medir ao trocar o modelo de embedding: o numero nao transfere.
+  chapter_floor:
+    enabled: true
+    min_vector_similarity: 0.70    # medido 2026-09-07; acima do max fora-dominio (0.693)
+    bm25_hit_bypasses_floor: true
+    bm25_bypass_max_rank: 5
+    bm25_bypass_min_coverage: 0.5  # mesma razao do piso de notas (ADR-003 addendum)
+    absolute_min_similarity: 0.15
   graph_expansion:
     enabled: true                  # apos o piso, expande sementes pelas arestas tipadas
     max_hops: 5                    # saltos no grafo do ask/RAG (1 ja traz o GraphRAG leve)
@@ -300,6 +332,21 @@ retrieval:
     writer_temperature: null       # null = usa llm.temperature nas secoes
     judge_temperature: 0.2
     enrich_temperature: 0.2
+  catalog:
+    note_topk: 20                  # sementes de nota (sinal A) do `zettel catalog`
+    summary_topk: 20               # sementes de resumo de capitulo (sinal B)
+    max_sources: 10                # fontes listadas na tabela
+    max_chapters_per_source: 8     # capitulos mostrados por fonte
+
+# ── Resumos de capitulo e de fonte (ADR-047) ───────────────────────────
+# `zettel summarize` resume cada capitulo a partir do texto real dos chunks e
+# reduz os resumos de capitulo em um resumo geral da fonte. Regenera so quando
+# `chapter_checksum` mudou, entao rodar de novo em vault estavel nao custa nada.
+summarize:
+  max_input_chars: 60000           # acima disso o capitulo vai por map-reduce
+  preflight_output_tokens_per_chapter: 600  # alvo do estimador, nao teto do modelo
+  max_topics: 8                    # termos-chave por resumo
+  max_links_per_chapter: 12        # teto de wikilinks de nota no mapa de capitulos
 
 # ── Idioma dos prompts / texto gerado ──────────────────────────────────
 language: pt-BR
