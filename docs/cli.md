@@ -51,7 +51,7 @@ O `run-all` encadeia `harvest → extract → review → summarize → connect �
 | [`dump-extraction`](#dump-extraction) | Exporta o Markdown extraído |
 | [`reindex`](#reindex) | Reconstrói o ChromaDB a partir do SQLite |
 | [`rebuild`](#rebuild) | Reconstrói o vault (`.md`) e/ou o Chroma |
-| [`retry-failed`](#retry-failed) | Reprocessa chunks/imagens com falha |
+| [`retry-failed`](#retry-failed) | Reprocessa chunks/imagens com falha, ou chunks `rejected` do extract (`--rejected`) |
 | [`status`](#status) | Estatísticas do pipeline |
 | [`doctor`](#doctor) | Diagnóstico de configuração e dependências |
 | [`run-all`](#run-all) | Pipeline completo |
@@ -552,9 +552,14 @@ python -m zettel rebuild --what vault --force  # sobrescreve (nunca notas manuai
 python -m zettel retry-failed                        # chunks com falha -> pending
 python -m zettel retry-failed --source-id @Citekey   # apenas de uma fonte
 python -m zettel retry-failed --assets               # imagens com falha de descricao -> pending
+python -m zettel retry-failed --rejected --source-id @Citekey
+# chunks que o extract marcou rejected (sem draft) voltam para pending;
+# o cache LLM desses chunks e apagado, senao a mesma rejeicao se repetiria
 ```
 
-Depois de resetar, rode `extract` novamente para reprocessar.
+`--rejected` exige `--source-id`: rejeicao e o estado terminal do extract (sumario, codigo, irrelevante), nao uma falha de rede. Sem o filtro, o comando reescreveria o vault inteiro.
+
+Depois de resetar, rode `extract` novamente para reprocessar. O `review` so ve drafts; chunk `rejected` nunca entra na fila de review.
 
 ---
 

@@ -44,7 +44,7 @@ llm:
     temperature: null       # null = herda llm.temperature
   connect:
     provider: gemini
-    model: gemini-3.5-flash-lite      # notas permanentes (Prompt 2)
+    model: gemini-3.1-flash-lite      # notas permanentes (Prompt 2)
     base_url: null
     temperature: null       # null = herda llm.temperature
   garden:
@@ -320,8 +320,8 @@ retrieval:
   article:
     topk: 50                       # notas semente do comando `zettel article`
     max_context_notes: 24
-    max_chars_per_note: 1200
-    max_hops: 2                    # expansao de grafo do article (≠ graph_expansion.max_hops)
+    max_chars_per_note: 5000
+    max_hops: 4                    # expansao de grafo do article (≠ graph_expansion.max_hops)
     max_sections: 8                # teto de secoes no outline
     max_figures: 6                 # teto de figuras no catalogo
     chars_per_section_draft: 2500  # alvo de tamanho por secao no prompt de draft

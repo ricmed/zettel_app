@@ -3,7 +3,7 @@
 * ``extract``      — Prompt 1 over every ``pending`` chunk, writing LIT drafts;
 * ``review``       — the human approval gate that promotes drafts (and their
                      concepts) to ``approved``, which is what ``connect`` reads;
-* ``retry-failed`` — put failed chunks (or image descriptions) back in the queue.
+* ``retry-failed`` — put failed (or extract-rejected) chunks back in the queue.
 
 ``extract`` deliberately does not auto-approve by default: ADR-016/ADR-017 place a
 human between the LLM's reading of a chunk and its permanent note, and the
@@ -127,8 +127,26 @@ def retry_failed(
             help="Resetar imagens com falha de descricao",
         ),
     ] = False,
+    rejected: Annotated[
+        bool,
+        typer.Option(
+            "--rejected",
+            help="Resetar chunks rejected pelo extract (exige --source-id; apaga o cache LLM)",
+        ),
+    ] = False,
 ):
     """Resetar chunks (ou imagens) com falha para 'pending', permitindo reprocessar."""
+    if rejected and assets:
+        console.print("[red]--rejected e --assets sao mutuamente exclusivos.[/red]")
+        raise typer.Exit(1)
+    if rejected and not source_id:
+        console.print(
+            "[red]--rejected exige --source-id: rejeicao e o estado terminal do "
+            "extract (sumario, codigo, irrelevante), nao uma falha. Sem filtro "
+            "reescreveria o vault inteiro.[/red]"
+        )
+        raise typer.Exit(1)
+
     cfg = load_deps(config)
     db = get_db(cfg)
 
@@ -144,19 +162,22 @@ def retry_failed(
         db.close()
         return
 
-    failed = db.get_failed_chunks(source_id if source_id else None)
-    count = len(failed)
+    status = "rejected" if rejected else "failed"
+    count = db.reset_chunks_to_pending(
+        status,
+        source_id=source_id,
+        drop_llm_cache=rejected,
+    )
 
     if count == 0:
-        console.print("[yellow]Nenhum chunk com falha encontrado.[/yellow]")
+        label = "rejeitado" if rejected else "com falha"
+        console.print(f"[yellow]Nenhum chunk {label} encontrado.[/yellow]")
         db.close()
         return
 
-    for chunk in failed:
-        db.update_chunk_status(chunk["chunk_id"], "pending")
-
+    extra = " Cache LLM desta fonte invalidado." if rejected else ""
     console.print(
-        f"[green]{count} chunk(s) resetado(s) para 'pending'. "
+        f"[green]{count} chunk(s) resetado(s) para 'pending'.{extra} "
         f"Execute 'extract' para reprocessar.[/green]"
     )
     db.close()

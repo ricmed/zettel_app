@@ -2222,6 +2222,40 @@ class StateDB:
         )
         self.conn.commit()
 
+    def delete_llm_cache(self, call_checksums: list[str]) -> int:
+        """Drop cached LLM responses by checksum. Empty strings are ignored."""
+        unique = [c for c in dict.fromkeys(call_checksums) if c]
+        if not unique:
+            return 0
+        marks = ",".join("?" * len(unique))
+        cur = self.conn.execute(
+            f"DELETE FROM llm_cache WHERE call_checksum IN ({marks})",
+            tuple(unique),
+        )
+        self.conn.commit()
+        return int(cur.rowcount)
+
+    def reset_chunks_to_pending(
+        self,
+        status: str,
+        source_id: str | None = None,
+        *,
+        drop_llm_cache: bool = False,
+    ) -> int:
+        """Move chunks in ``status`` back to ``pending``. Returns how many moved.
+
+        ``drop_llm_cache`` is for extract *verdicts* (``rejected``): the SQLite
+        response cache would otherwise replay the same empty yield for free.
+        """
+        rows = self.get_chunks_by_status(status, source_id=source_id)
+        if not rows:
+            return 0
+        if drop_llm_cache:
+            self.delete_llm_cache([row.get("llm_call_checksum_prompt1") or "" for row in rows])
+        for row in rows:
+            self.update_chunk_status(row["chunk_id"], "pending")
+        return len(rows)
+
     # ── Runs ───────────────────────────────────────────────────────────
 
     def start_run(self, pipeline_signature: str) -> int:

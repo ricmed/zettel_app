@@ -90,6 +90,39 @@ def test_llm_cache(db):
     assert db.get_cached_llm_response("nonexistent") is None
 
 
+def test_reset_rejected_chunks_drops_extract_cache(db):
+    db.upsert_source("@S", "S", "Source", [], None, "h", "/p", "md")
+    db.upsert_chapter("@S::ch000", "@S", "Ch1", "ch_hash")
+    db.upsert_chunk("@S::ch000::abc", "@S", "@S::ch000", "text here", "ck_hash")
+    db.upsert_chunk("@S::ch000::def", "@S", "@S::ch000", "other", "ck_other")
+    db.update_chunk_status("@S::ch000::abc", "rejected", llm_call_checksum="extract-abc")
+    db.update_chunk_status("@S::ch000::def", "rejected", llm_call_checksum="extract-def")
+    db.cache_llm_response("extract-abc", "{}", '{"chunk_status": "rejected"}')
+    db.cache_llm_response("extract-def", "{}", '{"chunk_status": "rejected"}')
+    db.cache_llm_response("unrelated", "{}", "keep")
+
+    moved = db.reset_chunks_to_pending("rejected", source_id="@S", drop_llm_cache=True)
+    assert moved == 2
+    pending_ids = {row["chunk_id"] for row in db.get_pending_chunks()}
+    assert pending_ids == {"@S::ch000::abc", "@S::ch000::def"}
+    assert db.get_cached_llm_response("extract-abc") is None
+    assert db.get_cached_llm_response("extract-def") is None
+    assert db.get_cached_llm_response("unrelated") == "keep"
+
+
+def test_reset_failed_chunks_keeps_cache_by_default(db):
+    db.upsert_source("@S", "S", "Source", [], None, "h", "/p", "md")
+    db.upsert_chapter("@S::ch000", "@S", "Ch1", "ch_hash")
+    db.upsert_chunk("@S::ch000::abc", "@S", "@S::ch000", "text here", "ck_hash")
+    db.update_chunk_status("@S::ch000::abc", "failed", llm_call_checksum="extract-abc")
+    db.cache_llm_response("extract-abc", "{}", "payload")
+
+    moved = db.reset_chunks_to_pending("failed", source_id="@S")
+    assert moved == 1
+    assert db.get_pending_chunks()[0]["chunk_id"] == "@S::ch000::abc"
+    assert db.get_cached_llm_response("extract-abc") == "payload"
+
+
 def test_stats(db):
     stats = db.get_stats()
     assert "files" in stats
