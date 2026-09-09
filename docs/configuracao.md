@@ -12,7 +12,7 @@ Tudo que se ajusta sem tocar em código: o catálogo completo de `config/config.
 |---|---|
 | [`config/config.yaml`](../config/config.yaml) | **Fonte operacional.** É o arquivo que o CLI e a web carregam. |
 | [`zettel/config.py`](../zettel/config.py) | Schema Pydantic (tipos, validators) + **fallback de fábrica**. Só entra em ação quando o YAML falta, quando uma chave é omitida, ou nos testes que instanciam `AppConfig()`. |
-| `.env` | Segredos (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `SESSION_SECRET`). **Nunca** no YAML. |
+| `.env` | Segredos (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY`, `SESSION_SECRET`). **Nunca** no YAML. |
 | [`config/moc_topics.yaml`](../config/moc_topics.yaml) | Taxonomia de tópicos dos MOCs (pilar > categoria > tópicos). Veja [prompts.md](prompts.md#taxonomia-de-topicos-para-mocs). |
 | [`config/domain_examples.yaml`](../config/domain_examples.yaml) | Few-shots de domínio (extract/connect). Caminho: `domain.examples_path`. |
 | [`config/personalities.yaml`](../config/personalities.yaml) | Personalidades de reescrita do `zettel article`. |
@@ -51,7 +51,7 @@ llm:
   max_retries: 2             # retries do client em falha HTTP
   prompt_cache: true         # prefix cache do provedor (System + Human)
   harvest:                   # metadados bibliograficos ABNT
-    provider: openai         # openai | anthropic | ollama | gemini | openrouter | opencode
+    provider: openai         # openai | anthropic | ollama | gemini | openrouter | opencode | deepseek
     model: gpt-4o-mini
     base_url: null           # gateways OpenAI-compatible / Ollama
   extract:                   # Prompt 1 — notas de literatura
@@ -279,6 +279,18 @@ llm:
 ```
 
 Usa `ChatOpenAI` com o `base_url` da fase. A chave segue o que o gateway espera (normalmente `OPENAI_API_KEY`).
+
+### DeepSeek
+
+```yaml
+llm:
+  ask:
+    provider: deepseek
+    model: deepseek-v4-flash
+    base_url: https://api.deepseek.com
+```
+
+Usa o endpoint OpenAI-compatible (`https://api.deepseek.com`). Requer `DEEPSEEK_API_KEY` — não reutiliza `OPENAI_API_KEY`, para poder misturar DeepSeek numa fase e OpenAI nas outras. Não use o endpoint Anthropic (`/anthropic`): `provider: anthropic` ignora `base_url`.
 
 ### Anthropic
 

@@ -10,6 +10,7 @@ _PROVIDER_ENV = {
     "openrouter": ("OPENROUTER_API_KEY", "OPENAI_API_KEY"),
     "anthropic": ("ANTHROPIC_API_KEY",),
     "gemini": ("GOOGLE_API_KEY",),
+    "deepseek": ("DEEPSEEK_API_KEY",),
 }
 
 
