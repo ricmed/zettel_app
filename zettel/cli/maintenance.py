@@ -103,7 +103,7 @@ def init(
 
     db = get_db(cfg)
     # Called for the side effect, not the value: constructing VectorIndex is what
-    # creates the five Chroma collections and stamps them with the embedding
+    # creates the Chroma collections and stamps them with the embedding
     # identity. Without this, the store only appears on the first pipeline run.
     get_idx(cfg, db=db, yes=False)
     db.close()
@@ -143,7 +143,7 @@ def reindex(
         str | None,
         typer.Option(
             "--collection",
-            help="Reindexar apenas: sources|chunks|permanent_notes|mocs",
+            help="Reindexar apenas: sources|chunks|permanent_notes|mocs|chapter_summaries",
         ),
     ] = None,
     force: Annotated[

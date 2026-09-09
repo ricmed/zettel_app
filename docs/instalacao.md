@@ -71,6 +71,7 @@ Variáveis reconhecidas:
 | `OPENAI_API_KEY` | `provider: openai` e gateways OpenAI-compatible (OpenRouter, OpenCode, vLLM, LM Studio…) |
 | `ANTHROPIC_API_KEY` | `provider: anthropic` |
 | `GOOGLE_API_KEY` | `provider: gemini` |
+| `DEEPSEEK_API_KEY` | `provider: deepseek` |
 | `SESSION_SECRET` | Login da [interface web](interface-web.md). Lido do ambiente do processo (`os.environ`), **não** do `config.yaml` |
 | `ZETTEL_CONFIG` | Opcional: aponta `create_app()` / `WebApplication` para um YAML alternativo (usado nos testes) |
 

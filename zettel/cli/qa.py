@@ -1,6 +1,12 @@
-"""``ask``: short-form question answering over the vault.
+"""``ask`` and ``catalog``: querying the vault.
 
-The command's job beyond calling ``run_ask`` is to make the retrieval *auditable*,
+``ask`` answers a question in prose from the permanent notes. ``catalog`` answers
+a *library* question — which sources treat a subject, which of their chapters,
+and how many permanent notes each chapter produced (ADR-047). They are separate
+commands because they return different things: ``catalog``'s answer is a ranked
+table plus a SQL count, and calls no LLM at all.
+
+The ``ask`` command's job beyond calling ``run_ask`` is to make the retrieval *auditable*,
 which is why it prints two tables instead of just an answer:
 
 * **Parametros de recuperacao** (``--show-context`` only) — every threshold the
@@ -177,5 +183,91 @@ def ask(
             console.print(f"[green]Resposta salva em:[/green] {rel}")
         except ValueError:
             console.print(f"[green]Resposta salva em:[/green] {saved_path}")
+
+    db.close()
+
+
+@app.command()
+def catalog(
+    subject: Annotated[str, typer.Argument(help="Assunto a procurar no acervo")],
+    config: ConfigOption = None,
+    show_context: Annotated[
+        bool,
+        typer.Option(
+            "--show-context",
+            help="Exibe o pool bruto de capitulos e os parametros de recuperacao",
+        ),
+    ] = False,
+    yes: YesOption = False,
+):
+    """Quais fontes tratam de um assunto, em que capitulos e com quantas notas."""
+    cfg = load_deps(config)
+    db = get_db(cfg)
+    idx = get_idx(cfg, db=db, yes=yes)
+
+    from zettel.catalog import run_catalog
+
+    with console.status("Consultando o acervo..."):
+        result = run_catalog(cfg, db, idx, subject)
+
+    if show_context:
+        params = Table(title="Parametros de recuperacao")
+        params.add_column("Parametro", style="bold")
+        params.add_column("Valor", justify="right")
+        for key, value in result.retrieval_params.items():
+            params.add_row(key, str(value))
+        console.print(params)
+
+    if not result.sources:
+        console.print(
+            "[yellow]Nenhuma fonte do acervo trata desse assunto com evidencia suficiente.[/yellow]"
+        )
+        if not result.candidates:
+            console.print(
+                "[dim]O pool de candidatos veio vazio. Se nenhuma fonte foi resumida "
+                "ainda, rode `zettel summarize`.[/dim]"
+            )
+    for src in result.sources:
+        authors = ", ".join(src.authors) or "sem autor"
+        year = f", {src.year}" if src.year else ""
+        console.print(
+            f"\n[bold]{src.title}[/bold]\n"
+            f"[dim]{authors}{year} · {src.citekey} · {src.total_notes} nota(s) "
+            f"permanente(s) nos capitulos listados[/dim]"
+        )
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("Capitulo")
+        table.add_column("Paginas", justify="right")
+        table.add_column("Notas", justify="right")
+        table.add_column("Achado por")
+        for ch in src.chapters:
+            title = ch.chapter_title + (" [defasado]" if ch.summary_stale else "")
+            table.add_row(
+                title,
+                ch.page_label or "-",
+                str(ch.note_count),
+                ch.origin_label,
+            )
+        console.print(table)
+
+    if show_context and result.candidates:
+        pool = Table(title="Capitulos avaliados (pool bruto)")
+        pool.add_column("Capitulo")
+        pool.add_column("Fonte")
+        pool.add_column("Sim.", justify="right")
+        pool.add_column("BM25", justify="right")
+        pool.add_column("Passou")
+        pool.add_column("Motivo")
+        for ch in result.candidates:
+            sim = f"{ch.summary_similarity:.2f}" if ch.summary_similarity is not None else "-"
+            pool.add_row(
+                ch.chapter_title,
+                ch.source_id,
+                sim,
+                str(ch.bm25_rank) if ch.bm25_rank is not None else "-",
+                "sim" if ch.passed_floor else "nao",
+                ch.floor_reason or "-",
+            )
+        console.print(pool)
 
     db.close()

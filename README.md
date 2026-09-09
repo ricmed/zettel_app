@@ -183,7 +183,7 @@ Páginas, operações enfileiráveis e recuperação após reinício: [docs/inte
 
 ## Configuração
 
-A **fonte operacional** é `[config/config.yaml](config/config.yaml)` — é o arquivo que o CLI e a web carregam. `[zettel/config.py](zettel/config.py)` define o schema Pydantic e só aplica fallback quando o YAML falta ou omite uma chave. Segredos (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `SESSION_SECRET`) ficam no `.env`.
+A **fonte operacional** é `[config/config.yaml](config/config.yaml)` — é o arquivo que o CLI e a web carregam. `[zettel/config.py](zettel/config.py)` define o schema Pydantic e só aplica fallback quando o YAML falta ou omite uma chave. Segredos (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY`, `SESSION_SECRET`) ficam no `.env`.
 
 
 | Bloco                                                                                    | Controla                                                                                                                             |

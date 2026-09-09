@@ -11,6 +11,7 @@ via ``<!-- zettel:user -->`` in prompt files (see ``load_prompt_parts``).
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,7 @@ _OPENAI_COMPAT_PROVIDERS = frozenset(
         "opencode",
         "azure",
         "compatible",
+        "deepseek",
     }
 )
 _CHAT_PROVIDERS = _OPENAI_COMPAT_PROVIDERS | frozenset({"anthropic", "ollama", "gemini"})
@@ -108,6 +110,14 @@ def get_llm(
         }
         if base_url:
             kwargs["base_url"] = base_url
+        if provider == "deepseek":
+            key = os.environ.get("DEEPSEEK_API_KEY")
+            if not key:
+                raise RuntimeError(
+                    "Sem DEEPSEEK_API_KEY no ambiente (.env). "
+                    "Necessaria quando llm.<fase>.provider e deepseek."
+                )
+            kwargs["api_key"] = key
         return ChatOpenAI(**kwargs)
 
     if provider == "anthropic":
@@ -448,6 +458,8 @@ REQUIRED_PROMPTS: tuple[str, ...] = (
     "article_query_enrich.md",
     "article_personality.md",
     "article_judge.md",
+    "chapter_summary.md",
+    "source_summary.md",
 )
 
 

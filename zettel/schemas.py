@@ -220,6 +220,35 @@ class MOCHubGenerationOutput(BaseModel):
     subsections: list[MOCSubsection] = Field(default_factory=list)
 
 
+# ── Chapter / source summaries (ADR-047) ──────────────────────────────
+
+
+class ChapterSummaryOutput(BaseModel):
+    """Output of `prompts/chapter_summary.md` for one chapter.
+
+    This is a *routing* artifact, not evidence: it says where to look, and is
+    never quoted as support for a claim (ADR-047). `key_topics` feeds both the
+    embedded text and the BM25 row, so it carries the vocabulary a reader would
+    actually type.
+    """
+
+    summary: str = Field(description="Resumo do capitulo em PT-BR")
+    key_topics: list[str] = Field(
+        default_factory=list,
+        description="Termos-chave do capitulo, no vocabulario do autor",
+    )
+
+
+class SourceSummaryOutput(BaseModel):
+    """Output of `prompts/source_summary.md` — a reduce over chapter summaries."""
+
+    summary: str = Field(description="Resumo geral do material em PT-BR")
+    key_topics: list[str] = Field(
+        default_factory=list,
+        description="Termos-chave que atravessam o material inteiro",
+    )
+
+
 # ── Article generation ────────────────────────────────────────────────
 
 

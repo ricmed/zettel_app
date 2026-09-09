@@ -63,6 +63,8 @@ CONSUMERS: dict[str, tuple[str, str]] = {
     "article_query_enrich.md": ("article.py", "enrich_search_queries"),
     "article_personality.md": ("article.py", "apply_personality_rewrite"),
     "article_judge.md": ("article.py", "judge_article_body"),
+    "chapter_summary.md": ("summarize.py", "_summarize_chapter_text"),
+    "source_summary.md": ("summarize.py", "_summarize_source"),
 }
 
 # Payload that changes on every call: keeping it in the system half would break

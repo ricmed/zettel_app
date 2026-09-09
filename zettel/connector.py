@@ -312,11 +312,35 @@ def run_connect(
             db.add_source_usage(sid, tracker.summary_for_source(sid).as_dict())
             sync_source_costs_to_vault(cfg, db, sid)
 
+    _refresh_chapter_maps(cfg, db, created_ids)
     logger.info("Notas permanentes criadas/atualizadas: %d", len(created_ids))
     finish_pipeline_run(db, run_id)
     if rejection:
         raise rejection
     return created_ids
+
+
+def _refresh_chapter_maps(cfg: AppConfig, db: StateDB, note_ids: list[str]) -> None:
+    """Rewrite the chapter map of every source that just gained a note.
+
+    Deterministic and free (counts + wikilinks, no LLM, no embedding), so the
+    per-chapter note counts stay live without re-running `zettel summarize`.
+    Same pattern as `sync_moc_backrefs` after a MOC write.
+    """
+    if not note_ids:
+        return
+    from zettel.summarize import refresh_chapter_map
+
+    source_ids = {
+        row["source_id"]
+        for row in (db.get_note(nid) for nid in note_ids)
+        if row and row.get("source_id")
+    }
+    for sid in source_ids:
+        try:
+            refresh_chapter_map(cfg, db, sid)
+        except OSError as e:
+            logger.warning("Falha ao atualizar o mapa de capitulos de %s: %s", sid, e)
 
 
 # ── Candidate Processing ──────────────────────────────────────────────

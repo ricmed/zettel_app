@@ -19,8 +19,11 @@ COL_SOURCES = "sources"
 COL_CHUNKS = "chunks"
 COL_PERMANENT = "permanent_notes"
 COL_MOCS = "mocs"
+# Resumos de capitulo (ADR-047). Leitor nomeado: zettel/catalog.py -- a colecao
+# nasce com consumidor, ao contrario da extinta `literature_notes`.
+COL_CHAPTER_SUMMARIES = "chapter_summaries"
 
-_ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS]
+_ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS, COL_CHAPTER_SUMMARIES]
 
 _DEFAULT_OLLAMA_URL = "http://localhost:11434"
 _SUPPORTED_PROVIDERS = ("openai", "sentence-transformers", "ollama")
@@ -186,7 +189,7 @@ def peek_stored_embedding_identity(
 
 
 def _identity_from_client(client: Any) -> tuple[str | None, str | None, int | None]:
-    for name in (COL_PERMANENT, COL_CHUNKS, COL_SOURCES, COL_MOCS):
+    for name in (COL_PERMANENT, COL_CHUNKS, COL_SOURCES, COL_MOCS, COL_CHAPTER_SUMMARIES):
         try:
             col = client.get_collection(name)
         except Exception:
@@ -503,6 +506,7 @@ class VectorIndex:
         self.chunks = self._get_or_create(COL_CHUNKS, **kwargs)
         self.permanent = self._get_or_create(COL_PERMANENT, **kwargs)
         self.mocs_col = self._get_or_create(COL_MOCS, **kwargs)
+        self.chapter_summaries = self._get_or_create(COL_CHAPTER_SUMMARIES, **kwargs)
         logger.debug("Coleções ChromaDB prontas")
 
     def reset_collection(self, name: str) -> Any:
@@ -519,6 +523,7 @@ class VectorIndex:
             COL_CHUNKS: "chunks",
             COL_PERMANENT: "permanent",
             COL_MOCS: "mocs_col",
+            COL_CHAPTER_SUMMARIES: "chapter_summaries",
         }.get(name)
         if attr:
             setattr(self, attr, col)
@@ -598,6 +603,7 @@ class VectorIndex:
             COL_CHUNKS: self.chunks,
             COL_PERMANENT: self.permanent,
             COL_MOCS: self.mocs_col,
+            COL_CHAPTER_SUMMARIES: self.chapter_summaries,
         }.get(collection_name)
         if collection is None:
             raise ValueError(f"Colecao desconhecida: {collection_name}")
@@ -711,6 +717,69 @@ class VectorIndex:
                 entry["distance"] = results["distances"][0][i]
             output.append(entry)
         return output
+
+    # ── Chapter summaries (ADR-047) ────────────────────────────────────
+
+    def upsert_chapter_summary(
+        self, chapter_id: str, embeddable_text: str, metadata: dict[str, Any]
+    ) -> None:
+        """Embed a chapter summary. Read back by `zettel/catalog.py`."""
+        from zettel.llm import clip_text
+
+        safe_meta = _sanitize_metadata(metadata)
+        self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
+        logger.info(
+            "Embedding [%d] upsert resumo de capitulo %s | %s",
+            self._embed_call_count,
+            chapter_id,
+            clip_text(embeddable_text),
+        )
+        self.chapter_summaries.upsert(
+            ids=[chapter_id], documents=[embeddable_text], metadatas=[safe_meta]
+        )
+        self._record_embed_usage(embeddable_text, label=f"chapter:{chapter_id}")
+
+    def query_chapter_summaries(self, query_text: str, n_results: int = 20) -> list[dict]:
+        """Nearest chapter summaries to ``query_text``.
+
+        Same result shape as :meth:`query_similar_notes` (``id`` / ``document``
+        / ``metadata`` / ``distance``) so the Retriever can fuse both pools with
+        one code path.
+        """
+        from zettel.llm import clip_text
+
+        self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
+        logger.info(
+            "Embedding [%d] busca resumos de capitulo | n=%d | query=%s",
+            self._embed_call_count,
+            n_results,
+            clip_text(query_text),
+        )
+        total = self.chapter_summaries.count()
+        if not total:
+            return []
+        results = self.chapter_summaries.query(
+            query_texts=[query_text], n_results=min(n_results, total)
+        )
+        self._record_embed_usage(query_text, label="query_chapter_summaries")
+        output: list[dict] = []
+        if not results or not results["ids"] or not results["ids"][0]:
+            return output
+        for i, cid in enumerate(results["ids"][0]):
+            entry: dict[str, Any] = {"id": cid}
+            if results["documents"] and results["documents"][0]:
+                entry["document"] = results["documents"][0][i]
+            if results["metadatas"] and results["metadatas"][0]:
+                entry["metadata"] = results["metadatas"][0][i]
+            if results["distances"] and results["distances"][0]:
+                entry["distance"] = results["distances"][0][i]
+            output.append(entry)
+        return output
+
+    def delete_chapter_summaries(self, chapter_ids: list[str]) -> None:
+        if chapter_ids:
+            self.chapter_summaries.delete(ids=chapter_ids)
+            logger.debug("Index: %d resumos de capitulo removidos", len(chapter_ids))
 
     def find_similar_chunks(self, texts: list[str], n_results: int = 3) -> list[dict]:
         """Find already-indexed chunks similar to a sample of newly extracted chunks.

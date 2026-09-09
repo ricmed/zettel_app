@@ -277,3 +277,120 @@ def test_floor_reason_populated_when_disabled():
     _floor(cfg, hit)
     assert hit.passed_floor is True
     assert hit.floor_reason == "piso desabilitado"
+
+
+# ── Bypass coverage gate (ADR-003 addendum, 2026-09-09) ───────────────
+#
+# `bm25_bypass_max_rank` is a RELATIVE test: it asks whether a hit ranked well
+# among whoever matched. BM25 ORs the query's terms, so on a small corpus the
+# match pool is routinely smaller than the cutoff and "top 5" degenerates into
+# "everything that matched at all" — a note sharing one common word with the
+# question then bypasses the similarity floor. Coverage is the absolute half.
+
+
+def test_low_coverage_denies_the_bypass():
+    """One shared word out of four is not a strong lexical match, whatever its rank."""
+    cfg = _cfg()
+    hit = RetrievedNote(
+        note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=1, bm25_coverage=0.25
+    )  # sim=0.65, below the 0.70 floor
+    _floor(cfg, hit)
+    assert hit.passed_floor is False
+    assert "cobertura lexical" in hit.floor_reason
+    # The reason must name BOTH steps: why the bypass was denied AND the verdict
+    # it then fell through to. A reader debugging retrieval needs the chain.
+    assert "sem bypass" in hit.floor_reason
+    assert "abaixo do piso" in hit.floor_reason
+
+
+def test_full_coverage_still_bypasses():
+    """The use case the bypass exists for: a one-term jargon query scores 1.00."""
+    cfg = _cfg()
+    hit = RetrievedNote(
+        note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=1, bm25_coverage=1.0
+    )
+    _floor(cfg, hit)
+    assert hit.passed_floor is True
+    assert "cobertura 100%" in hit.floor_reason
+
+
+def test_coverage_exactly_at_threshold_passes():
+    cfg = _cfg()  # default 0.5
+    hit = RetrievedNote(
+        note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=1, bm25_coverage=0.5
+    )
+    _floor(cfg, hit)
+    assert hit.passed_floor is True
+
+
+def test_low_coverage_hit_still_passes_on_its_own_similarity():
+    """Denying the bypass is not a rejection — the hit falls through, it is not dropped."""
+    cfg = _cfg()
+    hit = RetrievedNote(
+        note_id="n1", score=0.01, vector_distance=0.2, bm25_rank=1, bm25_coverage=0.1
+    )  # sim=0.90, well above the floor
+    _floor(cfg, hit)
+    assert hit.passed_floor is True
+    assert "similaridade 0.90" in hit.floor_reason
+
+
+def test_coverage_zero_disables_the_gate():
+    """The escape hatch restores the pre-2026-09-09 rank-only behaviour."""
+    cfg = _cfg()
+    cfg.retrieval.relevance_floor.bm25_bypass_min_coverage = 0.0
+    hit = RetrievedNote(
+        note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=1, bm25_coverage=0.0
+    )
+    _floor(cfg, hit)
+    assert hit.passed_floor is True
+
+
+def test_missing_coverage_does_not_deny_the_bypass():
+    """`None` means "not measured" (FTS off, no usable term) — never a rejection."""
+    cfg = _cfg()
+    hit = RetrievedNote(
+        note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=1, bm25_coverage=None
+    )
+    _floor(cfg, hit)
+    assert hit.passed_floor is True
+
+
+def test_coverage_is_measured_against_the_real_note_text(db):
+    """End to end through FTS: coverage counts query terms present in title+body."""
+    if not db.fts_enabled:
+        pytest.skip("SQLite build sem FTS5")
+    db.upsert_note("n1", "@S", "/p/n1.md", "Sazonalidade", body="tendencia e sazonalidade")
+    db.upsert_note("n2", "@S", "/p/n2.md", "Outra nota", body="fala apenas de tendencia")
+    r = Retriever(_cfg(), db=db, idx=FakeIndex())
+
+    hits = {h["note_id"]: h for h in r._bm25_notes("tendencia e sazonalidade", 20, None)}
+    assert hits["n1"]["coverage"] == 1.0  # both terms present
+    assert hits["n2"]["coverage"] == 0.5  # only "tendencia"
+
+
+def test_coverage_ignores_stopwords_like_the_match_expression(db):
+    """The denominator is the term set FTS actually searched, not every word."""
+    if not db.fts_enabled:
+        pytest.skip("SQLite build sem FTS5")
+    db.upsert_note("n1", "@S", "/p/n1.md", "Sazonalidade", body="sazonalidade")
+    r = Retriever(_cfg(), db=db, idx=FakeIndex())
+    # "o", "que", "e", "a" are stopwords -> the only term is "sazonalidade".
+    hits = {h["note_id"]: h for h in r._bm25_notes("o que e a sazonalidade", 20, None)}
+    assert hits["n1"]["coverage"] == 1.0
+
+
+def test_coverage_is_only_computed_for_bypass_eligible_hits(db):
+    """Folding a note body is the expensive part; hits past the rank cutoff
+    can never consult coverage, so they must not pay for it."""
+    if not db.fts_enabled:
+        pytest.skip("SQLite build sem FTS5")
+    for i in range(8):
+        db.upsert_note(f"n{i}", "@S", f"/p/n{i}.md", "Sazonalidade", body="sazonalidade")
+    cfg = _cfg()
+    cfg.retrieval.relevance_floor.bm25_bypass_max_rank = 3
+    r = Retriever(cfg, db=db, idx=FakeIndex())
+
+    hits = r._bm25_notes("sazonalidade", 20, None)
+    assert len(hits) == 8
+    assert all(h["coverage"] is not None for h in hits[:3])
+    assert all(h["coverage"] is None for h in hits[3:])

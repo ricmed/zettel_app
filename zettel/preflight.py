@@ -149,6 +149,64 @@ def estimate_connect(
     )
 
 
+def estimate_summarize(
+    cfg: AppConfig, db: StateDB, source_id: str | None = None
+) -> PreflightEstimate:
+    """One call per stale chapter (more when a chapter map-reduces), plus one
+    reduce per source whose chapters changed.
+
+    A chapter whose ``summary_checksum`` still matches its ``chapter_checksum``
+    costs nothing and is not counted, so re-running on a settled vault estimates
+    zero work.
+    """
+    chapters = db.get_chapters_needing_summary(source_id)
+    overhead = _prompt_tokens(cfg, "chapter_summary.md")
+    budget = cfg.summarize.max_input_chars
+
+    calls = 0
+    input_tokens = 0
+    map_reduced = 0
+    for chapter in chapters:
+        text = "\n\n".join(
+            (c.get("text") or "") for c in db.get_chunks_for_chapter(chapter["chapter_id"])
+        )
+        if not text.strip():
+            continue
+        # Over budget the chapter is split, and the reduce pass re-reads the
+        # partial summaries — so the text is paid for once plus a small tail.
+        parts = max(1, -(-len(text) // budget))
+        chapter_calls = parts + (1 if parts > 1 else 0)
+        if parts > 1:
+            map_reduced += 1
+        calls += chapter_calls
+        input_tokens += estimate_tokens(text) + overhead * chapter_calls
+
+    source_ids = {c["source_id"] for c in chapters}
+    if source_ids:
+        reduce_overhead = _prompt_tokens(cfg, "source_summary.md")
+        per_chapter_summary = cfg.summarize.preflight_output_tokens_per_chapter
+        for sid in source_ids:
+            n = len(db.get_chapters_for_source(sid))
+            input_tokens += reduce_overhead + n * per_chapter_summary
+        calls += len(source_ids)
+
+    caveats = [
+        "Capitulo com resumo atualizado (checksum igual) nao entra na conta.",
+        "Hits do cache SQLite nao estao descontados.",
+    ]
+    if map_reduced:
+        caveats.append(f"{map_reduced} capitulo(s) acima do orcamento: vao por map-reduce.")
+    return _build(
+        cfg,
+        "summarize",
+        items=calls,
+        item_label="chamada(s)",
+        input_tokens=input_tokens,
+        output_tokens=calls * cfg.summarize.preflight_output_tokens_per_chapter,
+        caveats=caveats,
+    )
+
+
 def estimate_article(cfg: AppConfig) -> PreflightEstimate:
     """A **floor**: the calls the graph makes even if nothing loops.
 

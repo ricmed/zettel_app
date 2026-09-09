@@ -179,16 +179,61 @@ If urgent:
 
 #### "Literature notes are not being indexed into Chroma"
 ```
-Read ADRs:
-  1. ADR-015 (Granular per-chunk literature notes)
-     → Notes created during EXTRACT, indexed during REVIEW approval
-  2. ADR-002 (ChromaDB embedded vector store)
-     → 5 collections: sources, chunks, permanent_notes, mocs, literature_notes
+They are not supposed to be. The `literature_notes` collection was REMOVED
+(ADR-015, amendment 2026-09-07) because nothing ever read it back.
 
-Debug:
-  - Did you REVIEW the literature notes? (REVIEW phase is when indexing happens)
-  - Check `literature_notes` collection in Chroma
-  - Verify note is marked `status=approved` (only approved notes are indexed)
+Read ADRs:
+  1. ADR-015 amendment  -> LIT notes live in the vault + SQLite only
+  2. ADR-036            -> a LIT target is listed in the topic index but is
+                           never routable; the Retriever scores permanent notes
+  3. ADR-002            -> 5 collections: sources, chunks, permanent_notes,
+                           mocs, chapter_summaries (ADR-047)
+
+If what you actually want is "find the source material about X":
+  - `zettel summarize` then `zettel catalog "assunto"` (ADR-047)
+  - That is the supported path; LIT notes were never searchable.
+```
+
+#### "Chapter/source summaries: which ADR, and what is safe to tune?"
+```
+Read ADRs:
+  1. ADR-047 (Chapter summaries as a library-level routing index)
+     -> chapter = search unit (embedded); source summary = reduce (NOT embedded)
+  2. ADR-036 -> the "routing, not representation" rule this depends on
+  3. ADR-015 amendment -> why a new collection needs a named reader
+  4. ADR-043 -> why an LLM summary may route but never be evidence
+
+Commands:
+  zettel summarize [--source-id @Citekey]   # LLM, gated by chapter_checksum
+  zettel catalog "assunto" [--show-context] # NO LLM, ever
+
+Regeneration is checksum-gated:
+  - summary_checksum == chapter_checksum  -> skipped, zero cost
+  - a rechunk/re-harvest changes chapter_checksum -> summary marked STALE
+  - stale summaries are flagged, never deleted (a good summary should not be
+    lost to a trivial re-chunk)
+
+retrieval.chapter_floor -- measured, but re-measure on YOUR corpus:
+  scripts/probe_relevance_floor.py --collection chapter_summaries
+
+  Measured 2026-09-07 over 71 summarized chapters (ollama/qwen3-embedding@1024d):
+    off-domain (6 queries): min 0.676 | median 0.685 | max 0.693
+    self-match (20 titles): min 0.745 | median 0.821 | max 0.883
+    margin 0.052 -> floor belongs in (0.693, 0.72];  SET TO 0.70
+
+  It is a SEPARATE object from the note floor even though both read 0.70 today
+  -- two independent measurements agreeing, not inheritance. The test pins them
+  as separate objects and does NOT assert the values differ.
+
+  The margin is thin: off-topic chapters land at 0.707-0.723. Raising toward
+  0.72 costs real recall (the probe says so). A rejected chapter still appears
+  in `candidates` with its floor_reason, so an over-strict floor is visible.
+
+  The number does NOT transfer across embedding models. Re-probe after a swap.
+
+Turning a summary into evidence is OUT OF BOUNDS:
+  - `ask` must never reach search_chapter_summaries / query_chapter_summaries
+  - tests/test_catalog.py parses zettel/ask.py and fails if it does
 ```
 
 ---
@@ -210,6 +255,48 @@ Debug:
   - Check `candidates` list: was the note near-miss but below floor?
   - If so, check `floor_reason` for why it was rejected
   - Try graph expansion: `zettel ask "..." --hop-depth 2`
+```
+
+#### "Uma pergunta fora do acervo devolve notas / o piso deixa passar ruido"
+```
+Read ADRs:
+  1. ADR-003 + seu ADDENDUM de 2026-09-09 (bypass do BM25)
+  2. ADR-010 (hits vs candidates -- o motivo aparece em --show-context)
+  3. ADR-047 (o `catalog` nao tem triagem de LLM, entao expoe o piso cru)
+
+O bypass lexical tem DUAS condicoes, nao uma:
+  bm25_bypass_max_rank      (5)    -> criterio RELATIVO: foi bem entre os que casaram
+  bm25_bypass_min_coverage  (0.5)  -> criterio ABSOLUTO: quanto da pergunta esta na nota
+
+Por que o rank sozinho nao bastava: `_fts_match_expr` junta os termos com OR, e
+quando o pool de match e menor que o corte, "top 5" quer dizer "todos". Medido
+em 2026-09-09, "como fazer risoto de cogumelos" casava 4 notas pela palavra
+"fazer" e as 4 furavam o piso com similaridade 0.58-0.64.
+
+Diagnostico, nesta ordem:
+  1. `zettel ask "<pergunta>" --show-context` e leia o floor_reason de cada linha.
+     Ele nomeia as duas etapas, ex.:
+       "cobertura lexical 33% < 50% (bm25 rank 1), sem bypass; similaridade 0.64
+        abaixo do piso (0.70)"
+  2. Se muita coisa passa por "match lexical forte", meca:
+
+     .venv/Scripts/python.exe scripts/probe_bm25_bypass.py
+
+     Zero chamada de LLM e zero embedding -- so SQLite/FTS5. Ele avisa quando o
+     pool de match e menor que bm25_bypass_max_rank (o sintoma da causa-raiz) e
+     varre o limiar de cobertura mostrando os dois lados do trade-off.
+     EDITE a lista dentro-do-dominio (--in-domain-file): a embutida descreve
+     ESTE acervo.
+  3. Se o problema for similaridade e nao lexical, o probe do piso e outro:
+     scripts/probe_relevance_floor.py
+
+Ao mexer no limiar, a regra inegociavel: MANTENHA consultas de um termo so
+(siglas, jargao) na banda dentro-do-dominio. E o caso de uso que o bypass existe
+para resgatar (ADR-003); elas marcam cobertura 1.00 e qualquer gate que as mate
+esta errado, por melhor que suprima ruido. Foi por isso que a cobertura venceu
+"casar pelo menos N termos": N>=2 tornaria o bypass inalcancavel para uma sigla.
+
+  bm25_bypass_min_coverage: 0.0 restaura o comportamento antigo (so rank).
 ```
 
 #### "I want to change note relation types (contradicts, supports, etc.)"
@@ -503,17 +590,19 @@ Recommended:
 | **extractor.py** | 015, 016, 025, 034, 042, 045 | Literature note format, dedup timing + **scope (per-source)**, prompting, domain few-shots |
 | **review.py** | 016, 017, 018, 045 | Approval gate, thresholds, validation, dedupe escopada por fonte |
 | **connector.py** | 003, 009, 010, 025, 043, 045 | Retrieval (RAG), graph expansion, distant analogies as suggestions, corroboracao entre fontes |
-| **retrieval.py** | 003, 009, 010, 043 | Hybrid fusion, floor, graph expansion, distant-analogy search |
+| **retrieval.py** | 003, 009, 010, 043, 047 | Hybrid fusion, floor (parametrizado; bypass = rank + cobertura), graph expansion, distant-analogy, resumos de capitulo |
 | **gardener.py** | 019, 021, 025, 042 | Taxonomy clustering, routing, prompting |
 | **gardener_hub.py** | 020, 021, 025 | Hub MOCs, routing, prompting |
 | **web/ (pacote), web_app.py** | 022, 023, 018, 039, 040 | Server rendering, job queue, validation, JSON pickers |
 | **config.py** | 004, 006, 042 | YAML-first, Pydantic schema, DomainConfig |
-| **state.py** | 001, 005, 007, 008 | SQLite persistence, hashing, repository pattern |
-| **index.py** | 002, 008, 015 | ChromaDB (4 colecoes; `literature_notes` removida), repository pattern |
+| **state.py** | 001, 005, 007, 008, 047 | SQLite persistence, hashing, repository pattern, resumos + FTS de capitulo |
+| **index.py** | 002, 008, 015, 047 | ChromaDB (5 colecoes; `literature_notes` removida, `chapter_summaries` adicionada), repository pattern |
 | **llm.py** | 024, 025 | Multi-provider, prompt caching |
 | **article.py** | 028, 003, 009, 010, 024, 025 | Article domain helpers: catalog, outline, drafting, assembly, judge |
 | **article_graph/** (package) | 028, 029 | LangGraph orchestration (13 nodes, HITL interrupts, judge loop), package layout |
 | **ask.py** | 003, 009, 010 | Hybrid retrieval, relevance floor, graph expansion |
+| **summarize.py** | 047, 007, 025, 037 | Resumo de capitulo/fonte, gate por checksum, blocos no vault |
+| **catalog.py** | 047, 010, 003 | Busca de catalogo (dois sinais, sem LLM) |
 | **cli/** (package) | 026, 032 | Typer/Rich framework (all commands routed through), package layout |
 | **domain_examples.py** | 042 | Leaf loader for few-shots (`domain.examples_path`) |
 | **manual_lit.py** | 030, 043 | Manual LIT adoption; `suggest-links` without Prompt 2 |

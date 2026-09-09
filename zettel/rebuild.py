@@ -25,6 +25,7 @@ from zettel.hashing import (
     sha256_hex,
 )
 from zettel.index import (
+    COL_CHAPTER_SUMMARIES,
     COL_CHUNKS,
     COL_MOCS,
     COL_PERMANENT,
@@ -81,7 +82,7 @@ def _tags_from_frontmatter(frontmatter_json: str | None) -> list[str]:
 
 # ── Reindex ChromaDB from SQLite ───────────────────────────────────────
 
-_ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS]
+_ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS, COL_CHAPTER_SUMMARIES]
 
 
 def run_reindex(
@@ -95,7 +96,7 @@ def run_reindex(
 
     Args:
         collection: rebuild only this collection (one of sources/chunks/
-            permanent_notes/mocs). None rebuilds all.
+            permanent_notes/mocs/chapter_summaries). None rebuilds all.
         force: reset each target collection before repopulating.
 
     When the embedding provider/model changes, callers **must** pass
@@ -135,6 +136,8 @@ def run_reindex(
             stats[t] = _reindex_permanent(cfg, db, idx)
         elif t == COL_MOCS:
             stats[t] = _reindex_mocs(db, idx)
+        elif t == COL_CHAPTER_SUMMARIES:
+            stats[t] = _reindex_chapter_summaries(db, idx)
 
     # The FTS5 lexical index is another disposable cache reconstructible from
     # SQLite — rebuild it whenever a full reindex runs (no specific collection).
@@ -142,6 +145,7 @@ def run_reindex(
         fts_counts = db.rebuild_fts()
         stats["fts_notes"] = fts_counts.get("fts_notes", 0)
         stats["fts_chunks"] = fts_counts.get("fts_chunks", 0)
+        stats["fts_chapter_summaries"] = fts_counts.get("fts_chapter_summaries", 0)
         stats["topic_terms"] = rebuild_topic_index(cfg, db)
     return stats
 
@@ -216,6 +220,38 @@ def _reindex_sources(db: StateDB, idx: VectorIndex) -> int:
             },
         )
         n += 1
+    return n
+
+
+def _reindex_chapter_summaries(db: StateDB, idx: VectorIndex) -> int:
+    """Repopulate `chapter_summaries` from the summaries already in SQLite.
+
+    Text and metadata come from `summarize`'s own builders, so the reindexed
+    document is byte-identical to what `zettel summarize` wrote.
+    """
+    from zettel.summarize import (
+        chapter_summary_document,
+        chapter_summary_metadata,
+        parse_topics,
+    )
+
+    n = 0
+    for src in db.list_sources():
+        chapters = db.get_chapters_with_summaries(src["source_id"])
+        already = idx.existing_ids(COL_CHAPTER_SUMMARIES, [c["chapter_id"] for c in chapters])
+        for chapter in chapters:
+            if chapter["chapter_id"] in already:
+                continue
+            idx.upsert_chapter_summary(
+                chapter["chapter_id"],
+                chapter_summary_document(
+                    chapter.get("title") or "",
+                    chapter["summary"],
+                    parse_topics(chapter.get("summary_topics")),
+                ),
+                chapter_summary_metadata(chapter, src),
+            )
+            n += 1
     return n
 
 
