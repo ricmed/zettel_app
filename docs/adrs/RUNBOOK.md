@@ -315,6 +315,23 @@ Note:
   - Prompt cache doesn't apply (Ollama limitation)
 ```
 
+#### "LLM is down / connection refused / extract marked every chunk failed"
+```
+Read ADRs:
+  1. ADR-045 (Fail-fast on LLM unavailability)
+     → Transport/auth errors abort harvest/extract/connect on the first item
+     → That item stays pending (not failed); re-run the same command
+  2. ADR-024 (Multi-provider strategy)
+     → No automatic fallback to another provider
+  3. Images (rate_limit_abort_after) are a different policy: consecutive 429s
+
+Debug:
+  - Message starts with "LLM indisponível"
+  - llm.max_retries is the per-call HTTP budget; then the phase stops
+  - zettel retry-failed is for parse/content failures, not an outage
+  - Check the provider is up (Ollama running, API key, model pulled)
+```
+
 ---
 
 ### Web UI & Job Queue

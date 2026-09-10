@@ -1,7 +1,7 @@
 # zettel_app ADR Index (43 Decisions)
 
-**Last Updated**: 2026-09-06  
-**Status**: Complete — 43 formal ADRs across 12 modules
+**Last Updated**: 2026-09-09  
+**Status**: Complete — 44 formal ADRs across 12 modules
 
 ---
 
@@ -16,7 +16,7 @@
 | **REVIEW** | 1 | [016](#review-approval-gate) |
 | **GARDEN** | 3 | [019–021](#garden-moc-generation) |
 | **WEB** | 4 | [022–023, 039–040](#web-ui--job-queue) |
-| **LLM** | 2 | [024–025](#llm-provider--caching) |
+| **LLM** | 3 | [024–025, 045](#llm-provider--caching) |
 | **QA-WRITING** | 3 | [028–029, 038](#qa-writing--article-pipeline) |
 | **MANUAL** | 1 | [030](#manual-hand-written-notes) |
 | **ASSETS** | 1 | [031](#assets-images) |
@@ -345,6 +345,15 @@
 
 ---
 
+### ADR-045: Fail-Fast on LLM Unavailability
+
+- **Status**: Accepted
+- **Date**: 2026-09-09
+- **Summary**: Transport/auth/missing-package errors become `LLMUnavailableError` in the LLM gateway. Harvest, extract and connect abort on the first occurrence; the in-flight item stays pending (not `failed`). `llm.max_retries` is the per-call budget only. No provider fallback (ADR-024).
+- **Link**: [`ADR-045-fail-fast-on-llm-unavailability.md`](./generated/LLM/ADR-045-fail-fast-on-llm-unavailability.md)
+
+---
+
 ## CLI — Orchestration
 
 ### ADR-026: Typer and Rich as CLI Framework
@@ -438,11 +447,17 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 43 |
-| **Accepted** | 43 |
+| **Total ADRs** | 44 |
+| **Accepted** | 44 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 42 |
 | **Modules Covered** | 12 |
+
+---
+
+## Status Update (2026-09-09)
+
+✅ **ADR-045 added** — fail-fast when the configured LLM is unreachable. Extract/connect/harvest stop on the first availability error; pending items are not marked `failed`.
 
 ---
 

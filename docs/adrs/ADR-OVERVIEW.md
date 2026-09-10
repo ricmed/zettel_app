@@ -61,9 +61,10 @@ WEB (4 ADRs)
 ├─ ADR-039 (web.py → web/ package)
 └─ ADR-040 (JSON pickers, progressive enhancement)
 
-LLM (2 ADRs)
+LLM (3 ADRs)
 ├─ ADR-024 (Multi-provider strategy)
-└─ ADR-025 (System+Human prompt split)
+├─ ADR-025 (System+Human prompt split)
+└─ ADR-045 (Fail-fast on LLM unavailability)
 
 CLI (4 ADRs)
 ├─ ADR-026 (Typer + Rich framework)
@@ -129,8 +130,9 @@ ASSETS (1 ADR)
 | **ADR-023** | SQLite job queue | ADR-001 | ADR-022 |
 | **ADR-039** | Web as Python package | ADR-022 | ADR-040 |
 | **ADR-040** | JSON pickers / progressive enhancement | ADR-022, ADR-039 | (manual-note combobox) |
-| **ADR-024** | Multi-provider LLM | ADR-004 | ADR-025 |
+| **ADR-024** | Multi-provider LLM | ADR-004 | ADR-025, ADR-045 |
 | **ADR-025** | System+Human split | ADR-024, ADR-007, ADR-003 | (all LLM calls) |
+| **ADR-045** | Fail-fast on LLM unavailability | ADR-024 | harvest, extract, connect |
 | **ADR-026** | Typer+Rich CLI | ADR-008 | (all commands) |
 | **ADR-027** | Harvest package | ADR-011, 012, 013, 014 | (harvest module layout) |
 | **ADR-028** | LangGraph article orchestration | ADR-003, 009, 010, 024, 025 | ADR-029 |
@@ -318,7 +320,7 @@ These remain documented in `docs/adrs/potential-adrs/` as a backlog for future p
 
 ### For Code Review
 - **Changing persistence?** Consult ADR-001, ADR-002, ADR-005, ADR-008.
-- **Adding an LLM call?** Check ADR-024, ADR-025.
+- **Adding an LLM call?** Check ADR-024, ADR-025, ADR-045.
 - **Modifying retrieval?** Review ADR-003, ADR-009, ADR-010.
 - **Touching harvest/chunking?** Verify ADR-011–014 are still satisfied.
 
