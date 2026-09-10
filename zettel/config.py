@@ -101,6 +101,7 @@ LLM_PHASES: tuple[str, ...] = (
     "ask",
     "article",
     "images",
+    "summarize",
 )
 
 
@@ -135,6 +136,7 @@ class LLMConfig(BaseModel):
     ask: LLMPhaseConfig = Field(default_factory=LLMPhaseConfig)
     article: LLMPhaseConfig = Field(default_factory=LLMPhaseConfig)
     images: LLMPhaseConfig = Field(default_factory=LLMPhaseConfig)
+    summarize: LLMPhaseConfig = Field(default_factory=LLMPhaseConfig)
 
 
 class EmbeddingConfig(BaseModel):
@@ -178,11 +180,32 @@ class LinkingConfig(BaseModel):
     # Piso LOCAL — nao altera retrieval.relevance_floor (compartilhado com ask).
     distant_analogy_topk: int = 5
     distant_analogy_min_similarity: float = 0.40
+    # Corroboracao entre fontes: duas ZTL de source_id diferentes que dizem a
+    # mesma coisa viram duas notas ligadas por `corroborates`, nao uma so.
+    # Derivado por codigo a partir dos hits que o Retriever ja trouxe no connect
+    # (zero embedding e zero chamada de LLM adicionais).
+    corroborates_min_similarity: float = 0.85
+    corroborates_max_edges: int = 3
 
 
 class HarvestConfig(BaseModel):
-    """Dedupe em 3 camadas (hash arquivo/texto + similaridade) e metadados ABNT."""
+    """Dedupe em 5 camadas (hash, DOI/ISBN, titulo+autor, similaridade) e ABNT."""
 
+    # Camada 5 — similaridade semantica de chunks (ADR-011/ADR-046).
+    #
+    # DESLIGADA por default. Ela responde uma pergunta binaria por arquivo
+    # ingerido ("este arquivo e a mesma obra que uma fonte que ja tenho?"), mas
+    # o preco e embedar TODO chunk de TODA fonte para manter o indice-alvo: o
+    # gasto cresce com o acervo, o uso cresce com os arquivos novos. As camadas
+    # 3 e 4 (DOI/ISBN exato, titulo+autor) cobrem material catalogado de forma
+    # deterministica e sem limiar para calibrar.
+    #
+    # Ligar custa um repovoamento: `zettel reindex --collection chunks`. Nao
+    # desligue com a colecao ja parcialmente povoada esperando que a camada 5
+    # continue correta — este flag governa **escrita e leitura ao mesmo tempo**
+    # justamente porque consultar um indice incompleto produz falso negativo
+    # silencioso, e nao um erro.
+    semantic_duplicate_enabled: bool = False
     duplicate_chunk_threshold: float = 0.88
     duplicate_sample_size: int = 5
     non_interactive_duplicate_action: Literal["skip", "continue", "abort"] = "skip"
@@ -309,6 +332,13 @@ DEFAULT_RELATION_WEIGHTS: dict[str, float] = {
     "supports": 0.8,
     "exemplifies": 0.7,
     "related": 0.5,
+    # Convergencia de autoria (fontes diferentes, mesma ideia). Peso BAIXO de
+    # proposito: o peso governa travessia, nao importancia. Um clique de N notas
+    # quase identicas e valioso para quem escreve ("segundo A, corroborado por
+    # B"), e toxico para uma fronteira de recuperacao que busca informacao nova —
+    # com peso alto ele consome as vagas de max_neighbors com parafrases.
+    # A relacao ganha destaque na renderizacao (Conexoes/backlinks), nao aqui.
+    "corroborates": 0.45,
     # Aresta que o autor afirmou no corpo da nota (origin=manual). Nao e um
     # relation_type persistido — e o peso aplicado quando a origem e manual.
     "manual": 0.95,
@@ -363,6 +393,42 @@ class RelevanceFloorConfig(BaseModel):
     bm25_hit_bypasses_floor: bool = True
     bm25_bypass_max_rank: int = 5
     absolute_min_similarity: float = 0.15
+    # Fracao dos termos da pergunta que a nota precisa conter para o bypass
+    # lexical valer. `bm25_bypass_max_rank` sozinho e um criterio RELATIVO:
+    # num pool de 4 notas que casam, "top 5" quer dizer "todas". Cobertura e
+    # ABSOLUTA -- mede quanto do que foi perguntado esta de fato na nota.
+    # 0.5 medido em 2026-09-09 (ADR-003 addendum); 0.0 restaura o
+    # comportamento anterior (so rank).
+    bm25_bypass_min_coverage: float = 0.5
+
+
+class CatalogConfig(BaseModel):
+    """Busca de catalogo: quais fontes tratam de um assunto (ADR-047)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Sementes de nota (sinal A) e de resumo (sinal B). Os dois sinais sao
+    # fundidos por RRF no nivel do capitulo.
+    note_topk: int = 20
+    summary_topk: int = 20
+    max_sources: int = 10
+    max_chapters_per_source: int = 8
+
+
+class SummarizeConfig(BaseModel):
+    """Resumo de capitulo e de fonte (ADR-047). Catalogo: config.yaml -> summarize."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Acima deste orcamento o capitulo e resumido por map-reduce (grupos de
+    # chunks -> resumos parciais -> um resumo so), em vez de uma chamada unica.
+    max_input_chars: int = 60000
+    # Alvo de saida por resumo. Alvo do estimador, nao teto do modelo.
+    preflight_output_tokens_per_chapter: int = 600
+    max_topics: int = 8
+    # Quantos capitulos o mapa lista com wikilinks de notas antes de truncar a
+    # lista de links (o resumo do capitulo em si nunca e truncado).
+    max_links_per_chapter: int = 12
 
 
 class RetrievalConfig(BaseModel):
@@ -380,8 +446,24 @@ class RetrievalConfig(BaseModel):
     topic_index_max_seeds: int = 5
     graph_expansion: GraphExpansionConfig = Field(default_factory=GraphExpansionConfig)
     relevance_floor: RelevanceFloorConfig = Field(default_factory=RelevanceFloorConfig)
+    # Piso PROPRIO para resumos de capitulo (ADR-047). Objeto separado de
+    # `relevance_floor` porque mede outra distribuicao de texto: um resumo de
+    # capitulo e mais longo e difuso que uma nota. Os dois valem 0.70 hoje por
+    # coincidencia de duas medicoes independentes, nao por heranca -- mexer em
+    # um nao deve mexer no outro.
+    #
+    # Medido em 2026-09-07 sobre 71 capitulos resumidos
+    # (ollama/qwen3-embedding@1024d): consultas fora do dominio marcam no maximo
+    # 0.693, self-match no minimo 0.745. O 0.60 anterior deixava as seis
+    # consultas fora do dominio passarem. Re-medir com
+    # `scripts/probe_relevance_floor.py --collection chapter_summaries` apos
+    # qualquer troca de embedding -- o numero nao transfere entre modelos.
+    chapter_floor: RelevanceFloorConfig = Field(
+        default_factory=lambda: RelevanceFloorConfig(min_vector_similarity=0.70)
+    )
     ask: AskConfig = Field(default_factory=AskConfig)
     article: ArticleConfig = Field(default_factory=ArticleConfig)
+    catalog: CatalogConfig = Field(default_factory=CatalogConfig)
 
 
 class AppConfig(BaseModel):
@@ -409,6 +491,7 @@ class AppConfig(BaseModel):
     gardener: GardenerConfig = Field(default_factory=GardenerConfig)
     hub_mocs: HubMocsConfig = Field(default_factory=HubMocsConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    summarize: SummarizeConfig = Field(default_factory=SummarizeConfig)
 
     language: str = "pt-BR"
     vault_timezone: str = "America/Sao_Paulo"

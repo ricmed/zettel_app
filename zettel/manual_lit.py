@@ -1,8 +1,8 @@
 """Adoption of hand-written granular literature notes into the pipeline stores.
 
 A LIT note the user wrote by hand in Obsidian has no ``chunks`` row, so before this
-module it was invisible to SQLite, to the ``literature_notes`` collection, to the
-source's literature index and to ``connect``. Adoption synthesizes that row (plus a
+module it was invisible to SQLite, to the source's literature index and to
+``connect``. Adoption synthesizes that row (plus a
 per-source ``Manual`` chapter, required by the NOT NULL FK on ``chunks.chapter_id``)
 and then reuses the exact same downstream steps as ``review.approve_chunk``.
 
@@ -304,13 +304,14 @@ def adopt_manual_literature(
     meta: dict[str, Any],
     body: str,
 ) -> str:
-    """Register a hand-written granular LIT note in SQLite, Chroma and the index.
+    """Register a hand-written granular LIT note in SQLite and the source index.
 
     Returns 'new', 'updated' or 'skipped'. Idempotent: a note whose excerpt and body
-    are unchanged since the last adoption is skipped without re-embedding.
+    are unchanged since the last adoption is skipped without redoing the work.
+    LIT notes are not embedded — see the note in :func:`review.approve_chunk`.
     """
     from zettel.assets import adopt_vault_images
-    from zettel.review import _literature_embed_text, _refresh_literature_index
+    from zettel.review import _refresh_literature_index
 
     chunk_id = str(meta.get("chunk_id") or "")
     source_id = str(meta.get("source_id") or "")
@@ -320,7 +321,6 @@ def adopt_manual_literature(
     source = db.get_source(source_id)
     if not source:
         return "skipped"
-    citekey = source["citekey"]
 
     chapter_id = ensure_manual_chapter(db, source_id)
 
@@ -372,24 +372,8 @@ def adopt_manual_literature(
         summary_json=json.dumps(summary_payload(body, content), ensure_ascii=False),
     )
 
-    idx.upsert_literature_note(
-        literature_id,
-        _literature_embed_text(file_path),
-        {
-            "source_id": source_id,
-            "chunk_id": chunk_id,
-            "citekey": citekey,
-            "path": str(file_path.relative_to(cfg.vault_path)).replace("\\", "/"),
-            "chunk_index": int(meta.get("chunk_index") or 0),
-            "page_in_book": meta.get("page_in_book") or -1,
-        },
-    )
-
     _refresh_literature_index(cfg, db, source_id)
-    logger.info(
-        "[NOTE=%s] LIT manual adotada -> chunks + literature_notes",
-        file_path.name,
-    )
+    logger.info("[NOTE=%s] LIT manual adotada -> chunks", file_path.name)
     return "updated" if existing else "new"
 
 
@@ -464,14 +448,8 @@ def create_permanent_from_literature(
     source = db.get_source(source_id)
     citekey = source["citekey"] if source else str(meta.get("citekey") or "")
     title_src = source["title"] if source else ""
-    literature_ref = _literature_ref_for_chunk(
-        cfg,
-        db,
-        source_id,
-        citekey,
-        title_src,
-        chunk_id,
-    )
+    chunk_row = db.get_chunk(chunk_id)
+    literature_ref = _literature_ref_for_chunk(citekey, title_src, chunk_row)
 
     if use_llm:
         concept_id = concept_id_for(source_id, chunk_id, candidate.thesis)
@@ -529,6 +507,7 @@ def create_permanent_from_literature(
         literature_ref=literature_ref,
         source_ref=source_ref,
         source_locator=candidate.source_locator,
+        page=chunk_row.get("page_in_book") if chunk_row else None,
     )
     if candidate.anchor_quote:
         note_body += f"\n## Trecho de apoio\n\n> {candidate.anchor_quote}\n"
@@ -547,11 +526,15 @@ def create_permanent_from_literature(
         "source_id": source_id,
         "literature_ref": literature_ref,
         "source_locator": candidate.source_locator,
+        "chunk_id": chunk_id,
         "tags": candidate.tags,
         "origin": "manual",
         "created_at": now,
         "updated_at": now,
     }
+    # Omitted rather than null for a source without pages (native Markdown).
+    if chunk_row and chunk_row.get("page_in_book") is not None:
+        note_meta["page"] = chunk_row["page_in_book"]
     note_path = cfg.vault_path / "30_Permanent" / note_filename("ZTL", note_id, title)
     if note_path.exists() and not force:
         raise FileExistsError(f"Arquivo ja existe: {note_path}")

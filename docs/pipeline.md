@@ -11,7 +11,7 @@ Texto extraído → Chunks (com pagina) → SRC + indice LIT
     ↓ extract
 Drafts de LIT granular (1 por chunk) em 00_Inbox/Review
     ↓ review
-LIT aprovadas em 20_Literature/{Citekey}/ + literature_notes no Chroma
+LIT aprovadas em 20_Literature/{Citekey}/ (cofre + SQLite, sem embedding)
     ↓ connect
 Notas Permanentes (ZTL) com links e backlinks
     ↓ garden
@@ -25,7 +25,7 @@ MOCs (Mapas de Conteúdo) por clusterização semântica
 Módulos: o pacote [`zettel/harvester/`](../zettel/harvester) ([ADR-027](adrs/generated/HARVEST/ADR-027-harvest-phase-as-python-package.md)), [`paging.py`](../zettel/paging.py) e [`bibliography.py`](../zettel/bibliography.py).
 
 1. Varre `data/inbox/` por arquivos `.pdf` e `.md`
-2. Calcula checksum SHA-256 de cada arquivo (pula inalterados) e aplica **detecção de duplicatas em 3 camadas** (hash de arquivo → hash do texto extraído → similaridade semântica de chunks)
+2. Calcula checksum SHA-256 de cada arquivo (pula inalterados) e aplica **detecção de duplicatas em 5 camadas** (hash de arquivo → hash do texto extraído → DOI/ISBN exato → título+autor → similaridade semântica de chunks)
 3. Extrai texto usando **Docling** (PDF) ou parser nativo (Markdown). Antes do Docling, um *probe* de camada de texto (`pypdfium2`, dependência do próprio Docling) lê as 3 primeiras páginas: menos de 40 caracteres visíveis = PDF escaneado, recusado na hora com sugestão de OCR, sem pagar conversão. Logo depois, o texto passa por `text_sanitize` (zero-width, marcas bidi, bloco de tags Unicode) **antes** do checksum de extração ([ADR-033](adrs/generated/HARVEST/ADR-033-invisible-unicode-sanitization-and-text-layer-probe.md))
 4. **Metadados bibliográficos (ABNT)**:
    - Infere o **tipo documental** (`livro`, `capitulo_livro`, `artigo_periodico`, `artigo_internet`, `material_curso`, `tese`, `anais_evento`, `relatorio`) e os campos tipados a partir de metadados do arquivo, heurísticas no texto e, se habilitado, LLM (`prompts/bibliographic_metadata.md`, com cache)
@@ -43,17 +43,41 @@ Módulos: o pacote [`zettel/harvester/`](../zettel/harvester) ([ADR-027](adrs/ge
 
 Um arquivo que não passa na extração não derruba o lote: `run_harvest` devolve um `HarvestOutcome` com `source_ids` e `skipped` (motivo `empty_text_layer` ou `extraction_failed`); os demais arquivos do inbox seguem sendo processados, a CLI lista os recusados e sai com código 1, e a UI web mostra a mensagem real no job.
 
-### Detecção de duplicatas em 3 camadas
+### Detecção de duplicatas em 5 camadas
 
-Cada camada é mais barata e mais certeira que a seguinte, e roda antes de o arquivo virar uma fonte nova ([ADR-011](adrs/generated/HARVEST/ADR-011-three-layer-duplicate-detection.md)):
+Cada camada é mais barata e mais certeira que a seguinte, e roda antes de o arquivo virar uma fonte nova ([ADR-011](adrs/generated/HARVEST/ADR-011-three-layer-duplicate-detection.md)). As camadas 1, 2 e 5 vivem em `harvester/duplicates.py`; as camadas 3 e 4, em `harvester/biblio_dedupe.py`:
 
 | # | Camada | Como funciona | Resultado |
 |---|---|---|---|
 | 1 | **Hash de arquivo** (`get_file_by_checksum`) | Bytes idênticos em outro caminho | Trata como cópia renomeada, reusa o `source_id`, não reprocessa |
 | 2 | **Hash de extração** (`get_source_by_extraction_checksum`) | Bytes diferentes, texto extraído normalizado idêntico (ex.: mesmo paper em PDF re-exportado e em Markdown) | Reusa a fonte existente |
-| 3 | **Similaridade semântica** (`_find_semantic_duplicate_candidates`) | Amostra chunks do arquivo novo e consulta o Chroma por chunks quase idênticos (`harvest.duplicate_chunk_threshold`, default `0.88`) pertencentes a **outras** fontes | Se houver candidatos, `_resolve_duplicate_decision` pergunta (Rich `Prompt`) ou aplica `harvest.non_interactive_duplicate_action` (`skip`/`continue`/`abort`) |
+| 3 | **DOI / ISBN exato** (`find_exact_bibliographic_match`) | Igualdade sobre `sources.doi` / `sources.isbn` (colunas indexadas, normalizadas: `doi:` e URLs do doi.org removidos, prefixo `10.` exigido; ISBN sem pontuação, 10 ou 13 dígitos) | **Identidade**: reusa a fonte sem perguntar |
+| 4 | **Título + autor** (`find_title_author_candidates`) | Exige título normalizado idêntico **e** sobrenome de autor em comum. `normalize_title` reusa `hashing.fold_for_match` e descarta o subtítulo após `:`; sobrenomes comparam o último token, então "D. Kahneman" casa com "Daniel Kahneman" | **Heurística**: sempre pergunta, nunca funde sozinha. Sem TTY o default é **`continue`** (cria fonte nova) |
+| 5 | **Similaridade semântica** (`find_semantic_duplicate_candidates`) — **desligada por padrão**, ver abaixo | Amostra chunks do arquivo novo e consulta o Chroma por chunks quase idênticos (`harvest.duplicate_chunk_threshold`, default `0.88`) pertencentes a **outras** fontes | Se houver candidatos, `resolve_duplicate_decision` pergunta (Rich `Prompt`) ou aplica `harvest.non_interactive_duplicate_action` (`skip`/`continue`/`abort`) |
 
-As flags `--yes`, `--skip-duplicates` e `--force` controlam o comportamento não-interativo. Toda decisão é registrada por `db.record_duplicate(run_id, layer)` e aparece no `zettel status` e no resumo do `harvest`.
+#### A camada 5 vem desligada (`harvest.semantic_duplicate_enabled: false`)
+
+Ela responde uma pergunta binária por arquivo ingerido — "este arquivo é a mesma obra que uma fonte que já tenho?" — mas o preço é **embedar todo chunk de toda fonte** para manter o índice-alvo. O gasto cresce com o acervo; o uso, com os arquivos novos. Na prática é o maior item isolado do tempo de harvest.
+
+O flag governa **escrita e leitura ao mesmo tempo**, e isso não é opcional: consultar um índice que o pipeline parou de povoar não dá erro, dá **falso negativo silencioso** — a duplicata passa e você não fica sabendo. Por isso ele gateia os dois lados juntos:
+
+| Ponto | Efeito com `false` |
+|---|---|
+| `chunking.chunk_and_persist` | não gera embedding de chunk (SQLite e FTS5 seguem completos) |
+| `pipeline._process_file` | a camada 5 não é consultada |
+| `rebuild.run_reindex` | a coleção `chunks` não é tocada — nem repovoada, nem resetada |
+
+**Para ligar**: mude o flag e rode `zettel reindex --collection chunks` para povoar o índice-alvo com o acervo que já existe. Sem isso a camada roda contra uma coleção vazia e não detecta nada.
+
+**Quando ligar vale a pena**: se o seu acervo tem muito material sem metadado utilizável (apostila, handout, PDF sem capa, título que o extrator chutou), a camada 5 é a única rede que sobra — as camadas 3 e 4 dependem de DOI/ISBN ou de título e autor confiáveis. Se você importa sobretudo material catalogado, elas já cobrem, de forma determinística e sem limiar para calibrar.
+
+As camadas 3 e 4 são SQLite puro e rodam **antes de qualquer embedding**, então baratearam o caso comum. Elas **não** substituem a camada 5: a similaridade semântica é a única rede para material sem metadado utilizável (um handout, um PDF sem capa, um título que o extrator chutou).
+
+Por que a camada 4 pergunta em vez de fundir: título e autor coincidem entre um livro e um capítulo dele, entre a 2ª e a 1ª edição, e entre uma tradução e o original. O ano é **reportado, nunca usado para descartar** — essa é exatamente a decisão do usuário. E fundir é a direção irreversível: o ADR-011 registra que não existe operação para separar dois documentos depois.
+
+Caso do PDF escaneado: um scan nunca chega a essas camadas — o `assert_pdf_has_text_layer` ([ADR-033](adrs/generated/HARVEST/ADR-033-invisible-unicode-sanitization-and-text-layer-probe.md)) falha rápido sugerindo OCR. A duplicata aparece só **depois** do OCR, quando as camadas 1 e 2 erram (bytes e texto diferentes) e a 3/4 pegam.
+
+As flags `--yes`, `--skip-duplicates` e `--force` controlam o comportamento não-interativo das camadas 1, 2 e 5. Toda decisão é registrada por `db.record_duplicate(run_id, layer)` — `file`, `content`, `biblio`, `semantic` — e aparece no `zettel status` e no resumo do `harvest`.
 
 ### Chunking
 
@@ -120,10 +144,10 @@ Módulo: [`review.py`](../zettel/review.py).
 
 1. `zettel review` lista drafts `awaiting_review` e um **relatório de faixas** de `review_confidence` (baixíssima `<=0.4`, média até o limiar, alta `>= limiar`). Os cortes (`0.4` em `review.py`; limiar em `literature_review.auto_approve_min_confidence`) são **heurísticas tunáveis** ([ADR-017](adrs/generated/REVIEW/ADR-017-confidence-band-hitl-approval-gate.md)), não valores calibrados empiricamente — o YAML é a fonte operacional (pode divergir do default histórico `0.7` da ADR). Monitore o volume por faixa após harvest/extract e proponha ajuste via issue se a carga ficar desbalanceada; calibração formal só após evidência ou mudança significativa de modelo no extract (ver [RUNBOOK](adrs/RUNBOOK.md))
 2. Modo interativo: `a` aprova lote `>= limiar` (abaixo do limiar permanecem pendentes); `d` abre submenu para rejeitar `t=todos` ou por faixa (`b`/`m`/`h`) após confirmação `s/n` (rejeição parcial volta ao menu); `r` revisa um a um com atalhos `a/r/p/q`; `q` sai
-3. **Approve**: move para `20_Literature/{Citekey}/LIT - AuthorYear - pNNN - topico-NNNN.md`, indexa na coleção Chroma **`literature_notes`** (apenas a interpretação — o bloco de trecho da fonte é removido do texto embeddado), atualiza o índice LIT (wikilinks com rótulo `p. N — tópico`), promove concepts para dedupe → `approved`
-4. **Reject**: apaga draft, `status=rejected`, concepts rejeitados — **nunca** entram em `literature_notes` (o chunk permanece no SQLite/Chroma `chunks` até `zettel purge-rejected`)
+3. **Approve**: move para `20_Literature/{Citekey}/LIT - AuthorYear - pNNN - topico-NNNN.md`, atualiza o índice LIT (wikilinks com rótulo `p. N — tópico`), promove concepts para dedupe **escopada à própria fonte** → `approved`. A nota **não é embeddada** — fica no cofre e no SQLite para auditoria
+4. **Reject**: apaga draft, `status=rejected`, concepts rejeitados (o chunk permanece no SQLite/Chroma `chunks` até `zettel purge-rejected`)
 5. Deduplicação semântica contra permanentes roda **após** a aprovação, não no extract ([ADR-016](adrs/generated/REVIEW/ADR-016-post-approval-concept-deduplication-timing.md))
-6. `zettel purge-rejected`: remove permanentemente chunks `rejected` (SQLite chunks+concepts+FTS, Chroma `chunks` e `literature_notes` se houver) e por padrão roda `VACUUM` em `state.db` e `chroma.sqlite3` (recupera disco; não altera dados restantes; `--no-compact` pula)
+6. `zettel purge-rejected`: remove permanentemente chunks `rejected` (SQLite chunks+concepts+FTS e Chroma `chunks`) e por padrão roda `VACUUM` em `state.db` e `chroma.sqlite3` (recupera disco; não altera dados restantes; `--no-compact` pula)
 
 ---
 
@@ -146,7 +170,19 @@ Módulo: [`connector.py`](../zettel/connector.py).
    ```
 6. Indexa no ChromaDB e registra no SQLite, **persistindo o corpo e o frontmatter completos** (`notes.body`/`frontmatter_json`) — o que permite recriar o `.md` sem reprocessar o LLM. O re-embedding é pulado quando o conteúdo semântico e o modelo não mudaram (`embedding_input_hash`). A chamada do Prompt 2 também é cacheada.
 
-O `literature_ref` aponta para a **LIT granular aprovada** daquele chunk (com fallback para o índice da fonte). Valores de `related_note_id` são canonicalizados (removendo `ZTL -` e wrappers de wikilink até sobrar o ULID) e **descartados** se o alvo não existir no SQLite ou o arquivo tiver sumido — nada de wikilinks fantasma `[[ZTL - ZTL - ULID]]`. O bloco `auto-backlinks` é **reconstruído** a partir das arestas de entrada em `note_connections` (stem do arquivo atual + relação inversa), nunca apenas concatenado. Conexões cujo alvo veio do grupo de analogias distantes vão para `auto-connections`, não para o grafo.
+O `literature_ref` aponta para a **LIT granular aprovada** daquele chunk (com fallback para o índice da fonte), com alias `p. N — tópico`. A seção `## Fonte` e o frontmatter carregam também `page`, a **página impressa estrutural** lida de `chunks.page_in_book` — o `source_locator` continua ali como campo descritivo, mas é prosa escrita pelo LLM no Prompt 1, então não é a página de referência. Markdown nativo não tem página: o campo é omitido, nunca nulo.
+
+### Corroboração entre fontes
+
+Quando um hit que o `Retriever` **já trouxe** para o contexto RAG é semente de busca (`hop == 0`), tem similaridade acima de `linking.corroborates_min_similarity` (0.85) e pertence a um **`source_id` diferente**, o connect injeta uma aresta `corroborates` (teto: `linking.corroborates_max_edges`, default 3). Dois autores convergindo sobre a mesma ideia é o produto da pesquisa, não uma duplicata a colapsar — e é por isso que a dedupe da Fase 2b é escopada à própria fonte.
+
+Isso custa **zero embedding e zero chamada de LLM** adicionais: a busca já rodou. A linha é gravada com **`origin='derived'`**, não `'llm'` — a aresta não foi proposta por modelo nenhum, e é isso que autoriza gravá-la como aresta real em vez de sugestão. Grava-se **uma linha**, não o par simétrico — a travessia do grafo é não-direcionada e o `auto-backlinks` renderiza o inverso (`corroborado por`) na outra nota, exatamente como `extends` já funciona. A ordem de processamento se resolve sozinha: se A foi conectada antes de B existir, B grava B→A na própria execução.
+
+`corroborates` **não aparece** no menu de relações do `permanent_note.md`, e um teste fixa essa ausência. Corroboração é um fato sobre autoria, não um julgamento sobre conteúdo: oferecida ao modelo, ela seria emitida retoricamente ("esta nota também concorda") e o sinal se perderia dentro de `supports`. Um `corroborates` emitido pelo LLM é rebaixado para `supports` na fronteira de confiança, antes da injeção — as arestas que o código afirma sobrevivem. Mesmo padrão do [ADR-034](adrs/generated/EXTRACT/ADR-034-optional-author-judgement-fields.md) e um carve-out deliberado do [ADR-043](adrs/generated/RETRIEVAL/ADR-043-distant-analogies-as-suggestions.md), que barra o *julgamento* do LLM.
+
+Seu peso no grafo é **0.45**, abaixo de `related` — ver [recuperacao.md](recuperacao.md).
+
+Valores de `related_note_id` são canonicalizados (removendo `ZTL -` e wrappers de wikilink até sobrar o ULID) e **descartados** se o alvo não existir no SQLite ou o arquivo tiver sumido — nada de wikilinks fantasma `[[ZTL - ZTL - ULID]]`. O bloco `auto-backlinks` é **reconstruído** a partir das arestas de entrada em `note_connections` (stem do arquivo atual + relação inversa), nunca apenas concatenado. Conexões cujo alvo veio do grupo de analogias distantes vão para `auto-connections`, não para o grafo.
 
 Quando uma nota permanente entra ou sai de um MOC, o pipeline atualiza o bloco **`auto-moc-backrefs`** na ZTL (ver Fase 4 e [notas-manuais.md](notas-manuais.md)).
 

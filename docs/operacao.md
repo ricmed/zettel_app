@@ -104,7 +104,7 @@ python -m zettel purge-rejected --no-compact   # so apaga, sem compactar disco
 python -m zettel purge-rejected --source-id @Citekey
 ```
 
-O que sai: linhas em `chunks` e `concepts` (+ FTS) no SQLite, embeddings na coleção Chroma `chunks` e quaisquer ids em `literature_notes` associados. Notas permanentes e LITs aprovadas **não** são afetadas.
+O que sai: linhas em `chunks` e `concepts` (+ FTS) no SQLite e embeddings na coleção Chroma `chunks`. Notas permanentes e LITs aprovadas **não** são afetadas.
 
 Por padrão roda `VACUUM` em `state.db` e `chroma.sqlite3` — recupera espaço em disco sem alterar os dados restantes. `--no-compact` pula essa etapa.
 
@@ -125,7 +125,7 @@ python -m zettel delete-source '@Citekey' --no-compact       # sem VACUUM
 
 - Vault: nota **SRC**, **índice LIT**, pasta de **LIT granulares** (`20_Literature/{Citekey}/`), **drafts** em `00_Inbox/Review/{Citekey}/`, **assets** em `90_Assets/` ligados à fonte
 - SQLite: fonte, capítulos, chunks, concepts, assets, arquivos (`files`) — cascade completo
-- Chroma: collection `sources`, chunks da fonte, entradas `literature_notes` dos chunks/índice
+- Chroma: collection `sources` e chunks da fonte (LIT não tem vetor)
 
 **Mantido por padrão (sem `--delete-permanent`):**
 

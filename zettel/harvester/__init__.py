@@ -3,6 +3,14 @@
 Supports: PDF (Docling, mandatory), Markdown.
 """
 
+from .biblio_dedupe import (
+    find_exact_bibliographic_match,
+    find_title_author_candidates,
+    normalize_doi,
+    normalize_isbn,
+    normalize_title,
+    resolve_title_author_decision,
+)
 from .biblio_hitl import resolve_bibliography
 from .chunking import (
     chunk_and_persist,
@@ -62,15 +70,21 @@ __all__ = [
     "extract_year_from_pdf_date",
     "extract_year_from_string",
     # Duplicates (used by pipeline, duplicates checks)
+    "find_exact_bibliographic_match",
     "find_semantic_duplicate_candidates",
+    "find_title_author_candidates",
     # Citekey
     "generate_citekey",
     "list_incomplete_sources",
     "merge_small_sections",
+    "normalize_doi",
+    "normalize_isbn",
+    "normalize_title",
     "page_map_for_source",
     # Bibliography
     "resolve_bibliography",
     "resolve_duplicate_decision",
+    "resolve_title_author_decision",
     # Public API (pipeline)
     "run_harvest",
     "run_rechunk",

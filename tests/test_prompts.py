@@ -63,6 +63,8 @@ CONSUMERS: dict[str, tuple[str, str]] = {
     "article_query_enrich.md": ("article.py", "enrich_search_queries"),
     "article_personality.md": ("article.py", "apply_personality_rewrite"),
     "article_judge.md": ("article.py", "judge_article_body"),
+    "chapter_summary.md": ("summarize.py", "_summarize_chapter_text"),
+    "source_summary.md": ("summarize.py", "_summarize_source"),
 }
 
 # Payload that changes on every call: keeping it in the system half would break
@@ -305,7 +307,21 @@ def test_permanent_note_documents_ulid_connections():
     assert "ULID" in text
     assert "note_id:" in text
     for relation in RelationType:
+        if relation is RelationType.CORROBORATES:
+            continue
         assert relation.value in text
+
+
+def test_permanent_note_never_offers_corroborates():
+    """Corroboration is a fact about authorship, not a judgement the LLM makes.
+
+    Offered in the relation menu, the model would emit it rhetorically ("this
+    note also agrees") and the signal — two *different* sources converging —
+    would be indistinguishable from `supports`. Only `connect` writes this edge,
+    derived from `source_id`; see `connector._demote_llm_corroborates`.
+    """
+    text = (PROMPTS_DIR / "permanent_note.md").read_text(encoding="utf-8")
+    assert RelationType.CORROBORATES.value not in text
 
 
 # ── Prompt-specific contracts ─────────────────────────────────────────

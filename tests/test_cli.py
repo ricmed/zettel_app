@@ -57,6 +57,7 @@ EXPECTED_COMMANDS = [
     "extract",
     "review",
     "retry-failed",
+    "summarize",
     # synthesis.py — phases 3 and 4
     "connect",
     "garden",
@@ -70,6 +71,7 @@ EXPECTED_COMMANDS = [
     # pipeline.py / qa.py / writing.py / export.py
     "run-all",
     "ask",
+    "catalog",
     "article",
     "skill",
     # diagnostics.py — read-only inspection
@@ -145,6 +147,18 @@ def test_harvest_no_longer_offers_move_processed():
     it only created `data/processed/` and told the user to move them by hand."""
     result = CliRunner().invoke(app, ["harvest", "--help"])
     assert "--move-processed" not in result.output
+
+
+def test_retry_failed_rejected_requires_source_id():
+    result = CliRunner().invoke(app, ["retry-failed", "--rejected"])
+    assert result.exit_code == 1
+    assert "--source-id" in result.output
+
+
+def test_retry_failed_rejected_help_mentions_cache():
+    result = CliRunner().invoke(app, ["retry-failed", "--help"])
+    assert result.exit_code == 0
+    assert "--rejected" in result.output
 
 
 # ── Package structure ─────────────────────────────────────────────────

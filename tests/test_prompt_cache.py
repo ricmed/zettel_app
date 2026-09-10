@@ -134,6 +134,7 @@ def test_get_llm_openai_compatible_aliases():
     assert is_openai_compatible("openrouter")
     assert is_openai_compatible("opencode")
     assert is_openai_compatible("OpenAI")
+    assert is_openai_compatible("deepseek")
     assert normalize_llm_provider(" Gemini ") == "gemini"
     assert not is_openai_compatible("anthropic")
 

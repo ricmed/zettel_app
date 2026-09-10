@@ -28,3 +28,9 @@ A wrong analogy stays a suggestion. Graph expansion and hub ranking only see end
 * GitHub issues #161, #165
 * `zettel/retrieval.py` (`search_distant_analogies`), `zettel/connector.py` (`_search_distant_for_candidate`, `_write_distant_suggestions`)
 * `zettel/manual_lit.py` (`suggest_connections_for_permanent`)
+
+## Amendment (2026-09-07) — carve-out for `corroborates`
+
+The rule here — *connect writes edges without a human gate, therefore speculative links stay suggestions* — gates **LLM judgement**. [ADR-045](../REVIEW/ADR-045-cross-source-overlap-is-corroboration.md) writes `corroborates` straight to `note_connections`, and that is consistent rather than an exception: the edge is derived by code from `source_id` plus a similarity threshold, never proposed by a model. `corroborates` is deliberately absent from `permanent_note.md`'s relation menu (a test pins the absence), and a model that emits it anyway is downgraded to `supports` before the code's own edges are injected.
+
+The distinction to preserve: a distant analogy is a guess about mechanism and can be wrong; corroboration is a fact about authorship and cannot.

@@ -135,6 +135,33 @@
 
 ---
 
+### ADR-047: Chapter Summaries as a Library-Level Routing Index
+
+- **Status**: Accepted
+- **Date**: 2026-09-07
+- **Summary**: The vault gains a library index it could not answer before: `zettel catalog` returns which sources treat a subject, which chapters, and how many permanent notes each chapter produced. Chapter summaries are embedded and searchable; the source summary is a reduce over them and is not embedded. A summary *routes* and is never evidence — a test pins it out of `ask`. Own relevance floor, measured at 0.70 (off-domain tops at 0.693, self-match bottoms at 0.745).
+- **Link**: [`ADR-047-chapter-summaries-as-library-routing-index.md`](./generated/RETRIEVAL/ADR-047-chapter-summaries-as-library-routing-index.md)
+
+---
+
+### ADR-046: Bibliographic Duplicate Layers Before the Semantic One
+
+- **Status**: Accepted
+- **Date**: 2026-09-07
+- **Summary**: Harvest dedupe goes from three layers to five. Exact DOI/ISBN (an identity) reuses the source silently; title + author (a heuristic) always asks and never merges on its own. Both are pure SQLite and run before any embedding.
+- **Link**: [`ADR-046-bibliographic-duplicate-layers.md`](./generated/HARVEST/ADR-046-bibliographic-duplicate-layers.md)
+
+---
+
+### ADR-045: Cross-Source Overlap Is Corroboration, Not Duplication
+
+- **Status**: Accepted
+- **Date**: 2026-09-07
+- **Summary**: Concept dedupe is scoped to one `source_id`. Two sources stating one idea yield two notes plus a `corroborates` edge derived by code at connect — never offered to the LLM, and weighted 0.45 because weight governs traversal, not importance.
+- **Link**: [`ADR-045-cross-source-overlap-is-corroboration.md`](./generated/REVIEW/ADR-045-cross-source-overlap-is-corroboration.md)
+
+---
+
 ### ADR-043: Distant Analogies as Suggestions, Not Graph Edges
 
 - **Status**: Accepted
@@ -462,6 +489,12 @@
 ---
 
 ## Status Update (2026-09-06)
+
+✅ **ADR-003 addendum (2026-09-09)** — the BM25 bypass gained an absolute half. `bm25_bypass_max_rank` is a *relative* test, and since `_fts_match_expr` ORs the query's terms, a match pool smaller than the cutoff made "top 5" mean "everything": an off-domain question returned notes rescued by one shared common word, at similarity well below the floor. `bm25_bypass_min_coverage` (0.5) now also requires the note to contain half the query's terms. Off-domain hits 31 -> 1 with zero in-domain loss on any of the four consumers. Measure with `scripts/probe_bm25_bypass.py` (no LLM, no embedding).
+
+✅ **ADR-047 added (2026-09-07)** — source and chapter summaries, persisted and searchable as a routing index (`zettel summarize` / `zettel catalog`). Reopens the "corpus-wide library index" ADR-036 deferred, under the same routing-not-representation rule that keeps it clear of ADR-034's double-counting and ADR-043's LLM-guess gate. New Chroma collection `chapter_summaries`, with `zettel/catalog.py` as its named reader.
+
+✅ **ADR-045 and ADR-046 added (2026-09-07)** — cross-source overlap becomes corroboration instead of deduplication (ADR-045); harvest dedupe gains two bibliographic layers (ADR-046). Amendments: ADR-011 (five layers), ADR-015 (`literature_notes` collection removed — it was write-only), ADR-016 (scope superseded, timing intact), ADR-030 (adoption no longer embeds), ADR-009 (`corroborates` weight 0.45), ADR-043 (carve-out: code-derived edges are not LLM judgement).
 
 ✅ **ADR-042 and ADR-043 added** — domain is first-class config with externalized few-shots (issues #156–#160); distant analogies are suggestions, not edges (issues #161, #165). ADR-004, ADR-009, ADR-019 and ADR-030 gained amendments (pillar labels, `note_connections.origin`, `zettel suggest-links`).
 

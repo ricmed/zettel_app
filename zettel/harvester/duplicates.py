@@ -1,4 +1,14 @@
-"""Three-layer duplicate detection: file hash, extraction hash, semantic similarity."""
+"""Duplicate detection layers 1, 2 and 5: file hash, extraction hash, semantics.
+
+Layers 3 and 4 (exact DOI/ISBN, then title + author) live in
+:mod:`zettel.harvester.biblio_dedupe` and run in between: they are pure SQLite,
+so they resolve the common case before any embedding is computed.
+
+Semantic similarity stays as the last layer rather than being replaced by them.
+It is the only net for material whose metadata is unusable — a handout, a PDF
+with no cover page, a title the extractor guessed — where there is no DOI, no
+ISBN, and no title worth matching on.
+"""
 
 from __future__ import annotations
 

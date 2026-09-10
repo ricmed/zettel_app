@@ -127,7 +127,7 @@ Convenções de nomes e IDs:
 |---|---|
 | [`config.py`](../zettel/config.py) | Schema Pydantic + fallback de fábrica. A fonte operacional é `config/config.yaml`; segredos ficam no `.env`. Identidade de LLM é **por fase**; knobs de amostragem são globais. Veja [configuracao.md](configuracao.md). |
 | [`state.py`](../zettel/state.py) | SQLite em modo WAL ([ADR-001](adrs/generated/INFRA/ADR-001-sqlite-wal-fts5-primary-persistence.md)). Tabelas: `files`, `sources`, `chapters`, `chunks`, `concepts`, `notes`, `mocs`, `assets`, `llm_cache`, `note_connections`, `runs`, `web_jobs`, `web_job_events` + as virtuais FTS5 `fts_notes`/`fts_chunks`. `runs` e `sources` guardam custo e tokens estimados. |
-| [`index.py`](../zettel/index.py) | Wrapper do ChromaDB ([ADR-002](adrs/generated/INFRA/ADR-002-chromadb-embedded-vector-store.md)) com 5 coleções: `sources`, `chunks`, `permanent_notes`, `mocs` e `literature_notes`. LITs só são embeddadas **após** a aprovação no review. Metadata do Chroma aceita apenas `str`/`int`/`float`/`bool` — listas são unidas com `", "` por `_sanitize_metadata()`. |
+| [`index.py`](../zettel/index.py) | Wrapper do ChromaDB ([ADR-002](adrs/generated/INFRA/ADR-002-chromadb-embedded-vector-store.md)) com 4 coleções: `sources`, `chunks`, `permanent_notes` e `mocs`. **LITs não são embeddadas** — vivem no cofre e no SQLite, para auditoria; nada nunca consultou uma coleção de literatura. Metadata do Chroma aceita apenas `str`/`int`/`float`/`bool` — listas são unidas com `", "` por `_sanitize_metadata()`. |
 | [`vault.py`](../zettel/vault.py) | I/O do Obsidian: parse/render de frontmatter YAML, blocos gerenciados e escrita segura que nunca sobrescreve edição manual fora dos blocos. Builders de SRC, índice LIT e LIT granular. `sync_source_costs_to_vault` espelha os custos do SQLite no frontmatter da SRC. |
 | [`llm.py`](../zettel/llm.py) | `get_llm` / `call_llm` / `load_prompt_parts` / `fill_template`. Instancia o client por fase, aplica o split System/Human dos prompts, lê `usage_metadata` e registra custo. Veja [ADR-024](adrs/generated/LLM/ADR-024-multi-provider-llm-strategy.md) e [ADR-025](adrs/generated/LLM/ADR-025-prompt-caching-system-human-split.md). |
 | [`pricing.py`](../zettel/pricing.py) / [`usage.py`](../zettel/usage.py) | `cost_per_token` do LiteLLM como **calculadora de preço** (não como client de LLM); `CostTracker` agrega por run/fonte via contextvars. |
@@ -143,7 +143,7 @@ Cada comando da CLI monta a tripla `(AppConfig, StateDB, VectorIndex)` via `_loa
 ```
 harvest  → chunks `pending` no SQLite + Chroma `chunks`
 extract  → drafts de LIT + concepts `awaiting_review`
-review   → LIT aprovadas em `literature_notes`; concepts deduplicados → `approved`
+review   → LIT aprovadas no cofre + SQLite (sem embedding); concepts deduplicados por fonte → `approved`
 connect  → le `get_concepts_by_status("approved", without_notes=True)` do SQLite
 garden   → le embeddings de notas permanentes + `note_connections`
 ```

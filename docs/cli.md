@@ -21,7 +21,7 @@ python -m zettel run-all
 #    Aponte para a pasta ./vault
 ```
 
-O `run-all` encadeia `harvest → extract → review → connect → garden`. Em uso diário é comum rodar fase a fase, porque o `review` é um portão humano.
+O `run-all` encadeia `harvest → extract → review → summarize → connect → garden`. Em uso diário é comum rodar fase a fase, porque o `review` é um portão humano.
 
 ---
 
@@ -35,10 +35,12 @@ O `run-all` encadeia `harvest → extract → review → connect → garden`. Em
 | [`rechunk`](#rechunk) | Re-chunka a partir do texto já extraído |
 | [`extract`](#extract) | Prompt 1: gera drafts de LIT granular |
 | [`review`](#review) | Aprova/rejeita os drafts (portão humano) |
+| [`summarize`](#summarize) | Resume cada capítulo e o material como um todo |
 | [`purge-rejected`](#purge-rejected) | Apaga definitivamente os chunks rejeitados |
 | [`connect`](#connect) | Prompt 2: gera notas permanentes (ZTL) |
 | [`garden`](#garden) | Clusteriza notas e gera/atualiza MOCs |
 | [`ask`](#ask) | QA sobre o vault com recuperação híbrida |
+| [`catalog`](#catalog) | Quais fontes tratam de um assunto, e em que capítulos |
 | [`article`](#article) | Artigo longo a partir do vault (LangGraph) |
 | [`skill`](#skill) | Exporta um recorte aprovado como Agent Skill plana |
 | [`new-note`](#new-note) | Scaffold de notas manuais |
@@ -49,7 +51,7 @@ O `run-all` encadeia `harvest → extract → review → connect → garden`. Em
 | [`dump-extraction`](#dump-extraction) | Exporta o Markdown extraído |
 | [`reindex`](#reindex) | Reconstrói o ChromaDB a partir do SQLite |
 | [`rebuild`](#rebuild) | Reconstrói o vault (`.md`) e/ou o Chroma |
-| [`retry-failed`](#retry-failed) | Reprocessa chunks/imagens com falha |
+| [`retry-failed`](#retry-failed) | Reprocessa chunks/imagens com falha, ou chunks `rejected` do extract (`--rejected`) |
 | [`status`](#status) | Estatísticas do pipeline |
 | [`doctor`](#doctor) | Diagnóstico de configuração e dependências |
 | [`run-all`](#run-all) | Pipeline completo |
@@ -205,7 +207,7 @@ python -m zettel purge-rejected --no-compact   # so apaga, sem compactar disco
 python -m zettel purge-rejected --source-id @Citekey
 ```
 
-Remove permanentemente os chunks `rejected` (SQLite `chunks`/`concepts`/FTS, Chroma `chunks` e `literature_notes` se houver). Não afeta notas permanentes nem LITs aprovadas. Veja [operacao.md](operacao.md#purge-rejected).
+Remove permanentemente os chunks `rejected` (SQLite `chunks`/`concepts`/FTS e Chroma `chunks`). Não afeta notas permanentes nem LITs aprovadas. Veja [operacao.md](operacao.md#purge-rejected).
 
 ---
 
@@ -282,6 +284,64 @@ python -m zettel ask "O que e RAG?" --no-save-prompt      # nao pergunta se deve
 | `--no-save-prompt` | Não pergunta se deve salvar (scripts). |
 
 Detalhes da recuperação e do relatório em [recuperacao.md](recuperacao.md#perguntar-ao-acervo-zettel-ask).
+
+---
+
+## `summarize`
+
+Resume cada **capítulo** a partir do texto real da fonte e reduz os resumos de
+capítulo num **resumo geral** do material. Os dois viram blocos gerenciados na
+nota índice de literatura (`## Resumo geral` e `## Mapa de capítulos`).
+
+```bash
+python -m zettel summarize                              # todas as fontes pendentes
+python -m zettel summarize --source-id @Latorre2005AnaliseDe
+python -m zettel summarize --yes                        # sem confirmar o pre-voo
+```
+
+| Flag | Efeito |
+|---|---|
+| `--source-id @Citekey` | Resume apenas essa fonte. |
+| `--yes` | Passa direto pelo pré-voo de custo. |
+
+**Só regenera o que mudou.** Cada capítulo guarda o `chapter_checksum` que gerou
+o resumo; enquanto ele bater, o capítulo é pulado sem nenhuma chamada de LLM —
+rodar de novo num vault estável custa zero. Um `rechunk` ou re-harvest muda o
+checksum e o resumo passa a ser marcado como **defasado** (nunca apagado).
+
+O mapa de capítulos mostra, por capítulo: faixa de páginas, **quantidade de notas
+permanentes**, o resumo, e os wikilinks para as LIT granulares e as ZTL daquele
+capítulo — é a porta de entrada para as notas do capítulo. As contagens são
+atualizadas de graça a cada `connect`, sem regerar texto.
+
+---
+
+## `catalog`
+
+Responde "quais livros/artigos falam sobre X?" — devolve a fonte, os capítulos
+relevantes e quantas notas permanentes cada capítulo gerou.
+
+```bash
+python -m zettel catalog "series temporais"
+python -m zettel catalog "series temporais" --show-context   # pool bruto + parametros
+```
+
+| Flag | Efeito |
+|---|---|
+| `--show-context` | Mostra os capítulos avaliados (inclusive os barrados, com o motivo) e os parâmetros de recuperação. |
+
+**Não chama LLM nenhum.** A resposta é uma tabela ranqueada mais um agregado SQL;
+`ask` continua sendo o lugar das respostas em prosa.
+
+Um capítulo pode aparecer por dois caminhos, e a coluna "Achado por" diz qual:
+
+- **notas** — o capítulo produziu notas permanentes que casaram com a pergunta.
+  É o sinal mais forte, porque a nota já passou pelo portão humano.
+- **resumo** — o capítulo casou pelo resumo. É o que encontra o capítulo que
+  **não** virou nota nenhuma (extração de baixo rendimento, ou fonte ainda não
+  passada pelo `connect`).
+
+Requer `zettel summarize` antes para o segundo sinal existir.
 
 ---
 
@@ -462,6 +522,8 @@ python -m zettel reindex --force --yes
 | `--force` | Reseta a coleção antes de repovoar. Necessário após troca de embedding. |
 | `--yes` / `-y` | Confirma sem prompt. |
 
+A coleção `chunks` é **ignorada** enquanto `harvest.semantic_duplicate_enabled` for `false` — nem repovoada, nem resetada por `--force`. Ela só serve à camada 5 de dedupe; repovoá-la ali pagaria de volta, silenciosamente, todo o custo de embedding que o flag existe para evitar. Depois de ligar o flag, `zettel reindex --collection chunks` é justamente o que popula o índice com o acervo já existente.
+
 Um `reindex` completo também reconstrói o índice lexical FTS5. Veja [operacao.md](operacao.md#retencao-e-reconstrucao).
 
 ---
@@ -490,9 +552,14 @@ python -m zettel rebuild --what vault --force  # sobrescreve (nunca notas manuai
 python -m zettel retry-failed                        # chunks com falha -> pending
 python -m zettel retry-failed --source-id @Citekey   # apenas de uma fonte
 python -m zettel retry-failed --assets               # imagens com falha de descricao -> pending
+python -m zettel retry-failed --rejected --source-id @Citekey
+# chunks que o extract marcou rejected (sem draft) voltam para pending;
+# o cache LLM desses chunks e apagado, senao a mesma rejeicao se repetiria
 ```
 
-Depois de resetar, rode `extract` novamente para reprocessar.
+`--rejected` exige `--source-id`: rejeicao e o estado terminal do extract (sumario, codigo, irrelevante), nao uma falha de rede. Sem o filtro, o comando reescreveria o vault inteiro.
+
+Depois de resetar, rode `extract` novamente para reprocessar. O `review` so ve drafts; chunk `rejected` nunca entra na fila de review.
 
 ---
 

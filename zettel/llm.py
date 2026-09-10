@@ -11,6 +11,7 @@ via ``<!-- zettel:user -->`` in prompt files (see ``load_prompt_parts``).
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,7 @@ _OPENAI_COMPAT_PROVIDERS = frozenset(
         "opencode",
         "azure",
         "compatible",
+        "deepseek",
     }
 )
 _CHAT_PROVIDERS = _OPENAI_COMPAT_PROVIDERS | frozenset({"anthropic", "ollama", "gemini"})
@@ -249,15 +251,23 @@ def get_llm(
         if is_openai_compatible(provider):
             from langchain_openai import ChatOpenAI
 
-            kwargs: dict[str, Any] = {
-                "model": spec.model,
-                "temperature": temp,
-                "top_p": top_p,
-                "max_retries": retries,
-            }
-            if base_url:
-                kwargs["base_url"] = base_url
-            return ChatOpenAI(**kwargs)
+        kwargs: dict[str, Any] = {
+            "model": spec.model,
+            "temperature": temp,
+            "top_p": top_p,
+            "max_retries": retries,
+        }
+        if base_url:
+            kwargs["base_url"] = base_url
+        if provider == "deepseek":
+            key = os.environ.get("DEEPSEEK_API_KEY")
+            if not key:
+                raise RuntimeError(
+                    "Sem DEEPSEEK_API_KEY no ambiente (.env). "
+                    "Necessaria quando llm.<fase>.provider e deepseek."
+                )
+            kwargs["api_key"] = key
+        return ChatOpenAI(**kwargs)
 
         if provider == "anthropic":
             from langchain_anthropic import ChatAnthropic
@@ -613,6 +623,8 @@ REQUIRED_PROMPTS: tuple[str, ...] = (
     "article_query_enrich.md",
     "article_personality.md",
     "article_judge.md",
+    "chapter_summary.md",
+    "source_summary.md",
 )
 
 

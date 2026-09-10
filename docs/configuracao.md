@@ -12,7 +12,7 @@ Tudo que se ajusta sem tocar em código: o catálogo completo de `config/config.
 |---|---|
 | [`config/config.yaml`](../config/config.yaml) | **Fonte operacional.** É o arquivo que o CLI e a web carregam. |
 | [`zettel/config.py`](../zettel/config.py) | Schema Pydantic (tipos, validators) + **fallback de fábrica**. Só entra em ação quando o YAML falta, quando uma chave é omitida, ou nos testes que instanciam `AppConfig()`. |
-| `.env` | Segredos (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `SESSION_SECRET`). **Nunca** no YAML. |
+| `.env` | Segredos (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY`, `SESSION_SECRET`). **Nunca** no YAML. |
 | [`config/moc_topics.yaml`](../config/moc_topics.yaml) | Taxonomia de tópicos dos MOCs (pilar > categoria > tópicos). Veja [prompts.md](prompts.md#taxonomia-de-topicos-para-mocs). |
 | [`config/domain_examples.yaml`](../config/domain_examples.yaml) | Few-shots de domínio (extract/connect). Caminho: `domain.examples_path`. |
 | [`config/personalities.yaml`](../config/personalities.yaml) | Personalidades de reescrita do `zettel article`. |
@@ -51,7 +51,7 @@ llm:
   max_retries: 2             # retries do client em falha HTTP
   prompt_cache: true         # prefix cache do provedor (System + Human)
   harvest:                   # metadados bibliograficos ABNT
-    provider: openai         # openai | anthropic | ollama | gemini | openrouter | opencode
+    provider: openai         # openai | anthropic | ollama | gemini | openrouter | opencode | deepseek
     model: gpt-4o-mini
     base_url: null           # gateways OpenAI-compatible / Ollama
   extract:                   # Prompt 1 — notas de literatura
@@ -117,13 +117,20 @@ images:
 linking:
   topk: 5                    # default do Retriever e do RAG de connect/sync
   dedupe_threshold: 0.90     # similaridade; L2 = 2 * (1 - threshold) no extract
+                             # aplicado SO a notas da mesma fonte (ver pipeline.md)
   preflight_output_tokens_per_note: 1200  # alvo de saida por nota no pre-voo (nao e teto)
   distant_analogy_topk: 5
   distant_analogy_min_similarity: 0.40
+  corroborates_min_similarity: 0.85  # mesma ideia em fonte diferente => aresta corroborates
+  corroborates_max_edges: 3          # teto de arestas de corroboracao por nota
 
 # ── Harvest (duplicatas + metadados bibliograficos ABNT) ───────────────
 harvest:
-  duplicate_chunk_threshold: 0.88   # similaridade minima p/ suspeita semantica (camada 3)
+  # Camada 5 (similaridade semantica). Desligada: manter o indice-alvo exige
+  # embedar todo chunk de toda fonte. Governa escrita E leitura juntas.
+  # Ligar exige `zettel reindex --collection chunks`. Ver pipeline.md.
+  semantic_duplicate_enabled: false
+  duplicate_chunk_threshold: 0.88   # similaridade minima p/ suspeita semantica (camada 5)
   duplicate_sample_size: 5          # chunks amostrados do arquivo novo
   non_interactive_duplicate_action: skip   # skip | continue | abort
   biblio_confidence_threshold: 0.7  # abaixo disso, pede confirmacao do tipo documental
@@ -170,6 +177,7 @@ retrieval:
       supports: 0.8
       exemplifies: 0.7
       related: 0.5
+      corroborates: 0.45     # convergencia de autoria; peso governa TRAVESSIA, nao importancia
       manual: 0.95           # peso quando origin=manual (wikilink no corpo)
   ask:
     topk: 8                  # notas semente do comando `ask`
@@ -271,6 +279,18 @@ llm:
 ```
 
 Usa `ChatOpenAI` com o `base_url` da fase. A chave segue o que o gateway espera (normalmente `OPENAI_API_KEY`).
+
+### DeepSeek
+
+```yaml
+llm:
+  ask:
+    provider: deepseek
+    model: deepseek-v4-flash
+    base_url: https://api.deepseek.com
+```
+
+Usa o endpoint OpenAI-compatible (`https://api.deepseek.com`). Requer `DEEPSEEK_API_KEY` — não reutiliza `OPENAI_API_KEY`, para poder misturar DeepSeek numa fase e OpenAI nas outras. Não use o endpoint Anthropic (`/anthropic`): `provider: anthropic` ignora `base_url`.
 
 ### Anthropic
 
@@ -391,7 +411,8 @@ Sem `--force` após uma troca de modelo, sources/chunks já indexados **não** s
 Depois da troca, se a qualidade da busca degradar, recalibre:
 
 - `retrieval.relevance_floor.min_vector_similarity` — o piso é dependente do modelo;
-- `linking.dedupe_threshold` e `harvest.duplicate_chunk_threshold` — limiares de dedupe, calibrados sobre distância L2 crua.
+- `linking.dedupe_threshold` e `harvest.duplicate_chunk_threshold` — limiares de dedupe, calibrados sobre distância L2 crua. O segundo só tem efeito com `harvest.semantic_duplicate_enabled: true`.
+- `linking.corroborates_min_similarity` — também sobre similaridade vetorial crua, derivada dos hits que o `Retriever` já trouxe no `connect`. Não custa embedding nem chamada de LLM adicionais.
 
 O `zettel doctor` também reporta drift de embedding.
 

@@ -41,6 +41,9 @@ class _FakeIdx:
 
 def _cfg(**chunking):
     cfg = AppConfig()
+    # These tests assert on the Chroma `chunks` collection, which only exists to
+    # serve dedupe layer 5 and is off by default.
+    cfg.harvest.semantic_duplicate_enabled = True
     for k, v in chunking.items():
         setattr(cfg.chunking, k, v)
     return cfg
@@ -315,14 +318,14 @@ def test_rechunk_removes_orphans_on_changed_text(tmp_path):
 
         text_v1 = "# Cap\n\n" + "conteudo original bem longo. " * 20
         db.update_source_texts("@S", extracted_text=text_v1)
-        run_rechunk(AppConfig(), db, idx, "@S")
+        run_rechunk(_cfg(), db, idx, "@S")
         ids_v1 = {c["chunk_id"] for c in db.get_chunks_for_source("@S")}
         assert ids_v1 and ids_v1 == idx.chunks_store
 
         # Change the source text and rechunk: old chunks must be pruned from both stores.
         text_v2 = "# Cap\n\n" + "conteudo completamente diferente agora. " * 20
         db.update_source_texts("@S", extracted_text=text_v2)
-        run_rechunk(AppConfig(), db, idx, "@S")
+        run_rechunk(_cfg(), db, idx, "@S")
         ids_v2 = {c["chunk_id"] for c in db.get_chunks_for_source("@S")}
 
         assert ids_v2 != ids_v1

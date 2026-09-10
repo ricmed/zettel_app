@@ -8,10 +8,28 @@ from zettel.harvester import (
     HarvestAborted,
 )
 from zettel.harvester import (
+    find_exact_bibliographic_match as _find_exact_bibliographic_match,
+)
+from zettel.harvester import (
     find_semantic_duplicate_candidates as _find_semantic_duplicate_candidates,
 )
 from zettel.harvester import (
+    find_title_author_candidates as _find_title_author_candidates,
+)
+from zettel.harvester import (
+    normalize_doi as _normalize_doi,
+)
+from zettel.harvester import (
+    normalize_isbn as _normalize_isbn,
+)
+from zettel.harvester import (
+    normalize_title as _normalize_title,
+)
+from zettel.harvester import (
     resolve_duplicate_decision as _resolve_duplicate_decision,
+)
+from zettel.harvester import (
+    resolve_title_author_decision as _resolve_title_author_decision,
 )
 from zettel.harvester import (
     sample_chunk_texts as _sample_chunk_texts,
@@ -58,6 +76,8 @@ def cfg(tmp_path):
     c = AppConfig(
         vault_path=tmp_path / "vault",
         harvest=HarvestConfig(
+            # Layer 5 is off by default; this module is what tests it.
+            semantic_duplicate_enabled=True,
             duplicate_chunk_threshold=0.85,
             biblio_llm_enabled=False,
         ),
@@ -365,3 +385,222 @@ def test_process_file_semantic_duplicate_abort_raises(db, cfg, tmp_path):
             duplicate_action="abort",
             skip_biblio=True,
         )
+
+
+# ── Layers 3 & 4: bibliographic dedupe (pure SQLite, before any embedding) ──
+
+
+def _seed_source(db, *, sid, citekey, title, authors, year, doi=None, isbn=None):
+    db.upsert_source(
+        source_id=sid,
+        citekey=citekey,
+        title=title,
+        authors=authors,
+        year=year,
+        file_checksum=f"h-{citekey}",
+        origin_path=f"/{citekey}.pdf",
+        origin_type="pdf",
+        doi=doi,
+        isbn=isbn,
+    )
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("10.1000/XyZ", "10.1000/xyz"),
+        ("https://doi.org/10.1000/xyz", "10.1000/xyz"),
+        ("doi: 10.1000/xyz", "10.1000/xyz"),
+        ("nao-e-um-doi", ""),  # sem prefixo de registrante 10.
+        (None, ""),
+    ],
+)
+def test_normalize_doi(raw, expected):
+    assert _normalize_doi(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("978-85-333-0227-3", "9788533302273"),
+        ("0-306-40615-2", "0306406152"),
+        ("12345", ""),  # comprimento implausivel
+        (None, ""),
+    ],
+)
+def test_normalize_isbn(raw, expected):
+    assert _normalize_isbn(raw) == expected
+
+
+def test_normalize_title_drops_subtitle_and_folds():
+    """O subtitulo e onde a catalogacao mais diverge; o titulo principal e o estavel."""
+    assert _normalize_title("Pensar, Rápido e Devagar: uma introdução") == "pensar rapido e devagar"
+    assert _normalize_title("PENSAR, RAPIDO E DEVAGAR") == _normalize_title(
+        "Pensar, Rápido e Devagar: outra edição"
+    )
+
+
+def test_exact_match_prefers_doi_over_isbn(db):
+    _seed_source(db, sid="@A", citekey="A2024", title="T", authors=["X"], year=2024, doi="10.1/a")
+    _seed_source(
+        db, sid="@B", citekey="B2024", title="U", authors=["Y"], year=2024, isbn="9788533302273"
+    )
+    row, kind = _find_exact_bibliographic_match(db, doi="10.1/a", isbn="9788533302273")
+    assert (row["source_id"], kind) == ("@A", "doi")
+
+
+def test_exact_match_returns_none_without_keys(db):
+    _seed_source(db, sid="@A", citekey="A2024", title="T", authors=["X"], year=2024)
+    assert _find_exact_bibliographic_match(db, doi="", isbn="") is None
+
+
+def test_title_author_needs_both_title_and_author(db):
+    _seed_source(
+        db,
+        sid="@Kahneman2011",
+        citekey="Kahneman2011",
+        title="Rapido e Devagar",
+        authors=["Daniel Kahneman"],
+        year=2011,
+    )
+    # Mesmo titulo, outro autor -> nao e candidato.
+    assert (
+        _find_title_author_candidates(
+            db, title="Rapido e Devagar", authors=["Outro Nome"], year=2011
+        )
+        == []
+    )
+    # Mesmo autor, outro titulo -> nao e candidato.
+    assert (
+        _find_title_author_candidates(
+            db, title="Outra Obra", authors=["Daniel Kahneman"], year=2011
+        )
+        == []
+    )
+
+
+def test_title_author_matches_across_accents_and_initials(db):
+    _seed_source(
+        db,
+        sid="@Kahneman2011",
+        citekey="Kahneman2011",
+        title="Rápido e Devagar: duas formas de pensar",
+        authors=["Daniel Kahneman"],
+        year=2011,
+    )
+    found = _find_title_author_candidates(
+        db, title="Rapido e Devagar", authors=["D. Kahneman"], year=2011
+    )
+    assert [c["citekey"] for c in found] == ["Kahneman2011"]
+    assert found[0]["same_year"] is True
+
+
+def test_title_author_reports_a_different_year_instead_of_rejecting_it(db):
+    """2a edicao vs 1a: plausivelmente a mesma obra, plausivelmente distintas.
+
+    O ano e reportado para que o usuario decida, nunca usado para descartar.
+    """
+    _seed_source(
+        db,
+        sid="@Silva2018",
+        citekey="Silva2018",
+        title="Metodologia",
+        authors=["Ana Silva"],
+        year=2018,
+    )
+    found = _find_title_author_candidates(db, title="Metodologia", authors=["Ana Silva"], year=2023)
+    assert len(found) == 1
+    assert found[0]["same_year"] is False
+    assert found[0]["year"] == 2018
+
+
+def test_title_author_decision_defaults_to_new_source_without_a_tty(tmp_path):
+    """Fundir e a direcao irreversivel; sem TTY, cria fonte nova (ADR-011)."""
+    candidates = [
+        {"citekey": "Silva2018", "title": "Metodologia", "year": 2018, "same_year": False}
+    ]
+    assert (
+        _resolve_title_author_decision(tmp_path / "novo.pdf", candidates, interactive=False)
+        == "continue"
+    )
+
+
+def test_process_file_reuses_source_on_identical_doi(db, cfg, tmp_path, monkeypatch):
+    """DOI e identidade: reusa a fonte sem perguntar e sem gastar embedding."""
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    first = inbox / "artigo.md"
+    second = inbox / "artigo-reexportado.md"
+    first.write_text("# Artigo\n\nConteudo original do artigo.", encoding="utf-8")
+    # Bytes e texto normalizado diferentes: as camadas 1 e 2 nao pegam.
+    second.write_text("# Artigo\n\nConteudo reescrito apos OCR, bem diferente.", encoding="utf-8")
+
+    from zettel.harvester import biblio_dedupe
+
+    monkeypatch.setattr(biblio_dedupe, "normalize_doi", lambda raw: "10.1234/artigo")
+
+    idx = FakeVectorIndex()
+    run1 = db.start_run("sig1")
+    sid1, _ = _process_file(cfg, db, idx, first, run_id=run1, interactive=False, skip_biblio=True)
+    assert sid1 is not None
+    assert db.get_source(sid1)["doi"] == "10.1234/artigo"
+
+    run2 = db.start_run("sig2")
+    sid2, stats2 = _process_file(
+        cfg, db, idx, second, run_id=run2, interactive=False, skip_biblio=True
+    )
+    assert sid2 is None
+    assert stats2 == {}
+    assert db.get_file(str(second))["source_id"] == sid1
+    assert db.get_run(run2)["duplicate_biblio_count"] == 1
+
+
+# ── Layer 5 flag: write and read are gated together, never separately ──
+
+
+def test_layer5_off_skips_chunk_embeddings_and_the_check(db, cfg, tmp_path, monkeypatch):
+    """The flag governs both sides at once.
+
+    Gating only the write would leave the check querying an index the pipeline
+    stopped populating — a silent false negative, not an error.
+    """
+    cfg.harvest.semantic_duplicate_enabled = False
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    f = inbox / "artigo.md"
+    f.write_text(
+        "# Artigo\n\n" + ("conteudo suficiente para gerar chunks. " * 60), encoding="utf-8"
+    )
+
+    idx = FakeVectorIndex()
+    monkeypatch.setattr(
+        idx,
+        "find_similar_chunks",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("camada 5 nao deveria consultar")),
+    )
+
+    run_id = db.start_run("sig")
+    sid, _ = _process_file(cfg, db, idx, f, run_id=run_id, interactive=False, skip_biblio=True)
+
+    assert sid is not None, "o arquivo deve ser ingerido normalmente"
+    # SQLite keeps every chunk; only the vector index is skipped.
+    assert db.get_chunks_for_source(sid), "chunks devem existir no SQLite"
+    assert idx.upserted_chunks == [], "nenhum chunk deve ser embedado"
+    assert db.get_run(run_id)["duplicate_semantic_count"] == 0
+
+
+def test_layer5_on_still_embeds_and_checks(db, cfg, tmp_path):
+    """The same file with the flag on: chunks are embedded and the check runs."""
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    f = inbox / "artigo.md"
+    f.write_text(
+        "# Artigo\n\n" + ("conteudo suficiente para gerar chunks. " * 60), encoding="utf-8"
+    )
+
+    idx = FakeVectorIndex()
+    run_id = db.start_run("sig")
+    sid, _ = _process_file(cfg, db, idx, f, run_id=run_id, interactive=False, skip_biblio=True)
+
+    assert sid is not None
+    assert idx.upserted_chunks, "com a camada 5 ligada, os chunks alimentam o indice-alvo"

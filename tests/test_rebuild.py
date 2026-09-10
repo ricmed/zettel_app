@@ -80,7 +80,8 @@ def test_moc_summary_extraction():
 def test_reindex_populates_all_collections(db):
     _seed(db)
     idx = FakeIndex()
-    stats = run_reindex(AppConfig(), db, idx)
+    # `chunks` is only reindexed while dedupe layer 5 is enabled (off by default).
+    stats = run_reindex(AppConfig(harvest={"semantic_duplicate_enabled": True}), db, idx)
     assert stats["sources"] == 1
     assert stats["chunks"] == 1
     assert stats["permanent_notes"] == 1
@@ -94,9 +95,24 @@ def test_reindex_populates_all_collections(db):
 def test_reindex_single_collection_with_force(db):
     _seed(db)
     idx = FakeIndex()
-    stats = run_reindex(AppConfig(), db, idx, collection="chunks", force=True)
+    cfg = AppConfig(harvest={"semantic_duplicate_enabled": True})
+    stats = run_reindex(cfg, db, idx, collection="chunks", force=True)
     assert set(stats.keys()) == {"chunks"}
     assert "chunks" in idx.reset_calls
+
+
+def test_reindex_leaves_chunks_untouched_while_layer5_is_off(db):
+    """The flag means "the pipeline does not touch this collection" — not even reset.
+
+    Resetting without repopulating would empty the collection as a side effect of
+    a command whose contract is "rebuild".
+    """
+    _seed(db)
+    idx = FakeIndex()
+    stats = run_reindex(AppConfig(), db, idx, collection="chunks", force=True)
+    assert stats == {"chunks": 0}
+    assert idx.reset_calls == []
+    assert idx.store["chunks"] == set()
 
 
 def test_reindex_unknown_collection_raises(db):
@@ -115,6 +131,7 @@ def test_reindex_force_after_embedding_swap(db, tmp_path, monkeypatch):
     cfg = AppConfig(
         embedding={"provider": "openai", "model": "modelo-a", "allow_fallback": True},
         chroma_path=chroma,
+        harvest={"semantic_duplicate_enabled": True},
     )
     # Bypass Literal validation by constructing VectorIndex directly for markers.
     idx_a = VectorIndex(chroma, "provider-invalido", "modelo-a", allow_fallback=True)

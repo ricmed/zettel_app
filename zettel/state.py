@@ -106,6 +106,29 @@ _PT_STOPWORDS = frozenset(
 )
 
 
+def fts_query_terms(text: str, min_len: int = 2, max_tokens: int = 32) -> list[str]:
+    """The distinct terms ``_fts_match_expr`` actually sends to FTS5, lowercased.
+
+    Shared with the retriever's bypass-coverage check so the two can never
+    disagree about what "the query's terms" means: the truncation at
+    ``max_tokens`` happens *before* dedupe, exactly as in the MATCH expression,
+    so the coverage denominator is the term set BM25 really searched.
+    """
+    tokens = [
+        t
+        for t in _FTS_TOKEN_RE.findall(text)
+        if len(t) >= min_len and t.lower() not in _PT_STOPWORDS
+    ][:max_tokens]
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in tokens:
+        low = t.lower()
+        if low not in seen:
+            seen.add(low)
+            out.append(low)
+    return out
+
+
 def _fts_match_expr(text: str, min_len: int = 2, max_tokens: int = 32) -> str | None:
     """Turn arbitrary user text into a safe FTS5 MATCH expression.
 
@@ -182,7 +205,21 @@ CREATE TABLE IF NOT EXISTS sources (
     origin               TEXT NOT NULL DEFAULT 'pipeline',
     document_type        TEXT,
     bibliography_json    TEXT,
+    -- Chaves bibliograficas de alta precisao, promovidas para fora do blob
+    -- bibliography_json para poderem ser indexadas. Normalizadas (minusculas,
+    -- sem pontuacao/hifens) por harvester.biblio_dedupe.
+    doi                  TEXT,
+    isbn                 TEXT,
     abnt_reference       TEXT,
+    -- Resumo geral da fonte (ADR-047), reduzido a partir dos resumos de
+    -- capitulo. Nao e embarcado: a unidade de busca e o capitulo.
+    -- `summary_checksum` e o hash sobre os `summary_checksum` dos capitulos
+    -- em ordem, entao qualquer capitulo que mude o invalida.
+    summary              TEXT,
+    summary_topics       TEXT,
+    summary_checksum     TEXT,
+    summary_model        TEXT,
+    summary_updated_at   TEXT,
     total_pages_file     INTEGER,
     total_pages_book     INTEGER,
     page_offset          INTEGER,
@@ -209,6 +246,15 @@ CREATE TABLE IF NOT EXISTS chapters (
     title            TEXT NOT NULL DEFAULT '',
     chapter_checksum TEXT NOT NULL,
     locator          TEXT NOT NULL DEFAULT '',
+    -- Resumo de capitulo (ADR-047). `summary_checksum` guarda o
+    -- `chapter_checksum` vigente quando o resumo foi gerado: quando os dois
+    -- divergem o resumo esta defasado. Nunca listadas no DO UPDATE SET de
+    -- `upsert_chapter`, para que um re-harvest preserve o resumo.
+    summary          TEXT,
+    summary_topics   TEXT,
+    summary_checksum TEXT,
+    summary_model    TEXT,
+    summary_updated_at TEXT,
     FOREIGN KEY (source_id) REFERENCES sources(source_id)
 );
 
@@ -332,6 +378,7 @@ CREATE TABLE IF NOT EXISTS runs (
     duplicate_file_count     INTEGER NOT NULL DEFAULT 0,
     duplicate_content_count  INTEGER NOT NULL DEFAULT 0,
     duplicate_semantic_count INTEGER NOT NULL DEFAULT 0,
+    duplicate_biblio_count   INTEGER NOT NULL DEFAULT 0,
     cost_usd_total      REAL NOT NULL DEFAULT 0,
     cost_usd_llm        REAL NOT NULL DEFAULT 0,
     cost_usd_embedding  REAL NOT NULL DEFAULT 0,
@@ -388,6 +435,9 @@ CREATE INDEX IF NOT EXISTS idx_nc_target        ON note_connections(target_note_
 CREATE INDEX IF NOT EXISTS idx_topic_terms_folded ON topic_index_terms(term_folded);
 CREATE INDEX IF NOT EXISTS idx_assets_source    ON assets(source_id);
 CREATE INDEX IF NOT EXISTS idx_assets_status    ON assets(status);
+CREATE INDEX IF NOT EXISTS idx_sources_doi      ON sources(doi);
+CREATE INDEX IF NOT EXISTS idx_sources_isbn     ON sources(isbn);
+CREATE INDEX IF NOT EXISTS idx_chapters_source  ON chapters(source_id);
 """
 
 # FTS5 virtual tables for BM25 lexical search, kept in sync with notes/chunks.
@@ -401,6 +451,10 @@ CREATE VIRTUAL TABLE IF NOT EXISTS fts_notes USING fts5(
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5(
     chunk_id UNINDEXED, text,
+    tokenize='unicode61 remove_diacritics 2'
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS fts_chapter_summaries USING fts5(
+    chapter_id UNINDEXED, title, summary,
     tokenize='unicode61 remove_diacritics 2'
 );
 """
@@ -468,6 +522,15 @@ class StateDB:
                 "INSERT INTO fts_chunks (chunk_id, text) "
                 "SELECT chunk_id, COALESCE(text,'') FROM chunks"
             )
+        n_summaries = self.conn.execute(
+            "SELECT COUNT(*) AS c FROM fts_chapter_summaries"
+        ).fetchone()["c"]
+        if n_summaries == 0:
+            self.conn.execute(
+                "INSERT INTO fts_chapter_summaries (chapter_id, title, summary) "
+                "SELECT chapter_id, COALESCE(title,''), summary FROM chapters "
+                "WHERE summary IS NOT NULL AND summary <> ''"
+            )
         self.conn.commit()
 
     def _fts_index_note(self, note_id: str) -> None:
@@ -502,6 +565,21 @@ class StateDB:
             return
         self.conn.execute("DELETE FROM fts_chunks WHERE chunk_id=?", (chunk_id,))
 
+    def _fts_index_chapter_summary(self, chapter_id: str, title: str, summary: str) -> None:
+        if not self.fts_enabled:
+            return
+        self.conn.execute("DELETE FROM fts_chapter_summaries WHERE chapter_id=?", (chapter_id,))
+        if summary:
+            self.conn.execute(
+                "INSERT INTO fts_chapter_summaries (chapter_id, title, summary) VALUES (?, ?, ?)",
+                (chapter_id, title or "", summary),
+            )
+
+    def _fts_delete_chapter_summary(self, chapter_id: str) -> None:
+        if not self.fts_enabled:
+            return
+        self.conn.execute("DELETE FROM fts_chapter_summaries WHERE chapter_id=?", (chapter_id,))
+
     def _migrate_schema(self) -> None:
         """Add columns to pre-existing tables that predate this migration.
 
@@ -512,6 +590,9 @@ class StateDB:
             ("runs", "duplicate_file_count", "INTEGER NOT NULL DEFAULT 0"),
             ("runs", "duplicate_content_count", "INTEGER NOT NULL DEFAULT 0"),
             ("runs", "duplicate_semantic_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("runs", "duplicate_biblio_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("sources", "doi", "TEXT"),
+            ("sources", "isbn", "TEXT"),
             # Fase 0 — retencao maxima no SQLite
             ("sources", "extracted_text", "TEXT"),
             ("sources", "lit_body", "TEXT"),
@@ -567,6 +648,17 @@ class StateDB:
             ("chunks", "summary_json", "TEXT"),
             ("assets", "page_in_file", "INTEGER"),
             ("note_connections", "origin", "TEXT NOT NULL DEFAULT 'llm'"),
+            # ADR-047 — resumos de capitulo e de fonte
+            ("chapters", "summary", "TEXT"),
+            ("chapters", "summary_topics", "TEXT"),
+            ("chapters", "summary_checksum", "TEXT"),
+            ("chapters", "summary_model", "TEXT"),
+            ("chapters", "summary_updated_at", "TEXT"),
+            ("sources", "summary", "TEXT"),
+            ("sources", "summary_topics", "TEXT"),
+            ("sources", "summary_checksum", "TEXT"),
+            ("sources", "summary_model", "TEXT"),
+            ("sources", "summary_updated_at", "TEXT"),
         ]
         for table, column, coltype in migrations:
             try:
@@ -662,6 +754,8 @@ class StateDB:
         origin: str = "pipeline",
         document_type: str | None = None,
         bibliography_json: str | None = None,
+        doi: str | None = None,
+        isbn: str | None = None,
         abnt_reference: str | None = None,
         total_pages_file: int | None = None,
         total_pages_book: int | None = None,
@@ -680,13 +774,15 @@ class StateDB:
         self.conn.execute(
             """INSERT INTO sources (source_id, citekey, title, authors, year, file_checksum,
                                     extraction_checksum, origin_path, origin_type, origin,
-                                    document_type, bibliography_json, abnt_reference,
+                                    document_type, bibliography_json, doi, isbn,
+                                    abnt_reference,
                                     total_pages_file, total_pages_book, page_offset,
                                     page_offset_confidence, content_start_file_page,
                                     content_start_book_page, processing_status,
                                     last_chunk_processed, total_chunks, docling_config_hash,
                                     created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       ?, ?)
                ON CONFLICT(source_id) DO UPDATE SET
                  title=excluded.title, authors=excluded.authors, year=excluded.year,
                  file_checksum=excluded.file_checksum,
@@ -694,6 +790,8 @@ class StateDB:
                  origin=excluded.origin,
                  document_type=COALESCE(excluded.document_type, sources.document_type),
                  bibliography_json=COALESCE(excluded.bibliography_json, sources.bibliography_json),
+                 doi=COALESCE(excluded.doi, sources.doi),
+                 isbn=COALESCE(excluded.isbn, sources.isbn),
                  abnt_reference=COALESCE(excluded.abnt_reference, sources.abnt_reference),
                  total_pages_file=COALESCE(excluded.total_pages_file, sources.total_pages_file),
                  total_pages_book=COALESCE(excluded.total_pages_book, sources.total_pages_book),
@@ -731,6 +829,8 @@ class StateDB:
                 origin,
                 document_type,
                 bibliography_json,
+                doi,
+                isbn,
                 abnt_reference,
                 total_pages_file,
                 total_pages_book,
@@ -905,6 +1005,7 @@ class StateDB:
 
         chapters = self.get_chapters_for_source(source_id)
         for ch in chapters:
+            self._fts_delete_chapter_summary(ch["chapter_id"])
             self.conn.execute("DELETE FROM chapters WHERE chapter_id=?", (ch["chapter_id"],))
 
         cur_concepts = self.conn.execute("DELETE FROM concepts WHERE source_id=?", (source_id,))
@@ -950,6 +1051,36 @@ class StateDB:
         return self._fetchone(
             "SELECT * FROM sources WHERE extraction_checksum=? ORDER BY created_at ASC LIMIT 1",
             (extraction_checksum,),
+        )
+
+    def get_source_by_doi(self, doi: str) -> dict | None:
+        """Exact match on the normalized DOI — an identity, not a similarity.
+
+        Callers must pass the value already normalized by
+        ``harvester.biblio_dedupe.normalize_doi``; the column stores it that way.
+        """
+        if not doi:
+            return None
+        return self._fetchone(
+            "SELECT * FROM sources WHERE doi=? ORDER BY created_at ASC LIMIT 1", (doi,)
+        )
+
+    def get_source_by_isbn(self, isbn: str) -> dict | None:
+        """Exact match on the normalized ISBN (see :meth:`get_source_by_doi`)."""
+        if not isbn:
+            return None
+        return self._fetchone(
+            "SELECT * FROM sources WHERE isbn=? ORDER BY created_at ASC LIMIT 1", (isbn,)
+        )
+
+    def list_sources_with_authors(self) -> list[dict]:
+        """Rows needed to match a work by title + author, without the text blobs.
+
+        ``extracted_text`` / ``lit_body`` can be megabytes each, and the
+        bibliographic layer only reads identity fields.
+        """
+        return self._fetchall(
+            "SELECT source_id, citekey, title, authors, year FROM sources ORDER BY created_at ASC"
         )
 
     def list_sources(self) -> list[dict]:
@@ -1093,7 +1224,168 @@ class StateDB:
         self.conn.commit()
 
     def get_chapters_for_source(self, source_id: str) -> list[dict]:
-        return self._fetchall("SELECT * FROM chapters WHERE source_id=?", (source_id,))
+        """Chapters in document order — `chapter_id` ends in `chNNN`, so it sorts."""
+        return self._fetchall(
+            "SELECT * FROM chapters WHERE source_id=? ORDER BY chapter_id", (source_id,)
+        )
+
+    def get_chapter(self, chapter_id: str) -> dict | None:
+        return self._fetchone("SELECT * FROM chapters WHERE chapter_id=?", (chapter_id,))
+
+    # ── Resumos de capitulo (ADR-047) ──────────────────────────────────
+
+    def update_chapter_summary(
+        self,
+        chapter_id: str,
+        summary: str,
+        summary_topics: list[str],
+        summary_checksum: str,
+        summary_model: str,
+        updated_at: str,
+    ) -> None:
+        """Persist a chapter summary and mirror it into FTS5.
+
+        `summary_checksum` is the `chapter_checksum` the summary was generated
+        from; a later re-chunk changes the latter and the divergence is what
+        marks the summary stale.
+        """
+        self.conn.execute(
+            """UPDATE chapters
+                  SET summary=?, summary_topics=?, summary_checksum=?,
+                      summary_model=?, summary_updated_at=?
+                WHERE chapter_id=?""",
+            (
+                summary,
+                json.dumps(summary_topics, ensure_ascii=False),
+                summary_checksum,
+                summary_model,
+                updated_at,
+                chapter_id,
+            ),
+        )
+        row = self.conn.execute(
+            "SELECT title FROM chapters WHERE chapter_id=?", (chapter_id,)
+        ).fetchone()
+        self._fts_index_chapter_summary(chapter_id, row["title"] if row else "", summary)
+        self.conn.commit()
+
+    def get_chapters_with_summaries(self, source_id: str | None = None) -> list[dict]:
+        """Chapters that already carry a summary, in document order."""
+        sql = "SELECT * FROM chapters WHERE summary IS NOT NULL AND summary <> ''"
+        params: tuple = ()
+        if source_id:
+            sql += " AND source_id=?"
+            params = (source_id,)
+        return self._fetchall(sql + " ORDER BY chapter_id", params)
+
+    def get_chapters_needing_summary(self, source_id: str | None = None) -> list[dict]:
+        """Chapters whose summary is missing or stale (checksum drifted)."""
+        # The OR group must stay parenthesised: without it `AND source_id=?`
+        # binds only to the last branch and the filter silently does nothing.
+        sql = (
+            "SELECT * FROM chapters "
+            "WHERE (summary IS NULL OR summary = '' "
+            "       OR summary_checksum IS NULL OR summary_checksum <> chapter_checksum)"
+        )
+        params: tuple = ()
+        if source_id:
+            sql += " AND source_id=?"
+            params = (source_id,)
+        return self._fetchall(sql + " ORDER BY chapter_id", params)
+
+    def count_stale_chapter_summaries(self) -> int:
+        """Chapters that HAVE a summary but whose text changed underneath it."""
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS c FROM chapters "
+            "WHERE summary IS NOT NULL AND summary <> '' "
+            "  AND (summary_checksum IS NULL OR summary_checksum <> chapter_checksum)"
+        ).fetchone()
+        return row["c"] if row else 0
+
+    def get_chapter_note_counts(self, source_id: str | None = None) -> dict[str, int]:
+        """Permanent notes produced by each chapter — a pure SQL aggregate.
+
+        The path is chapters <- chunks.chapter_id <- concepts.chunk_id ->
+        notes.note_id. Counting distinct notes matters because one chunk can
+        yield several concepts that were merged into a single note.
+        """
+        sql = """
+            SELECT k.chapter_id AS chapter_id, COUNT(DISTINCT c.note_id) AS n
+              FROM concepts c
+              JOIN chunks k ON k.chunk_id = c.chunk_id
+              JOIN notes n ON n.note_id = c.note_id
+             WHERE c.note_id IS NOT NULL
+        """
+        params: tuple = ()
+        if source_id:
+            sql += " AND k.source_id=?"
+            params = (source_id,)
+        sql += " GROUP BY k.chapter_id"
+        return {r["chapter_id"]: r["n"] for r in self._fetchall(sql, params)}
+
+    def get_notes_for_chapter(self, chapter_id: str) -> list[dict]:
+        """Permanent notes derived from a chapter's chunks, in chunk order."""
+        return self._fetchall(
+            """SELECT DISTINCT n.*, k.chunk_index AS _chunk_index
+                 FROM concepts c
+                 JOIN chunks k ON k.chunk_id = c.chunk_id
+                 JOIN notes n ON n.note_id = c.note_id
+                WHERE k.chapter_id=? AND c.note_id IS NOT NULL
+                ORDER BY k.chunk_index, n.note_id""",
+            (chapter_id,),
+        )
+
+    def get_chapters_for_note(self, note_id: str) -> list[str]:
+        """Chapters a permanent note came from — the reverse of the note count.
+
+        Usually one, but a merged note can carry concepts from several chunks
+        and therefore from more than one chapter.
+        """
+        rows = self._fetchall(
+            """SELECT DISTINCT k.chapter_id AS chapter_id
+                 FROM concepts c
+                 JOIN chunks k ON k.chunk_id = c.chunk_id
+                WHERE c.note_id=?""",
+            (note_id,),
+        )
+        return [r["chapter_id"] for r in rows]
+
+    def get_chapter_page_ranges(self, source_id: str) -> dict[str, tuple[int, int]]:
+        """First/last `page_in_book` per chapter. Empty for page-less sources."""
+        rows = self._fetchall(
+            """SELECT chapter_id, MIN(page_in_book) AS lo, MAX(page_in_book) AS hi
+                 FROM chunks
+                WHERE source_id=? AND page_in_book IS NOT NULL
+                GROUP BY chapter_id""",
+            (source_id,),
+        )
+        return {r["chapter_id"]: (r["lo"], r["hi"]) for r in rows if r["lo"] is not None}
+
+    def update_source_summary(
+        self,
+        source_id: str,
+        summary: str,
+        summary_topics: list[str],
+        summary_checksum: str,
+        summary_model: str,
+        updated_at: str,
+    ) -> None:
+        """Persist the source-level summary. Not embedded — see ADR-047."""
+        self.conn.execute(
+            """UPDATE sources
+                  SET summary=?, summary_topics=?, summary_checksum=?,
+                      summary_model=?, summary_updated_at=?
+                WHERE source_id=?""",
+            (
+                summary,
+                json.dumps(summary_topics, ensure_ascii=False),
+                summary_checksum,
+                summary_model,
+                updated_at,
+                source_id,
+            ),
+        )
+        self.conn.commit()
 
     # ── Chunks ─────────────────────────────────────────────────────────
 
@@ -1194,12 +1486,46 @@ class StateDB:
     def get_chunk(self, chunk_id: str) -> dict | None:
         return self._fetchone("SELECT * FROM chunks WHERE chunk_id=?", (chunk_id,))
 
+    def get_note_texts(self, note_ids: list[str]) -> dict[str, str]:
+        """`{note_id: "title body"}` for many notes in one query.
+
+        Mirrors what FTS5 indexed for a note (see ``_FTS_SQL``), so a lexical
+        coverage check reads the same surface BM25 searched.
+        """
+        if not note_ids:
+            return {}
+        unique = list(dict.fromkeys(note_ids))
+        marks = ",".join("?" * len(unique))
+        rows = self._fetchall(
+            f"SELECT note_id, title, body FROM notes WHERE note_id IN ({marks})",
+            tuple(unique),
+        )
+        return {r["note_id"]: f"{r['title'] or ''} {r['body'] or ''}" for r in rows}
+
+    def get_chapter_summary_texts(self, chapter_ids: list[str]) -> dict[str, str]:
+        """`{chapter_id: "title summary"}` — the chapter side of the same idea."""
+        if not chapter_ids:
+            return {}
+        unique = list(dict.fromkeys(chapter_ids))
+        marks = ",".join("?" * len(unique))
+        rows = self._fetchall(
+            f"SELECT chapter_id, title, summary FROM chapters WHERE chapter_id IN ({marks})",
+            tuple(unique),
+        )
+        return {r["chapter_id"]: f"{r['title'] or ''} {r['summary'] or ''}" for r in rows}
+
+    def get_chunks_for_chapter(self, chapter_id: str) -> list[dict]:
+        return self._fetchall(
+            "SELECT * FROM chunks WHERE chapter_id=? ORDER BY chunk_index", (chapter_id,)
+        )
+
     def delete_chapter(self, chapter_id: str) -> list[str]:
         """Delete a chapter and all its chunks. Returns removed chunk_ids."""
         rows = self._fetchall("SELECT chunk_id FROM chunks WHERE chapter_id=?", (chapter_id,))
         removed = [r["chunk_id"] for r in rows]
         if removed:
             self.delete_chunks(removed)
+        self._fts_delete_chapter_summary(chapter_id)
         self.conn.execute("DELETE FROM chapters WHERE chapter_id=?", (chapter_id,))
         self.conn.commit()
         return removed
@@ -1557,6 +1883,24 @@ class StateDB:
             return []
         return [{"chunk_id": r["chunk_id"], "rank": r["rank"]} for r in rows]
 
+    def search_chapter_summaries_fts(self, query: str, limit: int = 20) -> list[dict]:
+        """BM25 lexical search over chapter summaries. Returns ``[{chapter_id, rank}]``."""
+        if not self.fts_enabled:
+            return []
+        match = _fts_match_expr(query)
+        if not match:
+            return []
+        try:
+            rows = self.conn.execute(
+                "SELECT chapter_id, rank FROM fts_chapter_summaries "
+                "WHERE fts_chapter_summaries MATCH ? ORDER BY rank LIMIT ?",
+                (match, limit),
+            ).fetchall()
+        except sqlite3.OperationalError as e:
+            logger.warning("Busca FTS de resumos de capitulo falhou: %s", e)
+            return []
+        return [{"chapter_id": r["chapter_id"], "rank": r["rank"]} for r in rows]
+
     def rebuild_fts(self) -> dict[str, int]:
         """Rebuild both FTS tables from scratch from notes/chunks. Returns counts.
 
@@ -1564,9 +1908,10 @@ class StateDB:
         reconstructible from the SQLite source of truth, like the vector index.
         """
         if not self.fts_enabled:
-            return {"fts_notes": 0, "fts_chunks": 0}
+            return {"fts_notes": 0, "fts_chunks": 0, "fts_chapter_summaries": 0}
         self.conn.execute("DELETE FROM fts_notes")
         self.conn.execute("DELETE FROM fts_chunks")
+        self.conn.execute("DELETE FROM fts_chapter_summaries")
         self.conn.execute(
             "INSERT INTO fts_notes (note_id, title, body) "
             "SELECT note_id, COALESCE(title,''), COALESCE(body,'') FROM notes"
@@ -1574,10 +1919,16 @@ class StateDB:
         self.conn.execute(
             "INSERT INTO fts_chunks (chunk_id, text) SELECT chunk_id, COALESCE(text,'') FROM chunks"
         )
+        self.conn.execute(
+            "INSERT INTO fts_chapter_summaries (chapter_id, title, summary) "
+            "SELECT chapter_id, COALESCE(title,''), summary FROM chapters "
+            "WHERE summary IS NOT NULL AND summary <> ''"
+        )
         self.conn.commit()
         n = self.conn.execute("SELECT COUNT(*) AS c FROM fts_notes").fetchone()["c"]
         m = self.conn.execute("SELECT COUNT(*) AS c FROM fts_chunks").fetchone()["c"]
-        return {"fts_notes": n, "fts_chunks": m}
+        s = self.conn.execute("SELECT COUNT(*) AS c FROM fts_chapter_summaries").fetchone()["c"]
+        return {"fts_notes": n, "fts_chunks": m, "fts_chapter_summaries": s}
 
     # ── Note Connections ──────────────────────────────────────────
 
@@ -1871,6 +2222,40 @@ class StateDB:
         )
         self.conn.commit()
 
+    def delete_llm_cache(self, call_checksums: list[str]) -> int:
+        """Drop cached LLM responses by checksum. Empty strings are ignored."""
+        unique = [c for c in dict.fromkeys(call_checksums) if c]
+        if not unique:
+            return 0
+        marks = ",".join("?" * len(unique))
+        cur = self.conn.execute(
+            f"DELETE FROM llm_cache WHERE call_checksum IN ({marks})",
+            tuple(unique),
+        )
+        self.conn.commit()
+        return int(cur.rowcount)
+
+    def reset_chunks_to_pending(
+        self,
+        status: str,
+        source_id: str | None = None,
+        *,
+        drop_llm_cache: bool = False,
+    ) -> int:
+        """Move chunks in ``status`` back to ``pending``. Returns how many moved.
+
+        ``drop_llm_cache`` is for extract *verdicts* (``rejected``): the SQLite
+        response cache would otherwise replay the same empty yield for free.
+        """
+        rows = self.get_chunks_by_status(status, source_id=source_id)
+        if not rows:
+            return 0
+        if drop_llm_cache:
+            self.delete_llm_cache([row.get("llm_call_checksum_prompt1") or "" for row in rows])
+        for row in rows:
+            self.update_chunk_status(row["chunk_id"], "pending")
+        return len(rows)
+
     # ── Runs ───────────────────────────────────────────────────────────
 
     def start_run(self, pipeline_signature: str) -> int:
@@ -1947,11 +2332,12 @@ class StateDB:
     def record_duplicate(self, run_id: int, kind: str) -> None:
         """Increment a duplicate counter on the run row.
 
-        kind: one of "file", "content", "semantic".
+        kind: one of "file", "content", "biblio", "semantic".
         """
         column = {
             "file": "duplicate_file_count",
             "content": "duplicate_content_count",
+            "biblio": "duplicate_biblio_count",
             "semantic": "duplicate_semantic_count",
         }.get(kind)
         if not column:
@@ -2195,7 +2581,8 @@ class StateDB:
             "runs": self._fetchall(
                 "SELECT run_id,pipeline_signature,started_at,finished_at,status,"
                 "cost_usd_total,tokens_prompt,tokens_completion,cache_hits,"
-                "duplicate_file_count,duplicate_content_count,duplicate_semantic_count "
+                "duplicate_file_count,duplicate_content_count,duplicate_biblio_count,"
+                "duplicate_semantic_count "
                 "FROM runs ORDER BY run_id DESC LIMIT 10"
             ),
         }

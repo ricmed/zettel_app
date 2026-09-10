@@ -41,6 +41,7 @@ def test_llm_config_rejects_global_identity():
 def test_is_supported_llm_provider():
     assert is_supported_llm_provider("OpenAI")
     assert is_supported_llm_provider("openrouter")
+    assert is_supported_llm_provider("deepseek")
     assert is_supported_llm_provider("ollama")
     assert not is_supported_llm_provider("acme")
 
@@ -73,6 +74,54 @@ def test_get_llm_rejects_unsupported_provider():
     cfg.llm.ask = LLMPhaseConfig(provider="acme", model="x")
     with pytest.raises(ValueError, match="não suportado"):
         get_llm(cfg, "ask")
+
+
+def test_get_llm_deepseek_uses_deepseek_api_key(monkeypatch):
+    langchain_openai = pytest.importorskip("langchain_openai")
+    captured: dict = {}
+
+    class FakeChat:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(langchain_openai, "ChatOpenAI", FakeChat)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-test")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    cfg = AppConfig()
+    cfg.llm.ask = LLMPhaseConfig(
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        base_url="https://api.deepseek.com",
+    )
+    get_llm(cfg, "ask")
+    assert captured["model"] == "deepseek-v4-flash"
+    assert captured["base_url"] == "https://api.deepseek.com"
+    assert captured["api_key"] == "sk-deepseek-test"
+
+
+def test_get_llm_deepseek_fails_without_key(monkeypatch):
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    cfg = AppConfig()
+    cfg.llm.ask = LLMPhaseConfig(
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        base_url="https://api.deepseek.com",
+    )
+    with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY"):
+        get_llm(cfg, "ask")
+
+
+def test_llm_phase_ready_deepseek_requires_own_key(monkeypatch):
+    from zettel.web.health import llm_phase_ready
+
+    cfg = AppConfig()
+    cfg.llm.ask = LLMPhaseConfig(provider="deepseek", model="deepseek-v4-flash")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-test")
+    assert llm_phase_ready(cfg, "ask") is False
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-test")
+    assert llm_phase_ready(cfg, "ask") is True
 
 
 # ── #60: temperature per phase ────────────────────────────────────────

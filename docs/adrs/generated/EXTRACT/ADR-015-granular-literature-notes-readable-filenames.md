@@ -98,3 +98,13 @@ None of this changes the chosen option in this ADR (granular chunk-per-note, rea
 * `zettel/vault.py` — `literature_chunk_filename()`, `build_literature_chunk_note()`, `literature_source_dirname()`, `literature_chunk_topic()` / `_topic_slug()` (current thesis → summary → section_path precedence), `best_candidate_thesis()`
 * `zettel/review.py:387-481` — `approve_chunk()`: draft promotion, managed-block excerpt insertion, Chroma upsert
 * `zettel/schemas.py` — `LiteratureChunkOutput`, `PermanentNoteCandidate`
+
+## Amendment (2026-09-07)
+
+**The `literature_notes` Chroma collection is gone; LIT notes are no longer embedded.**
+
+This ADR only ever justified embedding *late* (after human approval, to keep unvetted drafts out of the collection) — never embedding at all. Nothing read the collection back: `index.py` exposes only `query_similar_notes` and `query_notes_by_ids`, both against `permanent_notes`, and [ADR-036](../RETRIEVAL/ADR-036-topic-index-routing-not-representation.md) deliberately makes a LIT target non-routable in the topic index. It was write-only, paid for on every approval.
+
+Everything this ADR is actually about survives: the granular note, its readable filename, its per-chunk metadata, the `auto-source-excerpt` block and the individual approve/reject gate. The note remains in the vault and in SQLite — which is already the supported access pattern for [ADR-035](../CLI/ADR-035-flat-agent-skill-export.md)'s `zettel skill`. The body was derived from a chunk whose text is indexed anyway, the same double-counting argument [ADR-034](./ADR-034-optional-author-judgement-fields.md) makes about judgement fields.
+
+Trade-off accepted: this forecloses chunk-level evidence retrieval (quoting a source verbatim in `ask`). Nothing planned needs it — the reranking draft (ADR-044) keeps dedupe paths out of the `Retriever` and reranks `permanent_notes` candidates.
