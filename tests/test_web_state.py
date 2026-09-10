@@ -89,6 +89,15 @@ def test_expected_operational_error_is_safe_and_useful():
     assert safe_error(error) == "Nenhuma fonte foi criada."
 
 
+def test_safe_error_keeps_llm_unavailable_message():
+    from zettel.llm import LLMUnavailableError
+
+    err = LLMUnavailableError("connection refused", phase="extract")
+    text = safe_error(err)
+    assert text.startswith("LLM indisponível")
+    assert "connection refused" in text
+
+
 def test_idx_kwargs_forwards_embedding_dimensions():
     """The web and the CLI must open the same embedding space.
 

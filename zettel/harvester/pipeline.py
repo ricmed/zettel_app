@@ -16,6 +16,7 @@ from zettel.hashing import (
     sha256_hex,
 )
 from zettel.index import VectorIndex
+from zettel.llm import LLMUnavailableError
 from zettel.paging import (
     ContentPaging,
     compute_docling_config_hash,
@@ -73,6 +74,8 @@ def run_harvest(
 
     One unusable file does not stop the batch: extraction failures are collected
     in ``HarvestOutcome.skipped`` and the remaining inbox files are processed.
+    LLM unavailability is systemic: the current file is not persisted, the rest
+    of the inbox is left untouched, and ``LLMUnavailableError`` is raised.
     """
     outcome = HarvestOutcome()
     inbox = cfg.inbox_path
@@ -90,90 +93,103 @@ def run_harvest(
 
     begin_run(run_id)
     run_status = "completed"
+    unavailable: LLMUnavailableError | None = None
 
-    if not inbox.exists():
-        logger.warning("Inbox nao encontrado: %s", inbox)
-        finish_pipeline_run(db, run_id, run_status)
-        return outcome
-
-    if selected_file is not None:
-        selected_file = selected_file.resolve()
-        try:
-            selected_file.relative_to(inbox.resolve())
-        except ValueError as exc:
-            raise ValueError("O arquivo selecionado deve estar dentro do inbox") from exc
-        files = [selected_file] if selected_file.is_file() else []
-    else:
-        files = [
-            f for f in inbox.rglob("*") if f.suffix.lower() in SUPPORTED_EXTENSIONS and f.is_file()
-        ]
-    logger.info("Encontrados %d arquivos no inbox", len(files))
-    from zettel.progress import report
-
-    report(
-        observer,
-        "harvest",
-        f"{len(files)} arquivo(s) encontrado(s).",
-        total_items=len(files),
-    )
-
-    total_stats = {"text_len": 0, "chapters": 0, "chunks": 0}
     try:
-        for item_index, file_path in enumerate(files, 1):
-            report(
-                observer,
-                "harvest",
-                f"Processando {file_path.name}.",
-                current_item=file_path.name,
-                current_index=item_index,
-                total_items=len(files),
-            )
-            try:
-                sid, stats = _process_file(
-                    cfg,
-                    db,
-                    idx,
-                    file_path,
-                    run_id,
-                    interactive,
-                    duplicate_action,
-                    skip_biblio=skip_biblio,
-                    content_start_file=content_start_file,
-                    content_start_book=content_start_book,
-                    skip_paging=skip_paging,
-                    extraction_dump_dir=extraction_dump_dir,
-                )
-            except extract.PdfExtractionError as e:
-                reason = (
-                    "empty_text_layer"
-                    if isinstance(e, extract.EmptyTextLayerError)
-                    else "extraction_failed"
-                )
-                logger.warning("Arquivo ignorado (%s): %s", reason, e)
-                outcome.skipped.append(HarvestSkip(file_path, reason, str(e)))
-                report(observer, "harvest", str(e), current_item=file_path.name)
-                continue
-            if sid:
-                outcome.source_ids.append(sid)
-                total_stats["text_len"] += stats.get("text_len", 0)
-                total_stats["chapters"] += stats.get("chapters", 0)
-                total_stats["chunks"] += stats.get("chunks", 0)
-                _maybe_dump_chunks(cfg, db, sid, dump_dir)
-    except HarvestAborted as e:
-        logger.warning("Harvest abortado pelo usuario: %s", e)
-        run_status = "aborted"
+        if not inbox.exists():
+            logger.warning("Inbox nao encontrado: %s", inbox)
+            return outcome
 
-    if outcome.source_ids:
-        logger.info(
-            "Harvest concluido: %d fontes, %d caracteres, %d capitulos, %d chunks",
-            len(outcome.source_ids),
-            total_stats["text_len"],
-            total_stats["chapters"],
-            total_stats["chunks"],
+        if selected_file is not None:
+            selected_file = selected_file.resolve()
+            try:
+                selected_file.relative_to(inbox.resolve())
+            except ValueError as exc:
+                raise ValueError("O arquivo selecionado deve estar dentro do inbox") from exc
+            files = [selected_file] if selected_file.is_file() else []
+        else:
+            files = [
+                f
+                for f in inbox.rglob("*")
+                if f.suffix.lower() in SUPPORTED_EXTENSIONS and f.is_file()
+            ]
+        logger.info("Encontrados %d arquivos no inbox", len(files))
+        from zettel.progress import report
+
+        report(
+            observer,
+            "harvest",
+            f"{len(files)} arquivo(s) encontrado(s).",
+            total_items=len(files),
         )
 
-    finish_pipeline_run(db, run_id, run_status)
-    return outcome
+        total_stats = {"text_len": 0, "chapters": 0, "chunks": 0}
+        try:
+            for item_index, file_path in enumerate(files, 1):
+                report(
+                    observer,
+                    "harvest",
+                    f"Processando {file_path.name}.",
+                    current_item=file_path.name,
+                    current_index=item_index,
+                    total_items=len(files),
+                )
+                try:
+                    sid, stats = _process_file(
+                        cfg,
+                        db,
+                        idx,
+                        file_path,
+                        run_id,
+                        interactive,
+                        duplicate_action,
+                        skip_biblio=skip_biblio,
+                        content_start_file=content_start_file,
+                        content_start_book=content_start_book,
+                        skip_paging=skip_paging,
+                        extraction_dump_dir=extraction_dump_dir,
+                    )
+                except extract.PdfExtractionError as e:
+                    reason = (
+                        "empty_text_layer"
+                        if isinstance(e, extract.EmptyTextLayerError)
+                        else "extraction_failed"
+                    )
+                    logger.warning("Arquivo ignorado (%s): %s", reason, e)
+                    outcome.skipped.append(HarvestSkip(file_path, reason, str(e)))
+                    report(observer, "harvest", str(e), current_item=file_path.name)
+                    continue
+                except LLMUnavailableError as e:
+                    logger.error("LLM indisponivel no harvest de %s: %s", file_path.name, e)
+                    outcome.skipped.append(HarvestSkip(file_path, "llm_unavailable", str(e)))
+                    report(observer, "harvest", str(e), current_item=file_path.name)
+                    run_status = "failed"
+                    unavailable = e
+                    break
+                if sid:
+                    outcome.source_ids.append(sid)
+                    total_stats["text_len"] += stats.get("text_len", 0)
+                    total_stats["chapters"] += stats.get("chapters", 0)
+                    total_stats["chunks"] += stats.get("chunks", 0)
+                    _maybe_dump_chunks(cfg, db, sid, dump_dir)
+        except HarvestAborted as e:
+            logger.warning("Harvest abortado pelo usuario: %s", e)
+            run_status = "aborted"
+
+        if outcome.source_ids:
+            logger.info(
+                "Harvest concluido: %d fontes, %d caracteres, %d capitulos, %d chunks",
+                len(outcome.source_ids),
+                total_stats["text_len"],
+                total_stats["chapters"],
+                total_stats["chunks"],
+            )
+
+        if unavailable is not None:
+            raise unavailable
+        return outcome
+    finally:
+        finish_pipeline_run(db, run_id, run_status)
 
 
 def run_rechunk(

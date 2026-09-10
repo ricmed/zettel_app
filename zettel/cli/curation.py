@@ -18,7 +18,7 @@ from typing import Annotated
 import typer
 
 from zettel.cli.app import app, console
-from zettel.cli.deps import get_db, get_idx, load_deps, preflight_gate
+from zettel.cli.deps import exit_llm_unavailable, get_db, get_idx, load_deps, preflight_gate
 from zettel.cli.options import ConfigOption, SourceFilterOption, YesOption
 
 
@@ -44,10 +44,14 @@ def extract(
     preflight_gate(estimate_extract(cfg, db), yes, db)
 
     from zettel.extractor import run_extract
+    from zettel.llm import LLMUnavailableError
 
     # Nao usar console.status: o Progress interno de run_extract disputa o mesmo
     # stdout (dois Rich Live) e a barra Extract chunk i/N pisca. Ver #21.
-    candidates = run_extract(cfg, db, idx, auto_approve=auto_approve)
+    try:
+        candidates = run_extract(cfg, db, idx, auto_approve=auto_approve)
+    except LLMUnavailableError as exc:
+        exit_llm_unavailable(exc, db)
 
     console.print(
         f"[green]Candidatos em awaiting_review: {len(candidates)}[/green] "

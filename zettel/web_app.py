@@ -16,6 +16,7 @@ from typing import Any
 from uuid import uuid4
 
 from zettel.config import AppConfig, load_config
+from zettel.llm import LLMUnavailableError
 from zettel.state import StateDB
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ class UserFacingError(RuntimeError):
 def safe_error(exc: BaseException) -> str:
     """Return a useful, non-sensitive message for a browser response."""
     text = str(exc).replace("\n", " ").strip()
-    if isinstance(exc, UserFacingError):
+    if isinstance(exc, (UserFacingError, LLMUnavailableError)):
         return text[:300]
     if not text:
         return "A operação falhou. Consulte os logs do servidor."
@@ -185,7 +186,7 @@ class WebWorker:
                 finished=True,
             )
             db.add_web_job_event(job_id, "completed", message="Operação concluída.")
-        except UserFacingError as exc:
+        except (UserFacingError, LLMUnavailableError) as exc:
             logger.warning("Trabalho web %s falhou: %s", job_id, exc)
             message = safe_error(exc)
             db.update_web_job(

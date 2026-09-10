@@ -25,6 +25,7 @@ from zettel.hashing import (
 )
 from zettel.index import VectorIndex
 from zettel.llm import (
+    LLMUnavailableError,
     PromptParts,
     call_llm,
     extract_json,
@@ -182,83 +183,91 @@ def run_connect(
 
     run_id = db.start_run("connect")
     begin_run(run_id)
-
-    llm = get_llm(cfg, "connect")
-    prompt_parts = load_prompt_parts(cfg.prompts_path / "permanent_note.md")
-    from zettel.domain_examples import load_domain_examples, render_for_prompt
-
-    example_fields = render_for_prompt(
-        load_domain_examples(cfg.domain.examples_path),
-        "permanent_note",
-    )
-    retriever = Retriever(cfg, db, idx)
-    taxonomy = _load_connect_taxonomy(cfg, idx)
-
+    run_status = "completed"
     created_ids: list[str] = []
     rejection: ConnectRejected | None = None
-    total = len(candidates)
-    from zettel.progress import report
 
-    report(observer, "connect", f"{total} candidato(s) aprovado(s).", total_items=total)
+    try:
+        llm = get_llm(cfg, "connect")
+        prompt_parts = load_prompt_parts(cfg.prompts_path / "permanent_note.md")
+        from zettel.domain_examples import load_domain_examples, render_for_prompt
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]Connect[/bold blue] {task.description}"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        transient=True,
-    ) as progress:
-        task = progress.add_task("notas", total=total)
-        for i, cand_dict in enumerate(candidates, 1):
-            cand: PermanentNoteCandidate = cand_dict["candidate"]
-            set_source(cand_dict.get("source_id"))
-            progress.update(task, description=f"nota {i}/{total}", advance=1)
-            report(
-                observer,
-                "connect",
-                f"Gerando nota {i}/{total}.",
-                current_item=cand.thesis[:80],
-                current_index=i,
-                total_items=total,
-            )
-            logger.info("Gerando nota %d/%d: %s", i, total, cand.thesis[:50])
+        example_fields = render_for_prompt(
+            load_domain_examples(cfg.domain.examples_path),
+            "permanent_note",
+        )
+        retriever = Retriever(cfg, db, idx)
+        taxonomy = _load_connect_taxonomy(cfg, idx)
 
-            try:
-                note_id = _process_candidate(
-                    cfg,
-                    db,
-                    idx,
-                    llm,
-                    cand_dict,
-                    prompt_parts,
-                    retriever,
-                    example_fields=example_fields,
-                    taxonomy=taxonomy,
-                    step=i,
-                    total=total,
-                    origin=origin,
+        total = len(candidates)
+        from zettel.progress import report
+
+        report(observer, "connect", f"{total} candidato(s) aprovado(s).", total_items=total)
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]Connect[/bold blue] {task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            transient=True,
+        ) as progress:
+            task = progress.add_task("notas", total=total)
+            for i, cand_dict in enumerate(candidates, 1):
+                cand: PermanentNoteCandidate = cand_dict["candidate"]
+                set_source(cand_dict.get("source_id"))
+                progress.update(task, description=f"nota {i}/{total}", advance=1)
+                report(
+                    observer,
+                    "connect",
+                    f"Gerando nota {i}/{total}.",
+                    current_item=cand.thesis[:80],
+                    current_index=i,
+                    total_items=total,
                 )
-            except ConnectRejected as exc:
-                if origin == "manual":
-                    rejection = exc
-                    break
-                continue
-            if note_id:
-                created_ids.append(note_id)
-                logger.info("Nota %d/%d OK (id=%s)", i, total, note_id)
+                logger.info("Gerando nota %d/%d: %s", i, total, cand.thesis[:50])
 
-    set_source(None)
-    tracker = get_tracker()
-    if tracker:
-        for sid in tracker.sources_touched():
-            db.add_source_usage(sid, tracker.summary_for_source(sid).as_dict())
-            sync_source_costs_to_vault(cfg, db, sid)
+                try:
+                    note_id = _process_candidate(
+                        cfg,
+                        db,
+                        idx,
+                        llm,
+                        cand_dict,
+                        prompt_parts,
+                        retriever,
+                        example_fields=example_fields,
+                        taxonomy=taxonomy,
+                        step=i,
+                        total=total,
+                        origin=origin,
+                    )
+                except ConnectRejected as exc:
+                    if origin == "manual":
+                        rejection = exc
+                        break
+                    continue
+                except LLMUnavailableError:
+                    run_status = "failed"
+                    raise
+                if note_id:
+                    created_ids.append(note_id)
+                    logger.info("Nota %d/%d OK (id=%s)", i, total, note_id)
 
-    logger.info("Notas permanentes criadas/atualizadas: %d", len(created_ids))
-    finish_pipeline_run(db, run_id)
-    if rejection:
-        raise rejection
-    return created_ids
+        logger.info("Notas permanentes criadas/atualizadas: %d", len(created_ids))
+        if rejection:
+            raise rejection
+        return created_ids
+    except LLMUnavailableError:
+        run_status = "failed"
+        raise
+    finally:
+        set_source(None)
+        tracker = get_tracker()
+        if tracker:
+            for sid in tracker.sources_touched():
+                db.add_source_usage(sid, tracker.summary_for_source(sid).as_dict())
+                sync_source_costs_to_vault(cfg, db, sid)
+        finish_pipeline_run(db, run_id, run_status)
 
 
 # ── Candidate Processing ──────────────────────────────────────────────
@@ -448,6 +457,9 @@ def _process_candidate(
                 reason=note_output.reason or "",
             )
     except ConnectRejected:
+        raise
+    except LLMUnavailableError:
+        clear_progress()
         raise
     except Exception as e:
         logger.error("Erro ao gerar nota permanente para conceito %s: %s", concept_id, e)

@@ -28,6 +28,7 @@ from zettel.hashing import (
 )
 from zettel.index import VectorIndex
 from zettel.llm import (
+    LLMUnavailableError,
     PromptParts,
     call_llm,
     extract_json,
@@ -83,113 +84,121 @@ def run_extract(
 
     run_id = db.start_run("extract")
     begin_run(run_id)
-
-    from zettel.assets import describe_pending_assets
-
-    described = describe_pending_assets(cfg, db, observer=observer)
-    if described:
-        logger.info("Imagens descritas nesta execucao: %d", described)
-
-    llm = get_llm(cfg, "extract")
-    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
-    prompt_hash = sha256_hex(prompt_parts.full_template)
-    from zettel.domain_examples import load_domain_examples, render_for_prompt
-
-    example_fields = render_for_prompt(
-        load_domain_examples(cfg.domain.examples_path),
-        "literature_note",
-    )
-
-    pending = db.get_pending_chunks()
-    total = len(pending)
-    logger.info("Chunks pendentes para extracao: %d", total)
-    from zettel.progress import report
-
-    report(observer, "extract", f"{total} chunk(s) pendente(s).", total_items=total)
-
+    run_status = "completed"
     all_candidates: list[dict] = []
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]Extract[/bold blue] {task.description}"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        transient=True,
-    ) as progress:
-        task = progress.add_task("chunks", total=total)
-        for i, chunk_row in enumerate(pending, 1):
-            chunk_id = chunk_row["chunk_id"]
-            source_id = chunk_row["source_id"]
-            set_source(source_id)
-            progress.update(task, description=f"chunk {i}/{total}", advance=1)
-            report(
-                observer,
-                "extract",
-                f"Extraindo chunk {i}/{total}.",
-                current_item=chunk_id,
-                current_index=i,
-                total_items=total,
-            )
+    try:
+        from zettel.assets import describe_pending_assets
 
-            page_file = chunk_row.get("page_in_file")
-            page_book = chunk_row.get("page_in_book")
-            page_conf = chunk_row.get("page_confidence") or "unknown"
-            logger.info(
-                "[SOURCE=%s] [CHUNK=%s idx=%s/%d] "
-                "[PAGE file=%s book=%s conf=%s] → Iniciando analise LLM",
-                source_id,
-                chunk_id,
-                chunk_row.get("chunk_index"),
-                total,
-                page_file,
-                page_book,
-                page_conf,
-            )
+        described = describe_pending_assets(cfg, db, observer=observer)
+        if described:
+            logger.info("Imagens descritas nesta execucao: %d", described)
 
-            candidates, _output = _process_chunk(
-                cfg,
-                db,
-                idx,
-                llm,
-                chunk_row,
-                prompt_parts,
-                prompt_hash,
-                example_fields=example_fields,
-                step=i,
-                total=total,
-            )
-            all_candidates.extend(candidates)
-            logger.info(
-                "[SOURCE=%s] [CHUNK=%s] → Analise concluida, %d candidatos",
-                source_id,
-                chunk_id,
-                len(candidates),
-            )
+        llm = get_llm(cfg, "extract")
+        prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+        prompt_hash = sha256_hex(prompt_parts.full_template)
+        from zettel.domain_examples import load_domain_examples, render_for_prompt
 
-            db.update_source_paging(
-                source_id,
-                last_chunk_processed=chunk_row.get("chunk_index"),
-            )
+        example_fields = render_for_prompt(
+            load_domain_examples(cfg.domain.examples_path),
+            "literature_note",
+        )
 
-    set_source(None)
-    tracker = get_tracker()
-    if tracker:
-        for sid in tracker.sources_touched():
-            db.add_source_usage(sid, tracker.summary_for_source(sid).as_dict())
-            sync_source_costs_to_vault(cfg, db, sid)
+        pending = db.get_pending_chunks()
+        total = len(pending)
+        logger.info("Chunks pendentes para extracao: %d", total)
+        from zettel.progress import report
 
-    if auto_approve:
-        from zettel.review import approve_high_confidence
+        report(observer, "extract", f"{total} chunk(s) pendente(s).", total_items=total)
 
-        n = approve_high_confidence(cfg, db, idx)
-        logger.info("Auto-approve: %d chunks persistidos", n)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]Extract[/bold blue] {task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            transient=True,
+        ) as progress:
+            task = progress.add_task("chunks", total=total)
+            for i, chunk_row in enumerate(pending, 1):
+                chunk_id = chunk_row["chunk_id"]
+                source_id = chunk_row["source_id"]
+                set_source(source_id)
+                progress.update(task, description=f"chunk {i}/{total}", advance=1)
+                report(
+                    observer,
+                    "extract",
+                    f"Extraindo chunk {i}/{total}.",
+                    current_item=chunk_id,
+                    current_index=i,
+                    total_items=total,
+                )
 
-    logger.info(
-        "Extract concluido: %d candidatos aguardando review (status awaiting_review)",
-        len(all_candidates),
-    )
-    finish_pipeline_run(db, run_id)
-    return all_candidates
+                page_file = chunk_row.get("page_in_file")
+                page_book = chunk_row.get("page_in_book")
+                page_conf = chunk_row.get("page_confidence") or "unknown"
+                logger.info(
+                    "[SOURCE=%s] [CHUNK=%s idx=%s/%d] "
+                    "[PAGE file=%s book=%s conf=%s] → Iniciando analise LLM",
+                    source_id,
+                    chunk_id,
+                    chunk_row.get("chunk_index"),
+                    total,
+                    page_file,
+                    page_book,
+                    page_conf,
+                )
+
+                try:
+                    candidates, _output = _process_chunk(
+                        cfg,
+                        db,
+                        idx,
+                        llm,
+                        chunk_row,
+                        prompt_parts,
+                        prompt_hash,
+                        example_fields=example_fields,
+                        step=i,
+                        total=total,
+                    )
+                except LLMUnavailableError:
+                    run_status = "failed"
+                    raise
+                all_candidates.extend(candidates)
+                logger.info(
+                    "[SOURCE=%s] [CHUNK=%s] → Analise concluida, %d candidatos",
+                    source_id,
+                    chunk_id,
+                    len(candidates),
+                )
+
+                db.update_source_paging(
+                    source_id,
+                    last_chunk_processed=chunk_row.get("chunk_index"),
+                )
+
+        if auto_approve:
+            from zettel.review import approve_high_confidence
+
+            n = approve_high_confidence(cfg, db, idx)
+            logger.info("Auto-approve: %d chunks persistidos", n)
+
+        logger.info(
+            "Extract concluido: %d candidatos aguardando review (status awaiting_review)",
+            len(all_candidates),
+        )
+        return all_candidates
+    except LLMUnavailableError:
+        run_status = "failed"
+        raise
+    finally:
+        set_source(None)
+        tracker = get_tracker()
+        if tracker:
+            for sid in tracker.sources_touched():
+                db.add_source_usage(sid, tracker.summary_for_source(sid).as_dict())
+                sync_source_costs_to_vault(cfg, db, sid)
+        finish_pipeline_run(db, run_id, run_status)
 
 
 # ── Chunk Processing ──────────────────────────────────────────────────
@@ -297,6 +306,9 @@ def _process_chunk(
                 chunk_id,
                 spec.model,
             )
+        except LLMUnavailableError:
+            clear_progress()
+            raise
         except Exception as e:
             logger.error("Erro no LLM para chunk %s: %s", chunk_id, e)
             db.update_chunk_status(chunk_id, "failed")
@@ -326,6 +338,9 @@ def _process_chunk(
                 prompt_cache=False,
             )
             output = _parse_literature_output(response_text)
+        except LLMUnavailableError:
+            clear_progress()
+            raise
         except Exception:
             logger.error("Chunk %s enviado para revisao manual (parse falhou)", chunk_id)
             db.update_chunk_status(chunk_id, "failed")
@@ -351,6 +366,9 @@ def _process_chunk(
                 prompt_cache=False,
             )
             output = _parse_literature_output(response_text)
+        except LLMUnavailableError:
+            clear_progress()
+            raise
         except Exception:
             logger.error("Chunk %s enviado para revisao manual (parse falhou)", chunk_id)
             db.update_chunk_status(chunk_id, "failed")

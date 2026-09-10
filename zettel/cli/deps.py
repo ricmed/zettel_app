@@ -174,3 +174,11 @@ def preflight_gate(estimate, yes: bool, db=None) -> None:
     if db is not None:
         db.close()
     raise typer.Exit(1)
+
+
+def exit_llm_unavailable(exc: BaseException, db=None) -> None:
+    """Print a classified LLM outage and leave the CLI without a traceback."""
+    console.print(f"[red]{exc}[/red]")
+    if db is not None:
+        db.close()
+    raise typer.Exit(1) from exc

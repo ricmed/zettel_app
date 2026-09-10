@@ -125,7 +125,7 @@ class LLMConfig(BaseModel):
 
     temperature: float = 0
     top_p: float = 1  # nucleus sampling; encaminhado em get_llm
-    max_retries: int = 2
+    max_retries: int = 2  # extras da mesma chamada; esgotadas => fail-fast da fase
     prompt_cache: bool = True  # prefix cache do provedor; ≠ llm_cache SQLite
     harvest: LLMPhaseConfig = Field(default_factory=LLMPhaseConfig)
     extract: LLMPhaseConfig = Field(default_factory=LLMPhaseConfig)

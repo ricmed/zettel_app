@@ -33,6 +33,154 @@ _OPENAI_COMPAT_PROVIDERS = frozenset(
 _CHAT_PROVIDERS = _OPENAI_COMPAT_PROVIDERS | frozenset({"anthropic", "ollama", "gemini"})
 
 
+class LLMUnavailableError(RuntimeError):
+    """Provider down, unreachable, or not installable. Not a content/parse failure."""
+
+    def __init__(self, reason: str, *, phase: str | None = None) -> None:
+        self.reason = reason
+        self.phase = phase
+        where = f" ({phase})" if phase else ""
+        super().__init__(
+            f"LLM indisponível{where}: {reason}. "
+            "Itens pendentes não foram marcados failed. "
+            "Verifique o provider e rode de novo."
+        )
+
+
+_UNAVAILABLE_CLASS_MARKERS = (
+    "apiconnection",
+    "authenticationerror",
+    "connecterror",
+    "connectionerror",
+    "connecttimeout",
+    "internalservererror",
+    "notfounderror",
+    "permissiondenied",
+    "ratelimit",
+    "serviceunavailable",
+    "timeout",
+)
+
+_UNAVAILABLE_MSG_MARKERS = (
+    "401",
+    "403",
+    "404",
+    "429",
+    "502",
+    "503",
+    "504",
+    "connection refused",
+    "connect error",
+    "connection reset",
+    "connecttimeout",
+    "getaddrinfo",
+    "incorrect api key",
+    "invalid api key",
+    "max retries exceeded",
+    "model not found",
+    "name or service not known",
+    "nodename nor servname",
+    "rate limit",
+    "rate_limit",
+    "timed out",
+    "timeout",
+    "unauthorized",
+)
+
+_REASON_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (
+        ("connection refused", "connecterror", "connect error", "connectionerror"),
+        "connection refused",
+    ),
+    (("timed out", "timeout", "connecttimeout"), "timeout"),
+    (("429", "ratelimit", "rate limit", "rate_limit"), "rate limit esgotado"),
+    (
+        ("401", "unauthorized", "authentication", "invalid api key", "incorrect api key"),
+        "autenticação recusada",
+    ),
+    (("403", "permissiondenied", "permission denied"), "acesso recusado"),
+    (
+        ("502", "503", "504", "service unavailable", "internal server error"),
+        "servidor indisponível",
+    ),
+    (("model not found", "not found: model"), "modelo não encontrado"),
+    (("connection reset", "reset by peer"), "connection reset"),
+    (("name or service not known", "getaddrinfo", "nodename nor servname"), "host inacessível"),
+)
+
+
+def _walk_exception_chain(exc: BaseException) -> list[BaseException]:
+    seen: set[int] = set()
+    stack: list[BaseException] = [exc]
+    out: list[BaseException] = []
+    while stack:
+        cur = stack.pop()
+        if id(cur) in seen:
+            continue
+        seen.add(id(cur))
+        out.append(cur)
+        if cur.__cause__ is not None:
+            stack.append(cur.__cause__)
+        if cur.__context__ is not None and cur.__context__ is not cur.__cause__:
+            stack.append(cur.__context__)
+    return out
+
+
+def is_llm_unavailable(exc: BaseException) -> bool:
+    """True for transport, auth, or provider-down errors (not parse/validation)."""
+    if isinstance(exc, (LLMUnavailableError, ImportError)):
+        return True
+    for cur in _walk_exception_chain(exc):
+        if isinstance(cur, (ConnectionError, TimeoutError, OSError)):
+            return True
+        name = type(cur).__name__.lower()
+        if any(marker in name for marker in _UNAVAILABLE_CLASS_MARKERS):
+            return True
+        msg = str(cur).lower()
+        if any(marker in msg for marker in _UNAVAILABLE_MSG_MARKERS):
+            return True
+    return False
+
+
+def _unavailable_reason(exc: BaseException) -> str:
+    if isinstance(exc, ImportError):
+        pkg = getattr(exc, "name", None) or "do provider"
+        return f"pacote {pkg} não instalado"
+    for cur in _walk_exception_chain(exc):
+        blob = f"{type(cur).__name__.lower()} {cur}".lower()
+        for markers, reason in _REASON_RULES:
+            if any(marker in blob for marker in markers):
+                return reason
+    return "falha de conexão ou autenticação"
+
+
+def _raise_unavailable(exc: BaseException, *, phase: str | None = None) -> None:
+    if isinstance(exc, LLMUnavailableError):
+        raise exc
+    raise LLMUnavailableError(_unavailable_reason(exc), phase=phase) from exc
+
+
+class _RetryingChatModel:
+    """Honours ``max_retries`` when the client has no such knob (ChatOllama)."""
+
+    def __init__(self, inner: Any, max_retries: int) -> None:
+        self._inner = inner
+        self._max_retries = max(0, int(max_retries))
+
+    def invoke(self, messages: Any, **kwargs: Any) -> Any:
+        attempts = self._max_retries + 1
+        for attempt in range(attempts):
+            try:
+                return self._inner.invoke(messages, **kwargs)
+            except Exception as e:
+                if not is_llm_unavailable(e) or attempt >= self._max_retries:
+                    raise
+        raise RuntimeError("retry loop exhausted")  # pragma: no cover
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
 def _message_text(content: Any) -> str:
     """Plain text from ``AIMessage.content`` (str, or Gemini 3+ list of blocks)."""
     if isinstance(content, str):
@@ -97,50 +245,60 @@ def get_llm(
     base_url = spec.base_url
     top_p = getattr(cfg.llm, "top_p", 1)
 
-    if is_openai_compatible(provider):
-        from langchain_openai import ChatOpenAI
+    try:
+        if is_openai_compatible(provider):
+            from langchain_openai import ChatOpenAI
 
-        kwargs: dict[str, Any] = {
-            "model": spec.model,
-            "temperature": temp,
-            "top_p": top_p,
-            "max_retries": retries,
-        }
-        if base_url:
-            kwargs["base_url"] = base_url
-        return ChatOpenAI(**kwargs)
+            kwargs: dict[str, Any] = {
+                "model": spec.model,
+                "temperature": temp,
+                "top_p": top_p,
+                "max_retries": retries,
+            }
+            if base_url:
+                kwargs["base_url"] = base_url
+            return ChatOpenAI(**kwargs)
 
-    if provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
+        if provider == "anthropic":
+            from langchain_anthropic import ChatAnthropic
 
-        return ChatAnthropic(
-            model=spec.model,
-            temperature=temp,
-            top_p=top_p,
-            max_retries=retries,
-        )
+            return ChatAnthropic(
+                model=spec.model,
+                temperature=temp,
+                top_p=top_p,
+                max_retries=retries,
+            )
 
-    if provider == "ollama":
-        from langchain_ollama import ChatOllama
+        if provider == "ollama":
+            from langchain_ollama import ChatOllama
 
-        kwargs = {
-            "model": spec.model,
-            "temperature": temp,
-            "top_p": top_p,
-        }
-        if base_url:
-            kwargs["base_url"] = base_url
-        return ChatOllama(**kwargs)
+            kwargs = {
+                "model": spec.model,
+                "temperature": temp,
+                "top_p": top_p,
+            }
+            if base_url:
+                kwargs["base_url"] = base_url
+            # ChatOllama has no max_retries field; wrap invoke instead.
+            return _RetryingChatModel(ChatOllama(**kwargs), retries)
 
-    if provider == "gemini":
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        if provider == "gemini":
+            from langchain_google_genai import ChatGoogleGenerativeAI
 
-        return ChatGoogleGenerativeAI(
-            model=spec.model,
-            temperature=temp,
-            top_p=top_p,
-            max_retries=retries,
-        )
+            return ChatGoogleGenerativeAI(
+                model=spec.model,
+                temperature=temp,
+                top_p=top_p,
+                max_retries=retries,
+            )
+    except LLMUnavailableError:
+        raise
+    except ImportError as e:
+        _raise_unavailable(e, phase=phase)
+    except Exception as e:
+        if is_llm_unavailable(e):
+            _raise_unavailable(e, phase=phase)
+        raise
 
     raise ValueError(f"LLM provider não suportado: {spec.provider}")
 
@@ -359,7 +517,14 @@ def call_llm(
         enabled=prompt_cache,
     )
 
-    response = llm.invoke(messages, **invoke_kwargs)
+    try:
+        response = llm.invoke(messages, **invoke_kwargs)
+    except LLMUnavailableError:
+        raise
+    except Exception as e:
+        if is_llm_unavailable(e):
+            _raise_unavailable(e)
+        raise
     content = _message_text(response.content)
 
     model_name = _resolve_model_name(llm, model)

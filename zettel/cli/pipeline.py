@@ -26,7 +26,7 @@ from typing import Annotated
 import typer
 
 from zettel.cli.app import app, console
-from zettel.cli.deps import get_db, get_idx, load_deps
+from zettel.cli.deps import exit_llm_unavailable, get_db, get_idx, load_deps
 from zettel.cli.formatting import print_cost_by_phase
 from zettel.cli.options import (
     ConfigOption,
@@ -60,6 +60,25 @@ def run_all(
 
     interactive, duplicate_action = resolve_duplicate_flags(yes, skip_duplicates, force)
 
+    from zettel.llm import LLMUnavailableError
+
+    try:
+        _run_all_phases(
+            cfg,
+            db,
+            idx,
+            interactive=interactive,
+            duplicate_action=duplicate_action,
+            skip_biblio=skip_biblio,
+            yes=yes,
+            dry_run=dry_run,
+        )
+    except LLMUnavailableError as exc:
+        exit_llm_unavailable(exc, db)
+    db.close()
+
+
+def _run_all_phases(cfg, db, idx, *, interactive, duplicate_action, skip_biblio, yes, dry_run):
     # Phase 1: Harvest
     console.rule("[bold blue]Fase 1 — Harvest")
     from zettel.harvester import run_harvest
@@ -112,7 +131,6 @@ def run_all(
     if dry_run:
         console.print("[yellow]Dry run — parando antes da geracao de notas.[/yellow]")
         print_cost_by_phase(db, title="Custo por fase desta execucao")
-        db.close()
         return
 
     # Phase 3: Connect (from DB approved concepts)
@@ -132,4 +150,3 @@ def run_all(
 
     console.rule("[bold green]Pipeline completo!")
     print_cost_by_phase(db, title="Custo por fase desta execucao")
-    db.close()

@@ -19,7 +19,7 @@ from typing import Annotated
 import typer
 
 from zettel.cli.app import app, console
-from zettel.cli.deps import get_db, get_idx, load_deps, preflight_gate
+from zettel.cli.deps import exit_llm_unavailable, get_db, get_idx, load_deps, preflight_gate
 from zettel.cli.options import ConfigOption, YesOption
 
 
@@ -67,9 +67,14 @@ def connect(
 
     preflight_gate(estimate_connect(cfg, db, candidates), yes, db)
 
+    from zettel.llm import LLMUnavailableError
+
     # Nao usar console.status: o Progress interno de run_connect disputa o mesmo
     # stdout (dois Rich Live) e a barra Connect nota i/N pisca. Ver #21.
-    note_ids = run_connect(cfg, db, idx, candidates)
+    try:
+        note_ids = run_connect(cfg, db, idx, candidates)
+    except LLMUnavailableError as exc:
+        exit_llm_unavailable(exc, db)
 
     console.print(f"[green]Notas permanentes criadas: {len(note_ids)}[/green]")
     for nid in note_ids:

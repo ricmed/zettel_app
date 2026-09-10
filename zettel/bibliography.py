@@ -16,7 +16,14 @@ from zettel.hashing import (
     normalize_text_for_hash,
     sha256_hex,
 )
-from zettel.llm import call_llm, extract_json, fill_template, get_llm, load_prompt_parts
+from zettel.llm import (
+    LLMUnavailableError,
+    call_llm,
+    extract_json,
+    fill_template,
+    get_llm,
+    load_prompt_parts,
+)
 from zettel.state import StateDB
 
 logger = logging.getLogger(__name__)
@@ -904,6 +911,8 @@ def enrich_with_llm(
                 json.dumps({"system": system, "user": user}, ensure_ascii=False),
                 response_text,
             )
+        except LLMUnavailableError:
+            raise
         except Exception as e:
             logger.warning("Falha no LLM bibliografico para %s: %s", filename, e)
             if raise_on_error:

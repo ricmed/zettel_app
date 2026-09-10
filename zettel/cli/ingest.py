@@ -23,7 +23,7 @@ from typing import Annotated
 import typer
 
 from zettel.cli.app import app, console
-from zettel.cli.deps import get_db, get_idx, load_deps
+from zettel.cli.deps import exit_llm_unavailable, get_db, get_idx, load_deps
 from zettel.cli.options import (
     ChunkDumpDirOption,
     ConfigOption,
@@ -103,45 +103,49 @@ def harvest(
     )
 
     from zettel.harvester import run_harvest
+    from zettel.llm import LLMUnavailableError
 
-    if interactive:
-        # Nao usar console.status aqui: prompts interativos (bibliografia / duplicatas)
-        # precisam do terminal livre; o spinner engole o Prompt.ask e parece travado.
-        console.print(
-            "[dim]Coletando arquivos do inbox "
-            "(pode solicitar metadados bibliograficos / inicio de paginacao)...[/dim]"
-        )
-        outcome = run_harvest(
-            cfg,
-            db,
-            idx,
-            interactive=True,
-            skip_biblio=skip_biblio,
-            content_start_file=content_start_file,
-            content_start_book=content_start_book,
-            skip_paging=skip_paging,
-            dump_dir=chunk_dump_dir,
-            extraction_dump_dir=extraction_dump_dir,
-        )
-    else:
-        console.print(
-            f"[dim]Modo nao-interativo — duplicatas suspeitas: '{duplicate_action}'[/dim]"
-        )
-        if skip_biblio:
-            console.print("[dim]Bibliografia incompleta permitida (--skip-biblio)[/dim]")
-        outcome = run_harvest(
-            cfg,
-            db,
-            idx,
-            interactive=False,
-            duplicate_action=duplicate_action,
-            skip_biblio=skip_biblio,
-            content_start_file=content_start_file,
-            content_start_book=content_start_book,
-            skip_paging=skip_paging,
-            dump_dir=chunk_dump_dir,
-            extraction_dump_dir=extraction_dump_dir,
-        )
+    try:
+        if interactive:
+            # Nao usar console.status aqui: prompts interativos (bibliografia / duplicatas)
+            # precisam do terminal livre; o spinner engole o Prompt.ask e parece travado.
+            console.print(
+                "[dim]Coletando arquivos do inbox "
+                "(pode solicitar metadados bibliograficos / inicio de paginacao)...[/dim]"
+            )
+            outcome = run_harvest(
+                cfg,
+                db,
+                idx,
+                interactive=True,
+                skip_biblio=skip_biblio,
+                content_start_file=content_start_file,
+                content_start_book=content_start_book,
+                skip_paging=skip_paging,
+                dump_dir=chunk_dump_dir,
+                extraction_dump_dir=extraction_dump_dir,
+            )
+        else:
+            console.print(
+                f"[dim]Modo nao-interativo — duplicatas suspeitas: '{duplicate_action}'[/dim]"
+            )
+            if skip_biblio:
+                console.print("[dim]Bibliografia incompleta permitida (--skip-biblio)[/dim]")
+            outcome = run_harvest(
+                cfg,
+                db,
+                idx,
+                interactive=False,
+                duplicate_action=duplicate_action,
+                skip_biblio=skip_biblio,
+                content_start_file=content_start_file,
+                content_start_book=content_start_book,
+                skip_paging=skip_paging,
+                dump_dir=chunk_dump_dir,
+                extraction_dump_dir=extraction_dump_dir,
+            )
+    except LLMUnavailableError as exc:
+        exit_llm_unavailable(exc, db)
 
     new_sources = outcome.source_ids
     if new_sources:
