@@ -24,7 +24,7 @@ prompts_path: ./prompts             # templates .md dos prompts
 llm:
   temperature: 0.25         # 0 = mais deterministico; >0 aumenta variacao
   top_p: 0.5                # nucleus sampling encaminhado a get_llm (LangChain)
-  max_retries: 2            # retries do client LangChain em falha HTTP
+  max_retries: 2            # tentativas extras da mesma chamada HTTP; esgotadas => a fase para (fail-fast)
   prompt_cache: true        # layout System+Human + hints Anthropic; ≠ llm_cache SQLite
   harvest:
     provider: openai
