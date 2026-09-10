@@ -54,6 +54,7 @@ O `run-all` encadeia `harvest → extract → review → summarize → connect �
 | [`retry-failed`](#retry-failed) | Reprocessa chunks/imagens com falha, ou chunks `rejected` do extract (`--rejected`) |
 | [`status`](#status) | Estatísticas do pipeline |
 | [`doctor`](#doctor) | Diagnóstico de configuração e dependências |
+| [`db-report`](#db-report) | Tamanho e conteúdo de `state.db` e Chroma |
 | [`run-all`](#run-all) | Pipeline completo |
 
 Todos aceitam `--config` / `-c` para apontar um YAML alternativo.
@@ -582,6 +583,17 @@ python -m zettel doctor
 ```
 
 Checa Docling, bibliotecas de clustering, disponibilidade de FTS5, integridade dos caminhos, cobertura de capítulos, drift do espaço de embedding, a taxonomia de MOCs e o arquivo de few-shots (`domain.examples_path`).
+
+---
+
+## `db-report`
+
+```bash
+# Relatorio de tamanho e conteudo de state.db e Chroma
+python -m zettel db-report
+```
+
+Somente leitura: nao chama LLM, nao instancia o modelo de embedding e nao escreve nas bases. Mostra o disco de `state.db` (arquivo + WAL/SHM, PRAGMA, tabelas, colunas pesadas) e de `data/chroma/` (coleções, `chroma.sqlite3`, segmentos HNSW).
 
 ---
 

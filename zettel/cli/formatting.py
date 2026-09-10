@@ -37,6 +37,23 @@ def fmt_usd(value: object) -> str:
     return f"{float(value or 0):.6f}"
 
 
+def fmt_bytes(value: object) -> str:
+    """Human-readable byte count, ASCII only (Windows cp1252 consoles)."""
+    try:
+        n = int(value or 0)
+    except (TypeError, ValueError):
+        return "-"
+    n = max(n, 0)
+    size = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            if unit == "B":
+                return f"{int(size)} B"
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} GB"
+
+
 def fmt_prompt_cache_ratio(u) -> str:
     """``'read/write tokens (pct% do prompt)'``, or ``'-'`` when the cache was idle.
 

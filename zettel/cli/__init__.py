@@ -23,7 +23,7 @@ Module map:
 ``qa.py``            ask
 ``writing.py``       article
 ``export.py``        skill
-``diagnostics.py``   status, doctor
+``diagnostics.py``   status, doctor, db-report
 ===================  =========================================================
 
 **The import order below is the order commands appear in ``zettel --help``.**

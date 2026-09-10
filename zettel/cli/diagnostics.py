@@ -1,6 +1,6 @@
-"""Read-only inspection: ``status`` and ``doctor``.
+"""Read-only inspection: ``status``, ``doctor`` and ``db-report``.
 
-Neither command writes anything, and neither calls an LLM. They answer two
+None of these commands write anything, and none call an LLM. They answer three
 different questions:
 
 * ``status`` — *what is in the pipeline right now?* Entity counts, the chunks
@@ -8,6 +8,8 @@ different questions:
   last pipeline session cost.
 * ``doctor`` — *would a run succeed?* Every precondition that fails late and
   expensively is checked here, cheaply and up front.
+* ``db-report`` — *how much do the stores occupy, and what is inside them?*
+  File sizes, per-table occupancy, heavy columns, and Chroma collections.
 
 Each ``doctor`` check exists because of a specific failure mode:
 
@@ -36,7 +38,7 @@ from rich.table import Table
 
 from zettel.cli.app import app, console
 from zettel.cli.deps import get_db, load_deps
-from zettel.cli.formatting import fmt_embedding_id, print_cost_by_phase
+from zettel.cli.formatting import fmt_bytes, fmt_embedding_id, print_cost_by_phase
 from zettel.cli.options import ConfigOption
 
 
@@ -365,3 +367,176 @@ def doctor(config: ConfigOption = None):
         console.print(f"\n[red]{failed} verificação(ões) falharam.[/red]")
     else:
         console.print("\n[green]Tudo em ordem![/green]")
+
+
+@app.command("db-report")
+def db_report(config: ConfigOption = None):
+    """Relatorio de tamanho e conteudo das bases (SQLite + Chroma)."""
+    cfg = load_deps(config)
+    db = get_db(cfg)
+    try:
+        from zettel.db_report import collect_db_report
+
+        report = collect_db_report(cfg, db)
+        _print_db_report(report)
+    finally:
+        db.close()
+
+
+def _fmt_opt_bytes(value: int | None) -> str:
+    return "-" if value is None else fmt_bytes(value)
+
+
+def _fmt_opt_int(value: int | None) -> str:
+    return "-" if value is None else str(value)
+
+
+def _print_db_report(report) -> None:
+    disk = Table(title="Zettelkasten — Disco")
+    disk.add_column("Store", style="bold")
+    disk.add_column("Arquivo", justify="right")
+    disk.add_column("WAL", justify="right")
+    disk.add_column("SHM", justify="right")
+    disk.add_column("Total", justify="right")
+    disk.add_column("Ocioso (VACUUM)", justify="right")
+
+    state = report.state
+    unused = state.pragmas.unused_bytes if state.pragmas else 0
+    unused_style = "yellow" if unused else ""
+    disk.add_row(
+        "state.db",
+        fmt_bytes(state.file_bytes),
+        fmt_bytes(state.wal_bytes),
+        fmt_bytes(state.shm_bytes),
+        fmt_bytes(state.total_bytes),
+        fmt_bytes(unused),
+        style=unused_style,
+    )
+
+    chroma = report.chroma
+    chroma_sql = chroma.sqlite
+    chroma_unused = 0
+    if chroma_sql is not None and chroma_sql.pragmas is not None:
+        chroma_unused = chroma_sql.pragmas.unused_bytes
+    disk.add_row(
+        "chroma/",
+        fmt_bytes(chroma_sql.file_bytes if chroma_sql else 0),
+        fmt_bytes(chroma_sql.wal_bytes if chroma_sql else 0),
+        fmt_bytes(chroma_sql.shm_bytes if chroma_sql else 0),
+        fmt_bytes(chroma.dir_total_bytes),
+        fmt_bytes(chroma_unused),
+        style="yellow" if chroma_unused else "",
+    )
+    console.print(disk)
+
+    _print_sqlite_store("state.db", state, columns=True)
+    _print_chroma(chroma)
+
+
+def _print_sqlite_store(
+    title: str,
+    store,
+    *,
+    columns: bool,
+    caption: str | None = None,
+) -> None:
+    if store.pragmas is not None:
+        pragma = Table(title=f"{title} — PRAGMA")
+        pragma.add_column("Chave", style="bold")
+        pragma.add_column("Valor", justify="right")
+        pragma.add_row("page_size", str(store.pragmas.page_size))
+        pragma.add_row("page_count", str(store.pragmas.page_count))
+        pragma.add_row("freelist_count", str(store.pragmas.freelist_count))
+        pragma.add_row("journal_mode", store.pragmas.journal_mode)
+        pragma.add_row("bytes ociosos", fmt_bytes(store.pragmas.unused_bytes))
+        if not store.dbstat_available:
+            pragma.add_row("dbstat", "indisponivel (so payload LENGTH)")
+        console.print(pragma)
+
+    tables = Table(title=f"{title} — Tabelas")
+    if caption:
+        tables.caption = caption
+    tables.add_column("Nome", style="bold")
+    tables.add_column("Tipo")
+    tables.add_column("Linhas", justify="right")
+    tables.add_column("Disco", justify="right")
+    tables.add_column("Payload", justify="right")
+    for row in store.tables:
+        tables.add_row(
+            row.name,
+            row.kind,
+            _fmt_opt_int(row.rows),
+            _fmt_opt_bytes(row.disk_bytes),
+            _fmt_opt_bytes(row.payload_bytes),
+        )
+    console.print(tables)
+
+    if not columns or not store.columns:
+        return
+    heavy = Table(title=f"{title} — Colunas pesadas")
+    heavy.add_column("Tabela", style="bold")
+    heavy.add_column("Coluna")
+    heavy.add_column("Linhas", justify="right")
+    heavy.add_column("Nao-nulas", justify="right")
+    heavy.add_column("Total", justify="right")
+    heavy.add_column("Media", justify="right")
+    heavy.add_column("Max", justify="right")
+    for col in store.columns:
+        heavy.add_row(
+            col.table,
+            col.column,
+            str(col.rows),
+            str(col.rows_nonnull),
+            fmt_bytes(col.bytes),
+            fmt_bytes(round(col.avg_bytes)),
+            fmt_bytes(col.max_bytes),
+        )
+    console.print(heavy)
+
+
+def _print_chroma(chroma) -> None:
+    if not chroma.exists:
+        console.print(f"[yellow]Chroma ausente: {chroma.path}[/yellow]")
+        return
+
+    if chroma.client_error:
+        console.print(
+            f"[yellow]Chroma aberto so no disco "
+            f"(cliente indisponivel: {chroma.client_error})[/yellow]"
+        )
+    else:
+        identity = fmt_embedding_id(
+            chroma.embedding_provider,
+            chroma.embedding_model,
+            chroma.embedding_dimensions,
+        )
+        console.print(f"[dim]Embedding persistido: {identity}[/dim]")
+
+    collections = Table(title="Chroma — Colecoes")
+    collections.add_column("Colecao", style="bold")
+    collections.add_column("Vetores", justify="right")
+    for col in chroma.collections:
+        if col.error:
+            collections.add_row(col.name, f"erro: {col.error}")
+        else:
+            collections.add_row(col.name, _fmt_opt_int(col.count))
+    if chroma.collections:
+        console.print(collections)
+
+    if chroma.segments:
+        segments = Table(title="Chroma — Segmentos HNSW")
+        segments.add_column("Diretorio", style="bold")
+        segments.add_column("Arquivos", justify="right")
+        segments.add_column("Tamanho", justify="right")
+        for seg in chroma.segments:
+            segments.add_row(seg.name, str(seg.files), fmt_bytes(seg.bytes))
+        segments.add_row("Total HNSW", "", fmt_bytes(chroma.hnsw_bytes), style="bold")
+        console.print(segments)
+
+    if chroma.sqlite is not None:
+        _print_sqlite_store(
+            "chroma.sqlite3",
+            chroma.sqlite,
+            columns=False,
+            caption="Metadados internos do Chroma, nao o schema do pipeline.",
+        )

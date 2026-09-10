@@ -113,6 +113,7 @@ Os exemplos abaixo usam `python -m zettel ...`; prefixe com `uv run` se o ambien
 | `zettel sync-manual`              | Adota notas escritas à mão no Obsidian (índice, grafo, backrefs)             |
 | `zettel suggest-links`            | Sugere conexões (incl. analogias distantes) sem reescrever a ZTL             |
 | `zettel status` / `zettel doctor` | Estatísticas do pipeline / diagnóstico de config e dependências              |
+| `zettel db-report`                | Relatório de tamanho e conteúdo de `state.db` e Chroma                       |
 | `zettel run-all`                  | Pipeline completo, do inbox aos MOCs                                         |
 
 

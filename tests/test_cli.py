@@ -28,7 +28,7 @@ import pytest
 import typer
 from typer.testing import CliRunner
 from zettel.cli import app
-from zettel.cli.formatting import fmt_embedding_id, fmt_usd
+from zettel.cli.formatting import fmt_bytes, fmt_embedding_id, fmt_usd
 from zettel.cli.options import (
     resolve_chunk_dump_dir,
     resolve_duplicate_flags,
@@ -77,6 +77,7 @@ EXPECTED_COMMANDS = [
     # diagnostics.py — read-only inspection
     "status",
     "doctor",
+    "db-report",
 ]
 
 # Infrastructure modules: they may be imported by command modules. Anything else
@@ -293,6 +294,13 @@ def test_fmt_usd_keeps_six_decimals():
     assert fmt_usd(0.002066) == "0.002066"
     assert fmt_usd(None) == "0.000000"
     assert fmt_usd(0) == "0.000000"
+
+
+def test_fmt_bytes_uses_ascii_units():
+    assert fmt_bytes(0) == "0 B"
+    assert fmt_bytes(512) == "512 B"
+    assert fmt_bytes(1024) == "1.0 KB"
+    assert fmt_bytes(None) == "0 B"
 
 
 def test_fmt_embedding_id_includes_dimensions_when_set():
