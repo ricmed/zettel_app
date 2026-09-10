@@ -223,6 +223,59 @@ def is_supported_llm_provider(provider: str | None) -> bool:
     return normalize_llm_provider(provider) in _CHAT_PROVIDERS
 
 
+_ANTHROPIC_THINKING_BUDGET = {
+    "minimal": 1024,
+    "low": 2048,
+    "medium": 4096,
+    "high": 8192,
+}
+_ANTHROPIC_DEFAULT_BUDGET = 4096
+
+
+def _thinking_client_kwargs(provider: str, thinking: Any) -> dict[str, Any]:
+    """Vendor kwargs for ``llm.<phase>.thinking``. ``None`` omits the parameter."""
+    if thinking is None:
+        return {}
+
+    off = thinking is False or thinking == 0
+    level = thinking if isinstance(thinking, str) else None
+    is_budget = isinstance(thinking, int) and not isinstance(thinking, bool) and thinking > 0
+    budget = thinking if is_budget else None
+
+    if provider == "gemini":
+        if off:
+            return {"thinking_budget": 0}
+        if level:
+            return {"reasoning_effort": level}
+        if budget:
+            return {"thinking_budget": budget}
+        return {}
+
+    if is_openai_compatible(provider):
+        if off:
+            return {"reasoning_effort": "none"}
+        if level:
+            return {"reasoning_effort": level}
+        if budget:
+            return {"reasoning_effort": "high"}
+        return {"reasoning_effort": "medium"}
+
+    if provider == "ollama":
+        return {"reasoning": not off}
+
+    if provider == "anthropic":
+        if off:
+            return {"thinking": {"type": "disabled"}}
+        tokens = (
+            budget
+            if budget is not None
+            else (_ANTHROPIC_THINKING_BUDGET[level] if level else _ANTHROPIC_DEFAULT_BUDGET)
+        )
+        return {"thinking": {"type": "enabled", "budget_tokens": tokens}}
+
+    return {}
+
+
 def get_llm(
     cfg: Any,
     phase: str,
@@ -232,11 +285,12 @@ def get_llm(
 ) -> Any:
     """Instantiate the LLM configured for ``phase``.
 
-    Identity (provider, model, base_url) comes from ``llm.<phase>``. Sampling
-    knobs come from ``cfg.llm`` unless ``temperature`` / ``max_retries`` are
-    passed (article node temps; vision sets ``max_retries=0`` because assets
+    Identity (provider, model, base_url, thinking) comes from ``llm.<phase>``.
+    Sampling knobs come from ``cfg.llm`` unless ``temperature`` / ``max_retries``
+    are passed (article node temps; vision sets ``max_retries=0`` because assets
     owns 429 pacing) or the phase declares its own ``llm.<phase>.temperature``
     (lower priority than the explicit kwarg, higher than the global default).
+    ``thinking: null`` is omitted so the vendor default applies.
     """
     from zettel.config import effective_temperature, llm_phase
 
@@ -246,28 +300,30 @@ def get_llm(
     provider = normalize_llm_provider(spec.provider)
     base_url = spec.base_url
     top_p = getattr(cfg.llm, "top_p", 1)
+    thinking_kwargs = _thinking_client_kwargs(provider, spec.thinking)
 
     try:
         if is_openai_compatible(provider):
             from langchain_openai import ChatOpenAI
 
-        kwargs: dict[str, Any] = {
-            "model": spec.model,
-            "temperature": temp,
-            "top_p": top_p,
-            "max_retries": retries,
-        }
-        if base_url:
-            kwargs["base_url"] = base_url
-        if provider == "deepseek":
-            key = os.environ.get("DEEPSEEK_API_KEY")
-            if not key:
-                raise RuntimeError(
-                    "Sem DEEPSEEK_API_KEY no ambiente (.env). "
-                    "Necessaria quando llm.<fase>.provider e deepseek."
-                )
-            kwargs["api_key"] = key
-        return ChatOpenAI(**kwargs)
+            kwargs: dict[str, Any] = {
+                "model": spec.model,
+                "temperature": temp,
+                "top_p": top_p,
+                "max_retries": retries,
+                **thinking_kwargs,
+            }
+            if base_url:
+                kwargs["base_url"] = base_url
+            if provider == "deepseek":
+                key = os.environ.get("DEEPSEEK_API_KEY")
+                if not key:
+                    raise RuntimeError(
+                        "Sem DEEPSEEK_API_KEY no ambiente (.env). "
+                        "Necessaria quando llm.<fase>.provider e deepseek."
+                    )
+                kwargs["api_key"] = key
+            return ChatOpenAI(**kwargs)
 
         if provider == "anthropic":
             from langchain_anthropic import ChatAnthropic
@@ -277,6 +333,7 @@ def get_llm(
                 temperature=temp,
                 top_p=top_p,
                 max_retries=retries,
+                **thinking_kwargs,
             )
 
         if provider == "ollama":
@@ -286,6 +343,7 @@ def get_llm(
                 "model": spec.model,
                 "temperature": temp,
                 "top_p": top_p,
+                **thinking_kwargs,
             }
             if base_url:
                 kwargs["base_url"] = base_url
@@ -300,6 +358,7 @@ def get_llm(
                 temperature=temp,
                 top_p=top_p,
                 max_retries=retries,
+                **thinking_kwargs,
             )
     except LLMUnavailableError:
         raise

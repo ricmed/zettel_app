@@ -15,7 +15,7 @@ from typing import Any
 
 from ulid import ULID
 
-from zettel.config import AppConfig, effective_temperature, llm_phase
+from zettel.config import AppConfig, effective_temperature, llm_phase, thinking_checksum_token
 from zettel.hashing import (
     compute_embedding_input_hash,
     compute_llm_call_checksum,
@@ -492,6 +492,7 @@ def _process_candidate(
         cfg.language,
         provider=spec.provider,
         top_p=cfg.llm.top_p,
+        thinking=thinking_checksum_token(spec.thinking),
     )
     tracker = get_tracker()
     snap = tracker.summary().as_dict() if tracker else {}

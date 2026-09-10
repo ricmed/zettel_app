@@ -135,7 +135,7 @@ def _call_summary_llm(
 
     Returns ``(response_text, was_cache_hit)``.
     """
-    from zettel.config import effective_temperature, llm_phase
+    from zettel.config import effective_temperature, llm_phase, thinking_checksum_token
     from zettel.llm import call_llm, fill_template, get_llm, load_prompt_parts
 
     spec = llm_phase(cfg, "summarize")
@@ -152,6 +152,7 @@ def _call_summary_llm(
         cfg.language,
         provider=spec.provider,
         top_p=cfg.llm.top_p,
+        thinking=thinking_checksum_token(spec.thinking),
     )
     cached = db.get_cached_llm_response(checksum)
     if cached is not None:

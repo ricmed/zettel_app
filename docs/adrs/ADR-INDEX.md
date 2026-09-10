@@ -1,7 +1,7 @@
-# zettel_app ADR Index (43 Decisions)
+# zettel_app ADR Index (45 Decisions)
 
-**Last Updated**: 2026-09-09  
-**Status**: Complete — 44 formal ADRs across 12 modules
+**Last Updated**: 2026-09-10  
+**Status**: Complete — 45 formal ADRs across 12 modules
 
 ---
 
@@ -16,7 +16,7 @@
 | **REVIEW** | 1 | [016](#review-approval-gate) |
 | **GARDEN** | 3 | [019–021](#garden-moc-generation) |
 | **WEB** | 4 | [022–023, 039–040](#web-ui--job-queue) |
-| **LLM** | 3 | [024–025, 045](#llm-provider--caching) |
+| **LLM** | 4 | [024–025, 045, 048](#llm-provider--caching) |
 | **QA-WRITING** | 3 | [028–029, 038](#qa-writing--article-pipeline) |
 | **MANUAL** | 1 | [030](#manual-hand-written-notes) |
 | **ASSETS** | 1 | [031](#assets-images) |
@@ -381,6 +381,15 @@
 
 ---
 
+### ADR-048: Per-Phase LLM Thinking Mode
+
+- **Status**: Accepted
+- **Date**: 2026-09-10
+- **Summary**: `llm.<phase>.thinking` (`null` / `false` / level / token budget) is forwarded by `get_llm` to each vendor client and included in the SQLite LLM cache key. Vendor default applies when unset. Thought text is not persisted.
+- **Link**: [`ADR-048-per-phase-thinking-mode.md`](./generated/LLM/ADR-048-per-phase-thinking-mode.md)
+
+---
+
 ## CLI — Orchestration
 
 ### ADR-026: Typer and Rich as CLI Framework
@@ -474,11 +483,17 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 44 |
+| **Total ADRs** | 45 |
 | **Accepted** | 44 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 42 |
 | **Modules Covered** | 12 |
+
+---
+
+## Status Update (2026-09-10)
+
+✅ **ADR-048 added** — per-phase LLM thinking mode (`llm.<phase>.thinking`). `get_llm` maps the knob onto each vendor client; the SQLite cache key includes it.
 
 ---
 

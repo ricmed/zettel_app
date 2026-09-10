@@ -124,6 +124,7 @@ def test_normalize_text_for_hash_preserves_uppercase_continuation_hyphen():
 
 
 # ── #61: provider + top_p in the LLM call checksum ────────────────────
+# ── thinking is the same family: a forwarded client knob in the cache key ──
 
 
 def _base_checksum(**overrides) -> str:
@@ -151,6 +152,21 @@ def test_compute_llm_call_checksum_differs_by_top_p():
     a = _base_checksum(top_p=0.5)
     b = _base_checksum(top_p=1.0)
     assert a != b
+
+
+def test_compute_llm_call_checksum_differs_by_thinking():
+    a = _base_checksum(thinking="")
+    b = _base_checksum(thinking="false")
+    c = _base_checksum(thinking="high")
+    assert a != b
+    assert b != c
+    assert a != c
+
+
+def test_compute_llm_call_checksum_thinking_default_is_empty():
+    omitted = compute_llm_call_checksum("ph", "cc", "gpt-4o-mini", 0.0, "pt-BR")
+    explicit = compute_llm_call_checksum("ph", "cc", "gpt-4o-mini", 0.0, "pt-BR", thinking="")
+    assert omitted == explicit
 
 
 def test_compute_llm_call_checksum_provider_and_top_p_have_defaults():

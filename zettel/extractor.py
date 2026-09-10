@@ -18,7 +18,7 @@ from typing import Any
 from pydantic import ValidationError
 from ulid import ULID
 
-from zettel.config import AppConfig, effective_temperature, llm_phase
+from zettel.config import AppConfig, effective_temperature, llm_phase, thinking_checksum_token
 from zettel.hashing import (
     compute_llm_call_checksum,
     normalize_text_for_hash,
@@ -249,6 +249,7 @@ def _process_chunk(
         rag_context_checksum=images_ctx_checksum,
         provider=spec.provider,
         top_p=cfg.llm.top_p,
+        thinking=thinking_checksum_token(spec.thinking),
     )
     cached = db.get_cached_llm_response(call_checksum)
     request_payload_json: str | None = None

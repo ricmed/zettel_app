@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Literal
 from zettel.time import now_filename_ts, now_vault_iso
 
 from .bibliography import display_author_natural, format_abnt_in_text
-from .config import effective_temperature, llm_phase
+from .config import effective_temperature, llm_phase, thinking_checksum_token
 from .hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
 from .llm import (
     call_llm,
@@ -831,6 +831,7 @@ def _cached_llm(
         cfg.language,
         provider=spec.provider,
         top_p=cfg.llm.top_p,
+        thinking=thinking_checksum_token(spec.thinking),
     )
     cached = db.get_cached_llm_response(call_checksum)
     if cached is not None:

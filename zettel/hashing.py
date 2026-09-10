@@ -127,18 +127,21 @@ def compute_llm_call_checksum(
     rag_context_checksum: str = "",
     provider: str = "",
     top_p: float | None = None,
+    thinking: str = "",
 ) -> str:
     """Deterministic checksum for an LLM call, enabling response caching.
 
-    ``provider`` and ``top_p`` are part of the payload because a ``model``
-    string can be shared across providers/gateways (OpenAI-compatible), and
-    ``top_p`` is forwarded to the client exactly like ``temperature`` --
-    either one differing means the call is not the same, even if every other
-    field matches.
+    ``provider``, ``top_p`` and ``thinking`` are part of the payload because a
+    ``model`` string can be shared across providers/gateways (OpenAI-compatible),
+    and each of those knobs is forwarded to the client -- any one differing
+    means the call is not the same, even if every other field matches.
+    ``thinking`` is the canonical token from ``thinking_checksum_token``
+    (empty = vendor default).
     """
     parts = (
         f"{prompt_hash}|{chunk_checksum}|{model}|{temperature}|{language}|"
-        f"{rag_context_checksum}|{provider}|{top_p if top_p is not None else ''}"
+        f"{rag_context_checksum}|{provider}|{top_p if top_p is not None else ''}|"
+        f"{thinking}"
     )
     return sha256_hex(parts)
 

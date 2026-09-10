@@ -10,8 +10,9 @@ from zettel.config import (
     LLMPhaseConfig,
     effective_temperature,
     llm_phase,
+    thinking_checksum_token,
 )
-from zettel.llm import get_llm, is_supported_llm_provider
+from zettel.llm import _thinking_client_kwargs, get_llm, is_supported_llm_provider
 
 
 def test_llm_phase_rejects_unknown():
@@ -178,3 +179,158 @@ def test_get_llm_explicit_kwarg_still_wins_over_phase_temperature(monkeypatch):
     cfg.llm.article = LLMPhaseConfig(provider="openai", model="gpt-4o-mini", temperature=0.0)
     get_llm(cfg, "article", temperature=0.8)
     assert captured["temperature"] == 0.8
+
+
+# ── thinking per phase ────────────────────────────────────────────────
+
+
+def test_thinking_checksum_token_canonical():
+    assert thinking_checksum_token(None) == ""
+    assert thinking_checksum_token(False) == "false"
+    assert thinking_checksum_token(True) == "true"
+    assert thinking_checksum_token("high") == "high"
+    assert thinking_checksum_token(1024) == "1024"
+    assert thinking_checksum_token(0) == "0"
+
+
+def test_llm_phase_thinking_rejects_unknown_and_negative():
+    with pytest.raises(ValidationError):
+        LLMPhaseConfig(thinking="off")
+    with pytest.raises(ValidationError):
+        LLMPhaseConfig(thinking=-1)
+
+
+def test_llm_phase_thinking_accepts_bool_level_budget():
+    assert LLMPhaseConfig(thinking=False).thinking is False
+    assert LLMPhaseConfig(thinking=True).thinking is True
+    assert LLMPhaseConfig(thinking="minimal").thinking == "minimal"
+    assert LLMPhaseConfig(thinking=0).thinking == 0
+    assert LLMPhaseConfig(thinking=1024).thinking == 1024
+    assert LLMPhaseConfig().thinking is None
+
+
+def test_thinking_client_kwargs_null_omits():
+    assert _thinking_client_kwargs("gemini", None) == {}
+    assert _thinking_client_kwargs("openai", None) == {}
+    assert _thinking_client_kwargs("ollama", None) == {}
+    assert _thinking_client_kwargs("anthropic", None) == {}
+
+
+def test_thinking_client_kwargs_gemini():
+    assert _thinking_client_kwargs("gemini", False) == {"thinking_budget": 0}
+    assert _thinking_client_kwargs("gemini", 0) == {"thinking_budget": 0}
+    assert _thinking_client_kwargs("gemini", True) == {}
+    assert _thinking_client_kwargs("gemini", "high") == {"reasoning_effort": "high"}
+    assert _thinking_client_kwargs("gemini", 1024) == {"thinking_budget": 1024}
+
+
+def test_thinking_client_kwargs_openai_compat():
+    assert _thinking_client_kwargs("openai", False) == {"reasoning_effort": "none"}
+    assert _thinking_client_kwargs("deepseek", "low") == {"reasoning_effort": "low"}
+    assert _thinking_client_kwargs("openai", True) == {"reasoning_effort": "medium"}
+    assert _thinking_client_kwargs("openai", 2048) == {"reasoning_effort": "high"}
+
+
+def test_thinking_client_kwargs_ollama_and_anthropic():
+    assert _thinking_client_kwargs("ollama", False) == {"reasoning": False}
+    assert _thinking_client_kwargs("ollama", True) == {"reasoning": True}
+    assert _thinking_client_kwargs("ollama", "high") == {"reasoning": True}
+    assert _thinking_client_kwargs("anthropic", False) == {"thinking": {"type": "disabled"}}
+    assert _thinking_client_kwargs("anthropic", True) == {
+        "thinking": {"type": "enabled", "budget_tokens": 4096}
+    }
+    assert _thinking_client_kwargs("anthropic", "low") == {
+        "thinking": {"type": "enabled", "budget_tokens": 2048}
+    }
+    assert _thinking_client_kwargs("anthropic", 3000) == {
+        "thinking": {"type": "enabled", "budget_tokens": 3000}
+    }
+
+
+def test_get_llm_omits_thinking_when_null(monkeypatch):
+    langchain_openai = pytest.importorskip("langchain_openai")
+    captured: dict = {}
+
+    class FakeChat:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(langchain_openai, "ChatOpenAI", FakeChat)
+    cfg = AppConfig()
+    cfg.llm.extract = LLMPhaseConfig(provider="openai", model="gpt-4o-mini")
+    get_llm(cfg, "extract")
+    assert "reasoning_effort" not in captured
+    assert "thinking_budget" not in captured
+    assert "reasoning" not in captured
+
+
+def test_get_llm_openai_thinking_false(monkeypatch):
+    langchain_openai = pytest.importorskip("langchain_openai")
+    captured: dict = {}
+
+    class FakeChat:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(langchain_openai, "ChatOpenAI", FakeChat)
+    cfg = AppConfig()
+    cfg.llm.extract = LLMPhaseConfig(provider="openai", model="gpt-4o-mini", thinking=False)
+    get_llm(cfg, "extract")
+    assert captured["reasoning_effort"] == "none"
+
+
+def test_get_llm_gemini_thinking_false(monkeypatch):
+    langchain_google_genai = pytest.importorskip("langchain_google_genai")
+    captured: dict = {}
+
+    class FakeChat:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(langchain_google_genai, "ChatGoogleGenerativeAI", FakeChat)
+    cfg = AppConfig()
+    cfg.llm.connect = LLMPhaseConfig(
+        provider="gemini", model="gemini-3.1-flash-lite", thinking=False
+    )
+    get_llm(cfg, "connect")
+    assert captured["thinking_budget"] == 0
+    assert "include_thoughts" not in captured
+
+
+def test_get_llm_gemini_thinking_level(monkeypatch):
+    langchain_google_genai = pytest.importorskip("langchain_google_genai")
+    captured: dict = {}
+
+    class FakeChat:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(langchain_google_genai, "ChatGoogleGenerativeAI", FakeChat)
+    cfg = AppConfig()
+    cfg.llm.connect = LLMPhaseConfig(
+        provider="gemini", model="gemini-3.1-flash-lite", thinking="high"
+    )
+    get_llm(cfg, "connect")
+    assert captured["reasoning_effort"] == "high"
+    assert "thinking_budget" not in captured
+
+
+def test_get_llm_ollama_thinking_false(monkeypatch):
+    langchain_ollama = pytest.importorskip("langchain_ollama")
+    captured: dict = {}
+
+    class FakeChat:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(langchain_ollama, "ChatOllama", FakeChat)
+    cfg = AppConfig()
+    cfg.llm.extract = LLMPhaseConfig(
+        provider="ollama",
+        model="qwen",
+        base_url="http://localhost:11434",
+        thinking=False,
+    )
+    get_llm(cfg, "extract")
+    assert captured["reasoning"] is False
+    assert "max_retries" not in captured

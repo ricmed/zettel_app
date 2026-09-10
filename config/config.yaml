@@ -20,10 +20,11 @@ prompts_path: ./prompts             # templates .md dos prompts
 
 # ── LLM ─────────────────────────────────────────────────────────────────
 # Knobs de amostragem sao globais. Cada fase declara provider + model + base_url
-# (sem heranca de um modelo unico). Embedding continua no bloco `embedding:`.
+# e thinking (sem heranca de um modelo unico). Embedding continua no bloco `embedding:`.
 # Providers: openai | anthropic | ollama | gemini | openrouter | opencode | deepseek
+# thinking: null = default do vendor; false/0 = off; true | minimal|low|medium|high | budget (tokens)
 llm:
-  temperature: 0.25         # 0 = mais deterministico; >0 aumenta variacao
+  temperature: 0.20         # 0 = mais deterministico; >0 aumenta variacao
   top_p: 0.5                # nucleus sampling encaminhado a get_llm (LangChain)
   max_retries: 2            # tentativas extras da mesma chamada HTTP; esgotadas => a fase para (fail-fast)
   prompt_cache: true        # layout System+Human + hints Anthropic; ≠ llm_cache SQLite
@@ -32,46 +33,55 @@ llm:
     model: gpt-4o-mini      # bibliografia ABNT no harvest
     base_url: null
     temperature: null       # null = herda llm.temperature
+    thinking: null
   extract:
     provider: openai
     model: gpt-4o-mini      # notas de literatura (Prompt 1)
     base_url: null
-    temperature: 0.0        # extracao estruturada: contrato fechado, cache determinístico
+    temperature: 0.1        # extracao estruturada: contrato fechado, cache determinístico
+    thinking: null
   review:
     provider: openai
     model: gpt-4o-mini      # dedupe de conceitos pos-aprovacao
     base_url: null
     temperature: null       # null = herda llm.temperature
+    thinking: null
   connect:
     provider: gemini
     model: gemini-3.1-flash-lite      # notas permanentes (Prompt 2)
     base_url: null
-    temperature: null       # null = herda llm.temperature
+    temperature: 0.15       # null = herda llm.temperature
+    thinking: false          # Gemini 3 costuma ligar thinking no vendor; false desliga
   garden:
     provider: openai
     model: gpt-4o-mini      # MOCs taxonomicos e hub
     base_url: null
     temperature: null       # null = herda llm.temperature
+    thinking: null
   ask:
     provider: deepseek
     model: deepseek-v4-flash      # zettel ask
     base_url: https://api.deepseek.com
     temperature: null       # null = herda llm.temperature
+    thinking: null
   article:
     provider: openai
     model: gpt-4o-mini      # zettel article (todos os nos)
     base_url: null
     temperature: null       # null = herda llm.temperature (nos individuais podem sobrescrever em codigo)
+    thinking: null
   images:
     provider: openai
     model: gpt-4o-mini      # descricao multimodal (precisa ser vision)
     base_url: null
     temperature: null       # null = herda llm.temperature
+    thinking: null
   summarize:
     provider: openai
     model: gpt-4o-mini      # resumo de capitulo e de fonte (zettel summarize)
     base_url: null
     temperature: 0.0        # saida estruturada: contrato fechado, cache determinístico
+    thinking: null
 
 # ── Embeddings ──────────────────────────────────────────────────────────
 # Providers: openai | sentence-transformers | ollama

@@ -105,6 +105,11 @@ LLM_PHASES: tuple[str, ...] = (
 )
 
 
+THINKING_LEVELS: tuple[str, ...] = ("minimal", "low", "medium", "high")
+
+ThinkingValue = bool | Literal["minimal", "low", "medium", "high"] | int | None
+
+
 class LLMPhaseConfig(BaseModel):
     """Identidade de um consumidor de LLM. Knobs de amostragem ficam em LLMConfig."""
 
@@ -114,12 +119,30 @@ class LLMPhaseConfig(BaseModel):
     model: str = "gpt-4o-mini"
     base_url: str | None = None  # gateways OpenAI-compatible / Ollama; None = default do provider
     temperature: float | None = None  # None = herda llm.temperature; override so desta fase
+    thinking: ThinkingValue = None  # None = default do vendor; false/0 = off; nivel ou budget
+
+    @field_validator("thinking", mode="before")
+    @classmethod
+    def _thinking_value(cls, v: object) -> ThinkingValue:
+        if v is None or isinstance(v, bool):
+            return v
+        if isinstance(v, int):
+            if int(v) < 0:
+                raise ValueError("llm.<fase>.thinking inteiro deve ser >= 0 (ou null)")
+            return int(v)
+        if isinstance(v, str) and v in THINKING_LEVELS:
+            return v
+        raise ValueError(
+            "llm.<fase>.thinking deve ser null, true, false, "
+            "minimal|low|medium|high, ou um inteiro >= 0"
+        )
 
 
 class LLMConfig(BaseModel):
     """Fallback de fabrica. Valores operacionais: config/config.yaml -> llm.
 
-    Amostragem e retries sao globais. Cada fase declara provider + model + base_url.
+    Amostragem e retries sao globais. Cada fase declara provider + model + base_url
+    e thinking (null = default do vendor).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -579,6 +602,21 @@ def llm_phase(cfg: Any, phase: str) -> LLMPhaseConfig:
 def effective_temperature(cfg: Any, spec: LLMPhaseConfig) -> float:
     """Resolve the sampling temperature for a phase: its own override, else the global default."""
     return cfg.llm.temperature if spec.temperature is None else spec.temperature
+
+
+def thinking_checksum_token(thinking: ThinkingValue) -> str:
+    """Canonical cache-key fragment for ``llm.<phase>.thinking``.
+
+    ``None`` is empty so callers that omit the checksum field stay aligned
+    with a phase that left thinking at the vendor default.
+    """
+    if thinking is None:
+        return ""
+    if thinking is True:
+        return "true"
+    if thinking is False:
+        return "false"
+    return str(thinking)
 
 
 def setup_logging(level: str = "INFO") -> None:

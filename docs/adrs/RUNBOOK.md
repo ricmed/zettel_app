@@ -459,6 +459,20 @@ Debug:
   - Check the provider is up (Ollama running, API key, model pulled)
 ```
 
+#### "Gemini thinking is on / I want to turn reasoning off"
+```
+Read ADRs:
+  1. ADR-048 (Per-phase LLM thinking mode)
+     -> llm.<fase>.thinking: null = default do vendor; false ou 0 desliga
+     -> niveis: minimal | low | medium | high; inteiro = budget em tokens
+  2. ADR-024 (Multi-provider strategy)
+     -> o mapeamento vive so em get_llm; nao ha fallback de provider
+
+Debug:
+  - Connect usa Gemini 3; thinking costuma vir ligado no vendor
+  - Trocar thinking invalida o cache SQLite daquela chamada
+```
+
 ---
 
 ### Web UI & Job Queue
