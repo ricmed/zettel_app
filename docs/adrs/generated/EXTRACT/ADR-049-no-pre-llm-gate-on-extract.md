@@ -80,6 +80,21 @@ One accepted chunk out of 449 nearly doubles the saving. (This table reads the t
 
 **And the money is not there.** USD 0.03 across 611 chunks at zero loss; USD 0.12 even at an unacceptable 4.9% loss. That is the same order of magnitude as issue #154's USD 0.006, against a new config knob, a new terminal chunk state, a model artifact tied to an embedding space, and a recovery path for chunks the gate got wrong.
 
+**Nor is the time, and that argument inverts.** Wall-clock is independent of cost and could have gone the other way — a 5% saving on a long book is worth more in minutes than in cents. Measured, it is negative, because the gate must embed **every** chunk to score it while skipping the call on a few:
+
+| | measured |
+|---|---|
+| One `extract` call | **2.37 s** (run 7: 495 calls in 1174 s) |
+| Embedding one chunk | **845 ms** (`ollama/qwen3-embedding@1024d`, local, batch of 100) |
+
+For the 456-chunk book at the global threshold: 24 calls skipped saves 0.9 min, embedding 456 chunks costs 6.4 min, net **-5.5 min** on a run that takes 20. The gate makes the largest source in the corpus 28% slower.
+
+This generalises into the rule worth keeping, since it survives changes of model and provider that the percentages above do not:
+
+> The gate wins wall-clock only when `calls avoided % > t_embed / t_call`.
+
+At 845 ms against 2.37 s the break-even is **35.7% avoidance**. The best figure measured anywhere in this study is 31.6% — one 19-chunk fold, under its own oracle threshold. Under this configuration the gate cannot win on time even in the most favourable case that exists, let alone at the 5.3% it actually delivers.
+
 ### Positive Consequences
 
 * `extract` keeps one code path. No `gated` status to thread through `zettel status`, the web dashboard, `preflight` and a reset command; no model artifact whose validity silently expires when `embedding.model` changes.
@@ -96,7 +111,9 @@ One accepted chunk out of 449 nearly doubles the saving. (This table reads the t
 ## What Would Reopen This
 
 * **Extract cost per chunk rising by an order of magnitude.** The decision is a cost/benefit at ~USD 0.003/chunk; a substantially pricier extraction model changes the arithmetic, not the measurement.
-* **`harvest.semantic_duplicate_enabled` being turned on for its own reasons.** The gate's marginal cost is dominated by embedding chunks it would otherwise not embed. If those vectors already exist for dedupe, even 5.4% may pay.
+* **`harvest.semantic_duplicate_enabled` being turned on for its own reasons.** The gate's marginal cost is dominated by embedding chunks it would otherwise not embed. If those vectors already exist for dedupe, `t_embed` falls to ~0, the break-even rule is satisfied by any positive avoidance, and the gate becomes a small pure win (~0.9 min of 20 on the book).
+* **A materially faster embedding path.** The 845 ms above is local Ollama; a batched API at ~50 ms/chunk would move the break-even from 35.7% to ~2%. Note this is not a free tuning knob: changing `embedding.provider`/`model`/`dimensions` invalidates every stored vector (`EmbeddingSpaceMismatch`), forces `zettel reindex --force`, and requires re-measuring `min_vector_similarity`, `chapter_floor` and the dedupe thresholds. Cheaper to check first whether the local path has batching or concurrency headroom.
+* **A slower extraction model.** The break-even is a ratio, so it cuts both ways: a thinking model at ~10 s/call moves it to ~8%, close to what the book's own fold already delivers.
 * **A substantially larger labeled corpus.** The learning curve above has not saturated, so the model side should improve. Note the counterweight, which is why this is not a promise: every new accepted chunk is another draw on the low tail, and the zero-loss threshold is a minimum over all of them. The two effects pull in opposite directions.
 * **A loss budget that is not zero, paired with the two mechanisms that would make it honest.** This is the only lever the data actually offers, and it is a change of policy and design rather than of measurement — the model's discrimination is fixed; what moves is where one is allowed to sit on its curve (1 note tolerated: 8.3%; 4.9%: 18%).
 
