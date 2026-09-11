@@ -58,7 +58,21 @@ Two of three fail, so the pre-commitment decides it. The interesting part is *wh
 | `@Kim2022KantAnd` | 456 | 349 / 107 | 0.818 | 8.1% |
 | `@Instrutor2023IniciandoCom` | 30 | 29 / 1 | 0.897 | 0.0% |
 
-What fails is not the discrimination, it is **a single global scalar over heterogeneous documents**. Zero loss across all folds simultaneously means the worst-calibrated document sets the threshold, and the corpus is 75% one book. Three of five folds individually clear the 15% bar; pooled under one threshold they yield 5.4%. That is the honest production number, because one threshold in `config.yaml` is what production would actually have.
+Three of five folds individually clear the 15% bar; pooled under one threshold they yield 5.4%. That is the honest production number, because one scalar in `config.yaml` is what production would actually have.
+
+What fails is not the discrimination, it is **the shape of the zero-loss constraint under a single global threshold**. Zero loss means the threshold must sit below the lowest-scoring *accepted* chunk in the whole corpus, so one outlier fixes the operating point for everything else. That is an extreme-value constraint, not an average-quality one, and it behaves like one:
+
+| Tolerated loss | Threshold | Calls avoided |
+|---|---|---|
+| 0 notes | 0.349 | 5.1% |
+| **1 note** (of 449) | 0.377 | **8.3%** |
+| 5 notes | 0.388 | 9.7% |
+
+One accepted chunk out of 449 nearly doubles the saving. (This table reads the threshold as a strict `<` over the observed probabilities, so it reports 0.349 / 5.1% where the script's `operating_points` — which scans with `>=` — reports 0.352 / 5.4%. Boundary tie handling, immaterial to the decision.)
+
+**The dominant source is not the cause.** The obvious suspicion — that a corpus 75% composed of one book drags the aggregate down — does not survive measurement. The chunk that sets the threshold belongs to `@Instrutor2023IniciandoCom`, the 30-chunk handout (p=0.349); the book's worst accepted chunk is only fourth in line (p=0.380). Removing the book from the corpus entirely moves the result from 5.1% to **6.5%**. What the book dominates is the arithmetic of the percentage and the training set of every other fold — not the binding constraint.
+
+**Per-source thresholds do not rescue it either.** Giving each source its own zero-loss threshold — computed from that source's own labels, which production cannot do for a document it has not extracted yet — yields 10.6%. Even the oracle sits below the bar.
 
 **At a safe operating point the classifier is a `structural` detector.** It catches 33 of 115 structural rejections and *nothing* else — not one of the 31 `narrative`, 10 `fragmented`, 2 `promotional` or 4 `trivial` rejections. Those are judgements about what the passage *says*; `structural` is a judgement about how it is *formatted*. Spending a 1024-dimension embedding to notice that a page is a table of contents is the wrong instrument for the only thing it reliably notices.
 
@@ -76,14 +90,15 @@ What fails is not the discrimination, it is **a single global scalar over hetero
 ### Negative Consequences
 
 * Roughly a quarter of extract calls will keep being paid for on chunks that come back rejected. At current prices this is cents per book, and it is a deliberate purchase of simplicity.
-* Three of five folds showed 17–32% avoidable at zero loss. Rejecting the global-threshold design leaves that on the table. Per-source thresholds would capture it, but calibrating a threshold for a source requires labels from that source — which only exist after paying for the extraction the gate was supposed to avoid.
-* The measurement is one embedding model and 5 sources, skewed 75% toward a single book. It does not transfer across embedding changes, and a paper-heavy corpus would score better.
+* Three of five folds showed 17–32% avoidable at zero loss, and a per-source oracle reaches 10.6% overall. Rejecting the global-threshold design leaves that on the table. Capturing it would require a threshold calibrated per source, and the labels for that only exist after paying for the extraction the gate was supposed to avoid.
+* The measurement is one embedding model and 5 sources. It does not transfer across embedding changes. More labeled data would help the training side — holding the book out as a fixed test fold, avoided@0-loss climbs 4.0% -> 7.0% -> 7.2% -> 8.1% as training grows 38 -> 155 chunks, still rising at the maximum available — so these numbers are a floor for the model, not a ceiling.
 
 ## What Would Reopen This
 
 * **Extract cost per chunk rising by an order of magnitude.** The decision is a cost/benefit at ~USD 0.003/chunk; a substantially pricier extraction model changes the arithmetic, not the measurement.
 * **`harvest.semantic_duplicate_enabled` being turned on for its own reasons.** The gate's marginal cost is dominated by embedding chunks it would otherwise not embed. If those vectors already exist for dedupe, even 5.4% may pay.
-* **A corpus that is mostly papers rather than books.** The per-fold table is the argument.
+* **A substantially larger labeled corpus.** The learning curve above has not saturated, so the model side should improve. Note the counterweight, which is why this is not a promise: every new accepted chunk is another draw on the low tail, and the zero-loss threshold is a minimum over all of them. The two effects pull in opposite directions.
+* **A loss budget that is not zero.** The bar is pinned at zero because a gated chunk would be dropped silently and unrecoverably. A design where gated chunks stay recoverable — reviewable, resettable to `pending` — would turn loss into latency instead of damage, and the operating point moves from 5.1% to 8-10%. That is a change of policy and of design, not of measurement.
 
 Re-measure before reopening — the numbers above are pinned to `ollama/qwen3-embedding@1024d` and to this corpus:
 

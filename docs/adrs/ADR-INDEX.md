@@ -260,7 +260,7 @@
 
 - **Status**: Accepted (2026-09-11)
 - **Date**: 2026-09-11
-- **Summary**: Measured won't-do. Leave-one-source-out over 611 labeled chunks from 5 sources: a logistic regression on chunk embeddings avoids only **5.4%** of Prompt 1 calls at zero note loss (USD 0.03 over the whole corpus), and at that operating point catches `structural` rejections exclusively (33/115) - none of `narrative`, `fragmented`, `promotional` or `trivial`. Per-fold AUC is 0.752-1.000, so the signal is real; what fails is one global threshold across heterogeneous documents, set by the worst-calibrated one. A hand-written structural rule does worse (10/115 at the cost of 34 accepted notes).
+- **Summary**: Measured won't-do. Leave-one-source-out over 611 labeled chunks from 5 sources: a logistic regression on chunk embeddings avoids only **5.4%** of Prompt 1 calls at zero note loss (USD 0.03 over the whole corpus), and at that operating point catches `structural` rejections exclusively (33/115) - none of `narrative`, `fragmented`, `promotional` or `trivial`. Per-fold AUC is 0.752-1.000, so the signal is real; what fails is the zero-loss constraint under one global threshold, which the single lowest-scoring accepted chunk fixes for the whole corpus - tolerating one lost note of 449 nearly doubles the saving, and a per-source oracle still only reaches 10.6%. A hand-written structural rule does worse (10/115 at the cost of 34 accepted notes).
 - **Link**: [`ADR-049-no-pre-llm-gate-on-extract.md`](./generated/EXTRACT/ADR-049-no-pre-llm-gate-on-extract.md)
 
 ---
