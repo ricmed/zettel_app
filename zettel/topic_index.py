@@ -167,8 +167,8 @@ def sync_topic_index(
     """Regenerate one scope's topic index: the managed block and the lookup rows.
 
     ``targets_are_permanent_notes`` decides whether a row carries a ``note_id``.
-    Literature targets route a reader but are not something the Retriever can
-    score, so they are stored without one and never seed a search.
+    Rows without one never seed a search: the Retriever scores permanent notes.
+    The pipeline only writes the MOC scope; the flag stays as the trust boundary.
     """
 
     entries = build_term_map(sources)
@@ -194,8 +194,8 @@ def _write_block(path: Path, inner: str, *, vault_timezone: str) -> None:
     """Update the managed block, creating its section the first time.
 
     This function owns the `## Topic Index` section on every surface that has one
-    (literature index, taxonomy MOC, hub MOC, manual MOC), so the note builders
-    do not each have to remember to scaffold it.
+    (taxonomy MOC, hub MOC, manual MOC), so the note builders do not each have
+    to remember to scaffold it. Literature index notes no longer carry one.
     """
     from zettel.vault import compose_note, parse_frontmatter, safe_update_managed_blocks
 
@@ -211,6 +211,51 @@ def _write_block(path: Path, inner: str, *, vault_timezone: str) -> None:
         path.write_text(compose_note(meta, body) if meta else body, encoding="utf-8")
         return
     safe_update_managed_blocks(path, {TOPIC_INDEX_BLOCK: inner}, vault_timezone=vault_timezone)
+
+
+_TOPIC_INDEX_SECTION_RE = re.compile(
+    rf"(?:\n{{1,2}})?## Topic Index\n+"
+    rf"<!-- zettel:{TOPIC_INDEX_BLOCK}:start -->"
+    rf".*?"
+    rf"<!-- zettel:{TOPIC_INDEX_BLOCK}:end -->"
+    rf"\n?",
+    re.DOTALL,
+)
+_TOPIC_INDEX_BLOCK_RE = re.compile(
+    rf"\n*<!-- zettel:{TOPIC_INDEX_BLOCK}:start -->"
+    rf".*?"
+    rf"<!-- zettel:{TOPIC_INDEX_BLOCK}:end -->"
+    rf"\n?",
+    re.DOTALL,
+)
+_TOPIC_INDEX_HEADING_RE = re.compile(r"(?:\n{1,2})?## Topic Index\n+")
+
+
+def clear_topic_index_block(path: Path, *, vault_timezone: str) -> bool:
+    """Remove ``## Topic Index`` and its managed block. Returns True if changed.
+
+    Inverse of ``_write_block``. Other managed blocks on the same note
+    (``auto-lit-index``, ``auto-source-summary``, ``auto-chapter-map``) stay.
+    """
+    from zettel.time import now_vault_iso
+    from zettel.vault import compose_note, parse_frontmatter
+
+    if not path.is_file():
+        return False
+    original = path.read_text(encoding="utf-8")
+    content = _TOPIC_INDEX_SECTION_RE.sub("", original, count=1)
+    if content == original:
+        content = _TOPIC_INDEX_BLOCK_RE.sub("", original, count=1)
+        content = _TOPIC_INDEX_HEADING_RE.sub("\n", content, count=1)
+    if content == original:
+        return False
+
+    meta, body = parse_frontmatter(content)
+    if meta:
+        meta["updated_at"] = now_vault_iso(vault_timezone)
+        content = compose_note(meta, body)
+    path.write_text(content, encoding="utf-8")
+    return True
 
 
 def sources_from_permanent_notes(db: StateDB, note_ids: list[str]) -> list[TermSource]:

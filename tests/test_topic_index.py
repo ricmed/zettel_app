@@ -18,6 +18,7 @@ from zettel.topic_index import (
     SCOPE_SOURCE,
     TOPIC_INDEX_BLOCK,
     TermSource,
+    clear_topic_index_block,
     fold,
     render_topic_index_block,
     sources_from_permanent_notes,
@@ -322,15 +323,95 @@ def test_seed_count_is_capped(db, tmp_path):
     assert len(idx.restricted_calls[0]) == 3
 
 
+# ── Source-scope cleanup (no longer written) ───────────────────────────
+
+
+def test_clear_topic_index_block_strips_heading_and_preserves_siblings(tmp_path):
+    lit_path = tmp_path / "LIT - Autor2020 - livro.md"
+    lit_path.write_text(
+        "# Livro — Indice de Literatura\n\n"
+        "## Notas de Literatura aprovadas\n\n"
+        "<!-- zettel:auto-lit-index:start -->\n"
+        "- [[Autor2020/LIT - p001]]\n"
+        "<!-- zettel:auto-lit-index:end -->\n\n"
+        "## Resumo geral\n\n"
+        "<!-- zettel:auto-source-summary:start -->\n"
+        "Resumo da fonte.\n"
+        "<!-- zettel:auto-source-summary:end -->\n\n"
+        "## Topic Index\n\n"
+        "<!-- zettel:auto-topic-index:start -->\n"
+        "- **dropout** -> [[Autor2020/LIT - p001]]\n"
+        "<!-- zettel:auto-topic-index:end -->\n\n"
+        "## Mapa de capitulos\n\n"
+        "<!-- zettel:auto-chapter-map:start -->\n"
+        "Capitulo 1.\n"
+        "<!-- zettel:auto-chapter-map:end -->\n",
+        encoding="utf-8",
+    )
+    assert clear_topic_index_block(lit_path, vault_timezone="America/Sao_Paulo")
+    text = lit_path.read_text(encoding="utf-8")
+    assert "## Topic Index" not in text
+    assert TOPIC_INDEX_BLOCK not in text
+    assert "auto-lit-index" in text
+    assert "[[Autor2020/LIT - p001]]" in text
+    assert "Resumo da fonte." in text
+    assert "Capitulo 1." in text
+    assert not clear_topic_index_block(lit_path, vault_timezone="America/Sao_Paulo")
+
+
+def test_clear_source_topic_index_drops_rows_and_vault_block(db, tmp_path):
+    from zettel.review import _clear_source_topic_index
+
+    lit_path = tmp_path / "LIT - Autor2020 - livro.md"
+    lit_path.write_text(
+        "# Livro\n\n## Topic Index\n\n"
+        "<!-- zettel:auto-topic-index:start -->\n"
+        "- **dropout** -> [[LIT]]\n"
+        "<!-- zettel:auto-topic-index:end -->\n",
+        encoding="utf-8",
+    )
+    sync_topic_index(
+        db,
+        SCOPE_SOURCE,
+        "@Autor2020",
+        [TermSource("chunk-1", "[[LIT]]", tags=("dropout",))],
+        targets_are_permanent_notes=False,
+    )
+    assert db.match_topic_index_scope(SCOPE_SOURCE, "@Autor2020")
+
+    _clear_source_topic_index(db, "@Autor2020", lit_path)
+    assert db.match_topic_index_scope(SCOPE_SOURCE, "@Autor2020") == []
+    assert "## Topic Index" not in lit_path.read_text(encoding="utf-8")
+
+
 # ── Backfill via reindex ───────────────────────────────────────────────
 
 
-def test_reindex_backfills_every_scope(db, tmp_path):
-    """A mature vault should not have to wait for the next review/garden."""
+def test_reindex_backfills_moc_and_clears_source_scope(db, tmp_path):
+    """A mature vault should not have to wait for the next garden.
+
+    Source-scope rows and the literature-index block are leftovers: they never
+    seeded retrieval and must not come back.
+    """
     from zettel.rebuild import rebuild_topic_index
+    from zettel.vault import literature_index_filename
 
     cfg = AppConfig(vault_path=tmp_path / "vault")
-    (cfg.vault_path / "20_Literature").mkdir(parents=True)
+    lit_dir = cfg.vault_path / "20_Literature"
+    lit_dir.mkdir(parents=True)
+    lit_path = lit_dir / literature_index_filename("Autor2020", "Livro")
+    lit_path.write_text(
+        "# Livro — Indice de Literatura\n\n"
+        "## Notas de Literatura aprovadas\n\n"
+        "<!-- zettel:auto-lit-index:start -->\n"
+        "- [[Autor2020/LIT - p001]]\n"
+        "<!-- zettel:auto-lit-index:end -->\n\n"
+        "## Topic Index\n\n"
+        "<!-- zettel:auto-topic-index:start -->\n"
+        "- **dropout** -> [[Autor2020/LIT - p001]]\n"
+        "<!-- zettel:auto-topic-index:end -->\n",
+        encoding="utf-8",
+    )
 
     db.upsert_source(
         "@Autor2020",
@@ -353,6 +434,13 @@ def test_reindex_backfills_every_scope(db, tmp_path):
             }
         ),
     )
+    sync_topic_index(
+        db,
+        SCOPE_SOURCE,
+        "@Autor2020",
+        [TermSource("chunk-1", "[[Autor2020/LIT - p001]]", tags=("dropout",))],
+        targets_are_permanent_notes=False,
+    )
 
     _permanent_note(db, tmp_path, NOTE_B, "Attention", {"tags": ["attention"]}, "Tese B")
     moc_path = tmp_path / "MOC - 01HMOC - tema.md"
@@ -361,7 +449,11 @@ def test_reindex_backfills_every_scope(db, tmp_path):
     db.upsert_moc("01HMOC", topic="Tema", path=str(moc_path), body=moc_body)
 
     assert rebuild_topic_index(cfg, db) > 0
-    # MOC scope routes; source scope is listed but not routable.
     assert [m["note_id"] for m in db.match_topic_index(fold("attention"))] == [NOTE_B]
     assert db.match_topic_index(fold("dropout")) == []
-    assert db.match_topic_index_scope(SCOPE_SOURCE, "@Autor2020")
+    assert db.match_topic_index_scope(SCOPE_SOURCE, "@Autor2020") == []
+    cleaned = lit_path.read_text(encoding="utf-8")
+    assert "## Topic Index" not in cleaned
+    assert "auto-lit-index" in cleaned
+    assert (db.get_source("@Autor2020") or {}).get("lit_body")
+    assert "## Topic Index" not in (db.get_source("@Autor2020") or {}).get("lit_body", "")

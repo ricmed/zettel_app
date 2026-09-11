@@ -184,8 +184,8 @@ They are not supposed to be. The `literature_notes` collection was REMOVED
 
 Read ADRs:
   1. ADR-015 amendment  -> LIT notes live in the vault + SQLite only
-  2. ADR-036            -> a LIT target is listed in the topic index but is
-                           never routable; the Retriever scores permanent notes
+  2. ADR-036            -> LIT targets are not in the topic index at all
+                           (amended 2026-09-10); the Retriever scores permanent notes
   3. ADR-002            -> 5 collections: sources, chunks, permanent_notes,
                            mocs, chapter_summaries (ADR-047)
 

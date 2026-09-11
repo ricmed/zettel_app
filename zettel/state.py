@@ -1643,6 +1643,15 @@ class StateDB:
         )
         self.conn.commit()
 
+    def delete_topic_index_kind(self, scope_kind: str) -> int:
+        """Drop every row of one scope kind. Returns how many were deleted."""
+        cur = self.conn.execute(
+            "DELETE FROM topic_index_terms WHERE scope_kind=?",
+            (scope_kind,),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
     def match_topic_index_scope(self, scope_kind: str, scope_id: str) -> list[dict]:
         """Every term row for one scope, ordered for stable rendering/reporting."""
         return self._fetchall(

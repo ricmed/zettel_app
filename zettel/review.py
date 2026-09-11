@@ -596,58 +596,27 @@ def _refresh_literature_index(cfg: AppConfig, db: StateDB, source_id: str) -> No
             lit_path, {"auto-lit-index": block}, vault_timezone=cfg.vault_timezone
         )
 
-    _refresh_source_topic_index(
-        db, source_id, citekey, approved, lit_path, vault_timezone=cfg.vault_timezone
-    )
+    _clear_source_topic_index(db, source_id, lit_path, vault_timezone=cfg.vault_timezone)
     with contextlib.suppress(OSError):
         db.update_source_texts(source_id, lit_body=lit_path.read_text(encoding="utf-8"))
 
 
-def _refresh_source_topic_index(
+def _clear_source_topic_index(
     db: StateDB,
     source_id: str,
-    citekey: str,
-    approved: list[dict],
     lit_path: Path,
     *,
     vault_timezone: str = "America/Sao_Paulo",
 ) -> None:
-    """Rebuild the source's `auto-topic-index` from its approved literature notes.
+    """Drop the source-scope topic index (vault block + SQLite rows).
 
-    Targets are literature wikilinks, so the rows carry no ``note_id``: they route
-    a reader to the right granular note, but a LIT note is not something the
-    Retriever scores. The MOC scope is what feeds the `ask` boost.
+    That scope was a reading aid on the literature index and never seeded
+    retrieval. The MOC scope is what feeds the `ask` boost.
     """
-    from zettel.topic_index import SCOPE_SOURCE, TermSource, sync_topic_index
+    from zettel.topic_index import SCOPE_SOURCE, clear_topic_index_block
 
-    sources: list[TermSource] = []
-    for chunk in approved:
-        try:
-            summary = json.loads(chunk.get("summary_json") or "{}")
-        except (json.JSONDecodeError, TypeError):
-            continue
-        candidates = summary.get("candidates") or []
-        if not candidates:
-            continue
-        best = max(candidates, key=lambda c: c.get("relevance_score") or 0)
-        sources.append(
-            TermSource(
-                note_id=chunk["chunk_id"],
-                label=literature_chunk_wikilink_for_row(citekey, chunk),
-                frameworks=tuple(best.get("named_frameworks") or []),
-                tags=tuple(str(t) for t in (best.get("tags") or [])),
-                thesis=str(best.get("thesis") or ""),
-            )
-        )
-    sync_topic_index(
-        db,
-        SCOPE_SOURCE,
-        source_id,
-        sources,
-        note_path=lit_path,
-        vault_timezone=vault_timezone,
-        targets_are_permanent_notes=False,
-    )
+    db.delete_topic_index_scope(SCOPE_SOURCE, source_id)
+    clear_topic_index_block(lit_path, vault_timezone=vault_timezone)
 
 
 def _dedupe_approved_concepts(

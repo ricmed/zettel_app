@@ -99,7 +99,7 @@ origin: pipeline
 
 O bloco `auto-lit-index` é mantido pelo `review` (e pela adoção de LIT manual no `sync-manual`): só entram notas **aprovadas**, com rótulo `p. N — tópico`.
 
-A mesma nota ganha uma seção `## Topic Index` com o bloco `auto-topic-index` (termo → nota granular), regenerada no mesmo momento ([ADR-036](adrs/generated/RETRIEVAL/ADR-036-topic-index-routing-not-representation.md)). Alvos LIT **não** viram semente de busca no `ask` — eles roteiam o leitor; o índice dos MOCs é que alimenta o `ask`.
+O índice LIT **não** leva um `auto-topic-index`. Esse bloco existiu como mapa termo → LIT granular e foi removido ([ADR-036](adrs/generated/RETRIEVAL/ADR-036-topic-index-routing-not-representation.md), emenda 2026-09-10): nunca virava semente no `ask`, e o roteamento de biblioteca ficou com o mapa de capítulos / `zettel catalog`. O `## Topic Index` que alimenta o `ask` vive nos **MOCs**. Um `review` ou `zettel reindex` apaga leftovers no arquivo e no SQLite.
 
 ### Nota granular (uma por chunk)
 

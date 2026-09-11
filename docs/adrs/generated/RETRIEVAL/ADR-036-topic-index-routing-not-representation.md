@@ -103,13 +103,23 @@ Both rejected alternatives fail the same way. Injecting it as a passing hit is a
 
 Deliberately out of scope: a corpus-wide library index (the research says only with evidence), a hierarchy of indexes, replacing BM25/RRF with the index, and any claim that the index "beats RAG".
 
+## Amendment (2026-09-10)
+
+**The literature-index surface is gone.** The source-scope `auto-topic-index` block and the matching `topic_index_terms` rows (`scope_kind='source'`, `note_id` NULL) were a reading aid that never seeded the Retriever. On a real book they grew into a tag dump that duplicated `auto-lit-index` and the chapter map, so they are no longer written.
+
+What remains is the surface that actually routes: the MOC block, the SQLite rows that carry a `note_id`, and the Topic Index inside `zettel skill` (still built by `build_term_map`). Library-level "which material treats this subject?" stays with [ADR-047](./ADR-047-chapter-summaries-as-library-routing-index.md) (`summarize` / `catalog` / `auto-chapter-map`).
+
+`review._clear_source_topic_index` and `rebuild_topic_index` drop leftover source-scope rows and strip `## Topic Index` from existing literature index notes (then refresh `sources.lit_body`, so `zettel rebuild --force` cannot resurrect the block). `delete_source_cascade` still deletes any leftover `scope_kind='source'` rows. `match_topic_index` keeps the `note_id IS NOT NULL` filter as defence in depth. The `targets_are_permanent_notes=False` flag stays on `sync_topic_index` as the trust boundary; nothing in the pipeline calls it.
+
+The "only permanent-note targets are routable" rule is unchanged. The source scope is no longer a reading aid; it is absent.
+
 ## References
 
-* `zettel/topic_index.py` — `build_term_map`, `sync_topic_index`, `render_topic_index_block`, `_write_block`, `fold`
+* `zettel/topic_index.py` — `build_term_map`, `sync_topic_index`, `render_topic_index_block`, `_write_block`, `clear_topic_index_block`, `fold`
 * `zettel/retrieval.py` — `_add_topic_index_seeds`, `RetrievedNote.origin`, `_apply_relevance_floor` (unchanged)
 * `zettel/index.py` — `query_notes_by_ids` (id-restricted similarity)
-* `zettel/state.py` — `topic_index_terms`, `replace_topic_index_terms`, `match_topic_index`, `match_topic_index_scope`
+* `zettel/state.py` — `topic_index_terms`, `replace_topic_index_terms`, `match_topic_index`, `match_topic_index_scope`, `delete_topic_index_kind`
 * `zettel/moc_backrefs.py` — `_sync_moc_topic_index`, scope cleanup in `clear_moc_backrefs`
-* `zettel/review.py` — `_refresh_source_topic_index`
-* `zettel/rebuild.py` — `rebuild_topic_index` (backfill during `zettel reindex`)
-* `tests/test_topic_index.py` — block lifecycle, routable vs listed targets, floor still rejects a routed note, boost off is a regression guard
+* `zettel/review.py` — `_clear_source_topic_index`
+* `zettel/rebuild.py` — `rebuild_topic_index` (MOC backfill + source-scope cleanup during `zettel reindex`)
+* `tests/test_topic_index.py` — block lifecycle, non-routable rows without `note_id`, source-scope strip, floor still rejects a routed note, boost off is a regression guard

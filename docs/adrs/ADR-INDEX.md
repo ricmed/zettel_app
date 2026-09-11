@@ -175,7 +175,7 @@
 
 - **Status**: Accepted (2026-09-03)
 - **Date**: 2026-09-03
-- **Summary**: A cheap term -> note map on two surfaces (an `auto-topic-index` managed block per source and per MOC, mirrored into a `topic_index_terms` table), sharing one term-extraction rule with the skill export. A query term that matches routes the note back through the **same** relevance floor carrying a real vector distance (id-restricted Chroma query) — never as a bypass, which is the shape of a bug already fixed once in the BM25 path.
+- **Summary**: A cheap term -> note map on two surfaces (an `auto-topic-index` managed block per MOC, mirrored into a `topic_index_terms` table), sharing one term-extraction rule with the skill export. A query term that matches routes the note back through the **same** relevance floor carrying a real vector distance (id-restricted Chroma query) — never as a bypass, which is the shape of a bug already fixed once in the BM25 path. Amendment (2026-09-10): the literature-index / source-scope surface is gone — it never seeded retrieval.
 - **Link**: [`ADR-036-topic-index-routing-not-representation.md`](./generated/RETRIEVAL/ADR-036-topic-index-routing-not-representation.md)
 
 ---
@@ -494,6 +494,8 @@
 ## Status Update (2026-09-10)
 
 ✅ **ADR-048 added** — per-phase LLM thinking mode (`llm.<phase>.thinking`). `get_llm` maps the knob onto each vendor client; the SQLite cache key includes it.
+
+✅ **ADR-036 amendment** — the literature-index `auto-topic-index` and `scope_kind='source'` rows are gone. They were a reading aid that never seeded the Retriever; leftover blocks are stripped on `review` / `zettel reindex`. The MOC surface and the `note_id IS NOT NULL` filter stay. Library routing remains ADR-047.
 
 ---
 

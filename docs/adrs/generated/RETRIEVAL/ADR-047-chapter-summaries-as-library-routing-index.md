@@ -262,6 +262,10 @@ runs **after** the `--dry-run` gate, so `--dry-run` still spends nothing.
   the search unit, and a source-level embedding would be a second surface with
   no reader.
 
+## Amendment (2026-09-10)
+
+The literature index no longer sits beside an `auto-topic-index`. That block was the source-scope reading aid [ADR-036](./ADR-036-topic-index-routing-not-representation.md) has now dropped. The three remaining managed blocks on the index note are `auto-lit-index`, `auto-source-summary` and `auto-chapter-map`. `summarize._write_blocks` still owns the last two headings.
+
 ## References
 
 * `zettel/summarize.py` (`generate_summaries`, `refresh_chapter_map`,
