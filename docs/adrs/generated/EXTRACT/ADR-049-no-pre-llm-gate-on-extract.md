@@ -23,7 +23,7 @@ Two things had to be fixed before the question could even be asked (issue #173, 
 
 ## Decision Drivers
 
-* A silently dropped chunk that would have produced a permanent note is unrecoverable damage. Cost is recoverable; a note the reader never learns existed is not. Any operating point must be pinned at zero measured loss.
+* The chunk itself is never lost — a `chunks` row survives any status, `StateDB.reset_chunks_to_pending` takes an arbitrary status string, and only the opt-in `purge-rejected` deletes anything. What a gate destroys is subtler and worse: **the note the reader never learns should have existed**. There is no diff to inspect, no error to notice, and no way to tell a chunk the gate was right about from one it was wrong about without paying for the extraction the gate skipped. That asymmetry, not data loss, is what pins the operating point at zero measured loss.
 * The vault's whole economic argument for automation is that a permanent note costs cents. That cuts both ways: it also caps what any optimisation of that cost can be worth.
 * Precedent: issue #154 rejected a fence-ratio pre-LLM gate after measuring it. The bar for adopting one now is a measurement, not an intuition.
 * Chunk embeddings are not free by default. `harvest.semantic_duplicate_enabled` is off (ADR-011/ADR-046), so `chunk_and_persist` does not populate the `chunks` collection and `reindex` skips it. A production gate needs its own embedding path.
@@ -98,7 +98,13 @@ One accepted chunk out of 449 nearly doubles the saving. (This table reads the t
 * **Extract cost per chunk rising by an order of magnitude.** The decision is a cost/benefit at ~USD 0.003/chunk; a substantially pricier extraction model changes the arithmetic, not the measurement.
 * **`harvest.semantic_duplicate_enabled` being turned on for its own reasons.** The gate's marginal cost is dominated by embedding chunks it would otherwise not embed. If those vectors already exist for dedupe, even 5.4% may pay.
 * **A substantially larger labeled corpus.** The learning curve above has not saturated, so the model side should improve. Note the counterweight, which is why this is not a promise: every new accepted chunk is another draw on the low tail, and the zero-loss threshold is a minimum over all of them. The two effects pull in opposite directions.
-* **A loss budget that is not zero.** The bar is pinned at zero because a gated chunk would be dropped silently and unrecoverably. A design where gated chunks stay recoverable — reviewable, resettable to `pending` — would turn loss into latency instead of damage, and the operating point moves from 5.1% to 8-10%. That is a change of policy and of design, not of measurement.
+* **A loss budget that is not zero, paired with the two mechanisms that would make it honest.** This is the only lever the data actually offers, and it is a change of policy and design rather than of measurement — the model's discrimination is fixed; what moves is where one is allowed to sit on its curve (1 note tolerated: 8.3%; 4.9%: 18%).
+
+  **Recoverability** is nearly free and already built. A `gated` status would plug into `reset_chunks_to_pending("gated", ...)` with no new persistence code, exactly as `retry-failed --rejected` already resets extract verdicts and drops the LLM cache so the retry is not a free replay. But recoverability alone is circular: identifying *which* gated chunks were mistakes requires extracting them, which spends what the gate saved.
+
+  **An exploration arm** is what breaks the circle, and its absence is the deeper flaw in the design considered here. A deployed gate never obtains a verdict for what it skips, so those chunks never become labels: the next calibration trains only on the region the gate already accepts, and its errors become invisible and self-confirming. Letting a random sample of predicted-rejects through anyway — say one in ten — keeps generating labels inside the skipped region, which buys the false-negative rate *as observed in production* instead of an offline number assumed to hold, and training data not shaped by the gate's own past decisions. It costs a fraction of the saving and converts a one-shot bet into something measurable over time.
+
+  Note what neither mechanism buys: reach. Even at a 4.9% budget the classifier catches 84/115 `structural` against 3/31 `narrative`. A looser budget purchases more table-of-contents detection, not comprehension. That ceiling belongs to the signal, not to the policy.
 
 Re-measure before reopening — the numbers above are pinned to `ollama/qwen3-embedding@1024d` and to this corpus:
 
