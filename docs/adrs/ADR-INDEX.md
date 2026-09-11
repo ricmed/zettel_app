@@ -1,4 +1,4 @@
-# zettel_app ADR Index (45 Decisions)
+# zettel_app ADR Index (46 Decisions)
 
 **Last Updated**: 2026-09-10  
 **Status**: Complete — 45 formal ADRs across 12 modules
@@ -256,6 +256,15 @@
 
 ---
 
+### ADR-049: No Pre-LLM Gate on Extract - the Signal Is Real, the Saving Is Not
+
+- **Status**: Accepted (2026-09-11)
+- **Date**: 2026-09-11
+- **Summary**: Measured won't-do. Leave-one-source-out over 611 labeled chunks from 5 sources: a logistic regression on chunk embeddings avoids only **5.4%** of Prompt 1 calls at zero note loss (USD 0.03 over the whole corpus), and at that operating point catches `structural` rejections exclusively (33/115) - none of `narrative`, `fragmented`, `promotional` or `trivial`. Per-fold AUC is 0.752-1.000, so the signal is real; what fails is the zero-loss constraint under one global threshold, which the single lowest-scoring accepted chunk fixes for the whole corpus - tolerating one lost note of 449 nearly doubles the saving, and a per-source oracle still only reaches 10.6%. A hand-written structural rule does worse (10/115 at the cost of 34 accepted notes).
+- **Link**: [`ADR-049-no-pre-llm-gate-on-extract.md`](./generated/EXTRACT/ADR-049-no-pre-llm-gate-on-extract.md)
+
+---
+
 ## REVIEW — Approval Gate
 
 ### ADR-016: Post-Approval Concept Deduplication Timing
@@ -483,11 +492,17 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 45 |
-| **Accepted** | 44 |
+| **Total ADRs** | 46 |
+| **Accepted** | 45 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 42 |
 | **Modules Covered** | 12 |
+
+---
+
+## Status Update (2026-09-11)
+
+✅ **ADR-049 added** — measured won't-do for the pre-LLM gate on `extract` (issues #66/#173). Leave-one-source-out over 611 chunks / 5 sources: 5.4% of calls avoided at zero note loss, USD 0.03, and only `structural` rejections caught. The calibration instrument was fixed first — `calls_avoided_pct` counted `fp` (calls that were made) as savings, and validation split by chunk instead of by source, which together inflated the same gate to 23.5% / 11.6%.
 
 ---
 

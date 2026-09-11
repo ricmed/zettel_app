@@ -1,21 +1,37 @@
-"""Spike (issue #66): calibrate a pre-LLM gate on the labeled corpus already in state.db.
+"""Calibrate a pre-LLM gate on the labeled corpus already in state.db (issues #66/#173).
 
-Not part of the production pipeline -- a one-off analysis script. Every chunk processed
-by ``extract`` already carries the LLM's own verdict (``summary_json.chunk_status``) and
-its embedding is already in Chroma's ``chunks`` collection, so a gate can be calibrated
-(or trained) entirely from data the pipeline already produced, with zero new LLM calls
-and zero new embedding calls.
+Not part of the production pipeline -- an offline analysis script. Every chunk
+processed by ``extract`` carries the LLM's own verdict in
+``summary_json.chunk_status``, so the gate's label set is a by-product of using
+the vault. This script measures whether a gate could skip the Prompt 1 call on
+chunks that would be rejected anyway, and at what cost in lost notes.
+
+It reads SQLite and Chroma and **never writes to either**: no ``upsert_chunk``,
+no status change, no LLM call. Vectors missing from the ``chunks`` collection are
+embedded on demand, in memory, and thrown away -- so the measurement does not
+depend on ``harvest.semantic_duplicate_enabled`` being on (with the flag off the
+collection is not populated at harvest time, and ``reindex`` skips it too).
+
+Two numbers decide the gate, and they pull against each other:
+
+  * **calls avoided** -- every chunk the gate predicts as rejected, ``(tn+fn)/n``.
+    This is the saving. It counts ``fn`` on purpose: a call not made is a call not
+    paid for, whether or not skipping it was a mistake.
+  * **accepted notes lost** -- ``fn/(tp+fn)``, the share of chunks that WOULD have
+    produced a note and were dropped in silence. This is the damage, and it is why
+    the recommended operating point is pinned at zero.
+
+Validation is **grouped by source** (``LeaveOneGroupOut``): train on the other
+documents, test on this one. Splitting by chunk instead leaks -- neighbouring
+chunks of the same chapter are near-duplicates in embedding space -- and inflates
+every number below. Fewer than three distinct sources cannot answer the question
+the gate exists to answer, so the script aborts rather than report the leaky
+number.
 
 Usage:
     .venv/Scripts/python.exe scripts/calibrate_pre_llm_gate.py
-    .venv/Scripts/python.exe scripts/calibrate_pre_llm_gate.py --state-db data/state.db --chroma-path data/chroma
-
-Label caveat: at the time this spike ran, the local corpus predates issue #52
-(rejection-taxonomy persistence), so ``summary_json`` has no ``rejection_category`` for
-any chunk. The label used here is therefore the binary ``chunk_status`` (accepted vs.
-rejected) the issue explicitly anticipates as the fallback ("Sem ela, o rotulo e binario
-e menos util") -- not the 5-way taxonomy. Re-run after a re-extract on a taxonomy-tagged
-corpus to get the richer label.
+    .venv/Scripts/python.exe scripts/calibrate_pre_llm_gate.py --state-db data/state.db
+    .venv/Scripts/python.exe scripts/calibrate_pre_llm_gate.py --chroma-path data/chroma
 """
 
 from __future__ import annotations
@@ -24,26 +40,62 @@ import argparse
 import json
 import re
 import sqlite3
+import sys
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+# Run from a clone without installing the package (mirrors scripts/ precedent).
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+# Below this, "train on the others, test on this one" cannot be expressed in a way
+# that says anything about a document the model has never seen.
+MIN_SOURCES = 3
+
+Embedder = Callable[[list[str]], Sequence[Sequence[float]]]
 
 
 @dataclass
 class Record:
     chunk_id: str
+    source_id: str
     text: str
     section_path: str
     label: int  # 1 = accepted, 0 = rejected
+    rejection_category: str = ""
     embedding: list[float] | None = None
 
 
-def load_dataset(state_db_path: Path, chroma_path: Path) -> list[Record]:
-    conn = sqlite3.connect(str(state_db_path))
+@dataclass
+class EmbeddingReport:
+    """Where the vectors came from. The space they live in is part of the result."""
+
+    reused: int = 0
+    computed: int = 0
+    unusable: int = 0
+    model: str = ""
+    provider: str = ""
+    dimensions: int | None = None
+
+
+class InsufficientSourcesError(RuntimeError):
+    """Raised when the corpus has too few distinct sources to validate a gate."""
+
+
+# -- Dataset -------------------------------------------------------------
+
+
+def load_labeled_chunks(state_db_path: Path) -> list[Record]:
+    """Every chunk carrying an LLM verdict. SQLite only -- no Chroma, no vectors."""
+    conn = sqlite3.connect(f"file:{state_db_path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        "SELECT chunk_id, text, section_path, summary_json FROM chunks"
-    ).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute(
+            "SELECT chunk_id, source_id, text, section_path, summary_json FROM chunks"
+        ).fetchall()
+    finally:
+        conn.close()
 
     records: list[Record] = []
     for r in rows:
@@ -56,30 +108,88 @@ def load_dataset(state_db_path: Path, chroma_path: Path) -> list[Record]:
         status = data.get("chunk_status")
         if status not in ("accepted", "rejected"):
             continue
-        records.append(Record(
-            chunk_id=r["chunk_id"],
-            text=r["text"] or "",
-            section_path=r["section_path"] or "",
-            label=1 if status == "accepted" else 0,
-        ))
+        records.append(
+            Record(
+                chunk_id=r["chunk_id"],
+                source_id=r["source_id"] or "",
+                text=r["text"] or "",
+                section_path=r["section_path"] or "",
+                label=1 if status == "accepted" else 0,
+                rejection_category=data.get("rejection_category") or "",
+            )
+        )
+    return records
 
+
+def attach_embeddings(
+    records: list[Record],
+    existing: dict[str, Sequence[float]],
+    embedder: Embedder,
+    *,
+    batch_size: int = 64,
+) -> tuple[list[Record], EmbeddingReport]:
+    """Fill in every record's vector, computing the ones Chroma does not have.
+
+    The previous version dropped a record with no stored vector, silently and
+    without a count -- which is how a whole source vanished from the dataset
+    unnoticed. Only a record with no vector *and* no text is unusable now, and
+    that case is reported.
+    """
+    report = EmbeddingReport()
+    todo: list[Record] = []
+    for rec in records:
+        vec = existing.get(rec.chunk_id)
+        if vec is not None:
+            rec.embedding = [float(x) for x in vec]
+            report.reused += 1
+        elif rec.text.strip():
+            todo.append(rec)
+        else:
+            report.unusable += 1
+
+    for start in range(0, len(todo), batch_size):
+        batch = todo[start : start + batch_size]
+        vectors = embedder([rec.text for rec in batch])
+        for rec, vec in zip(batch, vectors, strict=True):
+            rec.embedding = [float(x) for x in vec]
+            report.computed += 1
+
+    usable = [r for r in records if r.embedding is not None]
+    if usable:
+        report.dimensions = len(usable[0].embedding or [])
+    return usable, report
+
+
+def load_dataset(
+    state_db_path: Path,
+    chroma_path: Path,
+) -> tuple[list[Record], EmbeddingReport]:
+    """Labeled chunks with vectors: reuse what Chroma has, compute the rest."""
+    from zettel.config import load_config
+    from zettel.index import VectorIndex, index_kwargs
+
+    records = load_labeled_chunks(state_db_path)
     if not records:
-        return records
+        return records, EmbeddingReport()
 
-    import chromadb
-    client = chromadb.PersistentClient(path=str(chroma_path))
-    coll = client.get_collection("chunks")
-    ids = [r.chunk_id for r in records]
-    got = coll.get(ids=ids, include=["embeddings"])
-    emb_by_id = dict(zip(got["ids"], got["embeddings"]))
-    for r in records:
-        vec = emb_by_id.get(r.chunk_id)
-        r.embedding = list(vec) if vec is not None else None
+    cfg = load_config()
+    kwargs = index_kwargs(cfg)
+    kwargs["chroma_path"] = chroma_path
+    # VectorIndex is what enforces that the config's embedding space matches the
+    # one the stored vectors live in. Mixing spaces would make the reused and the
+    # freshly computed vectors incomparable, and no threshold could repair that.
+    idx = VectorIndex(**kwargs)
 
-    return [r for r in records if r.embedding is not None]
+    stored = idx.chunks.get(ids=[r.chunk_id for r in records], include=["embeddings"])
+    existing = dict(zip(stored["ids"], stored["embeddings"], strict=True))
+
+    usable, report = attach_embeddings(records, existing, idx.embedding_fn)
+    report.model = idx.embedding_model
+    report.provider = idx.embedding_provider
+    return usable, report
 
 
-# ── Cheap heuristic baseline ─────────────────────────────────────────────
+# -- Cheap heuristic baseline --------------------------------------------
 
 _MIN_CHARS = 200
 _MIN_ALNUM_RATIO = 0.5
@@ -105,103 +215,202 @@ def heuristic_predict(text: str) -> int:
 
 
 def evaluate_predictions(labels: list[int], preds: list[int]) -> dict:
-    tp = sum(1 for l, p in zip(labels, preds) if l == 1 and p == 1)
-    fp = sum(1 for l, p in zip(labels, preds) if l == 0 and p == 1)
-    fn = sum(1 for l, p in zip(labels, preds) if l == 1 and p == 0)
-    tn = sum(1 for l, p in zip(labels, preds) if l == 0 and p == 0)
+    tp = sum(1 for lab, p in zip(labels, preds, strict=True) if lab == 1 and p == 1)
+    fp = sum(1 for lab, p in zip(labels, preds, strict=True) if lab == 0 and p == 1)
+    fn = sum(1 for lab, p in zip(labels, preds, strict=True) if lab == 1 and p == 0)
+    tn = sum(1 for lab, p in zip(labels, preds, strict=True) if lab == 0 and p == 0)
     precision = tp / (tp + fp) if (tp + fp) else 0.0
     recall = tp / (tp + fn) if (tp + fn) else 0.0
-    calls_avoided = (fp + tn) / len(labels) if labels else 0.0
+    # A call is avoided exactly when the gate predicts 0 -- `tn` (rightly) plus
+    # `fn` (wrongly). The old formula was `(fp + tn)`, i.e. every rejected chunk in
+    # the corpus: it counted `fp` (calls that WERE made) as savings, which made the
+    # number the base rate of rejection -- constant, and independent of the
+    # predictions it claimed to measure.
+    calls_avoided = (tn + fn) / len(labels) if labels else 0.0
     false_negative_rate = fn / (tp + fn) if (tp + fn) else 0.0
     return {
-        "tp": tp, "fp": fp, "fn": fn, "tn": tn,
-        "precision": precision, "recall": recall,
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": tn,
+        "precision": precision,
+        "recall": recall,
         "calls_avoided_pct": 100 * calls_avoided,
         "accepted_notes_lost_pct": 100 * false_negative_rate,
     }
 
 
-# ── Logistic regression on existing embeddings ────────────────────────────
+def category_breakdown(records: list[Record], preds: list[int]) -> dict[str, str]:
+    """How many rejections of each category the gate actually catches.
 
-def evaluate_classifier(records: list[Record]) -> dict | None:
-    try:
-        import numpy as np
-        from sklearn.linear_model import LogisticRegression
-        from sklearn.model_selection import StratifiedKFold, cross_val_predict
-    except ImportError:
-        return None
+    A gate that only catches `structural` is a deterministic-rule problem, not a
+    classifier one -- and the rule is cheaper, free to run and auditable.
+    """
+    caught: dict[str, int] = {}
+    total: dict[str, int] = {}
+    for rec, pred in zip(records, preds, strict=True):
+        if rec.label != 0:
+            continue
+        cat = rec.rejection_category or "(sem categoria)"
+        total[cat] = total.get(cat, 0) + 1
+        if pred == 0:
+            caught[cat] = caught.get(cat, 0) + 1
+    return {cat: f"{caught.get(cat, 0)}/{n}" for cat, n in sorted(total.items())}
 
-    X = np.array([r.embedding for r in records])
+
+# -- Classifier over embeddings ------------------------------------------
+
+
+def distinct_sources(records: list[Record]) -> list[str]:
+    return sorted({r.source_id for r in records})
+
+
+def cross_val_proba(records: list[Record]) -> Any:
+    """Out-of-fold P(accepted), validated leave-one-source-out.
+
+    Raises ``InsufficientSourcesError`` below ``MIN_SOURCES`` instead of falling
+    back to a chunk-level split: that fallback is precisely the leaky measurement
+    that makes the gate look viable.
+    """
+    import numpy as np
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.model_selection import LeaveOneGroupOut, cross_val_predict
+
+    sources = distinct_sources(records)
+    if len(sources) < MIN_SOURCES:
+        raise InsufficientSourcesError(
+            f"O corpus tem {len(sources)} fonte(s) rotulada(s) "
+            f"({', '.join(sources) or 'nenhuma'}); sao necessarias {MIN_SOURCES}. "
+            "Validar por chunk dentro da mesma obra mede memorizacao, nao "
+            "generalizacao: chunks vizinhos de um capitulo sao quase duplicatas no "
+            "espaco de embedding. Processe mais fontes, de generos diferentes, e "
+            "rode de novo."
+        )
+
     y = np.array([r.label for r in records])
     if len(set(y.tolist())) < 2:
-        return None  # cross-val needs both classes present
+        raise InsufficientSourcesError(
+            "O corpus rotulado tem uma classe so -- sem chunks aceitos E "
+            "rejeitados nao ha o que separar."
+        )
 
-    n_splits = min(5, min((y == 0).sum(), (y == 1).sum()))
-    if n_splits < 2:
-        return None
-
-    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=0)
+    X = np.array([r.embedding for r in records])
+    groups = np.array([r.source_id for r in records])
     clf = LogisticRegression(max_iter=1000, class_weight="balanced")
-    proba = cross_val_predict(clf, X, y, cv=cv, method="predict_proba")[:, 1]
-
-    # Recommendation: at most 1% of accepted chunks lost (recall >= 0.99 on
-    # the accepted/positive class). Scan from strict (high threshold, few
-    # calls) to permissive (low threshold, recall -> 1 as t -> 0); take the
-    # first -- i.e. strictest, most calls-avoided -- one that qualifies.
-    thresholds = sorted(set(proba.tolist()), reverse=True) + [0.0]
-    best = None
-    for t in thresholds:
-        preds = (proba >= t).astype(int)
-        stats = evaluate_predictions(y.tolist(), preds.tolist())
-        if stats["accepted_notes_lost_pct"] <= 1.0:
-            best = {"threshold": t, **stats}
-            break
-    return {
-        "n": len(records),
-        "n_accepted": int(y.sum()),
-        "n_rejected": int((y == 0).sum()),
-        "recommended_operating_point": best,
-    }
+    return cross_val_predict(
+        clf, X, y, cv=LeaveOneGroupOut(), groups=groups, method="predict_proba"
+    )[:, 1]
 
 
-def main() -> None:
+def operating_points(
+    labels: list[int],
+    proba: Sequence[float],
+    *,
+    max_loss_pct: Sequence[float] = (0.0, 1.0, 5.0),
+) -> list[dict]:
+    """Strictest threshold (most calls avoided) under each tolerated loss."""
+    thresholds = [*sorted({float(p) for p in proba}, reverse=True), 0.0]
+    points: list[dict] = []
+    for budget in max_loss_pct:
+        chosen: dict | None = None
+        for t in thresholds:
+            preds = [1 if p >= t else 0 for p in proba]
+            stats = evaluate_predictions(labels, preds)
+            if stats["accepted_notes_lost_pct"] <= budget:
+                chosen = {"max_loss_pct": budget, "threshold": t, **stats}
+                break
+        points.append(chosen or {"max_loss_pct": budget, "threshold": None})
+    return points
+
+
+# -- Cost ----------------------------------------------------------------
+
+
+def avoided_cost_usd(cfg: Any, skipped: list[Record]) -> float:
+    """USD the gate would not spend on ``skipped``, priced like the pre-flight."""
+    from zettel.config import llm_phase
+    from zettel.preflight import estimate_tokens
+    from zettel.pricing import estimate_llm_cost
+
+    if not skipped:
+        return 0.0
+    prompt_path = Path(cfg.prompts_path) / "literature_note.md"
+    try:
+        overhead = estimate_tokens(prompt_path.read_text(encoding="utf-8"))
+    except OSError:
+        overhead = 0
+    spec = llm_phase(cfg, "extract")
+    input_tokens = sum(estimate_tokens(r.text) + overhead for r in skipped)
+    output_tokens = len(skipped) * cfg.extraction.preflight_output_tokens_per_chunk
+    return estimate_llm_cost(spec.model, input_tokens, output_tokens, provider=spec.provider)
+
+
+# -- Report --------------------------------------------------------------
+
+
+def _print_stats(stats: dict) -> None:
+    for k, v in stats.items():
+        print(f"  {k}: {v:.3f}" if isinstance(v, float) else f"  {k}: {v}")
+
+
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state-db", type=Path, default=Path("data/state.db"))
     parser.add_argument("--chroma-path", type=Path, default=Path("data/chroma"))
     args = parser.parse_args()
 
-    records = load_dataset(args.state_db, args.chroma_path)
-    print(f"Dataset: {len(records)} chunks rotulados com embedding disponivel")
+    records, emb = load_dataset(args.state_db, args.chroma_path)
+    print(f"Dataset: {len(records)} chunks rotulados com embedding")
     if not records:
         print("Nada para calibrar -- sem chunks rotulados no state.db informado.")
-        return
+        return 0
 
     n_accepted = sum(r.label for r in records)
+    sources = distinct_sources(records)
     print(f"  accepted={n_accepted} rejected={len(records) - n_accepted}")
+    print(f"  fontes={len(sources)}: {', '.join(sources)}")
+    unusable = f", {emb.unusable} sem texto (descartados)" if emb.unusable else ""
+    print(
+        f"  embeddings: {emb.reused} reaproveitados do Chroma, "
+        f"{emb.computed} calculados agora{unusable}"
+    )
+    print(f"  espaco: {emb.provider}/{emb.model} @ {emb.dimensions}d")
+
+    labels = [r.label for r in records]
 
     print("\n== Heuristica barata (piso de tamanho + alnum ratio + densidade de tabela) ==")
-    labels = [r.label for r in records]
     preds = [heuristic_predict(r.text) for r in records]
-    stats = evaluate_predictions(labels, preds)
-    for k, v in stats.items():
-        print(f"  {k}: {v:.3f}" if isinstance(v, float) else f"  {k}: {v}")
+    _print_stats(evaluate_predictions(labels, preds))
+    print(f"  rejeicoes capturadas por categoria: {category_breakdown(records, preds)}")
 
-    print("\n== Classificador (regressao logistica sobre embeddings existentes, CV) ==")
-    clf_result = evaluate_classifier(records)
-    if clf_result is None:
-        print("  scikit-learn indisponivel, ou dataset insuficiente para validacao cruzada.")
-    else:
-        print(f"  n={clf_result['n']} accepted={clf_result['n_accepted']} rejected={clf_result['n_rejected']}")
-        rec = clf_result["recommended_operating_point"]
-        if rec is None:
-            print("  Nenhum limiar do classificador manteve <=1% de notas aceitas perdidas.")
-        else:
-            print(f"  Ponto de operacao recomendado: threshold={rec['threshold']:.3f}")
-            print(f"    recall (aceitos mantidos): {rec['recall']:.3f}")
-            print(f"    precision: {rec['precision']:.3f}")
-            print(f"    chamadas evitadas: {rec['calls_avoided_pct']:.1f}%")
-            print(f"    notas aceitas perdidas: {rec['accepted_notes_lost_pct']:.2f}%")
+    print("\n== Classificador (regressao logistica sobre embeddings, leave-one-source-out) ==")
+    try:
+        proba = cross_val_proba(records)
+    except InsufficientSourcesError as exc:
+        print(f"  ABORTADO: {exc}")
+        return 1
+
+    from zettel.config import load_config
+
+    cfg = load_config()
+    for point in operating_points(labels, proba):
+        budget = point["max_loss_pct"]
+        threshold = point.get("threshold")
+        if threshold is None:
+            print(f"  perda <= {budget:.1f}%: nenhum limiar qualifica")
+            continue
+        gate_preds = [1 if p >= threshold else 0 for p in proba]
+        skipped = [rec for rec, p in zip(records, gate_preds, strict=True) if p == 0]
+        print(
+            f"  perda <= {budget:.1f}%: threshold={threshold:.3f} "
+            f"chamadas_evitadas={point['calls_avoided_pct']:.1f}% "
+            f"perda_real={point['accepted_notes_lost_pct']:.2f}% "
+            f"(fn={point['fn']} tn={point['tn']}) "
+            f"economia=USD {avoided_cost_usd(cfg, skipped):.2f}"
+        )
+        print(f"    rejeicoes capturadas por categoria: {category_breakdown(records, gate_preds)}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
