@@ -142,6 +142,7 @@ class Retriever:
         expand_graph: bool | None = None,
         relevance_floor: bool | None = None,
         min_vector_similarity: float | None = None,
+        purpose: str = "densa",
     ) -> NoteSearchResult:
         """Retrieve permanent notes for ``query``.
 
@@ -167,7 +168,7 @@ class Retriever:
             expand_graph = self.cfg.retrieval.graph_expansion.enabled
 
         pool = max(topk * 3, 20)
-        vector_hits = self._vector_notes(query, pool, exclude_id)
+        vector_hits = self._vector_notes(query, pool, exclude_id, purpose=purpose)
         bm25_hits = self._bm25_notes(query, pool, exclude_id) if mode == "hybrid" else []
         vector_hits, topic_seed_ids = self._add_topic_index_seeds(query, vector_hits, exclude_id)
 
@@ -310,6 +311,7 @@ class Retriever:
             exclude_id=exclude_id,
             expand_graph=False,
             min_vector_similarity=min_vector_similarity,
+            purpose="analogias",
         )
         hits: list[RetrievedNote] = []
         for hit in result.hits:
@@ -323,8 +325,19 @@ class Retriever:
 
     # ── Vector / BM25 source rankings ──────────────────────────────────
 
-    def _vector_notes(self, query: str, pool: int, exclude_id: str | None) -> list[dict]:
+    def _vector_notes(
+        self,
+        query: str,
+        pool: int,
+        exclude_id: str | None,
+        *,
+        purpose: str = "densa",
+    ) -> list[dict]:
         try:
+            return self.idx.query_similar_notes(
+                query, n_results=pool, exclude_id=exclude_id, purpose=purpose
+            )
+        except TypeError:
             return self.idx.query_similar_notes(query, n_results=pool, exclude_id=exclude_id)
         except Exception as e:  # pragma: no cover - defensive around Chroma
             logger.warning("Busca vetorial de notas falhou: %s", e)

@@ -135,18 +135,6 @@ def run_extract(
 
                 page_file = chunk_row.get("page_in_file")
                 page_book = chunk_row.get("page_in_book")
-                page_conf = chunk_row.get("page_confidence") or "unknown"
-                logger.info(
-                    "[SOURCE=%s] [CHUNK=%s idx=%s/%d] "
-                    "[PAGE file=%s book=%s conf=%s] → Iniciando analise LLM",
-                    source_id,
-                    chunk_id,
-                    chunk_row.get("chunk_index"),
-                    total,
-                    page_file,
-                    page_book,
-                    page_conf,
-                )
 
                 try:
                     candidates, _output = _process_chunk(
@@ -165,12 +153,13 @@ def run_extract(
                     run_status = "failed"
                     raise
                 all_candidates.extend(candidates)
-                logger.info(
-                    "[SOURCE=%s] [CHUNK=%s] → Analise concluida, %d candidatos",
-                    source_id,
-                    chunk_id,
-                    len(candidates),
-                )
+                page = page_book if page_book is not None else page_file
+                page_bit = f"p. {page}" if page is not None else "sem pagina"
+                n_cand = len(candidates)
+                cand_bit = f"{n_cand} candidato" if n_cand == 1 else f"{n_cand} candidatos"
+                from zettel.logfmt import log_step
+
+                log_step(logger, "extract", f"{page_bit} · {cand_bit}")
 
                 db.update_source_paging(
                     source_id,
@@ -914,7 +903,9 @@ def deduplicate_candidates(
             progress.update(task, description=f"candidato {i}/{total}", advance=1)
             logger.info("Deduplicando candidato %d/%d: %s", i, total, cand.thesis[:50])
             query_text = f"{cand.thesis} {cand.definition}"
-            similar = idx.query_similar_notes(query_text, n_results=cfg.linking.topk)
+            similar = idx.query_similar_notes(
+                query_text, n_results=cfg.linking.topk, purpose="dedupe"
+            )
             # Only notes from this same source can make the candidate redundant.
             # A hit from another source is corroboration, resolved by `connect`.
             same_source = _same_source_notes(db, similar, cand_dict.get("source_id") or "")

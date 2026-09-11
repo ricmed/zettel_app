@@ -570,11 +570,11 @@ def call_llm(
 
     if label:
         if step is not None and total is not None:
-            logger.info("LLM [%d/%d] %s", step, total, label)
+            logger.debug("LLM [%d/%d] %s", step, total, label)
         elif step is not None:
-            logger.info("LLM [%d] %s", step, label)
+            logger.debug("LLM [%d] %s", step, label)
         else:
-            logger.info("LLM %s", label)
+            logger.debug("LLM %s", label)
 
     messages: list[Any] = []
     if system:

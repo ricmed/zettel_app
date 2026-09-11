@@ -1092,10 +1092,10 @@ class _FakeDedupeIndex:
         self.embed_calls.append(list(texts))
         return [self._vectors_by_text[t] for t in texts]
 
-    def _record_embed_usage(self, text, label=""):
+    def _record_embed_usage(self, text, label="", **_kw):
         pass
 
-    def query_similar_notes(self, query_text, n_results=5, exclude_id=None):
+    def query_similar_notes(self, query_text, n_results=5, exclude_id=None, **_kw):
         return []  # no existing permanent notes -- isolates the intra-batch pass
 
 
@@ -1229,7 +1229,7 @@ class _FakeNeighbourIndex(_FakeDedupeIndex):
         super().__init__()
         self._note_id = note_id
 
-    def query_similar_notes(self, query_text, n_results=5, exclude_id=None):
+    def query_similar_notes(self, query_text, n_results=5, exclude_id=None, **_kw):
         # distance 0.0 => similarity 1.0, well inside dedupe_threshold
         return [{"id": self._note_id, "distance": 0.0, "document": "doc", "metadata": {}}]
 

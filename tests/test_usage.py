@@ -59,7 +59,26 @@ def test_cost_log_includes_progress(caplog):
     set_progress(3, 10, "chunk")
     with caplog.at_level(logging.INFO, logger="zettel.usage"):
         record_llm(model="m", tokens_in=1, tokens_out=1, cost_usd=0.0, label="x")
-    assert any("COST llm [chunk 3/10]" in r.message for r in caplog.records)
+    assert any(
+        r.message.startswith("llm    ") and "[chunk 3/10]" in r.message for r in caplog.records
+    )
+
+
+def test_embed_log_uses_purpose(caplog):
+    import logging
+
+    begin_run()
+    with caplog.at_level(logging.INFO, logger="zettel.usage"):
+        record_embed(
+            model="qwen3-embedding",
+            tokens=126,
+            cost_usd=0.0,
+            label="query_notes",
+            purpose="densa",
+            count=20,
+        )
+    assert any("busca  densa (20 notas)" in r.message for r in caplog.records)
+    assert any("qwen3-embedding" in r.message and "$0" in r.message for r in caplog.records)
 
 
 def test_cache_hit_is_zero_cost():

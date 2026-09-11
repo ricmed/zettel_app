@@ -554,7 +554,7 @@ class VectorIndex:
         self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
         if progress:
             i, total = progress
-            logger.info(
+            logger.debug(
                 "Embedding [%d] upsert chunk %d/%d %s | %s",
                 self._embed_call_count,
                 i,
@@ -563,7 +563,7 @@ class VectorIndex:
                 clip_text(text),
             )
         else:
-            logger.info(
+            logger.debug(
                 "Embedding [%d] upsert chunk %s | %s",
                 self._embed_call_count,
                 chunk_id,
@@ -620,7 +620,7 @@ class VectorIndex:
         from zettel.llm import clip_text
 
         self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
-        logger.info(
+        logger.debug(
             "Embedding [%d] upsert nota %s | %s",
             self._embed_call_count,
             note_id,
@@ -646,13 +646,18 @@ class VectorIndex:
             logger.debug("Index: %d mocs removidos", len(moc_ids))
 
     def query_similar_notes(
-        self, query_text: str, n_results: int = 5, exclude_id: str | None = None
+        self,
+        query_text: str,
+        n_results: int = 5,
+        exclude_id: str | None = None,
+        *,
+        purpose: str = "densa",
     ) -> list[dict]:
         """Find the most similar permanent notes to the given text."""
         from zettel.llm import clip_text
 
         self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
-        logger.info(
+        logger.debug(
             "Embedding [%d] busca notas | n=%d | query=%s",
             self._embed_call_count,
             n_results,
@@ -662,7 +667,7 @@ class VectorIndex:
             query_texts=[query_text],
             n_results=min(n_results + (1 if exclude_id else 0), self.permanent.count() or 1),
         )
-        self._record_embed_usage(query_text, label="query_notes")
+        self._record_embed_usage(query_text, label="query_notes", purpose=purpose, count=n_results)
         output: list[dict] = []
         if not results or not results["ids"] or not results["ids"][0]:
             return output
@@ -679,7 +684,13 @@ class VectorIndex:
             output.append(entry)
         return output[:n_results]
 
-    def query_notes_by_ids(self, query_text: str, note_ids: list[str]) -> list[dict]:
+    def query_notes_by_ids(
+        self,
+        query_text: str,
+        note_ids: list[str],
+        *,
+        purpose: str = "topic index",
+    ) -> list[dict]:
         """Similarity of ``query_text`` against a fixed set of permanent notes.
 
         Same shape as :meth:`query_similar_notes`, but the search space is
@@ -692,7 +703,7 @@ class VectorIndex:
         if not note_ids:
             return []
         self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
-        logger.info(
+        logger.debug(
             "Embedding [%d] busca notas por id | n=%d | query=%s",
             self._embed_call_count,
             len(note_ids),
@@ -703,7 +714,12 @@ class VectorIndex:
             ids=note_ids,
             n_results=len(note_ids),
         )
-        self._record_embed_usage(query_text, label="query_notes_by_ids")
+        self._record_embed_usage(
+            query_text,
+            label="query_notes_by_ids",
+            purpose=purpose,
+            count=len(note_ids),
+        )
         output: list[dict] = []
         if not results or not results["ids"] or not results["ids"][0]:
             return output
@@ -728,7 +744,7 @@ class VectorIndex:
 
         safe_meta = _sanitize_metadata(metadata)
         self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
-        logger.info(
+        logger.debug(
             "Embedding [%d] upsert resumo de capitulo %s | %s",
             self._embed_call_count,
             chapter_id,
@@ -749,7 +765,7 @@ class VectorIndex:
         from zettel.llm import clip_text
 
         self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
-        logger.info(
+        logger.debug(
             "Embedding [%d] busca resumos de capitulo | n=%d | query=%s",
             self._embed_call_count,
             n_results,
@@ -761,7 +777,12 @@ class VectorIndex:
         results = self.chapter_summaries.query(
             query_texts=[query_text], n_results=min(n_results, total)
         )
-        self._record_embed_usage(query_text, label="query_chapter_summaries")
+        self._record_embed_usage(
+            query_text,
+            label="query_chapter_summaries",
+            purpose="resumos",
+            count=n_results,
+        )
         output: list[dict] = []
         if not results or not results["ids"] or not results["ids"][0]:
             return output
@@ -800,7 +821,7 @@ class VectorIndex:
         preview = " | ".join(clip_text(t, 40) for t in texts[:3])
         if len(texts) > 3:
             preview += f" (+{len(texts) - 3} textos)"
-        logger.info(
+        logger.debug(
             "Embedding [%d] busca chunks | amostras=%d n=%d | %s",
             self._embed_call_count,
             len(texts),
@@ -813,7 +834,7 @@ class VectorIndex:
             n_results=min(n_results, self.chunks.count()),
         )
         for t in texts:
-            self._record_embed_usage(t, label="query_chunks")
+            self._record_embed_usage(t, label="query_chunks", purpose="chunks", count=n_results)
         ids_lists = raw.get("ids") or []
         for qi, ids in enumerate(ids_lists):
             for i, cid in enumerate(ids):
@@ -833,7 +854,7 @@ class VectorIndex:
         safe_meta = _sanitize_metadata(metadata)
         self.mocs_col.upsert(ids=[moc_id], documents=[summary], metadatas=[safe_meta])
         self._record_embed_usage(summary, label=f"moc:{moc_id}")
-        logger.info("Index: upsert MOC %s", moc_id)
+        logger.debug("Index: upsert MOC %s", moc_id)
 
     def _record_embed_usage(
         self,
@@ -843,19 +864,31 @@ class VectorIndex:
         step: int | None = None,
         total: int | None = None,
         kind: str | None = None,
+        purpose: str = "",
+        count: int | None = None,
     ) -> None:
         """Attribute estimated embedding tokens/cost to the active CostTracker."""
+        from zettel.logfmt import embed_step, fmt_money, fmt_tokens, log_step
         from zettel.pricing import estimate_embed_cost, estimate_embed_tokens
         from zettel.usage import get_tracker, record_embed
 
-        if get_tracker() is None:
-            return
         tokens = estimate_embed_tokens(text)
         cost = estimate_embed_cost(
             self.embedding_model,
             tokens,
             provider=self.embedding_provider,
         )
+        if get_tracker() is None:
+            verb, detail = embed_step(purpose, label, count)
+            log_step(
+                logger,
+                verb,
+                detail,
+                model=self.embedding_model,
+                tokens=fmt_tokens(tokens),
+                cost=fmt_money(cost),
+            )
+            return
         record_embed(
             model=self.embedding_model,
             tokens=tokens,
@@ -864,6 +897,8 @@ class VectorIndex:
             step=step,
             total=total,
             kind=kind,
+            purpose=purpose,
+            count=count,
         )
 
     # ── Utility ────────────────────────────────────────────────────────

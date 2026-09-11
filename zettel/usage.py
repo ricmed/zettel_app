@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from zettel.logfmt import embed_step, fmt_money, fmt_tokens, llm_extra, log_step
+
 # Named pipeline phases in run-all order. Harvest uses a JSON config checksum as
 # pipeline_signature; ``pipeline_phase_name`` maps that blob back to "harvest".
 _PHASE_ORDER: dict[str, int] = {
@@ -260,32 +262,19 @@ class CostTracker:
             bucket.prompt_cache_write_tokens += cache_write_tokens
             bucket.cost_usd_llm += cost_usd
             bucket.cost_usd_total += cost_usd
-        cache_tag = ""
-        if cache_read_tokens or cache_write_tokens:
-            cache_tag = f" cache_read={cache_read_tokens} cache_write={cache_write_tokens}"
-        if prog:
-            logger.info(
-                "COST llm [%s] model=%s in=%d out=%d usd=%.6f label=%s source=%s%s",
-                prog,
-                model,
-                tokens_in,
-                tokens_out,
-                cost_usd,
-                label or "-",
-                sid or "-",
-                cache_tag,
-            )
-        else:
-            logger.info(
-                "COST llm model=%s in=%d out=%d usd=%.6f label=%s source=%s%s",
-                model,
-                tokens_in,
-                tokens_out,
-                cost_usd,
-                label or "-",
-                sid or "-",
-                cache_tag,
-            )
+        log_step(
+            logger,
+            "llm",
+            model or label or "chamada",
+            tokens=f"{tokens_in} -> {tokens_out}",
+            cost=fmt_money(cost_usd),
+            extra=llm_extra(
+                cache_local_hit=False,
+                cache_read_tokens=cache_read_tokens,
+                cache_write_tokens=cache_write_tokens,
+            ),
+            progress=prog,
+        )
         return event
 
     def record_embed(
@@ -299,6 +288,8 @@ class CostTracker:
         step: int | None = None,
         total: int | None = None,
         kind: str | None = None,
+        purpose: str = "",
+        count: int | None = None,
     ) -> UsageEvent:
         sid = source_id if source_id is not None else get_source_id()
         prog = _progress_tag(step, total, kind)
@@ -323,25 +314,16 @@ class CostTracker:
             bucket.tokens_embedding += tokens
             bucket.cost_usd_embedding += cost_usd
             bucket.cost_usd_total += cost_usd
-        if prog:
-            logger.info(
-                "COST embed [%s] model=%s tokens=%d usd=%.6f label=%s source=%s",
-                prog,
-                model,
-                tokens,
-                cost_usd,
-                label or "-",
-                sid or "-",
-            )
-        else:
-            logger.info(
-                "COST embed model=%s tokens=%d usd=%.6f label=%s source=%s",
-                model,
-                tokens,
-                cost_usd,
-                label or "-",
-                sid or "-",
-            )
+        verb, detail = embed_step(purpose, label, count)
+        log_step(
+            logger,
+            verb,
+            detail,
+            model=model,
+            tokens=fmt_tokens(tokens),
+            cost=fmt_money(cost_usd),
+            progress=prog,
+        )
         return event
 
     def record_cache_hit(
@@ -368,19 +350,14 @@ class CostTracker:
         self._total.cache_hits += 1
         if sid:
             self._by_source.setdefault(sid, UsageSummary()).cache_hits += 1
-        if prog:
-            logger.info(
-                "COST cache_hit [%s] label=%s source=%s usd=0",
-                prog,
-                label or "-",
-                sid or "-",
-            )
-        else:
-            logger.info(
-                "COST cache_hit label=%s source=%s usd=0",
-                label or "-",
-                sid or "-",
-            )
+        log_step(
+            logger,
+            "llm",
+            label or "resposta",
+            cost=fmt_money(0.0),
+            extra=llm_extra(cache_local_hit=True),
+            progress=prog,
+        )
         return event
 
     def summary(self) -> UsageSummary:
@@ -488,6 +465,8 @@ def record_embed(
     step: int | None = None,
     total: int | None = None,
     kind: str | None = None,
+    purpose: str = "",
+    count: int | None = None,
 ) -> None:
     require_tracker().record_embed(
         model=model,
@@ -498,6 +477,8 @@ def record_embed(
         step=step,
         total=total,
         kind=kind,
+        purpose=purpose,
+        count=count,
     )
 
 

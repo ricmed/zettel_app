@@ -642,7 +642,20 @@ def setup_logging(level: str = "INFO") -> None:
     )
     # httpx/OpenAI emit one INFO line per request ("HTTP Request: POST ... 200 OK"),
     # which drowns the harvest progress when embedding hundreds of chunks.
-    for noisy in ("httpx", "httpcore", "openai", "openai._base_client", "urllib3"):
+    for noisy in (
+        "httpx",
+        "httpcore",
+        "openai",
+        "openai._base_client",
+        "urllib3",
+        "google_genai",
+        "google.generativeai",
+        "google.ai.generativelanguage",
+        "langchain_google_genai",
+        "grpc",
+        "grpc._cython",
+        "grpc._cython.cygrpc",
+    ):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 

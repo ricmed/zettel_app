@@ -282,7 +282,7 @@ def run_connect(
                     current_index=i,
                     total_items=total,
                 )
-                logger.info("Gerando nota %d/%d: %s", i, total, cand.thesis[:50])
+                logger.debug("Gerando nota %d/%d: %s", i, total, cand.thesis[:50])
 
                 try:
                     note_id = _process_candidate(
@@ -309,7 +309,9 @@ def run_connect(
                     raise
                 if note_id:
                     created_ids.append(note_id)
-                    logger.info("Nota %d/%d OK (id=%s)", i, total, note_id)
+                    from zettel.logfmt import log_step
+
+                    log_step(logger, "ok", f"ZTL {note_id}")
 
         logger.info("Notas permanentes criadas/atualizadas: %d", len(created_ids))
         if rejection:
@@ -557,30 +559,6 @@ def _process_candidate(
     note_tokens_out = int(after.get("tokens_completion", 0) or 0) - int(
         snap.get("tokens_completion", 0) or 0
     )
-    from zettel.usage import format_progress_from_context
-
-    prog = format_progress_from_context()
-    if prog:
-        logger.info(
-            "Nota permanente [%s] conceito=%s custo_usd=%.6f "
-            "tokens_in=%d tokens_out=%d cache_hit=%s",
-            prog,
-            concept_id,
-            note_cost,
-            note_tokens_in,
-            note_tokens_out,
-            cache_hit,
-        )
-    else:
-        logger.info(
-            "Nota permanente conceito=%s custo_usd=%.6f tokens_in=%d tokens_out=%d cache_hit=%s",
-            concept_id,
-            note_cost,
-            note_tokens_in,
-            note_tokens_out,
-            cache_hit,
-        )
-
     connections = _demote_llm_corroborates(list(note_output.connections))
 
     # If this is a refine_existing candidate, inject an "extends" connection
