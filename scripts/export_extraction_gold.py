@@ -34,6 +34,10 @@ Outputs three files:
   * ``*-GABARITO-NAO-ABRIR.json`` — the item -> verdict key, frozen at export time so a
     later scorer can join even if the corpus moves. Opening it defeats the exercise.
 
+The labeler may answer `s`, `n` or `?`. The third exists so a passage that cannot
+honestly be judged in isolation does not have to be forced into a binary; those rows
+are reported and excluded from scoring rather than counted as agreement or as error.
+
 Reads SQLite read-only. Writes nothing to the database and calls no LLM.
 
 Usage:
@@ -67,6 +71,22 @@ FORBIDDEN_IN_SHEET = (
     "review_confidence",
     "summary_json",
 )
+
+# The three answers a labeler may give. `?` exists because forcing a binary on a
+# passage that genuinely cannot be judged -- a fragment cut mid-sentence, a table
+# whose meaning lives in a figure that is not there -- injects noise into the very
+# number being measured. Those rows are counted and reported, never scored.
+VERDICT_KEEP = "s"
+VERDICT_DISCARD = "n"
+VERDICT_UNJUDGEABLE = "?"
+VERDICT_VALUES = (VERDICT_KEEP, VERDICT_DISCARD, VERDICT_UNJUDGEABLE)
+
+# The prompt's own rejection vocabulary (`prompts/literature_note.md`), offered as a
+# hint rather than a constraint: `categoria` accepts free text on purpose. Forcing the
+# labeler into the model's vocabulary would bias category agreement the same way
+# showing the verdict would bias verdict agreement -- and needing a word this list
+# lacks is a finding about the list.
+CATEGORY_HINTS = ("structural", "narrative", "promotional", "trivial", "fragmented")
 
 
 @dataclass(frozen=True)
@@ -253,7 +273,7 @@ def write_sheet(items: list[Item], path: Path) -> None:
             writer.writerow(
                 [
                     it.item_id,
-                    "",  # veredito: s = eu guardaria / n = eu descartaria
+                    "",  # veredito: s | n | ? (ver o arquivo de leitura)
                     "",  # categoria (opcional, se descartaria)
                     "",  # nota livre
                     it.source_id,
@@ -271,9 +291,24 @@ def write_reading(items: list[Item], path: Path) -> None:
         "# Planilha de rotulagem — leitura",
         "",
         "Para cada item: **você guardaria esta passagem como nota permanente?**",
-        "Registre `s` ou `n` na coluna `veredito` da planilha CSV, pelo `item_id`.",
-        "Se `n`, a coluna `categoria` aceita: `structural`, `narrative`, `promotional`,",
-        "`trivial`, `fragmented` — ou o termo que você achar melhor.",
+        "Registre a resposta na coluna `veredito` da planilha CSV, pelo `item_id`:",
+        "",
+        f"- `{VERDICT_KEEP}` — eu guardaria",
+        f"- `{VERDICT_DISCARD}` — eu descartaria",
+        f"- `{VERDICT_UNJUDGEABLE}` — não dá para julgar esta passagem isolada",
+        "",
+        f"Use `{VERDICT_UNJUDGEABLE}` sem culpa: um fragmento cortado no meio da frase, uma",
+        "passagem que só faz sentido com o parágrafo anterior, uma tabela cujo sentido está",
+        "numa figura que não veio junto. Esses itens são contados e relatados à parte, e",
+        "ficam fora do cálculo — forçar um `s`/`n` neles poria ruído justamente no número",
+        "que esta planilha existe para medir.",
+        "",
+        f"Se `{VERDICT_DISCARD}`, a coluna `categoria` aceita: "
+        + ", ".join(f"`{c}`" for c in CATEGORY_HINTS),
+        "— ou o termo que você achar melhor; texto livre é bem-vindo.",
+        "",
+        "A coluna `nota` é livre e opcional. Vale sobretudo nos casos limítrofes: quando",
+        "você hesitou, ou quando o motivo não cabe numa categoria.",
         "",
         "Nada aqui diz o que o modelo decidiu. É de propósito.",
         "",

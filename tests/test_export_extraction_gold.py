@@ -13,11 +13,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from export_extraction_gold import (
+    CATEGORY_HINTS,
     FORBIDDEN_IN_SHEET,
     SHEET_COLUMNS,
+    VERDICT_VALUES,
     sample_items,
     text_features,
     write_key,
+    write_reading,
     write_sheet,
 )
 
@@ -169,3 +172,41 @@ def test_text_features_on_prose():
 
 def test_text_features_empty_is_safe():
     assert text_features("   ") == (0.0, 0.0)
+
+
+# -- labeling instructions -----------------------------------------------
+
+
+def test_reading_companion_documents_every_verdict_value(tmp_path):
+    """The instructions and the constant must not drift apart."""
+    items = sample_items(_corpus(), seed=1, n_structural=3, n_accepted=3)
+    reading = tmp_path / "leitura.md"
+    write_reading(items, reading)
+    header = reading.read_text(encoding="utf-8").split("## G", 1)[0]
+
+    for value in VERDICT_VALUES:
+        assert f"`{value}`" in header
+    for hint in CATEGORY_HINTS:
+        assert hint in header
+
+
+def test_unjudgeable_is_offered_as_an_escape_not_a_default(tmp_path):
+    """`?` must be documented as allowed, and no cell may come pre-filled with it."""
+    items = sample_items(_corpus(), seed=1, n_structural=3, n_accepted=3)
+    sheet = tmp_path / "planilha.csv"
+    write_sheet(items, sheet)
+
+    with sheet.open(encoding="utf-8", newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    assert all(row["veredito"] == "" for row in rows)
+    assert all(row["categoria"] == "" and row["nota"] == "" for row in rows)
+
+
+def test_reading_companion_still_hides_the_verdict(tmp_path):
+    items = sample_items(_corpus(), seed=2, n_structural=4, n_accepted=4)
+    reading = tmp_path / "leitura.md"
+    write_reading(items, reading)
+    body = reading.read_text(encoding="utf-8").split("## G", 1)[1]
+
+    for leak in ("accepted", "rejected", "chunk_status", "review_confidence"):
+        assert leak not in body
