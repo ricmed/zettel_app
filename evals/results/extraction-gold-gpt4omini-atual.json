@@ -1,0 +1,507 @@
+{
+  "by_source": {
+    "@Hu2025ArtigoaipoweredWorkflow": {
+      "agree": 6,
+      "llm_accepted_human_discard": 2,
+      "llm_rejected_human_keep": 1
+    },
+    "@Huang2023TowardsReasoning": {
+      "agree": 8,
+      "llm_rejected_human_keep": 2
+    },
+    "@Instrutor2023IniciandoCom": {
+      "agree": 3
+    },
+    "@Kim2022KantAnd": {
+      "agree": 47,
+      "llm_accepted_human_discard": 28,
+      "llm_rejected_human_keep": 1
+    },
+    "@Latorre2021AnáliseDe": {
+      "agree": 3
+    },
+    "@Pate2026ReplicatingHuman": {
+      "agree": 16,
+      "llm_accepted_human_discard": 1
+    }
+  },
+  "category_agreement": {
+    "agree": 30,
+    "compared": 45,
+    "llm_to_human": {
+      "fragmented": {
+        "fragmented": 5
+      },
+      "narrative": {
+        "fragmented": 2,
+        "narrative": 5,
+        "structural": 3
+      },
+      "structural": {
+        "fragmented": 3,
+        "narrative": 2,
+        "structural": 20,
+        "trivial": 1
+      },
+      "trivial": {
+        "fragmented": 1,
+        "narrative": 2,
+        "structural": 1
+      }
+    },
+    "rate": 0.6667
+  },
+  "disagreements": [
+    {
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "unjudgeable",
+      "item_id": "G003",
+      "kind": "unjudgeable",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "fragmented",
+      "human_note": "O texto ficou cortado, faltou contexto antes e depois do bloco, mas acredito que se a extração tivesse conseguido captar mais conteudo, seria aprovada",
+      "human_verdict": "discard",
+      "item_id": "G007",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "fragmented",
+      "human_note": "O texto ficou cortado, faltou contexto antes e depois do bloco, mas acredito que se a extração tivesse conseguido captar mais conteudo, seria aprovada",
+      "human_verdict": "discard",
+      "item_id": "G008",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "fragmented",
+      "human_note": "O texto ficou cortado, faltou contexto antes e depois do bloco, mas acredito que se a extração tivesse conseguido captar mais conteudo, seria aprovada",
+      "human_verdict": "discard",
+      "item_id": "G014",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "unjudgeable",
+      "item_id": "G017",
+      "kind": "unjudgeable",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G019",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G020",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "fragmented",
+      "human_note": "a extração não conseguiu converter elementos matemáticos da forma correta",
+      "human_verdict": "discard",
+      "item_id": "G022",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G023",
+      "kind": "disagreement",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G028",
+      "kind": "disagreement",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G034",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "fragmented",
+      "human_note": "a extração não conseguiu converter elementos matemáticos da forma correta",
+      "human_verdict": "discard",
+      "item_id": "G035",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "promotional",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G036",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "fragmented",
+      "human_note": "a extração não conseguiu converter elementos matemáticos da forma correta",
+      "human_verdict": "discard",
+      "item_id": "G039",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G040",
+      "kind": "disagreement",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G049",
+      "kind": "disagreement",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G051",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "trivial",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G052",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "fragmented",
+      "human_note": "faltou mais contexto",
+      "human_verdict": "discard",
+      "item_id": "G054",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G058",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "human_category": "trivial",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G059",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G063",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G070",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G074",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "human_category": "",
+      "human_note": "faltou mais contexto",
+      "human_verdict": "discard",
+      "item_id": "G077",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "",
+      "human_note": "a extração não conseguiu converter elementos matemáticos da forma correta",
+      "human_verdict": "keep",
+      "item_id": "G085",
+      "kind": "annotated_agreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G087",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G088",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G090",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G091",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "",
+      "human_note": "talvez falte ao sistema tratar de forma correta código",
+      "human_verdict": "keep",
+      "item_id": "G094",
+      "kind": "annotated_agreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Instrutor2023IniciandoCom"
+    },
+    {
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G096",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G098",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G105",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G110",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G111",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "human_category": "promotional",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G114",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G119",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G120",
+      "kind": "disagreement",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    }
+  ],
+  "estimated_lost_notes": 8.6,
+  "f1": 0.75,
+  "items_scored": 118,
+  "items_unjudgeable": 2,
+  "precision": 0.6092,
+  "raw_confusion": {
+    "fn": 4,
+    "fp": 31,
+    "tn": 53,
+    "tp": 30
+  },
+  "recall": 0.9753,
+  "rejected_but_keep_rate": 0.0476,
+  "schema_version": 1,
+  "strata": [
+    {
+      "census": true,
+      "disagreement_ci95": [
+        0.38,
+        0.38
+      ],
+      "disagreement_rate": 0.38,
+      "human_discard": 41,
+      "human_keep": 9,
+      "judged": 50,
+      "population": 50,
+      "sampled": 50,
+      "stratum": "contested",
+      "unjudgeable": 0
+    },
+    {
+      "census": false,
+      "disagreement_ci95": [
+        0.0185,
+        0.2132
+      ],
+      "disagreement_rate": 0.0667,
+      "human_discard": 29,
+      "human_keep": 1,
+      "judged": 30,
+      "population": 131,
+      "sampled": 30,
+      "stratum": "structural",
+      "unjudgeable": 0
+    },
+    {
+      "census": false,
+      "disagreement_ci95": [
+        0.2338,
+        0.5272
+      ],
+      "disagreement_rate": 0.3684,
+      "human_discard": 14,
+      "human_keep": 24,
+      "judged": 38,
+      "population": 474,
+      "sampled": 40,
+      "stratum": "accepted",
+      "unjudgeable": 2
+    }
+  ]
+}

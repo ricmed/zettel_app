@@ -354,6 +354,8 @@ def write_key(
     on purpose, so each item must be weighted by ``population / sampled`` for its
     stratum. Without it a scorer could only report the sample, never the corpus.
     """
+    from zettel.evals.extraction import sampling_stratum
+
     payload = {
         "exported_at": datetime.now(UTC).isoformat(),
         "seed": seed,
@@ -366,6 +368,7 @@ def write_key(
                 "source_id": it.source_id,
                 "llm_verdict": it.hidden_verdict,
                 "llm_category": it.hidden_category,
+                "sampling_stratum": sampling_stratum(it.hidden_verdict, it.hidden_category),
             }
             for it in items
         ],

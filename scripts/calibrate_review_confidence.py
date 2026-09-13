@@ -346,14 +346,12 @@ def items_needed(target_auc: float, keep_share: float, cap: int = 5000) -> int |
 
 def load_gold(labels_path: Path, key_path: Path) -> dict[str, str]:
     """chunk_id -> 'keep' | 'discard', accepted stratum only, `?` excluded."""
-    from zettel.evals.extraction import STRATUM_ACCEPTED, sampling_stratum
+    from zettel.evals.extraction import STRATUM_ACCEPTED
 
+    # By the stratum each item was DRAWN from, not by its current verdict: that is what
+    # keeps every selected item at the same inclusion weight, and the AUC exact.
     key = json.loads(key_path.read_text(encoding="utf-8"))
-    accepted = {
-        e["item_id"]
-        for e in key["items"]
-        if sampling_stratum(e["llm_verdict"], e.get("llm_category") or "") == STRATUM_ACCEPTED
-    }
+    accepted = {e["item_id"] for e in key["items"] if e["sampling_stratum"] == STRATUM_ACCEPTED}
     labels = json.loads(labels_path.read_text(encoding="utf-8"))["labels"]
     return {
         lab["chunk_id"]: lab["human_verdict"]

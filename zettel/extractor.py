@@ -193,6 +193,85 @@ def run_extract(
 # ── Chunk Processing ──────────────────────────────────────────────────
 
 
+def prompt1_images_context(db: StateDB, chunk_row: dict) -> str:
+    """Image descriptions near the chunk, as Prompt 1 receives them."""
+    return _build_images_context(
+        db,
+        chunk_row["source_id"],
+        chunk_row.get("chapter_id", ""),
+        page_in_file=chunk_row.get("page_in_file"),
+    )
+
+
+def prompt1_call_checksum(
+    cfg: AppConfig,
+    prompt_hash: str,
+    chunk_row: dict,
+    images_context: str,
+) -> str:
+    """The LLM-cache key of one Prompt 1 call.
+
+    Shared with `scripts/probe_prompt1_variant.py` so an offline experiment computes
+    the same key production writes -- which is also how the probe proves it builds the
+    exact call `extract` builds.
+    """
+    images_ctx_checksum = (
+        sha256_hex(normalize_text_for_hash(images_context)) if images_context else ""
+    )
+    spec = llm_phase(cfg, "extract")
+    return compute_llm_call_checksum(
+        prompt_hash,
+        chunk_row["chunk_checksum"],
+        spec.model,
+        effective_temperature(cfg, spec),
+        cfg.language,
+        rag_context_checksum=images_ctx_checksum,
+        provider=spec.provider,
+        top_p=cfg.llm.top_p,
+        thinking=thinking_checksum_token(spec.thinking),
+    )
+
+
+def prompt1_messages(
+    cfg: AppConfig,
+    db: StateDB,
+    chunk_row: dict,
+    prompt_parts: PromptParts,
+    example_fields: dict[str, str] | None,
+    images_context: str,
+) -> tuple[str, str]:
+    """System and user text of one Prompt 1 call, exactly as `extract` sends them."""
+    source = db.get_source(chunk_row["source_id"])
+    source_title = source["title"] if source else "Desconhecido"
+    section_path = chunk_row.get("section_path") or chunk_row.get("locator") or ""
+    locator = format_source_locator(
+        chunk_row.get("page_in_book"),
+        section_path,
+        chunk_row.get("page_in_file"),
+    ) or chunk_row.get("locator", "")
+
+    examples = example_fields or {}
+    mapping = {
+        "language": cfg.language,
+        "domain": cfg.domain.name,
+        "source_id": chunk_row["source_id"],
+        "source_title": source_title,
+        "section_path": section_path,
+        "locator": locator,
+        "images_context": images_context,
+        "chunk_text": chunk_row["text"],
+        "relevance_examples": examples.get("relevance_examples", ""),
+        "thesis_examples": examples.get("thesis_examples", ""),
+        "judgement_examples": examples.get("judgement_examples", ""),
+        "tag_examples": examples.get("tag_examples", ""),
+        "rejection_examples": examples.get("rejection_examples", ""),
+        "accepted_example": examples.get("accepted_example", ""),
+    }
+    system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
+    user = fill_template(prompt_parts.user_template, mapping)
+    return system, user
+
+
 def _process_chunk(
     cfg: AppConfig,
     db: StateDB,
@@ -212,34 +291,14 @@ def _process_chunk(
     chunk_id = chunk_row["chunk_id"]
     source_id = chunk_row["source_id"]
     chunk_text = chunk_row["text"]
-    chunk_checksum = chunk_row["chunk_checksum"]
     t0 = time.perf_counter()
 
     if step is not None:
         set_progress(step, total, "chunk")
 
-    images_context = _build_images_context(
-        db,
-        source_id,
-        chunk_row.get("chapter_id", ""),
-        page_in_file=chunk_row.get("page_in_file"),
-    )
-    images_ctx_checksum = (
-        sha256_hex(normalize_text_for_hash(images_context)) if images_context else ""
-    )
-
+    images_context = prompt1_images_context(db, chunk_row)
     spec = llm_phase(cfg, "extract")
-    call_checksum = compute_llm_call_checksum(
-        prompt_hash,
-        chunk_checksum,
-        spec.model,
-        effective_temperature(cfg, spec),
-        cfg.language,
-        rag_context_checksum=images_ctx_checksum,
-        provider=spec.provider,
-        top_p=cfg.llm.top_p,
-        thinking=thinking_checksum_token(spec.thinking),
-    )
+    call_checksum = prompt1_call_checksum(cfg, prompt_hash, chunk_row, images_context)
     cached = db.get_cached_llm_response(call_checksum)
     request_payload_json: str | None = None
     if cached:
@@ -249,34 +308,9 @@ def _process_chunk(
         record_cache_hit(label=f"extract:{chunk_id}", model=spec.model)
         response_text = cached
     else:
-        source = db.get_source(source_id)
-        source_title = source["title"] if source else "Desconhecido"
-        section_path = chunk_row.get("section_path") or chunk_row.get("locator") or ""
-        locator = format_source_locator(
-            chunk_row.get("page_in_book"),
-            section_path,
-            chunk_row.get("page_in_file"),
-        ) or chunk_row.get("locator", "")
-
-        examples = example_fields or {}
-        mapping = {
-            "language": cfg.language,
-            "domain": cfg.domain.name,
-            "source_id": source_id,
-            "source_title": source_title,
-            "section_path": section_path,
-            "locator": locator,
-            "images_context": images_context,
-            "chunk_text": chunk_text,
-            "relevance_examples": examples.get("relevance_examples", ""),
-            "thesis_examples": examples.get("thesis_examples", ""),
-            "judgement_examples": examples.get("judgement_examples", ""),
-            "tag_examples": examples.get("tag_examples", ""),
-            "rejection_examples": examples.get("rejection_examples", ""),
-            "accepted_example": examples.get("accepted_example", ""),
-        }
-        system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
-        user = fill_template(prompt_parts.user_template, mapping)
+        system, user = prompt1_messages(
+            cfg, db, chunk_row, prompt_parts, example_fields, images_context
+        )
         request_payload_json = json.dumps({"system": system, "user": user}, ensure_ascii=False)
 
         try:

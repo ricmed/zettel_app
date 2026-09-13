@@ -38,8 +38,9 @@ def _sheet(tmp_path, rows, *, delimiter=",", encoding="utf-8"):
     return path
 
 
-def _key(item_id, verdict, category="", source="@S"):
-    return KeyItem(item_id, f"c-{item_id}", source, verdict, category)
+def _key(item_id, verdict, category="", source="@S", drawn_from=None):
+    stratum = drawn_from or sampling_stratum(verdict, category)
+    return KeyItem(item_id, f"c-{item_id}", source, verdict, category, stratum)
 
 
 # -- strata --------------------------------------------------------------
@@ -104,6 +105,14 @@ def test_missing_and_invalid_verdicts_are_reported_not_scored(tmp_path):
     assert report.invalid == {"G002": "talvez"}
 
 
+def test_key_without_sampling_stratum_is_refused(tmp_path):
+    path = tmp_path / "gabarito.json"
+    item = {"item_id": "G1", "chunk_id": "c", "source_id": "@A", "llm_verdict": "accepted"}
+    path.write_text(json.dumps({"population": {"accepted": 1}, "items": [item]}), encoding="utf-8")
+    with pytest.raises(ValueError, match="sampling_stratum"):
+        load_key(path)
+
+
 def test_key_without_population_is_refused(tmp_path):
     path = tmp_path / "gabarito.json"
     path.write_text(json.dumps({"items": []}), encoding="utf-8")
@@ -163,6 +172,42 @@ def test_weighting_changes_the_corpus_estimate():
     assert result.raw_confusion["fn"] == 5 and result.raw_confusion["tn"] == 15
     assert result.rejected_but_keep_rate == pytest.approx(5 / 1010, abs=1e-4)
     assert result.rejected_but_keep_rate < 0.25
+
+
+def test_weights_follow_the_stratum_drawn_from_not_the_current_verdict():
+    """A re-extracted key changes verdicts; it must not change inclusion weights.
+
+    C0 was drawn from the contested census (weight 1) and the new prompt now accepts
+    it. S0..S9 were drawn from structural (weight 100) and stay rejected. If the
+    stratum were re-derived from the new verdict, C0 would be weighed as an
+    accepted-stratum item and the rejected-side estimate would be computed over the
+    wrong population.
+    """
+    key = [_key("C0", "accepted", drawn_from=STRATUM_CONTESTED)]
+    key += [_key(f"S{i}", "rejected", "structural") for i in range(10)]
+    labels = [HumanLabel("C0", KEEP)] + [HumanLabel(f"S{i}", KEEP) for i in range(10)]
+    pop = {STRATUM_CONTESTED: 1, STRATUM_STRUCTURAL: 1000}
+
+    result = score(labels, key, pop)
+    strata = {s.stratum: s for s in result.strata}
+    assert STRATUM_ACCEPTED not in strata  # nothing was drawn from the accepted stratum
+    assert strata[STRATUM_CONTESTED].sampled == 1
+    # C0 is now a true positive; the structural ones are false negatives at weight 100.
+    assert result.raw_confusion == {"tp": 1, "fp": 0, "fn": 10, "tn": 0}
+    assert result.recall == pytest.approx(1 / (1 + 1000), abs=1e-4)
+
+
+def test_stratum_disagreement_follows_the_current_verdict():
+    """Drawn from a rejected stratum, now accepted: agreeing with a human keep is not a miss."""
+    key = [
+        _key("C0", "accepted", drawn_from=STRATUM_CONTESTED),  # human keeps -> agrees
+        _key("C1", "rejected", "narrative"),  # human keeps -> disagrees
+        _key("C2", "accepted", drawn_from=STRATUM_CONTESTED),  # human discards -> disagrees
+    ]
+    labels = [HumanLabel("C0", KEEP), HumanLabel("C1", KEEP), HumanLabel("C2", DISCARD)]
+    (stratum,) = score(labels, key, {STRATUM_CONTESTED: 3}).strata
+    assert stratum.human_keep == 2
+    assert stratum.disagreement_rate == pytest.approx(2 / 3, abs=1e-4)
 
 
 def test_census_stratum_reports_no_sampling_error():
@@ -240,7 +285,13 @@ def test_scoring_opens_no_socket(tmp_path, monkeypatch):
             {
                 "population": {"accepted": 1},
                 "items": [
-                    {"item_id": "G1", "chunk_id": "c", "source_id": "@A", "llm_verdict": "accepted"}
+                    {
+                        "item_id": "G1",
+                        "chunk_id": "c",
+                        "source_id": "@A",
+                        "llm_verdict": "accepted",
+                        "sampling_stratum": "accepted",
+                    }
                 ],
             }
         ),

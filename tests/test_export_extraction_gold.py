@@ -103,6 +103,7 @@ def test_key_file_keeps_the_join(tmp_path):
     for it in items:
         assert by_item[it.item_id]["chunk_id"] == it.chunk_id
         assert by_item[it.item_id]["llm_verdict"] == it.hidden_verdict
+        assert by_item[it.item_id]["sampling_stratum"] in {"accepted", "contested", "structural"}
 
 
 # -- sampling ------------------------------------------------------------
