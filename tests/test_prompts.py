@@ -46,7 +46,7 @@ PLACEHOLDER_RE = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
 
 # Where each template is filled: (module, function holding the `mapping` dict).
 CONSUMERS: dict[str, tuple[str, str]] = {
-    "literature_note.md": ("extractor.py", "_process_chunk"),
+    "literature_note.md": ("extractor.py", "prompt1_messages"),
     "dedupe_decision.md": ("extractor.py", "deduplicate_candidates"),
     "permanent_note.md": ("connector.py", "_process_candidate"),
     "ptbr_guard.md": ("connector.py", "_apply_ptbr_guard"),
