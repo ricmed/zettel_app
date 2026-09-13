@@ -31,6 +31,18 @@ logger = logging.getLogger(__name__)
 # Faixa "baixissima": confianca inclusiva ate este valor.
 _LOW_CONFIDENCE_MAX = 0.4
 
+# Shown by every path that approves by threshold. Measured against the human gold set
+# (#175/#176), `review_confidence` does not rank what a human would keep above what a
+# human would discard, so approving by threshold is approving whatever extract accepted.
+# The gate stays (ADR-017, 2026-09-13 addendum); the operator is told what it does.
+# Numbers live in the ADR, not here, so this line does not go stale when re-measured.
+AUTO_APPROVE_UNVALIDATED_WARNING = (
+    "Aviso: o limiar de review_confidence nao foi validado contra julgamento humano. "
+    "Medido em 2026-09-13 (#176), ele nao separa o que seria guardado do que seria "
+    "descartado: aprovar por limiar equivale a aprovar tudo o que o extract aceitou. "
+    "Ver ADR-017."
+)
+
 BAND_VERY_LOW = "very_low"
 BAND_MEDIUM = "medium"
 BAND_HIGH = "high"
@@ -249,6 +261,7 @@ def run_review(
     bands = confidence_band_counts(chunks, limiar)
     report = format_confidence_report(bands, limiar)
     console.print(f"[cyan]{report}[/cyan]")
+    console.print(f"[yellow]{AUTO_APPROVE_UNVALIDATED_WARNING}[/yellow]")
     console.print(
         "[cyan]Comandos: a=aprovar >= limiar, d=reprovar (todos ou por faixa), "
         "r=revisar um a um, q=sair[/cyan]"
