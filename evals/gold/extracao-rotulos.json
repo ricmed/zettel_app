@@ -1,0 +1,975 @@
+{
+  "labels": [
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch105::3cae9519",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G001",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch098::52c6c4be",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G002",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch110::12535a57",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "unjudgeable",
+      "item_id": "G003",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch085::b162a49d",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G004",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch024::fcf602ba",
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G005",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Hu2025ArtigoaipoweredWorkflow::@Hu2025ArtigoaipoweredWorkflow::ch003::b244e7b2",
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G006",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch111::dc0f1016",
+      "human_category": "fragmented",
+      "human_note": "O texto ficou cortado, faltou contexto antes e depois do bloco, mas acredito que se a extração tivesse conseguido captar mais conteudo, seria aprovada",
+      "human_verdict": "discard",
+      "item_id": "G007",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch107::2e3697cc",
+      "human_category": "fragmented",
+      "human_note": "O texto ficou cortado, faltou contexto antes e depois do bloco, mas acredito que se a extração tivesse conseguido captar mais conteudo, seria aprovada",
+      "human_verdict": "discard",
+      "item_id": "G008",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch072::2f36665e",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G009",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch116::779159af",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G010",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Hu2025ArtigoaipoweredWorkflow::@Hu2025ArtigoaipoweredWorkflow::ch010::a1b0e2a4",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G011",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch096::76642052",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G012",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch024::3887ce6c",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G013",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch021::726b5f3f",
+      "human_category": "fragmented",
+      "human_note": "O texto ficou cortado, faltou contexto antes e depois do bloco, mas acredito que se a extração tivesse conseguido captar mais conteudo, seria aprovada",
+      "human_verdict": "discard",
+      "item_id": "G014",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch025::f71b4233",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G015",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch143::817b2163",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G016",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch018::edad6d24",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "unjudgeable",
+      "item_id": "G017",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch086::663cc601",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G018",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch063::e5d70344",
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G019",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch019::203028ec",
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G020",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Latorre2021AnáliseDe::@Latorre2021AnáliseDe::ch005::072692f2",
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G021",
+      "source_id": "@Latorre2021AnáliseDe"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch054::09ef9440",
+      "human_category": "fragmented",
+      "human_note": "a extração não conseguiu converter elementos matemáticos da forma correta",
+      "human_verdict": "discard",
+      "item_id": "G022",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Hu2025ArtigoaipoweredWorkflow::@Hu2025ArtigoaipoweredWorkflow::ch003::6767d268",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G023",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch135::ddcc840d",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G024",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch019::3387b112",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G025",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Hu2025ArtigoaipoweredWorkflow::@Hu2025ArtigoaipoweredWorkflow::ch013::bab4b961",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G026",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch109::9198c5e9",
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G027",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch002::dc765c83",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G028",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch024::ba30a343",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G029",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch010::1fa5a82b",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G030",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch102::70700737",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G031",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch146::cd29557b",
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G032",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch130::7a9996b4",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G033",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch061::ccfb3be5",
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G034",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch025::e3cb02a0",
+      "human_category": "fragmented",
+      "human_note": "a extração não conseguiu converter elementos matemáticos da forma correta",
+      "human_verdict": "discard",
+      "item_id": "G035",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch129::a878a08d",
+      "human_category": "promotional",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G036",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch035::2e2565dd",
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G037",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch105::b702bc99",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G038",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch054::5156039b",
+      "human_category": "fragmented",
+      "human_note": "a extração não conseguiu converter elementos matemáticos da forma correta",
+      "human_verdict": "discard",
+      "item_id": "G039",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch136::a1681340",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G040",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch001::efea81ba",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G041",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Instrutor2023IniciandoCom::@Instrutor2023IniciandoCom::ch002::5e84ffcc",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G042",
+      "source_id": "@Instrutor2023IniciandoCom"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch035::a66ee33c",
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G043",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch026::d5dd70a8",
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G044",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch111::7d5d0f88",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G045",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch070::12d5596d",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G046",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch011::1f5c9887",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G047",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch023::acd68504",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G048",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch021::2682e42a",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G049",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch040::b0d8932d",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G050",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch028::d9637c5d",
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G051",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch012::a13898ff",
+      "human_category": "trivial",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G052",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch103::5771e4db",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G053",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch109::751483af",
+      "human_category": "fragmented",
+      "human_note": "faltou mais contexto",
+      "human_verdict": "discard",
+      "item_id": "G054",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch018::66eced50",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G055",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch009::f80a662e",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G056",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch140::5c08e741",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G057",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Hu2025ArtigoaipoweredWorkflow::@Hu2025ArtigoaipoweredWorkflow::ch004::59ee3efb",
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G058",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch115::d3fc8782",
+      "human_category": "trivial",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G059",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch030::1d8adcd9",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G060",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch096::8ff7bc31",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G061",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Instrutor2023IniciandoCom::@Instrutor2023IniciandoCom::ch000::bb9d34dc",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G062",
+      "source_id": "@Instrutor2023IniciandoCom"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch010::3cc1bfd3",
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G063",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch014::b8ac1109",
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G064",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch134::67bcb4cd",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G065",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Latorre2021AnáliseDe::@Latorre2021AnáliseDe::ch009::f55a8ff9",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G066",
+      "source_id": "@Latorre2021AnáliseDe"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch095::10510bdd",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G067",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch074::a0648302",
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G068",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch036::c730a88e",
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G069",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch013::c4d369f3",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G070",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch022::3752a986",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G071",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch142::8d78ca48",
+      "human_category": "trivial",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G072",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch024::1742869c",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G073",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Hu2025ArtigoaipoweredWorkflow::@Hu2025ArtigoaipoweredWorkflow::ch004::543d787c",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G074",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch125::dd32c772",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G075",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Hu2025ArtigoaipoweredWorkflow::@Hu2025ArtigoaipoweredWorkflow::ch000::21540ed1",
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G076",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch040::4710faf2",
+      "human_category": "",
+      "human_note": "faltou mais contexto",
+      "human_verdict": "discard",
+      "item_id": "G077",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch132::d5185bcb",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G078",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch110::ee913a23",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G079",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch143::bd0031f4",
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G080",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch029::74cce148",
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G081",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch023::e2498912",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G082",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Hu2025ArtigoaipoweredWorkflow::@Hu2025ArtigoaipoweredWorkflow::ch013::87fe9697",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G083",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch084::83c32a66",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G084",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch044::7a4610a6",
+      "human_category": "",
+      "human_note": "a extração não conseguiu converter elementos matemáticos da forma correta",
+      "human_verdict": "keep",
+      "item_id": "G085",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch093::c687d772",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G086",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch106::aeecf2f9",
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G087",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch075::ca749762",
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G088",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch117::a4fb0739",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G089",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch121::0fa54d3c",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G090",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch040::2f27de4f",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G091",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch111::fa334433",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G092",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch025::3f97b1f2",
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G093",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Instrutor2023IniciandoCom::@Instrutor2023IniciandoCom::ch004::ca67fb04",
+      "human_category": "",
+      "human_note": "talvez falte ao sistema tratar de forma correta código",
+      "human_verdict": "keep",
+      "item_id": "G094",
+      "source_id": "@Instrutor2023IniciandoCom"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch022::db0674bb",
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G095",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch013::500c4c0b",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G096",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch012::5932b748",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G097",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch127::4bf99991",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G098",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch110::e752588e",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G099",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch035::202ea9f6",
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G100",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch006::3fdbc516",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G101",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch131::83483f93",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G102",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch035::23a07d00",
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G103",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Hu2025ArtigoaipoweredWorkflow::@Hu2025ArtigoaipoweredWorkflow::ch004::5eac497e",
+      "human_category": "fragmented",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G104",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch025::797457e4",
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G105",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Latorre2021AnáliseDe::@Latorre2021AnáliseDe::ch002::785338cb",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G106",
+      "source_id": "@Latorre2021AnáliseDe"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch046::81714c3c",
+      "human_category": "narrative",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G107",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch024::ac4fc0a9",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G108",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch031::279e0914",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G109",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch110::def2fe2b",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G110",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch008::6ec55fcb",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G111",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch021::ade12e8a",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G112",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch071::bee6ee0f",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G113",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch129::220babe5",
+      "human_category": "promotional",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G114",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch072::7eb69f93",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G115",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch019::206505d0",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "keep",
+      "item_id": "G116",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch001::30f1f032",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G117",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch107::69440513",
+      "human_category": "structural",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G118",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch075::131b7845",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G119",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch076::65ac6e99",
+      "human_category": "",
+      "human_note": "",
+      "human_verdict": "discard",
+      "item_id": "G120",
+      "source_id": "@Kim2022KantAnd"
+    }
+  ],
+  "read": {
+    "delimiter": ";",
+    "encoding": "cp850",
+    "invalid": {},
+    "missing": [],
+    "normalized": {
+      "y": 34
+    },
+    "rows": 120
+  },
+  "schema_version": 1
+}

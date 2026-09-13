@@ -52,3 +52,35 @@ Um **null result é resultado válido**. Não publique comparação entre condi�
 O campo `condition` do manifesto aceita qualquer nome (`current_ask`, `no_graph`, `vector_only`, `lit_only`, `topic_index_off`), **uma por run**. Nenhuma está implementada: o campo existe para que adicionar uma depois não exija redefinir a identidade do run.
 
 Runner ao vivo (com orçamento declarado em `max_calls` / `max_input_tokens`, fail-closed) fica para um follow-up, e só se o replay estiver verde.
+
+---
+
+# Gold set de extração (#175)
+
+Tudo o que o projeto media sobre qualidade de extração era auto-referente: recalculado a partir do veredito que o próprio `extract` gravou, ou treinado nele (ADR-049). Este gold set compara esse veredito com um julgamento humano independente.
+
+## Rodar
+
+```bash
+# 1. exporta a planilha cega (texto + locator, sem veredito do LLM)
+.venv/Scripts/python.exe scripts/export_extraction_gold.py
+# 2. um humano preenche `veredito` (s | n | ?), `categoria` e `nota`
+# 3. pontua
+.venv/Scripts/python.exe -m zettel.evals.extraction evals/gold/extracao-planilha.csv evals/gold/extracao-GABARITO-NAO-ABRIR.json --labels-out evals/gold/extracao-rotulos.json --out evals/results/extraction-gold.json
+```
+
+## O que é commitável
+
+| Arquivo | Commit? | Por quê |
+|---|---|---|
+| `*-planilha.csv`, `*-leitura.md` | **não** (gitignored) | carregam texto verbatim de obras sob direito autoral; o repositório é público |
+| `*-GABARITO-NAO-ABRIR.json` | sim | só ids, veredito do LLM e população por estrato |
+| `*-rotulos.json` | sim | o julgamento humano por `chunk_id`, sem texto — o artefato durável |
+| `evals/results/extraction-gold.json` | sim | agregados e discordâncias, sem texto |
+
+## Leitura dos números
+
+- **Positivo = "um humano guardaria".** Falso negativo é chunk que o LLM rejeitou e o humano guardaria — nota perdida em silêncio, sem estágio posterior que a veja.
+- **A amostra é estratificada** (censo das rejeições contestadas, fatia de `structural`, fatia de aceitos). As estimativas de corpus são **ponderadas** por `população / amostra` de cada estrato; as contagens cruas vêm ao lado para o tamanho da amostra ficar visível. Censo não tem erro amostral; estrato amostrado leva IC95 de Wilson.
+- **`?` fica fora da conta**, contado à parte — nunca como concordância nem como erro.
+- **A planilha costuma voltar de uma planilha eletrônica** em `;` e cp850/cp1252. O leitor aceita ambos e reporta cada normalização (ex.: `y` lido como `s`).

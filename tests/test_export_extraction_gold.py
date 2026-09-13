@@ -17,6 +17,7 @@ from export_extraction_gold import (
     FORBIDDEN_IN_SHEET,
     SHEET_COLUMNS,
     VERDICT_VALUES,
+    population_by_stratum,
     sample_items,
     text_features,
     write_key,
@@ -92,11 +93,12 @@ def test_key_file_keeps_the_join(tmp_path):
 
     items = sample_items(_corpus(), seed=1, n_structural=5, n_accepted=8)
     key = tmp_path / "gabarito.json"
-    write_key(items, key, seed=1)
+    write_key(items, key, seed=1, population={"accepted": 30, "contested": 10, "structural": 20})
     payload = json.loads(key.read_text(encoding="utf-8"))
 
     assert payload["seed"] == 1
     assert payload["n_items"] == len(items)
+    assert payload["population"] == {"accepted": 30, "contested": 10, "structural": 20}
     by_item = {e["item_id"]: e for e in payload["items"]}
     for it in items:
         assert by_item[it.item_id]["chunk_id"] == it.chunk_id
@@ -210,3 +212,8 @@ def test_reading_companion_still_hides_the_verdict(tmp_path):
 
     for leak in ("accepted", "rejected", "chunk_status", "review_confidence"):
         assert leak not in body
+
+
+def test_population_uses_the_scorers_stratum_definition():
+    pop = population_by_stratum(_corpus())
+    assert pop == {"contested": 10, "structural": 20, "accepted": 30}

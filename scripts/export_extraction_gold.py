@@ -249,6 +249,16 @@ def _locator(rec: dict) -> str:
     )
 
 
+def population_by_stratum(records: list[dict]) -> dict[str, int]:
+    """Corpus size of each sampling stratum, with the scorer's own stratum definition."""
+    from zettel.evals.extraction import sampling_stratum
+
+    counts: dict[str, int] = defaultdict(int)
+    for rec in records:
+        counts[sampling_stratum(rec["verdict"], rec["category"])] += 1
+    return dict(counts)
+
+
 # -- Writing -------------------------------------------------------------
 
 SHEET_COLUMNS = [
@@ -331,12 +341,24 @@ def write_reading(items: list[Item], path: Path) -> None:
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def write_key(items: list[Item], path: Path, *, seed: int) -> None:
-    """The answer key, frozen at export time. Not for the labeler."""
+def write_key(
+    items: list[Item],
+    path: Path,
+    *,
+    seed: int,
+    population: dict[str, int],
+) -> None:
+    """The answer key, frozen at export time. Not for the labeler.
+
+    ``population`` is what makes the sample scoreable: rejections are over-represented
+    on purpose, so each item must be weighted by ``population / sampled`` for its
+    stratum. Without it a scorer could only report the sample, never the corpus.
+    """
     payload = {
         "exported_at": datetime.now(UTC).isoformat(),
         "seed": seed,
         "n_items": len(items),
+        "population": dict(sorted(population.items())),
         "items": [
             {
                 "item_id": it.item_id,
@@ -405,7 +427,7 @@ def main() -> int:
 
     write_sheet(items, sheet)
     write_reading(items, reading)
-    write_key(items, key, seed=args.seed)
+    write_key(items, key, seed=args.seed, population=population_by_stratum(records))
 
     counts: dict[str, int] = defaultdict(int)
     for it in items:
