@@ -1,0 +1,471 @@
+{
+  "pairs": {
+    "gemini-t01-a:gemini-t00": {
+      "correct_a": 94,
+      "correct_b": 92,
+      "flipped_items": [
+        {
+          "from": "rejected",
+          "human": "discard",
+          "item_id": "G008",
+          "to": "accepted"
+        },
+        {
+          "from": "rejected",
+          "human": "keep",
+          "item_id": "G025",
+          "to": "accepted"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G070",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G085",
+          "to": "rejected"
+        },
+        {
+          "from": "rejected",
+          "human": "discard",
+          "item_id": "G088",
+          "to": "accepted"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G094",
+          "to": "rejected"
+        }
+      ],
+      "flips": {
+        "accepted->rejected (discard)": 1,
+        "accepted->rejected (keep)": 2,
+        "rejected->accepted (discard)": 2,
+        "rejected->accepted (keep)": 1
+      },
+      "n_common": 115,
+      "only_a_right": 4,
+      "only_b_right": 2,
+      "paired_exact_p": 0.6875,
+      "verdict_agreement": 0.9478,
+      "weighted_net_correct_b_minus_a": 8.85
+    },
+    "gemini-t01-a:gemini-t01-b": {
+      "correct_a": 94,
+      "correct_b": 93,
+      "flipped_items": [
+        {
+          "from": "rejected",
+          "human": "discard",
+          "item_id": "G020",
+          "to": "accepted"
+        },
+        {
+          "from": "rejected",
+          "human": "keep",
+          "item_id": "G025",
+          "to": "accepted"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G085",
+          "to": "rejected"
+        }
+      ],
+      "flips": {
+        "accepted->rejected (keep)": 1,
+        "rejected->accepted (discard)": 1,
+        "rejected->accepted (keep)": 1
+      },
+      "n_common": 115,
+      "only_a_right": 2,
+      "only_b_right": 1,
+      "paired_exact_p": 1.0,
+      "verdict_agreement": 0.9739,
+      "weighted_net_correct_b_minus_a": -1.0
+    },
+    "gpt4omini:gemini-t01-a": {
+      "correct_a": 83,
+      "correct_b": 97,
+      "flipped_items": [
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G002",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G008",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G019",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G020",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G024",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G025",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G030",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G035",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G036",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G039",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G051",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G054",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G063",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G087",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G088",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G091",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G096",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G098",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G110",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G111",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G114",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G119",
+          "to": "rejected"
+        }
+      ],
+      "flips": {
+        "accepted->rejected (discard)": 18,
+        "accepted->rejected (keep)": 4
+      },
+      "n_common": 120,
+      "only_a_right": 4,
+      "only_b_right": 18,
+      "paired_exact_p": 0.0043,
+      "verdict_agreement": 0.8167,
+      "weighted_net_correct_b_minus_a": 28.22
+    }
+  },
+  "runs": {
+    "gemini-t00": {
+      "f1": 0.764,
+      "n_items": 115,
+      "per_source": {
+        "@Hu2025ArtigoaipoweredWorkflow": {
+          "fn": 0,
+          "fp": 2,
+          "precision": 0.0,
+          "recall": null,
+          "tn": 6,
+          "tp": 0
+        },
+        "@Huang2023TowardsReasoning": {
+          "fn": 2,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 0.5,
+          "tn": 6,
+          "tp": 2
+        },
+        "@Instrutor2023IniciandoCom": {
+          "fn": 1,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 0.5,
+          "tn": 1,
+          "tp": 1
+        },
+        "@Kim2022KantAnd": {
+          "fn": 5,
+          "fp": 12,
+          "precision": 0.6,
+          "recall": 0.7826,
+          "tn": 38,
+          "tp": 18
+        },
+        "@Latorre2021AnáliseDe": {
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tn": 2,
+          "tp": 1
+        },
+        "@Pate2026ReplicatingHuman": {
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tn": 16,
+          "tp": 1
+        }
+      },
+      "precision": 0.653,
+      "recall": 0.9205,
+      "rejected_but_keep_rate": 0.1032
+    },
+    "gemini-t01-a": {
+      "f1": 0.7691,
+      "n_items": 120,
+      "per_source": {
+        "@Hu2025ArtigoaipoweredWorkflow": {
+          "fn": 1,
+          "fp": 2,
+          "precision": 0.0,
+          "recall": 0.0,
+          "tn": 6,
+          "tp": 0
+        },
+        "@Huang2023TowardsReasoning": {
+          "fn": 2,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 0.5,
+          "tn": 6,
+          "tp": 2
+        },
+        "@Instrutor2023IniciandoCom": {
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tn": 1,
+          "tp": 2
+        },
+        "@Kim2022KantAnd": {
+          "fn": 4,
+          "fp": 11,
+          "precision": 0.6562,
+          "recall": 0.84,
+          "tn": 40,
+          "tp": 21
+        },
+        "@Latorre2021AnáliseDe": {
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tn": 2,
+          "tp": 1
+        },
+        "@Pate2026ReplicatingHuman": {
+          "fn": 1,
+          "fp": 0,
+          "precision": null,
+          "recall": 0.0,
+          "tn": 16,
+          "tp": 0
+        }
+      },
+      "precision": 0.658,
+      "recall": 0.9254,
+      "rejected_but_keep_rate": 0.1045
+    },
+    "gemini-t01-b": {
+      "f1": 0.7802,
+      "n_items": 115,
+      "per_source": {
+        "@Hu2025ArtigoaipoweredWorkflow": {
+          "fn": 1,
+          "fp": 1,
+          "precision": 0.0,
+          "recall": 0.0,
+          "tn": 6,
+          "tp": 0
+        },
+        "@Huang2023TowardsReasoning": {
+          "fn": 2,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 0.5,
+          "tn": 6,
+          "tp": 2
+        },
+        "@Instrutor2023IniciandoCom": {
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tn": 1,
+          "tp": 2
+        },
+        "@Kim2022KantAnd": {
+          "fn": 5,
+          "fp": 11,
+          "precision": 0.6071,
+          "recall": 0.7727,
+          "tn": 39,
+          "tp": 17
+        },
+        "@Latorre2021AnáliseDe": {
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tn": 2,
+          "tp": 1
+        },
+        "@Pate2026ReplicatingHuman": {
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tn": 16,
+          "tp": 1
+        }
+      },
+      "precision": 0.6563,
+      "recall": 0.9618,
+      "rejected_but_keep_rate": 0.0593
+    },
+    "gpt4omini": {
+      "f1": 0.75,
+      "n_items": 120,
+      "per_source": {
+        "@Hu2025ArtigoaipoweredWorkflow": {
+          "fn": 1,
+          "fp": 2,
+          "precision": 0.0,
+          "recall": 0.0,
+          "tn": 6,
+          "tp": 0
+        },
+        "@Huang2023TowardsReasoning": {
+          "fn": 2,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 0.5,
+          "tn": 6,
+          "tp": 2
+        },
+        "@Instrutor2023IniciandoCom": {
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tn": 1,
+          "tp": 2
+        },
+        "@Kim2022KantAnd": {
+          "fn": 1,
+          "fp": 28,
+          "precision": 0.4615,
+          "recall": 0.96,
+          "tn": 23,
+          "tp": 24
+        },
+        "@Latorre2021AnáliseDe": {
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tn": 2,
+          "tp": 1
+        },
+        "@Pate2026ReplicatingHuman": {
+          "fn": 0,
+          "fp": 1,
+          "precision": 0.5,
+          "recall": 1.0,
+          "tn": 15,
+          "tp": 1
+        }
+      },
+      "precision": 0.6092,
+      "recall": 0.9753,
+      "rejected_but_keep_rate": 0.0476
+    }
+  }
+}

@@ -60,6 +60,51 @@ def _repo_relative(path: Path) -> str:
         return Path(path).as_posix()
 
 
+def parse_thinking_arg(raw: str | None) -> bool | int | str | None:
+    """CLI text to the value `LLMPhaseConfig.thinking` validates: `false` is a bool there."""
+    if raw is None:
+        return None
+    lowered = raw.strip().lower()
+    if lowered in ("true", "false"):
+        return lowered == "true"
+    if lowered.isdigit():
+        return int(lowered)
+    return lowered
+
+
+def apply_extract_override(
+    cfg: Any,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+    temperature: float | None = None,
+    thinking: bool | int | str | None = None,
+) -> Any:
+    """A copy of `cfg` whose `llm.extract` identity is swapped; everything else unchanged.
+
+    Only the model identity moves. Prompt, few-shots, filters and call assembly stay the
+    production ones, so a run with an override differs from the production run in the
+    model alone. The phase config is rebuilt through its own validators, so an invalid
+    `thinking` value fails here instead of reaching the vendor client.
+    """
+    from zettel.config import LLMPhaseConfig
+
+    updates = {
+        key: value
+        for key, value in (
+            ("provider", provider),
+            ("model", model),
+            ("temperature", temperature),
+            ("thinking", thinking),
+        )
+        if value is not None
+    }
+    if not updates:
+        return cfg
+    spec = LLMPhaseConfig(**{**cfg.llm.extract.model_dump(), **updates})
+    return cfg.model_copy(update={"llm": cfg.llm.model_copy(update={"extract": spec})})
+
+
 @dataclass(frozen=True)
 class Verdict:
     chunk_status: str
@@ -214,6 +259,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--record-dir", type=Path, default=DEFAULT_RECORD_DIR)
     parser.add_argument("--yes", action="store_true", help="Autoriza as chamadas nao gravadas")
     parser.add_argument("--out-key", type=Path, default=None, help="Grava o gabarito regenerado")
+    parser.add_argument("--provider", default=None, help="Sobrescreve llm.extract.provider")
+    parser.add_argument("--model", default=None, help="Sobrescreve llm.extract.model")
+    parser.add_argument(
+        "--temperature", type=float, default=None, help="Sobrescreve a temperatura do extract"
+    )
+    parser.add_argument(
+        "--thinking", default=None, help="Sobrescreve llm.extract.thinking (ex.: false, low)"
+    )
     args = parser.parse_args(argv)
 
     if hasattr(sys.stdout, "reconfigure"):
@@ -235,7 +288,17 @@ def main(argv: list[str] | None = None) -> int:
     from zettel.state import StateDB
 
     cfg = load_config()
-    spec = llm_phase(cfg, "extract")
+    # `cfg` stays production: it decides which recorded verdicts were made under the
+    # current configuration. `run_cfg` is what this run actually calls.
+    run_cfg = apply_extract_override(
+        cfg,
+        provider=args.provider,
+        model=args.model,
+        temperature=args.temperature,
+        thinking=parse_thinking_arg(args.thinking),
+    )
+    overridden = run_cfg is not cfg
+    spec = llm_phase(run_cfg, "extract")
     production_prompt = Path(cfg.prompts_path) / "literature_note.md"
     prompt_path = args.prompt or production_prompt
     examples_path = args.examples or Path(cfg.domain.examples_path)
@@ -245,8 +308,8 @@ def main(argv: list[str] | None = None) -> int:
     settings = {
         "provider": spec.provider,
         "model": spec.model,
-        "temperature": effective_temperature(cfg, spec),
-        "top_p": cfg.llm.top_p,
+        "temperature": effective_temperature(run_cfg, spec),
+        "top_p": run_cfg.llm.top_p,
         "thinking": str(spec.thinking),
     }
 
@@ -290,8 +353,10 @@ def main(argv: list[str] | None = None) -> int:
 
     missing = [i for i in items if recorded.get(i["chunk_id"], {}).get("call_id") != i["call_id"]]
     print(f"rodada: {args.label}")
+    origin = "SOBRESCRITO" if overridden else "config de producao"
     print(
-        f"extrator: {spec.provider}/{spec.model} @ {settings['temperature']} (config de producao)"
+        f"extrator: {spec.provider}/{spec.model} @ {settings['temperature']} "
+        f"thinking={settings['thinking']} ({origin})"
     )
     print(f"prompt: {_repo_relative(prompt_path)} | exemplos: {_repo_relative(examples_path)}")
     print(
@@ -302,14 +367,20 @@ def main(argv: list[str] | None = None) -> int:
         tokens_in = sum(estimate_tokens(i["system"]) + estimate_tokens(i["user"]) for i in missing)
         tokens_out = len(missing) * cfg.extraction.preflight_output_tokens_per_chunk
         usd = estimate_llm_cost(spec.model, tokens_in, tokens_out, provider=spec.provider)
-        print(f"custo estimado: USD {usd:.3f} ({tokens_in} tokens entrada + {tokens_out} saida)")
+        from zettel.pricing import _is_local_model
+
+        if usd == 0 and spec.provider != "ollama" and not _is_local_model(spec.model):
+            price = "PRECO DESCONHECIDO no mapa do LiteLLM -- nao e gratis"
+        else:
+            price = f"USD {usd:.3f}"
+        print(f"custo estimado: {price} ({tokens_in} tokens entrada + {tokens_out} saida)")
         if not args.yes:
             print("Sem --yes: nenhuma chamada feita.")
             return 1
 
     from zettel.llm import call_llm, get_llm
 
-    llm = get_llm(cfg, "extract") if missing else None
+    llm = get_llm(run_cfg, "extract") if missing else None
 
     def call(item: dict[str, Any]) -> str:
         return call_llm(
