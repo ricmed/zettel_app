@@ -8,6 +8,7 @@ import pytest
 from zettel.config import AppConfig
 from zettel.harvester.extract import (
     PdfExtractionError,
+    build_pdf_pipeline_options,
     extract_pdf,
     extract_pdf_docling,
     page_map_for_source,
@@ -45,6 +46,50 @@ def test_extract_pdf_docling_conversion_failure_raises_pdf_extraction_error(monk
 
     with pytest.raises(PdfExtractionError, match="conversao Docling lancou um erro"):
         extract_pdf_docling(_cfg(), pdf)
+
+
+# ── Docling enrichment options ────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "formulas, code", [(False, False), (True, False), (False, True), (True, True)]
+)
+def test_pipeline_options_follow_formula_and_code_config(formulas, code):
+    """Built against the installed Docling, so a flag it does not know raises here.
+
+    A misspelled enrichment attribute is not an attribute error at config time: it only
+    surfaces on the first real PDF harvest, after the conversion is already paid for.
+    """
+    cfg = _cfg(formulas={"enabled": formulas}, code={"enabled": code})
+    options = build_pdf_pipeline_options(cfg, "cpu")
+    assert options.do_formula_enrichment is formulas
+    assert options.do_code_enrichment is code
+
+
+def test_pipeline_options_keep_images_independent_of_enrichment():
+    cfg = _cfg(images={"enabled": True, "scale": 3.0}, formulas={"enabled": True})
+    options = build_pdf_pipeline_options(cfg, "cpu")
+    assert options.generate_picture_images is True
+    assert options.images_scale == 3.0
+    assert options.do_code_enrichment is False
+
+
+def test_conversion_receives_the_enrichment_options(monkeypatch, tmp_path):
+    """extract_pdf_docling must hand the built options to the converter, not a default."""
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    seen = {}
+
+    class _CapturingConverter(_FakeConverter):
+        def __init__(self, *args, format_options=None, **kwargs):
+            (option,) = format_options.values()
+            seen["options"] = option.pipeline_options
+
+    monkeypatch.setattr("docling.document_converter.DocumentConverter", _CapturingConverter)
+    extract_pdf_docling(_cfg(formulas={"enabled": True}, code={"enabled": True}), pdf)
+
+    assert seen["options"].do_formula_enrichment is True
+    assert seen["options"].do_code_enrichment is True
 
 
 class _FakeOrigin:

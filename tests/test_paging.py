@@ -123,6 +123,14 @@ def test_compute_docling_config_hash_changes_with_min_chunk_chars():
     assert before != after
 
 
+def test_compute_docling_config_hash_changes_with_formula_and_code_enrichment():
+    """Both change the text Docling emits; a resume across a flip must not reuse pages."""
+    base = compute_docling_config_hash(AppConfig())
+    formulas = compute_docling_config_hash(AppConfig(formulas={"enabled": True}))
+    code = compute_docling_config_hash(AppConfig(code={"enabled": True}))
+    assert len({base, formulas, code}) == 3
+
+
 def test_page_map_from_marked_markdown():
     marked = f"# Cover\n\n{PAGE_BREAK_MARKER}\n\n# Chapter 1\n\nOnce upon a unique graph story."
     page_map = page_map_from_marked_markdown(marked)

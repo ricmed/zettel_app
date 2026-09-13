@@ -280,6 +280,27 @@ class ImagesConfig(BaseModel):
     rate_limit_abort_after: int = 5  # 429 esgotados consecutivos => para o lote
 
 
+# Formulas e codigo sao enriquecimentos do Docling no harvest de PDF. Os dois rodam o
+# mesmo modelo local de visao (CodeFormulaV2, baixado do Hugging Face no primeiro uso) e
+# deixam a conversao mais lenta. Markdown nativo nao passa pelo Docling: ja traz formula e
+# codigo como texto. Ligar ou desligar muda o texto extraido -- logo os chunk_id das fontes
+# recolhidas e os rotulos humanos presos a eles.
+class FormulasConfig(BaseModel):
+    """Decodifica regioes de formula do PDF em LaTeX (Docling ``do_formula_enrichment``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+
+
+class CodeConfig(BaseModel):
+    """Decodifica blocos de codigo do PDF em texto (Docling ``do_code_enrichment``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+
+
 class DomainConfig(BaseModel):
     """Identidade do acervo e few-shots. Lido por extract, connect e garden."""
 
@@ -510,6 +531,8 @@ class AppConfig(BaseModel):
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
     literature_review: LiteratureReviewConfig = Field(default_factory=LiteratureReviewConfig)
     images: ImagesConfig = Field(default_factory=ImagesConfig)
+    formulas: FormulasConfig = Field(default_factory=FormulasConfig)
+    code: CodeConfig = Field(default_factory=CodeConfig)
     domain: DomainConfig = Field(default_factory=DomainConfig)
     gardener: GardenerConfig = Field(default_factory=GardenerConfig)
     hub_mocs: HubMocsConfig = Field(default_factory=HubMocsConfig)
