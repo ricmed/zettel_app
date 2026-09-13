@@ -19,10 +19,10 @@ from zettel.hashing import (
 from zettel.llm import (
     LLMUnavailableError,
     call_llm,
-    extract_json,
     fill_template,
     get_llm,
     load_prompt_parts,
+    parse_llm_json,
 )
 from zettel.state import StateDB
 
@@ -924,7 +924,7 @@ def enrich_with_llm(
             return seed
 
     try:
-        raw = json.loads(extract_json(response_text))
+        raw = parse_llm_json(response_text)
         if not isinstance(raw, dict):
             if raise_on_error:
                 raise RuntimeError("O LLM não devolveu metadados bibliográficos válidos.")
