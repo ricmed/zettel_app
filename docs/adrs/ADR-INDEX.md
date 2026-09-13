@@ -1,4 +1,4 @@
-# zettel_app ADR Index (46 Decisions)
+# zettel_app ADR Index (47 Decisions)
 
 **Last Updated**: 2026-09-10  
 **Status**: Complete — 45 formal ADRs across 12 modules
@@ -265,6 +265,15 @@
 
 ---
 
+### ADR-050: The Extract Model Is Chosen Against the Human Gold Set — gemini-3.5-flash-lite
+
+- **Status**: Accepted (2026-09-13)
+- **Date**: 2026-09-13
+- **Summary**: `llm.extract` returns to `gemini-3.5-flash-lite` @ 0.1 after a pre-registered comparison with `gpt-4o-mini` over the 120 human-labeled gold chunks (#181). Rule chosen by the user before the runs: net correct items, lost note and admitted junk weighing the same. Gemini gets 97 items right against 83 (18 vs 4 discordant, exact McNemar p = 0.0043), agrees with itself on 97.4% of verdicts, and the corpus-weighted net difference (+28.2 chunks) agrees in sign. Corpus precision 60.9% -> 65.8%, recall 97.5% -> 92.5%. The trade is explicit: ~15 more lost notes to keep out ~43 junk chunks; a criterion weighing a lost note ~3x more would flip it.
+- **Link**: [`ADR-050-extract-model-chosen-against-gold-set.md`](./generated/EXTRACT/ADR-050-extract-model-chosen-against-gold-set.md)
+
+---
+
 ## REVIEW — Approval Gate
 
 ### ADR-016: Post-Approval Concept Deduplication Timing
@@ -492,8 +501,8 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 46 |
-| **Accepted** | 45 |
+| **Total ADRs** | 47 |
+| **Accepted** | 46 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 42 |
 | **Modules Covered** | 12 |
@@ -501,6 +510,8 @@
 ---
 
 ## Status Update (2026-09-13)
+
+✅ **ADR-050 added** — the extract model is chosen against the human gold set: `gemini-3.5-flash-lite` @ 0.1 over `gpt-4o-mini`, by a rule the user fixed before the runs (`evals/preregistration/181-modelo-extract.md`). Net correct 97 vs 83, p = 0.0043; corpus precision 60.9% -> 65.8% at the cost of recall 97.5% -> 92.5%.
 
 ✅ **ADR-017 addendum** — measured against the human gold set of #175, `review_confidence` does not separate what a human would keep from what a human would discard among accepted chunks: AUC 0.491 [0.298, 0.684], with integrity and completeness saturated on 97% of them. Corpus-weighted precision of `extract` is 63.2%. The gate and its threshold stay; every path that approves by threshold now prints `review.AUTO_APPROVE_UNVALIDATED_WARNING`. Issue #176 continues with an LLM-as-reader candidate signal.
 
