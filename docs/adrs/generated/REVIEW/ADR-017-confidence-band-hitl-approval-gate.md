@@ -133,7 +133,13 @@ What that means in the vault: corpus-weighted, the precision of `extract` is **6
 
 ### What would change this
 
-A signal whose 95% lower bound clears 0.5 on the gold set. Issue #176 continues with the first candidate: a separate LLM judgement that reads the finished note as a reader would, rather than the chunk as an extractor does. If one is adopted, it replaces what feeds the band mechanism, exactly as the 2026-09-05 addendum did.
+A signal whose 95% lower bound clears 0.5 on the gold set. If one is adopted, it replaces what feeds the band mechanism, exactly as the 2026-09-05 addendum did.
+
+**First candidate, measured and rejected (2026-09-13).** A separate LLM call (`review` phase, `gpt-4o-mini`, temperature 0) read each finished note next to its source passage and scored 1–5 whether it deserved to be a permanent note, using criteria taken from the extraction prompt. The prompt was committed before its only run (`993f809`), so it was not tuned to these labels. Result: AUC 0.479 [0.286, 0.672], indistinguishable from a coin.
+
+The distribution matters more than the AUC. The judge gave **exactly 4 to 37 of 38 chunks**, including all 14 a human would discard. It did not rank badly; it did not rank. The same collapse is already in the pipeline: `extract`'s own `relevance_score` is 4 on **88.6%** of the 481 accepted candidates in the corpus, which is why the relevance term — half of `review_confidence` — carries no information either. Two unrelated requests for an absolute 1–5 rating from this model return the same constant. The finding is about the elicitation, not only about this prompt: an absolute Likert rating from `gpt-4o-mini` is not a usable signal here, and a further candidate should either force discrimination (comparative or pairwise judgement) or use a different judge. Recorded in `evals/results/reader-signal.json` (scores by gold item, no text).
+
+Seven signals have now been measured against the same 38 labels. A future candidate that clears the bar should be read with that count in mind, and confirmed on fresh labels before it feeds the gate.
 
 Reproduce offline, with zero LLM and zero embedding calls:
 

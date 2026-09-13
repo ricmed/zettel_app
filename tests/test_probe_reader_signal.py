@@ -118,6 +118,24 @@ def test_recording_key_changes_with_prompt_model_or_temperature():
     assert recording_key("prompt", "gpt-4o-mini", "openai", 0.0) == base
 
 
+def test_recording_key_survives_a_crlf_checkout(tmp_path):
+    """Git on Windows (core.autocrlf) rewrites the prompt with CRLF on checkout.
+
+    If that changed the key, a fresh clone would miss the recording and pay again.
+    `load_prompt` reads in text mode, which folds CRLF to LF; this pins it.
+    """
+    from zettel.llm import load_prompt_parts
+
+    lf = (ROOT / DEFAULT_PROMPT).read_bytes().replace(b"\r\n", b"\n")
+    keys = []
+    for name, data in (("lf.md", lf), ("crlf.md", lf.replace(b"\n", b"\r\n"))):
+        path = tmp_path / name
+        path.write_bytes(data)
+        template = load_prompt_parts(path).full_template
+        keys.append(recording_key(template, "gpt-4o-mini", "openai", 0.0))
+    assert keys[0] == keys[1]
+
+
 # -- scoring -------------------------------------------------------------
 
 
