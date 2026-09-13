@@ -11,6 +11,7 @@ from compare_gold_runs import (
     compare_pair,
     correctness,
     human_verdicts,
+    inclusion_weights,
     paired_exact_p,
     parse_named,
     per_source,
@@ -128,3 +129,29 @@ def test_parse_named_refuses_malformed_values():
     assert parse_named(["a=b/c.json"], "=") == [("a", "b/c.json")]
     with pytest.raises(ValueError):
         parse_named(["sem-separador"], "=")
+
+
+# -- corpus weighting ----------------------------------------------------
+
+
+def test_weighted_net_correct_can_disagree_with_the_raw_count():
+    """Raw: B wins 2-1. Weighted: A's one win sits in a stratum 10x the size, so A wins.
+
+    This is the case the #181 pre-registration guards against -- a decision taken on
+    sample counts that points the other way for the corpus.
+    """
+    human = {"C1": "keep", "C2": "keep", "A1": "keep"}
+    a = [_item("C1", "rejected"), _item("C2", "rejected"), _item("A1", "accepted")]
+    b = [_item("C1", "accepted"), _item("C2", "accepted"), _item("A1", "rejected")]
+    population = {"contested": 2, "accepted": 10}
+
+    pair = compare_pair(a, b, human, inclusion_weights(a, population))
+
+    assert (pair["only_a_right"], pair["only_b_right"]) == (1, 2)
+    assert pair["weighted_net_correct_b_minus_a"] == -8.0  # +1 +1 (weight 1 each) -10
+
+
+def test_inclusion_weights_follow_the_stratum_drawn_from():
+    items = [_item("C1", "rejected"), _item("C2", "rejected"), _item("A1", "accepted")]
+    weights = inclusion_weights(items, {"contested": 50, "accepted": 474})
+    assert weights == {"C1": 25.0, "C2": 25.0, "A1": 474.0}

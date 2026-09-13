@@ -73,7 +73,18 @@ def paired_exact_p(only_a_right: int, only_b_right: int) -> float:
     return min(1.0, 2 * tail)
 
 
-def compare_pair(a_items: list[Any], b_items: list[Any], human: dict[str, str]) -> dict:
+def inclusion_weights(items: list[Any], population: dict[str, int]) -> dict[str, float]:
+    """item_id -> population / sampled for the stratum the item was drawn from."""
+    sampled = Counter(item.stratum for item in items)
+    return {item.item_id: population.get(item.stratum, 0) / sampled[item.stratum] for item in items}
+
+
+def compare_pair(
+    a_items: list[Any],
+    b_items: list[Any],
+    human: dict[str, str],
+    weights: dict[str, float] | None = None,
+) -> dict:
     a_by_id = {i.item_id: i for i in a_items}
     b_by_id = {i.item_id: i for i in b_items}
     common = sorted(set(a_by_id) & set(b_by_id))
@@ -93,6 +104,20 @@ def compare_pair(a_items: list[Any], b_items: list[Any], human: dict[str, str]) 
     right_b = correctness([b_by_id[i] for i in common], human)
     only_a = sum(1 for i in right_a if right_a[i] and not right_b[i])
     only_b = sum(1 for i in right_b if right_b[i] and not right_a[i])
+    # The sample over-represents the rejection boundary (a census of contested
+    # rejections, 40 of 474 accepted). A raw count of net correct items weights that
+    # boundary far above its share of the corpus. Weighting each discordant item by its
+    # inclusion weight estimates the same difference for the corpus.
+    weighted_net = None
+    if weights is not None:
+        weighted_net = round(
+            sum(
+                weights[i] * (int(right_b[i]) - int(right_a[i]))
+                for i in right_a
+                if right_a[i] != right_b[i]
+            ),
+            2,
+        )
     return {
         "n_common": len(common),
         "verdict_agreement": round(same_verdict / len(common), 4) if common else 0.0,
@@ -103,6 +128,7 @@ def compare_pair(a_items: list[Any], b_items: list[Any], human: dict[str, str]) 
         "only_a_right": only_a,
         "only_b_right": only_b,
         "paired_exact_p": round(paired_exact_p(only_a, only_b), 4),
+        "weighted_net_correct_b_minus_a": weighted_net,
     }
 
 
@@ -191,7 +217,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {source[:30]:<32}" + "   ".join(cells))
 
     for a_name, b_name in parse_named(args.pair, ":"):
-        pair = compare_pair(runs[a_name][0], runs[b_name][0], human)
+        a_items, a_population = runs[a_name]
+        pair = compare_pair(
+            a_items, runs[b_name][0], human, inclusion_weights(a_items, a_population)
+        )
         report["pairs"][f"{a_name}:{b_name}"] = pair
         print(f"\npar {a_name} x {b_name}: {pair['n_common']} itens em comum")
         print(f"  mesmo veredito: {pair['verdict_agreement']:.1%}")
@@ -199,6 +228,10 @@ def main(argv: list[str] | None = None) -> int:
             f"  acertos: {a_name}={pair['correct_a']}  {b_name}={pair['correct_b']}  | "
             f"so {a_name} acerta: {pair['only_a_right']}  so {b_name} acerta: "
             f"{pair['only_b_right']}  | McNemar exato p={pair['paired_exact_p']}"
+        )
+        print(
+            f"  acertos liquidos ponderados pelo corpus ({b_name} - {a_name}): "
+            f"{pair['weighted_net_correct_b_minus_a']:+.1f} chunks"
         )
         for flip, n in pair["flips"].items():
             print(f"    {flip}: {n}")
