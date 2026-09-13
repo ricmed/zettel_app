@@ -15,10 +15,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from probe_prompt1_variant import (
     Verdict,
+    apply_extract_override,
     call_id,
     collect,
     compare,
     narrative_losses,
+    parse_thinking_arg,
     regenerate_key,
     verdict_from_output,
 )
@@ -47,6 +49,52 @@ def test_call_id_changes_when_the_few_shots_change():
     assert call_id("sistema com exemplo A", "outro chunk", SETTINGS) != base
     assert call_id("sistema com exemplo A", "chunk", {**SETTINGS, "temperature": 0.0}) != base
     assert call_id("sistema com exemplo A", "chunk", dict(SETTINGS)) == base
+
+
+# -- model override (#181) -----------------------------------------------
+
+
+def test_override_swaps_only_the_extract_identity():
+    import pytest
+    from zettel.config import AppConfig, llm_phase
+
+    cfg = AppConfig()
+    before_extract = cfg.llm.extract.model_dump()
+    before_connect = cfg.llm.connect.model_dump()
+
+    run = apply_extract_override(cfg, provider="gemini", model="gemini-x", temperature=0.0)
+
+    assert llm_phase(run, "extract").provider == "gemini"
+    assert llm_phase(run, "extract").model == "gemini-x"
+    assert llm_phase(run, "extract").temperature == 0.0
+    assert run.llm.connect.model_dump() == before_connect  # other phases untouched
+    assert run.extraction == cfg.extraction  # filters untouched
+    assert cfg.llm.extract.model_dump() == before_extract  # original not mutated
+
+    with pytest.raises(ValueError):
+        apply_extract_override(cfg, thinking="banana")
+
+
+def test_no_override_returns_the_production_config_itself():
+    from zettel.config import AppConfig
+
+    cfg = AppConfig()
+    assert apply_extract_override(cfg) is cfg
+
+
+def test_override_changes_the_recording_identity():
+    """A run of another model must never reuse the production recording."""
+    production = call_id("sistema", "chunk", {**SETTINGS, "model": "gpt-4o-mini"})
+    other = call_id("sistema", "chunk", {**SETTINGS, "provider": "gemini", "model": "gemini-x"})
+    assert production != other
+
+
+def test_thinking_arg_matches_what_the_validator_accepts():
+    assert parse_thinking_arg(None) is None
+    assert parse_thinking_arg("false") is False
+    assert parse_thinking_arg("True") is True
+    assert parse_thinking_arg("2048") == 2048
+    assert parse_thinking_arg("low") == "low"
 
 
 # -- verdict -------------------------------------------------------------
