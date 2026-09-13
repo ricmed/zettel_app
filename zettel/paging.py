@@ -420,6 +420,10 @@ def compute_docling_config_hash(cfg: AppConfig) -> str:
         "images_scale": cfg.images.scale,
         "images_min_width": cfg.images.min_width,
         "images_min_height": cfg.images.min_height,
+        # Both change the text Docling emits, so a resume across a flip would mix pages
+        # converted with and without the decoded formulas or code in one source.
+        "formulas_enabled": cfg.formulas.enabled,
+        "code_enabled": cfg.code.enabled,
     }
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]

@@ -222,6 +222,18 @@ images:
   rate_limit_backoff_max: 60 # teto de espera (s) entre retries
   rate_limit_abort_after: 5  # falhas 429 consecutivas (apos retries) => para o lote
 
+# ── Fórmulas Matemáticas ────────────────────────────────────────────────
+# Enriquecimentos do Docling no harvest de PDF (Markdown nativo ja traz os dois como
+# texto). Formulas e codigo usam o mesmo modelo local, CodeFormulaV2: baixado do
+# Hugging Face na primeira colheita e mais lento que a conversao sem ele. Mudar
+# qualquer um altera o texto extraido e, portanto, os chunk_id de fontes recolhidas.
+formulas:
+  enabled: true              # regiao de formula vira LaTeX no texto (sem: <!-- formula-not-decoded -->)
+
+# ── Código ──────────────────────────────────────────────────────────────
+code:
+  enabled: true              # bloco de codigo do PDF decodificado como texto
+
 # ── Dominio do acervo (prompts de extract/connect/garden + few-shots) ──
 domain:
   name: "Ciencia de Dados e Filosofia"  # preenche {domain} nos 4 prompts

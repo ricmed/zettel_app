@@ -137,6 +137,35 @@ def extract_pdf(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str, Any]]:
     return extract_pdf_docling(cfg, file_path)
 
 
+def build_pdf_pipeline_options(cfg: AppConfig, device: str) -> Any:
+    """Docling's PDF options for this config. Building them loads no model.
+
+    Kept apart from the conversion so the options can be checked against the installed
+    Docling: an attribute that does not exist (e.g. a misspelled enrichment flag) raises
+    here, in a test, instead of on the first real harvest.
+
+    Formula and code enrichment are both served by one local vision model,
+    ``CodeFormulaV2``: a formula region is decoded to LaTeX and a code region to text,
+    in place of the ``<!-- formula-not-decoded -->`` placeholder or the flattened code
+    Docling writes otherwise.
+    """
+    from docling.datamodel.pipeline_options import (
+        AcceleratorDevice,
+        AcceleratorOptions,
+        PdfPipelineOptions,
+    )
+
+    accel_device = AcceleratorDevice.CUDA if device == "cuda" else AcceleratorDevice.CPU
+    options = PdfPipelineOptions()
+    options.accelerator_options = AcceleratorOptions(num_threads=4, device=accel_device)
+    if cfg.images.enabled:
+        options.generate_picture_images = True
+        options.images_scale = cfg.images.scale
+    options.do_formula_enrichment = cfg.formulas.enabled
+    options.do_code_enrichment = cfg.code.enabled
+    return options
+
+
 def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str, Any]]:
     """Extract text from PDF using Docling, with GPU acceleration when available.
 
@@ -146,11 +175,6 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
     """
     try:
         from docling.datamodel.base_models import InputFormat
-        from docling.datamodel.pipeline_options import (
-            AcceleratorDevice,
-            AcceleratorOptions,
-            PdfPipelineOptions,
-        )
         from docling.document_converter import DocumentConverter, PdfFormatOption
     except ImportError as e:
         raise PdfExtractionError(
@@ -163,16 +187,7 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
     from zettel.config import detect_device
 
     device = detect_device(cfg.device)
-
-    accel_device = AcceleratorDevice.CUDA if device == "cuda" else AcceleratorDevice.CPU
-    pipeline_options = PdfPipelineOptions()
-    pipeline_options.accelerator_options = AcceleratorOptions(
-        num_threads=4,
-        device=accel_device,
-    )
-    if cfg.images.enabled:
-        pipeline_options.generate_picture_images = True
-        pipeline_options.images_scale = cfg.images.scale
+    pipeline_options = build_pdf_pipeline_options(cfg, device)
 
     converter = DocumentConverter(
         format_options={

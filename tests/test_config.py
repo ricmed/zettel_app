@@ -131,6 +131,23 @@ def test_corroborates_weight_is_low_on_purpose():
     assert weights["corroborates"] < weights["supports"]
 
 
+def test_formula_and_code_enrichment_are_declared_and_strict():
+    """Undeclared, the YAML keys were dropped in silence and `cfg.formulas` did not exist.
+
+    `extra="forbid"` turns a typo in either section into an error at load time instead of
+    a flag that quietly stays off.
+    """
+    import pytest
+    from pydantic import ValidationError
+
+    cfg = AppConfig()
+    assert cfg.formulas.enabled is False and cfg.code.enabled is False
+    with pytest.raises(ValidationError):
+        AppConfig(formulas={"enabeld": True})
+    with pytest.raises(ValidationError):
+        AppConfig(code={"enable": True})
+
+
 def test_config_yaml_covers_schema_keys():
     raw = yaml.safe_load(_CONFIG_YAML.read_text(encoding="utf-8"))
     assert isinstance(raw, dict)

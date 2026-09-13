@@ -113,6 +113,12 @@ images:
   rate_limit_backoff_max: 60 # teto de espera (s)
   rate_limit_abort_after: 5  # 429 esgotados consecutivos => pausa o lote (fica pending)
 
+# ── Formulas e codigo (enriquecimento do Docling no harvest de PDF) ────
+formulas:
+  enabled: false             # regiao de formula vira LaTeX no texto
+code:
+  enabled: false             # bloco de codigo do PDF decodificado como texto
+
 # ── Linkagem / Deduplicacao ────────────────────────────────────────────
 linking:
   topk: 5                    # default do Retriever e do RAG de connect/sync
@@ -415,6 +421,18 @@ Depois da troca, se a qualidade da busca degradar, recalibre:
 - `linking.corroborates_min_similarity` — também sobre similaridade vetorial crua, derivada dos hits que o `Retriever` já trouxe no `connect`. Não custa embedding nem chamada de LLM adicionais.
 
 O `zettel doctor` também reporta drift de embedding.
+
+---
+
+## Fórmulas e código em PDF
+
+Sem enriquecimento, o Docling detecta uma região de fórmula e escreve só um marcador no lugar — `<!-- formula-not-decoded -->` — e a fórmula nunca chega aos chunks nem ao prompt do `extract`. `formulas.enabled` decodifica a região em LaTeX no próprio texto; `code.enabled` faz o mesmo com blocos de código. Vale só para PDF: Markdown nativo não passa pelo Docling e já traz os dois como texto.
+
+- **Um modelo para os dois.** Ambos rodam o `CodeFormulaV2`, um modelo local de visão, baixado do Hugging Face na primeira colheita com qualquer um ligado. A conversão fica mais lenta nas páginas que têm fórmula ou código.
+- **Mudar a opção muda o texto extraído.** Ela entra no `docling_config_hash`, então uma colheita retomada não mistura páginas convertidas com e sem enriquecimento.
+- **E, com o texto, muda o `chunk_id`.** Recolher uma fonte depois de ligar a opção gera chunks novos: rótulos humanos do gold set presos aos antigos (`evals/gold/`) deixam de corresponder a chunks existentes para essa fonte.
+
+Fontes já colhidas não são reprocessadas sozinhas; para aplicar a uma fonte existente, é preciso recolhê-la.
 
 ---
 
