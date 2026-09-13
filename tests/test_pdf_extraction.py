@@ -74,6 +74,49 @@ def test_pipeline_options_keep_images_independent_of_enrichment():
     assert options.do_code_enrichment is False
 
 
+def _code_formula_dtype(options):
+    from docling.datamodel.vlm_engine_options import VlmEngineType
+
+    spec = options.code_formula_options.model_spec
+    return spec.engine_overrides[VlmEngineType.TRANSFORMERS].extra_config["torch_dtype"]
+
+
+def test_code_formula_runs_in_float16_on_a_gpu_without_native_bf16(monkeypatch):
+    """Emulated bfloat16 overcommitted a 6 GB RTX 2060 (8.63 GB peak) before a heap crash."""
+    monkeypatch.setattr("zettel.harvester.extract.cuda_has_native_bf16", lambda: False)
+    options = build_pdf_pipeline_options(_cfg(formulas={"enabled": True}), "cuda")
+    assert _code_formula_dtype(options) == "float16"
+
+
+def test_code_formula_keeps_bfloat16_where_the_gpu_supports_it(monkeypatch):
+    monkeypatch.setattr("zettel.harvester.extract.cuda_has_native_bf16", lambda: True)
+    options = build_pdf_pipeline_options(_cfg(code={"enabled": True}), "cuda")
+    assert _code_formula_dtype(options) == "bfloat16"
+
+
+@pytest.mark.parametrize(
+    "device, enrichment",
+    [("cpu", True), ("cuda", False)],
+)
+def test_dtype_is_untouched_off_gpu_or_without_enrichment(monkeypatch, device, enrichment):
+    """No GPU to overcommit, or no CodeFormulaV2 loaded at all: nothing to adjust."""
+
+    def must_not_probe():
+        raise AssertionError("a capacidade da GPU nao deve ser consultada aqui")
+
+    monkeypatch.setattr("zettel.harvester.extract.cuda_has_native_bf16", must_not_probe)
+    cfg = _cfg(formulas={"enabled": enrichment}, code={"enabled": enrichment})
+    assert _code_formula_dtype(build_pdf_pipeline_options(cfg, device)) == "bfloat16"
+
+
+def test_float16_override_does_not_leak_into_other_options(monkeypatch):
+    from docling.datamodel.pipeline_options import PdfPipelineOptions
+
+    monkeypatch.setattr("zettel.harvester.extract.cuda_has_native_bf16", lambda: False)
+    build_pdf_pipeline_options(_cfg(formulas={"enabled": True}), "cuda")
+    assert _code_formula_dtype(PdfPipelineOptions()) == "bfloat16"
+
+
 def test_conversion_receives_the_enrichment_options(monkeypatch, tmp_path):
     """extract_pdf_docling must hand the built options to the converter, not a default."""
     pdf = tmp_path / "doc.pdf"
