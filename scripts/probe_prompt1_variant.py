@@ -49,6 +49,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 DEFAULT_KEY = Path("evals/gold/extracao-GABARITO-NAO-ABRIR.json")
 DEFAULT_LABELS = Path("evals/gold/extracao-rotulos.json")
 DEFAULT_RECORD_DIR = Path(".eval-work/prompt1")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _repo_relative(path: Path) -> str:
+    """Committed artifacts carry paths another clone can resolve, not this machine's."""
+    try:
+        return Path(path).resolve().relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return Path(path).as_posix()
 
 
 @dataclass(frozen=True)
@@ -284,7 +293,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"extrator: {spec.provider}/{spec.model} @ {settings['temperature']} (config de producao)"
     )
-    print(f"prompt: {prompt_path} | exemplos: {examples_path}")
+    print(f"prompt: {_repo_relative(prompt_path)} | exemplos: {_repo_relative(examples_path)}")
     print(
         f"itens do gold: {len(items)} | gravados e validos: {len(items) - len(missing)} | "
         f"a chamar: {len(missing)}"
@@ -332,9 +341,9 @@ def main(argv: list[str] | None = None) -> int:
     meta = {
         "label": args.label,
         "extractor": f"{spec.provider}/{spec.model}@{settings['temperature']}",
-        "prompt": str(prompt_path),
+        "prompt": _repo_relative(prompt_path),
         "prompt_sha": sha256_hex(parts.full_template)[:12],
-        "examples": str(examples_path),
+        "examples": _repo_relative(examples_path),
         "examples_sha": sha256_hex(json.dumps(examples, sort_keys=True))[:12],
     }
     regenerated = regenerate_key(original, verdicts, meta)

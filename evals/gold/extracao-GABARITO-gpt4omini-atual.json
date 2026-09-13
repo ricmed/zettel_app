@@ -1,0 +1,980 @@
+{
+  "exported_at": "2026-09-12T11:38:32.083706+00:00",
+  "items": [
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch105::3cae9519",
+      "item_id": "G001",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch098::52c6c4be",
+      "item_id": "G002",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch110::12535a57",
+      "item_id": "G003",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch085::b162a49d",
+      "item_id": "G004",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch024::fcf602ba",
+      "item_id": "G005",
+      "llm_category": "trivial",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Hu2025ArtigoaipoweredWorkflow::@Hu2025ArtigoaipoweredWorkflow::ch003::b244e7b2",
+      "item_id": "G006",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch111::dc0f1016",
+      "item_id": "G007",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch107::2e3697cc",
+      "item_id": "G008",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch072::2f36665e",
+      "item_id": "G009",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch116::779159af",
+      "item_id": "G010",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Hu2025ArtigoaipoweredWorkflow::@Hu2025ArtigoaipoweredWorkflow::ch010::a1b0e2a4",
+      "item_id": "G011",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch096::76642052",
+      "item_id": "G012",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch024::3887ce6c",
+      "item_id": "G013",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch021::726b5f3f",
+      "item_id": "G014",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch025::f71b4233",
+      "item_id": "G015",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch143::817b2163",
+      "item_id": "G016",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch018::edad6d24",
+      "item_id": "G017",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch086::663cc601",
+      "item_id": "G018",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch063::e5d70344",
+      "item_id": "G019",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch019::203028ec",
+      "item_id": "G020",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Latorre2021AnáliseDe::@Latorre2021AnáliseDe::ch005::072692f2",
+      "item_id": "G021",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Latorre2021AnáliseDe"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch054::09ef9440",
+      "item_id": "G022",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Hu2025ArtigoaipoweredWorkflow::@Hu2025ArtigoaipoweredWorkflow::ch003::6767d268",
+      "item_id": "G023",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch135::ddcc840d",
+      "item_id": "G024",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch019::3387b112",
+      "item_id": "G025",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Hu2025ArtigoaipoweredWorkflow::@Hu2025ArtigoaipoweredWorkflow::ch013::bab4b961",
+      "item_id": "G026",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch109::9198c5e9",
+      "item_id": "G027",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch002::dc765c83",
+      "item_id": "G028",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch024::ba30a343",
+      "item_id": "G029",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch010::1fa5a82b",
+      "item_id": "G030",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch102::70700737",
+      "item_id": "G031",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch146::cd29557b",
+      "item_id": "G032",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch130::7a9996b4",
+      "item_id": "G033",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch061::ccfb3be5",
+      "item_id": "G034",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch025::e3cb02a0",
+      "item_id": "G035",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch129::a878a08d",
+      "item_id": "G036",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch035::2e2565dd",
+      "item_id": "G037",
+      "llm_category": "fragmented",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch105::b702bc99",
+      "item_id": "G038",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch054::5156039b",
+      "item_id": "G039",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch136::a1681340",
+      "item_id": "G040",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch001::efea81ba",
+      "item_id": "G041",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Instrutor2023IniciandoCom::@Instrutor2023IniciandoCom::ch002::5e84ffcc",
+      "item_id": "G042",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Instrutor2023IniciandoCom"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch035::a66ee33c",
+      "item_id": "G043",
+      "llm_category": "fragmented",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch026::d5dd70a8",
+      "item_id": "G044",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch111::7d5d0f88",
+      "item_id": "G045",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch070::12d5596d",
+      "item_id": "G046",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch011::1f5c9887",
+      "item_id": "G047",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch023::acd68504",
+      "item_id": "G048",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch021::2682e42a",
+      "item_id": "G049",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch040::b0d8932d",
+      "item_id": "G050",
+      "llm_category": "trivial",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch028::d9637c5d",
+      "item_id": "G051",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch012::a13898ff",
+      "item_id": "G052",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch103::5771e4db",
+      "item_id": "G053",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch109::751483af",
+      "item_id": "G054",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch018::66eced50",
+      "item_id": "G055",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch009::f80a662e",
+      "item_id": "G056",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch140::5c08e741",
+      "item_id": "G057",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Hu2025ArtigoaipoweredWorkflow::@Hu2025ArtigoaipoweredWorkflow::ch004::59ee3efb",
+      "item_id": "G058",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch115::d3fc8782",
+      "item_id": "G059",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch030::1d8adcd9",
+      "item_id": "G060",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch096::8ff7bc31",
+      "item_id": "G061",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Instrutor2023IniciandoCom::@Instrutor2023IniciandoCom::ch000::bb9d34dc",
+      "item_id": "G062",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Instrutor2023IniciandoCom"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch010::3cc1bfd3",
+      "item_id": "G063",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch014::b8ac1109",
+      "item_id": "G064",
+      "llm_category": "trivial",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch134::67bcb4cd",
+      "item_id": "G065",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Latorre2021AnáliseDe::@Latorre2021AnáliseDe::ch009::f55a8ff9",
+      "item_id": "G066",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Latorre2021AnáliseDe"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch095::10510bdd",
+      "item_id": "G067",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch074::a0648302",
+      "item_id": "G068",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch036::c730a88e",
+      "item_id": "G069",
+      "llm_category": "fragmented",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch013::c4d369f3",
+      "item_id": "G070",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch022::3752a986",
+      "item_id": "G071",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch142::8d78ca48",
+      "item_id": "G072",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch024::1742869c",
+      "item_id": "G073",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Hu2025ArtigoaipoweredWorkflow::@Hu2025ArtigoaipoweredWorkflow::ch004::543d787c",
+      "item_id": "G074",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch125::dd32c772",
+      "item_id": "G075",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Hu2025ArtigoaipoweredWorkflow::@Hu2025ArtigoaipoweredWorkflow::ch000::21540ed1",
+      "item_id": "G076",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch040::4710faf2",
+      "item_id": "G077",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch132::d5185bcb",
+      "item_id": "G078",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch110::ee913a23",
+      "item_id": "G079",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch143::bd0031f4",
+      "item_id": "G080",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch029::74cce148",
+      "item_id": "G081",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch023::e2498912",
+      "item_id": "G082",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Hu2025ArtigoaipoweredWorkflow::@Hu2025ArtigoaipoweredWorkflow::ch013::87fe9697",
+      "item_id": "G083",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch084::83c32a66",
+      "item_id": "G084",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch044::7a4610a6",
+      "item_id": "G085",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch093::c687d772",
+      "item_id": "G086",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch106::aeecf2f9",
+      "item_id": "G087",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch075::ca749762",
+      "item_id": "G088",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch117::a4fb0739",
+      "item_id": "G089",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch121::0fa54d3c",
+      "item_id": "G090",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch040::2f27de4f",
+      "item_id": "G091",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch111::fa334433",
+      "item_id": "G092",
+      "llm_category": "fragmented",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch025::3f97b1f2",
+      "item_id": "G093",
+      "llm_category": "trivial",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Instrutor2023IniciandoCom::@Instrutor2023IniciandoCom::ch004::ca67fb04",
+      "item_id": "G094",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Instrutor2023IniciandoCom"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch022::db0674bb",
+      "item_id": "G095",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch013::500c4c0b",
+      "item_id": "G096",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch012::5932b748",
+      "item_id": "G097",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch127::4bf99991",
+      "item_id": "G098",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch110::e752588e",
+      "item_id": "G099",
+      "llm_category": "trivial",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch035::202ea9f6",
+      "item_id": "G100",
+      "llm_category": "fragmented",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch006::3fdbc516",
+      "item_id": "G101",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch131::83483f93",
+      "item_id": "G102",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch035::23a07d00",
+      "item_id": "G103",
+      "llm_category": "fragmented",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Hu2025ArtigoaipoweredWorkflow::@Hu2025ArtigoaipoweredWorkflow::ch004::5eac497e",
+      "item_id": "G104",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Hu2025ArtigoaipoweredWorkflow"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch025::797457e4",
+      "item_id": "G105",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Latorre2021AnáliseDe::@Latorre2021AnáliseDe::ch002::785338cb",
+      "item_id": "G106",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Latorre2021AnáliseDe"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch046::81714c3c",
+      "item_id": "G107",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch024::ac4fc0a9",
+      "item_id": "G108",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch031::279e0914",
+      "item_id": "G109",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch110::def2fe2b",
+      "item_id": "G110",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "structural",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch008::6ec55fcb",
+      "item_id": "G111",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Pate2026ReplicatingHuman::@Pate2026ReplicatingHuman::ch021::ade12e8a",
+      "item_id": "G112",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Pate2026ReplicatingHuman"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch071::bee6ee0f",
+      "item_id": "G113",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch129::220babe5",
+      "item_id": "G114",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch072::7eb69f93",
+      "item_id": "G115",
+      "llm_category": "structural",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch019::206505d0",
+      "item_id": "G116",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Huang2023TowardsReasoning::@Huang2023TowardsReasoning::ch001::30f1f032",
+      "item_id": "G117",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
+      "source_id": "@Huang2023TowardsReasoning"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch107::69440513",
+      "item_id": "G118",
+      "llm_category": "narrative",
+      "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch075::131b7845",
+      "item_id": "G119",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "contested",
+      "source_id": "@Kim2022KantAnd"
+    },
+    {
+      "chunk_id": "@Kim2022KantAnd::@Kim2022KantAnd::ch076::65ac6e99",
+      "item_id": "G120",
+      "llm_category": "",
+      "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
+      "source_id": "@Kim2022KantAnd"
+    }
+  ],
+  "n_items": 120,
+  "population": {
+    "accepted": 474,
+    "contested": 50,
+    "structural": 131
+  },
+  "regenerated": {
+    "examples": "config/domain_examples.yaml",
+    "examples_sha": "e078fb5c0465",
+    "extractor": "openai/gpt-4o-mini@0.1",
+    "label": "gpt4omini-atual",
+    "prompt": "prompts/literature_note.md",
+    "prompt_sha": "9f849789e727"
+  },
+  "seed": 0
+}

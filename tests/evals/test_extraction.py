@@ -197,6 +197,19 @@ def test_weights_follow_the_stratum_drawn_from_not_the_current_verdict():
     assert result.recall == pytest.approx(1 / (1 + 1000), abs=1e-4)
 
 
+def test_stratum_disagreement_follows_the_current_verdict():
+    """Drawn from a rejected stratum, now accepted: agreeing with a human keep is not a miss."""
+    key = [
+        _key("C0", "accepted", drawn_from=STRATUM_CONTESTED),  # human keeps -> agrees
+        _key("C1", "rejected", "narrative"),  # human keeps -> disagrees
+        _key("C2", "accepted", drawn_from=STRATUM_CONTESTED),  # human discards -> disagrees
+    ]
+    labels = [HumanLabel("C0", KEEP), HumanLabel("C1", KEEP), HumanLabel("C2", DISCARD)]
+    (stratum,) = score(labels, key, {STRATUM_CONTESTED: 3}).strata
+    assert stratum.human_keep == 2
+    assert stratum.disagreement_rate == pytest.approx(2 / 3, abs=1e-4)
+
+
 def test_census_stratum_reports_no_sampling_error():
     key = [_key(f"C{i}", "rejected", "narrative") for i in range(4)]
     labels = [HumanLabel(f"C{i}", KEEP if i == 0 else DISCARD) for i in range(4)]
