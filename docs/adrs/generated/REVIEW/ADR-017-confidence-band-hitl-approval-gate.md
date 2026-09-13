@@ -100,13 +100,59 @@ Two limitations an operator must carry forward:
 
 `tests/test_calibrate_review_confidence.py::test_every_relevance_level_is_reachable_at_the_configured_threshold` is the guardrail: any future reweighting that re-creates an unreachable relevance level fails the suite.
 
+## Addendum (2026-09-13): against human judgement, the score does not separate (issue #176)
+
+**Status:** Accepted amendment — records a measurement and a policy. Neither the band mechanism nor the weights change.
+
+The 2026-09-05 addendum could only validate the score against itself: "there is no ground truth to calibrate against", in the scorer's own docstring. Issue #175 built one — a blind, stratified sample labeled by a human who answered, without seeing the model's verdict, *would I keep this passage as a permanent note?* This addendum asks the question the gate actually depends on: **among the chunks `extract` accepts, does `review_confidence` rank what a human would keep above what a human would discard?**
+
+It does not. Measured on the 38 judged accepted chunks (24 keep, 14 discard; 2 marked unjudgeable and excluded), AUC with a Hanley–McNeil 95% interval:
+
+| signal | AUC | 95% interval |
+| --- | --- | --- |
+| `review_confidence` | 0.491 | [0.298, 0.684] |
+| relevance term | 0.491 | [0.298, 0.684] |
+| integrity term | 0.479 | [0.286, 0.672] |
+| completeness term | 0.479 | [0.286, 0.672] |
+| pre-#152 formula | 0.493 | [0.300, 0.686] |
+| mean definition length | 0.496 | [0.303, 0.688] |
+
+The mechanism is not subtle. Integrity and completeness sit at their maximum on **97%** of accepted chunks, so the score collapses onto relevance — the model's rating of its own candidate — which does not separate either, and runs slightly *higher* on what the human would discard (3.93 against 3.79). Thirteen of the fourteen discards score exactly 0.9.
+
+What that means in the vault: corpus-weighted, the precision of `extract` is **63.2%**, so roughly a third of what it accepts is something a human would not keep. All fourteen such chunks in the sample clear the 0.75 threshold, and all fourteen already have a permanent note.
+
+**This does not contradict the 2026-09-05 addendum; it bounds it.** That amendment designed the score to answer *was a defect detected?* — and it answers that. The error is in the gate reading it as *a human would keep this*. Its own line, "the 100% is honest, not a regression", now reads differently: a corpus with no detectable defect is not a corpus of notes worth keeping. Absence of a defect is not presence of value.
+
+**The sample is large enough to say this, and not much more.** At 95% confidence and 80% power it detects a true AUC of 0.73 or above — the range a useful gate needs — and each existing signal's interval tops out below 0.69. Telling a modest 0.70 signal apart from a coin would need 54 labeled accepted chunks.
+
+### Policy
+
+* **The gate and its threshold stay as they are.** Retuning `auto_approve_min_confidence` would change *how many* drafts pass, not *which*: with an AUC of 0.49 every threshold sorts by noise.
+* **Every path that approves by threshold now says so.** `extract --auto-approve`, `review --yes` / `--auto-approve`, and the interactive `a` shortcut print `review.AUTO_APPROVE_UNVALIDATED_WARNING`. The message carries the measurement date and points here rather than repeating numbers that will be re-measured.
+* **Rejected alternative — stop approving by threshold until a signal is validated.** Safer for the vault, but it turns every accepted draft into review work, and threshold approval is already opt-in (`extract` does not auto-approve by default). The decision was to keep the operator's choice and make it informed.
+
+### What would change this
+
+A signal whose 95% lower bound clears 0.5 on the gold set. Issue #176 continues with the first candidate: a separate LLM judgement that reads the finished note as a reader would, rather than the chunk as an extractor does. If one is adopted, it replaces what feeds the band mechanism, exactly as the 2026-09-05 addendum did.
+
+Reproduce offline, with zero LLM and zero embedding calls:
+
+```bash
+.venv/Scripts/python.exe scripts/calibrate_review_confidence.py \
+    --gold-labels evals/gold/extracao-rotulos.json \
+    --gold-key evals/gold/extracao-GABARITO-NAO-ABRIR.json
+```
+
 ## References
 
 * `zettel/extractor.py` — `_score_review_confidence`, `_candidate_completeness`, `_W_RELEVANCE` / `_W_INTEGRITY` / `_W_COMPLETENESS` / `_RELEVANCE_FLOOR_CREDIT` (2026-09-05 addendum)
 * `scripts/calibrate_review_confidence.py` — offline rescoring harness (`legacy_confidence`, `reconstruct_output`, `reachability`)
 * `tests/test_calibrate_review_confidence.py` — reachability guardrail and harness unit tests
+* `scripts/calibrate_review_confidence.py --gold-labels/--gold-key` — AUC of each signal against the human gold set, saturation, sample power (2026-09-13 addendum)
+* `zettel/evals/extraction.py`, `evals/results/extraction-gold.json` — the gold-set scorer and its measured precision (#175)
+* `zettel/review.py` — `AUTO_APPROVE_UNVALIDATED_WARNING` (2026-09-13 addendum)
 * `zettel/review.py:70-76` — confidence-band classification (`chunk_confidence_band`)
 * `zettel/review.py:79-88` — band-based filtering (`filter_chunks_by_band`)
-* `zettel/review.py:194-206` — non-interactive/auto-approve threshold enforcement
+* `zettel/review.py` `run_review` — non-interactive/auto-approve threshold enforcement
 * `zettel/web/review.py` — `review` (GET `/review`, confidence bands for display filtering)
 * `zettel/web_app.py` — review job dispatch (batch approve/reject routing)

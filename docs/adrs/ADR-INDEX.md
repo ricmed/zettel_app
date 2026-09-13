@@ -500,6 +500,12 @@
 
 ---
 
+## Status Update (2026-09-13)
+
+✅ **ADR-017 addendum** — measured against the human gold set of #175, `review_confidence` does not separate what a human would keep from what a human would discard among accepted chunks: AUC 0.491 [0.298, 0.684], with integrity and completeness saturated on 97% of them. Corpus-weighted precision of `extract` is 63.2%. The gate and its threshold stay; every path that approves by threshold now prints `review.AUTO_APPROVE_UNVALIDATED_WARNING`. Issue #176 continues with an LLM-as-reader candidate signal.
+
+---
+
 ## Status Update (2026-09-11)
 
 ✅ **ADR-049 added** — measured won't-do for the pre-LLM gate on `extract` (issues #66/#173). Leave-one-source-out over 611 chunks / 5 sources: 5.4% of calls avoided at zero note loss, USD 0.03, and only `structural` rejections caught. The calibration instrument was fixed first — `calls_avoided_pct` counted `fp` (calls that were made) as savings, and validation split by chunk instead of by source, which together inflated the same gate to 23.5% / 11.6%.

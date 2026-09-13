@@ -43,6 +43,11 @@ def extract(
 
     preflight_gate(estimate_extract(cfg, db), yes, db)
 
+    if auto_approve:
+        from zettel.review import AUTO_APPROVE_UNVALIDATED_WARNING
+
+        console.print(f"[yellow]{AUTO_APPROVE_UNVALIDATED_WARNING}[/yellow]")
+
     from zettel.extractor import run_extract
     from zettel.llm import LLMUnavailableError
 
@@ -93,10 +98,12 @@ def review(
     db = get_db(cfg)
     idx = get_idx(cfg, db=db, yes=yes)
 
-    from zettel.review import run_review
+    from zettel.review import AUTO_APPROVE_UNVALIDATED_WARNING, run_review
 
     # Either flag means "decide without me", so the interactive report is skipped.
     interactive = not (yes or auto_approve)
+    if not interactive:
+        console.print(f"[yellow]{AUTO_APPROVE_UNVALIDATED_WARNING}[/yellow]")
     stats = run_review(
         cfg,
         db,
