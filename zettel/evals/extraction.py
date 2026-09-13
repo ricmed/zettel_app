@@ -172,10 +172,15 @@ class KeyItem:
     source_id: str
     llm_verdict: str
     llm_category: str
+    # Frozen at export. The inclusion weight of a sampled item is a property of the
+    # stratum it was DRAWN from, not of how a later prompt or model classifies it. A key
+    # regenerated with new verdicts keeps this field, so a chunk that moved from
+    # rejected to accepted still carries the weight of the stratum it came from.
+    sampling_stratum: str
 
     @property
     def stratum(self) -> str:
-        return sampling_stratum(self.llm_verdict, self.llm_category)
+        return self.sampling_stratum
 
 
 def load_key(path: Path) -> tuple[list[KeyItem], dict[str, int]]:
@@ -186,6 +191,13 @@ def load_key(path: Path) -> tuple[list[KeyItem], dict[str, int]]:
             f"{path} nao registra 'population' por estrato. Sem ela nao ha como ponderar "
             "a amostra estratificada, e os numeros seriam da amostra, nao do corpus."
         )
+    missing = [e["item_id"] for e in payload["items"] if not e.get("sampling_stratum")]
+    if missing:
+        raise ValueError(
+            f"{path} nao registra 'sampling_stratum' em {len(missing)} item(ns). O peso de "
+            "cada item vem do estrato de onde ele foi SORTEADO; deriva-lo do veredito atual "
+            "daria o peso errado a um chunk cujo veredito mudou depois da exportacao."
+        )
     items = [
         KeyItem(
             item_id=e["item_id"],
@@ -193,6 +205,7 @@ def load_key(path: Path) -> tuple[list[KeyItem], dict[str, int]]:
             source_id=e["source_id"],
             llm_verdict=e["llm_verdict"],
             llm_category=e.get("llm_category") or "",
+            sampling_stratum=e["sampling_stratum"],
         )
         for e in payload["items"]
     ]

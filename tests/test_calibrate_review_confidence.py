@@ -249,9 +249,12 @@ def test_load_gold_keeps_only_judged_accepted_chunks(tmp_path):
         json.dumps(
             {
                 "items": [
-                    {"item_id": "G1", "llm_verdict": "accepted", "llm_category": ""},
-                    {"item_id": "G2", "llm_verdict": "accepted", "llm_category": ""},
-                    {"item_id": "G3", "llm_verdict": "rejected", "llm_category": "narrative"},
+                    {"item_id": "G1", "llm_verdict": "accepted", "sampling_stratum": "accepted"},
+                    {"item_id": "G2", "llm_verdict": "accepted", "sampling_stratum": "accepted"},
+                    {"item_id": "G3", "llm_verdict": "rejected", "sampling_stratum": "contested"},
+                    # Drawn from the contested census, accepted by a later prompt: it
+                    # carries a different inclusion weight and must stay out.
+                    {"item_id": "G4", "llm_verdict": "accepted", "sampling_stratum": "contested"},
                 ]
             }
         ),
@@ -265,6 +268,7 @@ def test_load_gold_keeps_only_judged_accepted_chunks(tmp_path):
                     {"item_id": "G1", "chunk_id": "c1", "human_verdict": "keep"},
                     {"item_id": "G2", "chunk_id": "c2", "human_verdict": "unjudgeable"},
                     {"item_id": "G3", "chunk_id": "c3", "human_verdict": "keep"},
+                    {"item_id": "G4", "chunk_id": "c4", "human_verdict": "keep"},
                 ]
             }
         ),

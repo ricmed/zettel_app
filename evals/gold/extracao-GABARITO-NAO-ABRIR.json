@@ -6,6 +6,7 @@
       "item_id": "G001",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -13,6 +14,7 @@
       "item_id": "G002",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -20,6 +22,7 @@
       "item_id": "G003",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -27,6 +30,7 @@
       "item_id": "G004",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -34,6 +38,7 @@
       "item_id": "G005",
       "llm_category": "trivial",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Pate2026ReplicatingHuman"
     },
     {
@@ -41,6 +46,7 @@
       "item_id": "G006",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Hu2025ArtigoaipoweredWorkflow"
     },
     {
@@ -48,6 +54,7 @@
       "item_id": "G007",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -55,6 +62,7 @@
       "item_id": "G008",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -62,6 +70,7 @@
       "item_id": "G009",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -69,6 +78,7 @@
       "item_id": "G010",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -76,6 +86,7 @@
       "item_id": "G011",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Hu2025ArtigoaipoweredWorkflow"
     },
     {
@@ -83,6 +94,7 @@
       "item_id": "G012",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -90,6 +102,7 @@
       "item_id": "G013",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Huang2023TowardsReasoning"
     },
     {
@@ -97,6 +110,7 @@
       "item_id": "G014",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -104,6 +118,7 @@
       "item_id": "G015",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -111,6 +126,7 @@
       "item_id": "G016",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -118,6 +134,7 @@
       "item_id": "G017",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Pate2026ReplicatingHuman"
     },
     {
@@ -125,6 +142,7 @@
       "item_id": "G018",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -132,6 +150,7 @@
       "item_id": "G019",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -139,6 +158,7 @@
       "item_id": "G020",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -146,6 +166,7 @@
       "item_id": "G021",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Latorre2021AnáliseDe"
     },
     {
@@ -153,6 +174,7 @@
       "item_id": "G022",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -160,6 +182,7 @@
       "item_id": "G023",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Hu2025ArtigoaipoweredWorkflow"
     },
     {
@@ -167,6 +190,7 @@
       "item_id": "G024",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -174,6 +198,7 @@
       "item_id": "G025",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Pate2026ReplicatingHuman"
     },
     {
@@ -181,6 +206,7 @@
       "item_id": "G026",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Hu2025ArtigoaipoweredWorkflow"
     },
     {
@@ -188,6 +214,7 @@
       "item_id": "G027",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -195,6 +222,7 @@
       "item_id": "G028",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Huang2023TowardsReasoning"
     },
     {
@@ -202,6 +230,7 @@
       "item_id": "G029",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Huang2023TowardsReasoning"
     },
     {
@@ -209,6 +238,7 @@
       "item_id": "G030",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -216,6 +246,7 @@
       "item_id": "G031",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -223,6 +254,7 @@
       "item_id": "G032",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -230,6 +262,7 @@
       "item_id": "G033",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -237,6 +270,7 @@
       "item_id": "G034",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -244,6 +278,7 @@
       "item_id": "G035",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -251,6 +286,7 @@
       "item_id": "G036",
       "llm_category": "promotional",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -258,6 +294,7 @@
       "item_id": "G037",
       "llm_category": "fragmented",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Pate2026ReplicatingHuman"
     },
     {
@@ -265,6 +302,7 @@
       "item_id": "G038",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -272,6 +310,7 @@
       "item_id": "G039",
       "llm_category": "fragmented",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -279,6 +318,7 @@
       "item_id": "G040",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -286,6 +326,7 @@
       "item_id": "G041",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Pate2026ReplicatingHuman"
     },
     {
@@ -293,6 +334,7 @@
       "item_id": "G042",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Instrutor2023IniciandoCom"
     },
     {
@@ -300,6 +342,7 @@
       "item_id": "G043",
       "llm_category": "fragmented",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Pate2026ReplicatingHuman"
     },
     {
@@ -307,6 +350,7 @@
       "item_id": "G044",
       "llm_category": "trivial",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Pate2026ReplicatingHuman"
     },
     {
@@ -314,6 +358,7 @@
       "item_id": "G045",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -321,6 +366,7 @@
       "item_id": "G046",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -328,6 +374,7 @@
       "item_id": "G047",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -335,6 +382,7 @@
       "item_id": "G048",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -342,6 +390,7 @@
       "item_id": "G049",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Huang2023TowardsReasoning"
     },
     {
@@ -349,6 +398,7 @@
       "item_id": "G050",
       "llm_category": "fragmented",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -356,6 +406,7 @@
       "item_id": "G051",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -363,6 +414,7 @@
       "item_id": "G052",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -370,6 +422,7 @@
       "item_id": "G053",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -377,6 +430,7 @@
       "item_id": "G054",
       "llm_category": "fragmented",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -384,6 +438,7 @@
       "item_id": "G055",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Huang2023TowardsReasoning"
     },
     {
@@ -391,6 +446,7 @@
       "item_id": "G056",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Huang2023TowardsReasoning"
     },
     {
@@ -398,6 +454,7 @@
       "item_id": "G057",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -405,6 +462,7 @@
       "item_id": "G058",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Hu2025ArtigoaipoweredWorkflow"
     },
     {
@@ -412,6 +470,7 @@
       "item_id": "G059",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -419,6 +478,7 @@
       "item_id": "G060",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -426,6 +486,7 @@
       "item_id": "G061",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -433,6 +494,7 @@
       "item_id": "G062",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Instrutor2023IniciandoCom"
     },
     {
@@ -440,6 +502,7 @@
       "item_id": "G063",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -447,6 +510,7 @@
       "item_id": "G064",
       "llm_category": "trivial",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Pate2026ReplicatingHuman"
     },
     {
@@ -454,6 +518,7 @@
       "item_id": "G065",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -461,6 +526,7 @@
       "item_id": "G066",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Latorre2021AnáliseDe"
     },
     {
@@ -468,6 +534,7 @@
       "item_id": "G067",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -475,6 +542,7 @@
       "item_id": "G068",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -482,6 +550,7 @@
       "item_id": "G069",
       "llm_category": "fragmented",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Pate2026ReplicatingHuman"
     },
     {
@@ -489,6 +558,7 @@
       "item_id": "G070",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -496,6 +566,7 @@
       "item_id": "G071",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Huang2023TowardsReasoning"
     },
     {
@@ -503,6 +574,7 @@
       "item_id": "G072",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -510,6 +582,7 @@
       "item_id": "G073",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Huang2023TowardsReasoning"
     },
     {
@@ -517,6 +590,7 @@
       "item_id": "G074",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Hu2025ArtigoaipoweredWorkflow"
     },
     {
@@ -524,6 +598,7 @@
       "item_id": "G075",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -531,6 +606,7 @@
       "item_id": "G076",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Hu2025ArtigoaipoweredWorkflow"
     },
     {
@@ -538,6 +614,7 @@
       "item_id": "G077",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -545,6 +622,7 @@
       "item_id": "G078",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -552,6 +630,7 @@
       "item_id": "G079",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -559,6 +638,7 @@
       "item_id": "G080",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -566,6 +646,7 @@
       "item_id": "G081",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Pate2026ReplicatingHuman"
     },
     {
@@ -573,6 +654,7 @@
       "item_id": "G082",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -580,6 +662,7 @@
       "item_id": "G083",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Hu2025ArtigoaipoweredWorkflow"
     },
     {
@@ -587,6 +670,7 @@
       "item_id": "G084",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -594,6 +678,7 @@
       "item_id": "G085",
       "llm_category": "fragmented",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -601,6 +686,7 @@
       "item_id": "G086",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -608,6 +694,7 @@
       "item_id": "G087",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -615,6 +702,7 @@
       "item_id": "G088",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -622,6 +710,7 @@
       "item_id": "G089",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -629,6 +718,7 @@
       "item_id": "G090",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -636,6 +726,7 @@
       "item_id": "G091",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -643,6 +734,7 @@
       "item_id": "G092",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -650,6 +742,7 @@
       "item_id": "G093",
       "llm_category": "trivial",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Pate2026ReplicatingHuman"
     },
     {
@@ -657,6 +750,7 @@
       "item_id": "G094",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Instrutor2023IniciandoCom"
     },
     {
@@ -664,6 +758,7 @@
       "item_id": "G095",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Pate2026ReplicatingHuman"
     },
     {
@@ -671,6 +766,7 @@
       "item_id": "G096",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -678,6 +774,7 @@
       "item_id": "G097",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -685,6 +782,7 @@
       "item_id": "G098",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -692,6 +790,7 @@
       "item_id": "G099",
       "llm_category": "fragmented",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -699,6 +798,7 @@
       "item_id": "G100",
       "llm_category": "fragmented",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Pate2026ReplicatingHuman"
     },
     {
@@ -706,6 +806,7 @@
       "item_id": "G101",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Pate2026ReplicatingHuman"
     },
     {
@@ -713,6 +814,7 @@
       "item_id": "G102",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -720,6 +822,7 @@
       "item_id": "G103",
       "llm_category": "fragmented",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Pate2026ReplicatingHuman"
     },
     {
@@ -727,6 +830,7 @@
       "item_id": "G104",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Hu2025ArtigoaipoweredWorkflow"
     },
     {
@@ -734,6 +838,7 @@
       "item_id": "G105",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -741,6 +846,7 @@
       "item_id": "G106",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Latorre2021AnáliseDe"
     },
     {
@@ -748,6 +854,7 @@
       "item_id": "G107",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -755,6 +862,7 @@
       "item_id": "G108",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Huang2023TowardsReasoning"
     },
     {
@@ -762,6 +870,7 @@
       "item_id": "G109",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Pate2026ReplicatingHuman"
     },
     {
@@ -769,6 +878,7 @@
       "item_id": "G110",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -776,6 +886,7 @@
       "item_id": "G111",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Pate2026ReplicatingHuman"
     },
     {
@@ -783,6 +894,7 @@
       "item_id": "G112",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Pate2026ReplicatingHuman"
     },
     {
@@ -790,6 +902,7 @@
       "item_id": "G113",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -797,6 +910,7 @@
       "item_id": "G114",
       "llm_category": "promotional",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -804,6 +918,7 @@
       "item_id": "G115",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -811,6 +926,7 @@
       "item_id": "G116",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -818,6 +934,7 @@
       "item_id": "G117",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Huang2023TowardsReasoning"
     },
     {
@@ -825,6 +942,7 @@
       "item_id": "G118",
       "llm_category": "structural",
       "llm_verdict": "rejected",
+      "sampling_stratum": "structural",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -832,6 +950,7 @@
       "item_id": "G119",
       "llm_category": "narrative",
       "llm_verdict": "rejected",
+      "sampling_stratum": "contested",
       "source_id": "@Kim2022KantAnd"
     },
     {
@@ -839,6 +958,7 @@
       "item_id": "G120",
       "llm_category": "",
       "llm_verdict": "accepted",
+      "sampling_stratum": "accepted",
       "source_id": "@Kim2022KantAnd"
     }
   ],
