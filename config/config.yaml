@@ -92,12 +92,14 @@ llm:
 embedding:
   # provider: openai           # openai | sentence-transformers | ollama
   # model: text-embedding-3-small
-  provider: ollama
-  model: qwen3-embedding
+  # provider: gemini           # GOOGLE_API_KEY (ou GEMINI_API_KEY) no .env
+  # model: gemini-embedding-001  # MRL 768/1536/3072; query usa RETRIEVAL_QUERY
+  provider: gemini
+  model: gemini-embedding-2
   # MRL: truncar vetor. null = nativo (qwen3-embedding 8B = 4096).
   # ollama: langchain_ollama (API nativa). openai: text-embedding-3-* via EF Chroma.
   # 1024 = bom custo-beneficio. Trocar dimensions exige zettel reindex --force.
-  dimensions: 1024
+  dimensions: 1536
   base_url: null             # ollama: default http://localhost:11434 (sem /v1)
   allow_fallback: false      # true = default Chroma 384-d (mistura espacos — evite)
 
