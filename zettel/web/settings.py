@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
-from zettel.web.health import llm_phase_rows
+from zettel.web.health import embedding_ready, llm_phase_rows
 from zettel.web.health import llm_ready as _llm_ready
 from zettel.web.rendering import render, service
 from zettel.web.security import authenticated, redirect_login
@@ -27,6 +27,7 @@ async def settings(request: Request):
             "vault": cfg.vault_path.exists(),
             "inbox": cfg.inbox_path.exists(),
             "llm": _llm_ready(cfg),
+            "embedding": embedding_ready(cfg),
         }
     finally:
         db.close()

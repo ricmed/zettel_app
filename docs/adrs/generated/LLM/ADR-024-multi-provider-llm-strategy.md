@@ -4,6 +4,7 @@
 **Date:** 2026-07-02
 **Depends on:** [ADR-XXX: YAML-First Configuration with Pydantic Fallback](../INFRA/ADR-004-yaml-first-configuration.md)
 **Used by:** [ADR-025: System+Human Prompt Split for Provider-Agnostic Prompt Caching](./ADR-025-prompt-caching-system-human-split.md), [ADR-045: Fail-Fast on LLM Unavailability](./ADR-045-fail-fast-on-llm-unavailability.md), [ADR-048: Per-Phase LLM Thinking Mode](./ADR-048-per-phase-thinking-mode.md)
+**Related to:** [ADR-052: Embedding Providers via Registry](../INFRA/ADR-052-embedding-providers-registry.md) — the embedding side resolved the same "no registration pattern" debt with `_EF_BUILDERS`
 
 ## Context and Problem Statement
 
