@@ -327,6 +327,70 @@ def test_gemini_config_never_persists_the_key(monkeypatch):
     assert ctor.call_args.kwargs["google_api_key"] == "segredo"
 
 
+def _google_error(code: int) -> Exception:
+    """What LangChain raises: GoogleGenerativeAIError wrapping the SDK's APIError."""
+    from google.genai.errors import ClientError
+    from langchain_google_genai._common import GoogleGenerativeAIError
+
+    status = {429: "RESOURCE_EXHAUSTED", 400: "INVALID_ARGUMENT"}[code]
+    cause = ClientError(code, {"error": {"code": code, "message": "x", "status": status}}, None)
+    try:
+        raise GoogleGenerativeAIError(f"Error embedding content ({status})") from cause
+    except GoogleGenerativeAIError as wrapped:
+        return wrapped
+
+
+@pytest.fixture
+def gemini_ef_no_wait(monkeypatch):
+    monkeypatch.setenv("GOOGLE_API_KEY", "chave-teste")
+    monkeypatch.setattr(_GeminiChromaEF, "retry_initial_wait", 0.0)
+    monkeypatch.setattr(_GeminiChromaEF, "retry_jitter", 0.0)
+
+    def build(fake):
+        with patch("langchain_google_genai.GoogleGenerativeAIEmbeddings", return_value=fake):
+            return _GeminiChromaEF.build_from_config({"model": "gemini-embedding-001"})
+
+    return build
+
+
+def test_gemini_retries_rate_limit_then_succeeds(gemini_ef_no_wait):
+    """Um 429 no meio de um run longo (ex.: garden) nao pode aborta-lo."""
+    fake = MagicMock()
+    fake.embed_documents.side_effect = [_google_error(429), _google_error(429), [[1.0, 0.0]]]
+    fake.embed_query.side_effect = [_google_error(429), [0.0, 1.0]]
+    ef = gemini_ef_no_wait(fake)
+
+    assert len(ef(["moc"])) == 1
+    assert fake.embed_documents.call_count == 3
+    assert len(ef.embed_query(["pergunta"])) == 1
+    assert fake.embed_query.call_count == 2
+
+
+def test_gemini_gives_up_after_retry_attempts(gemini_ef_no_wait):
+    from langchain_google_genai._common import GoogleGenerativeAIError
+
+    fake = MagicMock()
+    fake.embed_documents.side_effect = _google_error(429)
+    ef = gemini_ef_no_wait(fake)
+
+    with pytest.raises(GoogleGenerativeAIError):
+        ef(["moc"])
+    assert fake.embed_documents.call_count == _GeminiChromaEF.retry_attempts
+
+
+def test_gemini_does_not_retry_client_errors(gemini_ef_no_wait):
+    """400 (entrada invalida) nao melhora com espera: falha na primeira tentativa."""
+    from langchain_google_genai._common import GoogleGenerativeAIError
+
+    fake = MagicMock()
+    fake.embed_documents.side_effect = _google_error(400)
+    ef = gemini_ef_no_wait(fake)
+
+    with pytest.raises(GoogleGenerativeAIError):
+        ef(["moc"])
+    assert fake.embed_documents.call_count == 1
+
+
 def test_sanitize_metadata_types():
     out = _sanitize_metadata(
         {

@@ -29,6 +29,8 @@ _ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS, COL_CHAPTE
 
 _DEFAULT_OLLAMA_URL = "http://localhost:11434"
 _GEMINI_KEY_ENVS = ("GOOGLE_API_KEY", "GEMINI_API_KEY")
+# Same set google-genai retries when given retry options (it gets none from LangChain).
+_GEMINI_TRANSIENT_CODES = frozenset({408, 429, 500, 502, 503, 504})
 
 
 def _normalize_ollama_base_url(url: str | None) -> str:
@@ -54,11 +56,19 @@ class _LangChainChromaEF:
     only valid on unit vectors, and some models (Gemini below 3072d) do not
     return them.
 
+    A call that fails with an error ``_is_transient`` accepts (rate limit, 5xx)
+    is retried with exponential backoff: one 429 late in a long run must not
+    abort it. Anything else propagates on the first attempt.
+
     Subclasses define ``name()`` (the key Chroma persists to rebuild the EF) and
     ``_client(config)``, which builds the LangChain client from ``get_config()``.
     """
 
     normalize = False
+    retry_attempts = 6  # including the first call
+    retry_initial_wait = 1.0  # seconds; doubles per attempt, capped at retry_max_wait
+    retry_max_wait = 60.0
+    retry_jitter = 1.0
 
     def __init__(self, embeddings: Any, *, model: str, dimensions: int | None = None, **extra: Any):
         self._emb = embeddings
@@ -74,15 +84,45 @@ class _LangChainChromaEF:
             out = [v / n if (n := float(np.linalg.norm(v))) else v for v in out]
         return out
 
+    @staticmethod
+    def _is_transient(exc: BaseException) -> bool:
+        return False
+
+    def _with_retry(self, fn: Callable[..., Any], *args: Any) -> Any:
+        import tenacity
+
+        def _log_retry(state: tenacity.RetryCallState) -> None:
+            logger.warning(
+                "Embedding %s: erro transitorio (%s); tentativa %d/%d em %.1fs",
+                self.name(),
+                state.outcome.exception() if state.outcome else "?",
+                state.attempt_number + 1,
+                self.retry_attempts,
+                state.next_action.sleep if state.next_action else 0.0,
+            )
+
+        retrying = tenacity.Retrying(
+            stop=tenacity.stop_after_attempt(self.retry_attempts),
+            wait=tenacity.wait_exponential_jitter(
+                initial=self.retry_initial_wait,
+                max=self.retry_max_wait,
+                jitter=self.retry_jitter,
+            ),
+            retry=tenacity.retry_if_exception(self._is_transient),
+            before_sleep=_log_retry,
+            reraise=True,
+        )
+        return retrying(fn, *args)
+
     def __call__(self, input: Any) -> Any:
         if not input:
             return []
-        return self._vectors(self._emb.embed_documents(list(input)))
+        return self._vectors(self._with_retry(self._emb.embed_documents, list(input)))
 
     def embed_query(self, input: Any) -> Any:
         if not input:
             return []
-        return self._vectors([self._emb.embed_query(t) for t in input])
+        return self._vectors([self._with_retry(self._emb.embed_query, t) for t in input])
 
     def is_legacy(self) -> bool:
         return False
@@ -158,6 +198,22 @@ class _GeminiChromaEF(_LangChainChromaEF):
     @staticmethod
     def name() -> str:
         return "zettel_gemini"
+
+    @staticmethod
+    def _is_transient(exc: BaseException) -> bool:
+        """True for a rate limit / server error anywhere in the exception chain.
+
+        LangChain wraps the SDK's ``APIError`` in ``GoogleGenerativeAIError``,
+        so the status code is on ``__cause__``, not on ``exc`` itself.
+        """
+        from google.genai.errors import APIError
+
+        seen: BaseException | None = exc
+        while seen is not None:
+            if isinstance(seen, APIError) and seen.code in _GEMINI_TRANSIENT_CODES:
+                return True
+            seen = seen.__cause__
+        return False
 
     @classmethod
     def _client(cls, config: dict[str, Any]) -> _GeminiChromaEF:

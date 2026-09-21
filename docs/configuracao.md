@@ -405,6 +405,7 @@ Requer: `GOOGLE_API_KEY` (ou `GEMINI_API_KEY`) no `.env` — a mesma chave do LL
 
 - **Assimétrico:** texto indexado vai como `RETRIEVAL_DOCUMENT`; toda busca (`ask`, `catalog`, RAG do `connect`, `sync`) vai como `RETRIEVAL_QUERY`. Nada a configurar — o Chroma chama o lado de consulta do adaptador.
 - **Normalização:** abaixo de 3072 dimensões o Gemini não devolve vetores unitários; o adaptador normaliza, porque o piso de relevância assume norma 1.
+- **Limite de requisições:** 429 (`RESOURCE_EXHAUSTED`) e 5xx são repetidos com espera exponencial (1s → 60s, até 6 tentativas) e aviso no log. Um limite por minuto se resolve sozinho; cota diária esgotada ainda falha. Se um `run-all` cair no meio, rodar a fase de novo retoma de onde parou.
 - **Custo:** `gemini-embedding-001` é precificado pelo mapa do LiteLLM e aparece em `zettel status` como qualquer embedding pago.
 
 Depois de trocar para o Gemini, os limiares **precisam** ser remedidos (veja abaixo): consulta × documento dá similaridades diferentes de documento × documento.
