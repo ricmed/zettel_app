@@ -31,10 +31,10 @@ from zettel.llm import (
     LLMUnavailableError,
     PromptParts,
     call_llm,
-    extract_json,
     fill_template,
     get_llm,
     load_prompt_parts,
+    parse_llm_json,
 )
 from zettel.paging import format_source_locator
 from zettel.schemas import (
@@ -1012,14 +1012,12 @@ def _compute_concept_id(source_id: str, chunk_id: str, cand: PermanentNoteCandid
 
 
 def _parse_literature_output(text: str) -> LiteratureChunkOutput:
-    json_text = extract_json(text)
-    data = json.loads(json_text)
+    data = parse_llm_json(text)
     return LiteratureChunkOutput(**data)
 
 
 def _parse_dedupe_result(text: str) -> DedupeResult:
-    json_text = extract_json(text)
-    data = json.loads(json_text)
+    data = parse_llm_json(text)
     return DedupeResult(**data)
 
 

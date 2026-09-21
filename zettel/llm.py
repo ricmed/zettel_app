@@ -10,6 +10,7 @@ via ``<!-- zettel:user -->`` in prompt files (see ``load_prompt_parts``).
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -720,3 +721,132 @@ def extract_json(text: str) -> str:
     if start != -1 and end != -1:
         return text[start : end + 1]
     raise ValueError("Nenhum JSON encontrado na resposta do LLM")
+
+
+# LaTeX commands whose first letter collides with a JSON escape that is legitimate in
+# prose: \t (tab), \n (newline), \r (carriage return). Only these, followed by a non-letter,
+# are read as LaTeX. Deliberately absent: "ne" and "not" (a newline followed by the words
+# "e" or "not" is ordinary text), "tr" and "rm" (too short to tell apart).
+_TAB_NEWLINE_CR_COMMANDS = {
+    "t": (
+        "theta",
+        "tau",
+        "times",
+        "text",
+        "textbf",
+        "textit",
+        "textrm",
+        "texttt",
+        "textsf",
+        "top",
+        "to",
+        "tilde",
+        "tfrac",
+        "triangle",
+        "triangleq",
+        "tan",
+        "tanh",
+        "therefore",
+    ),
+    "n": (
+        "nabla",
+        "neq",
+        "nu",
+        "notin",
+        "newline",
+        "nonumber",
+        "nexists",
+        "neg",
+        "nmid",
+        "nleq",
+        "ngeq",
+        "nsubseteq",
+    ),
+    "r": (
+        "rho",
+        "right",
+        "rightarrow",
+        "rightharpoonup",
+        "rangle",
+        "rbrace",
+        "rbrack",
+        "rfloor",
+        "rceil",
+        "rvert",
+        "rVert",
+    ),
+}
+_HEX = frozenset("0123456789abcdefABCDEF")
+
+
+def repair_latex_escapes(json_text: str) -> str:
+    """Double the backslashes of LaTeX that an LLM copied into JSON without escaping.
+
+    With formula enrichment (#178) chunks carry LaTeX, and models copy it into their
+    JSON answers as ``\\mathbf`` instead of ``\\\\mathbf``. Two failures follow:
+
+    * an escape JSON does not define (``\\m``, ``\\s``, ``\\{``) raises ``Invalid \\escape``
+      and the whole answer is lost;
+    * an escape JSON *does* define parses without error into the wrong text -- ``\\frac``
+      becomes a form feed plus ``rac``, ``\\top`` a tab plus ``op``, ``\\nabla`` a newline plus
+      ``abla``.
+
+    Rules, applied left to right:
+
+    * ``\\\\``, ``\\"`` and ``\\/`` are kept; ``\\u`` with four hex digits is kept.
+    * ``\\b`` or ``\\f`` followed by a letter is LaTeX: a backspace or form feed never belongs in
+      prose.
+    * ``\\t``, ``\\n``, ``\\r`` are LaTeX only when they start a known command followed by a
+      non-letter; otherwise they stay tab, newline, carriage return.
+    * any other backslash is not a JSON escape at all, so it can only be LaTeX.
+
+    Idempotent: an already escaped ``\\\\frac`` is left alone.
+    """
+    out: list[str] = []
+    i, n = 0, len(json_text)
+    while i < n:
+        ch = json_text[i]
+        if ch != "\\" or i + 1 >= n:
+            out.append(ch)
+            i += 1
+            continue
+        nxt = json_text[i + 1]
+        rest = json_text[i + 1 :]
+        if nxt in '\\"/':
+            out.append(json_text[i : i + 2])
+            i += 2
+        elif nxt == "u" and len(rest) >= 5 and all(c in _HEX for c in rest[1:5]):
+            out.append(json_text[i : i + 6])
+            i += 6
+        elif nxt in "bf":
+            if len(rest) > 1 and rest[1].isalpha():
+                out.append("\\\\")
+                i += 1
+            else:
+                out.append(json_text[i : i + 2])
+                i += 2
+        elif nxt in _TAB_NEWLINE_CR_COMMANDS:
+            if _starts_latex_command(rest, _TAB_NEWLINE_CR_COMMANDS[nxt]):
+                out.append("\\\\")
+                i += 1
+            else:
+                out.append(json_text[i : i + 2])
+                i += 2
+        else:
+            out.append("\\\\")
+            i += 1
+    return "".join(out)
+
+
+def _starts_latex_command(text: str, commands: tuple[str, ...]) -> bool:
+    for command in commands:
+        if text.startswith(command):
+            after = text[len(command) : len(command) + 1]
+            if not after or not after.isalpha():
+                return True
+    return False
+
+
+def parse_llm_json(text: str) -> Any:
+    """The JSON object or array in an LLM answer, with unescaped LaTeX repaired first."""
+    return json.loads(repair_latex_escapes(extract_json(text)))

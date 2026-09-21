@@ -28,10 +28,10 @@ from zettel.llm import (
     LLMUnavailableError,
     PromptParts,
     call_llm,
-    extract_json,
     fill_template,
     get_llm,
     load_prompt_parts,
+    parse_llm_json,
 )
 from zettel.retrieval import RetrievedNote, Retriever
 from zettel.schemas import (
@@ -1077,7 +1077,7 @@ def _apply_ptbr_guard(
             provider=spec.provider,
             prompt_cache=cfg.llm.prompt_cache,
         )
-        corrected_data = json.loads(extract_json(corrected_raw))
+        corrected_data = parse_llm_json(corrected_raw)
         output.thesis = corrected_data.get("thesis", output.thesis)
         output.definition = corrected_data.get("definition", output.definition)
         output.intuition = corrected_data.get("intuition", output.intuition)
@@ -1098,8 +1098,7 @@ def _parse_permanent_note_output(text: str) -> PermanentNoteLLMOutput:
     with ``status``/``reason``/``category`` only. An *accepted* answer without a
     body is a broken response, not an empty note — reject it here.
     """
-    json_text = extract_json(text)
-    data = json.loads(json_text)
+    data = parse_llm_json(text)
     output = PermanentNoteLLMOutput(**data)
     if output.status != "rejected":
         missing = [f for f in ("title", "thesis", "definition") if not getattr(output, f).strip()]

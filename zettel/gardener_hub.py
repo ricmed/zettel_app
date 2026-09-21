@@ -14,7 +14,7 @@ from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, HubMocsConfig, ll
 from zettel.graph import expand_notes
 from zettel.hashing import sha256_hex
 from zettel.index import VectorIndex
-from zettel.llm import call_llm, extract_json, fill_template, get_llm, load_prompt_parts
+from zettel.llm import call_llm, fill_template, get_llm, load_prompt_parts, parse_llm_json
 from zettel.schemas import MOCHubGenerationOutput
 from zettel.taxonomy import resolve_allowed_topics
 from zettel.time import now_vault_iso
@@ -601,8 +601,7 @@ def _update_hub_moc(
 
 
 def _parse_hub_moc_output(text: str) -> MOCHubGenerationOutput:
-    json_text = extract_json(text)
-    data = json.loads(json_text)
+    data = parse_llm_json(text)
     return MOCHubGenerationOutput(**data)
 
 

@@ -30,7 +30,7 @@ from zettel.gardener_assign import (
 )
 from zettel.hashing import sha256_hex
 from zettel.index import VectorIndex
-from zettel.llm import call_llm, extract_json, fill_template, get_llm, load_prompt_parts
+from zettel.llm import call_llm, fill_template, get_llm, load_prompt_parts, parse_llm_json
 from zettel.schemas import MOCGenerationOutput, MOCIncrementalOutput
 from zettel.state import StateDB
 from zettel.taxonomy import TaxonomyLoadError, resolve_allowed_topics
@@ -710,8 +710,7 @@ def _update_existing_moc(
 
 def _parse_incremental_output(text: str) -> MOCIncrementalOutput:
     """Parse LLM response into MOCIncrementalOutput."""
-    json_text = extract_json(text)
-    data = json.loads(json_text)
+    data = parse_llm_json(text)
     return MOCIncrementalOutput(**data)
 
 
@@ -981,6 +980,5 @@ def _build_moc_body(
 
 
 def _parse_moc_output(text: str) -> MOCGenerationOutput:
-    json_text = extract_json(text)
-    data = json.loads(json_text)
+    data = parse_llm_json(text)
     return MOCGenerationOutput(**data)

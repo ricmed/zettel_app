@@ -24,10 +24,10 @@ from .hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_
 from .llm import (
     call_llm,
     clip_text,
-    extract_json,
     fill_template,
     get_llm,
     load_prompt_parts,
+    parse_llm_json,
 )
 from .retrieval import RetrievedNote
 from .schemas import ArticleOutline, ArticleOutlineSection
@@ -212,7 +212,7 @@ def generate_outline(
         user=user,
         label=f"outline | tema={clip_text(catalog.topic)}",
     )
-    data = json.loads(extract_json(raw))
+    data = parse_llm_json(raw)
     outline = ArticleOutline.model_validate(data)
     outline = _sanitize_outline(outline, catalog, art_cfg.max_sections)
     return outline, llm_called
@@ -1036,7 +1036,7 @@ def enrich_search_queries(
         temperature=art_cfg.enrich_temperature,
         label=f"enrich queries | tema={clip_text(topic)} | alvo={count}",
     )
-    data = json.loads(extract_json(raw))
+    data = parse_llm_json(raw)
     queries = [str(q).strip() for q in (data.get("queries") or []) if str(q).strip()]
 
     ordered: list[str] = []
@@ -1164,7 +1164,7 @@ def judge_article_body(
         temperature=art_cfg.judge_temperature,
         label=f"judge | tema={clip_text(catalog.topic)} | estilo={catalog.style}",
     )
-    data = json.loads(extract_json(raw))
+    data = parse_llm_json(raw)
     fidelity = float(data.get("fidelity") or 0)
     coverage = float(data.get("coverage") or 0)
     references = float(data.get("references") or 0)
