@@ -324,6 +324,17 @@ def test_permanent_note_never_offers_corroborates():
     assert RelationType.CORROBORATES.value not in text
 
 
+def test_academic_section_quotes_only_grounded_anchors():
+    """ADR-051: a direct quote may only be a note's `citacao_direta`, cited per note.
+
+    `article._pack_section` emits both keys per note and `verify_article` flags any
+    other quoted passage, so the prompt must name exactly those keys.
+    """
+    text = (PROMPTS_DIR / "article_section_academic.md").read_text(encoding="utf-8")
+    assert "citacao_direta" in text
+    assert "`citacao_abnt` **da nota**" in text
+
+
 # ── Prompt-specific contracts ─────────────────────────────────────────
 
 

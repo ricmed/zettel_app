@@ -1,7 +1,7 @@
-# zettel_app ADR Index (47 Decisions)
+# zettel_app ADR Index (48 Decisions)
 
-**Last Updated**: 2026-09-10  
-**Status**: Complete — 45 formal ADRs across 12 modules
+**Last Updated**: 2026-09-21  
+**Status**: Complete — 48 formal ADRs across 12 modules
 
 ---
 
@@ -17,7 +17,7 @@
 | **GARDEN** | 3 | [019–021](#garden-moc-generation) |
 | **WEB** | 4 | [022–023, 039–040](#web-ui--job-queue) |
 | **LLM** | 4 | [024–025, 045, 048](#llm-provider--caching) |
-| **QA-WRITING** | 3 | [028–029, 038](#qa-writing--article-pipeline) |
+| **QA-WRITING** | 4 | [028–029, 038, 051](#qa-writing--article-pipeline) |
 | **MANUAL** | 1 | [030](#manual-hand-written-notes) |
 | **ASSETS** | 1 | [031](#assets-images) |
 
@@ -475,6 +475,15 @@
 
 ---
 
+### ADR-051: Citation Provenance on the Permanent Note
+
+- **Status**: Accepted (2026-09-21)
+- **Date**: 2026-09-21
+- **Summary**: A ZTL becomes mechanically citable. `zettel/citation.py` derives by code, never through the LLM, the printed page on which the grounded `anchor_quote` actually sits (`paging.locate_quote_pages` over the Docling page map, `p. 42-43` across a break, fallback to the chunk's first page recorded as `citation_page_confidence: chunk`) and the ABNT `citation`. Both land in the frontmatter and in an `auto-evidence` managed block that stays out of the embedding. `zettel article` cites per note with page, allows a direct quote only as a verbatim `citacao_direta`, and `verify_article` flags any other quoted passage.
+- **Link**: [`ADR-051-citation-provenance-on-permanent-note.md`](./generated/QA-WRITING/ADR-051-citation-provenance-on-permanent-note.md)
+
+---
+
 ## MANUAL — Hand-Written Notes
 
 ### ADR-030: Manual Notes Are Adopted at Sync Time and Bypass the Review Gate
@@ -501,11 +510,17 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 47 |
-| **Accepted** | 46 |
+| **Total ADRs** | 48 |
+| **Accepted** | 47 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 42 |
 | **Modules Covered** | 12 |
+
+---
+
+## Status Update (2026-09-21)
+
+✅ **ADR-051 added** — citation provenance on the permanent note (issue #187). Page, ABNT citation and the verbatim anchor are copied onto the ZTL by code, with the page resolved to where the anchor actually sits. `zettel article` cites per note and checks direct quotes against grounded anchors.
 
 ---
 

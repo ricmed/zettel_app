@@ -19,8 +19,14 @@ from typing import TYPE_CHECKING, Literal
 from zettel.time import now_filename_ts, now_vault_iso
 
 from .bibliography import display_author_natural, format_abnt_in_text
+from .citation import stored_authors
 from .config import effective_temperature, llm_phase, thinking_checksum_token
-from .hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
+from .hashing import (
+    compute_llm_call_checksum,
+    fold_for_match,
+    normalize_text_for_hash,
+    sha256_hex,
+)
 from .llm import (
     call_llm,
     clip_text,
@@ -99,6 +105,9 @@ class CatalogNote:
     origin: str = "busca"
     assets: list[CatalogAsset] = field(default_factory=list)
     summary: str = ""
+    # Citation provenance from the ZTL frontmatter (ADR-051), not the truncated body.
+    cite: str = ""
+    anchor_quote: str = ""
 
 
 @dataclass
@@ -453,7 +462,30 @@ def verify_article(
             snippet = m.group(1)
             if not _parenthetical_matches_catalog(snippet, catalog):
                 warnings.append(f"Citacao possivelmente orfa: ({snippet}...)")
+        warnings.extend(_unverified_direct_quotes(body, catalog))
 
+    return warnings
+
+
+_DIRECT_QUOTE = re.compile(r"[\"“]([^\"“”\n]+)[\"”]")
+_DIRECT_QUOTE_MIN_WORDS = 4
+
+
+def _unverified_direct_quotes(body: str, catalog: ArticleCatalog) -> list[str]:
+    """Direct quotes that are not verbatim excerpts of a catalog anchor (ADR-051).
+
+    The only literal text the article may put between quotes is a note's grounded
+    ``anchor_quote``; anything else presented as the author's words is flagged.
+    Short quoted spans (a term, a title) are not treated as quotations.
+    """
+    anchors = [fold_for_match(n.anchor_quote) for n in catalog.notes.values() if n.anchor_quote]
+    warnings: list[str] = []
+    for m in _DIRECT_QUOTE.finditer(body):
+        quoted = fold_for_match(m.group(1))
+        if len(quoted.split()) < _DIRECT_QUOTE_MIN_WORDS:
+            continue
+        if not any(quoted in anchor for anchor in anchors):
+            warnings.append(f'Citacao direta sem ancora no acervo: "{clip_text(m.group(1))}"')
     return warnings
 
 
@@ -573,17 +605,11 @@ def _populate_catalog(
         if source_id and source_id not in catalog.sources:
             src_row = db.get_source(source_id)
             if src_row:
-                authors = src_row.get("authors") or "[]"
-                if isinstance(authors, str):
-                    try:
-                        authors = json.loads(authors)
-                    except json.JSONDecodeError:
-                        authors = []
                 catalog.sources[source_id] = CatalogSource(
                     source_id=source_id,
                     citekey=src_row.get("citekey") or source_id.lstrip("@"),
                     title=src_row.get("title") or "",
-                    authors=list(authors or []),
+                    authors=stored_authors(src_row.get("authors")),
                     year=src_row.get("year"),
                     abnt_reference=src_row.get("abnt_reference") or "",
                     document_type=src_row.get("document_type"),
@@ -615,6 +641,8 @@ def _populate_catalog(
             origin=_origin_label(hit),
             assets=note_assets,
             summary=summary,
+            cite=_note_cite(row, catalog.sources.get(source_id or "")),
+            anchor_quote=str(_note_frontmatter(row).get("anchor_quote") or "").strip(),
         )
 
     # Keep top max_figures assets by frequency across notes
@@ -626,6 +654,26 @@ def _populate_catalog(
         )[:max_figures]
         keep = {a.asset_id for a in ranked}
         catalog.assets = {k: v for k, v in catalog.assets.items() if k in keep}
+
+
+def _note_frontmatter(row: dict | None) -> dict:
+    try:
+        meta = json.loads((row or {}).get("frontmatter_json") or "{}")
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return meta if isinstance(meta, dict) else {}
+
+
+def _note_cite(row: dict | None, source: CatalogSource | None) -> str:
+    """The note's own ABNT citation (with page); the source-level one as fallback.
+
+    A hand-written note with no chunk has no ``citation`` key, and still cites
+    its source by author and year.
+    """
+    cite = str(_note_frontmatter(row).get("citation") or "").strip()
+    if cite:
+        return cite
+    return source.in_text_cite if source else ""
 
 
 def _assets_from_note_body(db: StateDB, body: str, source_id: str | None) -> list[CatalogAsset]:
@@ -749,11 +797,15 @@ def _pack_section(
     seen_sources: set[str] = set()
     for nid in note_ids:
         note = catalog.notes[nid]
+        cite_lines = f"- citacao_abnt: {note.cite or '(indisponivel)'}\n"
+        if note.anchor_quote:
+            cite_lines += f'- citacao_direta: "{note.anchor_quote}"\n'
         evidence_parts.append(
             f"#### {note.title}\n"
             f"- note_id: {note.note_id}\n"
             f"- wikilink: {note.wiki_link}\n"
-            f"- origem: {note.origin}\n\n"
+            f"- origem: {note.origin}\n"
+            f"{cite_lines}\n"
             f"{note.body}\n"
         )
         if note.source_id and note.source_id not in seen_sources:
