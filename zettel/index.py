@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +28,9 @@ COL_CHAPTER_SUMMARIES = "chapter_summaries"
 _ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS, COL_CHAPTER_SUMMARIES]
 
 _DEFAULT_OLLAMA_URL = "http://localhost:11434"
-_SUPPORTED_PROVIDERS = ("openai", "sentence-transformers", "ollama")
+_GEMINI_KEY_ENVS = ("GOOGLE_API_KEY", "GEMINI_API_KEY")
+# Same set google-genai retries when given retry options (it gets none from LangChain).
+_GEMINI_TRANSIENT_CODES = frozenset({408, 429, 500, 502, 503, 504})
 
 
 def _normalize_ollama_base_url(url: str | None) -> str:
@@ -37,69 +41,117 @@ def _normalize_ollama_base_url(url: str | None) -> str:
     return base or _DEFAULT_OLLAMA_URL
 
 
-class _LangChainOllamaChromaEF:
-    """Adapt langchain_ollama.OllamaEmbeddings to Chroma's EmbeddingFunction protocol."""
+def _gemini_api_key() -> str | None:
+    return next((os.environ[k] for k in _GEMINI_KEY_ENVS if os.environ.get(k)), None)
 
-    def __init__(self, embeddings: Any):
+
+class _LangChainChromaEF:
+    """Adapt a LangChain ``Embeddings`` client to Chroma's EmbeddingFunction protocol.
+
+    Documents go through ``embed_documents`` and queries through ``embed_query``:
+    Chroma calls ``embed_query`` on ``collection.query``, which is what lets an
+    asymmetric model (Gemini's ``RETRIEVAL_QUERY`` task type) embed the question
+    differently from the stored text. With ``normalize`` every vector leaves with
+    unit L2 norm -- the relevance floor's ``1 - distance/2`` cosine conversion is
+    only valid on unit vectors, and some models (Gemini below 3072d) do not
+    return them.
+
+    A call that fails with an error ``_is_transient`` accepts (rate limit, 5xx)
+    is retried with exponential backoff: one 429 late in a long run must not
+    abort it. Anything else propagates on the first attempt.
+
+    Subclasses define ``name()`` (the key Chroma persists to rebuild the EF) and
+    ``_client(config)``, which builds the LangChain client from ``get_config()``.
+    """
+
+    normalize = False
+    retry_attempts = 6  # including the first call
+    retry_initial_wait = 1.0  # seconds; doubles per attempt, capped at retry_max_wait
+    retry_max_wait = 60.0
+    retry_jitter = 1.0
+
+    def __init__(self, embeddings: Any, *, model: str, dimensions: int | None = None, **extra: Any):
         self._emb = embeddings
-        self.dimensions = getattr(embeddings, "dimensions", None)
-        self.model_name = getattr(embeddings, "model", None)
-        self.base_url = getattr(embeddings, "base_url", None) or _DEFAULT_OLLAMA_URL
+        self.model_name = model
+        self.dimensions = dimensions
+        self._extra = extra
 
-    def __call__(self, input: Any) -> Any:
+    def _vectors(self, vectors: list[list[float]]) -> list[Any]:
         import numpy as np
 
-        if not input:
-            return []
-        texts = list(input)
-        vectors = self._emb.embed_documents(texts)
-        return [np.array(v, dtype=np.float32) for v in vectors]
-
-    def embed_query(self, input: Any) -> Any:
-        return self(input)
+        out = [np.asarray(v, dtype=np.float32) for v in vectors]
+        if self.normalize:
+            out = [v / n if (n := float(np.linalg.norm(v))) else v for v in out]
+        return out
 
     @staticmethod
-    def name() -> str:
-        return "ollama"
+    def _is_transient(exc: BaseException) -> bool:
+        return False
+
+    def _with_retry(self, fn: Callable[..., Any], *args: Any) -> Any:
+        import tenacity
+
+        def _log_retry(state: tenacity.RetryCallState) -> None:
+            logger.warning(
+                "Embedding %s: erro transitorio (%s); tentativa %d/%d em %.1fs",
+                self.name(),
+                state.outcome.exception() if state.outcome else "?",
+                state.attempt_number + 1,
+                self.retry_attempts,
+                state.next_action.sleep if state.next_action else 0.0,
+            )
+
+        retrying = tenacity.Retrying(
+            stop=tenacity.stop_after_attempt(self.retry_attempts),
+            wait=tenacity.wait_exponential_jitter(
+                initial=self.retry_initial_wait,
+                max=self.retry_max_wait,
+                jitter=self.retry_jitter,
+            ),
+            retry=tenacity.retry_if_exception(self._is_transient),
+            before_sleep=_log_retry,
+            reraise=True,
+        )
+        return retrying(fn, *args)
+
+    def __call__(self, input: Any) -> Any:
+        if not input:
+            return []
+        return self._vectors(self._with_retry(self._emb.embed_documents, list(input)))
+
+    def embed_query(self, input: Any) -> Any:
+        if not input:
+            return []
+        return self._vectors([self._with_retry(self._emb.embed_query, t) for t in input])
 
     def is_legacy(self) -> bool:
         return False
 
     def get_config(self) -> dict[str, Any]:
-        return {
-            "model": self.model_name,
-            "dimensions": self.dimensions,
-            "base_url": self.base_url,
-        }
+        return {"model": self.model_name, "dimensions": self.dimensions, **self._extra}
 
-    @staticmethod
-    def build_from_config(config: dict[str, Any]) -> _LangChainOllamaChromaEF:
-        from langchain_ollama import OllamaEmbeddings
+    @classmethod
+    def build_from_config(cls, config: dict[str, Any]) -> _LangChainChromaEF:
+        cls.validate_config(config)
+        return cls._client(config)
 
-        model = config.get("model")
-        if not model:
-            raise ValueError("config ollama exige 'model'")
-        kwargs: dict[str, Any] = {
-            "model": model,
-            "base_url": _normalize_ollama_base_url(config.get("base_url")),
-        }
-        dims = config.get("dimensions")
-        if dims is not None:
-            kwargs["dimensions"] = int(dims)
-        return _LangChainOllamaChromaEF(OllamaEmbeddings(**kwargs))
+    @classmethod
+    def _client(cls, config: dict[str, Any]) -> _LangChainChromaEF:
+        raise NotImplementedError
 
     def validate_config_update(
         self, old_config: dict[str, Any], new_config: dict[str, Any]
     ) -> None:
         if "model" in new_config and new_config["model"] != old_config.get("model"):
             raise ValueError(
-                "O modelo de embedding ollama nao pode ser alterado apos a colecao ser criada."
+                f"O modelo de embedding {self.name()} nao pode ser alterado apos a colecao "
+                f"ser criada."
             )
 
     @staticmethod
     def validate_config(config: dict[str, Any]) -> None:
         if not config.get("model"):
-            raise ValueError("config ollama exige 'model'")
+            raise ValueError("config de embedding exige 'model'")
 
     def default_space(self) -> str:
         return "cosine"
@@ -108,17 +160,84 @@ class _LangChainOllamaChromaEF:
         return ["cosine", "l2", "ip"]
 
 
-def _register_ollama_chroma_ef() -> None:
-    """Register adapter under name 'ollama' so Chroma can reconstruct collections."""
-    try:
-        from chromadb.utils.embedding_functions import register_embedding_function
+class _OllamaChromaEF(_LangChainChromaEF):
+    """``langchain_ollama.OllamaEmbeddings`` (symmetric model: query == document side)."""
 
-        register_embedding_function(_LangChainOllamaChromaEF)
-    except Exception as e:
-        logger.debug("Nao foi possivel registrar EF ollama no Chroma: %s", e)
+    @staticmethod
+    def name() -> str:
+        return "ollama"
+
+    @classmethod
+    def _client(cls, config: dict[str, Any]) -> _OllamaChromaEF:
+        try:
+            from langchain_ollama import OllamaEmbeddings
+        except ImportError as e:
+            raise RuntimeError(
+                "Provider ollama exige langchain-ollama (instale com: uv add langchain-ollama)."
+            ) from e
+
+        base_url = _normalize_ollama_base_url(config.get("base_url"))
+        dims = _parse_dimensions(config.get("dimensions"))
+        kwargs: dict[str, Any] = {"model": config["model"], "base_url": base_url}
+        if dims is not None:
+            kwargs["dimensions"] = dims
+        return cls(
+            OllamaEmbeddings(**kwargs), model=config["model"], dimensions=dims, base_url=base_url
+        )
 
 
-_register_ollama_chroma_ef()
+class _GeminiChromaEF(_LangChainChromaEF):
+    """``langchain_google_genai.GoogleGenerativeAIEmbeddings`` (asymmetric, normalized).
+
+    The API key is read from the environment and never enters ``get_config``,
+    which Chroma persists to disk.
+    """
+
+    normalize = True
+
+    @staticmethod
+    def name() -> str:
+        return "zettel_gemini"
+
+    @staticmethod
+    def _is_transient(exc: BaseException) -> bool:
+        """True for a rate limit / server error anywhere in the exception chain.
+
+        LangChain wraps the SDK's ``APIError`` in ``GoogleGenerativeAIError``,
+        so the status code is on ``__cause__``, not on ``exc`` itself.
+        """
+        from google.genai.errors import APIError
+
+        seen: BaseException | None = exc
+        while seen is not None:
+            if isinstance(seen, APIError) and seen.code in _GEMINI_TRANSIENT_CODES:
+                return True
+            seen = seen.__cause__
+        return False
+
+    @classmethod
+    def _client(cls, config: dict[str, Any]) -> _GeminiChromaEF:
+        from langchain_google_genai import GoogleGenerativeAIEmbeddings
+
+        dims = _parse_dimensions(config.get("dimensions"))
+        kwargs: dict[str, Any] = {"model": config["model"], "google_api_key": _gemini_api_key()}
+        if dims is not None:
+            kwargs["output_dimensionality"] = dims
+        return cls(GoogleGenerativeAIEmbeddings(**kwargs), model=config["model"], dimensions=dims)
+
+
+def _register_chroma_efs() -> None:
+    """Register the adapters so Chroma can reconstruct collections by EF name."""
+    from chromadb.utils.embedding_functions import register_embedding_function
+
+    for ef in (_OllamaChromaEF, _GeminiChromaEF):
+        try:
+            register_embedding_function(ef)
+        except Exception as e:
+            logger.debug("Nao foi possivel registrar EF %s no Chroma: %s", ef.name(), e)
+
+
+_register_chroma_efs()
 
 
 class EmbeddingSpaceMismatch(Exception):
@@ -336,17 +455,14 @@ class VectorIndex:
         Silent fallback to ChromaDB's default (384-dim MiniLM) would mix incompatible
         vector spaces, so by default a missing key / unknown provider raises instead.
         """
+        builder = _EF_BUILDERS.get(provider)
         try:
-            if provider == "openai":
-                return self._build_openai_ef(model)
-            if provider == "sentence-transformers":
-                return self._build_sentence_transformers_ef(model)
-            if provider == "ollama":
-                return self._build_ollama_ef(model)
+            if builder is not None:
+                return builder(self, model)
             if not self.allow_fallback:
                 raise ValueError(
                     f"Embedding provider desconhecido: '{provider}'. "
-                    f"Use {', '.join(repr(p) for p in _SUPPORTED_PROVIDERS)}, "
+                    f"Use {', '.join(repr(p) for p in _EF_BUILDERS)}, "
                     f"ou ajuste embedding.allow_fallback: true para usar o default "
                     f"do ChromaDB."
                 )
@@ -364,18 +480,20 @@ class VectorIndex:
             )
             return None
 
-    def _build_openai_ef(self, model: str) -> Any:
-        import os
+    def _require_api_key(self, api_key: str | None, message: str) -> None:
+        if not api_key and not self.allow_fallback:
+            raise RuntimeError(
+                f"{message} Para usar o embedding local padrao do ChromaDB, ajuste "
+                "embedding.allow_fallback: true no config.yaml."
+            )
 
+    def _build_openai_ef(self, model: str) -> Any:
         from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 
         api_key = os.environ.get("CHROMA_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
-        if not api_key and not self.allow_fallback:
-            raise RuntimeError(
-                "Sem API key para embeddings OpenAI (defina OPENAI_API_KEY). "
-                "Para usar o embedding local padrao do ChromaDB, ajuste "
-                "embedding.allow_fallback: true no config.yaml."
-            )
+        self._require_api_key(
+            api_key, "Sem API key para embeddings OpenAI (defina OPENAI_API_KEY)."
+        )
         kwargs: dict[str, Any] = {"model_name": model, "api_key": api_key}
         if self.base_url:
             kwargs["api_base"] = self.base_url
@@ -395,31 +513,35 @@ class VectorIndex:
         if self.dimensions is not None:
             logger.warning(
                 "embedding.dimensions=%s ignorado para sentence-transformers "
-                "(suportado em openai e ollama)",
+                "(suportado em openai, ollama e gemini)",
                 self.dimensions,
             )
         return SentenceTransformerEmbeddingFunction(model_name=model, device=device)
 
     def _build_ollama_ef(self, model: str) -> Any:
-        try:
-            from langchain_ollama import OllamaEmbeddings
-        except ImportError as e:
-            raise RuntimeError(
-                "Provider ollama exige langchain-ollama "
-                "(instale com: uv add langchain-ollama / pip install langchain-ollama)."
-            ) from e
-
-        base_url = _normalize_ollama_base_url(self.base_url)
+        ef = _OllamaChromaEF.build_from_config(
+            {"model": model, "dimensions": self.dimensions, "base_url": self.base_url}
+        )
         logger.info(
             "Ollama embeddings (langchain_ollama) em %s (modelo=%s dims=%s)",
-            base_url,
+            ef.get_config()["base_url"],
             model,
             self.dimensions,
         )
-        kwargs: dict[str, Any] = {"model": model, "base_url": base_url}
-        if self.dimensions is not None:
-            kwargs["dimensions"] = self.dimensions
-        return _LangChainOllamaChromaEF(OllamaEmbeddings(**kwargs))
+        return ef
+
+    def _build_gemini_ef(self, model: str) -> Any:
+        api_key = _gemini_api_key()
+        self._require_api_key(
+            api_key,
+            f"Sem API key para embeddings Gemini (defina {' ou '.join(_GEMINI_KEY_ENVS)}).",
+        )
+        if not api_key:
+            return None
+        if self.base_url:
+            logger.warning("embedding.base_url=%s ignorado para gemini", self.base_url)
+        logger.info("Gemini embeddings (modelo=%s dims=%s)", model, self.dimensions)
+        return _GeminiChromaEF.build_from_config({"model": model, "dimensions": self.dimensions})
 
     def _collection_metadata(self) -> dict[str, Any]:
         """Provider marker stored on each collection to detect embedding-space drift."""
@@ -923,6 +1045,17 @@ class VectorIndex:
             raise RuntimeError("Embedding function not configured")
         vectors = self.embedding_fn(texts)
         return [list(v) for v in vectors]
+
+
+# Provider name (``embedding.provider``) -> builder. Adding a provider is one
+# entry here plus one ``_build_*_ef`` method; ``tests/test_config.py`` pins this
+# registry to the ``EmbeddingConfig.provider`` Literal.
+_EF_BUILDERS: dict[str, Callable[[VectorIndex, str], Any]] = {
+    "openai": VectorIndex._build_openai_ef,
+    "sentence-transformers": VectorIndex._build_sentence_transformers_ef,
+    "ollama": VectorIndex._build_ollama_ef,
+    "gemini": VectorIndex._build_gemini_ef,
+}
 
 
 def _sanitize_metadata(meta: dict[str, Any]) -> dict[str, Any]:

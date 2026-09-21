@@ -165,12 +165,15 @@ class LLMConfig(BaseModel):
 class EmbeddingConfig(BaseModel):
     """Fallback de fabrica. Valores operacionais: config/config.yaml -> embedding."""
 
-    provider: Literal["openai", "sentence-transformers", "ollama"] = "openai"
+    # Registro em zettel/index.py (_EF_BUILDERS); tests/test_config.py pina os dois.
+    provider: Literal["openai", "sentence-transformers", "ollama", "gemini"] = "openai"
     model: str = "text-embedding-3-small"
-    # ollama: host nativo (http://localhost:11434); sufixo /v1 legado e removido
+    # ollama: host nativo (http://localhost:11434); sufixo /v1 legado e removido.
+    # gemini: ignorado (API do Google via GOOGLE_API_KEY / GEMINI_API_KEY).
     base_url: str | None = None
     allow_fallback: bool = False  # False = erro se faltar key (evita Chroma 384-d)
-    # MRL: ollama (langchain_ollama) e openai text-embedding-3-* (EF Chroma).
+    # MRL: ollama (langchain_ollama), openai text-embedding-3-* (EF Chroma) e
+    # gemini-embedding-001 (768/1536/3072; vetores re-normalizados no adaptador).
     # null = dimensao nativa do modelo. Trocar exige reindex --force.
     dimensions: int | None = None
 

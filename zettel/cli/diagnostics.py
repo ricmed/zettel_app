@@ -269,6 +269,18 @@ def doctor(config: ConfigOption = None):
             detail = f"provider nao suportado: {detail}"
         checks.append((f"LLM {phase}", ok, detail))
 
+    from zettel.credentials import embedding_credential_env, embedding_ready
+
+    key_envs = embedding_credential_env(cfg)
+    checks.append(
+        (
+            "Embedding credential",
+            embedding_ready(cfg),
+            f"{cfg.embedding.provider}: "
+            + (" ou ".join(key_envs) if key_envs else "sem credencial (local)"),
+        )
+    )
+
     # MOC taxonomy YAML: only a failure when strict_topics would actually enforce it.
     topics_path = cfg.gardener.topics_path
     if topics_path is None:

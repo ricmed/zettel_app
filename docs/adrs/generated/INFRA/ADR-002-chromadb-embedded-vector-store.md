@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2025-03-01 (approximate — foundational choice, no isolatable commit)
-**Related to:** [ADR-XXX: Granular Per-Chunk Literature Notes with Readable Filenames](../EXTRACT/ADR-015-granular-literature-notes-readable-filenames.md)
+**Related to:** [ADR-XXX: Granular Per-Chunk Literature Notes with Readable Filenames](../EXTRACT/ADR-015-granular-literature-notes-readable-filenames.md), [ADR-052](./ADR-052-embedding-providers-registry.md)
 
 ## Context and Problem Statement
 
@@ -60,7 +60,7 @@ Chosen option: **ChromaDB embedded `PersistentClient`**, because it satisfies th
 
 ## Consequences
 
-Embedding-provider or embedding-model changes render all existing vectors stale, with no automatic drift detection — operators must manually run a full reindex, and nothing today warns when configuration and stored vectors have diverged. Deleting a source removes its metadata references but leaves the underlying vectors in the collections indefinitely, so storage grows without a compaction path.
+Embedding-provider, model or dimension changes render all existing vectors stale. Each collection carries an `embedding_provider/model/dimensions` marker; `VectorIndex` raises `EmbeddingSpaceMismatch` on drift, the CLI offers `zettel reindex --force`, and `zettel doctor` / the web settings page report it. Providers are registered in `_EF_BUILDERS` (see [ADR-052](./ADR-052-embedding-providers-registry.md)). Deleting a source removes its metadata references but leaves the underlying vectors in the collections indefinitely, so storage grows without a compaction path.
 
 The `data/chroma/` directory is the sole copy of all embedded vectors, and no backup or restore procedure exists for it; losing that directory means re-embedding the entire corpus from source content. [NEEDS INPUT: Define a backup/restore strategy for `data/chroma/`, given that its loss is currently unrecoverable without a full reindex.]
 
