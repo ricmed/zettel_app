@@ -18,6 +18,7 @@ data/docs_example/*
 data/state.db
 data/zettel.db
 data/processed/
+data/logs/
 
 vault/*
 vault/.obsidian/*
