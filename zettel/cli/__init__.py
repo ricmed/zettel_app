@@ -85,4 +85,7 @@ __all__ = ["COMMAND_MODULES", "app", "console", "main"]
 
 def main() -> None:
     """Console entry point, used by ``zettel/__main__.py``."""
+    from zettel.crashlog import enable_crash_log
+
+    enable_crash_log()
     app()

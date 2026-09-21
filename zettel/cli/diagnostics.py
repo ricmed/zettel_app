@@ -158,6 +158,22 @@ def doctor(config: ConfigOption = None):
     # Vault
     checks.append(("Vault path", cfg.vault_path.exists(), str(cfg.vault_path)))
 
+    # Native crashes: a C extension fault kills the process with no traceback, so
+    # the leftover faulthandler dump is the only trace a run left behind.
+    from zettel.crashlog import leftover_crash_logs
+
+    crashes = leftover_crash_logs()
+    checks.append(
+        (
+            "Crash nativo (data/logs)",
+            not crashes,
+            "nenhum"
+            if not crashes
+            else f"{len(crashes)} log(s), o mais recente: {crashes[-1]} "
+            "(ou um processo ainda em execucao)",
+        )
+    )
+
     # Inbox
     checks.append(("Inbox path", cfg.inbox_path.exists(), str(cfg.inbox_path)))
 

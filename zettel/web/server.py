@@ -21,6 +21,11 @@ from zettel.web_app import WebApplication
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # The worker thread runs Docling and friends in-process: a native crash there
+    # takes the whole server down, so it must leave a stack behind.
+    from zettel.crashlog import enable_crash_log
+
+    enable_crash_log()
     service = WebApplication(
         getattr(app.state, "config_path", None) or os.environ.get("ZETTEL_CONFIG")
     )
