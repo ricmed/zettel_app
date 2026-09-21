@@ -89,6 +89,7 @@ Responda mentalmente antes de decidir:
 - Mínimo de 3-6 frases substantivas
 - Deve revelar o **mecanismo** ou **princípio** subjacente quando houver
 - Evite descrições superficiais; busque profundidade explanatória
+- Você pode receber expressões matemáticas, algumas indicam cálculos, outras, fórmulas para conceitos, mostre os cálculos quando forem relevantes para entendimento da nota, para conceitos sempre inclua a fórmula. Sempre dentro da estrutura `$ $` para fórmulas in-line e `$$ $$` para fórmulas destacadas.
 
 ### Intuição
 

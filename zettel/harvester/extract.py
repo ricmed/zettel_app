@@ -163,7 +163,43 @@ def build_pdf_pipeline_options(cfg: AppConfig, device: str) -> Any:
         options.images_scale = cfg.images.scale
     options.do_formula_enrichment = cfg.formulas.enabled
     options.do_code_enrichment = cfg.code.enabled
+    if (
+        (cfg.formulas.enabled or cfg.code.enabled)
+        and device == "cuda"
+        and not cuda_has_native_bf16()
+    ):
+        _load_code_formula_in_float16(options)
     return options
+
+
+# Docling loads CodeFormulaV2 in bfloat16. On a GPU without native bfloat16 (e.g. Turing,
+# compute capability 7.5) torch emulates it, and the emulation costs MORE memory than
+# float32, not less. Measured on an RTX 2060 (6 GB) over a 7-page math PDF:
+#
+#   bfloat16 (emulated)  776 s  peak 8.63 GB  -- past physical VRAM, spills into system RAM
+#   float32              150-163 s  peak 4.13 GB
+#   float16              123 s      peak 2.45 GB
+#
+# The bfloat16 run had image extraction off; float16 and float32 were measured with it both
+# off and on, with the same peak. With images on, float16 and float32 produced
+# byte-identical Markdown. The bfloat16 run is the condition
+# under which a real harvest died with STATUS_HEAP_CORRUPTION (0xc0000374) and no Python
+# traceback; the crash itself did not reproduce, the memory overcommit did.
+def cuda_has_native_bf16() -> bool:
+    import torch
+
+    return torch.cuda.is_available() and torch.cuda.is_bf16_supported(including_emulation=False)
+
+
+def _load_code_formula_in_float16(options: Any) -> None:
+    from docling.datamodel.vlm_engine_options import VlmEngineType
+
+    engine = options.code_formula_options.model_spec.engine_overrides[VlmEngineType.TRANSFORMERS]
+    engine.extra_config["torch_dtype"] = "float16"
+    logger.info(
+        "Docling: GPU sem bfloat16 nativo -- CodeFormulaV2 carregado em float16 "
+        "(bfloat16 emulado estoura a VRAM)"
+    )
 
 
 def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str, Any]]:

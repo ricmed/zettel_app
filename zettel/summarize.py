@@ -179,15 +179,15 @@ def _call_summary_llm(
 
 
 def _parse_chapter_summary(text: str) -> ChapterSummaryOutput:
-    from zettel.llm import extract_json
+    from zettel.llm import parse_llm_json
 
-    return ChapterSummaryOutput(**json.loads(extract_json(text)))
+    return ChapterSummaryOutput(**parse_llm_json(text))
 
 
 def _parse_source_summary(text: str) -> SourceSummaryOutput:
-    from zettel.llm import extract_json
+    from zettel.llm import parse_llm_json
 
-    return SourceSummaryOutput(**json.loads(extract_json(text)))
+    return SourceSummaryOutput(**parse_llm_json(text))
 
 
 def _split_for_map_reduce(text: str, budget: int) -> list[str]:
