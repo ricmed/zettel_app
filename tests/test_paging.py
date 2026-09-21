@@ -11,6 +11,7 @@ from zettel.paging import (
     extract_page_hint,
     format_source_locator,
     infer_missing_page,
+    locate_quote_pages,
     lookup_page_for_chunk,
     page_map_from_marked_markdown,
     parse_biblio_start_page,
@@ -212,3 +213,50 @@ def test_resolve_content_paging_explicit_flags_win():
         skip_paging=True,
     )
     assert paging == ContentPaging(1, 200, "confirmed")
+
+
+# -- Quote location (ADR-051) ---------------------------------------------
+
+_QUOTE = "o sistema um opera de forma automatica e rapida com pouco esforco"
+
+
+def _marked(*pages: str) -> str:
+    return f"\n\n{PAGE_BREAK_MARKER}\n\n".join(pages)
+
+
+def test_locate_quote_on_first_page_of_chunk():
+    text = _marked(
+        "capa", "Texto. O Sistema Um opera de forma automatica e rapida, com pouco esforco. Fim."
+    )
+    assert locate_quote_pages(text, _QUOTE, 2) == (2, 2)
+
+
+def test_locate_quote_on_next_page_of_chunk():
+    """A chunk's page is its first page; the anchor may sit on the following one."""
+    text = _marked("capa", "Inicio do capitulo sem a citacao.", f"Adiante: {_QUOTE}.")
+    assert locate_quote_pages(text, _QUOTE, 2) == (3, 3)
+
+
+def test_locate_quote_crossing_a_page_break():
+    text = _marked(
+        "capa", "Aqui: o sistema um opera de forma", "automatica e rapida com pouco esforco. Fim."
+    )
+    assert locate_quote_pages(text, _QUOTE, 2) == (2, 3)
+
+
+def test_locate_quote_tolerates_an_editorial_ellipsis():
+    quote = "o sistema um opera de forma [...] automatica e rapida com pouco esforco"
+    text = _marked("capa", f"Texto: {_QUOTE}.")
+    assert locate_quote_pages(text, quote, 2) == (2, 2)
+
+
+def test_locate_quote_does_not_look_before_the_chunk_page():
+    text = _marked(f"Prefacio cita: {_QUOTE}.", "Pagina do chunk, sem a citacao.")
+    assert locate_quote_pages(text, _QUOTE, 2) is None
+
+
+def test_locate_quote_without_page_map_or_match():
+    assert locate_quote_pages(f"Markdown nativo: {_QUOTE}.", _QUOTE, 1) is None
+    assert locate_quote_pages(_marked("a", "b"), _QUOTE, 1) is None
+    assert locate_quote_pages(_marked("a", _QUOTE), "", 1) is None
+    assert locate_quote_pages(_marked("a", _QUOTE), _QUOTE, None) is None

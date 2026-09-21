@@ -12,6 +12,7 @@ from zettel.article import (
     CatalogAsset,
     CatalogNote,
     CatalogSource,
+    _pack_section,
     assemble_article,
     catalog_from_retrieved,
     format_outline_for_display,
@@ -399,3 +400,89 @@ def test_verify_missing_embed(tmp_path):
     body = "# T\n\n![[90_Assets/missing.png]]\n"
     warnings = verify_article(body, catalog, tmp_path)
     assert any("missing.png" in w for w in warnings)
+
+
+# -- Citation provenance (ADR-051) -----------------------------------------
+
+ANCHOR = "prompt engineering melhora a qualidade das respostas do modelo"
+
+
+def test_catalog_reads_note_citation_from_frontmatter(db, seeded):
+    """The per-note cite and anchor come from the ZTL frontmatter, not the body."""
+    db.upsert_note(
+        NOTE_A,
+        source_id="@Negro2026KnowledgeGraphs",
+        path=f"30_Permanent/ZTL - {NOTE_A} - prompt.md",
+        title="Prompt engineering e qualidade",
+        body=db.get_note(NOTE_A)["body"],
+        frontmatter_json=json.dumps(
+            {"citation": "(NEGRO et al., 2026, p. 42)", "anchor_quote": ANCHOR}
+        ),
+    )
+    hits = [
+        RetrievedNote(
+            note_id=nid,
+            score=0.9,
+            metadata={"source_id": "@Negro2026KnowledgeGraphs"},
+            passed_floor=True,
+        )
+        for nid in (NOTE_A, NOTE_B)
+    ]
+    cfg = AppConfig(vault_path=seeded, prompts_path=Path("prompts"))
+    catalog = catalog_from_retrieved(
+        cfg, db, "prompt", "academic", [retrieved_note_to_dict(h) for h in hits]
+    )
+
+    assert catalog.notes[NOTE_A].cite == "(NEGRO et al., 2026, p. 42)"
+    assert catalog.notes[NOTE_A].anchor_quote == ANCHOR
+    # A note with no citation of its own still cites its source by author-date.
+    assert catalog.notes[NOTE_B].cite == "(NEGRO; KUS; FUTIA, 2026)"
+    assert catalog.notes[NOTE_B].anchor_quote == ""
+
+
+def test_pack_section_gives_each_note_its_own_cite_and_quote():
+    catalog = ArticleCatalog(topic="t", style="academic")
+    catalog.notes[NOTE_A] = CatalogNote(
+        note_id=NOTE_A,
+        title="A",
+        body="corpo A",
+        wiki_link="[[A]]",
+        cite="(NEGRO et al., 2026, p. 42)",
+        anchor_quote=ANCHOR,
+    )
+    catalog.notes[NOTE_B] = CatalogNote(
+        note_id=NOTE_B, title="B", body="corpo B", wiki_link="[[B]]", cite="(NEGRO et al., 2026)"
+    )
+    section = ArticleOutlineSection(heading="S", goal="g", note_ids=[NOTE_A, NOTE_B])
+
+    evidence = _pack_section(catalog, section)["evidence"]
+
+    assert "- citacao_abnt: (NEGRO et al., 2026, p. 42)" in evidence
+    assert f'- citacao_direta: "{ANCHOR}"' in evidence
+    assert "- citacao_abnt: (NEGRO et al., 2026)\n" in evidence
+    assert evidence.count("citacao_direta") == 1
+
+
+def test_verify_flags_direct_quote_without_anchor():
+    catalog = ArticleCatalog(topic="t", style="academic")
+    catalog.notes[NOTE_A] = CatalogNote(
+        note_id=NOTE_A, title="A", body="", wiki_link="[[A]]", anchor_quote=ANCHOR
+    )
+    grounded = f'Segundo os autores, "{ANCHOR.capitalize()}" (NEGRO et al., 2026, p. 42).'
+    partial = (
+        'Os autores notam que "melhora a qualidade das respostas" (NEGRO et al., 2026, p. 42).'
+    )
+    invented = 'Os autores dizem que "LLMs substituem todo engenheiro de dados" (NEGRO, 2026).'
+    term = 'O chamado "few-shot" ajuda.'
+
+    assert not [w for w in verify_article(grounded, catalog) if "direta" in w]
+    assert not [w for w in verify_article(partial, catalog) if "direta" in w]
+    assert not [w for w in verify_article(term, catalog) if "direta" in w]
+    flagged = [w for w in verify_article(invented, catalog) if "direta" in w]
+    assert len(flagged) == 1 and "engenheiro de dados" in flagged[0]
+
+
+def test_verify_ignores_quotes_in_blog_style():
+    catalog = ArticleCatalog(topic="t", style="blog")
+    body = 'Alguem disse "uma frase inventada com varias palavras aqui".'
+    assert not [w for w in verify_article(body, catalog) if "direta" in w]

@@ -850,6 +850,18 @@ def build_literature_chunk_note(
     return meta, body
 
 
+def render_evidence_block(citation: str, anchor_quote: str) -> str:
+    """Inner text of the ZTL `auto-evidence` block; empty when there is nothing to cite."""
+    lines: list[str] = []
+    if citation:
+        lines.append(f"- Citação: {citation}")
+    quote = (anchor_quote or "").strip()
+    if quote:
+        suffix = f" {citation}" if citation else ""
+        lines.append(f'- Trecho literal:\n\n> "{quote}"{suffix}')
+    return "\n".join(lines)
+
+
 def build_permanent_note_body(
     thesis: str,
     definition: str,
@@ -862,6 +874,8 @@ def build_permanent_note_body(
     source_locator: str = "",
     page: int | None = None,
     images: list[dict] | None = None,
+    citation: str = "",
+    anchor_quote: str = "",
 ) -> str:
     """Build the Markdown body for a Permanent (ZTL) note.
 
@@ -871,6 +885,11 @@ def build_permanent_note_body(
     `page` is the printed page (``chunks.page_in_book``) — structural data read
     from the chunk row, not the LLM-authored `source_locator`. It is None for
     native Markdown, which has no pages (ADR-013), and the field is then omitted.
+
+    `citation` / `anchor_quote` go into the `auto-evidence` managed block
+    (ADR-051): the ready ABNT citation and the verbatim passage the thesis rests
+    on. Being a managed block, it never reaches the embedding, so the note stays
+    conceptual for retrieval.
     """
     parts: list[str] = []
     parts.append(f"> **Tese**: {thesis}\n")
@@ -897,6 +916,10 @@ def build_permanent_note_body(
         source_lines.append(f"- Página: {page}")
     if source_locator:
         source_lines.append(f"- Localizador: {source_locator}")
+    evidence = render_evidence_block(citation, anchor_quote)
+    if evidence:
+        source_lines.append("")
+        source_lines.append(upsert_managed_block("", "auto-evidence", evidence).strip())
     parts.append("\n".join(source_lines))
     parts.append("")
     if connections:

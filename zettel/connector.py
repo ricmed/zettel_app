@@ -15,6 +15,7 @@ from typing import Any
 
 from ulid import ULID
 
+from zettel.citation import citation_frontmatter, resolve_citation
 from zettel.config import AppConfig, effective_temperature, llm_phase, thinking_checksum_token
 from zettel.hashing import (
     compute_embedding_input_hash,
@@ -434,8 +435,9 @@ def _process_candidate(
     title_src = source["title"] if source else ""
     chunk_row = db.get_chunk(cand_dict["chunk_id"]) if cand_dict.get("chunk_id") else None
     literature_ref = _literature_ref_for_chunk(citekey, title_src, chunk_row)
-    # Structural page, read from the chunk row — not the LLM-authored locator.
-    page_in_book = chunk_row.get("page_in_book") if chunk_row else None
+    # Structural page and citation, derived by code from the chunk row and the
+    # grounded anchor quote — never from the LLM-authored locator (ADR-051).
+    citation = resolve_citation(source, chunk_row, cand.anchor_quote)
 
     # Prefer LLM-provided image ids; fall back to paths embedded in the source chunk.
     image_ids = list(getattr(cand, "relevant_image_ids", None) or [])
@@ -601,8 +603,10 @@ def _process_candidate(
         connections=edge_connections,
         literature_ref=literature_ref,
         source_locator=cand.source_locator or "",
-        page=page_in_book,
+        page=citation.page,
         images=images,
+        citation=citation.cite,
+        anchor_quote=cand.anchor_quote,
     )
 
     from zettel.time import now_vault_iso
@@ -627,9 +631,9 @@ def _process_candidate(
         "llm_tokens_completion": note_tokens_out,
         "llm_cache_hit": cache_hit,
     }
-    # Omitted rather than null for a source without pages (native Markdown).
-    if page_in_book is not None:
-        meta["page"] = page_in_book
+    # Page, ABNT citation and the verbatim anchor come from code, not the LLM
+    # (ADR-051); `page` is omitted rather than null for native Markdown.
+    meta.update(citation_frontmatter(citation, cand.anchor_quote))
     # The author's judgement travels verbatim from the candidate, not through the
     # LLM: the export (`zettel skill`) reads it from here instead of re-parsing the
     # LIT draft. Absent keys mean the chunk stated none — noise-free by default.

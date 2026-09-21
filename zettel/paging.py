@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from zettel.config import AppConfig
+from zettel.hashing import fold_for_match
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +206,49 @@ def page_map_from_marked_markdown(text: str) -> list[tuple[int, str]]:
         return []
     parts = text.split(PAGE_BREAK_MARKER)
     return [(i + 1, part.strip()) for i, part in enumerate(parts)]
+
+
+_QUOTE_EDGE_WORDS = 5
+_QUOTE_PAGE_WINDOW = 4
+
+
+def locate_quote_pages(
+    extracted_text: str | None,
+    quote: str,
+    first_page_in_file: int | None,
+) -> tuple[int, int] | None:
+    """File pages (first, last) on which ``quote`` sits, or None when unknown.
+
+    A chunk's ``page_in_file`` is the **first** page it touches, so a quote in a
+    chunk that crosses a page break may sit on the next one. The search runs over
+    the Docling page map in ``extracted_text`` (the only surface that still carries
+    the markers), from the chunk's page through the next few. The quote's head and
+    tail are located separately, which both yields a range when the quote crosses
+    a break and tolerates an editorial ellipsis in its middle.
+
+    None when there is no page map (native Markdown, marker-less export) or the
+    quote cannot be found — the caller falls back to the chunk's page.
+    """
+    words = fold_for_match(quote).split()
+    if not words or first_page_in_file is None:
+        return None
+    page_map = page_map_from_marked_markdown(extracted_text or "")
+    if not page_map:
+        return None
+    window = [
+        (page, f" {fold_for_match(text)} ")
+        for page, text in page_map
+        if first_page_in_file <= page < first_page_in_file + _QUOTE_PAGE_WINDOW
+    ]
+    head = f" {' '.join(words[:_QUOTE_EDGE_WORDS])} "
+    tail = f" {' '.join(words[-_QUOTE_EDGE_WORDS:])} "
+    first = next((page for page, text in window if head in text), None)
+    if first is None:
+        return None
+    last = next((page for page, text in window if page >= first and tail in text), None)
+    if last is None:
+        return None
+    return first, last
 
 
 def parse_biblio_start_page(pages: str | None) -> int | None:

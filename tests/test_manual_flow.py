@@ -297,6 +297,11 @@ def test_permanent_from_literature_without_llm(cfg, db):
     assert meta["page"] == 42
     assert "- Página: 42" in body
     assert "Conectividade determina robustez" in body
+    # Citation provenance (ADR-051): derived by code, anchor copied verbatim.
+    assert meta["citation"] == "(DIESTEL, 2017, p. 42)"
+    assert meta["anchor_quote"].startswith("Um grafo e conexo")
+    evidence = read_managed_block(body, "auto-evidence")
+    assert evidence is not None and "(DIESTEL, 2017, p. 42)" in evidence
     # No approval gate and no concept row on the hand-written path.
     assert db.get_concepts_by_status("approved") == []
 
@@ -352,10 +357,14 @@ def test_permanent_from_literature_with_llm(cfg, db, monkeypatch):
     )
     assert via_llm is True
 
-    meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+    meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
     assert meta["origin"] == "manual"
     assert meta["literature_ref"].startswith(f"[[Diestel2017/{lit.stem}|p. 42 ")
     assert meta["page"] == 42
+    # The connector copies the anchor from the candidate, not from Prompt 2's output.
+    assert meta["citation"] == "(DIESTEL, 2017, p. 42)"
+    assert meta["anchor_quote"].startswith("Um grafo e conexo")
+    assert read_managed_block(body, "auto-evidence") is not None
 
     row = db.get_note(meta["note_id"])
     assert row is not None and row["origin"] == "manual"

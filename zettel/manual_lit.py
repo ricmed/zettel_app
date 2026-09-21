@@ -424,6 +424,7 @@ def create_permanent_from_literature(
     ``origin: manual``. Without it, a pre-filled scaffold is written for the user to
     complete and adopt later with ``sync-manual``. Neither path needs approval.
     """
+    from zettel.citation import citation_frontmatter, resolve_citation
     from zettel.connector import ConnectRejected, _literature_ref_for_chunk, run_connect
     from zettel.new_note import resolve_src_in_vault, source_wikilink
     from zettel.vault import (
@@ -497,6 +498,7 @@ def create_permanent_from_literature(
     src_path, _ = resolve_src_in_vault(cfg, source_id) if source_id else (None, None)
     source_ref = source_wikilink(citekey, path=src_path, title=title_src) if citekey else ""
     definition = candidate.definition if candidate.definition != candidate.thesis else ""
+    citation = resolve_citation(source, chunk_row, candidate.anchor_quote)
     note_body = build_permanent_note_body(
         thesis=candidate.thesis,
         definition=definition or "_Preencha a definicao._",
@@ -507,10 +509,10 @@ def create_permanent_from_literature(
         literature_ref=literature_ref,
         source_ref=source_ref,
         source_locator=candidate.source_locator,
-        page=chunk_row.get("page_in_book") if chunk_row else None,
+        page=citation.page,
+        citation=citation.cite,
+        anchor_quote=candidate.anchor_quote,
     )
-    if candidate.anchor_quote:
-        note_body += f"\n## Trecho de apoio\n\n> {candidate.anchor_quote}\n"
     note_body += (
         "\n## Sugestoes de conexao\n\n"
         "<!-- zettel:auto-connections:start -->\n"
@@ -532,9 +534,7 @@ def create_permanent_from_literature(
         "created_at": now,
         "updated_at": now,
     }
-    # Omitted rather than null for a source without pages (native Markdown).
-    if chunk_row and chunk_row.get("page_in_book") is not None:
-        note_meta["page"] = chunk_row["page_in_book"]
+    note_meta.update(citation_frontmatter(citation, candidate.anchor_quote))
     note_path = cfg.vault_path / "30_Permanent" / note_filename("ZTL", note_id, title)
     if note_path.exists() and not force:
         raise FileExistsError(f"Arquivo ja existe: {note_path}")
