@@ -46,3 +46,8 @@ def test_local_provider_is_zero():
     assert estimate_llm_cost("qwen3.5:4b", 100, 50, provider="ollama") == 0.0
     assert estimate_embed_cost("qwen3-embedding", 100, provider="ollama") == 0.0
     assert estimate_embed_cost("x", 100, provider="sentence-transformers") == 0.0
+
+
+def test_gemini_embedding_is_priced():
+    """gemini-embedding-001 resolve no mapa do LiteLLM sem prefixo de provider."""
+    assert estimate_embed_cost("gemini-embedding-001", 1_000_000, provider="gemini") > 0.0

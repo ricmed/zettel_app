@@ -9,7 +9,7 @@
 
 | Module | Count | ADRs |
 |--------|-------|------|
-| **INFRA** | 10 | [001–008, 041–042](#infra-core-infrastructure) |
+| **INFRA** | 11 | [001–008, 041–042, 052](#infra-core-infrastructure) |
 | **RETRIEVAL** | 4 | [009–010, 036, 043](#retrieval-hybrid-search--graph) |
 | **HARVEST** | 6 | [011–014, 027, 033](#harvest-ingestion--paging) |
 | **EXTRACT** | 2 | [015, 034](#extract-literature-notes) |
@@ -103,6 +103,13 @@
 - **Date**: 2026-09-06
 - **Summary**: `domain.name` / `domain.examples_path` at the top level; few-shots leave the prompts. `gardener.domain` is gone. Category labels no longer share a domain prefix.
 - **Link**: [`ADR-042-domain-as-first-class-config.md`](./generated/INFRA/ADR-042-domain-as-first-class-config.md)
+
+### ADR-052: Embedding Providers via Registry, Asymmetric Query Side, Unit-Norm Contract
+
+- **Status**: Accepted
+- **Date**: 2026-09-21
+- **Summary**: `_EF_BUILDERS` registry replaces the provider `if/elif`; adds `gemini` (`gemini-embedding-001`). A LangChain adapter routes Chroma's `embed_query` to the client's query side (`RETRIEVAL_QUERY`) and L2-normalizes when the model does not.
+- **Link**: [`ADR-052-embedding-providers-registry.md`](./generated/INFRA/ADR-052-embedding-providers-registry.md)
 
 ---
 
@@ -519,6 +526,8 @@
 ---
 
 ## Status Update (2026-09-21)
+
+✅ **ADR-052 added** — embedding providers via a registry (`_EF_BUILDERS`), with Gemini as the first addition. Queries take the model's query side through Chroma's `embed_query`; adapters guarantee unit-norm vectors, which the relevance floor assumes. ADR-002's consequences were corrected (drift detection exists).
 
 ✅ **ADR-051 added** — citation provenance on the permanent note (issue #187). Page, ABNT citation and the verbatim anchor are copied onto the ZTL by code, with the page resolved to where the anchor actually sits. `zettel article` cites per note and checks direct quotes against grounded anchors.
 

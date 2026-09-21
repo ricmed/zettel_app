@@ -85,14 +85,15 @@ llm:
 
 # ── Embeddings ──────────────────────────────────────────────────────────
 embedding:
-  provider: openai                    # openai | sentence-transformers | ollama
+  provider: openai                    # openai | sentence-transformers | ollama | gemini
   model: text-embedding-3-small
-  base_url: null                      # ollama: default http://localhost:11434 (host nativo)
+  base_url: null                      # ollama: default http://localhost:11434 (host nativo); gemini: ignorado
   allow_fallback: false               # false = erro se faltar API key
                                       # (evita cair no default 384-d do Chroma sem aviso)
   dimensions: null                    # truncagem MRL. null = dimensao nativa do modelo.
-                                      # Vale para ollama (langchain_ollama) e para os
-                                      # text-embedding-3-* da OpenAI.
+                                      # Vale para ollama (langchain_ollama), para os
+                                      # text-embedding-3-* da OpenAI e para o
+                                      # gemini-embedding-001 (768 / 1536 / 3072).
                                       # Trocar exige `zettel reindex --force`.
 
 # ── Chunking ────────────────────────────────────────────────────────────
@@ -391,9 +392,28 @@ embedding:
 
 Requer: Ollama rodando com o modelo de embedding puxado (`ollama pull qwen3-embedding`).
 
+### Gemini (Google)
+
+```yaml
+embedding:
+  provider: gemini
+  model: gemini-embedding-001
+  dimensions: 1024      # MRL; o Google recomenda 768 / 1536 / 3072. null = 3072
+```
+
+Requer: `GOOGLE_API_KEY` (ou `GEMINI_API_KEY`) no `.env` — a mesma chave do LLM Gemini. Usa `GoogleGenerativeAIEmbeddings` (`langchain-google-genai`, já instalado).
+
+- **Assimétrico:** texto indexado vai como `RETRIEVAL_DOCUMENT`; toda busca (`ask`, `catalog`, RAG do `connect`, `sync`) vai como `RETRIEVAL_QUERY`. Nada a configurar — o Chroma chama o lado de consulta do adaptador.
+- **Normalização:** abaixo de 3072 dimensões o Gemini não devolve vetores unitários; o adaptador normaliza, porque o piso de relevância assume norma 1.
+- **Custo:** `gemini-embedding-001` é precificado pelo mapa do LiteLLM e aparece em `zettel status` como qualquer embedding pago.
+
+Depois de trocar para o Gemini, os limiares **precisam** ser remedidos (veja abaixo): consulta × documento dá similaridades diferentes de documento × documento.
+
+Para adicionar outro provider: uma entrada em `_EF_BUILDERS` (`zettel/index.py`), um método `_build_*_ef` e o nome no `Literal` de `EmbeddingConfig.provider` (ADR-052).
+
 ### `allow_fallback`
 
-`allow_fallback: false` (padrão) faz o sistema **falhar** se a API key estiver ausente, em vez de cair silenciosamente na função de embedding default do Chroma (384 dimensões) — o que misturaria espaços vetoriais incompatíveis sem aviso.
+`allow_fallback: false` (padrão) faz o sistema **falhar** se a API key estiver ausente (OpenAI ou Gemini), em vez de cair silenciosamente na função de embedding default do Chroma (384 dimensões) — o que misturaria espaços vetoriais incompatíveis sem aviso.
 
 ---
 
@@ -416,11 +436,11 @@ Sem `--force` após uma troca de modelo, sources/chunks já indexados **não** s
 
 Depois da troca, se a qualidade da busca degradar, recalibre:
 
-- `retrieval.relevance_floor.min_vector_similarity` — o piso é dependente do modelo;
+- `retrieval.relevance_floor.min_vector_similarity` e `retrieval.chapter_floor.min_vector_similarity` — dependem do modelo; meça com `scripts/probe_relevance_floor.py` (e `--collection chapter_summaries`);
 - `linking.dedupe_threshold` e `harvest.duplicate_chunk_threshold` — limiares de dedupe, calibrados sobre distância L2 crua. O segundo só tem efeito com `harvest.semantic_duplicate_enabled: true`.
 - `linking.corroborates_min_similarity` — também sobre similaridade vetorial crua, derivada dos hits que o `Retriever` já trouxe no `connect`. Não custa embedding nem chamada de LLM adicionais.
 
-O `zettel doctor` também reporta drift de embedding.
+O `zettel doctor` também reporta drift de embedding e a presença da credencial do provider de embedding ("Embedding credential").
 
 ---
 
