@@ -202,6 +202,25 @@ def _load_code_formula_in_float16(options: Any) -> None:
     )
 
 
+def release_docling_pipelines(converter: Any) -> None:
+    """Free the converter's pipelines (and their models) now, not at exit.
+
+    The converter should die with this module's frame, but it does not: an
+    exception cached during the lazy Docling/transformers import keeps a
+    traceback whose ``f_back`` chain reaches the frame that ran the import,
+    with ``converter`` still in its locals. The CodeFormula VLM then survives
+    until interpreter shutdown, where its ``__del__`` logs through a handler
+    that can no longer import anything ("sys.meta_path is None").
+
+    Emptying the pipeline cache runs that cleanup while the interpreter is
+    alive, and gives the VRAM back after every file. ``initialized_pipelines``
+    is Docling's own per-converter cache; there is no public release method.
+    """
+    pipelines = getattr(converter, "initialized_pipelines", None)
+    if isinstance(pipelines, dict):
+        pipelines.clear()
+
+
 def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str, Any]]:
     """Extract text from PDF using Docling, with GPU acceleration when available.
 
@@ -244,6 +263,8 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
             f"Docling lancou um erro ({e}). Docling e obrigatorio e nao ha "
             "fallback. Verifique a instalacao e a disponibilidade de GPU/CPU."
         ) from e
+    finally:
+        release_docling_pipelines(converter)
 
     # Page-break comments keep file-page provenance in the same Markdown
     # dialect as the chunked text. export_to_markdown() without them drops
