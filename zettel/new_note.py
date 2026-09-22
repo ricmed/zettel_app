@@ -210,8 +210,8 @@ def _write_literature_index(
     """Create the source's literature index note, mirroring what harvest writes.
 
     Without it the SRC note's `## Indice de Literatura` wikilink is born dead. An
-    index that already exists is left alone: it carries the `auto-lit-index` block
-    that review/sync maintain.
+    index that already exists is left alone: it carries the chapter map that
+    review/sync maintain.
     """
     path = cfg.vault_path / "20_Literature" / literature_index_filename(citekey, title)
     if path.exists() and not force:
@@ -305,8 +305,8 @@ def scaffold_manual_note(
             path=path,
         )
         _write_scaffold(path, meta, body, force=force)
-        # Never overwrite an index that already carries the auto-lit-index block
-        # maintained by review/sync, even when the SRC scaffold itself is forced.
+        # Never overwrite an index that already carries the chapter map maintained
+        # by review/sync, even when the SRC scaffold itself is forced.
         _write_literature_index(cfg, sid, ck, title, force=False)
         return NewNoteResult(path=path, note_type=normalized, meta=meta)
 

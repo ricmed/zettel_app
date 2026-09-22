@@ -419,7 +419,6 @@ def render_chapter_map(cfg: AppConfig, db: StateDB, source_id: str) -> str:
     for chunk in db.get_chunks_for_source(source_id):
         chunks_by_chapter.setdefault(chunk["chapter_id"], []).append(chunk)
 
-    max_links = cfg.summarize.max_links_per_chapter
     lines: list[str] = []
     for chapter in chapters:
         cid = chapter["chapter_id"]
@@ -453,15 +452,16 @@ def render_chapter_map(cfg: AppConfig, db: StateDB, source_id: str) -> str:
                 key=lambda c: c.get("chunk_index") or 0,
             )
         ]
-        if lit_links:
-            lines.append(f"Notas de literatura: {' '.join(lit_links[:max_links])}")
         ztl_links = [
             permanent_wikilink(n["note_id"], n.get("title") or "", path=n.get("path"))
             for n in db.get_notes_for_chapter(cid)
         ]
-        if ztl_links:
-            lines.append(f"Notas permanentes: {' '.join(ztl_links[:max_links])}")
-        lines.append("")
+        # One link per line: this map is the only place the index lists them.
+        for label, links in (("Notas de literatura", lit_links), ("Notas permanentes", ztl_links)):
+            if links:
+                lines.append(f"**{label}**")
+                lines.extend(f"- {link}" for link in links)
+                lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
 

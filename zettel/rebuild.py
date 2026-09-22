@@ -146,57 +146,25 @@ def run_reindex(
         stats["fts_notes"] = fts_counts.get("fts_notes", 0)
         stats["fts_chunks"] = fts_counts.get("fts_chunks", 0)
         stats["fts_chapter_summaries"] = fts_counts.get("fts_chapter_summaries", 0)
-        stats["topic_terms"] = rebuild_topic_index(cfg, db)
+        stats["topic_terms"] = rebuild_topic_index(db)
     return stats
 
 
-def rebuild_topic_index(cfg: AppConfig, db: StateDB) -> int:
-    """Rebuild the MOC topic-index scopes and drop leftover source-scope rows.
+def rebuild_topic_index(db: StateDB) -> int:
+    """Rebuild the MOC topic-index rows.
 
     Like FTS5, the topic index is a disposable cache derived from state that
     already exists, so a full `reindex` is the natural place to backfill it —
-    otherwise a mature vault would only get one after its next `garden`. Source
-    scopes are no longer written (they never seeded retrieval); this pass
-    deletes their rows and strips the vault block from literature index notes.
+    otherwise a mature vault would only get one after its next `garden`.
     """
     from zettel.gardener_assign import extract_note_ids_from_moc_body
     from zettel.moc_backrefs import _sync_moc_topic_index
-    from zettel.review import _clear_source_topic_index
-    from zettel.topic_index import SCOPE_MOC, SCOPE_SOURCE
-
-    db.delete_topic_index_kind(SCOPE_SOURCE)
-    for src in db.list_sources():
-        lit_path = (
-            cfg.vault_path
-            / "20_Literature"
-            / literature_index_filename(
-                src["citekey"],
-                src["title"],
-            )
-        )
-        _clear_source_topic_index(
-            db,
-            src["source_id"],
-            lit_path,
-            vault_timezone=cfg.vault_timezone,
-        )
-        if lit_path.is_file():
-            with contextlib.suppress(OSError):
-                db.update_source_texts(
-                    src["source_id"],
-                    lit_body=lit_path.read_text(encoding="utf-8"),
-                )
+    from zettel.topic_index import SCOPE_MOC
 
     total = 0
     for moc in db.list_mocs():
-        body = moc.get("body") or ""
-        path = Path(moc["path"]) if moc.get("path") else Path()
         _sync_moc_topic_index(
-            db,
-            moc["moc_id"],
-            path,
-            extract_note_ids_from_moc_body(body),
-            vault_timezone=cfg.vault_timezone,
+            db, moc["moc_id"], extract_note_ids_from_moc_body(moc.get("body") or "")
         )
         total += len(db.match_topic_index_scope(SCOPE_MOC, moc["moc_id"]))
     return total

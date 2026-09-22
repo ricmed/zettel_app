@@ -657,12 +657,15 @@ def build_literature_index_note(
     source_id: str,
     citekey: str,
     title: str,
-    approved_links: list[str] | None = None,
     origin: str = "pipeline",
     *,
     vault_timezone: str = "America/Sao_Paulo",
 ) -> tuple[dict[str, Any], str]:
-    """Build the per-source literature index (replaces the old monolithic LIT)."""
+    """Build the per-source literature index (replaces the old monolithic LIT).
+
+    Only the header: approved LIT notes are listed once, per chapter, in the
+    ``auto-chapter-map`` block that :mod:`zettel.summarize` owns.
+    """
     now = now_vault_iso(vault_timezone)
     meta = {
         "type": "literature_index",
@@ -675,14 +678,7 @@ def build_literature_index_note(
         "updated_at": now,
     }
     body = f"# {title} — Indice de Literatura\n\n"
-    body += f"← [[{source_note_stem(citekey, title)}]]\n\n"
-    body += "## Notas de Literatura aprovadas\n\n"
-    body += "<!-- zettel:auto-lit-index:start -->\n"
-    if approved_links:
-        body += "\n".join(f"- {link}" for link in approved_links) + "\n"
-    else:
-        body += "_Nenhuma nota granular aprovada ainda._\n"
-    body += "<!-- zettel:auto-lit-index:end -->\n"
+    body += f"← [[{source_note_stem(citekey, title)}]]\n"
     return meta, body
 
 

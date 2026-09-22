@@ -379,6 +379,7 @@ class WebWorker:
             from zettel.review import (
                 approve_chunk,
                 finalize_approved_concepts,
+                pending_dedupe_concepts,
                 reject_chunk,
             )
             from zettel.usage import begin_run, finish_pipeline_run
@@ -415,6 +416,8 @@ class WebWorker:
                     stats["skipped"] += int(not ok)
                 if action == "approve" and stats["approved"]:
                     finalize_approved_concepts(cfg, db, idx)
+                # Possible duplicates are never dropped here: they wait for `zettel review`.
+                stats["dedupe_pending"] = len(pending_dedupe_concepts(db))
             except Exception:
                 finish_pipeline_run(db, review_run_id, status="failed")
                 raise
@@ -476,7 +479,12 @@ class WebApplication:
     def dashboard(self) -> dict[str, Any]:
         db = self.db()
         try:
-            return db.get_web_dashboard()
+            from zettel.review import LOW_CONFIDENCE_MAX
+
+            return db.get_web_dashboard(
+                low_max=LOW_CONFIDENCE_MAX,
+                limiar=self.cfg.literature_review.auto_approve_min_confidence,
+            )
         finally:
             db.close()
 

@@ -178,9 +178,10 @@ Portão humano de aprovação seletiva. Obrigatório antes do `connect`, salvo a
 
 ```bash
 python -m zettel review
-# Interativo: relatorio por faixa de confianca; a=aprovar >= limiar,
-# d=reprovar (t=todos / b=baixissima / m=media / h=alta, com confirmacao),
-# r=um a um (atalhos a/r/p/q), q=sair
+# Interativo: relatorio por faixa de confianca; toda acao volta ao menu.
+# a=aprovar >= limiar, d=reprovar (t=todos / b=baixissima / m=media / h=alta,
+# com confirmacao), r=um a um (atalhos a/r/p/q), x=rejeitados pelo extract
+# (re-extrair), q=sair. Possiveis duplicatas da mesma fonte: m=manter/d=descartar/p=pular
 # Limiar = literature_review.auto_approve_min_confidence (heuristica, ADR-017)
 python -m zettel review --yes                      # aprova todos >= limiar (nao-interativo)
 python -m zettel review --auto-approve             # idem, mantendo o restante pendente
@@ -560,7 +561,7 @@ python -m zettel retry-failed --rejected --source-id @Citekey
 
 `--rejected` exige `--source-id`: rejeicao e o estado terminal do extract (sumario, codigo, irrelevante), nao uma falha de rede. Sem o filtro, o comando reescreveria o vault inteiro.
 
-Depois de resetar, rode `extract` novamente para reprocessar. O `review` so ve drafts; chunk `rejected` nunca entra na fila de review.
+Depois de resetar, rode `extract` novamente para reprocessar. Para escolher chunk a chunk, use o comando `x` do `review` interativo: ele lista os rejeitados pelo extract com o motivo e reenfileira so os que voce marcar.
 
 ---
 

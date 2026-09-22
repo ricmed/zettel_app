@@ -473,9 +473,6 @@ class SummarizeConfig(BaseModel):
     # Alvo de saida por resumo. Alvo do estimador, nao teto do modelo.
     preflight_output_tokens_per_chapter: int = 600
     max_topics: int = 8
-    # Quantos capitulos o mapa lista com wikilinks de notas antes de truncar a
-    # lista de links (o resumo do capitulo em si nunca e truncado).
-    max_links_per_chapter: int = 12
 
 
 class RetrievalConfig(BaseModel):

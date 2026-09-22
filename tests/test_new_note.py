@@ -163,9 +163,8 @@ def test_scaffold_literature_index(cfg):
     meta, body = parse_frontmatter(result.path.read_text(encoding="utf-8"))
     assert meta["type"] == "literature_index"
     assert meta["origin"] == "manual"
-    block = read_managed_block(body, "auto-lit-index")
-    assert block is not None
-    assert "Nenhuma nota granular" in block
+    assert read_managed_block(body, "auto-lit-index") is None
+    assert "Notas de Literatura aprovadas" not in body
 
 
 def test_scaffold_literature_granular(cfg):

@@ -109,7 +109,6 @@ def db(tmp_path: Path, cfg: AppConfig):
             "type": "permanent",
             "title": title,
             "source_id": "@Autor2020Livro",
-            "source_locator": "p.10",
             "tags": tags,
         }
         if frameworks:
@@ -128,6 +127,7 @@ def db(tmp_path: Path, cfg: AppConfig):
             title=title,
             body=_note_body(thesis, limits),
             frontmatter_json=json.dumps(meta, ensure_ascii=False),
+            provenance_json=json.dumps({"source_locator": "p.10"}),
         )
         database.upsert_concept(
             f"cid-{note_id}",

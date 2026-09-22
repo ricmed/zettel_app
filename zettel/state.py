@@ -290,6 +290,7 @@ CREATE TABLE IF NOT EXISTS concepts (
     note_id        TEXT,
     candidate_json TEXT,
     status         TEXT NOT NULL DEFAULT 'pending',
+    dedupe_json    TEXT,
     FOREIGN KEY (source_id) REFERENCES sources(source_id),
     FOREIGN KEY (chunk_id) REFERENCES chunks(chunk_id)
 );
@@ -301,6 +302,7 @@ CREATE TABLE IF NOT EXISTS notes (
     title                  TEXT NOT NULL DEFAULT '',
     body                   TEXT,
     frontmatter_json       TEXT,
+    provenance_json        TEXT,
     origin                 TEXT NOT NULL DEFAULT 'pipeline',
     note_semantic_checksum TEXT,
     auto_checksum          TEXT,
@@ -355,8 +357,8 @@ CREATE TABLE IF NOT EXISTS note_connections (
     PRIMARY KEY (source_note_id, target_note_id, relation_type)
 );
 
--- Cheap term -> note routing index, mirrored from the `auto-topic-index` blocks
--- in the vault so `ask` can look a term up without reading Markdown files.
+-- Cheap term -> note routing index (ADR-036), rebuilt from each MOC's notes so
+-- `ask` can look a term up. SQLite is its only surface.
 -- `note_id` is set only when the target is a permanent note; a literature target
 -- routes a human/agent but is not something the Retriever can score.
 CREATE TABLE IF NOT EXISTS topic_index_terms (
@@ -602,6 +604,8 @@ class StateDB:
             ("concepts", "status", "TEXT NOT NULL DEFAULT 'pending'"),
             ("notes", "body", "TEXT"),
             ("notes", "frontmatter_json", "TEXT"),
+            ("notes", "provenance_json", "TEXT"),
+            ("concepts", "dedupe_json", "TEXT"),
             ("notes", "origin", "TEXT NOT NULL DEFAULT 'pipeline'"),
             ("mocs", "body", "TEXT"),
             ("mocs", "frontmatter_json", "TEXT"),
@@ -1012,10 +1016,6 @@ class StateDB:
         cur_assets = self.conn.execute("DELETE FROM assets WHERE source_id=?", (source_id,))
         cur_files = self.conn.execute("DELETE FROM files WHERE source_id=?", (source_id,))
         cur_source = self.conn.execute("DELETE FROM sources WHERE source_id=?", (source_id,))
-        self.conn.execute(
-            "DELETE FROM topic_index_terms WHERE scope_kind='source' AND scope_id=?",
-            (source_id,),
-        )
         self.conn.commit()
         return {
             "chunks": removed_chunks,
@@ -1333,6 +1333,17 @@ class StateDB:
                 WHERE k.chapter_id=? AND c.note_id IS NOT NULL
                 ORDER BY k.chunk_index, n.note_id""",
             (chapter_id,),
+        )
+
+    def get_notes_for_chunk(self, chunk_id: str) -> list[dict]:
+        """Permanent notes written from this chunk's concepts, oldest first."""
+        return self._fetchall(
+            """SELECT DISTINCT n.*
+                 FROM concepts c
+                 JOIN notes n ON n.note_id = c.note_id
+                WHERE c.chunk_id=? AND c.note_id IS NOT NULL
+                ORDER BY n.created_at, n.note_id""",
+            (chunk_id,),
         )
 
     def get_chapters_for_note(self, note_id: str) -> list[str]:
@@ -1756,6 +1767,18 @@ class StateDB:
         self.conn.execute("UPDATE concepts SET status=? WHERE concept_id=?", (status, concept_id))
         self.conn.commit()
 
+    def set_concept_dedupe(self, concept_id: str, status: str, dedupe: dict | None = None) -> None:
+        """Record a dedupe outcome. ``dedupe=None`` keeps the stored payload, so
+        an ``override`` the reviewer set survives a later approval."""
+        if dedupe is None:
+            self.update_concept_status(concept_id, status)
+            return
+        self.conn.execute(
+            "UPDATE concepts SET status=?, dedupe_json=? WHERE concept_id=?",
+            (status, json.dumps(dedupe, ensure_ascii=False), concept_id),
+        )
+        self.conn.commit()
+
     def get_concept(self, concept_id: str) -> dict | None:
         return self._fetchone("SELECT * FROM concepts WHERE concept_id=?", (concept_id,))
 
@@ -1785,18 +1808,27 @@ class StateDB:
         body: str | None = None,
         frontmatter_json: str | None = None,
         origin: str = "pipeline",
+        provenance_json: str | None = None,
     ) -> None:
+        """Insert or update a note row.
+
+        ``frontmatter_json`` mirrors the file (what `rebuild` writes back);
+        ``provenance_json`` holds what `connect` knows but keeps out of the
+        file (literature ref, locator, citation, anchor quote, per-note LLM
+        cost). It is COALESCEd, so `sync-manual` re-reading a file never wipes it.
+        """
         now = self._now()
         self.conn.execute(
             """INSERT INTO notes (note_id, source_id, path, title, body, frontmatter_json,
-                                  origin, note_semantic_checksum, auto_checksum,
-                                  embedding_model, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  provenance_json, origin, note_semantic_checksum,
+                                  auto_checksum, embedding_model, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(note_id) DO UPDATE SET
                  path=COALESCE(excluded.path, notes.path),
                  title=excluded.title,
                  body=COALESCE(excluded.body, notes.body),
                  frontmatter_json=COALESCE(excluded.frontmatter_json, notes.frontmatter_json),
+                 provenance_json=COALESCE(excluded.provenance_json, notes.provenance_json),
                  origin=excluded.origin,
                  note_semantic_checksum=excluded.note_semantic_checksum,
                  auto_checksum=COALESCE(excluded.auto_checksum, notes.auto_checksum),
@@ -1809,6 +1841,7 @@ class StateDB:
                 title,
                 body,
                 frontmatter_json,
+                provenance_json,
                 origin,
                 note_semantic_checksum,
                 auto_checksum,
@@ -2257,13 +2290,20 @@ class StateDB:
         response cache would otherwise replay the same empty yield for free.
         """
         rows = self.get_chunks_by_status(status, source_id=source_id)
-        if not rows:
-            return 0
+        return sum(
+            self.reset_chunk_to_pending(row["chunk_id"], drop_llm_cache=drop_llm_cache)
+            for row in rows
+        )
+
+    def reset_chunk_to_pending(self, chunk_id: str, *, drop_llm_cache: bool = False) -> bool:
+        """Move one chunk back to ``pending``; see :meth:`reset_chunks_to_pending`."""
+        row = self.get_chunk(chunk_id)
+        if not row:
+            return False
         if drop_llm_cache:
-            self.delete_llm_cache([row.get("llm_call_checksum_prompt1") or "" for row in rows])
-        for row in rows:
-            self.update_chunk_status(row["chunk_id"], "pending")
-        return len(rows)
+            self.delete_llm_cache([row.get("llm_call_checksum_prompt1") or ""])
+        self.update_chunk_status(chunk_id, "pending")
+        return True
 
     # ── Runs ───────────────────────────────────────────────────────────
 
@@ -2510,8 +2550,12 @@ class StateDB:
             (job_id, after_id),
         )
 
-    def get_web_dashboard(self) -> dict[str, Any]:
-        """Return aggregate operational metrics without loading note bodies."""
+    def get_web_dashboard(self, *, low_max: float, limiar: float) -> dict[str, Any]:
+        """Return aggregate operational metrics without loading note bodies.
+
+        Confidence bands cover drafts still awaiting review only, with the same
+        cut points as ``zettel review`` (``low_max`` inclusive, then ``limiar``).
+        """
         stats = self.get_stats()
 
         def count(sql, params=()):
@@ -2540,11 +2584,11 @@ class StateDB:
             }
         )
         confidence = self._fetchall(
-            "SELECT CASE WHEN review_confidence IS NULL THEN 'sem avaliacao' "
-            "WHEN review_confidence < 0.4 THEN 'baixa' "
+            "SELECT CASE WHEN review_confidence <= ? THEN 'baixissima' "
             "WHEN review_confidence < ? THEN 'media' ELSE 'alta' END band, COUNT(*) c "
-            "FROM chunks WHERE review_confidence IS NOT NULL GROUP BY band",
-            (0.85,),
+            "FROM chunks WHERE status='awaiting_review' AND review_confidence IS NOT NULL "
+            "GROUP BY band",
+            (low_max, limiar),
         )
         relations = self._fetchall(
             "SELECT relation_type, COUNT(*) c FROM note_connections "
@@ -2631,4 +2675,8 @@ class StateDB:
         stats["chunks_approved"] = stats.get("chunks_approved", 0) + (
             persisted["cnt"] if persisted else 0
         )
+        row = self.conn.execute(
+            "SELECT COUNT(*) as cnt FROM concepts WHERE status='dedupe_pending'"
+        ).fetchone()
+        stats["concepts_dedupe_pending"] = row["cnt"] if row else 0
         return stats

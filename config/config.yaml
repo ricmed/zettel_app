@@ -372,7 +372,6 @@ summarize:
   max_input_chars: 60000           # acima disso o capitulo vai por map-reduce
   preflight_output_tokens_per_chapter: 600  # alvo do estimador, nao teto do modelo
   max_topics: 8                    # termos-chave por resumo
-  max_links_per_chapter: 12        # teto de wikilinks de nota no mapa de capitulos
 
 # ── Idioma dos prompts / texto gerado ──────────────────────────────────
 language: pt-BR

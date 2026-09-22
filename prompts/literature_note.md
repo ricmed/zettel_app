@@ -53,7 +53,7 @@ Retorne `"chunk_status": "rejected"` e `"candidates": []` se o chunk for **prima
 - Testemunhos ou endorsements
 
 ### 4. Conteúdo Trivial/Senso Comum
-- Definições de dicionário sem elaboração
+- Definições de dicionário sem elaboração, de termos **periféricos** ao domínio (a definição fundacional de um conceito central **não** é trivial — ver "Definições fundacionais")
 - Afirmações de senso comum sem nuance
 - Listas de passos procedimentais sem princípios
 - Truísmos ou obviedades
@@ -97,13 +97,20 @@ como ele decidiria —, registre-o nos campos opcionais `decision_rules`,
 requisito**: um trecho que só define um conceito continua sendo um candidato válido
 com as três listas vazias. **Nunca invente uma regra** para preencher o campo.
 
+#### Definições fundacionais
+
+Quando o trecho **define um conceito central do domínio {domain}** — o que a coisa é, com os elementos que a delimitam (componentes, notação, tipos ou classificação, para que serve) —, essa definição é um candidato válido, mesmo sem nada contraintuitivo: é a nota que as outras vão citar. Pontue-a como **3**.
+
+- Continua trivial (rejeite) a definição de dicionário de um termo **periférico**, ou a que só repete o nome sem elaborar.
+- Se o mesmo trecho traz a definição **e** uma ideia mais profunda sobre o conceito, aplique o teste de separação: são **dois candidatos**. Não troque a definição pela ideia mais interessante — as duas são notas.
+
 ---
 
 ## CHECKLIST DE VALIDAÇÃO POR CANDIDATO
 
 Antes de incluir um candidato, responda mentalmente:
 
-1. **Este conceito vai além de uma definição básica?** (Se não → REJEITAR)
+1. **Este conceito vai além de uma definição básica — ou é a definição fundacional de um conceito central do domínio?** (Se nenhum dos dois → REJEITAR)
 2. **Consigo explicar esta ideia sem mencionar a fonte?** (Se não → REJEITAR)
 3. **A tese é específica e não-genérica?** (Se não → REJEITAR)
 4. **Existe uma citação-âncora clara de 10-25 palavras?** (Se não → REJEITAR)
@@ -119,7 +126,7 @@ Seja **objetivamente criterioso**. Quando em dúvida entre dois níveis, escolha
 O corte é aplicado depois, pela política do sistema — sua tarefa é pontuar com honestidade.
 
 ### 1 - TRIVIAL
-- Definições de dicionário sem elaboração
+- Definições de dicionário sem elaboração, de termos periféricos
 - Senso comum amplamente conhecido
 - Afirmações óbvias ou tautológicas
 
@@ -130,6 +137,7 @@ O corte é aplicado depois, pela política do sistema — sua tarefa é pontuar 
 
 ### 3 - CONCEITO TÉCNICO VÁLIDO
 - Conceito técnico bem definido
+- Definição fundacional de um conceito central do domínio
 - Explicação de mecanismo ou princípio
 - Informação útil mas não surpreendente
 

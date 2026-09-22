@@ -131,6 +131,10 @@ def _run_all_phases(cfg, db, idx, *, interactive, duplicate_action, skip_biblio,
         f"  Aprovados: {rev['approved']} | Rejeitados: {rev['rejected']} | "
         f"Pulados: {rev['skipped']}"
     )
+    from zettel.review import review_followups
+
+    for line in review_followups(rev):
+        console.print(f"  [yellow]{line}[/yellow]")
 
     if dry_run:
         console.print("[yellow]Dry run — parando antes da geracao de notas.[/yellow]")
