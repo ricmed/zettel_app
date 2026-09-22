@@ -526,15 +526,16 @@ def create_permanent_from_literature(
         "note_id": note_id,
         "title": title,
         "source_id": source_id,
+        # Kept on a manual note: it is the structural link claim_concepts_for_note
+        # and find_covering_note_id use to tie the note back to its chunk.
         "literature_ref": literature_ref,
-        "source_locator": candidate.source_locator,
         "chunk_id": chunk_id,
         "tags": candidate.tags,
         "origin": "manual",
         "created_at": now,
         "updated_at": now,
     }
-    note_meta.update(citation_frontmatter(citation, candidate.anchor_quote))
+    note_meta.update(citation_frontmatter(citation))
     note_path = cfg.vault_path / "30_Permanent" / note_filename("ZTL", note_id, title)
     if note_path.exists() and not force:
         raise FileExistsError(f"Arquivo ja existe: {note_path}")

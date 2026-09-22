@@ -37,20 +37,12 @@ async def review(request: Request, source_id: str = "", confidence: str = "", pa
             )
     finally:
         db.close()
-    if confidence in {"low", "medium", "high"}:
+    from zettel.review import BAND_HIGH, BAND_MEDIUM, BAND_VERY_LOW, filter_chunks_by_band
+
+    band = {"low": BAND_VERY_LOW, "medium": BAND_MEDIUM, "high": BAND_HIGH}.get(confidence)
+    if band:
         threshold = service(request).cfg.literature_review.auto_approve_min_confidence
-        enriched = [
-            c
-            for c in enriched
-            if (
-                "low"
-                if (c.get("review_confidence") or 0) < 0.4
-                else "medium"
-                if (c.get("review_confidence") or 0) < threshold
-                else "high"
-            )
-            == confidence
-        ]
+        enriched = filter_chunks_by_band(enriched, band, threshold)
     page_size = 20
     total = len(enriched)
     page = max(1, page)

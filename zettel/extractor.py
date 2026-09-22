@@ -814,7 +814,7 @@ def _intra_batch_dedupe(
     `dedupe_threshold` already used against existing notes.
 
     Returns (kept, duplicates) -- `duplicates` entries carry `duplicate_of`
-    (the concept_id of the candidate that won).
+    (the concept_id of the candidate that won) and `dedupe_reason`.
     """
     if len(candidates) < 2:
         return candidates, []
@@ -837,6 +837,7 @@ def _intra_batch_dedupe(
         survivors.append(winner)
         for loser in losers:
             loser["duplicate_of"] = winner["concept_id"]
+            loser["dedupe_reason"] = "Tese identica a outro candidato do mesmo lote"
             logger.info(
                 "Candidato duplicado no lote (tese identica): %s",
                 loser["candidate"].thesis[:60],
@@ -871,6 +872,7 @@ def _intra_batch_dedupe(
             if math.dist(vectors[i], vectors[j]) <= threshold_distance:
                 absorbed.add(j)
                 survivors[j]["duplicate_of"] = survivors[i]["concept_id"]
+                survivors[j]["dedupe_reason"] = "Semanticamente igual a outro candidato do lote"
                 logger.info(
                     "Candidato duplicado no lote (semantico): %s",
                     survivors[j]["candidate"].thesis[:60],
@@ -890,6 +892,12 @@ def deduplicate_candidates(
     """Deduplicate within the batch first, then against existing permanent notes
     **from the same source**. The intra-batch pass runs first so the (more
     expensive, LLM-backed) existing-notes pass sees fewer candidates.
+
+    Dedupe *proposes*, the reviewer decides: a candidate judged redundant (LLM
+    ``ignore`` or absorbed inside the batch) is never dropped here. It becomes
+    ``dedupe_pending`` with the reason and target in ``concepts.dedupe_json``,
+    stays out of ``connect`` and waits for ``zettel review``. A candidate the
+    reviewer already chose to keep (``dedupe_override``) skips every check.
 
     Dedupe is scoped to one source by design. A chunk repeated inside a book is
     still noise, and an author expanding a concept as the book advances is what
@@ -911,7 +919,12 @@ def deduplicate_candidates(
     if not candidates:
         return []
 
-    survivors, intra_batch_duplicates = _intra_batch_dedupe(cfg, idx, candidates)
+    approved: list[dict] = [c for c in candidates if c.get("dedupe_override")]
+    pending: list[dict] = []
+    to_check = [c for c in candidates if not c.get("dedupe_override")]
+
+    survivors, intra_batch_duplicates = _intra_batch_dedupe(cfg, idx, to_check)
+    pending.extend(intra_batch_duplicates)
     if intra_batch_duplicates:
         logger.info(
             "Dedupe intra-lote: %d / %d candidatos descartados por duplicata no proprio lote",
@@ -921,7 +934,6 @@ def deduplicate_candidates(
 
     spec = llm_phase(cfg, "review")
     dedupe_parts = load_prompt_parts(cfg.prompts_path / "dedupe_decision.md")
-    approved: list[dict] = []
     total = len(survivors)
 
     with Progress(
@@ -980,7 +992,10 @@ def deduplicate_candidates(
             if result.decision == DedupeDecision.CREATE_NEW:
                 approved.append(cand_dict)
             elif result.decision == DedupeDecision.IGNORE:
-                logger.info("Candidato ignorado (duplicata): %s", cand.thesis[:60])
+                logger.info("Possivel duplicata, aguardando decisao: %s", cand.thesis[:60])
+                cand_dict["target_note_id"] = result.target_note_id
+                cand_dict["dedupe_reason"] = result.reason
+                pending.append(cand_dict)
             elif result.decision in (
                 DedupeDecision.REFINE_EXISTING,
                 DedupeDecision.MERGE,
@@ -989,16 +1004,20 @@ def deduplicate_candidates(
                 cand_dict["refine_reason"] = result.reason
                 approved.append(cand_dict)
 
-    approved_ids = {c["concept_id"] for c in approved}
-    for cand_dict in candidates:
-        cid = cand_dict["concept_id"]
-        db.update_concept_status(cid, "approved" if cid in approved_ids else "duplicate")
+    for cand_dict in approved:
+        db.set_concept_dedupe(cand_dict["concept_id"], "approved")
+    for cand_dict in pending:
+        db.set_concept_dedupe(
+            cand_dict["concept_id"],
+            "dedupe_pending",
+            {
+                "reason": cand_dict.get("dedupe_reason") or "",
+                "target_note_id": cand_dict.get("target_note_id"),
+                "duplicate_of": cand_dict.get("duplicate_of"),
+            },
+        )
 
     return approved
-
-
-# Backwards-compatible alias
-_deduplicate_candidates = deduplicate_candidates
 
 
 def _compute_concept_id(source_id: str, chunk_id: str, cand: PermanentNoteCandidate) -> str:

@@ -85,16 +85,39 @@ def resolve_citation(
     return NoteCitation(page=first, pages=pages, cite=cite, page_confidence=confidence)
 
 
-def citation_frontmatter(citation: NoteCitation, anchor_quote: str) -> dict[str, Any]:
-    """Frontmatter keys for a ZTL; absent keys mean there is nothing to state."""
+def citation_frontmatter(citation: NoteCitation) -> dict[str, Any]:
+    """Frontmatter keys for a ZTL; absent keys mean there is nothing to state.
+
+    Only the page: the ABNT string and the verbatim anchor are already in the
+    body's ``auto-evidence`` block, and repeating them in the frontmatter only
+    clutters a note meant to be studied. They live in ``notes.provenance_json``.
+    """
     meta: dict[str, Any] = {}
     # Omitted rather than null for a source without pages (native Markdown).
     if citation.page is not None:
         meta["page"] = citation.page
         meta["citation_page_confidence"] = citation.page_confidence
-    if citation.cite:
-        meta["citation"] = citation.cite
-    quote = (anchor_quote or "").strip()
-    if quote:
-        meta["anchor_quote"] = quote
     return meta
+
+
+def note_provenance(citation: NoteCitation, *, anchor_quote: str, **extra: Any) -> dict[str, Any]:
+    """The ``notes.provenance_json`` payload: citation, anchor and anything else
+    ``connect`` knows about a note but keeps out of its file (``extra``).
+
+    Empty values are dropped, so a reader can treat an absent key as unknown.
+    """
+    record: dict[str, Any] = {
+        "citation": citation.cite,
+        "anchor_quote": (anchor_quote or "").strip(),
+    }
+    record.update(extra)
+    return {k: v for k, v in record.items() if v not in ("", None)}
+
+
+def load_provenance(row: dict[str, Any] | None) -> dict[str, Any]:
+    """Parse ``notes.provenance_json`` from a note row; ``{}`` when absent."""
+    try:
+        value = json.loads((row or {}).get("provenance_json") or "{}")
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}

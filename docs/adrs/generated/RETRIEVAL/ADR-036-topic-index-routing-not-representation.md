@@ -113,13 +113,18 @@ What remains is the surface that actually routes: the MOC block, the SQLite rows
 
 The "only permanent-note targets are routable" rule is unchanged. The source scope is no longer a reading aid; it is absent.
 
+## Amendment (2026-09-22)
+
+**The MOC surface is gone too; SQLite is the only surface.** On a real vault the `## Topic Index` section cluttered every MOC — a reader studying a map of content does not need a term table that repeats the note titles listed right above it. The block was only ever a mirror: the `ask` boost reads `topic_index_terms`, never the Markdown.
+
+`sync_topic_index` now writes the lookup rows only (no `note_path`); `_write_block`, `render_topic_index_block` and `clear_topic_index_block` are deleted, together with the source-scope leftovers (`SCOPE_SOURCE`, `review._clear_source_topic_index`, the cascade delete and the cleanup pass in `rebuild_topic_index`), since nothing writes that scope anymore. `sync_moc_backrefs` stays the hook, `clear_moc_backrefs` still drops a MOC's rows, and `zettel reindex` still backfills them. Existing MOCs lose the section on `zettel garden --recreate`. The Topic Index inside `zettel skill` is unaffected (it is built by `build_term_map` at export time).
+
 ## References
 
-* `zettel/topic_index.py` — `build_term_map`, `sync_topic_index`, `render_topic_index_block`, `_write_block`, `clear_topic_index_block`, `fold`
+* `zettel/topic_index.py` — `build_term_map`, `sync_topic_index` (SQLite rows only), `fold`
 * `zettel/retrieval.py` — `_add_topic_index_seeds`, `RetrievedNote.origin`, `_apply_relevance_floor` (unchanged)
 * `zettel/index.py` — `query_notes_by_ids` (id-restricted similarity)
 * `zettel/state.py` — `topic_index_terms`, `replace_topic_index_terms`, `match_topic_index`, `match_topic_index_scope`, `delete_topic_index_kind`
 * `zettel/moc_backrefs.py` — `_sync_moc_topic_index`, scope cleanup in `clear_moc_backrefs`
-* `zettel/review.py` — `_clear_source_topic_index`
-* `zettel/rebuild.py` — `rebuild_topic_index` (MOC backfill + source-scope cleanup during `zettel reindex`)
-* `tests/test_topic_index.py` — block lifecycle, non-routable rows without `note_id`, source-scope strip, floor still rejects a routed note, boost off is a regression guard
+* `zettel/rebuild.py` — `rebuild_topic_index` (MOC backfill during `zettel reindex`)
+* `tests/test_topic_index.py` — lookup rows, non-routable rows without `note_id`, no vault section on the MOC, floor still rejects a routed note, boost off is a regression guard

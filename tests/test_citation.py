@@ -3,6 +3,8 @@
 from zettel.citation import (
     NoteCitation,
     citation_frontmatter,
+    load_provenance,
+    note_provenance,
     page_label,
     resolve_citation,
     stored_authors,
@@ -77,16 +79,28 @@ def test_citation_without_source_has_no_cite():
     assert citation.page == 1
 
 
-def test_citation_frontmatter_omits_what_is_unknown():
-    full = citation_frontmatter(resolve_citation(SOURCE, CHUNK, QUOTE), f"  {QUOTE} ")
-    assert full == {
-        "page": 2,
-        "citation_page_confidence": "quote",
+def test_citation_frontmatter_keeps_only_the_page():
+    full = citation_frontmatter(resolve_citation(SOURCE, CHUNK, QUOTE))
+    assert full == {"page": 2, "citation_page_confidence": "quote"}
+    assert citation_frontmatter(NoteCitation(None, "", "", "none")) == {}
+
+
+def test_note_provenance_carries_citation_anchor_and_extras():
+    citation = resolve_citation(SOURCE, CHUNK, QUOTE)
+    record = note_provenance(citation, anchor_quote=f"  {QUOTE} ", llm_cache_hit=False)
+    assert record == {
         "citation": "(KAHNEMAN, 2011, p. 2)",
         "anchor_quote": QUOTE,
+        "llm_cache_hit": False,
     }
-    empty = citation_frontmatter(NoteCitation(None, "", "", "none"), "")
+    empty = note_provenance(NoteCitation(None, "", "", "none"), anchor_quote="", locator="")
     assert empty == {}
+
+
+def test_load_provenance_tolerates_missing_or_bad_json():
+    assert load_provenance(None) == {}
+    assert load_provenance({"provenance_json": "nao e json"}) == {}
+    assert load_provenance({"provenance_json": '{"citation": "x"}'}) == {"citation": "x"}
 
 
 def _body(**kwargs) -> str:

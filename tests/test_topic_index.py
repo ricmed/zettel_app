@@ -15,16 +15,12 @@ from zettel.config import AppConfig
 from zettel.state import StateDB
 from zettel.topic_index import (
     SCOPE_MOC,
-    SCOPE_SOURCE,
-    TOPIC_INDEX_BLOCK,
     TermSource,
-    clear_topic_index_block,
     fold,
-    render_topic_index_block,
     sources_from_permanent_notes,
     sync_topic_index,
 )
-from zettel.vault import read_managed_block, safe_write_note
+from zettel.vault import safe_write_note
 
 NOTE_A = "01HAAAAAAAAAAAAAAAAAAAAAAA"
 NOTE_B = "01HBBBBBBBBBBBBBBBBBBBBBBB"
@@ -51,78 +47,6 @@ def _permanent_note(db: StateDB, tmp_path: Path, note_id: str, title: str, meta:
     return path
 
 
-# ── Block rendering ────────────────────────────────────────────────────
-
-
-def test_block_is_empty_but_explicit_without_terms():
-    assert render_topic_index_block([]) == "_Nenhum termo indexado ainda._"
-
-
-def test_block_lists_term_then_targets(db, tmp_path):
-    moc_path = tmp_path / "MOC - 01H - tema.md"
-    safe_write_note(moc_path, {"type": "moc"}, "# Tema\n\n## Notas\n\n- [[ZTL - A]]\n")
-    sync_topic_index(
-        db,
-        SCOPE_MOC,
-        "01HMOC",
-        [TermSource(NOTE_A, "[[ZTL - A - dropout]]", frameworks=("The 5 Whys",))],
-        note_path=moc_path,
-    )
-    block = read_managed_block(moc_path.read_text(encoding="utf-8"), TOPIC_INDEX_BLOCK)
-    assert block == "- **The 5 Whys** -> [[ZTL - A - dropout]]"
-
-
-def test_section_is_created_once_then_updated_in_place(db, tmp_path):
-    moc_path = tmp_path / "MOC - 01H - tema.md"
-    safe_write_note(moc_path, {"type": "moc"}, "# Tema\n\nCorpo original.\n")
-
-    sync_topic_index(
-        db,
-        SCOPE_MOC,
-        "01HMOC",
-        [TermSource(NOTE_A, "[[ZTL - A]]", tags=("dropout",))],
-        note_path=moc_path,
-    )
-    sync_topic_index(
-        db,
-        SCOPE_MOC,
-        "01HMOC",
-        [TermSource(NOTE_A, "[[ZTL - A]]", tags=("attention",))],
-        note_path=moc_path,
-    )
-    content = moc_path.read_text(encoding="utf-8")
-    assert content.count("## Topic Index") == 1
-    assert "attention" in content
-    assert "dropout" not in content
-    # Manual content outside the block survives.
-    assert "Corpo original." in content
-
-
-def test_manual_edits_outside_the_block_survive(db, tmp_path):
-    moc_path = tmp_path / "MOC - 01H - tema.md"
-    safe_write_note(moc_path, {"type": "moc"}, "# Tema\n\nCorpo.\n")
-    sync_topic_index(
-        db,
-        SCOPE_MOC,
-        "01HMOC",
-        [TermSource(NOTE_A, "[[ZTL - A]]", tags=("dropout",))],
-        note_path=moc_path,
-    )
-    content = moc_path.read_text(encoding="utf-8")
-    moc_path.write_text(content + "\n## Minhas anotacoes\n\nComentario a mao.\n", encoding="utf-8")
-
-    sync_topic_index(
-        db,
-        SCOPE_MOC,
-        "01HMOC",
-        [TermSource(NOTE_A, "[[ZTL - A]]", tags=("attention",))],
-        note_path=moc_path,
-    )
-    final = moc_path.read_text(encoding="utf-8")
-    assert "Comentario a mao." in final
-    assert "attention" in final
-
-
 # ── SQLite lookup rows ─────────────────────────────────────────────────
 
 
@@ -137,11 +61,11 @@ def test_permanent_targets_are_routable(db):
     assert [m["note_id"] for m in matches] == [NOTE_A]
 
 
-def test_literature_targets_are_listed_but_never_routed(db):
+def test_non_permanent_targets_are_never_routed(db):
     sync_topic_index(
         db,
-        SCOPE_SOURCE,
-        "@Fonte2020",
+        SCOPE_MOC,
+        "01HMOC",
         [TermSource("chunk-1", "[[Fonte/LIT - p001]]", tags=("dropout",))],
         targets_are_permanent_notes=False,
     )
@@ -205,7 +129,7 @@ def test_sources_from_permanent_notes_reads_frontmatter_and_thesis(db, tmp_path)
 # ── MOC lifecycle hook ─────────────────────────────────────────────────
 
 
-def test_moc_sync_builds_the_index_and_clear_removes_it(db, tmp_path):
+def test_moc_sync_builds_the_index_without_touching_the_vault(db, tmp_path):
     from zettel.moc_backrefs import clear_moc_backrefs, sync_moc_backrefs
 
     _permanent_note(db, tmp_path, NOTE_A, "Dropout", {"tags": ["dropout"]}, "Tese A")
@@ -215,7 +139,8 @@ def test_moc_sync_builds_the_index_and_clear_removes_it(db, tmp_path):
 
     sync_moc_backrefs(db, "01HMOC", "Tema", moc_path, new_body=body)
     assert [m["note_id"] for m in db.match_topic_index(fold("dropout"))] == [NOTE_A]
-    assert TOPIC_INDEX_BLOCK in moc_path.read_text(encoding="utf-8")
+    # SQLite is the only surface: the MOC gains no `## Topic Index` section.
+    assert "Topic Index" not in moc_path.read_text(encoding="utf-8")
 
     clear_moc_backrefs(db, {"moc_id": "01HMOC", "body": body})
     assert db.match_topic_index(fold("dropout")) == []
@@ -323,124 +248,12 @@ def test_seed_count_is_capped(db, tmp_path):
     assert len(idx.restricted_calls[0]) == 3
 
 
-# ── Source-scope cleanup (no longer written) ───────────────────────────
-
-
-def test_clear_topic_index_block_strips_heading_and_preserves_siblings(tmp_path):
-    lit_path = tmp_path / "LIT - Autor2020 - livro.md"
-    lit_path.write_text(
-        "# Livro — Indice de Literatura\n\n"
-        "## Notas de Literatura aprovadas\n\n"
-        "<!-- zettel:auto-lit-index:start -->\n"
-        "- [[Autor2020/LIT - p001]]\n"
-        "<!-- zettel:auto-lit-index:end -->\n\n"
-        "## Resumo geral\n\n"
-        "<!-- zettel:auto-source-summary:start -->\n"
-        "Resumo da fonte.\n"
-        "<!-- zettel:auto-source-summary:end -->\n\n"
-        "## Topic Index\n\n"
-        "<!-- zettel:auto-topic-index:start -->\n"
-        "- **dropout** -> [[Autor2020/LIT - p001]]\n"
-        "<!-- zettel:auto-topic-index:end -->\n\n"
-        "## Mapa de capitulos\n\n"
-        "<!-- zettel:auto-chapter-map:start -->\n"
-        "Capitulo 1.\n"
-        "<!-- zettel:auto-chapter-map:end -->\n",
-        encoding="utf-8",
-    )
-    assert clear_topic_index_block(lit_path, vault_timezone="America/Sao_Paulo")
-    text = lit_path.read_text(encoding="utf-8")
-    assert "## Topic Index" not in text
-    assert TOPIC_INDEX_BLOCK not in text
-    assert "auto-lit-index" in text
-    assert "[[Autor2020/LIT - p001]]" in text
-    assert "Resumo da fonte." in text
-    assert "Capitulo 1." in text
-    assert not clear_topic_index_block(lit_path, vault_timezone="America/Sao_Paulo")
-
-
-def test_clear_source_topic_index_drops_rows_and_vault_block(db, tmp_path):
-    from zettel.review import _clear_source_topic_index
-
-    lit_path = tmp_path / "LIT - Autor2020 - livro.md"
-    lit_path.write_text(
-        "# Livro\n\n## Topic Index\n\n"
-        "<!-- zettel:auto-topic-index:start -->\n"
-        "- **dropout** -> [[LIT]]\n"
-        "<!-- zettel:auto-topic-index:end -->\n",
-        encoding="utf-8",
-    )
-    sync_topic_index(
-        db,
-        SCOPE_SOURCE,
-        "@Autor2020",
-        [TermSource("chunk-1", "[[LIT]]", tags=("dropout",))],
-        targets_are_permanent_notes=False,
-    )
-    assert db.match_topic_index_scope(SCOPE_SOURCE, "@Autor2020")
-
-    _clear_source_topic_index(db, "@Autor2020", lit_path)
-    assert db.match_topic_index_scope(SCOPE_SOURCE, "@Autor2020") == []
-    assert "## Topic Index" not in lit_path.read_text(encoding="utf-8")
-
-
 # ── Backfill via reindex ───────────────────────────────────────────────
 
 
-def test_reindex_backfills_moc_and_clears_source_scope(db, tmp_path):
-    """A mature vault should not have to wait for the next garden.
-
-    Source-scope rows and the literature-index block are leftovers: they never
-    seeded retrieval and must not come back.
-    """
+def test_reindex_backfills_moc_rows(db, tmp_path):
+    """A mature vault should not have to wait for the next garden."""
     from zettel.rebuild import rebuild_topic_index
-    from zettel.vault import literature_index_filename
-
-    cfg = AppConfig(vault_path=tmp_path / "vault")
-    lit_dir = cfg.vault_path / "20_Literature"
-    lit_dir.mkdir(parents=True)
-    lit_path = lit_dir / literature_index_filename("Autor2020", "Livro")
-    lit_path.write_text(
-        "# Livro — Indice de Literatura\n\n"
-        "## Notas de Literatura aprovadas\n\n"
-        "<!-- zettel:auto-lit-index:start -->\n"
-        "- [[Autor2020/LIT - p001]]\n"
-        "<!-- zettel:auto-lit-index:end -->\n\n"
-        "## Topic Index\n\n"
-        "<!-- zettel:auto-topic-index:start -->\n"
-        "- **dropout** -> [[Autor2020/LIT - p001]]\n"
-        "<!-- zettel:auto-topic-index:end -->\n",
-        encoding="utf-8",
-    )
-
-    db.upsert_source(
-        "@Autor2020",
-        citekey="Autor2020",
-        title="Livro",
-        authors=["A"],
-        year=2020,
-        file_checksum="c",
-        origin_path="/x.pdf",
-        origin_type="pdf",
-    )
-    db.upsert_chapter("@Autor2020::ch000", "@Autor2020", "Cap", "chk")
-    db.upsert_chunk("@Autor2020::ch000::a1", "@Autor2020", "@Autor2020::ch000", "t", "c1")
-    db.update_chunk_review(
-        "@Autor2020::ch000::a1",
-        status="persisted",
-        summary_json=json.dumps(
-            {
-                "candidates": [{"thesis": "Tese", "relevance_score": 4, "tags": ["dropout"]}],
-            }
-        ),
-    )
-    sync_topic_index(
-        db,
-        SCOPE_SOURCE,
-        "@Autor2020",
-        [TermSource("chunk-1", "[[Autor2020/LIT - p001]]", tags=("dropout",))],
-        targets_are_permanent_notes=False,
-    )
 
     _permanent_note(db, tmp_path, NOTE_B, "Attention", {"tags": ["attention"]}, "Tese B")
     moc_path = tmp_path / "MOC - 01HMOC - tema.md"
@@ -448,12 +261,6 @@ def test_reindex_backfills_moc_and_clears_source_scope(db, tmp_path):
     safe_write_note(moc_path, {"type": "moc"}, moc_body)
     db.upsert_moc("01HMOC", topic="Tema", path=str(moc_path), body=moc_body)
 
-    assert rebuild_topic_index(cfg, db) > 0
+    assert rebuild_topic_index(db) > 0
     assert [m["note_id"] for m in db.match_topic_index(fold("attention"))] == [NOTE_B]
-    assert db.match_topic_index(fold("dropout")) == []
-    assert db.match_topic_index_scope(SCOPE_SOURCE, "@Autor2020") == []
-    cleaned = lit_path.read_text(encoding="utf-8")
-    assert "## Topic Index" not in cleaned
-    assert "auto-lit-index" in cleaned
-    assert (db.get_source("@Autor2020") or {}).get("lit_body")
-    assert "## Topic Index" not in (db.get_source("@Autor2020") or {}).get("lit_body", "")
+    assert "Topic Index" not in moc_path.read_text(encoding="utf-8")

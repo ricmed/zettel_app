@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from zettel.citation import load_provenance
 from zettel.config import AppConfig
 from zettel.state import StateDB
 from zettel.time import vault_date_iso
@@ -203,7 +204,7 @@ def load_notes(
                 thesis=_thesis_from_body(body),
                 body=body,
                 citekey=str(meta.get("source_id") or row.get("source_id") or ""),
-                locator=str(meta.get("source_locator") or ""),
+                locator=str(load_provenance(row).get("source_locator") or ""),
                 tags=[str(t) for t in (meta.get("tags") or [])],
                 limits=_section(body, "Limites"),
                 decision_rules=_judgement(meta, candidate, "decision_rules"),

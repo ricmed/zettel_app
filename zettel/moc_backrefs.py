@@ -116,18 +116,11 @@ def sync_moc_backrefs(
         if note_path:
             _add_moc_link_to_note(note_path, link_line, vault_timezone=vault_timezone)
 
-    _sync_moc_topic_index(db, moc_id, path, new_ids, vault_timezone=vault_timezone)
+    _sync_moc_topic_index(db, moc_id, new_ids)
 
 
-def _sync_moc_topic_index(
-    db: StateDB,
-    moc_id: str,
-    path: Path,
-    note_ids: set[str],
-    *,
-    vault_timezone: str,
-) -> None:
-    """Refresh the MOC's `auto-topic-index` block and its lookup rows.
+def _sync_moc_topic_index(db: StateDB, moc_id: str, note_ids: set[str]) -> None:
+    """Refresh the MOC's topic-index lookup rows (SQLite only, ADR-036).
 
     Hung off the backref sync because that is the one function every MOC write
     already goes through (taxonomy pipeline, hub pipeline and manual sync).
@@ -143,8 +136,6 @@ def _sync_moc_topic_index(
         SCOPE_MOC,
         moc_id,
         sources_from_permanent_notes(db, sorted(note_ids)),
-        note_path=path,
-        vault_timezone=vault_timezone,
     )
 
 

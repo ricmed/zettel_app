@@ -143,11 +143,12 @@ O nome legível do arquivo (com página e tópico) é uma decisão deliberada �
 Módulo: [`review.py`](../zettel/review.py).
 
 1. `zettel review` lista drafts `awaiting_review` e um **relatório de faixas** de `review_confidence` (baixíssima `<=0.4`, média até o limiar, alta `>= limiar`). Os cortes (`0.4` em `review.py`; limiar em `literature_review.auto_approve_min_confidence`) são **heurísticas tunáveis** ([ADR-017](adrs/generated/REVIEW/ADR-017-confidence-band-hitl-approval-gate.md)), não valores calibrados empiricamente — o YAML é a fonte operacional (pode divergir do default histórico `0.7` da ADR). Monitore o volume por faixa após harvest/extract e proponha ajuste via issue se a carga ficar desbalanceada; calibração formal só após evidência ou mudança significativa de modelo no extract (ver [RUNBOOK](adrs/RUNBOOK.md))
-2. Modo interativo: `a` aprova lote `>= limiar` (abaixo do limiar permanecem pendentes); `d` abre submenu para rejeitar `t=todos` ou por faixa (`b`/`m`/`h`) após confirmação `s/n` (rejeição parcial volta ao menu); `r` revisa um a um com atalhos `a/r/p/q`; `q` sai
-3. **Approve**: move para `20_Literature/{Citekey}/LIT - AuthorYear - pNNN - topico-NNNN.md`, atualiza o índice LIT (wikilinks com rótulo `p. N — tópico`), promove concepts para dedupe **escopada à própria fonte** → `approved`. A nota **não é embeddada** — fica no cofre e no SQLite para auditoria
-4. **Reject**: apaga draft, `status=rejected`, concepts rejeitados (o chunk permanece no SQLite/Chroma `chunks` até `zettel purge-rejected`)
-5. Deduplicação semântica contra permanentes roda **após** a aprovação, não no extract ([ADR-016](adrs/generated/REVIEW/ADR-016-post-approval-concept-deduplication-timing.md))
-6. `zettel purge-rejected`: remove permanentemente chunks `rejected` (SQLite chunks+concepts+FTS e Chroma `chunks`) e por padrão roda `VACUUM` em `state.db` e `chroma.sqlite3` (recupera disco; não altera dados restantes; `--no-compact` pula)
+2. Modo interativo: toda ação volta ao menu, que só fecha com `q` ou quando não resta nada. `a` aprova o lote `>= limiar` (os de baixo continuam listados); `d` abre submenu para rejeitar `t=todos` ou por faixa (`b`/`m`/`h`) após confirmação `s/n`; `r` revisa um a um o que resta, com atalhos `a/r/p/q` (`q` volta ao menu); `x` lista os chunks **rejeitados pelo extract** (título, afiliação, referências…: nunca tiveram draft, por isso ficam fora das faixas) com categoria e motivo, e devolve os escolhidos para `pending` apagando o veredito em cache — rode `zettel extract` depois; `q` sai
+3. **Approve**: move para `20_Literature/{Citekey}/LIT - AuthorYear - pNNN - topico-NNNN.md`, reescreve o **mapa de capítulos** do índice LIT (único lugar onde as LIT aprovadas aparecem, uma por linha, com rótulo `p. N — tópico`), promove concepts para dedupe **escopada à própria fonte** → `approved`. A nota **não é embeddada** — fica no cofre e no SQLite para auditoria
+4. **Dedupe propõe, você decide**: quando a dedupe acha que um conceito repete outra nota da mesma fonte (decisão `ignore` do LLM, ou absorvido por outro candidato do mesmo lote), ele **não é descartado**: vira `dedupe_pending`, fora do `connect`. O review interativo mostra a tese nova ao lado da nota/candidato concorrente e do motivo, e pergunta `m`=manter / `d`=descartar / `p`=pular. Manter aprova o conceito e marca `override`, então a dedupe nunca mais o sinaliza. Nos caminhos não interativos (`--yes`, web, `run-all`) os pendentes ficam esperando e a contagem aparece no resumo e no `zettel status`
+5. **Reject**: apaga draft, `status=rejected`, concepts rejeitados (o chunk permanece no SQLite/Chroma `chunks` até `zettel purge-rejected`)
+6. Deduplicação semântica contra permanentes roda **após** a aprovação, não no extract ([ADR-016](adrs/generated/REVIEW/ADR-016-post-approval-concept-deduplication-timing.md))
+7. `zettel purge-rejected`: remove permanentemente chunks `rejected` (SQLite chunks+concepts+FTS e Chroma `chunks`) e por padrão roda `VACUUM` em `state.db` e `chroma.sqlite3` (recupera disco; não altera dados restantes; `--no-compact` pula)
 
 ---
 
@@ -160,7 +161,7 @@ Módulo: [`connector.py`](../zettel/connector.py).
    - Conceito + contexto RAG (embedding / grafo / analogias distantes) + opcionalmente `{images_context}` das figuras do candidato → nota permanente completa
 3. Valida idioma PT-BR (guardrail automático)
 4. Resolve imagens do candidato (`relevant_image_ids`, com fallback por path no chunk se a lista estiver vazia) e cria o arquivo **ZTL** em `30_Permanent/` com:
-   - Frontmatter YAML (type, note_id, source_id, tags, origin, etc.)
+   - Frontmatter YAML enxuto (type, note_id, title, source_id, chunk_id, tags, origin, page, datas e as listas de julgamento do autor). `literature_ref`, `source_locator`, `citation`, `anchor_quote` e o custo LLM da nota ficam em `notes.provenance_json` no SQLite — os quatro primeiros já aparecem no corpo
    - Corpo: Tese → Definição → Intuição → Exemplo → Limites → **Figuras** (embeds Obsidian + legendas) → Fonte → Conexões
 5. Atualiza **backlinks** nas notas relacionadas via blocos gerenciados:
    ```

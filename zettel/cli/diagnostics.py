@@ -65,6 +65,7 @@ def status(config: ConfigOption = None):
         "chunks_rejected": "Chunks rejeitados",
         "chunks_failed": "Chunks falhos",
         "concepts": "Conceitos",
+        "concepts_dedupe_pending": "Conceitos aguardando decisao de duplicata",
         "notes": "Notas Permanentes",
         "mocs": "MOCs",
         "assets": "Assets",
@@ -73,7 +74,16 @@ def status(config: ConfigOption = None):
         val = stats.get(key, 0)
         style = ""
         # Yellow marks a queue with work in it: something is waiting for a command.
-        if key in ("chunks_pending", "chunks_awaiting_review", "chunks_failed") and val > 0:
+        if (
+            key
+            in (
+                "chunks_pending",
+                "chunks_awaiting_review",
+                "chunks_failed",
+                "concepts_dedupe_pending",
+            )
+            and val > 0
+        ):
             style = "yellow"
         table.add_row(label, str(val), style=style)
 

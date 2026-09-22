@@ -142,9 +142,9 @@ sintoma de que o piso deixou passar algo.
 
 ## Índice de tópicos (roteamento)
 
-`sync_topic_index` ([`topic_index.py`](../zettel/topic_index.py)) mantém um mapa **termo → nota** em duas superfícies: um bloco gerenciado `auto-topic-index` em cada MOC (para você e para um agente ler), espelhado numa tabela `topic_index_terms` no SQLite (para o `ask` consultar sem parsear Markdown). Os termos saem de `named_frameworks` (vocabulário do autor), depois tags, e só caem na cabeça da tese quando a nota não tem nenhum dos dois — a mesma regra que o `zettel skill` usa, para os dois índices não divergirem.
+`sync_topic_index` ([`topic_index.py`](../zettel/topic_index.py)) mantém um mapa **termo → nota** numa tabela `topic_index_terms` no SQLite, reconstruída a cada escrita de MOC, para o `ask` consultar. Não há seção `## Topic Index` no vault: ela poluía o MOC e ninguém a lia (emenda 2026-09-22 da [ADR-036](adrs/generated/RETRIEVAL/ADR-036-topic-index-routing-not-representation.md)). Os termos saem de `named_frameworks` (vocabulário do autor), depois tags, e só caem na cabeça da tese quando a nota não tem nenhum dos dois — a mesma regra que o `zettel skill` usa, para os dois índices não divergirem.
 
-O índice LIT **não** carrega esse bloco (emenda 2026-09-10 da [ADR-036](adrs/generated/RETRIEVAL/ADR-036-topic-index-routing-not-representation.md)): era um mapa de leitura que nunca virava semente. `review` / `zettel reindex` apagam leftovers (`scope_kind='source'` e a seção `## Topic Index` no arquivo).
+O escopo da fonte (índice LIT) deixou de existir na emenda 2026-09-10: nunca virava semente.
 
 **Roteamento não é representação.** O índice é uma *dica de onde olhar*, não um veredito de relevância:
 

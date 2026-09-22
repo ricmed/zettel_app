@@ -15,7 +15,7 @@ from typing import Any
 
 from ulid import ULID
 
-from zettel.citation import citation_frontmatter, resolve_citation
+from zettel.citation import citation_frontmatter, note_provenance, resolve_citation
 from zettel.config import AppConfig, effective_temperature, llm_phase, thinking_checksum_token
 from zettel.hashing import (
     compute_embedding_input_hash,
@@ -315,6 +315,8 @@ def run_connect(
                     log_step(logger, "ok", f"ZTL {note_id}")
 
         logger.info("Notas permanentes criadas/atualizadas: %d", len(created_ids))
+        _refresh_chapter_maps(cfg, db, created_ids)
+        _refresh_lit_permanent_links(cfg, db, candidates, created_ids)
         if rejection:
             raise rejection
         return created_ids
@@ -352,6 +354,20 @@ def _refresh_chapter_maps(cfg: AppConfig, db: StateDB, note_ids: list[str]) -> N
             refresh_chapter_map(cfg, db, sid)
         except OSError as e:
             logger.warning("Falha ao atualizar o mapa de capitulos de %s: %s", sid, e)
+
+
+def _refresh_lit_permanent_links(
+    cfg: AppConfig, db: StateDB, candidates: list[dict], note_ids: list[str]
+) -> None:
+    """Link each source LIT to the ZTL just written from it (`auto-lit-permanent`)."""
+    if not note_ids:
+        return
+    from zettel.review import sync_lit_permanent_links
+
+    try:
+        sync_lit_permanent_links(cfg, db, [c["chunk_id"] for c in candidates if c.get("chunk_id")])
+    except OSError as e:
+        logger.warning("Falha ao atualizar os links LIT -> ZTL: %s", e)
 
 
 # ── Candidate Processing ──────────────────────────────────────────────
@@ -619,21 +635,15 @@ def _process_candidate(
         "note_id": note_id,
         "title": title,
         "source_id": source_id,
-        "literature_ref": literature_ref,
-        "source_locator": cand.source_locator or "",
         "chunk_id": cand_dict.get("chunk_id") or "",
         "tags": tags,
         "origin": origin,
         "created_at": now,
         "updated_at": now,
-        "llm_cost_usd": round(note_cost, 6),
-        "llm_tokens_prompt": note_tokens_in,
-        "llm_tokens_completion": note_tokens_out,
-        "llm_cache_hit": cache_hit,
     }
-    # Page, ABNT citation and the verbatim anchor come from code, not the LLM
-    # (ADR-051); `page` is omitted rather than null for native Markdown.
-    meta.update(citation_frontmatter(citation, cand.anchor_quote))
+    # The page comes from code, not the LLM (ADR-051); omitted rather than null
+    # for native Markdown.
+    meta.update(citation_frontmatter(citation))
     # The author's judgement travels verbatim from the candidate, not through the
     # LLM: the export (`zettel skill`) reads it from here instead of re-parsing the
     # LIT draft. Absent keys mean the chunk stated none — noise-free by default.
@@ -658,6 +668,19 @@ def _process_candidate(
         body=body,
         frontmatter_json=json.dumps(meta, ensure_ascii=False),
         origin=origin,
+        provenance_json=json.dumps(
+            note_provenance(
+                citation,
+                anchor_quote=cand.anchor_quote,
+                literature_ref=literature_ref,
+                source_locator=cand.source_locator or "",
+                llm_cost_usd=round(note_cost, 6),
+                llm_tokens_prompt=note_tokens_in,
+                llm_tokens_completion=note_tokens_out,
+                llm_cache_hit=cache_hit,
+            ),
+            ensure_ascii=False,
+        ),
     )
     db.upsert_concept(
         concept_id,

@@ -60,7 +60,7 @@ def test_progress_events_and_dashboard_are_persisted(tmp_path: Path):
         events = db.list_web_job_events("job")
         assert events[0]["current_index"] == 1
         assert events[0]["total_items"] == 3
-        dashboard = db.get_web_dashboard()
+        dashboard = db.get_web_dashboard(low_max=0.4, limiar=0.75)
         assert dashboard["counts"]["sources"] == 0
         assert dashboard["counts"]["isolated_notes"] == 0
         assert dashboard["relations"] == []
@@ -77,7 +77,7 @@ def test_dashboard_permanent_notes_count_windows_paths(tmp_path: Path):
         db.upsert_note("NOTE01", None, win_path, title="Windows")
         db.upsert_note("NOTE02", None, posix_path, title="Posix")
         db.upsert_note("NOTE03", None, "vault/20_Literature/LIT - x.md", title="LIT")
-        dashboard = db.get_web_dashboard()
+        dashboard = db.get_web_dashboard(low_max=0.4, limiar=0.75)
         assert dashboard["counts"]["permanent_notes"] == 2
         assert db.count_permanent_notes() == 2
     finally:

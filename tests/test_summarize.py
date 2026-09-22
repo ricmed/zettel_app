@@ -286,6 +286,35 @@ def test_chapter_map_shows_pages_counts_and_links(cfg, db):
     assert "Sem resumo" in block
 
 
+def test_chapter_map_lists_one_link_per_line(cfg, db):
+    """The map is the only place the index lists notes, so every link is a bullet."""
+    _seed(db)
+    for i in (1, 2):
+        db.upsert_note(f"note-{i}", SOURCE_ID, f"/v/ZTL - note-{i} - t{i}.md", f"T{i}")
+        db.upsert_concept(f"cp{i}", SOURCE_ID, f"{SOURCE_ID}::ch000::c0", note_id=f"note-{i}")
+
+    lines = render_chapter_map(cfg, db, SOURCE_ID).splitlines()
+    lit_at = lines.index("**Notas de literatura**")
+    assert lines[lit_at + 1].startswith("- [[") and lines[lit_at + 2].startswith("- [[")
+    ztl_at = lines.index("**Notas permanentes**")
+    assert lines[ztl_at + 1 : ztl_at + 3] == ["- [[ZTL - note-1 - t1]]", "- [[ZTL - note-2 - t2]]"]
+
+
+def test_connect_refreshes_the_chapter_map(cfg, db):
+    """The note count follows `connect` without waiting for `zettel summarize`."""
+    from zettel.connector import _refresh_chapter_maps
+
+    _seed(db)
+    path = _write_lit_index(cfg, db)
+    db.upsert_note("note-1", SOURCE_ID, "/v/ZTL - note-1 - tese.md", "Tese")
+    db.upsert_concept("cp1", SOURCE_ID, f"{SOURCE_ID}::ch000::c0", note_id="note-1")
+
+    _refresh_chapter_maps(cfg, db, ["note-1"])
+
+    block = read_managed_block(path.read_text(encoding="utf-8"), "auto-chapter-map")
+    assert "1 nota permanente" in block
+
+
 def test_chapter_map_marks_a_stale_summary(cfg, db):
     _seed(db)
     db.update_chapter_summary(

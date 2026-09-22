@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from zettel.citation import load_provenance
 from zettel.config import AppConfig
 from zettel.hashing import normalize_text_for_hash, sha256_hex
 from zettel.manual_lit import (
@@ -163,7 +164,7 @@ def test_adopted_literature_appears_in_source_index(cfg, db):
     _scaffold_source_and_lit(cfg, db, idx)
 
     index = cfg.vault_path / "20_Literature" / "LIT - Diestel2017 - teoria-dos-grafos.md"
-    block = read_managed_block(index.read_text(encoding="utf-8"), "auto-lit-index")
+    block = read_managed_block(index.read_text(encoding="utf-8"), "auto-chapter-map")
     assert "p. 42" in block
     # The link must point at the file that is actually on disk.
     target = block.split("[[", 1)[1].split("|", 1)[0]
@@ -289,7 +290,9 @@ def test_permanent_from_literature_without_llm(cfg, db):
     meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
     assert meta["origin"] == "manual"
     assert meta["source_id"] == "@Diestel2017"
-    assert meta["source_locator"] == "p.42 / Conectividade"
+    # The locator and the citation strings stay in the body, not the frontmatter.
+    assert "source_locator" not in meta
+    assert "- Localizador: p.42 / Conectividade" in body
     # literature_ref points at the granular LIT, not at the source index, and its
     # alias carries the printed page so the link is readable on its own.
     assert meta["literature_ref"].startswith(f"[[Diestel2017/{lit.stem}|p. 42 ")
@@ -297,9 +300,8 @@ def test_permanent_from_literature_without_llm(cfg, db):
     assert meta["page"] == 42
     assert "- Página: 42" in body
     assert "Conectividade determina robustez" in body
-    # Citation provenance (ADR-051): derived by code, anchor copied verbatim.
-    assert meta["citation"] == "(DIESTEL, 2017, p. 42)"
-    assert meta["anchor_quote"].startswith("Um grafo e conexo")
+    # Citation provenance (ADR-051): derived by code, rendered in the body only.
+    assert "citation" not in meta and "anchor_quote" not in meta
     evidence = read_managed_block(body, "auto-evidence")
     assert evidence is not None and "(DIESTEL, 2017, p. 42)" in evidence
     # No approval gate and no concept row on the hand-written path.
@@ -359,12 +361,19 @@ def test_permanent_from_literature_with_llm(cfg, db, monkeypatch):
 
     meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
     assert meta["origin"] == "manual"
-    assert meta["literature_ref"].startswith(f"[[Diestel2017/{lit.stem}|p. 42 ")
     assert meta["page"] == 42
+    # A connector-written ZTL keeps provenance in SQLite, not in the frontmatter.
+    for key in ("literature_ref", "source_locator", "citation", "anchor_quote", "llm_cost_usd"):
+        assert key not in meta
+    provenance = load_provenance(db.get_note(meta["note_id"]))
+    assert provenance["literature_ref"].startswith(f"[[Diestel2017/{lit.stem}|p. 42 ")
+    assert provenance["citation"] == "(DIESTEL, 2017, p. 42)"
     # The connector copies the anchor from the candidate, not from Prompt 2's output.
-    assert meta["citation"] == "(DIESTEL, 2017, p. 42)"
-    assert meta["anchor_quote"].startswith("Um grafo e conexo")
+    assert provenance["anchor_quote"].startswith("Um grafo e conexo")
     assert read_managed_block(body, "auto-evidence") is not None
+    # The source LIT now links to the ZTL it produced.
+    lit_links = read_managed_block(lit.read_text(encoding="utf-8"), "auto-lit-permanent")
+    assert lit_links == f"- [[{path.stem}]]"
 
     row = db.get_note(meta["note_id"])
     assert row is not None and row["origin"] == "manual"

@@ -90,16 +90,31 @@ origin: pipeline
 
 ← [[SRC - Kahneman2011 - thinking-fast-and-slow]]
 
-## Notas de Literatura aprovadas
+## Resumo geral
 
-<!-- zettel:auto-lit-index:start -->
+<!-- zettel:auto-source-summary:start -->
+_Sem resumo geral. Rode `zettel summarize`._
+<!-- zettel:auto-source-summary:end -->
+
+## Mapa de capitulos
+
+<!-- zettel:auto-chapter-map:start -->
+### Parte I — Dois Sistemas
+p. 19-30 - 1 nota permanente
+
+_Sem resumo. Rode `zettel summarize`._
+
+**Notas de literatura**
 - [[Kahneman2011ThinkingFast/LIT - Kahneman2011 - p020 - sistema-1-0001|p. 20 — Sistema 1]]
-<!-- zettel:auto-lit-index:end -->
+
+**Notas permanentes**
+- [[ZTL - 01HXYZ... - heuristicas-cognitivas|Heurísticas cognitivas]]
+<!-- zettel:auto-chapter-map:end -->
 ```
 
-O bloco `auto-lit-index` é mantido pelo `review` (e pela adoção de LIT manual no `sync-manual`): só entram notas **aprovadas**, com rótulo `p. N — tópico`.
+O mapa de capítulos é o **único** lugar onde o índice lista as LIT aprovadas (e as ZTL que cada capítulo gerou), um link por linha. `review` o reescreve a cada aprovação (e a adoção de LIT manual no `sync-manual` também), `connect` atualiza a contagem de notas permanentes e `summarize` preenche os resumos.
 
-O índice LIT **não** leva um `auto-topic-index`. Esse bloco existiu como mapa termo → LIT granular e foi removido ([ADR-036](adrs/generated/RETRIEVAL/ADR-036-topic-index-routing-not-representation.md), emenda 2026-09-10): nunca virava semente no `ask`, e o roteamento de biblioteca ficou com o mapa de capítulos / `zettel catalog`. O `## Topic Index` que alimenta o `ask` vive nos **MOCs**. Um `review` ou `zettel reindex` apaga leftovers no arquivo e no SQLite.
+O índice LIT **não** leva `## Topic Index` — nem ele nem os MOCs ([ADR-036](adrs/generated/RETRIEVAL/ADR-036-topic-index-routing-not-representation.md), emendas 2026-09-10 e 2026-09-22). O mapa termo → nota que alimenta o `ask` vive só no SQLite.
 
 ### Nota granular (uma por chunk)
 
@@ -138,12 +153,19 @@ O Sistema 1 opera de forma automatica e rapida...
 <!-- zettel:auto-source-excerpt:start -->
 The System 1 operates automatically and quickly, with little or no effort...
 <!-- zettel:auto-source-excerpt:end -->
+
+## Notas permanentes geradas
+
+<!-- zettel:auto-lit-permanent:start -->
+- [[ZTL - 01HXYZ... - heuristicas-cognitivas]]
+<!-- zettel:auto-lit-permanent:end -->
 ```
 
 Pontos importantes:
 
 - O **draft** gerado pelo `extract` fica em `00_Inbox/Review/{Citekey}/` com o **mesmo basename** da nota aprovada — aprovar é mover, não regravar.
 - O bloco `auto-source-excerpt` guarda o trecho integral da fonte, para auditoria lado a lado com o que o LLM produziu. A nota LIT **não é embeddada**: o texto-fonte já vive na coleção `chunks` e nada nunca consultou uma coleção de literatura.
+- O bloco `auto-lit-permanent` aparece na aprovação (com um aviso enquanto nenhuma ZTL existe) e o `connect` o atualiza ao escrever as notas permanentes daquele chunk. O ULID da LIT (`literature_id`) e o da ZTL são diferentes, então é por aqui que se vai da LIT à nota.
 - Uma LIT granular escrita à mão pode ser adotada pelo pipeline — veja [notas-manuais.md](notas-manuais.md).
 - O bloco `auto-decision` só aparece quando algum candidato do chunk **enunciou** uma regra de decisão, um anti-padrão ou um framework nomeado. É gerenciado: edições fora dele sobrevivem. Como todo bloco `auto-*`, fica **fora** do texto embeddado ([ADR-034](adrs/generated/EXTRACT/ADR-034-optional-author-judgement-fields.md)).
 
@@ -158,18 +180,15 @@ Fica em `30_Permanent/`.
 type: permanent
 note_id: "01HXYZ..."
 source_id: "@Kahneman2011ThinkingFast"
-literature_ref: "[[Kahneman2011ThinkingFast/LIT - Kahneman2011 - p020 - sistema-1-0001]]"
-source_locator: "p.20-25 / Capítulo 1"
+chunk_id: "@Kahneman2011ThinkingFast::ch001::a1b2c3d4"
+page: 20
+citation_page_confidence: quote
 tags: [heurísticas, cognição, sistema-1]
 decision_rules:
   - Quando a decisão for repetitiva e de baixo risco, deixe o Sistema 1 agir, porque o custo de deliberar excede o do erro
 named_frameworks:
   - System 1 / System 2
 origin: pipeline
-llm_cost_usd: 0.002100
-llm_tokens_prompt: 1800
-llm_tokens_completion: 420
-llm_cache_hit: false
 ---
 
 > **Tese**: Heurísticas cognitivas são atalhos mentais que o Sistema 1 usa para produzir julgamentos rápidos com mínimo esforço consciente.

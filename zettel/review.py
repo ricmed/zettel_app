@@ -16,9 +16,7 @@ from zettel.state import StateDB
 from zettel.time import now_vault_iso
 from zettel.vault import (
     build_literature_index_note,
-    compose_note,
     literature_chunk_filename_for_row,
-    literature_chunk_wikilink_for_row,
     literature_index_filename,
     literature_source_dirname,
     parse_frontmatter,
@@ -29,7 +27,7 @@ from zettel.vault import (
 logger = logging.getLogger(__name__)
 
 # Faixa "baixissima": confianca inclusiva ate este valor.
-_LOW_CONFIDENCE_MAX = 0.4
+LOW_CONFIDENCE_MAX = 0.4
 
 # Shown by every path that approves by threshold. Measured against the human gold set
 # (#175/#176), `review_confidence` does not rank what a human would keep above what a
@@ -82,7 +80,7 @@ _DECISION_ALIASES = {
 
 def chunk_confidence_band(conf: float, limiar: float) -> str:
     """Classifica uma confianca em very_low / medium / high."""
-    if conf <= _LOW_CONFIDENCE_MAX:
+    if conf <= LOW_CONFIDENCE_MAX:
         return BAND_VERY_LOW
     if conf < limiar:
         return BAND_MEDIUM
@@ -127,7 +125,7 @@ def confidence_band_counts(chunks: list[dict], limiar: float) -> dict[str, int]:
 
 def format_confidence_report(bands: dict[str, int], limiar: float) -> str:
     """Texto PT-BR do relatorio de faixas (sem markup Rich)."""
-    low_max = _LOW_CONFIDENCE_MAX
+    low_max = LOW_CONFIDENCE_MAX
     return (
         f"Total aguardando: {bands['total']} | Limiar: {limiar:.2f}\n"
         f"  Baixissima (0.00-{low_max:.2f}): {bands[BAND_VERY_LOW]}\n"
@@ -202,7 +200,9 @@ def run_review(
 ) -> dict[str, int]:
     """Approve/reject literature drafts awaiting review.
 
-    Returns counts: approved, rejected, skipped.
+    Returns counts: approved, rejected, skipped, requeued (extract rejections sent
+    back to ``pending``), kept_duplicates / discarded_duplicates (dedupe decisions)
+    and dedupe_pending (possible duplicates still waiting for a decision).
     """
     from zettel.usage import begin_run, finish_pipeline_run
 
@@ -215,168 +215,389 @@ def run_review(
     if low_confidence_only:
         chunks = [c for c in chunks if (c.get("review_confidence") or 0) < limiar]
 
-    stats = {"approved": 0, "rejected": 0, "skipped": 0}
-    if not chunks:
-        logger.info("Nenhum chunk aguardando review")
-        finish_pipeline_run(db, run_id)
-        return stats
+    stats = {
+        "approved": 0,
+        "rejected": 0,
+        "skipped": 0,
+        "requeued": 0,
+        "kept_duplicates": 0,
+        "discarded_duplicates": 0,
+        "dedupe_pending": 0,
+    }
 
     if auto_approve or not interactive:
         for chunk in chunks:
             conf = chunk.get("review_confidence") or 0
-            if conf >= limiar:
-                if approve_chunk(cfg, db, idx, chunk["chunk_id"]):
-                    stats["approved"] += 1
-                else:
-                    stats["skipped"] += 1
+            if conf >= limiar and approve_chunk(cfg, db, idx, chunk["chunk_id"]):
+                stats["approved"] += 1
             else:
                 stats["skipped"] += 1
-        _dedupe_approved_concepts(cfg, db, idx, source_id)
+        if chunks:
+            _dedupe_approved_concepts(cfg, db, idx, source_id)
+        stats["dedupe_pending"] = len(pending_dedupe_concepts(db, source_id))
+        finish_pipeline_run(db, run_id)
+        return stats
+
+    if not (
+        chunks or pending_dedupe_concepts(db, source_id) or extract_rejected_chunks(db, source_id)
+    ):
+        logger.info("Nenhum chunk aguardando review")
         finish_pipeline_run(db, run_id)
         return stats
 
     from rich.console import Console
-    from rich.prompt import Prompt
-    from rich.table import Table
 
     console = Console(stderr=True)
-    sample = chunks[: cfg.literature_review.batch_sample_size]
-    table = Table(title=f"Review de LIT ({len(chunks)} aguardando)")
-    table.add_column("#")
-    table.add_column("Chunk")
-    table.add_column("Pagina")
-    table.add_column("Conf")
-    table.add_column("Resumo")
-    for i, c in enumerate(sample, 1):
-        summary = _summary_from_chunk(c)[:200]
-        table.add_row(
-            str(i),
-            c["chunk_id"][-24:],
-            str(c.get("page_in_book") or c.get("page_in_file") or "?"),
-            f"{(c.get('review_confidence') or 0):.2f}",
-            summary,
-        )
-    console.print(table)
-
-    bands = confidence_band_counts(chunks, limiar)
-    report = format_confidence_report(bands, limiar)
-    console.print(f"[cyan]{report}[/cyan]")
     console.print(f"[yellow]{AUTO_APPROVE_UNVALIDATED_WARNING}[/yellow]")
-    console.print(
-        "[cyan]Comandos: a=aprovar >= limiar, d=reprovar (todos ou por faixa), "
-        "r=revisar um a um, q=sair[/cyan]"
-    )
+    try:
+        # Possible duplicates left by an earlier non-interactive run come first.
+        _resolve_dedupe_pending(console, db, source_id, stats)
+        _review_menu(cfg, db, idx, console, chunks, source_id, limiar, stats)
+    finally:
+        stats["dedupe_pending"] = len(pending_dedupe_concepts(db, source_id))
+        finish_pipeline_run(db, run_id)
+    return stats
+
+
+def review_followups(stats: dict[str, int]) -> list[str]:
+    """PT-BR next steps a review run leaves behind (empty when there are none)."""
+    lines: list[str] = []
+    if stats.get("kept_duplicates") or stats.get("discarded_duplicates"):
+        lines.append(
+            f"Duplicatas: {stats.get('kept_duplicates', 0)} mantida(s), "
+            f"{stats.get('discarded_duplicates', 0)} descartada(s)."
+        )
+    if stats.get("dedupe_pending"):
+        lines.append(
+            f"{stats['dedupe_pending']} conceito(s) aguardando decisao de duplicata "
+            "- rode `zettel review`."
+        )
+    if stats.get("requeued"):
+        lines.append(f"{stats['requeued']} chunk(s) reenfileirado(s) - rode `zettel extract`.")
+    return lines
+
+
+def _review_menu(
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    console,
+    chunks: list[dict],
+    source_id: str | None,
+    limiar: float,
+    stats: dict[str, int],
+) -> None:
+    """Menu loop: every action comes back here until ``q`` or nothing is left."""
+    from rich.prompt import Prompt
 
     while True:
+        rejected_by_extract = extract_rejected_chunks(db, source_id)
+        if not chunks and not rejected_by_extract:
+            console.print("[green]Nada mais aguardando review.[/green]")
+            return
+        _print_queue(cfg, console, chunks, limiar, len(rejected_by_extract))
         mode = Prompt.ask(
             "Modo",
-            choices=["a", "d", "r", "q"],
-            default="a",
+            choices=["a", "d", "r", "x", "q"],
+            default="a" if chunks else "q",
             console=console,
         )
         if mode == "q":
-            finish_pipeline_run(db, run_id)
-            return stats
-
+            return
+        if mode == "x":
+            _requeue_extract_rejected(console, db, rejected_by_extract, stats)
+            continue
+        if not chunks:
+            console.print("[dim]Nenhum draft aguardando review.[/dim]")
+            continue
         if mode == "d":
-            bands = confidence_band_counts(chunks, limiar)
-            report = format_confidence_report(bands, limiar)
-            console.print(f"[yellow]{report}[/yellow]")
-            scope_raw = Prompt.ask(
-                r"Reprovar \[t=todos/b=baixissima/m=media/h=alta/c=cancelar\]",
-                choices=list(_REJECT_SCOPE_ALIASES.keys()),
-                default="c",
-                show_choices=False,
-                console=console,
-            )
-            scope = normalize_reject_scope(scope_raw)
-            if scope is None or scope == "cancel":
-                console.print("[dim]Rejeicao em lote cancelada.[/dim]")
-                continue
-
-            targets = filter_chunks_by_band(chunks, scope, limiar)
-            if not targets:
-                console.print(f"[dim]Nenhum draft na faixa {_BAND_LABELS[scope]}.[/dim]")
-                continue
-
-            label = _BAND_LABELS[scope]
-            confirm = Prompt.ask(
-                f"Confirmar rejeicao de {len(targets)} drafts ({label})?",
-                choices=["s", "n"],
-                default="n",
-                console=console,
-            )
-            if confirm != "s":
-                console.print("[dim]Rejeicao em lote cancelada.[/dim]")
-                continue
-
-            rejected_ids: set[str] = set()
-            for chunk in targets:
-                if reject_chunk(cfg, db, idx, chunk["chunk_id"]):
-                    stats["rejected"] += 1
-                    rejected_ids.add(chunk["chunk_id"])
-                else:
-                    stats["skipped"] += 1
-
-            chunks = [c for c in chunks if c["chunk_id"] not in rejected_ids]
-            if not chunks:
-                finish_pipeline_run(db, run_id)
-                return stats
-
-            sample = chunks[: cfg.literature_review.batch_sample_size]
-            bands = confidence_band_counts(chunks, limiar)
-            report = format_confidence_report(bands, limiar)
-            console.print(
-                f"[green]Rejeitados {len(rejected_ids)} ({label}). "
-                f"Restam {len(chunks)} aguardando.[/green]"
-            )
-            console.print(f"[cyan]{report}[/cyan]")
+            chunks = _reject_by_band(cfg, db, idx, console, chunks, limiar, stats)
             continue
 
+        handled: set[str] = set()
         if mode == "a":
-            below = 0
+            for chunk in chunks:
+                if (chunk.get("review_confidence") or 0) >= limiar and approve_chunk(
+                    cfg, db, idx, chunk["chunk_id"]
+                ):
+                    stats["approved"] += 1
+                    handled.add(chunk["chunk_id"])
+            console.print(
+                f"[green]Aprovados {len(handled)} (>= limiar); "
+                f"{len(chunks) - len(handled)} continuam aguardando review.[/green]"
+            )
+        else:  # mode == "r"
             for chunk in chunks:
                 conf = chunk.get("review_confidence") or 0
-                if conf >= limiar:
-                    if approve_chunk(cfg, db, idx, chunk["chunk_id"]):
-                        stats["approved"] += 1
-                    else:
-                        stats["skipped"] += 1
-                else:
-                    below += 1
-                    stats["skipped"] += 1
-            console.print(
-                f"[green]Aprovados {stats['approved']} (>= limiar); "
-                f"abaixo do limiar {below} (permanecem awaiting_review)[/green]"
-            )
-            _dedupe_approved_concepts(cfg, db, idx, source_id)
-            finish_pipeline_run(db, run_id)
-            return stats
-
-        # mode == "r"
-        for chunk in sample:
-            conf = chunk.get("review_confidence") or 0
-            console.print()
-            console.print(format_review_item(chunk), markup=False)
-            choice = ask_review_decision(console, conf=conf, limiar=limiar)
-            if choice == "sair":
-                break
-            if choice == "aprovar":
-                if approve_chunk(cfg, db, idx, chunk["chunk_id"]):
+                console.print()
+                console.print(format_review_item(chunk), markup=False)
+                choice = ask_review_decision(console, conf=conf, limiar=limiar)
+                if choice == "sair":
+                    break
+                if choice == "aprovar" and approve_chunk(cfg, db, idx, chunk["chunk_id"]):
                     stats["approved"] += 1
-                else:
-                    stats["skipped"] += 1
-            elif choice == "rejeitar":
-                if reject_chunk(cfg, db, idx, chunk["chunk_id"]):
+                    handled.add(chunk["chunk_id"])
+                elif choice == "rejeitar" and reject_chunk(cfg, db, idx, chunk["chunk_id"]):
                     stats["rejected"] += 1
+                    handled.add(chunk["chunk_id"])
                 else:
                     stats["skipped"] += 1
-            else:
-                stats["skipped"] += 1
 
-        _dedupe_approved_concepts(cfg, db, idx, source_id)
-        finish_pipeline_run(db, run_id)
-        return stats
+        chunks = [c for c in chunks if c["chunk_id"] not in handled]
+        if handled:
+            _dedupe_approved_concepts(cfg, db, idx, source_id)
+            _resolve_dedupe_pending(console, db, source_id, stats)
+
+
+def _print_queue(
+    cfg: AppConfig, console, chunks: list[dict], limiar: float, n_extract_rejected: int
+) -> None:
+    from rich.table import Table
+
+    if chunks:
+        sample = chunks[: cfg.literature_review.batch_sample_size]
+        table = Table(title=f"Review de LIT ({len(chunks)} aguardando)")
+        table.add_column("#")
+        table.add_column("Chunk")
+        table.add_column("Pagina")
+        table.add_column("Conf")
+        table.add_column("Resumo")
+        for i, c in enumerate(sample, 1):
+            table.add_row(
+                str(i),
+                c["chunk_id"][-24:],
+                str(c.get("page_in_book") or c.get("page_in_file") or "?"),
+                f"{(c.get('review_confidence') or 0):.2f}",
+                _summary_from_chunk(c)[:200],
+            )
+        console.print(table)
+    report = format_confidence_report(confidence_band_counts(chunks, limiar), limiar)
+    console.print(f"[cyan]{report}[/cyan]")
+    # Not a confidence band: these chunks never produced a draft.
+    console.print(f"[cyan]  Rejeitados pelo extract (sem draft): {n_extract_rejected}[/cyan]")
+    console.print(
+        "[cyan]Comandos: a=aprovar >= limiar, d=reprovar (todos ou por faixa), "
+        "r=revisar um a um, x=rejeitados pelo extract, q=sair[/cyan]"
+    )
+
+
+def _reject_by_band(
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    console,
+    chunks: list[dict],
+    limiar: float,
+    stats: dict[str, int],
+) -> list[dict]:
+    """Batch reject (all or one band). Returns the drafts still waiting."""
+    from rich.prompt import Prompt
+
+    scope_raw = Prompt.ask(
+        r"Reprovar \[t=todos/b=baixissima/m=media/h=alta/c=cancelar\]",
+        choices=list(_REJECT_SCOPE_ALIASES.keys()),
+        default="c",
+        show_choices=False,
+        console=console,
+    )
+    scope = normalize_reject_scope(scope_raw)
+    if scope is None or scope == "cancel":
+        console.print("[dim]Rejeicao em lote cancelada.[/dim]")
+        return chunks
+
+    targets = filter_chunks_by_band(chunks, scope, limiar)
+    label = _BAND_LABELS[scope]
+    if not targets:
+        console.print(f"[dim]Nenhum draft na faixa {label}.[/dim]")
+        return chunks
+    confirm = Prompt.ask(
+        f"Confirmar rejeicao de {len(targets)} drafts ({label})?",
+        choices=["s", "n"],
+        default="n",
+        console=console,
+    )
+    if confirm != "s":
+        console.print("[dim]Rejeicao em lote cancelada.[/dim]")
+        return chunks
+
+    rejected_ids: set[str] = set()
+    for chunk in targets:
+        if reject_chunk(cfg, db, idx, chunk["chunk_id"]):
+            stats["rejected"] += 1
+            rejected_ids.add(chunk["chunk_id"])
+        else:
+            stats["skipped"] += 1
+    console.print(f"[green]Rejeitados {len(rejected_ids)} ({label}).[/green]")
+    return [c for c in chunks if c["chunk_id"] not in rejected_ids]
+
+
+# ── Chunks the extract itself rejected ───────────────────────────────
+
+
+def extract_rejected_chunks(db: StateDB, source_id: str | None = None) -> list[dict]:
+    """Chunks the extract rejected: ``status=rejected`` with no candidate.
+
+    A reviewer's rejection keeps the candidates that were on the draft, so an
+    empty candidate list is what tells the two apart. These chunks never had a
+    draft (title pages, affiliations, references...); they are listed so the
+    reviewer can send a wrongly rejected one back to extract.
+    """
+    return [
+        c
+        for c in db.get_chunks_by_status("rejected", source_id=source_id)
+        if not _load_json(c.get("summary_json")).get("candidates")
+    ]
+
+
+def requeue_extract_rejected(db: StateDB, chunk_ids: list[str]) -> int:
+    """Send extract rejections back to ``pending``, dropping the cached verdict."""
+    return sum(db.reset_chunk_to_pending(cid, drop_llm_cache=True) for cid in chunk_ids)
+
+
+def _requeue_extract_rejected(
+    console, db: StateDB, rejected: list[dict], stats: dict[str, int]
+) -> None:
+    from rich.prompt import Prompt
+    from rich.table import Table
+
+    if not rejected:
+        console.print("[dim]Nenhum chunk rejeitado pelo extract.[/dim]")
+        return
+    table = Table(title=f"Rejeitados pelo extract ({len(rejected)})")
+    table.add_column("#")
+    table.add_column("Pagina")
+    table.add_column("Secao")
+    table.add_column("Categoria")
+    table.add_column("Motivo")
+    for i, c in enumerate(rejected, 1):
+        summary = _load_json(c.get("summary_json"))
+        table.add_row(
+            str(i),
+            str(c.get("page_in_book") or c.get("page_in_file") or "-"),
+            (c.get("section_path") or "")[:50],
+            str(summary.get("rejection_category") or "-"),
+            str(summary.get("rejection_reason") or "")[:160],
+        )
+    console.print(table)
+
+    raw = Prompt.ask(
+        r"Re-extrair quais? \[numeros separados por virgula, t=todos, c=cancelar\]",
+        default="c",
+        console=console,
+    )
+    selected = parse_selection(raw, len(rejected))
+    if not selected:
+        console.print("[dim]Nada reenfileirado.[/dim]")
+        return
+    confirm = Prompt.ask(
+        f"Reenfileirar {len(selected)} chunk(s) para o extract?",
+        choices=["s", "n"],
+        default="n",
+        console=console,
+    )
+    if confirm != "s":
+        console.print("[dim]Nada reenfileirado.[/dim]")
+        return
+    n = requeue_extract_rejected(db, [rejected[i]["chunk_id"] for i in selected])
+    stats["requeued"] += n
+    console.print(f"[green]{n} chunk(s) de volta a pending. Rode `zettel extract`.[/green]")
+
+
+def parse_selection(raw: str, total: int) -> list[int]:
+    """``"1, 3"`` -> ``[0, 2]``; ``t`` selects all; anything invalid is ignored."""
+    key = (raw or "").strip().lower()
+    if key in ("t", "todos"):
+        return list(range(total))
+    picked: list[int] = []
+    for part in key.split(","):
+        part = part.strip()
+        if part.isdigit() and 1 <= int(part) <= total and int(part) - 1 not in picked:
+            picked.append(int(part) - 1)
+    return picked
+
+
+# ── Possible duplicates (same source) ────────────────────────────────
+
+
+def pending_dedupe_concepts(db: StateDB, source_id: str | None = None) -> list[dict]:
+    """Concepts dedupe flagged as possibly redundant, waiting for the reviewer."""
+    rows = db.get_concepts_by_status("dedupe_pending")
+    return [r for r in rows if not source_id or r["source_id"] == source_id]
+
+
+def keep_duplicate(db: StateDB, concept_id: str) -> None:
+    """Keep a flagged concept: it goes to ``connect`` and dedupe never flags it again."""
+    concept = db.get_concept(concept_id) or {}
+    dedupe = _load_json(concept.get("dedupe_json"))
+    dedupe["override"] = True
+    db.set_concept_dedupe(concept_id, "approved", dedupe)
+
+
+def discard_duplicate(db: StateDB, concept_id: str) -> None:
+    db.set_concept_dedupe(concept_id, "duplicate")
+
+
+def format_dedupe_item(db: StateDB, concept: dict) -> str:
+    """Card PT-BR: the new thesis next to what would make it redundant."""
+    from zettel.vault import normalize_note_id
+
+    cand = _load_json(concept.get("candidate_json"))
+    dedupe = _load_json(concept.get("dedupe_json"))
+    lines = [
+        f"Tese nova: {cand.get('thesis') or '?'}",
+        f"Definicao: {cand.get('definition') or '-'}",
+    ]
+    note_id = normalize_note_id(str(dedupe.get("target_note_id") or ""))
+    other = db.get_concept(dedupe["duplicate_of"]) if dedupe.get("duplicate_of") else None
+    if note_id:
+        note = db.get_note(note_id) or {}
+        lines.append(f"Nota existente: {note.get('title') or note_id} ({note_id})")
+    elif other:
+        other_thesis = _load_json(other.get("candidate_json")).get("thesis")
+        lines.append(f"Candidato do mesmo lote: {other_thesis or other['concept_id']}")
+    lines.append(f"Motivo: {dedupe.get('reason') or '-'}")
+    return "\n".join(lines)
+
+
+def _resolve_dedupe_pending(
+    console, db: StateDB, source_id: str | None, stats: dict[str, int]
+) -> None:
+    """Ask keep / discard / skip for every possible duplicate of this source."""
+    from rich.prompt import Prompt
+
+    pending = pending_dedupe_concepts(db, source_id)
+    if not pending:
+        return
+    console.print(
+        f"[yellow]{len(pending)} conceito(s) parecem repetir outra nota da mesma fonte. "
+        "Nada e descartado sem a sua decisao.[/yellow]"
+    )
+    for concept in pending:
+        console.print()
+        console.print(format_dedupe_item(db, concept), markup=False)
+        choice = Prompt.ask(
+            r"Decisao \[m=manter/d=descartar/p=pular\]",
+            choices=["m", "d", "p"],
+            default="p",
+            show_choices=False,
+            console=console,
+        )
+        if choice == "m":
+            keep_duplicate(db, concept["concept_id"])
+            stats["kept_duplicates"] += 1
+        elif choice == "d":
+            discard_duplicate(db, concept["concept_id"])
+            stats["discarded_duplicates"] += 1
+
+
+def _load_json(raw: str | None) -> dict:
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def approve_high_confidence(
@@ -478,6 +699,7 @@ def approve_chunk(cfg: AppConfig, db: StateDB, idx: VectorIndex, chunk_id: str) 
             db.update_concept_status(concept["concept_id"], "extracted")
 
     _refresh_literature_index(cfg, db, chunk["source_id"])
+    sync_lit_permanent_links(cfg, db, [chunk_id])
     logger.info("[NOTE=%s] APPROVED → persistido no cofre e em SQLite", dest_path)
     return True
 
@@ -574,62 +796,68 @@ def purge_rejected(
 
 
 def _refresh_literature_index(cfg: AppConfig, db: StateDB, source_id: str) -> None:
+    """Create the literature index if missing, then rewrite its chapter map.
+
+    The chapter map is the single place approved LIT notes are listed, so it is
+    refreshed on every approval instead of waiting for `summarize`/`connect`.
+    """
+    from zettel.summarize import refresh_chapter_map
+
     source = db.get_source(source_id)
     if not source:
         return
-    citekey = source["citekey"]
-    title = source["title"]
-    approved = [
-        c
-        for c in db.get_chunks_for_source(source_id)
-        if c.get("status") in ("approved", "persisted")
-    ]
-    approved.sort(key=lambda c: c.get("chunk_index") or 0)
-    links = [literature_chunk_wikilink_for_row(citekey, c, with_alias=True) for c in approved]
 
-    lit_dir = cfg.vault_path / "20_Literature"
-    lit_path = lit_dir / literature_index_filename(citekey, title)
+    lit_path = (
+        cfg.vault_path
+        / "20_Literature"
+        / literature_index_filename(source["citekey"], source["title"])
+    )
     if not lit_path.exists():
         meta, body = build_literature_index_note(
             source_id,
-            citekey,
-            title,
-            approved_links=links,
+            source["citekey"],
+            source["title"],
             vault_timezone=cfg.vault_timezone,
         )
         safe_write_note(lit_path, meta, body)
-        db.update_source_texts(source_id, lit_body=compose_note(meta, body))
-    else:
-        block = (
-            "\n".join(f"- {link}" for link in links)
-            if links
-            else "_Nenhuma nota granular aprovada ainda._\n"
-        )
-        safe_update_managed_blocks(
-            lit_path, {"auto-lit-index": block}, vault_timezone=cfg.vault_timezone
-        )
-
-    _clear_source_topic_index(db, source_id, lit_path, vault_timezone=cfg.vault_timezone)
-    with contextlib.suppress(OSError):
-        db.update_source_texts(source_id, lit_body=lit_path.read_text(encoding="utf-8"))
+    refresh_chapter_map(cfg, db, source_id)
 
 
-def _clear_source_topic_index(
-    db: StateDB,
-    source_id: str,
-    lit_path: Path,
-    *,
-    vault_timezone: str = "America/Sao_Paulo",
-) -> None:
-    """Drop the source-scope topic index (vault block + SQLite rows).
+LIT_PERMANENT_BLOCK = "auto-lit-permanent"
+_LIT_PERMANENT_HEADING = "## Notas permanentes geradas"
 
-    That scope was a reading aid on the literature index and never seeded
-    retrieval. The MOC scope is what feeds the `ask` boost.
+
+def sync_lit_permanent_links(cfg: AppConfig, db: StateDB, chunk_ids: list[str]) -> None:
+    """Rewrite the ``auto-lit-permanent`` block on each chunk's approved LIT note.
+
+    Lists the ZTL written from the chunk's concepts, so a LIT shows what it
+    became — its ``literature_id`` and the ZTL's ``note_id`` are different
+    ULIDs and the titles rarely match. Deterministic and free (SQLite only);
+    called on approval (empty placeholder) and by ``connect`` after it writes.
+    Drafts in review are skipped: only an approved LIT can have produced a note.
     """
-    from zettel.topic_index import SCOPE_SOURCE, clear_topic_index_block
+    from zettel.vault import permanent_wikilink, upsert_managed_block
 
-    db.delete_topic_index_scope(SCOPE_SOURCE, source_id)
-    clear_topic_index_block(lit_path, vault_timezone=vault_timezone)
+    for chunk_id in dict.fromkeys(chunk_ids):
+        chunk = db.get_chunk(chunk_id)
+        if not chunk or chunk.get("status") not in ("approved", "persisted"):
+            continue
+        path = Path(chunk.get("literature_note_path") or "")
+        if not path.is_file():
+            continue
+        links = [
+            f"- {permanent_wikilink(n['note_id'], n.get('title') or '', path=n.get('path'))}"
+            for n in db.get_notes_for_chunk(chunk_id)
+        ]
+        inner = "\n".join(links) if links else "_Nenhuma nota permanente gerada ainda._"
+        content = path.read_text(encoding="utf-8")
+        if f"zettel:{LIT_PERMANENT_BLOCK}:start" not in content:
+            # This function owns the section, so the LIT builders never scaffold it.
+            content = content.rstrip() + f"\n\n{_LIT_PERMANENT_HEADING}\n"
+            path.write_text(upsert_managed_block(content, LIT_PERMANENT_BLOCK, ""), "utf-8")
+        safe_update_managed_blocks(
+            path, {LIT_PERMANENT_BLOCK: inner}, vault_timezone=cfg.vault_timezone
+        )
 
 
 def _dedupe_approved_concepts(
@@ -657,6 +885,7 @@ def _dedupe_approved_concepts(
                 "source_id": row["source_id"],
                 "chunk_id": row["chunk_id"],
                 "candidate": cand,
+                "dedupe_override": bool(_load_json(row.get("dedupe_json")).get("override")),
             }
         )
 

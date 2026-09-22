@@ -191,8 +191,9 @@ Blocos usados pelo pipeline:
 |-------|------|----------------|
 | `auto-backlinks` | ZTL alvo de conexoes | `connect` |
 | `auto-connections` | ZTL (sugestoes) | `sync-manual`, `connect` (analogias distantes), `suggest-links` |
-| `auto-lit-index` | indice LIT | `review` |
+| `auto-chapter-map` | indice LIT (LIT e ZTL por capitulo) | `review`, `connect`, `summarize` |
 | `auto-source-excerpt` | LIT granular | `extract` |
+| `auto-lit-permanent` | LIT granular aprovada (ZTL geradas dela) | `review`, `connect` |
 | `auto-moc-backrefs` | ZTL listada em MOCs | `garden`, `garden --hubs`, `sync-manual`; removido em `garden --recreate` / `garden --hubs --recreate` |
 
 O bloco **`auto-moc-backrefs`** lista os MOCs (taxonômicos, hub ou manuais) que referenciam a nota permanente no corpo do mapa. Quando um MOC é editado, links obsoletos saem e novos entram; ao purgar MOCs com `--recreate`, o bloco é limpo **antes** de o arquivo ser apagado. Esses blocos são ignorados ao extrair wikilinks manuais para o grafo (`sync-manual`).

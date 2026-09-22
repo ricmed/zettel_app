@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from zettel.citation import load_provenance
 from zettel.time import now_filename_ts, now_vault_iso
 
 from .bibliography import display_author_natural, format_abnt_in_text
@@ -642,7 +643,7 @@ def _populate_catalog(
             assets=note_assets,
             summary=summary,
             cite=_note_cite(row, catalog.sources.get(source_id or "")),
-            anchor_quote=str(_note_frontmatter(row).get("anchor_quote") or "").strip(),
+            anchor_quote=str(load_provenance(row).get("anchor_quote") or "").strip(),
         )
 
     # Keep top max_figures assets by frequency across notes
@@ -656,21 +657,13 @@ def _populate_catalog(
         catalog.assets = {k: v for k, v in catalog.assets.items() if k in keep}
 
 
-def _note_frontmatter(row: dict | None) -> dict:
-    try:
-        meta = json.loads((row or {}).get("frontmatter_json") or "{}")
-    except (TypeError, json.JSONDecodeError):
-        return {}
-    return meta if isinstance(meta, dict) else {}
-
-
 def _note_cite(row: dict | None, source: CatalogSource | None) -> str:
     """The note's own ABNT citation (with page); the source-level one as fallback.
 
-    A hand-written note with no chunk has no ``citation`` key, and still cites
-    its source by author and year.
+    Read from ``notes.provenance_json`` (ADR-051), which ``connect`` fills. A
+    hand-written note has none, and still cites its source by author and year.
     """
-    cite = str(_note_frontmatter(row).get("citation") or "").strip()
+    cite = str(load_provenance(row).get("citation") or "").strip()
     if cite:
         return cite
     return source.in_text_cite if source else ""

@@ -98,7 +98,7 @@ def review(
     db = get_db(cfg)
     idx = get_idx(cfg, db=db, yes=yes)
 
-    from zettel.review import AUTO_APPROVE_UNVALIDATED_WARNING, run_review
+    from zettel.review import AUTO_APPROVE_UNVALIDATED_WARNING, review_followups, run_review
 
     # Either flag means "decide without me", so the interactive report is skipped.
     interactive = not (yes or auto_approve)
@@ -118,6 +118,8 @@ def review(
         f"[red]Rejeitados: {stats['rejected']}[/red] | "
         f"[yellow]Pulados: {stats['skipped']}[/yellow]"
     )
+    for line in review_followups(stats):
+        console.print(f"[yellow]{line}[/yellow]")
     db.close()
 
 

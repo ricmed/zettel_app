@@ -407,15 +407,15 @@ def test_verify_missing_embed(tmp_path):
 ANCHOR = "prompt engineering melhora a qualidade das respostas do modelo"
 
 
-def test_catalog_reads_note_citation_from_frontmatter(db, seeded):
-    """The per-note cite and anchor come from the ZTL frontmatter, not the body."""
+def test_catalog_reads_note_citation_from_provenance(db, seeded):
+    """The per-note cite and anchor come from `notes.provenance_json`, not the body."""
     db.upsert_note(
         NOTE_A,
         source_id="@Negro2026KnowledgeGraphs",
         path=f"30_Permanent/ZTL - {NOTE_A} - prompt.md",
         title="Prompt engineering e qualidade",
         body=db.get_note(NOTE_A)["body"],
-        frontmatter_json=json.dumps(
+        provenance_json=json.dumps(
             {"citation": "(NEGRO et al., 2026, p. 42)", "anchor_quote": ANCHOR}
         ),
     )

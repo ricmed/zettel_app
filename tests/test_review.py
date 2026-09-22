@@ -1,6 +1,7 @@
 """Tests for granular literature review approve/reject."""
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -523,12 +524,14 @@ def test_run_review_mode_a_respects_threshold(env):
         patch("zettel.usage.begin_run"),
         patch("zettel.usage.finish_pipeline_run"),
         patch("zettel.review._dedupe_approved_concepts"),
-        patch("rich.prompt.Prompt.ask", return_value="a"),
+        patch("rich.prompt.Prompt.ask", side_effect=["a", "q"]) as ask,
     ):
         stats = run_review(cfg, db, idx, interactive=True)
 
+    # `a` returns to the menu with the below-threshold drafts still listed.
+    assert ask.call_count == 2
     assert stats["approved"] == 1
-    assert stats["skipped"] == 2
+    assert stats["skipped"] == 0
     assert stats["rejected"] == 0
     assert db.get_chunk("@Book2024::ch000::abc")["status"] == "persisted"
     assert db.get_chunk("@Book2024::ch000::low1")["status"] == "awaiting_review"
@@ -542,7 +545,7 @@ def test_run_review_mode_d_confirm_rejects_all(env):
     with (
         patch("zettel.usage.begin_run"),
         patch("zettel.usage.finish_pipeline_run"),
-        patch("rich.prompt.Prompt.ask", side_effect=["d", "t", "s"]),
+        patch("rich.prompt.Prompt.ask", side_effect=["d", "t", "s", "q"]),
     ):
         stats = run_review(cfg, db, idx, interactive=True)
 
@@ -586,7 +589,8 @@ def test_run_review_mode_r_prints_chunk_text(env):
         patch("zettel.usage.finish_pipeline_run"),
         patch("zettel.review._dedupe_approved_concepts"),
         patch("rich.console.Console", return_value=fake_console),
-        patch("rich.prompt.Prompt.ask", side_effect=["r", "q"]),
+        # r -> first card -> q leaves the one-by-one loop -> q leaves the menu
+        patch("rich.prompt.Prompt.ask", side_effect=["r", "q", "q"]),
     ):
         stats = run_review(cfg, db, idx, interactive=True)
 
@@ -609,7 +613,7 @@ def test_run_review_mode_d_cancel_returns_to_menu_then_quit(env):
     ):
         stats = run_review(cfg, db, idx, interactive=True)
 
-    assert stats == {"approved": 0, "rejected": 0, "skipped": 0}
+    assert (stats["approved"], stats["rejected"], stats["skipped"]) == (0, 0, 0)
     assert db.get_chunk("@Book2024::ch000::abc")["status"] == "awaiting_review"
 
 
@@ -683,3 +687,170 @@ def test_state_vacuum_reclaims_freelist(tmp_path):
     assert freelist_after == 0
     assert after < before
     db.close()
+
+
+# ── Extract rejections and possible duplicates ─────────────────────────
+
+
+def _seed_extract_rejected(db, chunk_id, *, candidates=()):
+    db.upsert_chunk(
+        chunk_id,
+        "@Book2024",
+        "@Book2024::ch000",
+        "Referencias bibliograficas",
+        f"ck-{chunk_id}",
+        status="rejected",
+        section_path="Referencias",
+        summary_json=json.dumps(
+            {
+                "chunk_status": "rejected",
+                "rejection_category": "structural",
+                "rejection_reason": "Lista de referencias",
+                "candidates": list(candidates),
+            }
+        ),
+        review_confidence=0.1,
+    )
+
+
+def test_extract_rejected_chunks_excludes_reviewer_rejections(env):
+    from zettel.review import extract_rejected_chunks
+
+    cfg, db, idx = env
+    _seed_extract_rejected(db, "@Book2024::ch000::refs")
+    # A reviewer rejection keeps the candidates the draft had.
+    reject_chunk(cfg, db, idx, "@Book2024::ch000::abc")
+
+    assert [c["chunk_id"] for c in extract_rejected_chunks(db)] == ["@Book2024::ch000::refs"]
+
+
+def test_parse_selection():
+    from zettel.review import parse_selection
+
+    assert parse_selection("t", 3) == [0, 1, 2]
+    assert parse_selection("3, 1, 3, 9, x", 3) == [2, 0]
+    assert parse_selection("c", 3) == []
+
+
+def test_run_review_x_requeues_an_extract_rejection(env):
+    cfg, db, idx = env
+    _seed_extract_rejected(db, "@Book2024::ch000::refs")
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("rich.prompt.Prompt.ask", side_effect=["x", "1", "s", "q"]),
+    ):
+        stats = run_review(cfg, db, idx, interactive=True)
+
+    assert stats["requeued"] == 1
+    assert db.get_chunk("@Book2024::ch000::refs")["status"] == "pending"
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "awaiting_review"
+
+
+def _seed_pending_duplicate(db):
+    db.upsert_concept(
+        "dup1",
+        "@Book2024",
+        "@Book2024::ch000::abc",
+        candidate_json=json.dumps({"thesis": "Series temporais", "definition": "d"}),
+        status="extracted",
+    )
+    db.set_concept_dedupe("dup1", "dedupe_pending", {"reason": "repetido", "duplicate_of": "c1"})
+
+
+@pytest.mark.parametrize(
+    ("answer", "status", "override"),
+    [("m", "approved", True), ("d", "duplicate", None), ("p", "dedupe_pending", None)],
+)
+def test_run_review_asks_about_possible_duplicates(env, answer, status, override):
+    cfg, db, idx = env
+    _seed_pending_duplicate(db)
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("rich.prompt.Prompt.ask", side_effect=[answer, "q"]),
+    ):
+        stats = run_review(cfg, db, idx, interactive=True)
+
+    concept = db.get_concept("dup1")
+    assert concept["status"] == status
+    assert json.loads(concept["dedupe_json"]).get("override") is override
+    assert stats["dedupe_pending"] == (1 if answer == "p" else 0)
+
+
+def test_non_interactive_review_never_drops_a_possible_duplicate(env):
+    cfg, db, idx = env
+    _seed_pending_duplicate(db)
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("zettel.review._dedupe_approved_concepts"),
+    ):
+        stats = run_review(cfg, db, idx, auto_approve=True, interactive=False)
+
+    assert stats["dedupe_pending"] == 1
+    assert db.get_concept("dup1")["status"] == "dedupe_pending"
+
+
+def test_format_dedupe_item_names_the_competing_candidate(env):
+    from zettel.review import format_dedupe_item
+
+    _, db, _ = env
+    _seed_pending_duplicate(db)
+    card = format_dedupe_item(db, db.get_concept("dup1"))
+    assert "Tese nova: Series temporais" in card
+    assert "Candidato do mesmo lote: t" in card
+    assert "Motivo: repetido" in card
+
+
+def test_approve_lists_the_lit_once_in_the_chapter_map(env):
+    from zettel.vault import literature_index_filename, read_managed_block
+
+    cfg, db, idx = env
+    assert approve_chunk(cfg, db, idx, "@Book2024::ch000::abc")
+
+    index = cfg.vault_path / "20_Literature" / literature_index_filename("Book2024", "Livro Teste")
+    text = index.read_text(encoding="utf-8")
+    assert "Notas de Literatura aprovadas" not in text
+    block = read_managed_block(text, "auto-chapter-map")
+    assert "### Ch1" in block
+    assert "**Notas de literatura**" in block
+    assert block.count("- [[Book2024/") == 1
+
+
+def test_approved_lit_lists_the_permanent_notes_it_produced(env):
+    from zettel.review import LIT_PERMANENT_BLOCK, sync_lit_permanent_links
+    from zettel.vault import read_managed_block
+
+    cfg, db, idx = env
+    chunk_id = "@Book2024::ch000::abc"
+    assert approve_chunk(cfg, db, idx, chunk_id)
+    lit = Path(db.get_chunk(chunk_id)["literature_note_path"])
+    # Approval scaffolds the section with a placeholder.
+    text = lit.read_text(encoding="utf-8")
+    assert "## Notas permanentes geradas" in text
+    assert "Nenhuma nota permanente" in read_managed_block(text, LIT_PERMANENT_BLOCK)
+
+    ztl = cfg.vault_path / "30_Permanent" / "ZTL - 01HNOTE - serie-temporal.md"
+    db.upsert_note("01HNOTE", "@Book2024", str(ztl), title="Serie temporal")
+    db.upsert_concept("c1", "@Book2024", chunk_id, note_id="01HNOTE", status="noted")
+    sync_lit_permanent_links(cfg, db, [chunk_id])
+    sync_lit_permanent_links(cfg, db, [chunk_id])  # idempotent: one section, one link
+
+    text = lit.read_text(encoding="utf-8")
+    assert text.count("## Notas permanentes geradas") == 1
+    assert read_managed_block(text, LIT_PERMANENT_BLOCK) == "- [[ZTL - 01HNOTE - serie-temporal]]"
+
+
+def test_lit_links_skip_drafts_still_in_review(env):
+    from zettel.review import sync_lit_permanent_links
+
+    cfg, db, _ = env
+    chunk_id = "@Book2024::ch000::abc"
+    draft = Path(db.get_chunk(chunk_id)["literature_note_path"])
+    before = draft.read_text(encoding="utf-8")
+    sync_lit_permanent_links(cfg, db, [chunk_id])
+    assert draft.read_text(encoding="utf-8") == before

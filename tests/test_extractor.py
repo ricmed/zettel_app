@@ -1,5 +1,7 @@
 """Tests for extractor candidate filtering."""
 
+import json
+
 from zettel.config import AppConfig, ExtractionConfig
 from zettel.extractor import _filter_candidates, _score_review_confidence
 from zettel.schemas import LiteratureChunkOutput, PermanentNoteCandidate
@@ -1214,7 +1216,10 @@ def test_deduplicate_candidates_intra_batch_duplicate_marked_before_existing_not
     approved = deduplicate_candidates(cfg, db, idx, object(), [a, b])
 
     assert [c["concept_id"] for c in approved] == ["c2"]
-    assert db.get_concept("c1")["status"] == "duplicate"
+    # Absorbed in the batch is a proposal, not a drop: it waits for the reviewer.
+    loser = db.get_concept("c1")
+    assert loser["status"] == "dedupe_pending"
+    assert json.loads(loser["dedupe_json"])["duplicate_of"] == "c2"
     assert db.get_concept("c2")["status"] == "approved"
     db.close()
 
@@ -1274,8 +1279,8 @@ def test_dedupe_skips_llm_when_nearest_note_is_from_another_source(tmp_path, mon
     db.close()
 
 
-def test_dedupe_still_drops_a_repeat_within_the_same_source(tmp_path, monkeypatch):
-    """A chunk repeated inside one book is still noise: `ignore` stays reachable."""
+def test_dedupe_flags_a_repeat_within_the_same_source(tmp_path, monkeypatch):
+    """`ignore` on the same source no longer drops: the concept waits for review."""
     cfg, db = _dedupe_env(tmp_path, note_source_id="@S")
     cand = _cand_dict("c1", thesis="Redes profundas generalizam por vies implicito")
     db.upsert_concept("c1", "@S", "@S::ch000::a", status="extracted")
@@ -1288,7 +1293,31 @@ def test_dedupe_still_drops_a_repeat_within_the_same_source(tmp_path, monkeypatc
     approved = deduplicate_candidates(cfg, db, _FakeNeighbourIndex("N1"), object(), [cand])
 
     assert approved == []
-    assert db.get_concept("c1")["status"] == "duplicate"
+    concept = db.get_concept("c1")
+    assert concept["status"] == "dedupe_pending"
+    assert json.loads(concept["dedupe_json"])["reason"] == "repetido"
+    db.close()
+
+
+def test_dedupe_override_skips_every_check(tmp_path, monkeypatch):
+    """A concept the reviewer chose to keep is never flagged again."""
+    cfg, db = _dedupe_env(tmp_path, note_source_id="@S")
+    cand = {**_cand_dict("c1", thesis="Redes profundas generalizam"), "dedupe_override": True}
+    db.upsert_concept("c1", "@S", "@S::ch000::a", status="extracted")
+    db.set_concept_dedupe("c1", "extracted", {"override": True})
+
+    monkeypatch.setattr(
+        "zettel.extractor.call_llm",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("LLM should not be called")),
+    )
+    idx = _FakeNeighbourIndex("N1")
+    approved = deduplicate_candidates(cfg, db, idx, object(), [cand])
+
+    assert [c["concept_id"] for c in approved] == ["c1"]
+    concept = db.get_concept("c1")
+    assert concept["status"] == "approved"
+    assert json.loads(concept["dedupe_json"]) == {"override": True}
+    assert idx.embed_calls == []
     db.close()
 
 
