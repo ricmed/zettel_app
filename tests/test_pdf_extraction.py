@@ -48,6 +48,37 @@ def test_extract_pdf_docling_conversion_failure_raises_pdf_extraction_error(monk
         extract_pdf_docling(_cfg(), pdf)
 
 
+@pytest.mark.parametrize("fails", [False, True])
+def test_docling_pipelines_are_released_after_conversion(monkeypatch, tmp_path, fails):
+    """Models must be freed while the interpreter is alive, even on failure.
+
+    Otherwise the CodeFormula VLM's __del__ runs at shutdown and logging crashes
+    with "sys.meta_path is None".
+    """
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    seen: list[dict] = []
+
+    class _CachingConverter(_FakeConverter):
+        def __init__(self, *args, **kwargs):
+            self.initialized_pipelines = {"pdf": object()}
+            seen.append(self.initialized_pipelines)
+
+        def convert(self, path):
+            if fails:
+                raise RuntimeError("falhou")
+            return super().convert(path)
+
+    monkeypatch.setattr("docling.document_converter.DocumentConverter", _CachingConverter)
+
+    if fails:
+        with pytest.raises(PdfExtractionError):
+            extract_pdf_docling(_cfg(), pdf)
+    else:
+        extract_pdf_docling(_cfg(), pdf)
+    assert seen == [{}]
+
+
 # ── Docling enrichment options ────────────────────────────────────────
 
 
