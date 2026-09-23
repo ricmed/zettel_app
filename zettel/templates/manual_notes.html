@@ -13,6 +13,14 @@
   {% if next_step %}
   <section class="panel next-step" data-types="LIT_GRANULAR">
     <h2>Próximo passo</h2>
+    {% if next_step.kind == "SRC" %}
+    <p>Sincronize a nova fonte para incluí-la no índice e abrir o formulário de uma nota de leitura já vinculada a <code>{{ next_step.source_id }}</code>.</p>
+    <form method="post" action="/pipeline/sync">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="next" value="{{ next_step.sync_next }}">
+      <button class="primary" type="submit">Sincronizar e criar LIT</button>
+    </form>
+    {% else %}
     <p>Transforme este trecho em uma nota permanente. O caminho recomendado sincroniza a LIT primeiro, para o wikilink apontar para este trecho — não só para o índice da fonte — e para o refino com LLM ficar disponível.</p>
     {% if next_step.source_in_db %}
     <form method="post" action="/pipeline/sync">
@@ -29,6 +37,7 @@
     </form>
     {% endif %}
     <p><a href="{{ next_step.direct_href }}">Criar ZTL agora, sem sincronizar</a> — a nota vai referenciar o índice da fonte, não este trecho, e o LLM não estará disponível.</p>
+    {% endif %}
   </section>
   {% endif %}
   {% endif %}
@@ -67,16 +76,16 @@
         <section class="panel form-section" data-types="SRC LIT_INDEX LIT_GRANULAR ZTL_BLANK">
           <div class="section-heading"><span class="section-number">1</span><div><h2>O essencial</h2><p>Comece com o que torna esta nota encontrável.</p></div></div>
           <div class="form-grid two-col">
-            <label><span id="title-label">Título</span> <input name="title" data-required-for="SRC LIT_INDEX LIT_GRANULAR ZTL_BLANK" placeholder="Um título que diga o que está aqui"></label>
-            <label data-types="SRC">Citekey <input name="citekey" placeholder="sobrenome_ano"></label>
+            <label><span id="title-label">Título</span> <input name="title" value="{{ form_values.get('title', '') }}" data-required-for="SRC LIT_INDEX LIT_GRANULAR ZTL_BLANK" placeholder="Um título que diga o que está aqui"></label>
+            <label data-types="SRC">Citekey <input name="citekey" value="{{ form_values.get('citekey', '') }}" placeholder="sobrenome_ano"></label>
           </div>
           <div class="form-grid two-col" data-types="SRC">
-            <label>Autores <textarea name="authors" rows="3" placeholder="Um autor por linha"></textarea><small>Ex.: Silva, Ana</small></label>
+            <label>Autores <textarea name="authors" rows="3" placeholder="Um autor por linha">{{ form_values.get('authors', '') }}</textarea><small>Ex.: Silva, Ana</small></label>
             <div class="form-grid">
-              <label>Ano <input type="number" name="year" min="2000" max="2030" inputmode="numeric" placeholder="2024"></label>
-              <label>Editora <input name="publisher"></label>
-              <label>Edição <input name="edition"></label>
-              <label>Local <input name="place"></label>
+              <label>Ano <input type="number" name="year" min="2000" max="2030" inputmode="numeric" value="{{ form_values.get('year', '') }}" placeholder="2024"></label>
+              <label>Editora <input name="publisher" value="{{ form_values.get('publisher', '') }}"></label>
+              <label>Edição <input name="edition" value="{{ form_values.get('edition', '') }}"></label>
+              <label>Local <input name="place" value="{{ form_values.get('place', '') }}"></label>
               <label>Tipo de documento
                 <select name="document_type">
                   <option value="">Não informado</option>
@@ -99,14 +108,14 @@
           </div>
           {% if not biblio_llm_ready %}<p class="muted biblio-llm-note">A fase harvest não tem credencial. Monte a ABNT sem LLM, ou configure o provedor em Configuração / saúde.</p>{% endif %}
           <p class="biblio-status muted" id="biblio-status" hidden></p>
-          <label>Referência ABNT <textarea name="abnt_reference" rows="3" placeholder="Cole, componha ou monte a partir dos campos acima"></textarea></label>
-          <label>Citação ou trecho para o LLM <textarea name="biblio_sample" rows="4" placeholder="Cole uma citação pronta ou um trecho da capa. Não é gravado na nota."></textarea><small>Só usado por “Completar com LLM”: informe DOI, URL ou este trecho. A referência ABNT é montada no mesmo padrão do harvest — você revisa antes de criar a nota.</small></label>
+          <label>Referência ABNT <textarea name="abnt_reference" rows="3" placeholder="Cole, componha ou monte a partir dos campos acima">{{ form_values.get('abnt_reference', '') }}</textarea></label>
+          <label>Citação ou trecho para o LLM <textarea name="biblio_sample" rows="4" placeholder="Cole uma citação pronta ou um trecho da capa. Não é gravado na nota.">{{ form_values.get('biblio_sample', '') }}</textarea><small>Só usado por “Completar com LLM”: informe DOI, URL ou este trecho. A referência ABNT é montada no mesmo padrão do harvest — você revisa antes de criar a nota.</small></label>
           <details class="advanced-details" id="biblio-details"><summary>Mais dados bibliográficos</summary>
             <div class="form-grid two-col details-grid">
 
-              <label>DOI <input name="doi" type="url" placeholder="https://doi.org/…"></label><label>URL <input name="url" type="url" placeholder="https://…"></label>
-              <label>Periódico <input name="journal"></label><label>Instituição <input name="institution"></label>
-              <label>Páginas <input name="pages" placeholder="12–28"></label>
+              <label>DOI <input name="doi" type="url" value="{{ form_values.get('doi', '') }}" placeholder="https://doi.org/…"></label><label>URL <input name="url" type="url" value="{{ form_values.get('url', '') }}" placeholder="https://…"></label>
+              <label>Periódico <input name="journal" value="{{ form_values.get('journal', '') }}"></label><label>Instituição <input name="institution" value="{{ form_values.get('institution', '') }}"></label>
+              <label>Páginas <input name="pages" value="{{ form_values.get('pages', '') }}" placeholder="12–28"></label>
             </div>
           </details>
         </section>
@@ -129,7 +138,7 @@
           </div>
           <div class="form-grid two-col" data-types="LIT_GRANULAR">
             <label>Sequência do trecho <input type="number" name="chunk_index" min="1" inputmode="numeric" value="{{ default_chunk_index }}"><small>Número que entra no nome do arquivo (0001, 0002…). Duas notas com o mesmo valor na mesma fonte compartilham o chunk_id — a segunda sobrescreve a primeira no sync.</small></label>
-            <label>Página impressa <input name="page_number" type="number" min="1" inputmode="numeric" placeholder="42"></label>
+            <label>Página impressa <input name="page_number" type="number" min="1" inputmode="numeric" value="{{ form_values.get('page_number', '') }}" placeholder="42"></label>
           </div>
           <p class="muted filename-preview" data-types="LIT_GRANULAR" id="lit-preview" hidden></p>
         </section>
@@ -138,11 +147,11 @@
           <div class="section-heading"><span class="section-number">3</span><div><h2>Escreva a nota</h2><p>O trecho ancora a leitura na fonte. O resumo é a sua interpretação — o que o sync vai incorporar.</p></div></div>
           <p class="muted">O campo <strong>Tópico / seção</strong> em <em>O essencial</em> vira o <code>section_path</code> da nota e entra no nome do arquivo. O título visível da LIT vem da fonte.</p>
           <div class="form-grid">
-            <label>Trecho da fonte <textarea name="lit_excerpt" rows="8" placeholder="Cole aqui o trecho que você está lendo. Vai para o bloco auto-source-excerpt."></textarea></label>
-            <label>Resumo da leitura <textarea name="lit_summary" rows="8" placeholder="O que este trecho diz, nas suas palavras."></textarea></label>
+            <label>Trecho da fonte <textarea name="lit_excerpt" rows="8" placeholder="Cole aqui o trecho que você está lendo. Vai para o bloco auto-source-excerpt.">{{ form_values.get('lit_excerpt', '') }}</textarea></label>
+            <label>Resumo da leitura <textarea name="lit_summary" rows="8" placeholder="O que este trecho diz, nas suas palavras.">{{ form_values.get('lit_summary', '') }}</textarea></label>
             <div class="form-grid two-col">
-              <label>Conceitos-chave <textarea name="lit_concepts" rows="4" placeholder="Um por linha"></textarea><small>Viram tags na seção Conceitos-chave.</small></label>
-              <label>Candidato a permanente <textarea name="lit_candidate" rows="3" placeholder="Uma tese que este trecho sustenta"></textarea><small>Opcional. Preenche “Candidatos a Nota Permanente”.</small></label>
+              <label>Conceitos-chave <textarea name="lit_concepts" rows="4" placeholder="Um por linha">{{ form_values.get('lit_concepts', '') }}</textarea><small>Viram tags na seção Conceitos-chave.</small></label>
+              <label>Candidato a permanente <textarea name="lit_candidate" rows="3" placeholder="Uma tese que este trecho sustenta">{{ form_values.get('lit_candidate', '') }}</textarea><small>Opcional. Preenche “Candidatos a Nota Permanente”.</small></label>
             </div>
           </div>
         </section>
@@ -166,13 +175,13 @@
             <input type="hidden" name="from_lit_path" value="{{ selected_from_lit_path }}">
             {% endif %}
           </div>
-          <label>Tese desta permanente <textarea name="lit_thesis" rows="3" placeholder="Opcional se a LIT já tiver candidato a permanente ou resumo"></textarea><small>Frase ou parágrafo curto que resume a ideia reutilizável. Sem LLM, vira o título da ZTL.</small></label>
-          <label class="toggle-row"><input type="checkbox" name="use_llm" value="1" id="use-llm"{% if not connect_llm_ready %} disabled data-locked="1"{% endif %}><span><strong>Usar LLM para estruturar a partir da nota de leitura</strong><small>{% if connect_llm_ready %}O ZTL será enfileirado e indexado após o processamento. A SRC precisa já estar no SQLite.{% else %}A fase connect não tem credencial. Configure o provedor em Configuração / saúde para ativar.{% endif %}</small></span></label>
+          <label>Tese desta permanente <textarea name="lit_thesis" rows="3" placeholder="Opcional se a LIT já tiver candidato a permanente ou resumo">{{ form_values.get('lit_thesis', '') }}</textarea><small>Frase ou parágrafo curto que resume a ideia reutilizável. Sem LLM, vira o título da ZTL.</small></label>
+          <label class="toggle-row"><input type="checkbox" name="use_llm" value="1" id="use-llm"{% if selected_use_llm %} checked{% endif %}{% if not connect_llm_ready %} disabled data-locked="1"{% endif %}><span><strong>Usar LLM para estruturar a partir da nota de leitura</strong><small>{% if connect_llm_ready %}O ZTL será enfileirado e indexado após o processamento. A SRC precisa já estar no SQLite.{% else %}A fase connect não tem credencial. Configure o provedor em Configuração / saúde para ativar.{% endif %}</small></span></label>
         </section>
 
         <section class="panel form-section" data-types="LIT_INDEX LIT_GRANULAR ZTL_BLANK ZTL_FROM_LIT">
           <div class="section-heading"><span class="section-number">4</span><div><h2>Opções</h2><p>Só quando você pretende substituir um arquivo que já existe.</p></div></div>
-          <label class="toggle-row"><input type="checkbox" name="force" value="1" id="force-overwrite"><span><strong>Substituir arquivo existente</strong><small>Não se aplica ao ramo com LLM: o Connect escreve o próprio arquivo.</small></span></label>
+          <label class="toggle-row"><input type="checkbox" name="force" value="1" id="force-overwrite"{% if selected_force %} checked{% endif %}><span><strong>Substituir arquivo existente</strong><small>Não se aplica ao ramo com LLM: o Connect escreve o próprio arquivo.</small></span></label>
         </section>
       </div>
       <aside class="manual-aside">

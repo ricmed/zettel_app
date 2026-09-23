@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -23,6 +24,28 @@ from zettel.web.security import authenticated, csrf_ok, redirect_login
 router = APIRouter()
 
 _VALID_TYPES = {"SRC", "LIT", "ZTL"}
+_PRESERVED_FORM_FIELDS = (
+    "title",
+    "citekey",
+    "authors",
+    "year",
+    "publisher",
+    "edition",
+    "place",
+    "abnt_reference",
+    "biblio_sample",
+    "doi",
+    "url",
+    "journal",
+    "institution",
+    "pages",
+    "page_number",
+    "lit_excerpt",
+    "lit_summary",
+    "lit_concepts",
+    "lit_candidate",
+    "lit_thesis",
+)
 
 
 def _source_label(row: dict) -> str:
@@ -138,13 +161,29 @@ def _form_page(
         selected_chunk_index=selected.get("chunk_index"),
         selected_ztl_origin=selected.get("ztl_origin") or "blank",
         selected_granular=selected.get("granular") or "",
+        form_values=selected.get("form_values") or {},
+        selected_force=bool(selected.get("force")),
+        selected_use_llm=bool(selected.get("use_llm")),
         default_chunk_index=selected.get("chunk_index")
         or (db.next_manual_chunk_index(source_id) if source_id else 1),
     )
 
 
+def _preserved_form_values(form: Any) -> dict[str, str]:
+    return {name: str(form.get(name) or "") for name in _PRESERVED_FORM_FIELDS}
+
+
 def _next_step(cfg: Any, db: Any, result: Any) -> dict | None:
     meta = result.meta or {}
+    if result.note_type == "source":
+        source_id = str(meta.get("source_id") or "")
+        if not source_id:
+            return None
+        return {
+            "kind": "SRC",
+            "source_id": source_id,
+            "sync_next": f"/notes/new?{urlencode({'type': 'LIT', 'source_id': source_id})}",
+        }
     chunk_id = meta.get("chunk_id")
     if not chunk_id:
         return None
@@ -154,6 +193,7 @@ def _next_step(cfg: Any, db: Any, result: Any) -> dict | None:
         rel = result.path.name
     source_id = meta.get("source_id") or ""
     return {
+        "kind": "LIT",
         "chunk_id": chunk_id,
         "rel_path": rel,
         "source_id": source_id,
@@ -394,6 +434,10 @@ async def create_note(request: Request):
                 "ztl_origin": str(form.get("ztl_origin") or "blank"),
                 "granular": granular,
                 "document_type": str(form.get("document_type") or ""),
+                "chunk_index": str(form.get("chunk_index") or ""),
+                "force": bool(form.get("force")),
+                "use_llm": bool(form.get("use_llm")),
+                "form_values": _preserved_form_values(form),
             },
         )
     finally:

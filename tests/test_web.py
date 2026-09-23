@@ -784,6 +784,56 @@ def test_manual_source_keeps_edited_abnt_reference(web_client):
     assert "nao deve ir para a nota" not in content
 
 
+def test_manual_source_offers_sync_then_create_lit(web_client):
+    client, _ = web_client
+    csrf = _login(client)
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "SRC",
+            "title": "O Capital",
+            "citekey": "Marx2013",
+        },
+    )
+    assert response.status_code == 201
+    assert "Sincronizar e criar LIT" in response.text
+    assert 'action="/pipeline/sync"' in response.text
+    assert 'value="/notes/new?type=LIT&amp;source_id=%40Marx2013"' in response.text
+
+
+def test_manual_form_preserves_values_after_validation_error(web_client):
+    client, _ = web_client
+    csrf = _login(client)
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "LIT",
+            "granular": "1",
+            "title": "Sistema 1 & heurísticas",
+            "chunk_index": "7",
+            "page_number": "42",
+            "lit_excerpt": "Trecho <original>",
+            "lit_summary": "Resumo interpretativo",
+            "lit_concepts": "decisão\nheurística",
+            "lit_candidate": "Decisões rápidas usam atalhos.",
+            "force": "1",
+        },
+    )
+    assert response.status_code == 400
+    assert 'value="Sistema 1 &amp; heurísticas"' in response.text
+    assert 'name="chunk_index" min="1" inputmode="numeric" value="7"' in response.text
+    assert (
+        'name="page_number" type="number" min="1" inputmode="numeric" value="42"' in response.text
+    )
+    assert "Trecho &lt;original&gt;" in response.text
+    assert "Resumo interpretativo" in response.text
+    assert "decisão\nheurística" in response.text
+    assert "Decisões rápidas usam atalhos." in response.text
+    assert 'id="force-overwrite" checked' in response.text
+
+
 def test_manual_lit_granular_creates_chunk_file(web_client):
     client, tmp_path = web_client
     csrf = _login(client)
