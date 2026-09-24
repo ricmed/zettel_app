@@ -302,14 +302,14 @@ def test_chapter_map_lists_one_link_per_line(cfg, db):
 
 def test_connect_refreshes_the_chapter_map(cfg, db):
     """The note count follows `connect` without waiting for `zettel summarize`."""
-    from zettel.connector import _refresh_chapter_maps
+    from zettel.connector.run import refresh_chapter_maps
 
     _seed(db)
     path = _write_lit_index(cfg, db)
     db.upsert_note("note-1", SOURCE_ID, "/v/ZTL - note-1 - tese.md", "Tese")
     db.upsert_concept("cp1", SOURCE_ID, f"{SOURCE_ID}::ch000::c0", note_id="note-1")
 
-    _refresh_chapter_maps(cfg, db, ["note-1"])
+    refresh_chapter_maps(cfg, db, ["note-1"])
 
     block = read_managed_block(path.read_text(encoding="utf-8"), "auto-chapter-map")
     assert "1 nota permanente" in block

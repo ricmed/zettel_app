@@ -190,9 +190,9 @@ def test_connect_aborts_leaving_concepts_approved(tmp_path, monkeypatch):
     from zettel.connector import run_connect
 
     cfg, db, candidates = _approved_concepts(tmp_path)
-    monkeypatch.setattr("zettel.connector.get_llm", lambda *a, **k: object())
+    monkeypatch.setattr("zettel.connector.run.get_llm", lambda *a, **k: object())
     monkeypatch.setattr(
-        "zettel.connector._load_connect_taxonomy",
+        "zettel.connector.context.load_connect_taxonomy",
         lambda *a, **k: ({}, {}),
     )
     monkeypatch.setattr(
@@ -203,7 +203,7 @@ def test_connect_aborts_leaving_concepts_approved(tmp_path, monkeypatch):
     def _boom(*_a, **_k):
         raise LLMUnavailableError("connection refused")
 
-    monkeypatch.setattr("zettel.connector.call_llm", _boom)
+    monkeypatch.setattr("zettel.connector.prompt.call_llm", _boom)
     try:
         with pytest.raises(LLMUnavailableError):
             run_connect(cfg, db, FakeVectorIndex(), candidates)

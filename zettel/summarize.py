@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from zettel.config import AppConfig
-from zettel.hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
+from zettel.hashing import sha256_hex
 from zettel.index import VectorIndex
 from zettel.progress import ProgressObserver, report
 from zettel.schemas import ChapterSummaryOutput, SourceSummaryOutput
@@ -135,47 +135,21 @@ def _call_summary_llm(
 
     Returns ``(response_text, was_cache_hit)``.
     """
-    from zettel.config import effective_temperature, llm_phase, thinking_checksum_token
-    from zettel.llm import call_llm, fill_template, get_llm, load_prompt_parts
+    from zettel.llm import cached_call_llm, fill_template, get_llm, load_prompt_parts
 
-    spec = llm_phase(cfg, "summarize")
     parts = load_prompt_parts(cfg.prompts_path / prompt_name)
     system = fill_template(parts.system, mapping) if parts.system else ""
     user = fill_template(parts.user_template, mapping)
-    filled_for_hash = f"{system}\n{user}" if system else user
-
-    checksum = compute_llm_call_checksum(
-        sha256_hex(parts.full_template),
-        sha256_hex(normalize_text_for_hash(filled_for_hash)),
-        spec.model,
-        effective_temperature(cfg, spec),
-        cfg.language,
-        provider=spec.provider,
-        top_p=cfg.llm.top_p,
-        thinking=thinking_checksum_token(spec.thinking),
-    )
-    cached = db.get_cached_llm_response(checksum)
-    if cached is not None:
-        from zettel.usage import record_cache_hit
-
-        record_cache_hit(label="summarize", model=spec.model)
-        return cached, True
-
-    llm = get_llm(cfg, "summarize")
-    response = call_llm(
-        llm,
+    return cached_call_llm(
+        cfg,
+        db,
+        "summarize",
+        parts.full_template,
+        system,
         user,
-        system=system or None,
+        get_client=lambda: get_llm(cfg, "summarize"),
         label=label,
-        provider=spec.provider,
-        prompt_cache=cfg.llm.prompt_cache,
     )
-    db.cache_llm_response(
-        checksum,
-        json.dumps({"system": system, "user": user}, ensure_ascii=False),
-        response,
-    )
-    return response, False
 
 
 def _parse_chapter_summary(text: str) -> ChapterSummaryOutput:

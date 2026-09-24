@@ -1,7 +1,7 @@
 """Shared LLM helpers — provider instantiation, call, prompt loading, JSON extraction.
 
 Centralizes functions that were previously duplicated verbatim across
-extractor.py, connector.py and gardener.py.
+the extractor, the connector and the gardener.
 
 Prompt layout for provider prefix caching:
   SystemMessage(stable instructions) + HumanMessage(per-call payload)
@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -617,6 +618,74 @@ def call_llm(
         cache_write_tokens=usage.cache_write_tokens,
     )
     return content
+
+
+def cached_call_llm(
+    cfg: Any,
+    db: Any,
+    phase: str,
+    prompt_template: str,
+    system: str,
+    user: str,
+    *,
+    get_client: Callable[[], Any],
+    call: Callable[..., str] | None = None,
+    temperature: float | None = None,
+    label: str | None = None,
+    step: int | None = None,
+    total: int | None = None,
+) -> tuple[str, bool]:
+    """Run one prompt through the SQLite response cache. Returns ``(text, cache_hit)``.
+
+    The key hashes the template plus the whole filled prompt (``system`` + ``user``)
+    and every client knob of ``llm.<phase>``, so any change to either is a miss.
+    Callers whose key hashes something else on purpose (extract: chunk + images;
+    bibliography: sample + seed; assets: image bytes) keep their own checksum.
+
+    ``get_client`` is only invoked on a miss, so a settled cache never builds a
+    client. ``call`` defaults to this module's ``call_llm``; consumers pass their
+    own module global so tests keep patching ``zettel.<module>.call_llm``.
+    ``temperature`` overrides the phase temperature in the key only -- the caller
+    must build the client with the same value.
+    """
+    from zettel.config import effective_temperature, llm_phase, thinking_checksum_token
+    from zettel.hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
+    from zettel.usage import record_cache_hit
+
+    spec = llm_phase(cfg, phase)
+    filled = f"{system}\n{user}" if system else user
+    checksum = compute_llm_call_checksum(
+        sha256_hex(prompt_template),
+        sha256_hex(normalize_text_for_hash(filled)),
+        spec.model,
+        effective_temperature(cfg, spec) if temperature is None else temperature,
+        cfg.language,
+        provider=spec.provider,
+        top_p=cfg.llm.top_p,
+        thinking=thinking_checksum_token(spec.thinking),
+    )
+    cached = db.get_cached_llm_response(checksum)
+    if cached is not None:
+        logger.debug("LLM cache hit (%s) %s", phase, label or "")
+        record_cache_hit(label=label or phase, model=spec.model)
+        return cached, True
+
+    response = (call or call_llm)(
+        get_client(),
+        user,
+        system=system or None,
+        label=label,
+        step=step,
+        total=total,
+        provider=spec.provider,
+        prompt_cache=cfg.llm.prompt_cache,
+    )
+    db.cache_llm_response(
+        checksum,
+        json.dumps({"system": system, "user": user}, ensure_ascii=False),
+        response,
+    )
+    return response, False
 
 
 @dataclass(frozen=True)

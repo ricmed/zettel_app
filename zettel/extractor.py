@@ -1005,7 +1005,17 @@ def deduplicate_candidates(
                 approved.append(cand_dict)
 
     for cand_dict in approved:
-        db.set_concept_dedupe(cand_dict["concept_id"], "approved")
+        # A refinement carries its target across the review/connect boundary, where
+        # it becomes an `extends` edge; `None` keeps any stored reviewer override.
+        refine = (
+            {
+                "refines_note_id": cand_dict["refines_note_id"],
+                "reason": cand_dict.get("refine_reason") or "",
+            }
+            if cand_dict.get("refines_note_id")
+            else None
+        )
+        db.set_concept_dedupe(cand_dict["concept_id"], "approved", refine)
     for cand_dict in pending:
         db.set_concept_dedupe(
             cand_dict["concept_id"],

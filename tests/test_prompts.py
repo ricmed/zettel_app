@@ -48,8 +48,8 @@ PLACEHOLDER_RE = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
 CONSUMERS: dict[str, tuple[str, str]] = {
     "literature_note.md": ("extractor.py", "prompt1_messages"),
     "dedupe_decision.md": ("extractor.py", "deduplicate_candidates"),
-    "permanent_note.md": ("connector.py", "_process_candidate"),
-    "ptbr_guard.md": ("connector.py", "_apply_ptbr_guard"),
+    "permanent_note.md": ("connector/prompt.py", "prompt2_messages"),
+    "ptbr_guard.md": ("connector/prompt.py", "apply_ptbr_guard"),
     "moc_generation.md": ("gardener.py", "_create_new_moc"),
     "moc_incremental.md": ("gardener.py", "_update_existing_moc"),
     "moc_hub_generation.md": ("gardener_hub.py", "_create_new_hub_moc"),
@@ -318,7 +318,7 @@ def test_permanent_note_never_offers_corroborates():
     Offered in the relation menu, the model would emit it rhetorically ("this
     note also agrees") and the signal — two *different* sources converging —
     would be indistinguishable from `supports`. Only `connect` writes this edge,
-    derived from `source_id`; see `connector._demote_llm_corroborates`.
+    derived from `source_id`; see `connector.links.demote_llm_corroborates`.
     """
     text = (PROMPTS_DIR / "permanent_note.md").read_text(encoding="utf-8")
     assert RelationType.CORROBORATES.value not in text

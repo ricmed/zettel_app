@@ -82,5 +82,5 @@ Amendment:
 * `zettel/harvester/pipeline.py` — `_process_file`, file checksum (`file_sha256`) and extraction checksum computation and comparison during harvest
 * `zettel/harvester/chunking.py` — `chunk_and_persist`, chapter and chunk checksums (the chapter checksum is what skips unchanged chapters)
 * `zettel/extractor.py` — `compute_llm_call_checksum` construction for deterministic response caching
-* `zettel/connector.py` — `compute_llm_call_checksum` and `compute_embedding_input_hash` (embed-skip) usage
+* `zettel/connector/prompt.py` — `compute_llm_call_checksum` usage; `zettel/connector/note.py` — `compute_embedding_input_hash` (embed-skip)
 * `zettel/state.py` — `llm_cache` table storing checksum-keyed cached responses; `get_cached_llm_response` / `cache_llm_response`
