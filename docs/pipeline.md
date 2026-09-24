@@ -146,15 +146,16 @@ Módulo: [`review.py`](../zettel/review.py).
 2. Modo interativo: toda ação volta ao menu, que só fecha com `q` ou quando não resta nada. `a` aprova o lote `>= limiar` (os de baixo continuam listados); `d` abre submenu para rejeitar `t=todos` ou por faixa (`b`/`m`/`h`) após confirmação `s/n`; `r` revisa um a um o que resta, com atalhos `a/r/p/q` (`q` volta ao menu); `x` lista os chunks **rejeitados pelo extract** (título, afiliação, referências…: nunca tiveram draft, por isso ficam fora das faixas) com categoria e motivo, e devolve os escolhidos para `pending` apagando o veredito em cache — rode `zettel extract` depois; `q` sai
 3. **Approve**: move para `20_Literature/{Citekey}/LIT - AuthorYear - pNNN - topico-NNNN.md`, reescreve o **mapa de capítulos** do índice LIT (único lugar onde as LIT aprovadas aparecem, uma por linha, com rótulo `p. N — tópico`), promove concepts para dedupe **escopada à própria fonte** → `approved`. A nota **não é embeddada** — fica no cofre e no SQLite para auditoria
 4. **Dedupe propõe, você decide**: quando a dedupe acha que um conceito repete outra nota da mesma fonte (decisão `ignore` do LLM, ou absorvido por outro candidato do mesmo lote), ele **não é descartado**: vira `dedupe_pending`, fora do `connect`. O review interativo mostra a tese nova ao lado da nota/candidato concorrente e do motivo, e pergunta `m`=manter / `d`=descartar / `p`=pular. Manter aprova o conceito e marca `override`, então a dedupe nunca mais o sinaliza. Nos caminhos não interativos (`--yes`, web, `run-all`) os pendentes ficam esperando e a contagem aparece no resumo e no `zettel status`
-5. **Reject**: apaga draft, `status=rejected`, concepts rejeitados (o chunk permanece no SQLite/Chroma `chunks` até `zettel purge-rejected`)
-6. Deduplicação semântica contra permanentes roda **após** a aprovação, não no extract ([ADR-016](adrs/generated/REVIEW/ADR-016-post-approval-concept-deduplication-timing.md))
-7. `zettel purge-rejected`: remove permanentemente chunks `rejected` (SQLite chunks+concepts+FTS e Chroma `chunks`) e por padrão roda `VACUUM` em `state.db` e `chroma.sqlite3` (recupera disco; não altera dados restantes; `--no-compact` pula)
+5. **Refinamento**: quando a dedupe decide `refine_existing` ou `merge`, o conceito é aprovado e a nota-alvo fica gravada em `concepts.dedupe_json`. No `connect`, a nova nota ganha uma aresta `extends` para essa nota, a menos que o modelo já a tenha ligado ([adendo da ADR-045](adrs/generated/REVIEW/ADR-045-cross-source-overlap-is-corroboration.md#amendment-2026-09-24-refine_existing-now-reaches-connect))
+6. **Reject**: apaga draft, `status=rejected`, concepts rejeitados (o chunk permanece no SQLite/Chroma `chunks` até `zettel purge-rejected`)
+7. Deduplicação semântica contra permanentes roda **após** a aprovação, não no extract ([ADR-016](adrs/generated/REVIEW/ADR-016-post-approval-concept-deduplication-timing.md))
+8. `zettel purge-rejected`: remove permanentemente chunks `rejected` (SQLite chunks+concepts+FTS e Chroma `chunks`) e por padrão roda `VACUUM` em `state.db` e `chroma.sqlite3` (recupera disco; não altera dados restantes; `--no-compact` pula)
 
 ---
 
 ## Fase 3 — Connect (Conexão)
 
-Módulo: [`connector.py`](../zettel/connector.py).
+Pacote: [`connector/`](../zettel/connector/) ([ADR-053](adrs/generated/CONNECT/ADR-053-connect-phase-as-python-package.md)): `run` (entrada e loop), `note` (um candidato -> uma ZTL), `prompt` (Prompt 2 + cache + guard PT-BR), `context` (RAG, analogias, imagens), `links` (relações e backlinks).
 
 1. Para cada candidato aprovado, busca **top-k notas similares** (RAG híbrido) — apenas para conexões — e uma busca secundária de **analogias distantes** (fora do bucket taxonômico, piso local `linking.distant_analogy_min_similarity`; o piso global de `ask`/`article` não muda)
 2. Chama o LLM com o **Prompt 2** (`permanent_note.md`):

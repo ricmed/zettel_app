@@ -36,7 +36,7 @@ A second question sits underneath: does hand-written content belong in the confi
 
 ## Decision Outcome
 
-Chosen option: "Synthesize the missing `chunks` row during `sync-manual`," because the chunk row is the only thing the downstream machinery was actually missing. Once it exists, embedding into `literature_notes`, the `auto-lit-index` refresh, `connector._literature_ref_for_chunk`, `delete-source` cascade and FTS all work with no code of their own. The alternative — a parallel manual concept — would have duplicated each of those five behaviours and guaranteed drift.
+Chosen option: "Synthesize the missing `chunks` row during `sync-manual`," because the chunk row is the only thing the downstream machinery was actually missing. Once it exists, embedding into `literature_notes`, the `auto-lit-index` refresh, `connector.literature_ref_for_chunk`, `delete-source` cascade and FTS all work with no code of their own. The alternative — a parallel manual concept — would have duplicated each of those five behaviours and guaranteed drift.
 
 Concretely, `zettel/manual_lit.py` owns adoption. `ensure_manual_chapter` creates one `{source_id}::ch000` chapter titled `Manual` per source, satisfying the NOT NULL foreign key. `adopt_manual_literature` reads the excerpt out of the `auto-source-excerpt` managed block as `chunks.text`, rebuilds `summary_json` by parsing the note's own `## Resumo` / `## Conceitos-chave` / `## Candidatos a Nota Permanente` sections, writes the chunk as `status='persisted'`, embeds through the same `review._literature_embed_text` the approval path uses, and calls `review._refresh_literature_index`. Idempotency comes from a checksum over excerpt plus body, mirroring how `_sync_permanent` compares `note_semantic_checksum`.
 
@@ -95,7 +95,7 @@ This decision supersedes the DISCARD verdict recorded for "Decision 4: Manual No
 * `zettel/manual_lit.py` — adoption, body parsing, candidate derivation, LIT-to-ZTL
 * `zettel/manual_lit.py:46-56` — `ensure_manual_chapter` (NOT NULL FK on `chunks.chapter_id`)
 * `zettel/sync.py` — `_sync_literature` dispatch on `origin`
-* `zettel/connector.py:102-110` — `run_connect(..., origin=...)`
+* `zettel/connector/run.py` — `run_connect(..., origin=...)`
 * `zettel/vault.py` — `literature_chunk_wikilink_for_row` prefers the on-disk path
 * `zettel/state.py:138-150` — `concepts.chunk_id` NOT NULL with FK to `chunks`
 * `tests/test_manual_flow.py` — end-to-end coverage of SRC → LIT → ZTL
@@ -106,6 +106,6 @@ SRC→ZTL for fiction and authorial notes does **not** run Prompt 2. `zettel sug
 
 ## Amendment (2026-09-07)
 
-Adoption no longer embeds into `literature_notes` — that collection was removed ([ADR-015 amendment](../EXTRACT/ADR-015-granular-literature-notes-readable-filenames.md)). The rationale above rests on five behaviours the synthesized `chunks` row unlocks for free; four survive (the `auto-lit-index` refresh, `connector._literature_ref_for_chunk`, the `delete-source` cascade, FTS). The argument weakens rather than breaks: the chunk row is still the only thing the downstream machinery was missing.
+Adoption no longer embeds into `literature_notes` — that collection was removed ([ADR-015 amendment](../EXTRACT/ADR-015-granular-literature-notes-readable-filenames.md)). The rationale above rests on five behaviours the synthesized `chunks` row unlocks for free; four survive (the `auto-lit-index` refresh, `connector.literature_ref_for_chunk`, the `delete-source` cascade, FTS). The argument weakens rather than breaks: the chunk row is still the only thing the downstream machinery was missing.
 
 Correction to the surrounding docs: an adopted manual LIT does **not** appear in `ask`/`article`. The `Retriever` scores permanent notes, never LIT (ADR-036) — that was true before this change and is now also true of the vector store.

@@ -1,7 +1,7 @@
 """Shared LLM helpers — provider instantiation, call, prompt loading, JSON extraction.
 
 Centralizes functions that were previously duplicated verbatim across
-extractor.py, connector.py and gardener.py.
+the extractor, the connector and the gardener.
 
 Prompt layout for provider prefix caching:
   SystemMessage(stable instructions) + HumanMessage(per-call payload)

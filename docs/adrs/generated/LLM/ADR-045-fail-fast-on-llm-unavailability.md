@@ -33,4 +33,4 @@ An outage is visible and cheap to resume. A malformed JSON on one chunk still ma
 ## References
 
 * `zettel/llm.py` (`LLMUnavailableError`, `is_llm_unavailable`, `call_llm`, `get_llm`)
-* `zettel/extractor.py`, `zettel/connector.py`, `zettel/harvester/pipeline.py`, `zettel/bibliography.py`
+* `zettel/extractor.py`, `zettel/connector/run.py`, `zettel/connector/note.py`, `zettel/harvester/pipeline.py`, `zettel/bibliography.py`

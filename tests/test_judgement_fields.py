@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from zettel.connector import _format_judgement
+from zettel.connector.prompt import format_judgement
 from zettel.schemas import (
     JUDGEMENT_FIELDS,
     LiteratureChunkOutput,
@@ -221,7 +221,7 @@ def test_frontmatter_carries_stated_fields():
     ],
 )
 def test_prompt_payload_rendering(items, expected):
-    assert _format_judgement(items) == expected
+    assert format_judgement(items) == expected
 
 
 def test_prompt_files_declare_the_new_keys():

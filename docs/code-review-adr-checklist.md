@@ -13,7 +13,7 @@
 | **extractor.py** | ADR-015, 016, 025 | Literature note format? Dedup timing? Prompting? |
 | **review.py** | ADR-016, 017, 018 | Approval flow? Thresholds? Validation? |
 | **retrieval.py** | ADR-003, 009, 010 | RRF fusion? Relevance floor? Graph expansion? |
-| **connector.py** | ADR-003, 009, 010, 025 | RAG retrieval? Graph? Prompting? |
+| **connector/** (package) | ADR-003, 009, 010, 025, 043, 045, 053 | RAG retrieval? Graph? Prompting? Distant analogies stay suggestions? Package import rules? |
 | **gardener.py** | ADR-019, 021, 025 | Clustering? Routing? Prompting? |
 | **gardener_hub.py** | ADR-020, 021, 025 | Hub selection? Graph expansion? LLM routing? |
 | **web.py, web_app.py** | ADR-022, 023, 018 | Server rendering? Job queue? Validation? |

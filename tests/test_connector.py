@@ -3,17 +3,16 @@
 from pathlib import Path
 
 from zettel.config import AppConfig
-from zettel.connector import (
-    _build_rag_context,
-    _corroborating_note_ids,
-    _demote_llm_corroborates,
-    _fallback_image_ids,
-    _inverse_relation,
-    _persist_and_backlink,
-    _relation_type_value,
-    _resolve_connections,
-    _resolve_images,
+from zettel.connector.context import build_rag_context, fallback_image_ids, resolve_images
+from zettel.connector.links import (
+    assemble_connections,
+    corroborating_note_ids,
+    demote_llm_corroborates,
+    inverse_relation,
+    persist_and_backlink,
     rebuild_auto_backlinks,
+    relation_type_value,
+    resolve_connections,
 )
 from zettel.retrieval import RetrievedNote
 from zettel.schemas import RelationshipResult, RelationType
@@ -22,7 +21,7 @@ from zettel.vault import build_permanent_note_body, read_managed_block
 
 
 class _FakeDB:
-    """Minimal stub for StateDB used in _resolve_connections tests."""
+    """Minimal stub for StateDB used in resolve_connections tests."""
 
     def __init__(self, notes: dict[str, dict]):
         self._notes = notes
@@ -39,18 +38,18 @@ def _write_note(path: Path, body: str = "corpo") -> Path:
 
 def test_inverse_relation_mapping():
     """All defined relation types have a PT-BR inverse."""
-    assert _inverse_relation("supports") == "suportado por"
-    assert _inverse_relation("contradicts") == "contradiz"
-    assert _inverse_relation("extends") == "estendido por"
-    assert _inverse_relation("depends_on") == "base para"
-    assert _inverse_relation("exemplifies") == "exemplificado por"
-    assert _inverse_relation("related") == "relacionado"
-    assert _inverse_relation("corroborates") == "corroborado por"
+    assert inverse_relation("supports") == "suportado por"
+    assert inverse_relation("contradicts") == "contradiz"
+    assert inverse_relation("extends") == "estendido por"
+    assert inverse_relation("depends_on") == "base para"
+    assert inverse_relation("exemplifies") == "exemplificado por"
+    assert inverse_relation("related") == "relacionado"
+    assert inverse_relation("corroborates") == "corroborado por"
 
 
 def test_inverse_relation_unknown_falls_back():
     """Unknown relation type defaults to 'relacionado'."""
-    assert _inverse_relation("unknown_type") == "relacionado"
+    assert inverse_relation("unknown_type") == "relacionado"
 
 
 # ── Corroboration: an edge derived from source_id, never from the model ──
@@ -76,7 +75,7 @@ def test_corroborating_note_ids_picks_other_sources_above_threshold():
         _hit("WEAK", 0.60),  # similarity 0.70 < 0.85
         _hit("NEIGHBOUR", 0.10, hop=1),  # arrived by traversal: no similarity to judge
     ]
-    assert _corroborating_note_ids(cfg, db, hits, "@A", "SELF") == ["OTHER"]
+    assert corroborating_note_ids(cfg, db, hits, "@A", "SELF") == ["OTHER"]
 
 
 def test_corroborating_note_ids_respects_max_edges():
@@ -85,14 +84,14 @@ def test_corroborating_note_ids_respects_max_edges():
     db = _FakeDB({nid: {"source_id": f"@{nid}"} for nid in ("B1", "B2", "B3")})
     hits = [_hit("B1", 0.30), _hit("B2", 0.10), _hit("B3", 0.20)]
     # Ranked by similarity, so the closest two win.
-    assert _corroborating_note_ids(cfg, db, hits, "@A", "SELF") == ["B2", "B3"]
+    assert corroborating_note_ids(cfg, db, hits, "@A", "SELF") == ["B2", "B3"]
 
 
 def test_corroborating_note_ids_ignores_notes_without_a_source():
     """A manual note with no source_id cannot be evidence of a second author."""
     cfg = AppConfig()
     db = _FakeDB({"ORPHAN": {"source_id": None}})
-    assert _corroborating_note_ids(cfg, db, [_hit("ORPHAN", 0.0)], "@A", "SELF") == []
+    assert corroborating_note_ids(cfg, db, [_hit("ORPHAN", 0.0)], "@A", "SELF") == []
 
 
 def test_llm_emitted_corroborates_is_demoted_to_supports():
@@ -105,9 +104,9 @@ def test_llm_emitted_corroborates_is_demoted_to_supports():
         ),
         RelationshipResult(related_note_id="Y", relation_type="extends", description="amplia"),
     ]
-    demoted = _demote_llm_corroborates(conns)
-    assert _relation_type_value(demoted[0].relation_type) == "supports"
-    assert _relation_type_value(demoted[1].relation_type) == "extends"
+    demoted = demote_llm_corroborates(conns)
+    assert relation_type_value(demoted[0].relation_type) == "supports"
+    assert relation_type_value(demoted[1].relation_type) == "extends"
 
 
 def test_corroborates_edge_is_persisted_with_derived_origin(tmp_path):
@@ -116,11 +115,10 @@ def test_corroborates_edge_is_persisted_with_derived_origin(tmp_path):
     for nid in ("SRC1", "TGT1", "TGT2"):
         path = _write_note(tmp_path / f"ZTL - {nid} - nota.md")
         db.upsert_note(nid, "@S", str(path), title=f"Nota {nid}", body="corpo")
-    _persist_and_backlink(
+    persist_and_backlink(
         AppConfig(vault_path=tmp_path),
         db,
         "SRC1",
-        "Nota SRC1",
         [
             {
                 "related_note_id": "TGT1",
@@ -145,7 +143,7 @@ def test_resolve_connections_preserves_injected_corroborates(tmp_path):
     """The demotion guards the LLM boundary only — injected edges must survive."""
     note_path = _write_note(tmp_path / "ZTL - BBB222 - mesma-ideia-outro-autor.md")
     db = _FakeDB({"BBB222": {"title": "Mesma ideia", "path": str(note_path)}})
-    resolved = _resolve_connections(
+    resolved = resolve_connections(
         db,
         [
             RelationshipResult(
@@ -176,7 +174,7 @@ def test_resolve_connections_with_known_note(tmp_path):
             description="Amplia o conceito base",
         ),
     ]
-    resolved = _resolve_connections(db, connections)
+    resolved = resolve_connections(db, connections)
     assert len(resolved) == 1
     assert resolved[0]["wiki_link"] == "[[ZTL - ABC123 - gradient-descent-adaptativo]]"
     assert resolved[0]["relation_type"] == "extends"
@@ -199,7 +197,7 @@ def test_resolve_connections_normalizes_prefixed_ulid(tmp_path):
             description="Contexto mais amplo",
         ),
     ]
-    resolved = _resolve_connections(db, connections)
+    resolved = resolve_connections(db, connections)
     assert len(resolved) == 1
     assert resolved[0]["related_note_id"] == ulid
     assert resolved[0]["wiki_link"] == f"[[ZTL - {ulid} - analise-de-series-temporais]]"
@@ -215,7 +213,7 @@ def test_resolve_connections_normalizes_wikilink_with_slug(tmp_path):
             relation_type="related",
         ),
     ]
-    resolved = _resolve_connections(db, connections)
+    resolved = resolve_connections(db, connections)
     assert resolved[0]["related_note_id"] == ulid
     assert resolved[0]["wiki_link"] == f"[[ZTL - {ulid} - analise]]"
 
@@ -230,7 +228,7 @@ def test_resolve_connections_with_unknown_note():
             description="",
         ),
     ]
-    resolved = _resolve_connections(db, connections)
+    resolved = resolve_connections(db, connections)
     assert resolved == []
 
 
@@ -246,14 +244,14 @@ def test_resolve_connections_drops_missing_file(tmp_path):
     connections = [
         RelationshipResult(related_note_id="ABC123", relation_type="related"),
     ]
-    assert _resolve_connections(db, connections) == []
+    assert resolve_connections(db, connections) == []
 
 
 def test_relation_type_value_from_enum():
     """RelationType values must stay plain strings for vault labels."""
-    assert _relation_type_value(RelationType.SUPPORTS) == "supports"
-    assert _relation_type_value(RelationType.EXTENDS) == "extends"
-    assert _relation_type_value("contradicts") == "contradicts"
+    assert relation_type_value(RelationType.SUPPORTS) == "supports"
+    assert relation_type_value(RelationType.EXTENDS) == "extends"
+    assert relation_type_value("contradicts") == "contradicts"
     assert f"{RelationType.SUPPORTS}" == "supports"
 
 
@@ -272,7 +270,7 @@ def test_resolve_connections_normalizes_enum_relation_type(tmp_path):
             description="Reforca a tese",
         ),
     ]
-    resolved = _resolve_connections(db, connections)
+    resolved = resolve_connections(db, connections)
     assert resolved[0]["relation_type"] == "supports"
     assert "RelationType" not in resolved[0]["relation_type"]
 
@@ -435,7 +433,7 @@ def test_build_rag_context_two_groups():
             via=[{"from": "AAA", "relation_type": "contradicts", "description": ""}],
         ),
     ]
-    ctx = _build_rag_context(_FakeDB({}), hits)
+    ctx = build_rag_context(_FakeDB({}), hits)
     assert "### Similares por embedding" in ctx
     assert "### Vizinhas por conexao no grafo" in ctx
     assert "[[ZTL - AAA - nota-semente]]" in ctx
@@ -448,13 +446,13 @@ def test_build_rag_context_two_groups():
 
 def test_build_rag_context_only_seeds_no_graph_heading():
     hits = [RetrievedNote(note_id="AAA", score=0.9, title="So Semente", hop=0)]
-    ctx = _build_rag_context(_FakeDB({}), hits)
+    ctx = build_rag_context(_FakeDB({}), hits)
     assert "### Similares por embedding" in ctx
     assert "### Vizinhas por conexao no grafo" not in ctx
 
 
 def test_build_rag_context_empty():
-    assert _build_rag_context(_FakeDB({}), []) == "Nenhuma nota existente encontrada."
+    assert build_rag_context(_FakeDB({}), []) == "Nenhuma nota existente encontrada."
 
 
 def test_build_rag_context_distant_group():
@@ -468,7 +466,7 @@ def test_build_rag_context_distant_group():
             origin="distant_analogy",
         )
     ]
-    ctx = _build_rag_context(_FakeDB({}), similar, distant)
+    ctx = build_rag_context(_FakeDB({}), similar, distant)
     assert "### Analogias distantes (outro dominio)" in ctx
     assert "note_id: CCC" in ctx
     assert "analogia: outro bucket taxonomico" in ctx
@@ -482,9 +480,9 @@ def test_fallback_image_ids_from_chunk_text(tmp_path):
         chunk_text = "Texto com ![Imagem](90_Assets/img-fig.png) no meio."
         db.upsert_chunk("c1", "@S", "@S::ch000", chunk_text, "h1")
         db.upsert_asset("@S::img::fig", "@S", "90_Assets/img-fig.png", "ckfig")
-        ids = _fallback_image_ids(db, {"chunk_id": "c1", "source_id": "@S"})
+        ids = fallback_image_ids(db, "@S", db.get_chunk("c1"))
         assert ids == ["@S::img::fig"]
-        resolved = _resolve_images(db, ids)
+        resolved = resolve_images(db, ids)
         assert resolved[0]["path"] == "90_Assets/img-fig.png"
     finally:
         db.close()
@@ -497,7 +495,7 @@ def test_fallback_image_ids_empty_when_no_paths(tmp_path):
         db.upsert_chapter("@S::ch000", "@S", "Cap", "ck", "Cap")
         db.upsert_chunk("c1", "@S", "@S::ch000", "sem imagens", "h1")
         db.upsert_asset("@S::img::fig", "@S", "90_Assets/img-fig.png", "ckfig")
-        assert _fallback_image_ids(db, {"chunk_id": "c1", "source_id": "@S"}) == []
+        assert fallback_image_ids(db, "@S", db.get_chunk("c1")) == []
     finally:
         db.close()
 
@@ -569,11 +567,10 @@ def test_persist_and_backlink_writes_inverse_on_target(tmp_path):
         _write_note(tgt)
         db.upsert_note("NEW", "@S", str(src), "Nova")
         db.upsert_note("OLD", "@S", str(tgt), "Velha")
-        _persist_and_backlink(
+        persist_and_backlink(
             AppConfig(vault_path=tmp_path),
             db,
             "NEW",
-            "Nova",
             [
                 {
                     "related_note_id": "OLD",
@@ -595,9 +592,9 @@ def test_persist_and_backlink_writes_inverse_on_target(tmp_path):
 
 def test_parse_permanent_note_accepts_minimal_rejection():
     """A rejected concept answers with status/reason/category only (no note body)."""
-    from zettel.connector import _parse_permanent_note_output
+    from zettel.connector.prompt import parse_permanent_note_output
 
-    out = _parse_permanent_note_output(
+    out = parse_permanent_note_output(
         '{"status": "rejected", "reason": "propaganda", "category": "promotional"}'
     )
     assert out.status == "rejected"
@@ -608,10 +605,10 @@ def test_parse_permanent_note_accepts_minimal_rejection():
 def test_parse_permanent_note_rejects_accepted_without_body():
     """An accepted answer missing the body is a broken response, not an empty note."""
     import pytest
-    from zettel.connector import _parse_permanent_note_output
+    from zettel.connector.prompt import parse_permanent_note_output
 
     with pytest.raises(ValueError, match="obrigatorios"):
-        _parse_permanent_note_output('{"status": "accepted", "reason": "ok"}')
+        parse_permanent_note_output('{"status": "accepted", "reason": "ok"}')
 
 
 def test_ptbr_guard_roundtrips_the_json_object(monkeypatch, tmp_path):
@@ -623,7 +620,7 @@ def test_ptbr_guard_roundtrips_the_json_object(monkeypatch, tmp_path):
     import json
 
     from zettel.config import AppConfig
-    from zettel.connector import _apply_ptbr_guard
+    from zettel.connector.prompt import apply_ptbr_guard
     from zettel.schemas import PermanentNoteLLMOutput
 
     cfg = AppConfig(
@@ -656,10 +653,126 @@ def test_ptbr_guard_roundtrips_the_json_object(monkeypatch, tmp_path):
         }
         return json.dumps({k: f"[ptbr] {v}" for k, v in payload.items()})
 
-    monkeypatch.setattr("zettel.connector.call_llm", fake_call_llm)
-    fixed = _apply_ptbr_guard(cfg, object(), output)
+    monkeypatch.setattr("zettel.connector.prompt.call_llm", fake_call_llm)
+    fixed = apply_ptbr_guard(cfg, object(), output)
 
     assert fixed.thesis == "[ptbr] The model learns from data"
     assert fixed.definition.startswith("[ptbr] ")
     assert fixed.example == "[ptbr] An example"
     assert "{text}" not in sent["user"]
+
+
+# ── Refinement edge, distant suggestions, PT-BR heuristic ─────────────
+
+
+def test_assemble_connections_injects_extends_once(tmp_path):
+    """A refinement becomes `extends`, unless the model already linked that note."""
+    cfg = AppConfig(vault_path=tmp_path)
+    db = _FakeDB({})
+    injected = assemble_connections(
+        cfg, db, [], similar=[], source_id="@A", note_id="NEW", refines_note_id="OLD"
+    )
+    assert [(c.related_note_id, relation_type_value(c.relation_type)) for c in injected] == [
+        ("OLD", "extends")
+    ]
+    assert injected[0].description == "Refina nota existente"
+
+    own = [RelationshipResult(related_note_id="OLD", relation_type="supports", description="x")]
+    kept = assemble_connections(
+        cfg, db, own, similar=[], source_id="@A", note_id="NEW", refines_note_id="OLD"
+    )
+    assert [relation_type_value(c.relation_type) for c in kept] == ["supports"]
+
+
+def test_needs_ptbr_fix_counts_whole_words_only():
+    from zettel.connector.prompt import needs_ptbr_fix
+
+    assert needs_ptbr_fix("The model learns from data that it sees")
+    # Substrings of Portuguese words ("grande", "atheneu", "fromage") are not English.
+    assert not needs_ptbr_fix("Uma grande sandes no atheneu com fromage e mandioca")
+
+
+def test_run_connect_links_refinement_and_writes_suggestions_once(tmp_path, monkeypatch):
+    """The dedupe target crosses review->connect via SQLite and becomes `extends`;
+    a distant analogy lands in `auto-connections`, and SQLite is written once."""
+    from zettel.connector import context, prompt, run
+    from zettel.retrieval import NoteSearchResult, Retriever
+    from zettel.schemas import PermanentNoteCandidate, PermanentNoteLLMOutput
+
+    cfg = AppConfig(
+        vault_path=tmp_path / "vault",
+        prompts_path=Path(__file__).resolve().parents[1] / "prompts",
+    )
+    permanent = cfg.vault_path / "30_Permanent"
+    db = StateDB(tmp_path / "state.db")
+    try:
+        db.upsert_source("@S", "S2024", "Livro", ["Autor"], 2024, "h", "/x.pdf", "pdf")
+        db.upsert_chapter("@S::ch000", "@S", "Cap", "ck")
+        db.upsert_chunk("@S::ch000::a", "@S", "@S::ch000", "texto", "h1", status="persisted")
+        for nid in ("OLD", "FAR"):
+            path = _write_note(permanent / f"ZTL - {nid} - nota.md")
+            db.upsert_note(nid, "@S", str(path), title=f"Nota {nid}", body="corpo")
+
+        cand = PermanentNoteCandidate(
+            thesis="Tese declarativa sobre um conceito atomico refinado",
+            definition="Definicao autonoma com palavras suficientes para o schema.",
+        )
+        db.upsert_concept(
+            "c1", "@S", "@S::ch000::a", candidate_json=cand.model_dump_json(), status="approved"
+        )
+        db.set_concept_dedupe("c1", "approved", {"refines_note_id": "OLD", "reason": "nuance"})
+
+        response = PermanentNoteLLMOutput(
+            status="ok",
+            reason="",
+            category="",
+            title="Conceito refinado",
+            thesis=cand.thesis,
+            definition=cand.definition,
+            connections=[
+                RelationshipResult(
+                    related_note_id="FAR", relation_type="related", description="analogia"
+                )
+            ],
+        ).model_dump_json()
+        monkeypatch.setattr(run, "get_llm", lambda *a, **k: object())
+        monkeypatch.setattr(prompt, "call_llm", lambda *a, **k: response)
+        monkeypatch.setattr(context, "load_connect_taxonomy", lambda *a, **k: ({}, {}))
+        monkeypatch.setattr(
+            Retriever, "search_notes", lambda *a, **k: NoteSearchResult(hits=[], candidates=[])
+        )
+        far = RetrievedNote(note_id="FAR", score=1.0, vector_distance=0.5)
+        monkeypatch.setattr(context, "search_distant_analogies", lambda *a, **k: [far])
+
+        writes: list[str] = []
+        upsert_note = StateDB.upsert_note
+
+        def _count(self, *args, **kwargs):
+            writes.append(kwargs.get("note_id") or args[0])
+            return upsert_note(self, *args, **kwargs)
+
+        monkeypatch.setattr(StateDB, "upsert_note", _count)
+
+        class _Index:
+            def upsert_permanent_note(self, *_a, **_k):
+                pass
+
+        candidates = run.load_approved_candidates(db)
+        assert candidates[0]["refines_note_id"] == "OLD"
+        [note_id] = run.run_connect(cfg, db, _Index(), candidates)
+
+        edges = {
+            e["target_note_id"]: e["relation_type"]
+            for e in db.get_note_connections(note_id)
+            if e["source_note_id"] == note_id
+        }
+        assert edges == {"OLD": "extends"}
+        assert writes.count(note_id) == 1
+        row = db.get_note(note_id)
+        assert "FAR" in read_managed_block(row["body"], "auto-connections")
+        on_disk = Path(row["path"]).read_text(encoding="utf-8")
+        assert read_managed_block(on_disk, "auto-connections") == read_managed_block(
+            row["body"], "auto-connections"
+        )
+    finally:
+        db.close()

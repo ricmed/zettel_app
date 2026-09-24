@@ -620,7 +620,7 @@ Recommended:
 | **harvester/** (package) | 011, 012, 013, 014, 027, 033, 046 | Extraction strategy, chunking, dedup (5 camadas), paging, package layout |
 | **extractor.py** | 015, 016, 025, 034, 042, 045 | Literature note format, dedup timing + **scope (per-source)**, prompting, domain few-shots |
 | **review.py** | 016, 017, 018, 045 | Approval gate, thresholds, validation, dedupe escopada por fonte |
-| **connector.py** | 003, 009, 010, 025, 043, 045 | Retrieval (RAG), graph expansion, distant analogies as suggestions, corroboracao entre fontes |
+| **connector/** (package) | 003, 009, 010, 025, 043, 045, 053 | Retrieval (RAG), graph expansion, distant analogies as suggestions, corroboracao entre fontes, `extends` do refine_existing, package layout |
 | **retrieval.py** | 003, 009, 010, 043, 047 | Hybrid fusion, floor (parametrizado; bypass = rank + cobertura), graph expansion, distant-analogy, resumos de capitulo |
 | **gardener.py** | 019, 021, 025, 042 | Taxonomy clustering, routing, prompting |
 | **gardener_hub.py** | 020, 021, 025 | Hub MOCs, routing, prompting |

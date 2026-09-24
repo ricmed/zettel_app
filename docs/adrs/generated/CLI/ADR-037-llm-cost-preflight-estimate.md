@@ -42,7 +42,7 @@ The gate passes straight through when `--yes` is set *or* when stdin is not a TT
 **How each number is derived** (all tokens are `chars // 4`, the estimator the cost layer already uses):
 
 - **extract**: one call per `pending` chunk — chunk text plus the `literature_note.md` template, times `extraction.preflight_output_tokens_per_chunk` (default 800) for output.
-- **connect**: one call per approved candidate — the candidate's own fields, plus a RAG context sized as `linking.topk + graph_expansion.max_neighbors` entries at `RAG_CHARS_PER_NOTE` (250) each. That constant comes from reading `_build_rag_context`, which renders a wikilink plus a 150-char snippet and tags — using the *average note length* would overstate the context by an order of magnitude.
+- **connect**: one call per approved candidate — the candidate's own fields, plus a RAG context sized as `linking.topk + graph_expansion.max_neighbors` entries at `RAG_CHARS_PER_NOTE` (250) each. That constant comes from reading `connector.context.build_rag_context`, which renders a wikilink plus a 150-char snippet and tags — using the *average note length* would overstate the context by an order of magnitude.
 - **article**: an explicit **floor** — enrich + outline + one draft per section + assemble + the judge ceiling, derived from the `retrieval.article` knobs. The panel says so; HITL revisions and the personality rewrite can only push it up.
 
 The two new config keys live in `extraction` and `linking` rather than in `extract`/`connect` sections, because those sections do not exist — the schema names the *concern*, not the command. Both are targets for the estimate, explicitly **not** caps: nothing truncates a response to hit them, which would be the "padding to budget" anti-pattern in reverse.
@@ -59,7 +59,7 @@ The SQLite response cache is deliberately not discounted. A cache hit costs $0, 
 ### Negative Consequences
 
 * The estimate can be wrong in both directions: the cache makes it too high; a model that ignores the output target makes it too low. It is a magnitude check, not an invoice.
-* `RAG_CHARS_PER_NOTE` mirrors a rendering detail of `_build_rag_context`. If that renderer changes its snippet size, the constant silently drifts out of step.
+* `RAG_CHARS_PER_NOTE` mirrors a rendering detail of `build_rag_context`. If that renderer changes its snippet size, the constant silently drifts out of step.
 * `garden`, `harvest` and `ask` have no pre-flight, so cost visibility is uneven across commands — a deliberate scoping choice (garden caps itself at one call per cluster, `ask` is one call and zero when the floor is empty).
 * The web UI still shows no estimate before enqueuing a job.
 
@@ -95,5 +95,5 @@ If a hard budget cap is ever wanted, it belongs on top of `PreflightEstimate`, n
 * `zettel/cli/curation.py`, `zettel/cli/synthesis.py`, `zettel/cli/writing.py` — the three call sites
 * `zettel/config.py` — `extraction.preflight_output_tokens_per_chunk`, `linking.preflight_output_tokens_per_note`
 * `zettel/pricing.py` — `estimate_llm_cost` (LiteLLM price map, $0 for unknown/local)
-* `zettel/connector.py` — `_build_rag_context` (the renderer `RAG_CHARS_PER_NOTE` mirrors)
+* `zettel/connector/context.py` — `build_rag_context` (the renderer `RAG_CHARS_PER_NOTE` mirrors)
 * `tests/test_preflight.py` — fixed-number arithmetic, `--yes` / non-TTY pass-through, abort path, "never calls an LLM"
