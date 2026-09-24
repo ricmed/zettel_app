@@ -80,7 +80,15 @@ The CLI, the web worker and `sync.py` keep importing from the package. `manual_l
 
 - **Keep one file and only split `_process_candidate`.** Rejected: the result would still be about 900 lines mixing five concerns, the same argument ADR-027 made.
 - **Relative imports inside the package.** Rejected for the reason ADR-032 gives.
-- **A shared LLM-cache helper in `zettel/llm.py`.** The cache-then-call pattern is repeated in extract, ask, article, summarize and bibliography. Worth doing, but it is a cross-module change and out of scope here.
+- **A shared LLM-cache helper in `zettel/llm.py`.** The cache-then-call pattern is repeated in extract, ask, article, summarize and bibliography. Worth doing, but it is a cross-module change and out of scope here. *Done 2026-09-24, see the addendum below.*
+
+## Addendum (2026-09-24): shared LLM-cache helper
+
+`zettel.llm.cached_call_llm` now owns the cache-then-call pattern: key over template + whole filled prompt (`system` + `user`) + the phase's client knobs, lookup, `record_cache_hit`, call, store. It returns `(text, cache_hit)`. `connect` (`generate_permanent_note`, which dropped `_call_checksum`), `ask`, `article` (`_cached_llm` is now a thin wrapper that keeps the temperature override and the INFO cache log) and `summarize` use it. Keys are byte-identical to before, so existing `llm_cache` rows still hit.
+
+Three sites keep their own checksum on purpose, because they hash something other than the filled prompt: `extract` (`prompt1_call_checksum`: chunk checksum + images context), `bibliography` (text sample + seed) and `assets` (image bytes + context).
+
+The client is built through a `get_client` factory, so a cache hit never constructs one. Consumers pass `call=call_llm` from their own module, which keeps the test seams (`zettel.connector.prompt.call_llm`, `zettel.ask.call_llm`, `zettel.article.call_llm`/`get_llm`, the last required by ADR-029).
 
 ## Acceptance Criteria
 

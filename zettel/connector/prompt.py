@@ -8,12 +8,17 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from zettel.config import AppConfig, effective_temperature, llm_phase, thinking_checksum_token
-from zettel.hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
-from zettel.llm import PromptParts, call_llm, fill_template, load_prompt_parts, parse_llm_json
+from zettel.config import AppConfig, llm_phase
+from zettel.llm import (
+    PromptParts,
+    cached_call_llm,
+    call_llm,
+    fill_template,
+    load_prompt_parts,
+    parse_llm_json,
+)
 from zettel.schemas import PermanentNoteCandidate, PermanentNoteLLMOutput
 from zettel.state import StateDB
-from zettel.usage import record_cache_hit
 
 logger = logging.getLogger(__name__)
 
@@ -76,22 +81,6 @@ def prompt2_messages(
     return system, fill_template(prompt_parts.user_template, mapping)
 
 
-def _call_checksum(cfg: AppConfig, prompt_parts: PromptParts, system: str, user: str) -> str:
-    """Cache key over the whole filled prompt, so a re-connect after a failure is free."""
-    spec = llm_phase(cfg, "connect")
-    filled = f"{system}\n{user}" if system else user
-    return compute_llm_call_checksum(
-        sha256_hex(prompt_parts.full_template),
-        sha256_hex(normalize_text_for_hash(filled)),
-        spec.model,
-        effective_temperature(cfg, spec),
-        cfg.language,
-        provider=spec.provider,
-        top_p=cfg.llm.top_p,
-        thinking=thinking_checksum_token(spec.thinking),
-    )
-
-
 def generate_permanent_note(
     cfg: AppConfig,
     db: StateDB,
@@ -109,31 +98,20 @@ def generate_permanent_note(
     Raises ``ConnectRejected`` when the model declines the concept. The PT-BR
     guard runs on accepted output that slipped into English.
     """
-    spec = llm_phase(cfg, "connect")
     system, user = prompt2_messages(cfg, prompt_parts, cand, payload)
-    checksum = _call_checksum(cfg, prompt_parts, system, user)
-
-    cached = db.get_cached_llm_response(checksum)
-    if cached is not None:
-        logger.debug("Cache hit (Prompt 2) para %s", label)
-        record_cache_hit(label=label, model=spec.model)
-        response_text = cached
-    else:
-        response_text = call_llm(
-            llm,
-            user,
-            system=system or None,
-            label=label,
-            step=step,
-            total=total,
-            provider=spec.provider,
-            prompt_cache=cfg.llm.prompt_cache,
-        )
-        db.cache_llm_response(
-            checksum,
-            json.dumps({"system": system, "user": user}, ensure_ascii=False),
-            response_text,
-        )
+    response_text, cache_hit = cached_call_llm(
+        cfg,
+        db,
+        "connect",
+        prompt_parts.full_template,
+        system,
+        user,
+        get_client=lambda: llm,
+        call=call_llm,
+        label=label,
+        step=step,
+        total=total,
+    )
 
     output = parse_permanent_note_output(response_text)
     if output.status == "rejected":
@@ -142,7 +120,7 @@ def generate_permanent_note(
 
     if needs_ptbr_fix(f"{output.thesis} {output.definition} {output.intuition}"):
         output = apply_ptbr_guard(cfg, llm, output)
-    return output, cached is not None
+    return output, cache_hit
 
 
 def parse_permanent_note_output(text: str) -> PermanentNoteLLMOutput:
