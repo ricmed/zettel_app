@@ -25,8 +25,9 @@ from zettel.state import StateDB
 
 logger = logging.getLogger(__name__)
 
-# `_build_rag_context` renders each retrieved note as a wikilink plus a 150-char
-# snippet and its tags, so a context entry costs far less than a whole note.
+# `connector.context.build_rag_context` renders each retrieved note as a wikilink
+# plus a 150-char snippet and its tags, so a context entry costs far less than a
+# whole note.
 RAG_CHARS_PER_NOTE = 250
 
 

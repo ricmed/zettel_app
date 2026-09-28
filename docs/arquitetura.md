@@ -38,7 +38,12 @@ zettel_app/
 │   ├── extraction_dump.py   # Dump markdown opt-in do texto extraido (headings Docling/MD)
 │   ├── extractor.py         # Fase 2: Prompt 1 -> drafts LIT granulares
 │   ├── review.py            # Fase 2b: aprovacao seletiva de LIT antes do vetorial
-│   ├── connector.py         # Fase 3: geracao de notas permanentes
+│   ├── connector/           # Fase 3: geracao de notas permanentes (pacote, ADR-053)
+│   │   ├── run.py           # Portao de entrada (load_approved_candidates) e loop run_connect
+│   │   ├── note.py          # Um candidato -> uma ZTL (vault + SQLite + Chroma)
+│   │   ├── prompt.py        # Prompt 2: payload, chamada cacheada, parse, guard PT-BR
+│   │   ├── context.py       # Contexto RAG, analogias distantes, imagens
+│   │   └── links.py         # Relacoes tipadas, corroboracao, backlinks
 │   ├── gardener.py          # Fase 4: clusterizacao e MOCs taxonomicos
 │   ├── gardener_assign.py   # Atribuicao por taxonomia, cluster por categoria, coesao de grafo
 │   ├── gardener_hub.py      # Fase 4b: MOCs ancorados em notas-hub do grafo

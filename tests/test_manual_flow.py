@@ -328,7 +328,7 @@ def test_permanent_from_literature_rejects_non_literature(cfg, db):
 
 def test_permanent_from_literature_with_llm(cfg, db, monkeypatch):
     """The LLM path reuses run_connect, so the note is fully indexed as manual."""
-    from zettel import connector
+    from zettel.connector import prompt, run
     from zettel.schemas import PermanentNoteLLMOutput
 
     idx = FakeIndex()
@@ -347,8 +347,8 @@ def test_permanent_from_literature_with_llm(cfg, db, monkeypatch):
         connections=[],
         tags=["grafos"],
     ).model_dump_json()
-    monkeypatch.setattr(connector, "get_llm", lambda cfg, phase: object())
-    monkeypatch.setattr(connector, "call_llm", lambda *a, **k: response)
+    monkeypatch.setattr(run, "get_llm", lambda cfg, phase: object())
+    monkeypatch.setattr(prompt, "call_llm", lambda *a, **k: response)
 
     path, via_llm = create_permanent_from_literature(
         cfg,
@@ -383,8 +383,7 @@ def test_permanent_from_literature_with_llm(cfg, db, monkeypatch):
 
 
 def test_permanent_from_literature_llm_rejected_surfaces_reason(cfg, db, monkeypatch):
-    from zettel import connector
-    from zettel.connector import ConnectRejected
+    from zettel.connector import ConnectRejected, prompt, run
     from zettel.schemas import PermanentNoteLLMOutput
 
     idx = FakeIndex()
@@ -394,8 +393,8 @@ def test_permanent_from_literature_llm_rejected_surfaces_reason(cfg, db, monkeyp
         reason="A definicao e generica e nao fornece substancia conceitual.",
         category="empty",
     ).model_dump_json()
-    monkeypatch.setattr(connector, "get_llm", lambda cfg, phase: object())
-    monkeypatch.setattr(connector, "call_llm", lambda *a, **k: response)
+    monkeypatch.setattr(run, "get_llm", lambda cfg, phase: object())
+    monkeypatch.setattr(prompt, "call_llm", lambda *a, **k: response)
 
     with pytest.raises(ConnectRejected, match="definicao e generica") as caught:
         create_permanent_from_literature(cfg, db, idx, str(lit), use_llm=True)
@@ -494,8 +493,7 @@ def test_sync_manual_consumes_approved_concept_for_existing_ztl(cfg, db):
 
 def test_connect_skips_generation_when_manual_ztl_already_covers(cfg, db, monkeypatch):
     """#132: Connect guard skips LLM when a covering manual note is already indexed."""
-    from zettel import connector
-    from zettel.connector import load_approved_candidates, run_connect
+    from zettel.connector import load_approved_candidates, prompt, run, run_connect
 
     idx = FakeIndex()
     lit = _scaffold_source_and_lit(cfg, db, idx)
@@ -521,12 +519,12 @@ def test_connect_skips_generation_when_manual_ztl_already_covers(cfg, db, monkey
     )
     assert load_approved_candidates(db)
 
-    monkeypatch.setattr(connector, "get_llm", lambda cfg, phase: object())
+    monkeypatch.setattr(run, "get_llm", lambda cfg, phase: object())
 
     def _boom(*_a, **_k):
         raise AssertionError("LLM nao deveria ser chamado para conceito ja coberto")
 
-    monkeypatch.setattr(connector, "call_llm", _boom)
+    monkeypatch.setattr(prompt, "call_llm", _boom)
 
     created = run_connect(cfg, db, idx, load_approved_candidates(db))
     assert created == []

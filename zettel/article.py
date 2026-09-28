@@ -8,7 +8,6 @@ personality -> judge loop -> verify/save.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from collections.abc import Callable
@@ -21,14 +20,9 @@ from zettel.time import now_filename_ts, now_vault_iso
 
 from .bibliography import display_author_natural, format_abnt_in_text
 from .citation import stored_authors
-from .config import effective_temperature, llm_phase, thinking_checksum_token
-from .hashing import (
-    compute_llm_call_checksum,
-    fold_for_match,
-    normalize_text_for_hash,
-    sha256_hex,
-)
+from .hashing import fold_for_match
 from .llm import (
+    cached_call_llm,
     call_llm,
     clip_text,
     fill_template,
@@ -852,62 +846,39 @@ def _cached_llm(
     cfg: AppConfig,
     db: StateDB,
     prompt_template: str,
-    filled: str = "",
     temperature: float | None = None,
     *,
-    system: str = "",
-    user: str = "",
+    system: str,
+    user: str,
     label: str | None = None,
     step: int | None = None,
     total: int | None = None,
 ) -> tuple[str, bool]:
-    spec = llm_phase(cfg, "article")
-    temp = effective_temperature(cfg, spec) if temperature is None else temperature
-    user_text = user or filled
-    system_text = system or ""
-    filled_for_hash = f"{system_text}\n{user_text}" if system_text else user_text
-    prompt_hash = sha256_hex(prompt_template)
-    filled_hash = sha256_hex(normalize_text_for_hash(filled_for_hash))
-    call_checksum = compute_llm_call_checksum(
-        prompt_hash,
-        filled_hash,
-        spec.model,
-        temp,
-        cfg.language,
-        provider=spec.provider,
-        top_p=cfg.llm.top_p,
-        thinking=thinking_checksum_token(spec.thinking),
-    )
-    cached = db.get_cached_llm_response(call_checksum)
-    if cached is not None:
-        if label:
-            if step is not None and total is not None:
-                logger.info("LLM cache [%d/%d] %s", step, total, label)
-            else:
-                logger.info("LLM cache %s", label)
-        else:
-            logger.debug("Cache hit (article)")
-        from zettel.usage import record_cache_hit
+    """Article call through the shared LLM cache. Returns ``(text, llm_called)``.
 
-        record_cache_hit(label=label or "article", model=spec.model)
-        return cached, False
-    llm = get_llm(cfg, "article", temperature=temp)
-    answer = call_llm(
-        llm,
-        user_text,
-        system=system_text or None,
+    ``call_llm`` / ``get_llm`` are resolved from this module's globals at call time:
+    that is the seam ``tests/test_article*.py`` patch (ADR-029).
+    """
+    answer, cache_hit = cached_call_llm(
+        cfg,
+        db,
+        "article",
+        prompt_template,
+        system,
+        user,
+        get_client=lambda: get_llm(cfg, "article", temperature=temperature),
+        call=call_llm,
+        temperature=temperature,
         label=label,
         step=step,
         total=total,
-        provider=spec.provider,
-        prompt_cache=cfg.llm.prompt_cache,
     )
-    db.cache_llm_response(
-        call_checksum,
-        json.dumps({"system": system_text, "user": user_text}, ensure_ascii=False),
-        answer,
-    )
-    return answer, True
+    if cache_hit and label:
+        if step is not None and total is not None:
+            logger.info("LLM cache [%d/%d] %s", step, total, label)
+        else:
+            logger.info("LLM cache %s", label)
+    return answer, not cache_hit
 
 
 def _format_outline_preview(outline: ArticleOutline) -> str:

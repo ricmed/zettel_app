@@ -245,5 +245,5 @@ Reason: Windows file locks; git tracking clarity.
 * `zettel/__main__.py` — the unchanged entry point
 * `tests/test_cli.py` — golden command list, parser smoke, AST invariant checks
 * `zettel/index.py` — `index_kwargs`, the single config-to-VectorIndex translation
-* `zettel/connector.py` — `load_approved_candidates`, the Phase 3 entry gate
+* `zettel/connector/run.py` — `load_approved_candidates`, the Phase 3 entry gate
 * `zettel/llm.py` — `REQUIRED_PROMPTS`, the canonical prompt list the doctor checks

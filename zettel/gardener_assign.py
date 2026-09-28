@@ -299,13 +299,18 @@ def _cluster_kmeans(
     return [c for c in clusters.values() if len(c) >= min_cluster_size]
 
 
-def load_category_names(topics_path) -> list[tuple[str, str]]:
-    """Load ``(pilar, categoria)`` pairs for label embedding."""
-    if topics_path is None:
-        return []
-    try:
-        tax = load_moc_taxonomy(topics_path)
-        return category_pillar_pairs(tax)
-    except Exception as e:
-        logger.warning("Nao foi possivel carregar categorias: %s", e)
-        return []
+def category_pairs(gcfg: GardenerConfig) -> list[tuple[str, str]]:
+    """``(pilar, categoria)`` pairs for label embedding.
+
+    The taxonomy file wins; ``allowed_topics`` is the flat fallback (no pillar)
+    when the file is absent or unreadable. Shared by `garden` and `connect`.
+    """
+    if gcfg.topics_path is not None:
+        try:
+            pairs = category_pillar_pairs(load_moc_taxonomy(gcfg.topics_path))
+        except Exception as e:
+            logger.warning("Nao foi possivel carregar categorias: %s", e)
+        else:
+            if pairs:
+                return pairs
+    return [("", name) for name in gcfg.allowed_topics]

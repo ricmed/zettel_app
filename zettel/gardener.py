@@ -20,13 +20,13 @@ from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, llm_phase
 from zettel.gardener_assign import (
     assign_notes_to_categories,
     build_embeddings_by_id,
+    category_pairs,
     cluster_notes_global,
     cluster_notes_within_buckets,
     dominant_category_for_cluster,
     embed_category_labels,
     find_moc_by_note_overlap,
     graph_cohesion,
-    load_category_names,
 )
 from zettel.hashing import sha256_hex
 from zettel.index import VectorIndex
@@ -112,9 +112,7 @@ def run_garden(
     gcfg = cfg.gardener
     stats = _GardenStats()
 
-    categories = load_category_names(gcfg.topics_path)
-    if not categories and gcfg.allowed_topics:
-        categories = [("", name) for name in gcfg.allowed_topics]
+    categories = category_pairs(gcfg)
 
     cluster_pairs: list[tuple[str, list[str]]] = []
     domain = cfg.domain.name

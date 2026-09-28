@@ -98,6 +98,6 @@ If a later round finds models inventing rules, the fix is prompt-side (sharper B
 * `prompts/literature_note.md` — "Acionável como regra de decisão", per-field BOM/RUIM rules
 * `prompts/permanent_note.md` — "Julgamento do autor (entrada opcional)" and the user payload keys
 * `zettel/vault.py` — `render_decision_block`, `judgement_frontmatter`, `auto-decision` block in `build_literature_chunk_note`
-* `zettel/connector.py` — `_format_judgement` (Prompt 2 payload), verbatim frontmatter copy
+* `zettel/connector/prompt.py` — `format_judgement` (Prompt 2 payload); `zettel/connector/note.py` — verbatim frontmatter copy
 * `zettel/extractor.py` — `_check_candidate` (deliberately unchanged)
 * `tests/test_judgement_fields.py` — legacy parse, truncation, filter neutrality, block rendering, frontmatter

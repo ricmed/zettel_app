@@ -39,7 +39,8 @@ class RelationType(StrEnum):
     # um fato sobre `source_id`, nao um julgamento sobre conteudo. Exposta ao
     # modelo, ela seria emitida retoricamente ("esta nota tambem concorda") e o
     # sinal se perderia em `supports`. So o codigo escreve esta aresta; um
-    # `corroborates` vindo do LLM e rebaixado em connector._relation_type_value.
+    # `corroborates` vindo do LLM e rebaixado em
+    # connector.links.demote_llm_corroborates.
     CORROBORATES = "corroborates"
 
 

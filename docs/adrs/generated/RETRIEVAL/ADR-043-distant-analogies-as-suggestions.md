@@ -14,7 +14,7 @@
 
 1. `Retriever.search_distant_analogies` runs a small secondary search with `linking.distant_analogy_min_similarity` (default 0.40). `RelevanceFloorConfig` is untouched.
 2. Hits in the candidate's taxonomy bucket (same `argmax` as garden) are dropped. Origin is `distant_analogy`.
-3. `_build_rag_context` renders `### Analogias distantes (outro dominio)`. The prompt judges these by **mechanism that transfers**, preferring `exemplifies` / `contradicts`.
+3. `connector.context.build_rag_context` renders `### Analogias distantes (outro dominio)`. The prompt judges these by **mechanism that transfers**, preferring `exemplifies` / `contradicts`.
 4. LLM connections whose target is in that set go to the `auto-connections` managed block, not `note_connections`. `_extract_body_edges` already ignores that block — a suggestion becomes an edge only when the author moves the wikilink into the prose.
 
 `zettel suggest-links` reuses the same retrieval + block write for a hand-written ZTL without calling Prompt 2 (no rewrite, no `ConnectRejected`).
@@ -26,7 +26,7 @@ A wrong analogy stays a suggestion. Graph expansion and hub ranking only see end
 ## References
 
 * GitHub issues #161, #165
-* `zettel/retrieval.py` (`search_distant_analogies`), `zettel/connector.py` (`_search_distant_for_candidate`, `_write_distant_suggestions`)
+* `zettel/retrieval.py` (`search_distant_analogies`), `zettel/connector/context.py` (`search_distant_analogies`), `zettel/connector/note.py` (`_write_note`, which fills `auto-connections`)
 * `zettel/manual_lit.py` (`suggest_connections_for_permanent`)
 
 ## Amendment (2026-09-07) — carve-out for `corroborates`

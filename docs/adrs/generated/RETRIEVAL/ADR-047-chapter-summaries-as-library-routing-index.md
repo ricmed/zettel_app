@@ -278,7 +278,7 @@ The literature index no longer sits beside an `auto-topic-index`. That block was
   `get_chapters_needing_summary`, `get_chapter_page_ranges`)
 * `zettel/index.py` (`COL_CHAPTER_SUMMARIES`, `query_chapter_summaries`)
 * `zettel/preflight.py` (`estimate_summarize`), `zettel/rebuild.py`
-  (`_reindex_chapter_summaries`), `zettel/connector.py`
-  (`_refresh_chapter_maps`)
+  (`_reindex_chapter_summaries`), `zettel/connector/run.py`
+  (`refresh_chapter_maps`)
 * `prompts/chapter_summary.md`, `prompts/source_summary.md`
 * `tests/test_summarize.py`, `tests/test_catalog.py`, `tests/test_config.py`

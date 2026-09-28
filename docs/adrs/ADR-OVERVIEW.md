@@ -50,6 +50,9 @@ REVIEW (1 ADR + 2 needs-input)
 ├─ ADR-017 (Confidence-band HITL) [NEEDS-INPUT]
 └─ ADR-018 (Web/CLI validation gap) [NEEDS-INPUT]
 
+CONNECT (1 ADR)
+└─ ADR-053 (connector.py → connector/ package)
+
 GARDEN (3 ADRs)
 ├─ ADR-019 (Taxonomy-first clustering)
 ├─ ADR-020 (Hub-anchored MOCs)
@@ -141,6 +144,7 @@ ASSETS (1 ADR)
 | **ADR-030** | Manual notes adopted at sync, no review gate | ADR-015, 016, 017, 005 | ADR-031 |
 | **ADR-031** | Vault-first image adoption | ADR-030, 015, 007 | — |
 | **ADR-029** | Article graph package | ADR-028, ADR-027 | (article module layout) |
+| **ADR-053** | Connect package | ADR-027, ADR-032, ADR-039 | (connect module layout) |
 
 ---
 
@@ -310,7 +314,7 @@ Seven additional potential ADRs remain identified but deferred as lower-priority
 
 | Module | Count | Candidates | Rationale |
 |--------|-------|-----------|-----------|
-| **CONNECT** | 2 | RAG context design, note-generation orchestration | Defer pending connector refactor |
+| **CONNECT** | 2 | RAG context design, note-generation orchestration | Refactor done (ADR-053); candidates can now target `connector/context.py` and `connector/note.py` |
 | **QA-WRITING** | 1 | ABNT bibliography citation formatting | Defer pending user feedback |
 | **Consider-Priority** | 4 | Various observability, resilience, migration ideas | Low-impact optimizations |
 

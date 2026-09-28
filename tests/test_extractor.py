@@ -1334,4 +1334,8 @@ def test_dedupe_same_source_can_still_refine(tmp_path, monkeypatch):
 
     assert [c["concept_id"] for c in approved] == ["c1"]
     assert approved[0]["refines_note_id"] == "N1"
+    # The target must reach `connect` through SQLite, where it becomes `extends`.
+    concept = db.get_concept("c1")
+    assert concept["status"] == "approved"
+    assert json.loads(concept["dedupe_json"]) == {"refines_note_id": "N1", "reason": "nuance"}
     db.close()

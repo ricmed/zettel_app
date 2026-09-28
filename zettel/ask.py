@@ -9,7 +9,6 @@ user can trace every claim back to its source.
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,9 +16,8 @@ from typing import TYPE_CHECKING
 
 from zettel.time import now_filename_ts, now_vault_iso
 
-from .config import effective_temperature, llm_phase, thinking_checksum_token
-from .hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
-from .llm import call_llm, fill_template, get_llm, load_prompt_parts
+from .config import llm_phase
+from .llm import cached_call_llm, call_llm, fill_template, get_llm, load_prompt_parts
 from .retrieval import RetrievedNote, Retriever
 from .vault import _slug, permanent_wikilink, render_frontmatter
 
@@ -148,43 +146,17 @@ def run_ask(
     }
     system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
     user = fill_template(prompt_parts.user_template, mapping)
-    filled_for_hash = f"{system}\n{user}" if system else user
-
-    prompt_hash = sha256_hex(prompt_parts.full_template)
-    filled_hash = sha256_hex(normalize_text_for_hash(filled_for_hash))
-    call_checksum = compute_llm_call_checksum(
-        prompt_hash,
-        filled_hash,
-        spec.model,
-        effective_temperature(cfg, spec),
-        cfg.language,
-        provider=spec.provider,
-        top_p=cfg.llm.top_p,
-        thinking=thinking_checksum_token(spec.thinking),
+    result.answer, cache_hit = cached_call_llm(
+        cfg,
+        db,
+        "ask",
+        prompt_parts.full_template,
+        system,
+        user,
+        get_client=lambda: get_llm(cfg, "ask"),
+        call=call_llm,
     )
-    cached = db.get_cached_llm_response(call_checksum)
-    if cached is not None:
-        logger.debug("Cache hit (ask) para pergunta")
-        from zettel.usage import record_cache_hit
-
-        record_cache_hit(label="ask", model=spec.model)
-        result.answer = cached
-    else:
-        llm = get_llm(cfg, "ask")
-        answer = call_llm(
-            llm,
-            user,
-            system=system or None,
-            provider=spec.provider,
-            prompt_cache=cfg.llm.prompt_cache,
-        )
-        db.cache_llm_response(
-            call_checksum,
-            json.dumps({"system": system, "user": user}, ensure_ascii=False),
-            answer,
-        )
-        result.answer = answer
-        result.llm_called = True
+    result.llm_called = not cache_hit
 
     finish_pipeline_run(db, run_id)
     return result

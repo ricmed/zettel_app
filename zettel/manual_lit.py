@@ -425,7 +425,7 @@ def create_permanent_from_literature(
     complete and adopt later with ``sync-manual``. Neither path needs approval.
     """
     from zettel.citation import citation_frontmatter, resolve_citation
-    from zettel.connector import ConnectRejected, _literature_ref_for_chunk, run_connect
+    from zettel.connector import ConnectRejected, literature_ref_for_chunk, run_connect
     from zettel.new_note import resolve_src_in_vault, source_wikilink
     from zettel.vault import (
         build_permanent_note_body,
@@ -450,7 +450,7 @@ def create_permanent_from_literature(
     citekey = source["citekey"] if source else str(meta.get("citekey") or "")
     title_src = source["title"] if source else ""
     chunk_row = db.get_chunk(chunk_id)
-    literature_ref = _literature_ref_for_chunk(citekey, title_src, chunk_row)
+    literature_ref = literature_ref_for_chunk(citekey, title_src, chunk_row)
 
     if use_llm:
         concept_id = concept_id_for(source_id, chunk_id, candidate.thesis)
@@ -570,7 +570,7 @@ def suggest_connections_for_permanent(
     The note must already be indexed (``sync-manual``). Distant analogies use
     the same local floor as connect. Nothing is persisted as a graph edge.
     """
-    from zettel.connector import _load_connect_taxonomy, _search_distant_for_candidate
+    from zettel.connector import load_connect_taxonomy, search_distant_analogies
     from zettel.retrieval import Retriever
     from zettel.vault import (
         format_suggestion_line,
@@ -604,8 +604,8 @@ def suggest_connections_for_permanent(
 
     retriever = Retriever(cfg, db, idx)
     similar = retriever.search_notes(query, topk=cfg.linking.topk, exclude_id=note_id).hits
-    taxonomy = _load_connect_taxonomy(cfg, idx)
-    distant = _search_distant_for_candidate(cfg, idx, retriever, query, note_id, similar, taxonomy)
+    taxonomy = load_connect_taxonomy(cfg, idx)
+    distant = search_distant_analogies(cfg, idx, retriever, query, note_id, similar, taxonomy)
 
     lines: list[str] = []
     for n in similar:

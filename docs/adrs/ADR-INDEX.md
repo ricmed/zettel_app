@@ -1,7 +1,7 @@
-# zettel_app ADR Index (48 Decisions)
+# zettel_app ADR Index (49 Decisions)
 
-**Last Updated**: 2026-09-21  
-**Status**: Complete — 48 formal ADRs across 12 modules
+**Last Updated**: 2026-09-24  
+**Status**: Complete — 49 formal ADRs across 13 modules
 
 ---
 
@@ -14,6 +14,7 @@
 | **HARVEST** | 6 | [011–014, 027, 033](#harvest-ingestion--paging) |
 | **EXTRACT** | 2 | [015, 034](#extract-literature-notes) |
 | **REVIEW** | 1 | [016](#review-approval-gate) |
+| **CONNECT** | 1 | [053](#connect-permanent-notes) |
 | **GARDEN** | 3 | [019–021](#garden-moc-generation) |
 | **WEB** | 4 | [022–023, 039–040](#web-ui--job-queue) |
 | **LLM** | 4 | [024–025, 045, 048](#llm-provider--caching) |
@@ -310,6 +311,17 @@
 
 ---
 
+## CONNECT — Permanent Notes
+
+### ADR-053: Connect Phase as Python Package
+
+- **Status**: Accepted (2026-09-24)
+- **Date**: 2026-09-24
+- **Summary**: `zettel/connector.py` (1135 lines, a ~340-line `_process_candidate`) becomes the package `zettel/connector/`: `run` (entry gate + run loop), `note` (one candidate -> one ZTL, via a frozen `ConnectSession`), `prompt` (Prompt 2, cache, PT-BR guard), `context` (RAG, distant analogies, images) and `links` (typed relations, corroboration, backlinks). It follows the ADR-032/039 rules: siblings import by absolute path, no symbol is imported from `__init__`, no submodule is named after an export, and monkeypatching targets the consuming module. The refactor also surfaced a lost `refine_existing` verdict (see the ADR-045 amendment) and replaced a double SQLite write per note with a single one.
+- **Link**: [`ADR-053-connect-phase-as-python-package.md`](./generated/CONNECT/ADR-053-connect-phase-as-python-package.md)
+
+---
+
 ## GARDEN — MOC Generation
 
 ### ADR-019: Taxonomy-First MOC Clustering with UMAP+HDBSCAN
@@ -517,11 +529,19 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 48 |
-| **Accepted** | 47 |
+| **Total ADRs** | 49 |
+| **Accepted** | 48 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 42 |
-| **Modules Covered** | 12 |
+| **Modules Covered** | 13 |
+
+---
+
+## Status Update (2026-09-24)
+
+✅ **ADR-053 added**: the connector is now a package (`zettel/connector/`), and CONNECT is no longer deferred. References in ADR-007, 030, 032, 034, 037, 043, 045 (both) and 047 now point at module + symbol.
+
+✅ **ADR-045 amended**: a `refine_existing` / `merge` dedupe verdict now reaches `connect` through `concepts.dedupe_json` and becomes an `extends` edge. Before this, the target was dropped at the review/connect boundary. ADR-016 points to the amendment.
 
 ---
 
