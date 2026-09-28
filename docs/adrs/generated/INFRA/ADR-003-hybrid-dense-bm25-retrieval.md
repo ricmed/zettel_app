@@ -69,7 +69,7 @@ Graph expansion (BFS over note connections) is capped at one hop with 0.5 decay,
 * `zettel/retrieval.py:59-77` — `Retriever.search_notes`, the hybrid fusion pipeline (dense search, BM25 search, RRF fusion, floor, graph expansion)
 * `zettel/retrieval.py:80-95` — relevance floor gate sequence (`_apply_relevance_floor`)
 * `zettel/config.py:204-227` — `RetrievalConfig` and `RelevanceFloorConfig` definitions
-* `zettel/state.py:260` — SQLite FTS5 implementation backing the BM25 half
+* `zettel/state/fts.py` + `zettel/search_terms.py` — SQLite FTS5 search and MATCH builder backing the BM25 half
 
 ## Addendum (2026-09-09) — the BM25 bypass needs an absolute half
 
@@ -82,7 +82,7 @@ This ADR records that the floor's rank cutoff was itself a fix for a production
 bug in which *"weak BM25-only matches unconditionally bypassed the similarity
 check"*. The cutoff narrowed that hole without closing it, because
 **`bm25_bypass_max_rank` is a relative test**: it asks whether a hit ranked well
-*among whoever matched*. `_fts_match_expr` joins the query's terms with `OR`, so
+*among whoever matched*. `search_terms.fts_match_expr` joins the query's terms with `OR`, so
 a note is returned for matching **any one** of them. When a query's match pool is
 smaller than the cutoff — routine on a small corpus — "top 5" degenerates into
 "everything that matched at all", and rank stops carrying information.
@@ -119,8 +119,8 @@ at least half of the query's FTS terms. Rank stays as the relative half;
 coverage is the absolute one — *how much of what was asked is actually in this
 note*.
 
-`state.fts_query_terms` is the single definition of "the query's terms", shared
-with `_fts_match_expr`, so the coverage denominator is exactly the term set BM25
+`search_terms.fts_query_terms` is the single definition of "the query's terms", shared
+with `search_terms.fts_match_expr`, so the coverage denominator is exactly the term set BM25
 searched (including its truncation at `max_tokens`). Coverage is computed in
 `Retriever._attach_coverage` over the same surface FTS indexed (title + body for
 notes, title + summary for chapters).
@@ -180,7 +180,7 @@ lexical signal, and is left alone rather than tuned away.
 * `bm25_bypass_min_coverage: 0.0` restores the previous rank-only behaviour.
 * The same knob exists on `retrieval.chapter_floor` (ADR-047) for the same
   reason; both default to 0.5.
-* **Still not fixed, and deliberately so:** `_PT_STOPWORDS` contains no common
+* **Still not fixed, and deliberately so:** `search_terms.PT_STOPWORDS` contains no common
   verbs, so *fazer* remains a matchable term. Extending the stopword list would
   change BM25 ranking for every consumer and needs its own measurement; the
   coverage gate makes the symptom harmless without touching that ranking.

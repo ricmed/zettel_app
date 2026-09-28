@@ -104,7 +104,7 @@ def run_extract(
             "literature_note",
         )
 
-        pending = db.get_pending_chunks()
+        pending = db.get_chunks_by_status("pending")
         total = len(pending)
         logger.info("Chunks pendentes para extracao: %d", total)
         from zettel.progress import report

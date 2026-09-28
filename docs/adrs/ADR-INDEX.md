@@ -1,7 +1,7 @@
-# zettel_app ADR Index (49 Decisions)
+# zettel_app ADR Index (50 Decisions)
 
-**Last Updated**: 2026-09-24  
-**Status**: Complete — 49 formal ADRs across 13 modules
+**Last Updated**: 2026-09-28  
+**Status**: Complete — 50 formal ADRs across 13 modules
 
 ---
 
@@ -9,7 +9,7 @@
 
 | Module | Count | ADRs |
 |--------|-------|------|
-| **INFRA** | 11 | [001–008, 041–042, 052](#infra-core-infrastructure) |
+| **INFRA** | 12 | [001–008, 041–042, 052, 054](#infra-core-infrastructure) |
 | **RETRIEVAL** | 4 | [009–010, 036, 043](#retrieval-hybrid-search--graph) |
 | **HARVEST** | 6 | [011–014, 027, 033](#harvest-ingestion--paging) |
 | **EXTRACT** | 2 | [015, 034](#extract-literature-notes) |
@@ -111,6 +111,13 @@
 - **Date**: 2026-09-21
 - **Summary**: `_EF_BUILDERS` registry replaces the provider `if/elif`; adds `gemini` (`gemini-embedding-001`). A LangChain adapter routes Chroma's `embed_query` to the client's query side (`RETRIEVAL_QUERY`) and L2-normalizes when the model does not.
 - **Link**: [`ADR-052-embedding-providers-registry.md`](./generated/INFRA/ADR-052-embedding-providers-registry.md)
+
+### ADR-054: StateDB as Python Package
+
+- **Status**: Accepted
+- **Date**: 2026-09-28
+- **Summary**: `zettel/state.py` (~2,780 lines) becomes the package `zettel/state/`. `StateDB` is composed from one mixin per domain over a shared `StateBase`, and the DDL sits in `schema.py` with no migration layer (a schema change means `zettel init --reset`). Query-term facts (stopwords, `fold`, FTS terms and MATCH builder) move to the leaf `zettel/search_terms.py`. `tests/test_state_package.py` pins the public method set, forbids mixins from shadowing each other and forbids imports from the package `__init__`. Dead API, the legacy migrations and FTS backfill, and two never-written columns are removed.
+- **Link**: [`ADR-054-statedb-as-python-package.md`](./generated/INFRA/ADR-054-statedb-as-python-package.md)
 
 ---
 
@@ -529,11 +536,17 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 49 |
-| **Accepted** | 48 |
+| **Total ADRs** | 50 |
+| **Accepted** | 49 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 42 |
 | **Modules Covered** | 13 |
+
+---
+
+## Status Update (2026-09-28)
+
+✅ **ADR-054 added**: `StateDB` is now a package (`zettel/state/`) of domain mixins, and the query-term helpers live in `zettel/search_terms.py`. The schema has no migration layer.
 
 ---
 

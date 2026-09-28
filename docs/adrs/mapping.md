@@ -82,12 +82,12 @@
 
 ### INFRA: Shared Infrastructure
 **Purpose**: The stable base of the dependency graph — configuration, relational persistence, vector-store wrapper, Obsidian filesystem I/O, canonical hashing, DTOs, cost aggregation, and the progress-reporting protocol shared by CLI and web.
-**Location**: `zettel/config.py`, `zettel/state.py`, `zettel/index.py`, `zettel/vault.py`, `zettel/hashing.py`, `zettel/schemas.py`, `zettel/usage.py`, `zettel/progress.py`
+**Location**: `zettel/config.py`, `zettel/state/`, `zettel/search_terms.py`, `zettel/index.py`, `zettel/vault.py`, `zettel/hashing.py`, `zettel/schemas.py`, `zettel/usage.py`, `zettel/progress.py`
 **Key Components**: `AppConfig` (Pydantic schema + `load_config()`), `StateDB` (SQLite/WAL, FTS5, graph edges `note_connections`, job queue, cost totals), `VectorIndex` (ChromaDB wrapper, 5 collections, pluggable embedding providers), vault builders/managed-block I/O (SRC/LIT/ZTL/MOC), layered checksums (file/extraction/chapter/chunk/llm_call/note_semantic) enabling deterministic LLM-response caching, Pydantic DTOs for every LLM structured output, `CostTracker` (contextvars-based), `ProgressObserver` protocol.
 **Technologies**: Pydantic v2, stdlib `sqlite3`, ChromaDB, PyYAML, stdlib `hashlib`.
 **Dependencies**: Internal — `state`/`config`/`vault`/`index`/`hashing`/`usage`/`schemas` have zero or near-zero outward dependency on other pipeline modules (Ce = 0-4); everything else depends on them. External — SQLite (file), ChromaDB (embedded), local filesystem (Obsidian vault tree).
 **Patterns**: Repository-pattern data access (StateDB/VectorIndex as sole gateways); single source of runtime settings (`config.py`, 25 dependents — the highest afferent coupling in the codebase, tied with `state.py`'s 22).
-**Key Files**: `zettel/state.py` (1725 lines — largest infra file), `zettel/config.py` (395 lines), `zettel/index.py` (766 lines), `zettel/vault.py` (758 lines), `zettel/hashing.py`, `zettel/schemas.py` (174 lines), `zettel/usage.py` (428 lines), `zettel/progress.py`.
+**Key Files**: `zettel/state/`, `zettel/search_terms.py` (1725 lines — largest infra file), `zettel/config.py` (395 lines), `zettel/index.py` (766 lines), `zettel/vault.py` (758 lines), `zettel/hashing.py`, `zettel/schemas.py` (174 lines), `zettel/usage.py` (428 lines), `zettel/progress.py`.
 **Scope**: Large — 8 files, ~4,000+ lines. Two structural single points of failure per the architectural report (`config.py`, `state.py`); no cross-store transaction guarantee between SQLite and ChromaDB, documented as a known coupling risk in CLAUDE.md itself.
 
 ### LLM: LLM Integration Gateway

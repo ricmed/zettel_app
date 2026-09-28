@@ -12,11 +12,10 @@ from __future__ import annotations
 import json
 import logging
 import re
-import unicodedata
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from zettel.state import _PT_STOPWORDS
+from zettel.search_terms import PT_STOPWORDS, fold
 
 if TYPE_CHECKING:
     from zettel.state import StateDB
@@ -54,13 +53,6 @@ class TermEntry:
     labels: list[str] = field(default_factory=list)
 
 
-def fold(term: str) -> str:
-    """Accent- and case-insensitive key used to merge equivalent terms."""
-    folded = unicodedata.normalize("NFKD", term.lower())
-    folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
-    return re.sub(r"[\s_-]+", " ", folded).strip()
-
-
 def _is_usable(term: str) -> bool:
     """A term must be long enough and carry at least one non-stopword.
 
@@ -71,7 +63,7 @@ def _is_usable(term: str) -> bool:
     folded = fold(term)
     if len(folded) < MIN_TERM_CHARS:
         return False
-    return any(word not in _PT_STOPWORDS for word in folded.split())
+    return any(word not in PT_STOPWORDS for word in folded.split())
 
 
 def _thesis_terms(thesis: str) -> list[str]:
@@ -84,10 +76,10 @@ def _thesis_terms(thesis: str) -> list[str]:
     words = _WORD_RE.sub(" ", thesis).split()
     # Trim stopwords only at the edges: dropping them from the middle would
     # mangle the phrase ("Dropout funciona ensemble") instead of shortening it.
-    while words and fold(words[0]) in _PT_STOPWORDS:
+    while words and fold(words[0]) in PT_STOPWORDS:
         words.pop(0)
     head = words[:THESIS_HEAD_WORDS]
-    while head and fold(head[-1]) in _PT_STOPWORDS:
+    while head and fold(head[-1]) in PT_STOPWORDS:
         head.pop()
     term = " ".join(head).strip()
     return [term] if term and _is_usable(term) else []

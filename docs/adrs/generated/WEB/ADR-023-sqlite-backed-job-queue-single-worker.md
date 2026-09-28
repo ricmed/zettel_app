@@ -61,5 +61,5 @@ Because job execution reads and writes the same StateDB used by CLI commands, co
 ## References
 
 - `zettel/web_app.py` — `WebWorker.submit`, the polling loop in `_run`, and job execution/state persistence in `_execute`
-- `zettel/state.py` — `web_jobs` / `web_job_events` schema and job lifecycle methods (`create_web_job`, `claim_web_job`, `update_web_job`, `recover_web_jobs`)
+- `zettel/state/web.py` — `web_jobs` / `web_job_events` job lifecycle methods (`create_web_job`, `claim_web_job`, `update_web_job`, `recover_web_jobs`)
 - `zettel/web/enqueue.py` — `post_job` (HTTP 409 on a concurrent submit attempt)

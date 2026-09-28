@@ -97,7 +97,7 @@ This decision supersedes the DISCARD verdict recorded for "Decision 4: Manual No
 * `zettel/sync.py` — `_sync_literature` dispatch on `origin`
 * `zettel/connector/run.py` — `run_connect(..., origin=...)`
 * `zettel/vault.py` — `literature_chunk_wikilink_for_row` prefers the on-disk path
-* `zettel/state.py:138-150` — `concepts.chunk_id` NOT NULL with FK to `chunks`
+* `zettel/state/schema.py` — `concepts.chunk_id` NOT NULL with FK to `chunks`
 * `tests/test_manual_flow.py` — end-to-end coverage of SRC → LIT → ZTL
 
 ## Amendment (2026-09-06)
