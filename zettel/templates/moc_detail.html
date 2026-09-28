@@ -1,2 +1,14 @@
-{% extends "base.html" %}{% block title %}MOC {{ moc.topic }} · Zettelkasten{% endblock %}
-{% block content %}<a href="/notes" class="back">← Notas / MOCs</a><div class="page-heading"><div><div class="eyebrow">mapa de conteúdo</div><h1>{{ moc.topic }}</h1><p class="muted">{{ moc.origin }} · atualizado em {{ moc.updated_at | local_dt('date') }}</p></div></div><section class="panel markdown-body">{{ rendered_body|safe }}</section>{% endblock %}
+{% extends "base.html" %}
+{% block title %}MOC {{ moc.topic }} · Zettelkasten{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/notes.css">{% endblock %}
+{% block content %}
+<a href="/notes" class="back">← Notas / MOCs</a>
+<div class="page-heading"><div><div class="eyebrow">mapa de conteúdo</div><h1>{{ moc.topic }}</h1><p class="muted">{{ moc.origin }} · atualizado em {{ moc.updated_at | local_dt('date') }}</p></div></div>
+<div class="library-detail-actions">
+  <button type="button" class="button copy-markdown" data-url="/mocs/{{ moc.moc_id }}/markdown">Copiar Markdown</button>
+  <a class="button" href="/mocs/{{ moc.moc_id }}/markdown?download=1" download>Baixar .md</a>
+  <span class="copy-status" role="status" aria-live="polite"></span>
+</div>
+<section class="panel markdown-body">{{ rendered_body|safe }}</section>
+{% endblock %}
+{% block scripts %}<script src="/static/notes-export.js" defer></script>{% endblock %}

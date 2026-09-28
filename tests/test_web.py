@@ -170,6 +170,136 @@ def test_unknown_details_do_not_expose_arbitrary_files(web_client):
     assert client.get("/mocs/not-found").status_code == 404
 
 
+def test_notes_catalog_search_filters_and_pagination(web_client):
+    client, _ = web_client
+    _login(client)
+    db = client.app.state.service.db()
+    try:
+        for source_id, citekey, author in (
+            ("@Ana2024", "Ana2024", "Ana Silva"),
+            ("@Beto2024", "Beto2024", "Beto Costa"),
+        ):
+            db.upsert_source(
+                source_id,
+                citekey,
+                f"Livro de {author}",
+                [author],
+                2024,
+                "",
+                f"/tmp/{citekey}.md",
+                "md",
+            )
+        for index in range(14):
+            db.upsert_note(
+                f"note-{index:02}",
+                "@Ana2024" if index % 2 == 0 else "@Beto2024",
+                None,
+                title=f"Ideia {index:02}",
+                body="Evidência única" if index == 0 else "Outros argumentos",
+                origin="manual" if index % 2 == 0 else "pipeline",
+            )
+        db.upsert_moc("mapa-1", "Mapa geral", body="Mapa com evidência única")
+    finally:
+        db.close()
+
+    first = client.get("/notes")
+    assert first.status_code == 200
+    assert "15 itens encontrados" in first.text
+    assert "Página 1 de 2" in first.text
+    assert 'rel="next"' in first.text
+    second = client.get("/notes?page=2")
+    assert "Página 2 de 2" in second.text
+    assert 'rel="prev"' in second.text
+    assert "3 itens encontrados" not in second.text  # total, not page count
+    sorted_second = client.get("/notes?kind=ZTL&sort=title&page=2")
+    assert "Página 2 de 2" in sorted_second.text
+    assert "kind=ZTL&amp;sort=title&amp;page=1" in sorted_second.text
+
+    search = client.get("/notes", params={"q": "evidencia"})
+    assert "2 itens encontrados" in search.text
+    assert "Ideia 00" in search.text and "Mapa geral" in search.text
+    assert "Ideia 01" not in search.text
+    assert "Nenhuma nota corresponde" in client.get("/notes?q=%25").text
+
+    filtered = client.get(
+        "/notes",
+        params={
+            "kind": "ZTL",
+            "source_id": "@Ana2024",
+            "author": "Ana Silva",
+            "origin": "manual",
+            "sort": "title",
+        },
+    )
+    assert "7 itens encontrados" in filtered.text
+    assert "Mapa geral" not in filtered.text
+    assert 'value="@Ana2024" selected' in filtered.text
+    assert 'value="Ana Silva" selected' in filtered.text
+    assert "Autor: Ana Silva" in filtered.text
+    assert "Fonte: Livro de Ana Silva" in filtered.text
+    assert (
+        "0 itens encontrados"
+        in client.get("/notes", params={"kind": "MOC", "author": "Ana Silva"}).text
+    )
+    assert "1 item encontrado" in client.get("/notes?kind=MOC").text
+    assert "Página 1 de 2" in client.get("/notes?page=invalid").text
+    assert "Página 2 de 2" in client.get("/notes?page=999999").text
+
+
+def test_note_markdown_copy_and_download_use_vault_files_only(web_client):
+    client, tmp_path = web_client
+    permanent = tmp_path / "vault" / "30_Permanent"
+    mocs = tmp_path / "vault" / "40_MOCs"
+    permanent.mkdir(parents=True)
+    mocs.mkdir()
+    note_path = permanent / "ZTL - nota.md"
+    moc_path = mocs / "MOC - mapa.md"
+    original = "---\ntitle: Nota\n---\n\n# Versão atual\n"
+    note_path.write_text(original, encoding="utf-8")
+    moc_path.write_text("# Mapa atual\n", encoding="utf-8")
+    outside = tmp_path / "privado.md"
+    outside.write_text("NÃO EXPOR", encoding="utf-8")
+    (permanent / "link.md").symlink_to(outside)
+    db = client.app.state.service.db()
+    try:
+        db.upsert_note("safe", None, str(note_path), title="Nota", body="Conteúdo antigo")
+        db.upsert_moc("safe-moc", "Mapa", path=str(moc_path), body="Conteúdo antigo")
+        db.upsert_note("outside", None, str(outside), title="Fora")
+        db.upsert_note("symlink", None, str(permanent / "link.md"), title="Link")
+        db.upsert_note("wrong-folder", None, str(moc_path), title="Errado")
+        db.upsert_note("missing", None, str(permanent / "missing.md"), title="Sumiu")
+    finally:
+        db.close()
+    assert client.get("/notes/safe/markdown", follow_redirects=False).status_code == 303
+    assert client.get("/mocs/safe-moc/markdown", follow_redirects=False).status_code == 303
+
+    _login(client)
+    page = client.get("/notes")
+    detail = client.get("/notes/safe")
+    moc_detail = client.get("/mocs/safe-moc")
+    assert 'data-url="/notes/safe/markdown"' in page.text
+    assert 'href="/notes/safe/markdown?download=1"' in detail.text
+    assert 'data-url="/mocs/safe-moc/markdown"' in moc_detail.text
+    raw = client.get("/notes/safe/markdown")
+    assert raw.status_code == 200
+    assert raw.text == original
+    assert raw.headers["content-type"].startswith("text/markdown")
+    note_path.write_text("# Editado no vault\n", encoding="utf-8")
+    assert client.get("/notes/safe/markdown").text == "# Editado no vault\n"
+    assert client.get("/mocs/safe-moc/markdown").text == "# Mapa atual\n"
+    download = client.get("/notes/safe/markdown?download=1")
+    assert download.content == b"# Editado no vault\n"
+    assert "attachment" in download.headers["content-disposition"]
+    assert "ZTL%20-%20nota.md" in download.headers["content-disposition"]
+    assert (
+        "attachment"
+        in client.get("/mocs/safe-moc/markdown?download=1").headers["content-disposition"]
+    )
+    for note_id in ("outside", "symlink", "wrong-folder", "missing", "not-found"):
+        assert client.get(f"/notes/{note_id}/markdown").status_code == 404
+        assert client.get(f"/notes/{note_id}/markdown?download=1").status_code == 404
+
+
 def test_nested_inbox_file_can_be_selected_for_harvest(web_client, monkeypatch):
     client, tmp_path = web_client
     csrf = _login(client)

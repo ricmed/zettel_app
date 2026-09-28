@@ -1879,6 +1879,101 @@ class StateDB:
     def list_notes(self) -> list[dict]:
         return self._fetchall("SELECT * FROM notes ORDER BY created_at DESC")
 
+    def catalog_facets(self) -> dict:
+        """Filter options backed by actual indexed notes, not unrelated sources."""
+        source_rows = self._fetchall(
+            """SELECT DISTINCT n.source_id, COALESCE(s.citekey, n.source_id) AS citekey,
+                      s.title, s.authors
+               FROM notes n LEFT JOIN sources s ON s.source_id=n.source_id
+               WHERE n.source_id IS NOT NULL
+               ORDER BY s.title COLLATE NOCASE, n.source_id"""
+        )
+        authors: set[str] = set()
+        for row in source_rows:
+            try:
+                names = json.loads(row["authors"] or "[]")
+            except (TypeError, ValueError):
+                names = []
+            if isinstance(names, list):
+                authors.update(
+                    name.strip() for name in names if isinstance(name, str) and name.strip()
+                )
+        origins = self._fetchall(
+            """SELECT origin FROM notes UNION SELECT origin FROM mocs ORDER BY origin"""
+        )
+        return {
+            "sources": source_rows,
+            "authors": sorted(authors, key=_fold),
+            "origins": [row["origin"] for row in origins],
+        }
+
+    def search_catalog(
+        self,
+        *,
+        query: str = "",
+        kind: str = "",
+        source_id: str = "",
+        author: str = "",
+        origin: str = "",
+        sort: str = "recent",
+        page: int = 1,
+        per_page: int = 12,
+    ) -> tuple[list[dict], int]:
+        """Search both indexed collections with one stable, paginated result set."""
+        catalog = """
+            WITH catalog AS (
+              SELECT 'ZTL' AS kind, n.note_id AS item_id, n.title, n.body, n.path,
+                     n.origin, n.updated_at, n.source_id, s.title AS source_title,
+                     s.authors
+                FROM notes n LEFT JOIN sources s ON s.source_id=n.source_id
+              UNION ALL
+              SELECT 'MOC', m.moc_id, m.topic, m.body, m.path, m.origin,
+                     m.updated_at, NULL, NULL, NULL
+                FROM mocs m
+            )
+        """
+        clauses: list[str] = []
+        params: list[str] = []
+        if kind in {"ZTL", "MOC"}:
+            clauses.append("kind=?")
+            params.append(kind)
+        if query.strip():
+            pattern = f"%{_escape_like(_fold(query[:200].strip()))}%"
+            clauses.append("(zfold(title) LIKE ? ESCAPE '\\' OR zfold(body) LIKE ? ESCAPE '\\')")
+            params.extend((pattern, pattern))
+        if source_id:
+            clauses.append("source_id=?")
+            params.append(source_id)
+        if author:
+            clauses.append(
+                "EXISTS (SELECT 1 FROM json_each("
+                "CASE WHEN json_valid(authors) THEN authors ELSE '[]' END"
+                ") WHERE value=?)"
+            )
+            params.append(author)
+        if origin:
+            clauses.append("origin=?")
+            params.append(origin)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        total = self._fetchone(
+            catalog + "SELECT COUNT(*) AS total FROM catalog" + where, tuple(params)
+        )
+        orders = {
+            "recent": "updated_at DESC, kind, item_id",
+            "oldest": "updated_at ASC, kind, item_id",
+            "title": "title COLLATE NOCASE ASC, kind, item_id",
+        }
+        per_page = max(1, min(per_page, 50))
+        page = max(1, page)
+        rows = self._fetchall(
+            catalog + "SELECT kind, item_id, title, body, path, origin, updated_at, "
+            "source_id, source_title, authors FROM catalog"
+            + where
+            + f" ORDER BY {orders.get(sort, orders['recent'])} LIMIT ? OFFSET ?",
+            (*params, per_page, (page - 1) * per_page),
+        )
+        return rows, int(total["total"]) if total else 0
+
     def count_notes(self) -> int:
         row = self.conn.execute("SELECT COUNT(*) as cnt FROM notes").fetchone()
         return row["cnt"] if row else 0

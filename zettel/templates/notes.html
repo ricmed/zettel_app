@@ -1,2 +1,108 @@
-{% extends "base.html" %}{% block title %}Notas e MOCs · Zettelkasten{% endblock %}
-{% block content %}<div class="page-heading"><div><div class="eyebrow">acervo</div><h1>Notas / MOCs</h1><p class="muted">Listagens compactas; corpos completos permanecem no vault.</p></div></div><div class="grid-2"><section class="panel"><h2>Notas permanentes</h2>{% if notes %}<div class="compact-list">{% for note in notes %}<div><a href="/notes/{{ note.note_id }}"><b>{{ note.title or 'Sem título' }}</b></a><span>{{ note.origin }} · {{ note.updated_at | local_dt('date') }}</span></div>{% endfor %}</div>{% else %}<div class="empty">Ainda não há notas permanentes.</div>{% endif %}</section><section class="panel"><h2>Mapas de conteúdo</h2>{% if mocs %}<div class="compact-list">{% for moc in mocs %}<div><a href="/mocs/{{ moc.moc_id }}"><b>{{ moc.topic }}</b></a><span>{{ moc.origin }} · {{ moc.updated_at | local_dt('date') }}</span></div>{% endfor %}</div>{% else %}<div class="empty">Ainda não há MOCs.</div>{% endif %}</section></div>{% endblock %}
+{% extends "base.html" %}
+{% block title %}Notas e MOCs · Zettelkasten{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/notes.css">{% endblock %}
+{% block content %}
+<div class="page-heading library-heading">
+  <div>
+    <div class="eyebrow">acervo</div>
+    <h1>Notas / MOCs</h1>
+    <p class="muted">Pesquise as notas indexadas. O Markdown completo permanece no vault.</p>
+  </div>
+  <a class="button" href="/notes/new">Criar nota</a>
+</div>
+
+<form method="get" action="/notes" class="panel library-filters" role="search">
+  <div class="library-search-row">
+    <label for="library-search">Pesquisar título ou conteúdo
+      <input id="library-search" name="q" type="search" value="{{ filters.q }}" placeholder="Uma ideia, conceito ou palavra-chave">
+    </label>
+    <button class="primary" type="submit">Pesquisar</button>
+  </div>
+  <div class="library-filter-grid">
+    <label for="library-kind">Tipo
+      <select id="library-kind" name="kind">
+        <option value="">ZTL e MOC</option>
+        <option value="ZTL"{% if filters.kind == 'ZTL' %} selected{% endif %}>Notas permanentes · ZTL</option>
+        <option value="MOC"{% if filters.kind == 'MOC' %} selected{% endif %}>Mapas de conteúdo · MOC</option>
+      </select>
+    </label>
+    <label for="library-source">Fonte
+      <select id="library-source" name="source_id">
+        <option value="">Todas as fontes</option>
+        {% for source in facets.sources %}
+        <option value="{{ source.source_id }}"{% if filters.source_id == source.source_id %} selected{% endif %}>{{ source.title or source.citekey }} · {{ source.citekey }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label for="library-author">Autor da fonte
+      <select id="library-author" name="author">
+        <option value="">Todos os autores</option>
+        {% for name in facets.authors %}
+        <option value="{{ name }}"{% if filters.author == name %} selected{% endif %}>{{ name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label for="library-origin">Origem
+      <select id="library-origin" name="origin">
+        <option value="">Todas as origens</option>
+        {% for value in facets.origins %}
+        <option value="{{ value }}"{% if filters.origin == value %} selected{% endif %}>{{ value }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label for="library-sort">Ordenar
+      <select id="library-sort" name="sort">
+        <option value="recent"{% if filters.sort == 'recent' %} selected{% endif %}>Mais recentes</option>
+        <option value="oldest"{% if filters.sort == 'oldest' %} selected{% endif %}>Mais antigas</option>
+        <option value="title"{% if filters.sort == 'title' %} selected{% endif %}>Título A–Z</option>
+      </select>
+    </label>
+  </div>
+  <div class="library-filter-footer">
+    <span class="muted">Fonte e autor filtram ZTLs vinculadas; MOCs não têm fonte ou autor direto.</span>
+    <div class="library-filter-actions"><a href="/notes">Limpar filtros</a><button class="button" type="submit">Aplicar filtros</button></div>
+  </div>
+</form>
+
+<section class="library-results" aria-label="Resultados">
+  <div class="library-results-heading">
+    <div><span class="eyebrow">resultados</span><h2>{{ total }} {% if total == 1 %}item encontrado{% else %}itens encontrados{% endif %}</h2></div>
+    {% if total %}<span class="muted">Página {{ current }} de {{ pages }}</span>{% endif %}
+  </div>
+  {% if rows %}
+  <div class="library-list">
+    {% for row in rows %}
+    {% set item_url = '/notes/' ~ row.item_id if row.kind == 'ZTL' else '/mocs/' ~ row.item_id %}
+    {% set markdown_url = item_url ~ '/markdown' %}
+    <article class="panel library-item">
+      <div class="library-item-body">
+        <span class="library-badge">{{ row.kind }}</span>
+        <h3><a href="{{ item_url }}">{{ row.title or 'Sem título' }}</a></h3>
+        {% if row.body %}<p class="library-excerpt">{{ row.body | truncate(180) }}</p>{% endif %}
+        <p class="library-meta">
+          {% if row.source_id %}<span>Fonte: {{ row.source_title or row.source_id }}</span>{% endif %}
+          {% if row.author_names %}<span>Autor: {{ row.author_names }}</span>{% endif %}
+          <span>{{ row.origin }} · {{ row.updated_at | local_dt('date') }}</span>
+        </p>
+      </div>
+      <div class="library-item-actions">
+        <button type="button" class="button copy-markdown" data-url="{{ markdown_url }}" aria-label="Copiar Markdown de {{ row.title or 'Sem título' }}">Copiar</button>
+        <a class="button" href="{{ markdown_url }}?download=1" download>Baixar .md</a>
+        <span class="copy-status" role="status" aria-live="polite"></span>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty library-empty">{% if filters.q or filters.kind or filters.source_id or filters.author or filters.origin %}Nenhuma nota corresponde à busca ou aos filtros. Tente outros termos ou <a href="/notes">limpe os filtros</a>.{% else %}Ainda não há ZTLs ou MOCs indexados. Crie notas e execute a sincronização manual no Pipeline para encontrá-los aqui.{% endif %}</div>
+  {% endif %}
+  {% if pages > 1 %}
+  <nav class="library-pagination" aria-label="Paginação dos resultados">
+    {% if previous_url %}<a class="button" href="{{ previous_url }}" rel="prev">← Anterior</a>{% else %}<span></span>{% endif %}
+    <span>Página {{ current }} de {{ pages }}</span>
+    {% if next_url %}<a class="button" href="{{ next_url }}" rel="next">Próxima →</a>{% else %}<span></span>{% endif %}
+  </nav>
+  {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/notes-export.js" defer></script>{% endblock %}
