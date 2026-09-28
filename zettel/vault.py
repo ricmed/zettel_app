@@ -854,7 +854,7 @@ def render_evidence_block(citation: str, anchor_quote: str) -> str:
     quote = (anchor_quote or "").strip()
     if quote:
         suffix = f" {citation}" if citation else ""
-        lines.append(f'- Trecho literal:\n\n> "{quote}"{suffix}')
+        lines.append(f'\n- Trecho literal:\n\n> "{quote}"{suffix}\n')
     return "\n".join(lines)
 
 
