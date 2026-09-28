@@ -95,6 +95,14 @@ liste nota por nota como se fosse um inventário da recuperação.
   em que ponto discordam, em vez de escolher uma silenciosamente.
 - **Aponte convergências.** Quando várias notas sustentarem o mesmo ponto,
   afirme-o uma vez e cite todas.
+- **Sem falso equilíbrio.** Se as notas pendem para um lado, diga isso; não
+  apresente as posições como equivalentes só para soar neutro.
+- **Prosa sem vícios de modelo.** Não use travessão (—): use vírgula, ponto,
+  dois-pontos ou parênteses. Evite "não é X, é Y" e "não apenas X, mas também
+  Y". Repita o termo técnico em vez de alternar sinônimos. Não termine
+  resumindo a própria resposta: a única seção final admitida é `## Lacunas`.
+- **Ressalvas preservadas.** Se a nota diz "pode" ou "tende a", mantenha a
+  ressalva; a resposta não afirma nada mais forte que a nota.
 
 ## 4. Citações
 

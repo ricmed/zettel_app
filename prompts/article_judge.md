@@ -12,7 +12,17 @@ Responda em **{language}** (campos de texto do JSON).
 1. **fidelity** — afirmacoes sustentadas pelo contexto; sem invencao
 2. **coverage** — cobre o tema proposto de forma adequada
 3. **references** — qualidade das mencoes/citas conforme o estilo
-4. **naturalness** — prosa natural, sem padroes roboticos excessivos
+4. **naturalness** — prosa natural. Desconte por padrao recorrente:
+   - travessao (—) no texto;
+   - "nao e X. E Y." ou "nao apenas X, mas tambem Y";
+   - grupos de tres forcados e listas simetricas demais;
+   - paragrafos seguidos com o mesmo tamanho ou a mesma abertura;
+   - pergunta retorica como transicao ou frase solta de efeito;
+   - secao que fecha resumindo a si mesma, "Em conclusao"/"Em resumo";
+   - cliches (tapecaria, divisor de aguas, crucial, lancar luz, em um mundo onde).
+
+   Com `naturalness` abaixo de 7, o `feedback` deve citar literalmente ao menos
+   um trecho ofensor e dizer qual padrao ele segue.
 
 ## Saida
 
