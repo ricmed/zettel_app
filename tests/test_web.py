@@ -49,6 +49,15 @@ def _login(client: TestClient) -> str:
     return match.group(1)
 
 
+def test_favicon_serves_brand_mark(web_client):
+    client, _ = web_client
+    icon = client.get("/favicon.ico")
+    assert icon.status_code == 200
+    assert icon.headers["content-type"].startswith("image/svg+xml")
+    assert b"#da5a3b" in icon.content
+    assert 'rel="icon" href="/static/favicon.svg"' in client.get("/login").text
+
+
 def test_authentication_and_csrf_protect_mutations(web_client):
     client, _ = web_client
     assert client.get("/", follow_redirects=False).status_code == 303
@@ -170,7 +179,7 @@ def test_document_options_queue_only_selected_file(web_client, monkeypatch):
     monkeypatch.setattr(
         client.app.state.service,
         "submit",
-        lambda operation, payload: (captured.append((operation, payload)) or "selected-job"),
+        lambda operation, payload: captured.append((operation, payload)) or "selected-job",
     )
     manual = client.post(
         "/documents/harvest",

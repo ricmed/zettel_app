@@ -4,19 +4,22 @@ from __future__ import annotations
 
 import hmac
 import secrets
+from pathlib import Path
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from zettel.web.rendering import render
 from zettel.web.security import authenticated, csrf_ok, secret, session_value, sign
 
 router = APIRouter()
 
+_FAVICON = Path(__file__).resolve().parent.parent / "static" / "favicon.svg"
+
 
 @router.get("/favicon.ico", include_in_schema=False)
 async def favicon():
-    return Response(status_code=204)
+    return FileResponse(_FAVICON, media_type="image/svg+xml")
 
 
 @router.get("/login", response_class=HTMLResponse)
