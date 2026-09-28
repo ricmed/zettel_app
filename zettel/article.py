@@ -222,6 +222,12 @@ def generate_outline(
     return outline, llm_called
 
 
+def _load_anti_ai(cfg: AppConfig) -> str:
+    """Prose-naturalness fragment shared by the section and personality prompts."""
+    path = cfg.prompts_path / "article_anti_ai.md"
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
 def draft_sections(
     cfg: AppConfig,
     db: StateDB,
@@ -235,8 +241,7 @@ def draft_sections(
         "article_section_blog.md" if catalog.style == "blog" else "article_section_academic.md"
     )
     prompt_parts = load_prompt_parts(cfg.prompts_path / prompt_name)
-    anti_path = cfg.prompts_path / "article_anti_ai.md"
-    anti_ai = anti_path.read_text(encoding="utf-8") if anti_path.exists() else ""
+    anti_ai = _load_anti_ai(cfg)
     feedback_block = judge_feedback.strip() if judge_feedback else "(nenhum)"
 
     writer_temp = art_cfg.writer_temperature
@@ -1136,6 +1141,7 @@ def apply_personality_rewrite(
         "personality_name": str(profile.get("name") or pid),
         "style_prompt": str(profile.get("style_prompt") or ""),
         "custom_style_notes": notes or "(nenhuma)",
+        "anti_ai": _load_anti_ai(cfg),
         "article_body": body,
     }
     system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""

@@ -16,7 +16,11 @@ Mantenha o texto em **{language}**.
    com o conteudo factual intacto (pode ajustar leveza da prosa nas secoes
    narrativas, nao nas listas bibliograficas).
 4. Nao adicione fatos novos nem remova afirmacoes substantivas.
-5. Responda **apenas** com o Markdown reescrito completo.
+5. A reescrita nao pode introduzir nenhum dos padroes listados abaixo; onde o
+   artigo-base ja os tiver, remova-os.
+6. Responda **apenas** com o Markdown reescrito completo.
+
+{anti_ai}
 
 Perfil de estilo e o artigo a reescrever seguem na mensagem do usuario.
 

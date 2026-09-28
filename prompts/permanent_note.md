@@ -74,6 +74,7 @@ Responda mentalmente antes de decidir:
 - **Linguagem declarativa**: use voz ativa, presente do indicativo, frases afirmativas
 - **Idioma**: TUDO em **{language}** (termos técnicos consagrados podem ficar na língua original)
 - **Especificidade**: evite generalizações vazias; seja preciso e específico
+- **Prosa limpa**: não use travessão (—) nos campos de texto (use vírgula, ponto, dois-pontos ou parênteses); evite "não é X, é Y" e repita o termo técnico em vez de alternar sinônimos
 
 ### Estrutura da Tese
 
@@ -97,6 +98,7 @@ Responda mentalmente antes de decidir:
 - Uma metáfora esclarecedora OU
 - Um exemplo do dia-a-dia que capture a essência
 - Deve iluminar o conceito, não apenas repeti-lo
+- Evite metáforas gastas (tapeçaria, bússola, orquestra, divisor de águas): a analogia precisa mapear o mecanismo, não só decorar
 
 ### Exemplo
 
@@ -109,6 +111,7 @@ Responda mentalmente antes de decidir:
 - Especifique condições em que a tese NÃO se aplica
 - Indique exceções, pressupostos necessários ou contextos problemáticos
 - Seja honesto sobre as fronteiras do conceito
+- Nomeie a condição concreta; "depende do contexto" sem dizer qual contexto não é um limite
 
 ### Julgamento do autor (entrada opcional)
 
