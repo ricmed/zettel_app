@@ -83,6 +83,6 @@ The single-writer job queue in the web UI (rejecting a second mutating job with 
 ## References
 
 * `zettel/harvester/chunking.py` — `chunk_and_persist`, sequential and independent SQLite and ChromaDB writes during chunk ingestion
-* `zettel/state.py` — SQLite-side `upsert_chunk`
+* `zettel/state/chunks.py` — SQLite-side `upsert_chunk`
 * `zettel/index.py` — ChromaDB-side `upsert_chunk`
 * `CLAUDE.md` — documents the dual-store architecture and the absence of a cross-store transaction guarantee

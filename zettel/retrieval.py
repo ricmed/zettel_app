@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 from . import graph
+from .search_terms import fold, fts_query_terms
 
 if TYPE_CHECKING:
     from .config import AppConfig, RelevanceFloorConfig
@@ -361,8 +362,6 @@ class Retriever:
 
         Costs one extra embedding of the query, and only when a term matches.
         """
-        from zettel.topic_index import fold
-
         if not self.cfg.retrieval.topic_index_boost:
             return vector_hits, set()
 
@@ -422,7 +421,6 @@ class Retriever:
         absolute counterpart: how much of what was asked is actually there.
         """
         from zettel.hashing import fold_for_match
-        from zettel.state import fts_query_terms
 
         for hit in hits:
             hit["coverage"] = None

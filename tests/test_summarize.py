@@ -157,7 +157,7 @@ def test_changed_chapter_is_resummarized_alone(cfg, db, monkeypatch):
 
     # A re-chunk changes the chapter's checksum; the summary is now stale.
     db.upsert_chapter(f"{SOURCE_ID}::ch001", SOURCE_ID, "Capitulo 1", "checksum-novo")
-    assert db.count_stale_chapter_summaries() == 1
+    assert len(db.get_chapters_needing_summary(SOURCE_ID)) == 1
 
     calls.clear()
     outcome = generate_summaries(cfg, db, idx, SOURCE_ID)

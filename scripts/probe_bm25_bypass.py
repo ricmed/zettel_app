@@ -2,7 +2,7 @@
 
 `retrieval.relevance_floor.bm25_bypass_max_rank` lets a well-ranked lexical hit
 skip the vector-similarity gate. Rank is a **relative** test — "did you rank well
-among whoever matched" — and `_fts_match_expr` joins the query's terms with
+among whoever matched" — and `search_terms.fts_match_expr` joins the query's terms with
 ``OR``, so a note is returned for matching *any one* of them. When a query's
 match pool is smaller than the cutoff (routine on a small corpus) "top 5"
 degenerates into "everything that matched at all", and a note sharing one common
@@ -41,7 +41,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from zettel.config import load_config
 from zettel.hashing import fold_for_match
-from zettel.state import StateDB, fts_query_terms
+from zettel.search_terms import fts_query_terms
+from zettel.state import StateDB
 
 OFF_DOMAIN = [
     "como fazer risoto de cogumelos",

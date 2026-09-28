@@ -67,6 +67,6 @@ Horizontal scaling or multi-instance deployment is not possible without a future
 
 ## References
 
-- `zettel/state.py:47-52` — WAL mode and PRAGMA initialization in `StateDB.__init__`
-- `zettel/state.py:55-61` — FTS5 virtual table definition (`fts_notes`)
-- `zettel/state.py:1-250` — Full schema definition (12 normalized tables) and `StateDB` implementation
+- `zettel/state/db.py` — WAL mode and PRAGMA initialization in `StateDB.__init__`
+- `zettel/state/schema.py` — FTS5 virtual table definitions (`FTS_SQL`)
+- `zettel/state/schema.py` — full schema definition (`SCHEMA_SQL`); `StateDB` is composed from domain mixins in `zettel/state/` ([ADR-054](./ADR-054-statedb-as-python-package.md))

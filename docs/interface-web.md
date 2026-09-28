@@ -81,7 +81,7 @@ A CLI permanece compatível e continua usando a apresentação Rich normalmente.
 ## Persistência, concorrência e recuperação
 
 - A implantação é de **instância única** e executa no máximo um trabalho mutante por vez (`queued`/`running`); um segundo submit recebe **409**. Não use múltiplos processos/workers Uvicorn.
-- A fila vive no SQLite (`web_jobs`, `web_job_events` em [`state.py`](../zettel/state.py)) e é servida por uma thread daemon.
+- A fila vive no SQLite (`web_jobs`, `web_job_events` em [`state/web.py`](../zettel/state/web.py)) e é servida por uma thread daemon.
 - Preserve `data/` e `vault/` em armazenamento persistente. `data/state.db` contém a fila e os eventos; `data/chroma/` contém vetores; `vault/` contém as notas.
 - Recarregar ou fechar a página não interrompe o trabalho. Ao reiniciar o servidor, jobs que estavam `running` viram `interrupted`; jobs ainda `queued` são retomados.
 - Chamadas LLM/PDF em curso não são canceladas à força. A recuperação ocorre entre checkpoints seguros, executando novamente a fase quando necessário.

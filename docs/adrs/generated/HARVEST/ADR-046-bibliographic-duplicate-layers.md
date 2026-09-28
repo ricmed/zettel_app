@@ -63,6 +63,6 @@ Layer 4 scans `list_sources_with_authors()` linearly — a projection without th
 
 * `zettel/harvester/biblio_dedupe.py`, `zettel/harvester/pipeline.py` (`_process_file`)
 * `zettel/harvester/chunking.py` (`chunk_and_persist`), `zettel/rebuild.py` (`run_reindex`) — the other two ends of the layer-5 flag
-* `zettel/state.py` (`sources.doi`/`isbn`, `get_source_by_doi`, `get_source_by_isbn`, `list_sources_with_authors`, `record_duplicate`)
+* `zettel/state/sources.py` (`sources.doi`/`isbn`, `get_source_by_doi`, `get_source_by_isbn`, `list_sources_with_authors`), `zettel/state/runs.py` (`record_duplicate`)
 * `zettel/hashing.py` (`fold_for_match`, reused rather than duplicated)
 * `tests/test_harvester_dedup.py`

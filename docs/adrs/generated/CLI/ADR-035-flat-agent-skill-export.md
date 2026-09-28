@@ -106,5 +106,5 @@ Future work this ADR deliberately leaves out: fold-in updates of an existing pac
 * `zettel/skill_export.py` — `run_skill_export`, `resolve_slice`, `load_notes`, `render_skill_md`, `render_cheatsheet`, `write_pack`
 * `zettel/topic_index.py` — `build_term_map`, `TermSource`, `TermEntry` (shared term extraction)
 * `zettel/cli/export.py` — the `skill` command (registered in `zettel/cli/__init__.py`)
-* `zettel/state.py` — `get_concepts_for_notes`
+* `zettel/state/concepts.py` — `get_concepts_for_notes`
 * `tests/test_skill_export.py` — selectors, layout, budget, excerpt policy, determinism, LIT fallback

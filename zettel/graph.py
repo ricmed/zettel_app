@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from .config import DEFAULT_RELATION_WEIGHTS
+from .state.connections import edge_weight
 
 if TYPE_CHECKING:
     from .state import StateDB
@@ -79,10 +80,7 @@ def expand_notes(
             tgt = edge["target_note_id"]
             rel = edge["relation_type"]
             desc = edge.get("description") or ""
-            if (edge.get("origin") or "llm") == "manual":
-                rel_weight = weights.get("manual", 0.95)
-            else:
-                rel_weight = weights.get(rel, weights.get("related", 0.5))
+            rel_weight = edge_weight(edge, weights)
             # Consider the edge from whichever endpoint is on the current frontier.
             for anchor, other in ((src, tgt), (tgt, src)):
                 if anchor not in frontier or not other:
