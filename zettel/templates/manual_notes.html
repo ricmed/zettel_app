@@ -101,7 +101,18 @@
         </section>
 
         <section class="panel form-section" data-types="SRC">
-          <div class="section-heading"><span class="section-number">2</span><div><h2>Referência</h2><p>Monte a ABNT a partir dos campos, revise e só então crie a nota.</p></div></div>
+          <div class="section-heading"><span class="section-number">2</span><div><h2>Mais dados bibliográficos</h2><p>Complete os dados disponíveis antes de montar a referência.</p></div></div>
+          <div class="form-grid two-col">
+            <label>DOI <input name="doi" type="url" value="{{ form_values.get('doi', '') }}" placeholder="https://doi.org/…"></label>
+            <label>URL <input name="url" type="url" value="{{ form_values.get('url', '') }}" placeholder="https://…"></label>
+            <label>Periódico <input name="journal" value="{{ form_values.get('journal', '') }}"></label>
+            <label>Instituição <input name="institution" value="{{ form_values.get('institution', '') }}"></label>
+            <label>Páginas <input name="pages" value="{{ form_values.get('pages', '') }}" placeholder="12–28"></label>
+          </div>
+        </section>
+
+        <section class="panel form-section" data-types="SRC">
+          <div class="section-heading"><span class="section-number">3</span><div><h2>Referência</h2><p>Monte a ABNT a partir dos campos, revise e só então crie a nota.</p></div></div>
           <div class="biblio-actions">
             <button type="button" class="button" id="biblio-format">Montar referência ABNT</button>
             <button type="button" class="button" id="biblio-enrich"{% if not biblio_llm_ready %} disabled data-locked="1"{% endif %}>Completar com LLM</button>
@@ -110,14 +121,6 @@
           <p class="biblio-status muted" id="biblio-status" hidden></p>
           <label>Referência ABNT <textarea name="abnt_reference" rows="3" placeholder="Cole, componha ou monte a partir dos campos acima">{{ form_values.get('abnt_reference', '') }}</textarea></label>
           <label>Citação ou trecho para o LLM <textarea name="biblio_sample" rows="4" placeholder="Cole uma citação pronta ou um trecho da capa. Não é gravado na nota.">{{ form_values.get('biblio_sample', '') }}</textarea><small>Só usado por “Completar com LLM”: informe DOI, URL ou este trecho. A referência ABNT é montada no mesmo padrão do harvest — você revisa antes de criar a nota.</small></label>
-          <details class="advanced-details" id="biblio-details"><summary>Mais dados bibliográficos</summary>
-            <div class="form-grid two-col details-grid">
-
-              <label>DOI <input name="doi" type="url" value="{{ form_values.get('doi', '') }}" placeholder="https://doi.org/…"></label><label>URL <input name="url" type="url" value="{{ form_values.get('url', '') }}" placeholder="https://…"></label>
-              <label>Periódico <input name="journal" value="{{ form_values.get('journal', '') }}"></label><label>Instituição <input name="institution" value="{{ form_values.get('institution', '') }}"></label>
-              <label>Páginas <input name="pages" value="{{ form_values.get('pages', '') }}" placeholder="12–28"></label>
-            </div>
-          </details>
         </section>
 
         <section class="panel form-section" data-types="LIT_INDEX LIT_GRANULAR">
@@ -293,7 +296,6 @@
   update();
 
   const biblioStatus = document.getElementById('biblio-status');
-  const biblioDetails = document.getElementById('biblio-details');
   const ADVANCED = ['publisher', 'place', 'doi', 'url', 'journal', 'edition', 'institution', 'pages'];
   function setBiblioStatus(text, kind) {
     if (!biblioStatus) return;
@@ -316,7 +318,6 @@
       const year = form.querySelector('[name="year"]');
       if (year) year.value = payload.year;
     }
-    if (biblioDetails && ADVANCED.some(name => payload[name])) biblioDetails.open = true;
   }
   async function previewBiblio(enrich) {
     if (mode() !== 'SRC') return;

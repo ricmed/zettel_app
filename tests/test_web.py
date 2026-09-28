@@ -348,6 +348,35 @@ def test_manual_source_document_type_is_a_dropdown_of_abnt_types(web_client):
         assert label in response.text
 
 
+def test_manual_source_lists_bibliography_options_before_reference(web_client):
+    client, _ = web_client
+    _login(client)
+    response = client.get("/notes/new")
+    assert response.status_code == 200
+    page = response.text
+    assert page.index("<h2>O essencial</h2>") < page.index("<h2>Mais dados bibliográficos</h2>")
+    assert page.index("<h2>Mais dados bibliográficos</h2>") < page.index("<h2>Referência</h2>")
+    for field in (
+        "title",
+        "citekey",
+        "authors",
+        "year",
+        "publisher",
+        "edition",
+        "place",
+        "document_type",
+        "doi",
+        "url",
+        "journal",
+        "institution",
+        "pages",
+        "abnt_reference",
+        "biblio_sample",
+    ):
+        assert len(re.findall(rf'<(?:input|textarea|select)\b[^>]*\bname="{field}"', page)) == 1
+    assert "<details" not in page
+
+
 def test_manual_source_scaffold_can_be_created_without_overwrite(web_client):
     client, tmp_path = web_client
     csrf = _login(client)
