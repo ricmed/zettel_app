@@ -1,6 +1,99 @@
-{% extends "base.html" %}{% block title %}Documentos · Zettelkasten{% endblock %}
-{% block content %}<div class="page-heading"><div><div class="eyebrow">entrada</div><h1>Documentos</h1><p class="muted">Valide e prepare arquivos antes do harvest.</p></div></div>
-<div class="grid-2"><section class="panel"><h2>Enviar ao inbox</h2><form class="stack" method="post" action="/documents/upload" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="file" name="file" accept=".pdf,.md,.markdown,.txt" required><small>PDF, Markdown ou TXT · até 25 MB · nomes simples, sem sobrescrever arquivos.</small><button class="primary">Enviar arquivo</button></form></section>
-<section class="panel"><h2>Arquivos pendentes</h2>{% if inbox %}<form method="post" action="/documents/harvest"><input type="hidden" name="csrf" value="{{ csrf }}"><label>Documento<select name="selected_file">{% for file in inbox %}<option value="{{ file.relative }}">{{ file.name }} · {{ (file.size/1024)|round(1) }} KB</option>{% endfor %}</select></label><div class="form-grid"><label>Duplicata<select name="duplicate_action"><option value="skip">Pular (seguro)</option><option value="continue">Continuar</option><option value="abort">Abortar lote</option></select></label><label>Página inicial no arquivo<input type="number" min="1" name="content_start_file" placeholder="1"></label><label>Página impressa correspondente<input type="number" min="1" name="content_start_book" placeholder="1"></label><label><input type="checkbox" name="skip_biblio"> Permitir bibliografia incompleta</label><label><input type="checkbox" name="skip_paging"> Começar pela página 1</label><label><input type="checkbox" name="dump_chunks"> Salvar diagnóstico dos chunks</label><label><input type="checkbox" name="dump_extraction"> Salvar Markdown extraído</label></div><small>Os dumps são gravados em diretórios seguros dentro do cache da aplicação.</small><button class="primary">Iniciar harvest</button></form>{% else %}<div class="empty">Não há documentos pendentes no inbox.</div>{% endif %}</section></div>
+{% extends "base.html" %}
+{% block title %}Documentos · Zettelkasten{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/documents.css">{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><div class="eyebrow">entrada</div><h1>Documentos</h1><p class="muted">Valide e prepare arquivos antes do harvest.</p></div>
+</div>
+<div class="grid-2 document-intake">
+  <section class="panel">
+    <h2>Enviar ao inbox</h2>
+    <form class="stack" method="post" action="/documents/upload" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label for="document-upload">Arquivo</label>
+      <input id="document-upload" type="file" name="file" accept=".pdf,.md,.markdown,.txt" required>
+      <small>PDF, Markdown ou TXT · até 25 MB · nomes simples, sem sobrescrever arquivos.</small>
+      <button class="primary" type="submit">Enviar arquivo</button>
+    </form>
+  </section>
+  <section class="panel">
+    <h2>Arquivos pendentes <span class="document-count">{{ inbox | length }}</span></h2>
+    {% if inbox %}
+      <p class="muted">Selecione um arquivo abaixo para definir como será processado.</p>
+      <ul class="document-pending">
+        {% for file in inbox %}<li><span>{{ file.relative }}</span><small>{{ (file.size/1024)|round(1) }} KB</small></li>{% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty">Não há documentos pendentes no inbox. Envie um arquivo acima para iniciar.</div>
+    {% endif %}
+  </section>
+</div>
+
+<section class="panel document-processor" aria-labelledby="document-process-title">
+  <div class="eyebrow">por arquivo</div>
+  <h2 id="document-process-title">Configurar processamento</h2>
+  <p class="muted">Estas opções valem apenas para o documento escolhido. O pipeline completo usa suas próprias configurações.</p>
+  <form method="post" action="/documents/harvest" id="document-harvest-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label for="selected-document" class="document-file-label">Documento a processar
+      <select id="selected-document" name="selected_file" required{% if not inbox %} disabled{% endif %}>
+        <option value="">Selecione um arquivo pendente</option>
+        {% for file in inbox %}
+          <option value="{{ file.relative }}" data-name="{{ file.relative }}" data-pdf="{{ '1' if file.relative.lower().endswith('.pdf') else '0' }}">{{ file.relative }} · {{ (file.size/1024)|round(1) }} KB</option>
+        {% endfor %}
+      </select>
+    </label>
+    <fieldset id="document-settings" class="document-settings"{% if not inbox %} disabled{% endif %}>
+      <div class="document-options">
+        <div class="document-option-block">
+          <label for="duplicate-action">Se for duplicata
+            <select id="duplicate-action" name="duplicate_action">
+              <option value="skip">Pular (recomendado)</option>
+              <option value="continue">Continuar apesar da suspeita</option>
+              <option value="abort">Abortar o processamento</option>
+            </select>
+          </label>
+          <small>A decisão de continuar vale para suspeitas de duplicidade; arquivos idênticos já ingeridos não são recriados.</small>
+          <label class="document-check"><input type="checkbox" name="skip_biblio" value="1"> Permitir bibliografia incompleta</label>
+          <small>Use apenas se quiser processar sem referência bibliográfica completa.</small>
+        </div>
+        <fieldset class="document-option-block document-paging" id="document-paging">
+          <legend>Paginação do PDF</legend>
+          <label for="paging-mode">Como localizar o início do conteúdo
+            <select id="paging-mode" name="paging_mode">
+              <option value="auto">Detectar automaticamente (padrão)</option>
+              <option value="manual">Informar as páginas manualmente</option>
+              <option value="first">Começar pela página 1</option>
+            </select>
+          </label>
+          <small id="paging-hint">Disponível somente para PDF. Sem detecção confiável, o padrão usa a página 1.</small>
+          <fieldset class="document-page-inputs" id="document-page-inputs" disabled>
+            <legend class="sr-only">Início manual</legend>
+            <label for="content-start-file">Página do arquivo onde o conteúdo começa
+              <input id="content-start-file" type="number" min="1" step="1" name="content_start_file" placeholder="Ex.: 8">
+            </label>
+            <label for="content-start-book">Número impresso nessa página
+              <input id="content-start-book" type="number" min="1" step="1" name="content_start_book" value="1">
+            </label>
+            <small>Páginas anteriores ao início informado não entram nos chunks.</small>
+          </fieldset>
+        </fieldset>
+      </div>
+      <fieldset class="document-diagnostics">
+        <legend>Arquivos de diagnóstico</legend>
+        <label class="document-check"><input type="checkbox" name="dump_chunks" value="1"> Salvar diagnóstico dos chunks</label>
+        <label class="document-check"><input type="checkbox" name="dump_extraction" value="1"> Salvar Markdown extraído</label>
+        <small>Os arquivos são salvos em diretórios seguros dentro do cache da aplicação.</small>
+      </fieldset>
+    </fieldset>
+    <div class="document-submit">
+      <p id="document-summary" aria-live="polite">{% if inbox %}Selecione um arquivo para revisar as opções.{% else %}Envie um arquivo primeiro; as opções ficam disponíveis quando houver um documento pendente.{% endif %}</p>
+      <button id="document-start" class="primary" type="submit" disabled>Iniciar harvest deste arquivo</button>
+    </div>
+  </form>
+</section>
+
 <section class="panel pipeline-launch"><div><div class="eyebrow">automação</div><h2>Executar pipeline completo</h2><p class="muted">Executa harvest, extract, review, connect e garden em sequência, com duplicatas configuradas para serem ignoradas com segurança.</p>{% if not llm_ready %}<small>Configure a credencial do provedor LLM antes de iniciar.</small>{% endif %}</div><form method="post" action="/documents/run-all" onsubmit="return confirm('Executar o pipeline completo agora? A revisão automática aprovará apenas drafts dentro do limiar configurado.');"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="primary" {% if not llm_ready %}disabled title="Configure o provedor LLM primeiro"{% endif %}>Executar pipeline completo</button></form></section>
-<section class="panel"><h2>Fontes processadas</h2>{% if sources %}<div class="table-wrap"><table><thead><tr><th>Citekey</th><th>Título</th><th>Tipo</th><th>Status</th><th>Chunks</th></tr></thead><tbody>{% for source in sources %}<tr><td><a href="/sources/{{ source.source_id }}"><code>{{ source.citekey }}</code></a></td><td>{{ source.title or 'Sem título' }}</td><td>{{ source.document_type or 'incompleto' }}</td><td>{{ source.processing_status }}</td><td>{{ source.total_chunks or '—' }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty">Nenhuma fonte colhida.</div>{% endif %}</section>{% endblock %}
+<section class="panel"><h2>Fontes processadas</h2>{% if sources %}<div class="table-wrap"><table><thead><tr><th>Citekey</th><th>Título</th><th>Tipo</th><th>Status</th><th>Chunks</th></tr></thead><tbody>{% for source in sources %}<tr><td><a href="/sources/{{ source.source_id }}"><code>{{ source.citekey }}</code></a></td><td>{{ source.title or 'Sem título' }}</td><td>{{ source.document_type or 'incompleto' }}</td><td>{{ source.processing_status }}</td><td>{{ source.total_chunks or '—' }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty">Nenhuma fonte colhida.</div>{% endif %}</section>
+{% endblock %}
+{% block scripts %}<script src="/static/documents.js" defer></script>{% endblock %}

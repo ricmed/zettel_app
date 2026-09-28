@@ -244,6 +244,9 @@ class WebWorker:
             )
             return {"path": str(path), "used_llm": used_llm}
 
+        if operation == "harvest" and not payload.get("selected_file"):
+            raise UserFacingError("Selecione um documento pendente antes de processar.")
+
         from zettel.index import VectorIndex, index_kwargs
 
         idx = VectorIndex(**index_kwargs(cfg))
@@ -301,13 +304,12 @@ class WebWorker:
         if operation == "harvest":
             from zettel.harvester import run_harvest
 
-            selected = payload.get("selected_file")
-            file_path = Path(selected).resolve() if selected else None
+            file_path = Path(payload["selected_file"]).resolve()
             progress.emit(
                 ProgressEvent(
                     "harvest",
                     "Processando documento.",
-                    current_item=file_path.name if file_path else None,
+                    current_item=file_path.name,
                 )
             )
             harvest = run_harvest(
@@ -331,7 +333,7 @@ class WebWorker:
             if harvest.skipped:
                 raise UserFacingError(harvest.skipped[0].message)
             if not sources:
-                existing = db.get_file(str(file_path)) if file_path else None
+                existing = db.get_file(str(file_path))
                 if existing and existing.get("source_id"):
                     return {
                         "sources": [existing["source_id"]],

@@ -113,6 +113,215 @@ def test_upload_rejects_traversal_and_collisions(web_client):
     assert collision.status_code == 409
 
 
+def test_documents_empty_state_displays_options_without_queueing(web_client, monkeypatch):
+    client, _ = web_client
+    csrf = _login(client)
+    page = client.get("/documents")
+    assert page.status_code == 200
+    for text in (
+        "Configurar processamento",
+        "Permitir bibliografia incompleta",
+        "Paginação do PDF",
+        "Salvar diagnóstico dos chunks",
+        "Salvar Markdown extraído",
+        "Envie um arquivo primeiro",
+    ):
+        assert text in page.text
+    assert 'id="selected-document" name="selected_file" required disabled' in page.text
+    assert 'id="document-start" class="primary" type="submit" disabled' in page.text
+    assert all(f'<option value="{mode}">' in page.text for mode in ("auto", "manual", "first"))
+    monkeypatch.setattr(
+        client.app.state.service,
+        "submit",
+        lambda *args: pytest.fail("Não deve enfileirar sem documento selecionado"),
+    )
+    response = client.post("/documents/harvest", data={"csrf": csrf, "duplicate_action": "skip"})
+    assert response.status_code == 400
+    assert "Selecione um documento" in response.text
+
+
+def test_queued_harvest_without_a_file_cannot_scan_the_inbox():
+    from zettel.web_app import UserFacingError, WebWorker
+
+    class Progress:
+        def emit(self, event):
+            pass
+
+    with pytest.raises(UserFacingError, match="Selecione um documento"):
+        WebWorker._dispatch(None, None, Progress(), "harvest", {})
+
+
+def test_document_options_queue_only_selected_file(web_client, monkeypatch):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    pdf = inbox / "livro.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    other = inbox / "outro.md"
+    other.write_text("# Outro", encoding="utf-8")
+    page = client.get("/documents")
+    assert 'value="livro.pdf"' in page.text and 'value="outro.md"' in page.text
+    assert 'data-pdf="1"' in page.text and 'data-pdf="0"' in page.text
+    assert 'id="document-page-inputs" disabled' in page.text
+    assert 'id="document-start" class="primary" type="submit" disabled' in page.text
+
+    captured = []
+    monkeypatch.setattr(
+        client.app.state.service,
+        "submit",
+        lambda operation, payload: (captured.append((operation, payload)) or "selected-job"),
+    )
+    manual = client.post(
+        "/documents/harvest",
+        data={
+            "csrf": csrf,
+            "selected_file": "livro.pdf",
+            "duplicate_action": "continue",
+            "skip_biblio": "1",
+            "paging_mode": "manual",
+            "content_start_file": "8",
+            "content_start_book": "13",
+            "dump_chunks": "1",
+            "dump_extraction": "1",
+        },
+        follow_redirects=False,
+    )
+    assert manual.status_code == 303
+    assert captured[-1] == (
+        "harvest",
+        {
+            "selected_file": str(pdf.resolve()),
+            "duplicate_action": "continue",
+            "skip_biblio": True,
+            "skip_paging": False,
+            "content_start_file": 8,
+            "content_start_book": 13,
+            "dump_dir": str(tmp_path / "cache" / "chunk-dumps"),
+            "extraction_dump_dir": str(tmp_path / "cache" / "extraction-dumps"),
+        },
+    )
+    first = client.post(
+        "/documents/harvest",
+        data={
+            "csrf": csrf,
+            "selected_file": "livro.pdf",
+            "duplicate_action": "abort",
+            "paging_mode": "first",
+        },
+        follow_redirects=False,
+    )
+    assert first.status_code == 303
+    assert captured[-1][1]["skip_paging"] is True
+    assert captured[-1][1]["content_start_file"] is None
+    assert captured[-1][1]["content_start_book"] is None
+    assert captured[-1][1]["duplicate_action"] == "abort"
+    default = client.post(
+        "/documents/harvest",
+        data={"csrf": csrf, "selected_file": "outro.md"},
+        follow_redirects=False,
+    )
+    assert default.status_code == 303
+    assert captured[-1][1]["selected_file"] == str(other.resolve())
+    assert captured[-1][1]["duplicate_action"] == "skip"
+    assert captured[-1][1]["skip_paging"] is False
+
+
+def test_document_options_reject_conflicts_and_invalid_selection(web_client, monkeypatch):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    (inbox / "p.pdf").write_bytes(b"%PDF")
+    (inbox / "m.txt").write_text("Texto", encoding="utf-8")
+    monkeypatch.setattr(
+        client.app.state.service,
+        "submit",
+        lambda *args: pytest.fail("Opções inválidas não devem enfileirar"),
+    )
+    cases = [
+        ({"selected_file": ""}, 400),
+        ({"selected_file": "missing.pdf"}, 404),
+        ({"selected_file": "../m.txt"}, 400),
+        ({"selected_file": "m.txt", "paging_mode": "first"}, 400),
+        (
+            {
+                "selected_file": "m.txt",
+                "paging_mode": "manual",
+                "content_start_file": "2",
+                "content_start_book": "1",
+            },
+            400,
+        ),
+        ({"selected_file": "p.pdf", "duplicate_action": "invalid"}, 400),
+        ({"selected_file": "p.pdf", "paging_mode": "invalid"}, 400),
+        ({"selected_file": "p.pdf", "skip_biblio": "false"}, 400),
+        ({"selected_file": "p.pdf", "paging_mode": "manual"}, 400),
+        (
+            {
+                "selected_file": "p.pdf",
+                "paging_mode": "manual",
+                "content_start_file": "0",
+                "content_start_book": "1",
+            },
+            400,
+        ),
+        (
+            {
+                "selected_file": "p.pdf",
+                "paging_mode": "manual",
+                "content_start_file": "2",
+                "content_start_book": "-1",
+            },
+            400,
+        ),
+        (
+            {
+                "selected_file": "p.pdf",
+                "paging_mode": "manual",
+                "skip_paging": "on",
+                "content_start_file": "2",
+                "content_start_book": "1",
+            },
+            400,
+        ),
+        ({"selected_file": "p.pdf", "paging_mode": "first", "content_start_file": "2"}, 400),
+        ({"selected_file": "p.pdf", "paging_mode": "auto", "content_start_book": "1"}, 400),
+    ]
+    for data, expected in cases:
+        response = client.post("/documents/harvest", data={"csrf": csrf, **data})
+        assert response.status_code == expected, data
+
+
+def test_upload_keeps_pending_list_on_errors_and_rejects_invalid_files(web_client):
+    client, tmp_path = web_client
+    csrf = _login(client)
+    for name, content in (("text.txt", b"text"), ("scan.pdf", b"%PDF")):
+        response = client.post(
+            "/documents/upload",
+            data={"csrf": csrf},
+            files={"file": (name, content, "application/octet-stream")},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+    for name, content, expected in (
+        ("bad.exe", b"unsafe", 400),
+        ("empty.md", b"", 400),
+        ("huge.pdf", b"X" * (25 * 1024 * 1024 + 1), 413),
+        ("text.txt", b"overwrite", 409),
+    ):
+        response = client.post(
+            "/documents/upload",
+            data={"csrf": csrf},
+            files={"file": (name, content, "application/octet-stream")},
+        )
+        assert response.status_code == expected
+        assert 'value="text.txt"' in response.text
+        assert 'value="scan.pdf"' in response.text
+        assert "Configurar processamento" in response.text
+    assert (tmp_path / "inbox" / "text.txt").read_bytes() == b"text"
+
+
 def test_navigation_and_retry_job_flow(web_client):
     client, _ = web_client
     csrf = _login(client)
