@@ -69,6 +69,7 @@ def run_harvest(
     extraction_dump_dir: Path | None = None,
     selected_file: Path | None = None,
     observer=None,
+    prepared: dict[str, Any] | None = None,
 ) -> HarvestOutcome:
     """Scan inbox, extract text, create SRC + LIT index, chunk.
 
@@ -107,6 +108,10 @@ def run_harvest(
             except ValueError as exc:
                 raise ValueError("O arquivo selecionado deve estar dentro do inbox") from exc
             files = [selected_file] if selected_file.is_file() else []
+            if prepared is not None and len(files) != 1:
+                raise ValueError("O arquivo preparado não está mais disponível.")
+        elif prepared is not None:
+            raise ValueError("Uma preparação só pode ser usada com um arquivo selecionado.")
         else:
             files = [
                 f
@@ -148,6 +153,7 @@ def run_harvest(
                         content_start_book=content_start_book,
                         skip_paging=skip_paging,
                         extraction_dump_dir=extraction_dump_dir,
+                        prepared=prepared,
                     )
                 except extract.PdfExtractionError as e:
                     reason = (
@@ -278,16 +284,42 @@ def _process_file(
     content_start_book: int | None = None,
     skip_paging: bool = False,
     extraction_dump_dir: Path | None = None,
+    prepared: dict[str, Any] | None = None,
 ) -> tuple[str | None, dict[str, int]]:
     """Process a single file: extract, chunk, persist. Returns (source_id, stats) or (None, {})."""
     empty_stats: dict[str, int] = {}
     checksum = file_sha256(file_path)
+    if prepared is not None and checksum != prepared["checksum"]:
+        raise ValueError("O arquivo mudou após a revisão bibliográfica. Prepare-o novamente.")
+    if prepared is not None and prepared.get("config_hash") != compute_docling_config_hash(cfg):
+        raise ValueError(
+            "A configuração de extração mudou após a revisão. Prepare o documento novamente."
+        )
     existing = db.get_file(str(file_path))
     config_hash = compute_docling_config_hash(cfg)
+
+    def check_reviewed_source(source_id: str) -> None:
+        """A reused source must already contain the exact confirmed bibliography."""
+        if prepared is None:
+            return
+        from zettel.bibliography import BibliographicMetadata, bibliography_dict
+
+        source = db.get_source(source_id)
+        reviewed = bibliography_dict(BibliographicMetadata.model_validate(prepared["biblio"]))
+        saved = json.loads(source["bibliography_json"] or "{}") if source else {}
+        if (
+            saved != reviewed
+            or (source.get("abnt_reference") or "") != prepared["abnt_reference"]
+        ):
+            raise ValueError(
+                "Este documento já pertence a uma fonte com bibliografia diferente. "
+                "A revisão não foi aplicada: edite a fonte existente antes de tentar novamente."
+            )
 
     if existing and existing["file_checksum"] == checksum:
         sid = existing.get("source_id")
         if sid:
+            check_reviewed_source(sid)
             src = db.get_source(sid)
             if src and src.get("docling_config_hash") and src["docling_config_hash"] != config_hash:
                 logger.warning(
@@ -305,6 +337,7 @@ def _process_file(
 
     renamed_from = db.get_file_by_checksum(checksum, exclude_path=str(file_path))
     if renamed_from and renamed_from.get("source_id"):
+        check_reviewed_source(renamed_from["source_id"])
         logger.info(
             "Arquivo '%s' e uma copia identica de '%s' (mesmo hash de arquivo). "
             "Associando ao mesmo source_id (%s) em vez de reprocessar.",
@@ -322,7 +355,10 @@ def _process_file(
     ext = file_path.suffix.lower()
     origin_type = "pdf" if ext == ".pdf" else "md"
 
-    text, metadata = extract.extract_text(cfg, file_path, origin_type)
+    if prepared is not None:
+        text, metadata = prepared["text"], prepared["metadata"]
+    else:
+        text, metadata = extract.extract_text(cfg, file_path, origin_type)
     if not text.strip():
         logger.warning("Nenhum texto extraido de: %s", file_path.name)
         return None, empty_stats
@@ -331,6 +367,7 @@ def _process_file(
 
     cross_format_source = db.get_source_by_extraction_checksum(extraction_checksum)
     if cross_format_source:
+        check_reviewed_source(cross_format_source["source_id"])
         sid = cross_format_source["source_id"]
         logger.info(
             "Conteudo de '%s' e identico (apos normalizacao) a fonte existente %s "
@@ -354,14 +391,19 @@ def _process_file(
         primary_title,
     )
 
-    biblio = build_bibliographic_metadata(cfg, db, metadata, text, file_path.name)
-    biblio = resolve_bibliography(
-        file_path,
-        biblio,
-        interactive,
-        skip_biblio,
-        cfg,
-    )
+    if prepared is not None:
+        from zettel.bibliography import BibliographicMetadata
+
+        biblio = BibliographicMetadata.model_validate(prepared["biblio"])
+    else:
+        biblio = build_bibliographic_metadata(cfg, db, metadata, text, file_path.name)
+        biblio = resolve_bibliography(
+            file_path,
+            biblio,
+            interactive,
+            skip_biblio,
+            cfg,
+        )
     if biblio is None:
         logger.warning(
             "Arquivo '%s' pulado: metadados bibliograficos incompletos "
@@ -373,7 +415,11 @@ def _process_file(
     title = primary_title(biblio, fallback=metadata.get("title", file_path.stem))
     authors = primary_authors(biblio) or list(metadata.get("authors") or [])
     year = biblio.year if biblio.year is not None else metadata.get("year")
-    abnt_reference = format_abnt(biblio) if biblio.document_type else ""
+    abnt_reference = (
+        prepared["abnt_reference"]
+        if prepared is not None
+        else format_abnt(biblio) if biblio.document_type else ""
+    )
     biblio_json = json.dumps(bibliography_dict(biblio), ensure_ascii=False)
     biblio_fm = frontmatter_biblio_fields(biblio)
 
@@ -386,6 +432,7 @@ def _process_file(
     exact = biblio_dedupe.find_exact_bibliographic_match(db, doi=doi, isbn=isbn)
     if exact:
         existing, key_kind = exact
+        check_reviewed_source(existing["source_id"])
         sid = existing["source_id"]
         logger.info(
             "Arquivo '%s' tem o mesmo %s da fonte %s (%s). Reaproveitando fonte, "
@@ -493,6 +540,12 @@ def _process_file(
         paging.confidence,
     )
 
+    if prepared is not None and file_sha256(file_path) != checksum:
+        raise ValueError("O arquivo mudou após a revisão bibliográfica. Prepare-o novamente.")
+    if prepared is not None and prepared.get("review_id"):
+        from zettel.harvester.prepared import promote_staged_assets
+
+        promote_staged_assets(cfg, prepared["review_id"])
     db.upsert_file(str(file_path), checksum, origin_type, source_id)
     db.upsert_source(
         source_id=source_id,

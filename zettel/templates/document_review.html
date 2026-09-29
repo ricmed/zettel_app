@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Revisar bibliografia · Zettelkasten{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/documents.css">{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><div class="eyebrow">antes do harvest</div><h1>Revisar bibliografia</h1>
+    <p class="muted">Confira os dados inferidos de <strong>{{ filename }}</strong> antes de gravar a fonte.</p></div>
+</div>
+{% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
+<form method="post" action="/documents/review/{{ review_id }}" id="document-review-form" class="review-form">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <section class="panel">
+    <div class="review-intro">
+      <div><div class="eyebrow">01 · conferir</div><h2>Dados da obra</h2>
+        <p class="muted">Confiança da inferência: {{ (confidence * 100)|round|int }}%. Você decide quais informações serão usadas.</p></div>
+      <a href="/documents">Voltar aos documentos</a>
+    </div>
+    <label for="review-type">Tipo de documento
+      <select id="review-type" name="document_type">
+        <option value="">Não identificado</option>
+        {% for kind, label in document_types.items() %}
+        <option value="{{ kind }}"{% if kind == selected_type %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="review-grid">
+      {% for name in ['title', 'authors', 'year'] %}
+      <label data-review-field="{{ name }}" data-required-types="{{ required_by_field[name]|join(' ') }}">
+        {{ field_labels.get(name, name) }} <span class="required-mark" hidden>· obrigatório</span>
+        {% if name == 'authors' %}<textarea name="{{ name }}" rows="3" placeholder="Um autor por linha">{{ fields[name] }}</textarea>
+        {% else %}<input name="{{ name }}" value="{{ fields[name] }}" {% if name == 'year' %}type="number" min="1000" max="2100"{% endif %}>{% endif %}
+      </label>
+      {% endfor %}
+    </div>
+    <details id="review-more" class="review-more">
+      <summary>Mais campos bibliográficos <span>— obrigatórios e opcionais por tipo</span></summary>
+      <div class="review-grid">
+        {% for name, value in fields.items() if name not in ['title', 'authors', 'year'] %}
+        <label data-review-field="{{ name }}" data-required-types="{{ required_by_field[name]|join(' ') }}">
+          {{ field_labels.get(name, name) }} <span class="required-mark" hidden>· obrigatório</span>
+          {% if name in ['chapter_authors', 'book_editors'] %}
+          <textarea name="{{ name }}" rows="2" placeholder="Um nome por linha">{{ value }}</textarea>
+          {% else %}<input name="{{ name }}" value="{{ value }}">{% endif %}
+        </label>
+        {% endfor %}
+      </div>
+    </details>
+  </section>
+  <section class="panel">
+    <div class="eyebrow">02 · conferir referência</div><h2>Referência ABNT</h2>
+    {% if retry %}<p class="muted">O harvest anterior falhou ou foi interrompido. Seus dados confirmados foram recuperados; confira-os antes de tentar novamente.</p>{% endif %}
+    <p class="muted">Atualize a referência após editar os campos, ou ajuste diretamente o texto final.</p>
+    <button type="button" class="button" id="review-format">Montar referência dos campos</button>
+    <p class="review-status muted" id="review-status" aria-live="polite">
+      {% if initial_missing %}Campos inferidos faltantes: {{ initial_missing|join(', ') }}.{% else %}Revise a referência antes de confirmar.{% endif %}
+    </p>
+    <label for="review-reference">Referência que será gravada
+      <textarea id="review-reference" name="abnt_reference" rows="4">{{ abnt_reference }}</textarea>
+    </label>
+    {% if allow_incomplete %}
+    <label class="document-check"><input name="incomplete_ack" type="checkbox" value="1" id="incomplete-ack"> Confirmo que quero processar mesmo se faltarem dados bibliográficos obrigatórios.</label>
+    {% else %}
+    <p class="muted">Se algum campo obrigatório continuar vazio, volte aos documentos e marque “Permitir bibliografia incompleta” para prosseguir assim.</p>
+    {% endif %}
+  </section>
+  <div class="review-actions">
+    <button type="submit" name="decision" value="cancel" class="button" formnovalidate>Cancelar revisão</button>
+    <button type="submit" name="decision" value="confirm" class="primary">{{ 'Confirmar e tentar novamente' if retry else 'Confirmar e iniciar harvest' }}</button>
+  </div>
+</form>
+{% endblock %}
+{% block scripts %}<script src="/static/document-review.js" defer></script>{% endblock %}

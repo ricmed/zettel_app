@@ -423,6 +423,15 @@ CREATE TABLE IF NOT EXISTS web_job_events (
     created_at      TEXT NOT NULL,
     FOREIGN KEY (job_id) REFERENCES web_jobs(job_id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS web_harvest_reviews (
+    job_id           TEXT PRIMARY KEY,
+    session_hash     TEXT NOT NULL,
+    file_checksum    TEXT NOT NULL,
+    state            TEXT NOT NULL DEFAULT 'ready',
+    harvest_job_id   TEXT,
+    FOREIGN KEY (job_id) REFERENCES web_jobs(job_id)
+);
 """
 
 # Indexes are created after schema migration, since some reference columns added by
@@ -2509,6 +2518,12 @@ class StateDB:
 
         Queued work remains queued and is picked up by the new worker.
         """
+        resumed = self.conn.execute(
+            "UPDATE web_jobs SET state='queued', phase='queued', started_at=NULL, "
+            "message='Retomando harvest confirmado após reinicialização' "
+            "WHERE state='running' AND operation='harvest' "
+            "AND json_extract(payload_json, '$.review_id') IS NOT NULL"
+        ).rowcount
         cur = self.conn.execute(
             "UPDATE web_jobs SET state='interrupted', phase='interrupted', "
             "message='Interrompido pela reinicializacao da aplicacao', finished_at=? "
@@ -2516,7 +2531,7 @@ class StateDB:
             (self._now(),),
         )
         self.conn.commit()
-        return cur.rowcount
+        return cur.rowcount + resumed
 
     def create_web_job(self, job_id: str, operation: str, payload: dict) -> bool:
         """Atomically enqueue a job, allowing one mutating operation at a time."""
@@ -2534,6 +2549,86 @@ class StateDB:
                 "(job_id, operation, payload_json, state, phase, created_at) "
                 "VALUES (?, ?, ?, 'queued', 'queued', ?)",
                 (job_id, operation, json.dumps(payload), now),
+            )
+            self.conn.commit()
+            return True
+        except Exception:
+            self.conn.rollback()
+            raise
+
+    def create_web_harvest_review(
+        self, job_id: str, session_hash: str, checksum: str
+    ) -> None:
+        self.conn.execute(
+            "INSERT INTO web_harvest_reviews (job_id, session_hash, file_checksum) "
+            "VALUES (?, ?, ?)",
+            (job_id, session_hash, checksum),
+        )
+        self.conn.commit()
+
+    def get_web_harvest_review(self, job_id: str, session_hash: str) -> dict | None:
+        return self._fetchone(
+            "SELECT * FROM web_harvest_reviews WHERE job_id=? AND session_hash=?",
+            (job_id, session_hash),
+        )
+
+    def cancel_web_harvest_review(self, job_id: str, session_hash: str) -> bool:
+        cur = self.conn.execute(
+            "UPDATE web_harvest_reviews SET state='cancelled' "
+            "WHERE job_id=? AND session_hash=? AND (state='ready' OR "
+            "(state='submitted' AND EXISTS (SELECT 1 FROM web_jobs "
+            "WHERE job_id=web_harvest_reviews.harvest_job_id "
+            "AND state IN ('failed','interrupted'))))",
+            (job_id, session_hash),
+        )
+        self.conn.commit()
+        return cur.rowcount == 1
+
+    def discard_unavailable_web_harvest_reviews(self) -> list[str]:
+        """Discard snapshots whose preparation never completed successfully."""
+        rows = self.conn.execute(
+            "SELECT r.job_id FROM web_harvest_reviews r "
+            "JOIN web_jobs j ON j.job_id=r.job_id "
+            "WHERE r.state='ready' AND j.state IN ('failed','interrupted')"
+        ).fetchall()
+        ids = [row["job_id"] for row in rows]
+        if ids:
+            self.conn.executemany(
+                "UPDATE web_harvest_reviews SET state='cancelled' WHERE job_id=?",
+                [(job_id,) for job_id in ids],
+            )
+            self.conn.commit()
+        return ids
+
+    def queue_web_harvest_review(
+        self, job_id: str, session_hash: str, harvest_job_id: str, payload: dict
+    ) -> bool:
+        """Consume a review exactly once, atomically with enqueuing its harvest."""
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+            ready = self.conn.execute(
+                "SELECT 1 FROM web_harvest_reviews r JOIN web_jobs j ON j.job_id=r.job_id "
+                "LEFT JOIN web_jobs prior ON prior.job_id=r.harvest_job_id "
+                "WHERE r.job_id=? AND r.session_hash=? AND j.state='succeeded' "
+                "AND (r.state='ready' OR (r.state='submitted' "
+                "AND prior.state IN ('failed','interrupted')))",
+                (job_id, session_hash),
+            ).fetchone()
+            busy = self.conn.execute(
+                "SELECT 1 FROM web_jobs WHERE state IN ('queued','running') LIMIT 1"
+            ).fetchone()
+            if not ready or busy:
+                self.conn.rollback()
+                return False
+            self.conn.execute(
+                "INSERT INTO web_jobs (job_id,operation,payload_json,state,phase,created_at) "
+                "VALUES (?, 'harvest', ?, 'queued', 'queued', ?)",
+                (harvest_job_id, json.dumps(payload), self._now()),
+            )
+            self.conn.execute(
+                "UPDATE web_harvest_reviews SET state='submitted', harvest_job_id=? "
+                "WHERE job_id=?",
+                (harvest_job_id, job_id),
             )
             self.conn.commit()
             return True

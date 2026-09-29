@@ -16,6 +16,8 @@ router = APIRouter()
 def continue_href(job: dict | None) -> str | None:
     if not job:
         return None
+    if job.get("operation") == "prepare_harvest" and job.get("state") == "succeeded":
+        return f"/documents/review/{job['job_id']}"
     raw = (job.get("payload") or {}).get("next") or ""
     if not raw or not raw.startswith("/") or raw.startswith("//"):
         return None
