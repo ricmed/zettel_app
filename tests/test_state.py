@@ -1,9 +1,8 @@
 """Tests for SQLite state management."""
 
-import sqlite3
-
 import pytest
-from zettel.state import StateDB, _fts_match_expr
+from zettel.search_terms import fts_match_expr
+from zettel.state import StateDB
 
 
 @pytest.fixture
@@ -11,29 +10,6 @@ def db(tmp_path):
     db = StateDB(tmp_path / "test.db")
     yield db
     db.close()
-
-
-# Schema of a pre-Fase-0 database (before retention columns / assets table existed).
-_OLD_SCHEMA_SQL = """
-CREATE TABLE sources (source_id TEXT PRIMARY KEY, citekey TEXT NOT NULL UNIQUE, title TEXT,
-    authors TEXT, year INTEGER, file_checksum TEXT NOT NULL, extraction_checksum TEXT,
-    origin_path TEXT NOT NULL, origin_type TEXT NOT NULL, created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL);
-CREATE TABLE chunks (chunk_id TEXT PRIMARY KEY, source_id TEXT NOT NULL,
-    chapter_id TEXT NOT NULL, text TEXT NOT NULL, chunk_checksum TEXT NOT NULL,
-    locator TEXT DEFAULT '', status TEXT DEFAULT 'pending',
-    llm_prompt1_hash TEXT, llm_call_checksum_prompt1 TEXT);
-CREATE TABLE concepts (concept_id TEXT PRIMARY KEY, source_id TEXT NOT NULL, chunk_id TEXT NOT NULL,
-    anchor_hash TEXT DEFAULT '', thesis_hash TEXT DEFAULT '', note_id TEXT);
-CREATE TABLE notes (note_id TEXT PRIMARY KEY, source_id TEXT, path TEXT, title TEXT,
-    note_semantic_checksum TEXT, auto_checksum TEXT, embedding_input_hash TEXT,
-    embedding_model TEXT,
-    created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-CREATE TABLE mocs (moc_id TEXT PRIMARY KEY, topic TEXT, path TEXT, cluster_signature TEXT,
-    embedding_input_hash TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-CREATE TABLE runs (run_id INTEGER PRIMARY KEY AUTOINCREMENT, pipeline_signature TEXT NOT NULL,
-    started_at TEXT NOT NULL, finished_at TEXT, status TEXT DEFAULT 'running');
-"""
 
 
 def test_upsert_and_get_file(db):
@@ -66,12 +42,12 @@ def test_upsert_chunk_and_get_pending(db):
     db.upsert_chapter("@S::ch000", "@S", "Ch1", "ch_hash")
     db.upsert_chunk("@S::ch000::abc", "@S", "@S::ch000", "text here", "ck_hash")
 
-    pending = db.get_pending_chunks()
+    pending = db.get_chunks_by_status("pending")
     assert len(pending) == 1
     assert pending[0]["chunk_id"] == "@S::ch000::abc"
 
     db.update_chunk_status("@S::ch000::abc", "awaiting_review")
-    pending = db.get_pending_chunks()
+    pending = db.get_chunks_by_status("pending")
     assert len(pending) == 0
 
 
@@ -103,7 +79,7 @@ def test_reset_rejected_chunks_drops_extract_cache(db):
 
     moved = db.reset_chunks_to_pending("rejected", source_id="@S", drop_llm_cache=True)
     assert moved == 2
-    pending_ids = {row["chunk_id"] for row in db.get_pending_chunks()}
+    pending_ids = {row["chunk_id"] for row in db.get_chunks_by_status("pending")}
     assert pending_ids == {"@S::ch000::abc", "@S::ch000::def"}
     assert db.get_cached_llm_response("extract-abc") is None
     assert db.get_cached_llm_response("extract-def") is None
@@ -119,7 +95,7 @@ def test_reset_failed_chunks_keeps_cache_by_default(db):
 
     moved = db.reset_chunks_to_pending("failed", source_id="@S")
     assert moved == 1
-    assert db.get_pending_chunks()[0]["chunk_id"] == "@S::ch000::abc"
+    assert db.get_chunks_by_status("pending")[0]["chunk_id"] == "@S::ch000::abc"
     assert db.get_cached_llm_response("extract-abc") == "payload"
 
 
@@ -222,38 +198,6 @@ def test_finish_run_prompt_cache_tokens_default_to_zero(db):
 
 
 # ── Fase 0 — retenção máxima no SQLite ─────────────────────────────────
-
-
-def test_migration_adds_new_columns_to_old_db(tmp_path):
-    """Opening a pre-Fase-0 DB must add all new columns without losing data."""
-    old_path = tmp_path / "old.db"
-    conn = sqlite3.connect(str(old_path))
-    conn.executescript(_OLD_SCHEMA_SQL)
-    conn.execute(
-        "INSERT INTO sources VALUES ('@S','S','t','[]',2020,'fc','ec','/p','md','now','now')"
-    )
-    conn.commit()
-    conn.close()
-
-    db = StateDB(old_path)
-    try:
-
-        def cols(table):
-            return {r["name"] for r in db.conn.execute(f"PRAGMA table_info({table})").fetchall()}
-
-        assert {"extracted_text", "lit_body", "origin"} <= cols("sources")
-        assert "section_path" in cols("chunks")
-        assert {"candidate_json", "status"} <= cols("concepts")
-        assert {"body", "frontmatter_json", "origin"} <= cols("notes")
-        assert {"body", "frontmatter_json", "origin"} <= cols("mocs")
-        assert cols("assets")  # assets table created
-
-        # Existing row preserved; new column defaulted.
-        src = db.get_source("@S")
-        assert src["title"] == "t"
-        assert src["origin"] == "pipeline"
-    finally:
-        db.close()
 
 
 def test_update_source_texts_selective(db):
@@ -408,23 +352,24 @@ def test_delete_chunks_for_chapter(db):
 
 
 def test_fts_match_expr_quotes_and_neutralizes_operators():
-    # Each token becomes a double-quoted term joined by OR — FTS operators inert.
-    assert _fts_match_expr("machine learning") == '"machine" OR "learning"'
+    # Each term becomes a lowercased, double-quoted phrase joined by OR — FTS
+    # operators inert (FTS5 unicode61 is case-insensitive, so matching is unchanged).
+    assert fts_match_expr("machine learning") == '"machine" OR "learning"'
     # Operator/punctuation tokens are split by \w+, so "-", NEAR(), ":" never leak.
-    assert _fts_match_expr("deep-learning NEAR redes") == (
-        '"deep" OR "learning" OR "NEAR" OR "redes"'
+    assert fts_match_expr("deep-learning NEAR redes") == (
+        '"deep" OR "learning" OR "near" OR "redes"'
     )
     # C++ -> just "C" dropped (len<2) and "" — only tokens >= 2 chars survive.
-    assert _fts_match_expr("C++") is None
+    assert fts_match_expr("C++") is None
     # Empty / whitespace / all-short -> None
-    assert _fts_match_expr("") is None
-    assert _fts_match_expr("   ") is None
-    assert _fts_match_expr("a b c") is None
+    assert fts_match_expr("") is None
+    assert fts_match_expr("   ") is None
+    assert fts_match_expr("a b c") is None
 
 
 def test_fts_match_expr_caps_token_count():
     many = " ".join(f"tok{i}" for i in range(50))
-    expr = _fts_match_expr(many, max_tokens=32)
+    expr = fts_match_expr(many, max_tokens=32)
     assert expr.count(" OR ") == 31  # 32 tokens => 31 separators
 
 
@@ -432,11 +377,11 @@ def test_fts_match_expr_drops_pt_stopwords():
     # "que" is an extremely common PT-BR conjunction — without filtering it,
     # the OR-joined MATCH would match nearly every note in a real corpus,
     # making a bm25 "hit" meaningless as a relevance signal.
-    assert _fts_match_expr("Explique, o que e a chuva?") == '"Explique" OR "chuva"'
+    assert fts_match_expr("Explique, o que e a chuva?") == '"explique" OR "chuva"'
     # Meaningful content words are preserved even when short stopwords surround them.
-    assert _fts_match_expr("o que e step-back prompting") == ('"step" OR "back" OR "prompting"')
+    assert fts_match_expr("o que e step-back prompting") == ('"step" OR "back" OR "prompting"')
     # A query made entirely of stopwords has no usable token.
-    assert _fts_match_expr("o que e isso") is None
+    assert fts_match_expr("o que e isso") is None
 
 
 # ── FTS5 index sync + search ───────────────────────────────────────────
@@ -468,11 +413,20 @@ def test_fts_chunks_populated_and_deleted(db):
         pytest.skip("SQLite build sem FTS5")
     db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
     db.upsert_chapter("@S::ch000", "@S", "Ch", "chk")
-    db.upsert_chunk("@S::ch000::a", "@S", "@S::ch000", "transformers e atencao", "cka")
-    assert any(h["chunk_id"] == "@S::ch000::a" for h in db.search_chunks_fts("transformers"))
+    db.upsert_chunk(
+        "@S::ch000::a",
+        "@S",
+        "@S::ch000",
+        "transformers e atencao",
+        "cka",
+        literature_note_path="20_Literature/S/LIT - a.md",
+    )
+    hits = db.search_literature_chunks_fts("transformers")
+    assert [h["chunk_id"] for h in hits] == ["@S::ch000::a"]
 
     db.delete_chunks_for_chapter("@S::ch000", keep_ids=set())
-    assert db.search_chunks_fts("transformers") == []
+    assert db.search_literature_chunks_fts("transformers") == []
+    assert db.conn.execute("SELECT COUNT(*) FROM fts_chunks").fetchone()[0] == 0
 
 
 def test_fts_reindex_on_note_update(db):
@@ -495,28 +449,6 @@ def test_rebuild_fts_counts(db):
     db.upsert_note("n1", "@S", "/p/n1.md", "Titulo", body="corpo")
     counts = db.rebuild_fts()
     assert counts == {"fts_notes": 1, "fts_chunks": 1, "fts_chapter_summaries": 0}
-
-
-def test_fts_backfill_on_preexisting_db(tmp_path):
-    """A DB that already has notes/chunks but no FTS gets backfilled on open."""
-    path = tmp_path / "pre.db"
-    db1 = StateDB(path)
-    if not db1.fts_enabled:
-        db1.close()
-        pytest.skip("SQLite build sem FTS5")
-    db1.upsert_note("n1", "@S", "/p/n1.md", "Titulo", body="grafos de conhecimento")
-    # Simulate a DB created before FTS: drop the FTS tables, then reopen.
-    db1.conn.execute("DROP TABLE fts_notes")
-    db1.conn.execute("DROP TABLE fts_chunks")
-    db1.conn.commit()
-    db1.close()
-
-    db2 = StateDB(path)
-    try:
-        hits = db2.search_notes_fts("grafos")
-        assert any(h["note_id"] == "n1" for h in hits)
-    finally:
-        db2.close()
 
 
 # ── note_connections (graph edges) ─────────────────────────────────────

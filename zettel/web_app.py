@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from zettel.config import AppConfig, load_config
+from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, load_config
 from zettel.llm import LLMUnavailableError
 from zettel.state import StateDB
 
@@ -265,7 +265,7 @@ class WebWorker:
     ) -> dict[str, Any]:
         progress.emit(ProgressEvent(operation, f"Carregando dependências para {operation}."))
         if operation == "retry_chunks":
-            failed = db.get_failed_chunks(payload.get("source_id"))
+            failed = db.get_chunks_by_status("failed", payload.get("source_id"))
             for chunk in failed:
                 db.update_chunk_status(chunk["chunk_id"], "pending")
             return {"chunks_reset": len(failed)}
@@ -492,7 +492,7 @@ class WebWorker:
         if operation == "extract":
             from zettel.extractor import run_extract
 
-            total = len(db.get_pending_chunks())
+            total = len(db.get_chunks_by_status("pending"))
             progress.emit(
                 ProgressEvent("extract", f"Extraindo {total} chunk(s).", total_items=total)
             )
@@ -612,6 +612,7 @@ class WebApplication:
             return db.get_web_dashboard(
                 low_max=LOW_CONFIDENCE_MAX,
                 limiar=self.cfg.literature_review.auto_approve_min_confidence,
+                relation_weights=DEFAULT_RELATION_WEIGHTS,
             )
         finally:
             db.close()

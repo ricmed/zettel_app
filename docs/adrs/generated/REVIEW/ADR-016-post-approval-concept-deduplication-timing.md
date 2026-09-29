@@ -67,7 +67,7 @@ If dedup fails partway through a batch (LLM error, timeout), the current code re
 * `zettel/review.py:636-671` — `_dedupe_approved_concepts()`, collects `extracted` concepts and delegates to the shared merge logic
 * `zettel/review.py:475-477` — status transition from `awaiting_review` to `extracted` on chunk approval
 * `zettel/extractor.py` — `deduplicate_candidates()`, the LLM-based merge logic shared with extraction-time dedup
-* `zettel/state.py` — `get_concepts_by_status()`, `update_concept_status()`, backing the status-driven handoff to CONNECT
+* `zettel/state/concepts.py` — `get_concepts_by_status()`, `update_concept_status()`, backing the status-driven handoff to CONNECT
 
 ## Amendment (2026-09-07)
 

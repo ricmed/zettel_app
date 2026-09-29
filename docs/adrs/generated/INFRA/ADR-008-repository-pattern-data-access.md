@@ -67,7 +67,7 @@ The pattern has proven stable: features added after the pipeline's initial desig
 
 ## References
 
-* `zettel/state.py` — StateDB class, sole gateway for SQLite operations
+* `zettel/state/` — StateDB (one mixin per domain, [ADR-054](./ADR-054-statedb-as-python-package.md)), sole gateway for SQLite operations
 * `zettel/index.py` — VectorIndex class, sole gateway for ChromaDB operations
 * `zettel/cli/deps.py` — composition root (`get_db()` / `get_idx()` factories injecting repositories into every CLI command)
 * `zettel/web_app.py` — mirrors the same injection pattern for the web application

@@ -167,11 +167,11 @@ Só sementes que **passaram do piso** alimentam a expansão — evita ampliar ru
 
 ---
 
-## FTS5 no `state.py`
+## FTS5 (`state/fts.py` + `search_terms.py`)
 
-As tabelas virtuais `fts_notes` / `fts_chunks` (`unicode61 remove_diacritics`) são mantidas em sincronia dentro de `upsert_note` / `upsert_chunk` — populadas explicitamente, não por triggers.
+As tabelas virtuais `fts_notes` / `fts_chunks` / `fts_chapter_summaries` (`unicode61 remove_diacritics`) são mantidas em sincronia dentro de `upsert_note` / `upsert_chunk` / `update_chapter_summary` — populadas explicitamente, não por triggers.
 
-`_fts_match_expr` cita cada token para neutralizar operadores do FTS5 (**nunca** interpole texto do usuário direto num MATCH) e remove os stopwords PT-BR de alta frequência (`_PT_STOPWORDS`) antes de montar a expressão OR. `rebuild_fts()` é acionado pelo `zettel reindex`.
+`search_terms.fts_match_expr` cita cada termo para neutralizar operadores do FTS5 (**nunca** interpole texto do usuário direto num MATCH) e remove os stopwords PT-BR de alta frequência (`search_terms.PT_STOPWORDS`) antes de montar a expressão OR. `rebuild_fts()` é acionado pelo `zettel reindex`.
 
 ---
 

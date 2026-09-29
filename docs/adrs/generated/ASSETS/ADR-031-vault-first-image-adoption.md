@@ -92,5 +92,5 @@ If a future round adds `attach-image` or a web upload, both should funnel into `
 * `zettel/assets.py` — `describe_pending_assets` (unchanged; still the only LLM path)
 * `zettel/manual_lit.py` — adoption call inside `adopt_manual_literature`
 * `zettel/sync.py` — `_adopt_note_images` for permanent notes
-* `zettel/state.py:180-193` — `assets` schema (`source_id` NOT NULL with FK)
+* `zettel/state/schema.py` — `assets` schema (`source_id` NOT NULL with FK)
 * `tests/test_manual_flow.py` — wiki embed, Markdown ref, remote URL, idempotency

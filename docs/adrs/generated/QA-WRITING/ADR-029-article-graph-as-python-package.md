@@ -40,7 +40,7 @@ zettel/article_graph/
 ```
 
 `runtime.py` is deliberately not named `state.py`: package modules import both this module and
-`zettel/state.py` (`StateDB`), and two things called "state" in one import block is a readability
+`zettel.state` (`StateDB`), and two things called "state" in one import block is a readability
 regression, not an improvement.
 
 ### Public API (from `__init__.py`)

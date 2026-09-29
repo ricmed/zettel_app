@@ -20,7 +20,8 @@ zettel_app/
 │   ├── pricing.py           # Estimativa de custo via mapa LiteLLM (so calculadora)
 │   ├── usage.py             # CostTracker por run/fonte (contextvars)
 │   ├── llm.py               # get_llm / call_llm (com usage + custo)
-│   ├── state.py             # SQLite — estado incremental, grafo, FTS5, cache
+│   ├── search_terms.py      # Termos de busca: stopwords PT-BR, fold, MATCH do FTS5
+│   ├── state/               # SQLite como PACOTE (ADR-054): um mixin por dominio + schema.py
 │   ├── vault.py             # I/O do vault Obsidian (frontmatter, blocos gerenciados)
 │   ├── index.py             # ChromaDB — indice vetorial (5 colecoes)
 │   ├── bibliography.py      # Metadados bibliograficos ABNT (tipos, inferencia, formatacao)
@@ -131,7 +132,7 @@ Convenções de nomes e IDs:
 | Módulo | Responsabilidade |
 |---|---|
 | [`config.py`](../zettel/config.py) | Schema Pydantic + fallback de fábrica. A fonte operacional é `config/config.yaml`; segredos ficam no `.env`. Identidade de LLM é **por fase**; knobs de amostragem são globais. Veja [configuracao.md](configuracao.md). |
-| [`state.py`](../zettel/state.py) | SQLite em modo WAL ([ADR-001](adrs/generated/INFRA/ADR-001-sqlite-wal-fts5-primary-persistence.md)). Tabelas: `files`, `sources`, `chapters`, `chunks`, `concepts`, `notes`, `mocs`, `assets`, `llm_cache`, `note_connections`, `runs`, `web_jobs`, `web_job_events` + as virtuais FTS5 `fts_notes`/`fts_chunks`. `runs` e `sources` guardam custo e tokens estimados. |
+| [`state/`](../zettel/state/) | SQLite em modo WAL; `StateDB` composto por um mixin por dominio ([ADR-054](adrs/generated/INFRA/ADR-054-statedb-as-python-package.md)), DDL em `schema.py`, sem camada de migracao ([ADR-001](adrs/generated/INFRA/ADR-001-sqlite-wal-fts5-primary-persistence.md)). Tabelas: `files`, `sources`, `chapters`, `chunks`, `concepts`, `notes`, `mocs`, `assets`, `llm_cache`, `note_connections`, `runs`, `web_jobs`, `web_job_events` + as virtuais FTS5 `fts_notes`/`fts_chunks`/`fts_chapter_summaries`. `runs` e `sources` guardam custo e tokens estimados. |
 | [`index.py`](../zettel/index.py) | Wrapper do ChromaDB ([ADR-002](adrs/generated/INFRA/ADR-002-chromadb-embedded-vector-store.md)) com 4 coleções: `sources`, `chunks`, `permanent_notes` e `mocs`. **LITs não são embeddadas** — vivem no cofre e no SQLite, para auditoria; nada nunca consultou uma coleção de literatura. Metadata do Chroma aceita apenas `str`/`int`/`float`/`bool` — listas são unidas com `", "` por `_sanitize_metadata()`. |
 | [`vault.py`](../zettel/vault.py) | I/O do Obsidian: parse/render de frontmatter YAML, blocos gerenciados e escrita segura que nunca sobrescreve edição manual fora dos blocos. Builders de SRC, índice LIT e LIT granular. `sync_source_costs_to_vault` espelha os custos do SQLite no frontmatter da SRC. |
 | [`llm.py`](../zettel/llm.py) | `get_llm` / `call_llm` / `load_prompt_parts` / `fill_template`. Instancia o client por fase, aplica o split System/Human dos prompts, lê `usage_metadata` e registra custo. Veja [ADR-024](adrs/generated/LLM/ADR-024-multi-provider-llm-strategy.md) e [ADR-025](adrs/generated/LLM/ADR-025-prompt-caching-system-human-split.md). |

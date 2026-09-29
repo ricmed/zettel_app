@@ -31,7 +31,7 @@ Concrete surface:
 * `zettel/static/combobox.js` + `zettel/templates/_combobox.html`
 * Queries: `StateDB.search_sources`, `search_literature_chunks`, `search_literature_chunks_fts` — never select `extracted_text`, `lit_body`, `chunks.text`, and the HTTP JSON never returns `literature_note_path`.
 
-Unauthenticated picker calls return `401 {"error":"unauthorized"}` (JSON, not a login redirect), matching `/api/jobs/{id}`. Query strings are clamped (≤200 chars, limit 1..50). LIKE metacharacters are escaped; FTS user text is quoted by `_fts_match_expr`.
+Unauthenticated picker calls return `401 {"error":"unauthorized"}` (JSON, not a login redirect), matching `/api/jobs/{id}`. Query strings are clamped (≤200 chars, limit 1..50). LIKE metacharacters are escaped; FTS user text is quoted by `search_terms.fts_match_expr`.
 
 With JavaScript off, the `<select>` of the 50 most recent rows is the whole control. With JavaScript on, the script hides that select, types into a combobox, and on fetch failure restores the select.
 
@@ -56,7 +56,7 @@ ADR-022's "every feature is a template" sentence is amended to point here. The e
 ## References
 
 * `zettel/web/pickers.py` — `picker_sources`, `picker_literature`
-* `zettel/state.py` — `search_sources`, `search_literature_chunks`, `search_literature_chunks_fts`
+* `zettel/state/sources.py` — `search_sources`; `zettel/state/chunks.py` — `search_literature_chunks`, `search_literature_chunks_fts`
 * `zettel/static/combobox.js` — progressive enhancement
 * `zettel/templates/_combobox.html` — fallback `<select>`
 * `tests/test_web.py` — picker contract and path-guard tests

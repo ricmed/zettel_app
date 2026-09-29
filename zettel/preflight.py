@@ -99,7 +99,7 @@ def _build(
 
 def estimate_extract(cfg: AppConfig, db: StateDB) -> PreflightEstimate:
     """One Prompt 1 call per pending chunk."""
-    chunks = db.get_pending_chunks()
+    chunks = db.get_chunks_by_status("pending")
     overhead = _prompt_tokens(cfg, "literature_note.md")
     input_tokens = sum(estimate_tokens(c.get("text") or "") for c in chunks)
     input_tokens += overhead * len(chunks)

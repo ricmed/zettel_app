@@ -17,7 +17,7 @@
 | **gardener.py** | ADR-019, 021, 025 | Clustering? Routing? Prompting? |
 | **gardener_hub.py** | ADR-020, 021, 025 | Hub selection? Graph expansion? LLM routing? |
 | **web.py, web_app.py** | ADR-022, 023, 018 | Server rendering? Job queue? Validation? |
-| **state.py, index.py** | ADR-001, 002, 005, 008 | Persistence? Dual-store? Repository pattern? |
+| **state/, index.py** | ADR-001, 002, 005, 008 | Persistence? Dual-store? Repository pattern? |
 | **config.py** | ADR-004, 006 | YAML-first? Pydantic? |
 | **llm.py** | ADR-024, 025 | Multi-provider? Prompt caching? |
 | **article.py** | ADR-028, 003, 009, 010, 024, 025 | Catalog/outline/draft/judge helpers? `call_llm`/`get_llm` still module globals (test seam)? |
@@ -226,7 +226,7 @@ See docs/code-review-adr-checklist.md"
 
 ```
 PR: "Add new dedup layer to harvest"
-Files: harvester.py, state.py
+Files: harvester/, state/
 
 ✓ ADRs listed: ADR-011, ADR-012, ADR-014
 
