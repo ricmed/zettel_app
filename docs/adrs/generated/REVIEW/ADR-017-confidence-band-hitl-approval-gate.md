@@ -151,6 +151,26 @@ Reproduce offline, with zero LLM and zero embedding calls:
     --gold-key evals/gold/extracao-GABARITO-NAO-ABRIR.json
 ```
 
+## Addendum (2026-10-05): extract rejections are read from the source chunk (issue #201)
+
+**Status:** Accepted amendment — does not change the confidence bands. It changes how a chunk the extract itself refused is reviewed.
+
+Those rows are not drafts and not a fourth confidence band. `extract_rejected_chunks` is `status=rejected` with an empty `candidates` list in `summary_json`. A reviewer's rejection keeps the candidates and stays out of this queue. There is no LIT file: the text to judge is `chunks.text`, next to `rejection_category` and `rejection_reason`.
+
+The CLI `x` command used to print every such chunk in one table (section cut at 50 characters, reason at 160) and ask for row numbers. That summary is not enough to decide whether the refusal was wrong. `x` now walks the queue one chunk at a time and prints the reason and the source text in full. `e` sends that chunk back to `pending` and drops the Prompt 1 cache (`requeue_extract_rejected`); `d` hard-deletes it from SQLite and the Chroma `chunks` index after a confirm (`discard_extract_rejected` — no VACUUM; that stays on `purge-rejected`); `m` leaves it rejected and hides it for the rest of the session; `p` skips it; `q` returns to the menu. `review --yes` still does not touch this queue.
+
+The web review page only listed `awaiting_review`. It now has `GET /review?queue=rejected`: the same set, full text in a scrollable block, page size 10, source filter. `POST /review/action` with `action=requeue` is a `review` job that calls `requeueable_extract_ids` and then `requeue_extract_rejected`. `action=discard` uses the same id filter and then `discard_extract_rejected`. An id that is a draft or a reviewer rejection is counted as `skipped` and is not reset or deleted. Requeue does not open the vector index. Discard opens it only when at least one id is eligible, because the chunks collection has to drop the row too.
+
+## Addendum (2026-10-05): a human can force the next extract (issue #202)
+
+**Status:** Accepted amendment — does not add a confidence band and does not auto-approve.
+
+Requeue (`e` / `action=requeue`) is a second opinion. The chunk returns to `pending`, the Prompt 1 cache is dropped, and the model may reject it again. When the reviewer has already decided the passage is worth a note, `f` / `action=force` (`force_extract_rejected`) does that same reset and sets `summary_json.force_extract`. The flag lives in the existing JSON column.
+
+The next extract appends one instruction to the **user** message only: ignore rejection and triviality, extract thesis, definition and a literal quote, and do not return `chunk_status: rejected`. `prompts/literature_note.md` is unchanged, so every other chunk keeps its prompt hash and its selectivity. The cache key gains a `variant` that is empty by default, so historical keys stay valid and a forced response cannot be replayed as a normal call.
+
+With the flag, `_check_candidate` skips relevance, thesis length, definition length and a candidate marked `rejected`. `quote_is_grounded` still applies. A candidate that survives becomes an `awaiting_review` draft and still faces this gate. If nothing usable survives, the chunk is `failed`, the flag stays, and the response is not cached, so a retry calls the model again instead of landing back in the extract-rejection queue.
+
 ## References
 
 * `zettel/extractor.py` — `_score_review_confidence`, `_candidate_completeness`, `_W_RELEVANCE` / `_W_INTEGRITY` / `_W_COMPLETENESS` / `_RELEVANCE_FLOOR_CREDIT` (2026-09-05 addendum)
@@ -162,5 +182,7 @@ Reproduce offline, with zero LLM and zero embedding calls:
 * `zettel/review.py:70-76` — confidence-band classification (`chunk_confidence_band`)
 * `zettel/review.py:79-88` — band-based filtering (`filter_chunks_by_band`)
 * `zettel/review.py` `run_review` — non-interactive/auto-approve threshold enforcement
-* `zettel/web/review.py` — `review` (GET `/review`, confidence bands for display filtering)
-* `zettel/web_app.py` — review job dispatch (batch approve/reject routing)
+* `zettel/web/review.py` — `review` (GET `/review`, drafts by confidence; `?queue=rejected` for extract rejections)
+* `zettel/web_app.py` — review job dispatch (batch approve/reject, `action=requeue`, `action=force`, `action=discard`)
+* `zettel/review.py` — `format_extract_rejected_item`, `requeue_extract_rejected`, `force_extract_rejected`, `requeueable_extract_ids` (2026-10-05 addenda, issues #201 and #202)
+* `zettel/extractor.py` — `chunk_forces_extract`, `FORCE_EXTRACT_INSTRUCTION`, `prompt1_call_checksum(force_extract=...)` (issue #202)

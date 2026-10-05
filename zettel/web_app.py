@@ -102,6 +102,137 @@ class JobProgress:
         )
 
 
+def _force_extract_review(
+    db: StateDB, progress: JobProgress, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Mark extract rejections for a forced Prompt 1 call. No vector index."""
+    from zettel.review import (
+        force_extract_rejected,
+        pending_dedupe_concepts,
+        requeueable_extract_ids,
+    )
+    from zettel.usage import begin_run, finish_pipeline_run
+
+    requested = list(payload.get("chunk_ids") or [])
+    eligible = requeueable_extract_ids(db, requested)
+    stats = {
+        "approved": 0,
+        "rejected": 0,
+        "skipped": len(requested) - len(eligible),
+        "requeued": 0,
+        "forced": 0,
+    }
+    review_run_id = db.start_run("review")
+    begin_run(review_run_id)
+    try:
+        total = len(eligible)
+        for number, chunk_id in enumerate(eligible, 1):
+            progress.emit(
+                ProgressEvent(
+                    "review",
+                    f"Marcando extração obrigatória {number}/{total}.",
+                    current_item=chunk_id[-18:],
+                    current_index=number,
+                    total_items=total,
+                )
+            )
+        stats["forced"] = force_extract_rejected(db, eligible)
+        stats["dedupe_pending"] = len(pending_dedupe_concepts(db))
+    except Exception:
+        finish_pipeline_run(db, review_run_id, status="failed")
+        raise
+    finish_pipeline_run(db, review_run_id)
+    return stats
+
+
+def _requeue_extract_review(
+    db: StateDB, progress: JobProgress, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Send extract rejections back to pending. Does not open the vector index."""
+    from zettel.review import (
+        pending_dedupe_concepts,
+        requeue_extract_rejected,
+        requeueable_extract_ids,
+    )
+    from zettel.usage import begin_run, finish_pipeline_run
+
+    requested = list(payload.get("chunk_ids") or [])
+    eligible = requeueable_extract_ids(db, requested)
+    stats = {
+        "approved": 0,
+        "rejected": 0,
+        "skipped": len(requested) - len(eligible),
+        "requeued": 0,
+    }
+    review_run_id = db.start_run("review")
+    begin_run(review_run_id)
+    try:
+        total = len(eligible)
+        for number, chunk_id in enumerate(eligible, 1):
+            progress.emit(
+                ProgressEvent(
+                    "review",
+                    f"Reenfileirando item {number}/{total}.",
+                    current_item=chunk_id[-18:],
+                    current_index=number,
+                    total_items=total,
+                )
+            )
+        stats["requeued"] = requeue_extract_rejected(db, eligible)
+        stats["dedupe_pending"] = len(pending_dedupe_concepts(db))
+    except Exception:
+        finish_pipeline_run(db, review_run_id, status="failed")
+        raise
+    finish_pipeline_run(db, review_run_id)
+    return stats
+
+
+def _discard_extract_review(
+    cfg: AppConfig, db: StateDB, progress: JobProgress, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Delete extract rejections from SQLite and Chroma. Drafts stay put."""
+    from zettel.index import VectorIndex, index_kwargs
+    from zettel.review import (
+        discard_extract_rejected,
+        pending_dedupe_concepts,
+        requeueable_extract_ids,
+    )
+    from zettel.usage import begin_run, finish_pipeline_run
+
+    requested = list(payload.get("chunk_ids") or [])
+    eligible = requeueable_extract_ids(db, requested)
+    stats = {
+        "approved": 0,
+        "rejected": 0,
+        "skipped": len(requested) - len(eligible),
+        "requeued": 0,
+        "discarded": 0,
+    }
+    review_run_id = db.start_run("review")
+    begin_run(review_run_id)
+    try:
+        if eligible:
+            idx = VectorIndex(**index_kwargs(cfg))
+            total = len(eligible)
+            for number, chunk_id in enumerate(eligible, 1):
+                progress.emit(
+                    ProgressEvent(
+                        "review",
+                        f"Apagando item {number}/{total}.",
+                        current_item=chunk_id[-18:],
+                        current_index=number,
+                        total_items=total,
+                    )
+                )
+            stats["discarded"] = discard_extract_rejected(db, idx, eligible)
+        stats["dedupe_pending"] = len(pending_dedupe_concepts(db))
+    except Exception:
+        finish_pipeline_run(db, review_run_id, status="failed")
+        raise
+    finish_pipeline_run(db, review_run_id)
+    return stats
+
+
 class WebWorker:
     """A durable queue backed by SQLite and one process-local worker thread."""
 
@@ -251,9 +382,7 @@ class WebWorker:
                 try:
                     remove_preparation(cfg, payload["review_id"])
                 except OSError:
-                    logger.warning(
-                        "Não foi possível limpar a preparação %s", payload["review_id"]
-                    )
+                    logger.warning("Não foi possível limpar a preparação %s", payload["review_id"])
 
     @staticmethod
     def _dispatch(
@@ -313,9 +442,7 @@ class WebWorker:
                 )
             )
             text, metadata = extract.extract_text(
-                cfg.model_copy(update={
-                    "vault_path": asset_stage_path(cfg, progress.job_id)
-                }),
+                cfg.model_copy(update={"vault_path": asset_stage_path(cfg, progress.job_id)}),
                 file_path,
                 "pdf" if file_path.suffix.lower() == ".pdf" else "md",
             )
@@ -334,6 +461,15 @@ class WebWorker:
                 "biblio": biblio.model_dump(),
                 "abnt_reference": format_abnt(biblio),
             }
+
+        if operation == "review" and payload.get("action") == "requeue":
+            # Status flip only: opening the vector index would fail the job when
+            # the embedding credential is absent, and this action never reads it.
+            return _requeue_extract_review(db, progress, payload)
+        if operation == "review" and payload.get("action") == "force":
+            return _force_extract_review(db, progress, payload)
+        if operation == "review" and payload.get("action") == "discard":
+            return _discard_extract_review(cfg, db, progress, payload)
 
         from zettel.index import VectorIndex, index_kwargs
 

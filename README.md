@@ -103,7 +103,7 @@ Os exemplos abaixo usam `python -m zettel ...`; prefixe com `uv run` se o ambien
 | `zettel init`                     | Cria o vault e as bases (`--reset` apaga também SQLite/Chroma/cache)         |
 | `zettel harvest`                  | Escaneia o inbox, extrai texto, cria SRC + índice LIT + chunks com página    |
 | `zettel extract`                  | Prompt 1: gera drafts de LIT granular em `00_Inbox/Review`                   |
-| `zettel review`                   | Portão humano: aprova/rejeita os drafts por faixa de confiança               |
+| `zettel review`                   | Portão humano: aprova/rejeita os drafts; um chunk recusado pelo extract pode voltar para extração obrigatória |
 | `zettel connect`                  | Prompt 2: gera notas permanentes (ZTL) com links e backlinks                 |
 | `zettel garden`                   | Clusteriza notas e gera/atualiza MOCs (`--hubs` para MOCs ancorados em hubs) |
 | `zettel ask "..."`                | QA sobre o vault com recuperação híbrida + grafo, sempre citando as notas    |

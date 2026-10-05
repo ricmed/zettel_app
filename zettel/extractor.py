@@ -203,17 +203,41 @@ def prompt1_images_context(db: StateDB, chunk_row: dict) -> str:
     )
 
 
+def chunk_forces_extract(chunk_row: dict) -> bool:
+    """True when the reviewer already decided this chunk must become a note."""
+    raw = chunk_row.get("summary_json")
+    if not raw:
+        return False
+    try:
+        summary = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        return False
+    return bool(summary.get("force_extract"))
+
+
+# Appended to the user message only. The prompt file stays put so a normal
+# extract keeps its cache key and its selectivity instructions.
+FORCE_EXTRACT_INSTRUCTION = (
+    "O revisor já decidiu que este trecho vira nota. Ignore os critérios de "
+    "rejeição e de trivialidade. Extraia tese, definição e uma citação literal "
+    "do trecho. Não devolva chunk_status rejected."
+)
+
+
 def prompt1_call_checksum(
     cfg: AppConfig,
     prompt_hash: str,
     chunk_row: dict,
     images_context: str,
+    *,
+    force_extract: bool = False,
 ) -> str:
     """The LLM-cache key of one Prompt 1 call.
 
     Shared with `scripts/probe_prompt1_variant.py` so an offline experiment computes
     the same key production writes -- which is also how the probe proves it builds the
-    exact call `extract` builds.
+    exact call `extract` builds. ``force_extract`` is part of the key because that
+    call sends a different user message without changing the prompt file.
     """
     images_ctx_checksum = (
         sha256_hex(normalize_text_for_hash(images_context)) if images_context else ""
@@ -229,6 +253,7 @@ def prompt1_call_checksum(
         provider=spec.provider,
         top_p=cfg.llm.top_p,
         thinking=thinking_checksum_token(spec.thinking),
+        variant="force_extract" if force_extract else "",
     )
 
 
@@ -239,6 +264,8 @@ def prompt1_messages(
     prompt_parts: PromptParts,
     example_fields: dict[str, str] | None,
     images_context: str,
+    *,
+    force_extract: bool = False,
 ) -> tuple[str, str]:
     """System and user text of one Prompt 1 call, exactly as `extract` sends them."""
     source = db.get_source(chunk_row["source_id"])
@@ -269,6 +296,8 @@ def prompt1_messages(
     }
     system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
     user = fill_template(prompt_parts.user_template, mapping)
+    if force_extract:
+        user = f"{user.rstrip()}\n\n{FORCE_EXTRACT_INSTRUCTION}"
     return system, user
 
 
@@ -298,7 +327,10 @@ def _process_chunk(
 
     images_context = prompt1_images_context(db, chunk_row)
     spec = llm_phase(cfg, "extract")
-    call_checksum = prompt1_call_checksum(cfg, prompt_hash, chunk_row, images_context)
+    force_extract = chunk_forces_extract(chunk_row)
+    call_checksum = prompt1_call_checksum(
+        cfg, prompt_hash, chunk_row, images_context, force_extract=force_extract
+    )
     cached = db.get_cached_llm_response(call_checksum)
     request_payload_json: str | None = None
     if cached:
@@ -309,7 +341,13 @@ def _process_chunk(
         response_text = cached
     else:
         system, user = prompt1_messages(
-            cfg, db, chunk_row, prompt_parts, example_fields, images_context
+            cfg,
+            db,
+            chunk_row,
+            prompt_parts,
+            example_fields,
+            images_context,
+            force_extract=force_extract,
         )
         request_payload_json = json.dumps({"system": system, "user": user}, ensure_ascii=False)
 
@@ -421,7 +459,9 @@ def _process_chunk(
         ):
             cand.source_locator = locator
 
-    approved_cands, rejected_cands = _filter_candidates(output.candidates, cfg, chunk_text)
+    approved_cands, rejected_cands = _filter_candidates(
+        output.candidates, cfg, chunk_text, force=force_extract
+    )
     if rejected_cands:
         logger.info(
             "Chunk %s: %d candidatos rejeitados pela filtragem de qualidade",
@@ -430,7 +470,13 @@ def _process_chunk(
         )
 
     literature_id = str(ULID())
-    has_content = output.chunk_status != "rejected" and bool(approved_cands)
+    # A forced chunk may come back with chunk_status=rejected and still carry a
+    # candidate the reviewer already asked for. The status flag is the lock we
+    # were told to ignore; an empty candidate list is not.
+    if force_extract:
+        has_content = bool(approved_cands)
+    else:
+        has_content = output.chunk_status != "rejected" and bool(approved_cands)
     draft_path = (
         _write_literature_draft(
             cfg,
@@ -468,7 +514,16 @@ def _process_chunk(
     # review` to show, so the chunk goes straight to its terminal `rejected` state
     # instead of sitting in `awaiting_review` with no file to back it (issue found
     # via `zettel status` reporting drafts that don't exist on disk).
-    final_status = "awaiting_review" if has_content else "rejected"
+    # A forced extract that still yielded nothing stays `failed` with the flag, so
+    # it does not reappear as an extract rejection and a retry calls the model again.
+    if has_content:
+        final_status = "awaiting_review"
+    elif force_extract:
+        final_status = "failed"
+        summary_payload["force_extract"] = True
+        db.delete_llm_cache([call_checksum])
+    else:
+        final_status = "rejected"
     db.update_chunk_review(
         chunk_id,
         status=final_status,
@@ -734,13 +789,19 @@ def _filter_candidates(
     candidates: list[PermanentNoteCandidate],
     cfg: AppConfig,
     chunk_text: str = "",
+    *,
+    force: bool = False,
 ) -> tuple[list[PermanentNoteCandidate], list[tuple[PermanentNoteCandidate, str]]]:
-    """Split candidates into approved and (candidate, reason) rejected pairs."""
+    """Split candidates into approved and (candidate, reason) rejected pairs.
+
+    ``force`` skips the selectivity gates (relevance, length, a candidate the
+    model marked rejected). The anchor quote still has to sit in the chunk.
+    """
     ext = cfg.extraction
     approved: list[PermanentNoteCandidate] = []
     rejected: list[tuple[PermanentNoteCandidate, str]] = []
     for cand in candidates:
-        reason = _check_candidate(cand, ext, chunk_text)
+        reason = _check_candidate(cand, ext, chunk_text, force=force)
         if reason:
             logger.debug("Candidato rejeitado (%s): %s", reason, cand.thesis[:60])
             rejected.append((cand, reason))
@@ -749,21 +810,28 @@ def _filter_candidates(
     return approved, rejected
 
 
-def _check_candidate(cand: PermanentNoteCandidate, ext: Any, chunk_text: str = "") -> str | None:
-    if cand.chunk_status == "rejected":
-        return (
-            f"chunk_status={cand.chunk_status}, "
-            f"rejection_reason={cand.rejection_reason}, "
-            f"rejection_category={cand.rejection_category}"
-        )
-    if cand.relevance_score < ext.min_relevance_score:
-        return f"relevance_score={cand.relevance_score} < {ext.min_relevance_score}"
-    thesis_words = len(cand.thesis.split())
-    if thesis_words < ext.min_thesis_words:
-        return f"thesis_words={thesis_words} < {ext.min_thesis_words}"
-    definition_words = len(cand.definition.split())
-    if definition_words < ext.min_definition_words:
-        return f"definition_words={definition_words} < {ext.min_definition_words}"
+def _check_candidate(
+    cand: PermanentNoteCandidate,
+    ext: Any,
+    chunk_text: str = "",
+    *,
+    force: bool = False,
+) -> str | None:
+    if not force:
+        if cand.chunk_status == "rejected":
+            return (
+                f"chunk_status={cand.chunk_status}, "
+                f"rejection_reason={cand.rejection_reason}, "
+                f"rejection_category={cand.rejection_category}"
+            )
+        if cand.relevance_score < ext.min_relevance_score:
+            return f"relevance_score={cand.relevance_score} < {ext.min_relevance_score}"
+        thesis_words = len(cand.thesis.split())
+        if thesis_words < ext.min_thesis_words:
+            return f"thesis_words={thesis_words} < {ext.min_thesis_words}"
+        definition_words = len(cand.definition.split())
+        if definition_words < ext.min_definition_words:
+            return f"definition_words={definition_words} < {ext.min_definition_words}"
     if ext.require_anchor_quote and not cand.anchor_quote.strip():
         return "anchor_quote vazio"
     if ext.verify_anchor_quote and cand.anchor_quote.strip():

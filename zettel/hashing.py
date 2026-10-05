@@ -128,6 +128,7 @@ def compute_llm_call_checksum(
     provider: str = "",
     top_p: float | None = None,
     thinking: str = "",
+    variant: str = "",
 ) -> str:
     """Deterministic checksum for an LLM call, enabling response caching.
 
@@ -136,13 +137,17 @@ def compute_llm_call_checksum(
     and each of those knobs is forwarded to the client -- any one differing
     means the call is not the same, even if every other field matches.
     ``thinking`` is the canonical token from ``thinking_checksum_token``
-    (empty = vendor default).
+    (empty = vendor default). ``variant`` distinguishes a call whose user text
+    changed without a new prompt file (a forced extract). Empty leaves the
+    historical key unchanged.
     """
     parts = (
         f"{prompt_hash}|{chunk_checksum}|{model}|{temperature}|{language}|"
         f"{rag_context_checksum}|{provider}|{top_p if top_p is not None else ''}|"
         f"{thinking}"
     )
+    if variant:
+        parts = f"{parts}|{variant}"
     return sha256_hex(parts)
 
 
