@@ -445,6 +445,133 @@ def test_process_file_persists_biblio_with_complete_frontmatter(db, cfg, tmp_pat
     assert "## Referencia ABNT" in body
 
 
+def test_prepared_review_persists_edits_without_reextracting(db, cfg, tmp_path, monkeypatch):
+    from zettel.hashing import file_sha256
+    from zettel.paging import compute_docling_config_hash
+
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    path = inbox / "livro.txt"
+    path.write_text("Arquivo recebido para revisão.", encoding="utf-8")
+    text = "# Obra corrigida\n\n" + "Trecho da obra para indexação. " * 25
+    prepared = {
+        "checksum": file_sha256(path),
+        "config_hash": compute_docling_config_hash(cfg),
+        "text": text,
+        "metadata": {"title": "Obra original"},
+        "biblio": BibliographicMetadata(
+            document_type="livro", confidence=0.9, title="Obra corrigida",
+            authors=["Ana Silva"], year=2024, publisher="Nova Editora",
+            place="Rio de Janeiro", subtitle="Complemento", isbn="978-0-123",
+        ).model_dump(),
+        "abnt_reference": "Referência corrigida manualmente.",
+    }
+    monkeypatch.setattr(
+        "zettel.harvester.extract.extract_text",
+        lambda *args: pytest.fail("Não deve repetir a extração"),
+    )
+    monkeypatch.setattr(
+        "zettel.bibliography.build_bibliographic_metadata",
+        lambda *args: pytest.fail("Não deve repetir o LLM bibliográfico"),
+    )
+    sid, stats = _process_file(
+        cfg, db, FakeVectorIndex(), path, run_id=db.start_run("sig"),
+        interactive=False, prepared=prepared,
+    )
+    assert sid and stats.get("chunks", 0) >= 1
+    src = db.get_source(sid)
+    assert src["title"] == "Obra corrigida"
+    assert src["abnt_reference"] == "Referência corrigida manualmente."
+    assert json.loads(src["bibliography_json"])["subtitle"] == "Complemento"
+    note = next((tmp_path / "vault" / "10_Sources").glob("SRC - *.md"))
+    assert "Referência corrigida manualmente." in note.read_text(encoding="utf-8")
+
+
+def test_prepared_review_rejects_changed_file_before_writing(db, cfg, tmp_path):
+    from zettel.hashing import file_sha256
+
+    path = tmp_path / "obra.md"
+    path.write_text("# Obra", encoding="utf-8")
+    prepared = {"checksum": file_sha256(path), "text": "# Obra", "metadata": {}, "biblio": {}}
+    path.write_text("# Outra obra", encoding="utf-8")
+    with pytest.raises(ValueError, match="mudou após a revisão"):
+        _process_file(
+            cfg, db, FakeVectorIndex(), path, run_id=db.start_run("sig"),
+            interactive=False, prepared=prepared,
+        )
+    assert db.list_sources() == []
+
+
+def test_review_cannot_succeed_by_reusing_source_with_different_bibliography(
+    db, cfg, tmp_path,
+):
+    from zettel.hashing import file_sha256
+    from zettel.paging import compute_docling_config_hash
+
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    path = inbox / "livro.md"
+    path.write_text(
+        "---\ntitle: Obra\n"
+        "author: Ana Silva\nyear: 2024\n"
+        "document_type: livro\nplace: São Paulo\npublisher: Editora\n"
+        "---\n\n" + "Trecho suficiente para gerar chunks. " * 4,
+        encoding="utf-8",
+    )
+    sid, _ = _process_file(
+        cfg, db, FakeVectorIndex(), path, run_id=db.start_run("sig"),
+        interactive=False,
+    )
+    assert sid
+    original = db.get_source(sid)
+    prepared = {
+        "checksum": file_sha256(path),
+        "config_hash": compute_docling_config_hash(cfg),
+        "text": "# Obra",
+        "metadata": {},
+        "biblio": BibliographicMetadata(
+            document_type="livro", title="Título corrigido",
+            authors=["Ana Silva"], year=2024, place="São Paulo",
+            publisher="Editora", confidence=0.9,
+        ).model_dump(),
+        "abnt_reference": "Referência corrigida.",
+    }
+    with pytest.raises(ValueError, match="revisão não foi aplicada"):
+        _process_file(
+            cfg, db, FakeVectorIndex(), path, run_id=db.start_run("sig"),
+            interactive=False, prepared=prepared,
+        )
+    assert db.get_source(sid)["bibliography_json"] == original["bibliography_json"]
+    assert db.get_source(sid)["abnt_reference"] == original["abnt_reference"]
+    duplicate = inbox / "copia.md"
+    duplicate.write_bytes(path.read_bytes())
+    with pytest.raises(ValueError, match="revisão não foi aplicada"):
+        _process_file(
+            cfg, db, FakeVectorIndex(), duplicate, run_id=db.start_run("sig"),
+            interactive=False, prepared=prepared,
+        )
+    assert db.get_file(str(duplicate)) is None
+
+
+def test_prepared_review_rejects_changed_extraction_configuration(db, cfg, tmp_path):
+    from zettel.hashing import file_sha256
+    from zettel.paging import compute_docling_config_hash
+
+    path = tmp_path / "obra.md"
+    path.write_text("# Obra", encoding="utf-8")
+    prepared = {
+        "checksum": file_sha256(path),
+        "config_hash": compute_docling_config_hash(cfg),
+        "text": "# Obra", "metadata": {}, "biblio": {},
+    }
+    cfg.images.enabled = not cfg.images.enabled
+    with pytest.raises(ValueError, match="configuração de extração mudou"):
+        _process_file(
+            cfg, db, FakeVectorIndex(), path, run_id=db.start_run("sig"),
+            interactive=False, prepared=prepared,
+        )
+    assert db.list_sources() == []
+
 def test_process_file_skip_biblio_persists_partial(db, cfg, tmp_path):
     inbox = tmp_path / "inbox"
     inbox.mkdir()

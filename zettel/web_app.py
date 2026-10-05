@@ -120,6 +120,17 @@ class WebWorker:
             recovered = db.recover_web_jobs()
             if recovered:
                 logger.warning("Web: %d trabalho(s) marcados como interrupted", recovered)
+            from zettel.harvester.prepared import (
+                discard_orphan_preparations,
+                remove_preparation,
+            )
+
+            for review_id in db.discard_unavailable_web_harvest_reviews():
+                try:
+                    remove_preparation(load_config(self.config_path), review_id)
+                except OSError:
+                    logger.warning("Não foi possível limpar a preparação %s", review_id)
+            discard_orphan_preparations(load_config(self.config_path), db)
         finally:
             db.close()
         self._thread = threading.Thread(target=self._run, name="zettel-web-worker", daemon=True)
@@ -139,6 +150,20 @@ class WebWorker:
         finally:
             db.close()
         if not created:
+            return None
+        self._wake.set()
+        return job_id
+
+    def submit_review(
+        self, review_id: str, session_hash: str, payload: dict[str, Any]
+    ) -> str | None:
+        job_id = uuid4().hex
+        db = self._db()
+        try:
+            queued = db.queue_web_harvest_review(review_id, session_hash, job_id, payload)
+        finally:
+            db.close()
+        if not queued:
             return None
         self._wake.set()
         return job_id
@@ -211,7 +236,24 @@ class WebWorker:
             )
             db.add_web_job_event(job_id, "failed", message=message)
         finally:
-            db.close()
+            succeeded = (db.get_web_job(job_id) or {}).get("state") == "succeeded"
+            from zettel.harvester.prepared import remove_preparation
+
+            try:
+                for unusable_id in db.discard_unavailable_web_harvest_reviews():
+                    try:
+                        remove_preparation(cfg, unusable_id)
+                    except OSError:
+                        logger.warning("Não foi possível limpar a preparação %s", unusable_id)
+            finally:
+                db.close()
+            if succeeded and operation == "harvest" and payload.get("review_id"):
+                try:
+                    remove_preparation(cfg, payload["review_id"])
+                except OSError:
+                    logger.warning(
+                        "Não foi possível limpar a preparação %s", payload["review_id"]
+                    )
 
     @staticmethod
     def _dispatch(
@@ -246,6 +288,52 @@ class WebWorker:
 
         if operation == "harvest" and not payload.get("selected_file"):
             raise UserFacingError("Selecione um documento pendente antes de processar.")
+
+        if operation == "prepare_harvest":
+            from zettel.bibliography import build_bibliographic_metadata, format_abnt
+            from zettel.harvester import extract
+            from zettel.harvester.prepared import asset_stage_path, save_snapshot
+            from zettel.hashing import file_sha256
+
+            file_path = Path(payload["selected_file"]).resolve()
+            if (
+                not file_path.is_file()
+                or file_path.suffix.lower() not in {".pdf", ".md", ".markdown", ".txt"}
+                or not file_path.is_relative_to(cfg.inbox_path.resolve())
+                or file_sha256(file_path) != payload["checksum"]
+            ):
+                raise UserFacingError(
+                    "O arquivo mudou ou não está mais no inbox. Selecione-o novamente."
+                )
+            progress.emit(
+                ProgressEvent(
+                    "preparing",
+                    "Extraindo texto e inferindo bibliografia.",
+                    current_item=file_path.name,
+                )
+            )
+            text, metadata = extract.extract_text(
+                cfg.model_copy(update={
+                    "vault_path": asset_stage_path(cfg, progress.job_id)
+                }),
+                file_path,
+                "pdf" if file_path.suffix.lower() == ".pdf" else "md",
+            )
+            biblio = build_bibliographic_metadata(cfg, db, metadata, text, file_path.name)
+            if file_sha256(file_path) != payload["checksum"]:
+                raise UserFacingError("O arquivo mudou durante a preparação. Tente novamente.")
+            save_snapshot(
+                cfg, progress.job_id, checksum=payload["checksum"], text=text, metadata=metadata
+            )
+            db.create_web_harvest_review(
+                progress.job_id, payload["session_hash"], payload["checksum"]
+            )
+            return {
+                "selected_file": str(file_path),
+                "checksum": payload["checksum"],
+                "biblio": biblio.model_dump(),
+                "abnt_reference": format_abnt(biblio),
+            }
 
         from zettel.index import VectorIndex, index_kwargs
 
@@ -303,8 +391,40 @@ class WebWorker:
             }
         if operation == "harvest":
             from zettel.harvester import run_harvest
+            from zettel.harvester.prepared import load_snapshot
+            from zettel.hashing import file_sha256
 
             file_path = Path(payload["selected_file"]).resolve()
+            prepared = None
+            review_id = payload.get("review_id")
+            if review_id:
+                review = db.get_web_harvest_review(review_id, payload["session_hash"])
+                preparation = db.get_web_job(review_id)
+                if (
+                    not review
+                    or review["state"] != "submitted"
+                    or review["harvest_job_id"] != progress.job_id
+                    or not preparation
+                    or preparation["state"] != "succeeded"
+                    or preparation["result"]["selected_file"] != str(file_path)
+                    or not file_path.is_file()
+                    or not file_path.is_relative_to(cfg.inbox_path.resolve())
+                    or file_sha256(file_path) != review["file_checksum"]
+                ):
+                    raise UserFacingError(
+                        "O arquivo mudou ou a revisão expirou. Prepare-o novamente."
+                    )
+                try:
+                    prepared = load_snapshot(cfg, review_id)
+                except ValueError as exc:
+                    raise UserFacingError(str(exc)) from exc
+                if prepared["checksum"] != review["file_checksum"]:
+                    raise UserFacingError(
+                        "A preparação não corresponde ao arquivo. Prepare-o novamente."
+                    )
+                prepared["biblio"] = payload["biblio"]
+                prepared["abnt_reference"] = payload["abnt_reference"]
+                prepared["review_id"] = review_id
             progress.emit(
                 ProgressEvent(
                     "harvest",
@@ -328,6 +448,7 @@ class WebWorker:
                 if payload.get("extraction_dump_dir")
                 else None,
                 observer=progress,
+                prepared=prepared,
             )
             sources = harvest.source_ids
             if harvest.skipped:
@@ -477,6 +598,11 @@ class WebApplication:
 
     def submit(self, operation: str, payload: dict[str, Any]) -> str | None:
         return self.worker.submit(operation, payload)
+
+    def submit_review(
+        self, review_id: str, session_hash: str, payload: dict[str, Any]
+    ) -> str | None:
+        return self.worker.submit_review(review_id, session_hash, payload)
 
     def dashboard(self) -> dict[str, Any]:
         db = self.db()

@@ -30,3 +30,22 @@
 .document-submit button{flex:none}
 @media(max-width:700px){.document-options{grid-template-columns:1fr}.document-submit{align-items:stretch;flex-direction:column}.document-submit button{width:100%}}
 @media(max-width:420px){.document-page-inputs{grid-template-columns:1fr}}
+.review-form{max-width:940px}
+.review-form .panel{margin-bottom:18px}
+.review-intro{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}
+.review-intro h2,.review-form h2{margin:6px 0 8px}
+.review-intro p{margin:0 0 20px}
+.review-form label{display:block;font-size:13px;font-weight:600}
+.review-form input:not([type=checkbox]),.review-form select,.review-form textarea{display:block;box-sizing:border-box;width:100%;min-width:0;padding:10px 12px;margin-top:7px;border:1px solid var(--field-line);border-radius:6px;background:var(--surface-input);color:var(--ink);font:inherit;font-weight:400}
+.review-form textarea{resize:vertical}
+.review-form input:focus-visible,.review-form select:focus-visible,.review-form textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.review-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:18px}
+.review-more{border-top:1px solid var(--line);margin-top:24px;padding-top:18px}
+.review-more summary{cursor:pointer;font-weight:600}
+.review-more summary span{color:var(--muted);font-weight:400}
+.required-mark{color:var(--accent-dark);font-size:11px;font-weight:600}
+.review-form .document-check{display:flex;margin-top:18px}
+.review-form .document-check input{margin:2px 8px 0 0}
+.review-status{margin:16px 0;line-height:1.5}
+.review-actions{display:flex;justify-content:flex-end;gap:12px;flex-wrap:wrap;margin:22px 0 36px}
+@media(max-width:650px){.review-grid{grid-template-columns:1fr}.review-intro{flex-direction:column}.review-actions{flex-direction:column}.review-actions button{width:100%}}
