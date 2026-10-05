@@ -171,6 +171,29 @@ The next extract appends one instruction to the **user** message only: ignore re
 
 With the flag, `_check_candidate` skips relevance, thesis length, definition length and a candidate marked `rejected`. `quote_is_grounded` still applies. A candidate that survives becomes an `awaiting_review` draft and still faces this gate. If nothing usable survives, the chunk is `failed`, the flag stays, and the response is not cached, so a retry calls the model again instead of landing back in the extract-rejection queue.
 
+## Addendum (2026-10-05): a quote from inside a fenced block is judged as part of the block (issue #204)
+
+**Status:** Accepted amendment. It narrows the `anchor_quote` word floor from issue #153 and keeps grounding and the ceiling untouched.
+
+**Measured case.** Chunk 22 of `@IniciandoComPromptEngineering` is `### 4.10 Prompt Chaining` followed by one Python block, with no prose at all.
+
+1. The reviewer forced it (issue #202), and the model received the whole block.
+2. The model picked a comment as its anchor: `Modelo diferente para cada etapa: custo-eficiência por complexidade` (8 words).
+3. `_check_candidate` measured that line against `anchor_quote_min_words` (10) as if it were a prose sentence and dropped the only candidate (`anchor_quote_words=8 < 10`).
+4. The chunk went `failed`.
+
+Grounding was never the problem: `fold_for_match` already discards the `#`.
+
+The floor exists because "under it there is no quote to judge": three words of prose ground nothing. That reasoning is about sentences. A line inside a fence is not a sentence. It is one line of a code block, and the evidence the note rests on is the block. Code-dominated chunks also rarely contain a 10-word prose run, so the floor turned "the reviewer wants this note" into a guaranteed `failed`.
+
+**Amendment:**
+
+* **Exemption.** When the anchor is grounded inside one of the chunk's fenced spans (`_anchor_in_fence`, built on `iter_fenced_spans` + `quote_is_grounded`), the word floor does not apply.
+* **Still enforced.** The tolerated ceiling and `quote_is_grounded` apply as before, so a fabricated or paragraph-sized quote is still refused.
+* **Prose anchors.** An anchor in prose faces the floor exactly as before, even when the chunk also contains a fence.
+* **Scope.** The rule depends on where the quote sits, not on the mode, so it applies to normal and forced extracts alike. Grounding is never relaxed.
+* **No cache change.** The filter runs after the LLM, so no cache key changes. A `failed` forced chunk is recovered with `zettel retry-failed` (one new call).
+
 ## References
 
 * `zettel/extractor.py` — `_score_review_confidence`, `_candidate_completeness`, `_W_RELEVANCE` / `_W_INTEGRITY` / `_W_COMPLETENESS` / `_RELEVANCE_FLOOR_CREDIT` (2026-09-05 addendum)
@@ -186,3 +209,4 @@ With the flag, `_check_candidate` skips relevance, thesis length, definition len
 * `zettel/web_app.py` — review job dispatch (batch approve/reject, `action=requeue`, `action=force`, `action=discard`)
 * `zettel/review.py` — `format_extract_rejected_item`, `requeue_extract_rejected`, `force_extract_rejected`, `requeueable_extract_ids` (2026-10-05 addenda, issues #201 and #202)
 * `zettel/extractor.py` — `chunk_forces_extract`, `FORCE_EXTRACT_INSTRUCTION`, `prompt1_call_checksum(force_extract=...)` (issue #202)
+* `zettel/extractor.py` — `_anchor_in_fence`, the fence exemption in `_check_candidate`; `tests/test_extractor.py` (issue #204)

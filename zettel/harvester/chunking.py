@@ -9,7 +9,7 @@ from typing import Any
 from zettel.config import AppConfig
 from zettel.hashing import normalize_text_for_hash, sha256_hex, short_hash
 from zettel.index import VectorIndex
-from zettel.markdown_fences import iter_fenced_spans, offset_is_fenced
+from zettel.markdown_fences import headings_outside_fences, iter_fenced_spans
 from zettel.paging import (
     ContentPaging,
     apply_page_inference,
@@ -21,14 +21,6 @@ from zettel.paging import (
 from zettel.state import StateDB
 
 logger = logging.getLogger(__name__)
-
-
-def _headings_outside_fences(pattern: re.Pattern[str], text: str) -> list[re.Match[str]]:
-    """Headings of `pattern` whose offset does not fall inside a fenced block."""
-    spans = iter_fenced_spans(text)
-    if not spans:
-        return list(pattern.finditer(text))
-    return [m for m in pattern.finditer(text) if not offset_is_fenced(m.start(), spans)]
 
 
 # ── Chapter Splitting ─────────────────────────────────────────────────
@@ -74,7 +66,7 @@ def split_into_chapters(text: str, origin_type: str) -> list[dict[str, str]]:
     chapters: list[dict[str, str]] = []
 
     heading_pattern = re.compile(r"^(#{1,2})\s+(.+)$", re.MULTILINE)
-    matches = _headings_outside_fences(heading_pattern, text)
+    matches = headings_outside_fences(heading_pattern, text)
 
     if not matches:
         return [{"title": "Documento completo", "text": text.strip(), "locator": ""}]
@@ -186,7 +178,7 @@ def split_chapter_into_sections(
     merged forward to avoid crumb-sized chunks.
     """
     heading_re = re.compile(r"^(#{3,6})\s+(.+)$", re.MULTILINE)
-    matches = _headings_outside_fences(heading_re, chapter_text)
+    matches = headings_outside_fences(heading_re, chapter_text)
     chapter_heads = [chapter_heading] if chapter_heading else []
     if not matches:
         return [_section_record(chapter_title, chapter_text.strip(), chapter_heads)]

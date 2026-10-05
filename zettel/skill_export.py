@@ -21,6 +21,7 @@ from typing import Any
 
 from zettel.citation import load_provenance
 from zettel.config import AppConfig
+from zettel.markdown_fences import h2_section
 from zettel.state import StateDB
 from zettel.time import vault_date_iso
 from zettel.topic_index import TermEntry, TermSource, build_term_map
@@ -206,7 +207,7 @@ def load_notes(
                 citekey=str(meta.get("source_id") or row.get("source_id") or ""),
                 locator=str(load_provenance(row).get("source_locator") or ""),
                 tags=[str(t) for t in (meta.get("tags") or [])],
-                limits=_section(body, "Limites"),
+                limits=h2_section(body, "Limites"),
                 decision_rules=_judgement(meta, candidate, "decision_rules"),
                 anti_patterns=_judgement(meta, candidate, "anti_patterns"),
                 named_frameworks=_judgement(meta, candidate, "named_frameworks"),
@@ -582,15 +583,6 @@ def _judgement(meta: dict, candidate: dict, key: str) -> list[str]:
 
 def _thesis_from_body(body: str) -> str:
     match = _THESIS_RE.search(body or "")
-    return match.group(1).strip() if match else ""
-
-
-def _section(body: str, heading: str) -> str:
-    pattern = re.compile(
-        rf"^##\s+{re.escape(heading)}\s*$(.*?)(?=^##\s+|\Z)",
-        re.MULTILINE | re.DOTALL,
-    )
-    match = pattern.search(body or "")
     return match.group(1).strip() if match else ""
 
 

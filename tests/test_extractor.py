@@ -262,6 +262,59 @@ def test_filter_candidates_short_quote_reason_names_the_floor():
     assert "< 10" in rejected[0][1]
 
 
+_CODE_CHUNK = (
+    "### 4.10 Prompt Chaining\n\n"
+    "```python\n"
+    "# Modelo diferente para cada etapa: custo-eficiência por complexidade\n"
+    'llm1 = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)  # Extração simples\n'
+    "```\n\n"
+    "Texto em prosa com poucas palavras aqui."
+)
+_COMMENT_ANCHOR = "Modelo diferente para cada etapa: custo-eficiência por complexidade"
+
+
+def test_short_anchor_inside_a_code_fence_is_judged_as_part_of_the_block():
+    """Issue #204: a code comment is not a prose sentence; the floor does not apply."""
+    cfg = _make_config(verify_anchor_quote=True)
+    for force in (False, True):
+        approved, rejected = _filter_candidates(
+            [_make_candidate(anchor_quote=_COMMENT_ANCHOR)], cfg, _CODE_CHUNK, force=force
+        )
+        assert len(approved) == 1, rejected
+
+
+def test_short_anchor_in_prose_still_faces_the_floor():
+    cfg = _make_config(verify_anchor_quote=True)
+    approved, rejected = _filter_candidates(
+        [_make_candidate(anchor_quote="Texto em prosa com poucas palavras aqui")],
+        cfg,
+        _CODE_CHUNK,
+    )
+    assert not approved
+    assert "< 10" in rejected[0][1]
+
+
+def test_anchor_not_in_the_fence_is_not_exempted_by_a_fence_elsewhere():
+    """A fabricated short quote stays rejected even when the chunk has a fence."""
+    cfg = _make_config(verify_anchor_quote=True)
+    approved, rejected = _filter_candidates(
+        [_make_candidate(anchor_quote="frase inventada que nao existe")], cfg, _CODE_CHUNK
+    )
+    assert not approved
+    assert "< 10" in rejected[0][1]
+
+
+def test_ceiling_still_applies_to_an_anchor_inside_a_fence():
+    long_comment = " ".join(f"palavra{i}" for i in range(60))
+    chunk = f"```python\n# {long_comment}\nx = 1\n```"
+    cfg = _make_config(verify_anchor_quote=True)
+    approved, rejected = _filter_candidates(
+        [_make_candidate(anchor_quote=long_comment)], cfg, chunk
+    )
+    assert not approved
+    assert "teto tolerado" in rejected[0][1]
+
+
 def test_filter_candidates_verify_anchor_quote_false_restores_old_behavior():
     """With verify_anchor_quote off, only the empty-string check still runs."""
     cfg = _make_config(verify_anchor_quote=False)

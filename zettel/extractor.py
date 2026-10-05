@@ -36,6 +36,7 @@ from zettel.llm import (
     load_prompt_parts,
     parse_llm_json,
 )
+from zettel.markdown_fences import iter_fenced_spans
 from zettel.paging import format_source_locator
 from zettel.schemas import (
     DedupeDecision,
@@ -810,6 +811,14 @@ def _filter_candidates(
     return approved, rejected
 
 
+def _anchor_in_fence(anchor: str, chunk_text: str, min_ratio: float) -> bool:
+    """True when `anchor` is grounded inside one of the chunk's fenced blocks."""
+    return any(
+        quote_is_grounded(anchor, chunk_text[start:end], min_ratio)
+        for start, end in iter_fenced_spans(chunk_text)
+    )
+
+
 def _check_candidate(
     cand: PermanentNoteCandidate,
     ext: Any,
@@ -844,8 +853,15 @@ def _check_candidate(
         # candidate — thesis, definition and all — because the model overshot by
         # two words trades a formatting miss for lost content, so the ceiling
         # gets a tolerance band and only a paragraph-sized "quote" is refused.
+        #
+        # The floor measures a prose sentence. A quote taken from inside a fenced
+        # block is a line of that block — a code comment, a string literal — and
+        # the evidence is the block as a whole, so the floor does not apply to it
+        # (issue #204). The ceiling and the grounding still do.
         max_words = int(ext.anchor_quote_max_words * ext.anchor_quote_max_words_tolerance)
-        if anchor_words < ext.anchor_quote_min_words:
+        if anchor_words < ext.anchor_quote_min_words and not _anchor_in_fence(
+            cand.anchor_quote, chunk_text, ext.anchor_quote_min_ratio
+        ):
             return f"anchor_quote_words={anchor_words} < {ext.anchor_quote_min_words}"
         if anchor_words > max_words:
             return f"anchor_quote_words={anchor_words} > {max_words} (teto tolerado)"
