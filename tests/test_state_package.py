@@ -135,6 +135,11 @@ PUBLIC_METHODS = {
     "update_web_job",
     "add_web_job_event",
     "list_web_job_events",
+    "create_web_harvest_review",
+    "get_web_harvest_review",
+    "cancel_web_harvest_review",
+    "discard_unavailable_web_harvest_reviews",
+    "queue_web_harvest_review",
     "get_stats",
     "get_web_dashboard",
     # connection lifecycle (db.py)
@@ -177,3 +182,10 @@ def test_submodules_import_siblings_never_the_package_namespace():
             if isinstance(node, ast.ImportFrom):
                 assert node.module != "zettel.state", f"{path.name} importa do __init__"
                 assert not node.level, f"{path.name}: use imports absolutos entre irmaos"
+
+
+def test_no_stale_state_module_beside_the_package():
+    """A ``zettel/state.py`` next to the package is never imported (the package
+    wins), so anything added to it is silently unreachable. A merge from a branch
+    cut before ADR-054 resurrected it once and lost the web harvest-review API."""
+    assert not (PACKAGE.parent / "state.py").exists()

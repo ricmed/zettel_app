@@ -245,6 +245,17 @@ CREATE TABLE IF NOT EXISTS web_job_events (
     FOREIGN KEY (job_id) REFERENCES web_jobs(job_id) ON DELETE CASCADE
 );
 
+-- Bibliographic review of a web upload: the preparation job snapshots the
+-- file, the reviewer confirms once, and that confirmation enqueues the harvest.
+CREATE TABLE IF NOT EXISTS web_harvest_reviews (
+    job_id           TEXT PRIMARY KEY,
+    session_hash     TEXT NOT NULL,
+    file_checksum    TEXT NOT NULL,
+    state            TEXT NOT NULL DEFAULT 'ready',
+    harvest_job_id   TEXT,
+    FOREIGN KEY (job_id) REFERENCES web_jobs(job_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_chunks_status    ON chunks(status);
 CREATE INDEX IF NOT EXISTS idx_chunks_source_id ON chunks(source_id);
 CREATE INDEX IF NOT EXISTS idx_concepts_note_id ON concepts(note_id);
