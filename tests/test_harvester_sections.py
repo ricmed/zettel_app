@@ -489,6 +489,29 @@ def test_headings_inside_fence_do_not_create_sections():
     assert "### Decisoes" in sections[0]["text"]
 
 
+def test_python_comments_in_a_code_only_section_stay_one_chunk():
+    """Mirrors issue #204: `### 4.10` + a Python fence whose comments start with `#`."""
+    fence = (
+        "```python\n"
+        "# 7-Prompt-channing.py — Spec -> Schema -> Routes -> Commit\n"
+        "# Modelo diferente para cada etapa: custo-eficiencia por complexidade\n"
+        'llm1 = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)  # Extracao simples\n'
+        "# Etapa 1: Spec textual -> JSON Schema\n"
+        "spec_to_schema = template | llm1 | parser\n"
+        "```"
+    )
+    chapter = {
+        "title": "4. Implementacao Pratica",
+        "text": f"### 4.10 Prompt Chaining\n\n{fence}",
+        "locator": "4. Implementacao Pratica",
+    }
+    pairs = _split_chapter_into_chunks(_cfg(chunk_size=1500, min_chunk_chars=0), chapter)
+    assert len(pairs) == 1
+    path, text = pairs[0]
+    assert path == "4. Implementacao Pratica > 4.10 Prompt Chaining"
+    assert fence in text
+
+
 def test_real_headings_outside_fence_still_split():
     chapter_text = (
         f"### Secao verdadeira\n\n{_filler(3)}\n\n{HLD_FENCE}\n\n### Outra secao\n\n{_filler(3)}"

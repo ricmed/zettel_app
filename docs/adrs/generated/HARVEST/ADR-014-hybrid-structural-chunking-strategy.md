@@ -171,14 +171,47 @@ Net effect on the measured source: 20 chunks to 17 (this amendment removes one, 
 
 **Cost to weigh before changing `section_path` again:** the locator is part of the extract prompt payload, so prefixing the document title changes `llm_call_checksum` for **every chunk of every Markdown source**. The whole corpus misses the SQLite response cache once, and borderline verdicts can flip — on reprocessing, chapter 6 (`6. Aplicações e Casos de Uso`, 0% fenced, byte-identical text) went from accepted to `rejected`/`narrative` purely because it was a different call. That is not a defect of this amendment, but any future edit to how `section_path` is built pays the same price and carries the same risk.
 
+## Addendum (2026-10-05): every Markdown reader respects fences, not just the chunker (issue #204)
+
+**Status:** Accepted amendment. It extends the 2026-09-02 rule beyond `split_into_chapters` and `split_chapter_into_sections`. Chunking itself is unchanged.
+
+**Reported symptom.** A Markdown source with Python blocks (`@IniciandoComPromptEngineering`, 13 ```` ```python ```` fences) looked as if its code had been broken apart at the `#` of each comment.
+
+**What was verified.** The chunker was right:
+
+* All 96 persisted chunks in the corpus have balanced fences.
+* Each Python block of that source sits whole in one chunk.
+* The LIT excerpt renders the block intact.
+
+**Where the symptom came from.** The extraction dump's outline (`extraction_dump.list_headings`) used a fence-unaware regex:
+
+* For that source it listed 65 H1, and 64 of them were Python comments.
+* Its docstring claimed to be "the same regex harvest uses to split", which stopped being true on 2026-09-02.
+
+`code.enabled` was not involved: it only turns on Docling's `do_code_enrichment` for PDF and has no effect on Markdown.
+
+**The same latent defect existed in two section parsers.** `manual_lit._section` and `skill_export._section` were copies of `^##\s+{heading}\s*$(.*?)(?=^##\s+|\Z)`. A `## ` line inside a fence — a Markdown template quoted in a note — ended the section early.
+
+**Amendment:**
+
+* **Shared helpers.** The heading filter moved to the leaf module `zettel/markdown_fences.py` as `headings_outside_fences` (the old `chunking._headings_outside_fences`, same behaviour). It sits next to `h2_section`, which returns the text under `## heading` up to the next H2 *outside* a fence.
+* **Extraction dump.** `list_headings` goes through `headings_outside_fences`, so the dump outline now lists what harvest actually splits on.
+* **Section parsers.** `manual_lit._section` (it keeps only the placeholder filter) and `skill_export`'s `Limites` read go through `h2_section`. The duplicated regex is gone.
+* **Rule.** Any new code that reads Markdown structure must go through these helpers rather than a raw `^#` regex. A `#` line inside a fence is that fence's content — a comment, an illustrative template — never structure.
+
+Still out of scope, as in 2026-09-02: indented code blocks, tables outside fences, raw HTML. The MOC body parsers (`rebuild._moc_summary_from_body`, `gardener`) read pipeline-generated MOCs and were left alone.
+
 ## References
 
-Paths refreshed 2026-09-02 (chunking addenda); 2026-09-03 (`min_chunk_chars` addendum, overlap-ratio correction); 2026-09-05 (`fence_section_slack` and document-title addenda). The original references pointed into the monolithic
+Paths refreshed 2026-09-02 (chunking addenda); 2026-09-03 (`min_chunk_chars` addendum, overlap-ratio correction); 2026-09-05 (`fence_section_slack` and document-title addenda); 2026-10-05 (fence-aware readers, issue #204). The original references pointed into the monolithic
 `zettel/harvester.py`, which ADR-027 split into a package; symbols are cited instead of
 line ranges, since the line ranges are what rotted.
 
 * `zettel/harvester/chunking.py` — `split_into_chapters` (H1/H2 chapter boundaries), `split_chapter_into_sections` (H3-H6 sub-sections; builds the `section_path` carried in chunk metadata), `merge_small_sections` (`min_section_chars` folding), `split_chapter_into_chunks` (recursive-splitter fallback), `chunk_and_persist` (persistence and indexing)
-* `zettel/harvester/chunking.py` — addendum: `iter_fenced_spans` (fence scanner), `_headings_outside_fences` (heading filter), `_split_preserving_fences` (atomic fence in the size split); heading-prefix addendum: `_glue_orphan_heading`, `headings` on section records, prefix on first piece in `split_chapter_into_chunks`
+* `zettel/markdown_fences.py` — `iter_fenced_spans` (fence scanner), `headings_outside_fences` (heading filter, shared since 2026-10-05), `h2_section` (fence-aware `## ` section reader, 2026-10-05)
+* `zettel/extraction_dump.py` — `list_headings` (dump outline, fence-aware since 2026-10-05); `zettel/manual_lit.py` `_section` and `zettel/skill_export.py` (`Limites`) read sections through `h2_section`
+* `tests/test_markdown_fences.py`, `tests/test_extraction_dump.py`, `tests/test_manual_flow.py`, `tests/test_skill_export.py` — 2026-10-05 addendum: comments and `## ` lines inside a fence are not structure
+* `zettel/harvester/chunking.py` — addendum: `_split_preserving_fences` (atomic fence in the size split); heading-prefix addendum: `_glue_orphan_heading`, `headings` on section records, prefix on first piece in `split_chapter_into_chunks`
 * `zettel/harvester/chunking.py` — `min_chunk_chars` addendum: `_merge_short_pieces` (post-splitter floor)
 * `zettel/harvester/chunking.py` — `fence_section_slack` addendum: `_fits_as_whole_fenced_section` (whole fenced section), `_absorb_orphan_prose` (orphan prose glued back onto its fence); document-title addendum: `_document_title_match` (single leading H1 in Markdown), `_section_base_path` (`doc_title` prefix on `section_path`)
 * `tests/test_harvester_sections.py` — section splitting and merge rules; addendum: fence atomicity, info-string/marker-family rules, unclosed fence, oversized fence; heading prefix on first chunk, fence-only section, merge heading placement, checksum identity; `min_chunk_chars` floor: merge-back, merge-forward, all-short collapse, integration via `split_chapter_into_chunks`

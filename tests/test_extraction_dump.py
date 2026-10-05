@@ -80,6 +80,12 @@ def test_list_headings_collects_h1_to_h6():
     assert list_headings("sem heading") == []
 
 
+def test_list_headings_ignores_comments_inside_a_code_fence():
+    """A Python `# comment` is code, not a heading — same rule harvest applies."""
+    text = "# Titulo\n\n```python\n# utils.py — helper\nx = 1  # fim\n```\n\n## Secao\n"
+    assert list_headings(text) == [(1, "Titulo"), (2, "Secao")]
+
+
 def test_render_includes_frontmatter_outline_and_raw_text():
     md = render_extraction_dump(_source(), RAW_MD, _cfg())
     assert md.startswith("---\n")

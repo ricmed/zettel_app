@@ -419,6 +419,21 @@ def test_candidate_theses_strips_pipeline_rendering_metadata():
     ]
 
 
+def test_summary_keeps_a_fenced_block_with_a_heading_line():
+    """#204: a `## ` line inside a fence does not end the `## Resumo` section."""
+    from zettel.manual_lit import summary_payload
+
+    body = (
+        "## Resumo\n\nUm exemplo de template:\n\n"
+        "```markdown\n## Objetivo\n\nDescreva o sistema.\n```\n\n"
+        "Fim do resumo.\n\n## Conceitos-chave\n\n#template\n"
+    )
+    payload = summary_payload(body, body)
+    assert payload["summary"].endswith("Fim do resumo.")
+    assert "## Objetivo" in payload["summary"]
+    assert payload["key_concepts"] == ["template"]
+
+
 def _insert_approved_concept(db, lit_path, thesis: str) -> str:
     """Simulate extract+review having left an approved concept with no note."""
     meta, _ = parse_frontmatter(lit_path.read_text(encoding="utf-8"))

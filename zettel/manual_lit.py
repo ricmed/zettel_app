@@ -21,6 +21,7 @@ from typing import Any
 from zettel.config import AppConfig
 from zettel.hashing import normalize_text_for_hash, sha256_hex, short_hash
 from zettel.index import VectorIndex
+from zettel.markdown_fences import h2_section
 from zettel.schemas import PermanentNoteCandidate
 from zettel.state import StateDB
 from zettel.time import now_vault_iso
@@ -71,14 +72,7 @@ def ensure_manual_chapter(db: StateDB, source_id: str) -> str:
 
 def _section(body: str, heading: str) -> str:
     """Return the text under a `## heading`, empty when absent or a placeholder."""
-    pattern = re.compile(
-        rf"^##\s+{re.escape(heading)}\s*$(.*?)(?=^##\s+|\Z)",
-        re.MULTILINE | re.DOTALL,
-    )
-    match = pattern.search(body)
-    if not match:
-        return ""
-    text = match.group(1).strip()
+    text = h2_section(body, heading)
     return "" if text.lower() in _PLACEHOLDERS else text
 
 

@@ -4,7 +4,10 @@ A leaf module on purpose: pure text in, spans out, no config, no SQLite, no
 Chroma. `harvester.chunking` uses it to keep a fence atomic while splitting
 (ADR-014), and anything that needs to reason about where the code blocks are can
 import it without paying for chromadb — which is what `harvester/chunking.py`,
-its previous home, drags in through `zettel.index`.
+its previous home, drags in through `zettel.index`. The extraction dump, the
+manual LIT parser, the skill export and the extractor's anchor check read
+headings and sections through it too, so no reader mistakes a `#` comment
+inside a fence for structure.
 """
 
 from __future__ import annotations
@@ -58,3 +61,34 @@ def iter_fenced_spans(text: str) -> list[tuple[int, int]]:
 
 def offset_is_fenced(offset: int, spans: list[tuple[int, int]]) -> bool:
     return any(start <= offset < end for start, end in spans)
+
+
+def headings_outside_fences(pattern: re.Pattern[str], text: str) -> list[re.Match[str]]:
+    """Matches of `pattern` whose offset does not fall inside a fenced block.
+
+    The one rule every Markdown reader shares: a `#` line inside a fence is the
+    fence's content (a Python comment, an illustrative template), never document
+    structure.
+    """
+    spans = iter_fenced_spans(text)
+    if not spans:
+        return list(pattern.finditer(text))
+    return [m for m in pattern.finditer(text) if not offset_is_fenced(m.start(), spans)]
+
+
+_H2_RE = re.compile(r"^##[ \t]+(.+?)[ \t]*$", re.MULTILINE)
+
+
+def h2_section(body: str, heading: str) -> str:
+    """Text under ``## heading`` up to the next ``## `` outside a fence, stripped.
+
+    Only an H2 closes the section (H1 and H3+ are part of it). Empty when the
+    heading is absent.
+    """
+    body = body or ""
+    matches = headings_outside_fences(_H2_RE, body)
+    for i, m in enumerate(matches):
+        if m.group(1) == heading:
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(body)
+            return body[m.end() : end].strip()
+    return ""

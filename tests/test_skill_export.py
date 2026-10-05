@@ -317,6 +317,26 @@ def test_cheatsheet_uses_judgement_limits_and_contradictions(cfg, db, tmp_path):
     assert "Dropout como ensemble <-> Batch norm e covariate shift" in text
 
 
+def test_cheatsheet_limits_are_not_cut_by_a_heading_inside_a_fence(cfg, db, tmp_path):
+    """#204: a `## ` line inside a fence is code, so `## Limites` keeps going."""
+    _add_source(db, "@Fence2021", "Fence2021", "Fence")
+    path = cfg.vault_path / "30_Permanent" / "ZTL - 01HEEEEEEEEEEEEEEEEEEEEEEE - x.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("corpo", encoding="utf-8")
+    limits = "Vale para templates:\n\n```markdown\n## Objetivo\n```\n\nNao vale para prosa livre."
+    db.upsert_note(
+        note_id="01HEEEEEEEEEEEEEEEEEEEEEEE",
+        source_id="@Fence2021",
+        path=str(path),
+        title="Com fence",
+        body=_note_body("Uma tese com template", limits),
+        frontmatter_json=json.dumps({"tags": ["tema"]}),
+    )
+    pack_dir, _ = _export(cfg, db, tmp_path, source_id="@Fence2021")
+    text = (pack_dir / "cheatsheet.md").read_text(encoding="utf-8")
+    assert "Nao vale para prosa livre." in text
+
+
 def test_cheatsheet_is_honest_when_nothing_was_stated(cfg, db, tmp_path):
     _add_source(db, "@Outro2021", "Outro2021", "Outro")
     path = cfg.vault_path / "30_Permanent" / "ZTL - 01HDDDDDDDDDDDDDDDDDDDDDDD - x.md"

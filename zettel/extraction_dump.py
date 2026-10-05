@@ -15,6 +15,7 @@ from typing import Any
 
 from zettel.chunk_dump import sanitize_citekey
 from zettel.config import AppConfig
+from zettel.markdown_fences import headings_outside_fences
 from zettel.state import StateDB
 from zettel.vault import compose_note
 
@@ -34,8 +35,15 @@ def dump_filename(citekey: str) -> str:
 
 
 def list_headings(text: str) -> list[tuple[int, str]]:
-    """ATX headings H1-H6 in document order (same regex harvest uses to split)."""
-    return [(len(m.group(1)), m.group(2).strip()) for m in _HEADING_RE.finditer(text or "")]
+    """ATX headings H1-H6 in document order, skipping fenced blocks.
+
+    Same rule harvest applies when it splits: a `#` line inside a fence (a
+    Python comment, an illustrative template) is code, not structure.
+    """
+    return [
+        (len(m.group(1)), m.group(2).strip())
+        for m in headings_outside_fences(_HEADING_RE, text or "")
+    ]
 
 
 def render_extraction_dump(
