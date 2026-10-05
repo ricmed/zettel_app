@@ -77,6 +77,22 @@ _DECISION_ALIASES = {
     "sair": "sair",
 }
 
+_EXTRACT_DECISION_ALIASES = {
+    "e": "reenfileirar",
+    "reenfileirar": "reenfileirar",
+    "f": "processar",
+    "processar": "processar",
+    "d": "apagar",
+    "apagar": "apagar",
+    "descartar": "apagar",
+    "m": "manter",
+    "manter": "manter",
+    "p": "pular",
+    "pular": "pular",
+    "q": "sair",
+    "sair": "sair",
+}
+
 
 def chunk_confidence_band(conf: float, limiar: float) -> str:
     """Classifica uma confianca em very_low / medium / high."""
@@ -169,6 +185,12 @@ def normalize_review_decision(raw: str) -> str | None:
     return _DECISION_ALIASES.get(key)
 
 
+def normalize_extract_decision(raw: str) -> str | None:
+    """Mapeia atalho para reenfileirar/processar/apagar/manter/pular/sair."""
+    key = (raw or "").strip().lower()
+    return _EXTRACT_DECISION_ALIASES.get(key)
+
+
 def ask_review_decision(console, *, conf: float, limiar: float) -> str:
     """Prompt HITL um-a-um com atalhos a/r/p/q e palavras completas."""
     from rich.prompt import Prompt
@@ -201,7 +223,8 @@ def run_review(
     """Approve/reject literature drafts awaiting review.
 
     Returns counts: approved, rejected, skipped, requeued (extract rejections sent
-    back to ``pending``), kept_duplicates / discarded_duplicates (dedupe decisions)
+    back to ``pending``), forced (the same queue marked ``force_extract``),
+    discarded, kept_duplicates / discarded_duplicates (dedupe decisions)
     and dedupe_pending (possible duplicates still waiting for a decision).
     """
     from zettel.usage import begin_run, finish_pipeline_run
@@ -220,6 +243,8 @@ def run_review(
         "rejected": 0,
         "skipped": 0,
         "requeued": 0,
+        "forced": 0,
+        "discarded": 0,
         "kept_duplicates": 0,
         "discarded_duplicates": 0,
         "dedupe_pending": 0,
@@ -274,6 +299,13 @@ def review_followups(stats: dict[str, int]) -> list[str]:
         )
     if stats.get("requeued"):
         lines.append(f"{stats['requeued']} chunk(s) reenfileirado(s) - rode `zettel extract`.")
+    if stats.get("forced"):
+        lines.append(
+            f"{stats['forced']} chunk(s) marcado(s) para extracao obrigatoria "
+            "- rode `zettel extract`."
+        )
+    if stats.get("discarded"):
+        lines.append(f"{stats['discarded']} chunk(s) apagado(s) do banco.")
     return lines
 
 
@@ -290,6 +322,7 @@ def _review_menu(
     """Menu loop: every action comes back here until ``q`` or nothing is left."""
     from rich.prompt import Prompt
 
+    dismissed_extract: set[str] = set()
     while True:
         rejected_by_extract = extract_rejected_chunks(db, source_id)
         if not chunks and not rejected_by_extract:
@@ -305,7 +338,9 @@ def _review_menu(
         if mode == "q":
             return
         if mode == "x":
-            _requeue_extract_rejected(console, db, rejected_by_extract, stats)
+            _requeue_extract_rejected(
+                console, db, idx, rejected_by_extract, stats, dismissed_extract
+            )
             continue
         if not chunks:
             console.print("[dim]Nenhum draft aguardando review.[/dim]")
@@ -377,7 +412,7 @@ def _print_queue(
     console.print(f"[cyan]  Rejeitados pelo extract (sem draft): {n_extract_rejected}[/cyan]")
     console.print(
         "[cyan]Comandos: a=aprovar >= limiar, d=reprovar (todos ou por faixa), "
-        "r=revisar um a um, x=rejeitados pelo extract, q=sair[/cyan]"
+        "r=revisar um a um, x=rejeitados pelo extract (um a um), q=sair[/cyan]"
     )
 
 
@@ -450,57 +485,148 @@ def extract_rejected_chunks(db: StateDB, source_id: str | None = None) -> list[d
 
 
 def requeue_extract_rejected(db: StateDB, chunk_ids: list[str]) -> int:
-    """Send extract rejections back to ``pending``, dropping the cached verdict."""
+    """Send extract rejections back to ``pending``, dropping the cached verdict.
+
+    This is a second opinion: the next extract may reject the chunk again.
+    It does not set ``force_extract``.
+    """
     return sum(db.reset_chunk_to_pending(cid, drop_llm_cache=True) for cid in chunk_ids)
 
 
-def _requeue_extract_rejected(
-    console, db: StateDB, rejected: list[dict], stats: dict[str, int]
-) -> None:
-    from rich.prompt import Prompt
-    from rich.table import Table
+def force_extract_rejected(db: StateDB, chunk_ids: list[str]) -> int:
+    """Send extract rejections back to ``pending`` with ``force_extract`` set.
 
+    The next extract must produce a draft: Prompt 1 is told to ignore the
+    selectivity locks. A draft or a reviewer rejection is not eligible.
+    """
+    forced = 0
+    for cid in requeueable_extract_ids(db, chunk_ids):
+        chunk = db.get_chunk(cid)
+        if not chunk:
+            continue
+        summary = _load_json(chunk.get("summary_json"))
+        summary["force_extract"] = True
+        db.update_chunk_review(
+            cid,
+            summary_json=json.dumps(summary, ensure_ascii=False),
+        )
+        if db.reset_chunk_to_pending(cid, drop_llm_cache=True):
+            forced += 1
+    return forced
+
+
+def discard_extract_rejected(db: StateDB, idx: VectorIndex, chunk_ids: list[str]) -> int:
+    """Hard-delete extract rejections from SQLite and the chunks index.
+
+    A draft or a reviewer rejection is not in :func:`requeueable_extract_ids`,
+    so this cannot remove it. No VACUUM: reclaiming disk stays on ``purge-rejected``.
+    """
+    eligible = requeueable_extract_ids(db, chunk_ids)
+    if not eligible:
+        return 0
+    db.delete_chunks(eligible)
+    idx.delete_chunks(eligible)
+    return sum(db.get_chunk(cid) is None for cid in eligible)
+
+
+def requeueable_extract_ids(db: StateDB, chunk_ids: list[str]) -> list[str]:
+    """Ids in ``chunk_ids`` that the extract rejected (no candidates).
+
+    A reviewer rejection and an awaiting draft are not in this set, so a web
+    ``requeue`` cannot send them back to extract.
+    """
+    allowed = {c["chunk_id"] for c in extract_rejected_chunks(db)}
+    return [cid for cid in chunk_ids if cid in allowed]
+
+
+def format_extract_rejected_item(chunk: dict, *, index: int, total: int) -> str:
+    """Card PT-BR de um chunk que o extract rejeitou: motivo e trecho inteiros."""
+    page = chunk.get("page_in_book") or chunk.get("page_in_file") or "?"
+    section = (chunk.get("section_path") or "").strip()
+    header = f"[{index}/{total}] {chunk['chunk_id']}  p.{page}"
+    if section:
+        header += f"  {section}"
+    summary = _load_json(chunk.get("summary_json"))
+    category = str(summary.get("rejection_category") or "-")
+    reason = str(summary.get("rejection_reason") or "").strip() or "_Sem motivo._"
+    excerpt = (chunk.get("text") or "").strip() or "_Trecho nao disponivel._"
+    return f"{header}\n\nCategoria\n{category}\n\nMotivo\n{reason}\n\nTrecho\n{excerpt}"
+
+
+def ask_extract_decision(console) -> str:
+    """Prompt HITL um-a-um para um chunk rejeitado pelo extract."""
+    from rich.prompt import Prompt
+
+    while True:
+        raw = Prompt.ask(
+            r"Decisao \[e=reenfileirar/f=processar mesmo assim/"
+            r"d=apagar do banco/m=manter/p=pular/q=voltar\]",
+            choices=list(_EXTRACT_DECISION_ALIASES.keys()),
+            default="p",
+            show_choices=False,
+            console=console,
+        )
+        choice = normalize_extract_decision(raw)
+        if choice is not None:
+            return choice
+
+
+def _requeue_extract_rejected(
+    console,
+    db: StateDB,
+    idx: VectorIndex,
+    rejected: list[dict],
+    stats: dict[str, int],
+    dismissed: set[str],
+) -> None:
+    """Walk extract rejections one by one. ``m`` hides a chunk for this session."""
     if not rejected:
         console.print("[dim]Nenhum chunk rejeitado pelo extract.[/dim]")
         return
-    table = Table(title=f"Rejeitados pelo extract ({len(rejected)})")
-    table.add_column("#")
-    table.add_column("Pagina")
-    table.add_column("Secao")
-    table.add_column("Categoria")
-    table.add_column("Motivo")
-    for i, c in enumerate(rejected, 1):
-        summary = _load_json(c.get("summary_json"))
-        table.add_row(
-            str(i),
-            str(c.get("page_in_book") or c.get("page_in_file") or "-"),
-            (c.get("section_path") or "")[:50],
-            str(summary.get("rejection_category") or "-"),
-            str(summary.get("rejection_reason") or "")[:160],
+    pending = [c for c in rejected if c["chunk_id"] not in dismissed]
+    if not pending:
+        console.print("[dim]Nenhum chunk rejeitado pelo extract nesta sessao.[/dim]")
+        return
+    total = len(pending)
+    for index, chunk in enumerate(pending, 1):
+        console.print()
+        console.print(
+            format_extract_rejected_item(chunk, index=index, total=total),
+            markup=False,
         )
-    console.print(table)
+        choice = ask_extract_decision(console)
+        if choice == "sair":
+            return
+        if choice == "reenfileirar":
+            n = requeue_extract_rejected(db, [chunk["chunk_id"]])
+            stats["requeued"] += n
+            console.print("[green]Reenfileirado. Rode `zettel extract`.[/green]")
+        elif choice == "processar":
+            n = force_extract_rejected(db, [chunk["chunk_id"]])
+            stats["forced"] += n
+            console.print(
+                "[green]Marcado para extracao obrigatoria. Rode `zettel extract`.[/green]"
+            )
+        elif choice == "apagar":
+            from rich.prompt import Prompt
 
-    raw = Prompt.ask(
-        r"Re-extrair quais? \[numeros separados por virgula, t=todos, c=cancelar\]",
-        default="c",
-        console=console,
-    )
-    selected = parse_selection(raw, len(rejected))
-    if not selected:
-        console.print("[dim]Nada reenfileirado.[/dim]")
-        return
-    confirm = Prompt.ask(
-        f"Reenfileirar {len(selected)} chunk(s) para o extract?",
-        choices=["s", "n"],
-        default="n",
-        console=console,
-    )
-    if confirm != "s":
-        console.print("[dim]Nada reenfileirado.[/dim]")
-        return
-    n = requeue_extract_rejected(db, [rejected[i]["chunk_id"] for i in selected])
-    stats["requeued"] += n
-    console.print(f"[green]{n} chunk(s) de volta a pending. Rode `zettel extract`.[/green]")
+            confirm = Prompt.ask(
+                "Apagar este chunk do banco? Nao da para desfazer.",
+                choices=["s", "n"],
+                default="n",
+                console=console,
+            )
+            if confirm != "s":
+                console.print("[dim]Nada apagado.[/dim]")
+                continue
+            n = discard_extract_rejected(db, idx, [chunk["chunk_id"]])
+            stats["discarded"] += n
+            console.print("[green]Apagado do banco.[/green]")
+        elif choice == "manter":
+            dismissed.add(chunk["chunk_id"])
+            console.print("[dim]Mantido como rejeitado.[/dim]")
+        else:
+            console.print("[dim]Pulado.[/dim]")
 
 
 def parse_selection(raw: str, total: int) -> list[int]:

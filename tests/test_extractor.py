@@ -47,6 +47,39 @@ def _make_config(**overrides) -> AppConfig:
     return AppConfig(extraction=ExtractionConfig(**ext_kwargs))
 
 
+def test_filter_candidates_force_skips_selectivity():
+    """A forced extract keeps a short, low-relevance candidate the model marked rejected."""
+    cfg = _make_config(min_relevance_score=3, min_thesis_words=5, min_definition_words=10)
+    candidate = _make_candidate(
+        relevance_score=1,
+        thesis="Curta",
+        definition="curta",
+        chunk_status="rejected",
+        rejection_reason="trivial",
+        rejection_category="trivial",
+    )
+    approved, rejected = _filter_candidates([candidate], cfg, force=True)
+    assert approved == [candidate]
+    assert rejected == []
+    plain_approved, plain_rejected = _filter_candidates([candidate], cfg)
+    assert plain_approved == []
+    assert plain_rejected
+
+
+def test_filter_candidates_force_still_drops_an_ungrounded_quote():
+    cfg = _make_config(verify_anchor_quote=True)
+    quote = "uma citacao que nao esta no chunk de forma alguma mesmo"
+    candidate = _make_candidate(anchor_quote=quote, relevance_score=1, thesis="Curta")
+    approved, rejected = _filter_candidates(
+        [candidate],
+        cfg,
+        "outro texto completamente diferente sobre outro assunto qualquer",
+        force=True,
+    )
+    assert approved == []
+    assert "anchor_quote" in rejected[0][1]
+
+
 def test_filter_candidates_by_relevance():
     """Candidates below relevance threshold are rejected."""
     cfg = _make_config(min_relevance_score=3)
@@ -434,6 +467,110 @@ def test_process_chunk_persists_rejection_taxonomy(tmp_path, monkeypatch):
     assert persisted["rejection_category"] == "structural"
     assert persisted["rejection_reason"] == "trecho e so uma referencia bibliografica"
     assert persisted["rejected_candidates"] == []
+    db.close()
+
+
+def test_prompt1_call_checksum_changes_when_forced():
+    from zettel.extractor import prompt1_call_checksum
+
+    cfg = AppConfig()
+    row = {"chunk_checksum": "abc"}
+    plain = prompt1_call_checksum(cfg, "ph", row, "")
+    forced = prompt1_call_checksum(cfg, "ph", row, "", force_extract=True)
+    assert plain != forced
+
+
+def test_process_chunk_force_writes_draft_from_a_rejected_payload(tmp_path, monkeypatch):
+    """The reviewer already accepted the chunk: a rejected payload still becomes a draft."""
+    import json
+
+    from zettel.extractor import FORCE_EXTRACT_INSTRUCTION, _process_chunk
+    from zettel.llm import load_prompt_parts
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+    cfg.extraction.verify_anchor_quote = False
+    db.update_chunk_review(
+        chunk_row["chunk_id"],
+        summary_json=json.dumps({"candidates": [], "force_extract": True}),
+    )
+    chunk_row = db.get_chunk(chunk_row["chunk_id"])
+    seen: list[str] = []
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        seen.append(user)
+        return json.dumps(
+            {
+                "chunk_status": "rejected",
+                "rejection_reason": "o modelo achou trivial",
+                "rejection_category": "trivial",
+                "summary": "Trecho que o revisor quis manter.",
+                "key_concepts": [],
+                "candidates": [
+                    {
+                        "thesis": "Curta",
+                        "definition": "curta",
+                        "anchor_quote": "texto do chunk",
+                        "relevance_score": 1,
+                    }
+                ],
+            }
+        )
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+
+    row = db.get_chunk(chunk_row["chunk_id"])
+    persisted = json.loads(row["summary_json"])
+    assert row["status"] == "awaiting_review"
+    assert row["literature_note_path"]
+    assert persisted["candidates"]
+    assert "force_extract" not in persisted
+    assert FORCE_EXTRACT_INSTRUCTION in seen[0]
+    db.close()
+
+
+def test_process_chunk_force_without_a_candidate_stays_failed(tmp_path, monkeypatch):
+    """An empty forced response is not cached and does not return to extract-rejected."""
+    import json
+
+    from zettel.extractor import _process_chunk
+    from zettel.llm import load_prompt_parts
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+    db.update_chunk_review(
+        chunk_row["chunk_id"],
+        summary_json=json.dumps({"candidates": [], "force_extract": True}),
+    )
+    calls = {"n": 0}
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        calls["n"] += 1
+        return json.dumps(
+            {
+                "chunk_status": "rejected",
+                "rejection_reason": "ainda vazio",
+                "rejection_category": "trivial",
+                "summary": "Nada.",
+                "key_concepts": [],
+                "candidates": [],
+            }
+        )
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    chunk_row = db.get_chunk(chunk_row["chunk_id"])
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+
+    row = db.get_chunk(chunk_row["chunk_id"])
+    persisted = json.loads(row["summary_json"])
+    assert row["status"] == "failed"
+    assert persisted["force_extract"] is True
+    assert persisted["candidates"] == []
+
+    chunk_row = db.get_chunk(chunk_row["chunk_id"])
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+    assert calls["n"] == 2
     db.close()
 
 

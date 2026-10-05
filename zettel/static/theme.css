@@ -139,6 +139,12 @@
   background: var(--surface-note);
 }
 
+[data-theme="dark"] .chunk-text {
+  background: var(--surface-subtle);
+  color: var(--ink);
+  border-color: var(--line);
+}
+
 [data-theme="dark"] .status {
   background: #32363e;
   color: #c8cbd1;

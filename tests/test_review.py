@@ -739,13 +739,180 @@ def test_run_review_x_requeues_an_extract_rejection(env):
     with (
         patch("zettel.usage.begin_run"),
         patch("zettel.usage.finish_pipeline_run"),
-        patch("rich.prompt.Prompt.ask", side_effect=["x", "1", "s", "q"]),
+        patch("rich.prompt.Prompt.ask", side_effect=["x", "e", "q"]),
+    ):
+        stats = run_review(cfg, db, idx, interactive=True)
+
+    assert stats["requeued"] == 1
+    assert stats["forced"] == 0
+    row = db.get_chunk("@Book2024::ch000::refs")
+    assert row["status"] == "pending"
+    assert "force_extract" not in json.loads(row["summary_json"])
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "awaiting_review"
+
+
+def test_run_review_f_marks_force_extract(env):
+    cfg, db, idx = env
+    _seed_extract_rejected(db, "@Book2024::ch000::refs")
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("rich.prompt.Prompt.ask", side_effect=["x", "f", "q"]),
+    ):
+        stats = run_review(cfg, db, idx, interactive=True)
+
+    assert stats["forced"] == 1
+    assert stats["requeued"] == 0
+    row = db.get_chunk("@Book2024::ch000::refs")
+    assert row["status"] == "pending"
+    assert json.loads(row["summary_json"])["force_extract"] is True
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "awaiting_review"
+
+
+def test_force_extract_rejected_skips_reviewer_rejections(env):
+    from zettel.review import force_extract_rejected
+
+    cfg, db, idx = env
+    _seed_extract_rejected(db, "@Book2024::ch000::refs")
+    reject_chunk(cfg, db, idx, "@Book2024::ch000::abc")
+
+    assert force_extract_rejected(db, ["@Book2024::ch000::abc"]) == 0
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "rejected"
+    assert force_extract_rejected(db, ["@Book2024::ch000::refs"]) == 1
+    forced = db.get_chunk("@Book2024::ch000::refs")
+    assert forced["status"] == "pending"
+    assert json.loads(forced["summary_json"])["force_extract"] is True
+
+
+def test_run_review_d_deletes_an_extract_rejection(env):
+    cfg, db, idx = env
+    _seed_extract_rejected(db, "@Book2024::ch000::refs")
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("rich.prompt.Prompt.ask", side_effect=["x", "d", "s", "q"]),
+    ):
+        stats = run_review(cfg, db, idx, interactive=True)
+
+    assert stats["discarded"] == 1
+    assert stats["requeued"] == 0
+    assert db.get_chunk("@Book2024::ch000::refs") is None
+    assert idx.chunk_deletes == ["@Book2024::ch000::refs"]
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "awaiting_review"
+
+
+def test_run_review_d_cancel_keeps_the_extract_rejection(env):
+    cfg, db, idx = env
+    _seed_extract_rejected(db, "@Book2024::ch000::refs")
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("rich.prompt.Prompt.ask", side_effect=["x", "d", "n", "q"]),
+    ):
+        stats = run_review(cfg, db, idx, interactive=True)
+
+    assert stats["discarded"] == 0
+    assert db.get_chunk("@Book2024::ch000::refs")["status"] == "rejected"
+    assert idx.chunk_deletes == []
+
+
+def test_discard_extract_rejected_skips_reviewer_rejections(env):
+    from zettel.review import discard_extract_rejected
+
+    cfg, db, idx = env
+    _seed_extract_rejected(db, "@Book2024::ch000::refs")
+    reject_chunk(cfg, db, idx, "@Book2024::ch000::abc")
+
+    removed = discard_extract_rejected(db, idx, ["@Book2024::ch000::abc", "@Book2024::ch000::refs"])
+
+    assert removed == 1
+    assert db.get_chunk("@Book2024::ch000::refs") is None
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "rejected"
+    assert idx.chunk_deletes == ["@Book2024::ch000::refs"]
+
+
+def test_format_extract_rejected_item_keeps_full_text():
+    from zettel.review import format_extract_rejected_item
+
+    reason = "motivo " * 40
+    text = "trecho " * 120
+    card = format_extract_rejected_item(
+        {
+            "chunk_id": "@Book2024::ch000::refs",
+            "page_in_book": 12,
+            "section_path": "Referencias",
+            "summary_json": json.dumps(
+                {"rejection_category": "structural", "rejection_reason": reason}
+            ),
+            "text": text,
+        },
+        index=2,
+        total=9,
+    )
+    assert "[2/9] @Book2024::ch000::refs  p.12  Referencias" in card
+    assert reason.strip() in card
+    assert text.strip() in card
+    assert "structural" in card
+
+
+def test_run_review_m_hides_extract_rejection_for_the_session(env):
+    cfg, db, idx = env
+    _seed_extract_rejected(db, "@Book2024::ch000::refs")
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("rich.prompt.Prompt.ask", side_effect=["x", "m", "x", "q"]),
+    ):
+        stats = run_review(cfg, db, idx, interactive=True)
+
+    assert stats["requeued"] == 0
+    assert db.get_chunk("@Book2024::ch000::refs")["status"] == "rejected"
+
+
+def test_run_review_p_leaves_extract_rejection_for_a_later_pass(env):
+    cfg, db, idx = env
+    _seed_extract_rejected(db, "@Book2024::ch000::refs")
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("rich.prompt.Prompt.ask", side_effect=["x", "p", "x", "e", "q"]),
     ):
         stats = run_review(cfg, db, idx, interactive=True)
 
     assert stats["requeued"] == 1
     assert db.get_chunk("@Book2024::ch000::refs")["status"] == "pending"
-    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "awaiting_review"
+
+
+def test_requeueable_extract_ids_skips_reviewer_rejections(env):
+    from zettel.review import requeueable_extract_ids
+
+    cfg, db, idx = env
+    _seed_extract_rejected(db, "@Book2024::ch000::refs")
+    reject_chunk(cfg, db, idx, "@Book2024::ch000::abc")
+
+    assert requeueable_extract_ids(
+        db, ["@Book2024::ch000::abc", "@Book2024::ch000::refs", "missing"]
+    ) == ["@Book2024::ch000::refs"]
+
+
+def test_non_interactive_review_leaves_extract_rejections(env):
+    cfg, db, idx = env
+    _seed_extract_rejected(db, "@Book2024::ch000::refs")
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("zettel.review._dedupe_approved_concepts"),
+    ):
+        stats = run_review(cfg, db, idx, auto_approve=True, interactive=False)
+
+    assert stats["requeued"] == 0
+    assert db.get_chunk("@Book2024::ch000::refs")["status"] == "rejected"
 
 
 def _seed_pending_duplicate(db):

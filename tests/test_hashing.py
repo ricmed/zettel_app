@@ -169,6 +169,16 @@ def test_compute_llm_call_checksum_thinking_default_is_empty():
     assert omitted == explicit
 
 
+def test_compute_llm_call_checksum_empty_variant_keeps_the_historical_key():
+    omitted = compute_llm_call_checksum("ph", "cc", "gpt-4o-mini", 0.0, "pt-BR")
+    explicit = compute_llm_call_checksum("ph", "cc", "gpt-4o-mini", 0.0, "pt-BR", variant="")
+    forced = compute_llm_call_checksum(
+        "ph", "cc", "gpt-4o-mini", 0.0, "pt-BR", variant="force_extract"
+    )
+    assert omitted == explicit
+    assert omitted != forced
+
+
 def test_compute_llm_call_checksum_provider_and_top_p_have_defaults():
     """Old callers that don't pass provider/top_p still get a stable checksum."""
     a = compute_llm_call_checksum("ph", "cc", "gpt-4o-mini", 0.0, "pt-BR")

@@ -1,5 +1,120 @@
 {% extends "base.html" %}{% block title %}Revisão · Zettelkasten{% endblock %}
-{% block content %}<div class="page-heading"><div><div class="eyebrow">hitl</div><h1>Revisão humana</h1><p class="muted">Nada é autoaprovado aqui: selecione o que deve virar literatura confiável.</p></div></div>
-<form class="filters" method="get"><select name="source_id"><option value="">Todas as fontes</option>{% for source in sources %}<option value="{{ source.source_id }}" {% if selected_source == source.source_id %}selected{% endif %}>{{ source.citekey }}</option>{% endfor %}</select><select name="confidence"><option value="">Toda confiança</option><option value="low" {% if selected_confidence=='low' %}selected{% endif %}>Baixa</option><option value="medium" {% if selected_confidence=='medium' %}selected{% endif %}>Média</option><option value="high" {% if selected_confidence=='high' %}selected{% endif %}>Alta</option></select><button class="button">Filtrar</button></form>
-<form method="post" action="/review/action"><input type="hidden" name="csrf" value="{{ csrf }}"><div class="review-actions"><select name="action"><option value="approve">Aprovar selecionados</option><option value="reject">Rejeitar selecionados</option></select><button class="primary" onclick="return confirm('Confirma a ação nos drafts selecionados?')">Aplicar lote</button></div>
-{% if chunks %}{% for chunk in chunks %}<article class="review-card"><label class="select"><input type="checkbox" name="chunk_ids" value="{{ chunk.chunk_id }}"><span></span></label><div class="review-body"><div class="review-meta"><code>{{ chunk.source_id }}</code><span>p. {{ chunk.page_in_book or chunk.page_in_file or '?' }}</span><span class="confidence">{{ '%.2f'|format(chunk.review_confidence or 0) }}</span></div><h2>{{ chunk.summary or 'Draft sem resumo' }}</h2><p><b>Trecho de origem:</b> {{ chunk.text[:550] }}{% if chunk.text|length > 550 %}…{% endif %}</p>{% if chunk.candidates %}<details><summary>{{ chunk.candidates|length }} candidato(s)</summary>{% for candidate in chunk.candidates %}<div class="candidate"><b>{{ candidate.thesis }}</b><p>{{ candidate.definition }}</p></div>{% endfor %}</details>{% endif %}</div></article>{% endfor %}<div class="pagination">{% if review_page > 1 %}<a class="button" href="?source_id={{ selected_source }}&confidence={{ selected_confidence }}&page={{ review_page - 1 }}">Anterior</a>{% endif %}<span>Página {{ review_page }}</span>{% if has_next %}<a class="button" href="?source_id={{ selected_source }}&confidence={{ selected_confidence }}&page={{ review_page + 1 }}">Próxima</a>{% endif %}</div>{% else %}<div class="empty panel">Nenhum draft corresponde aos filtros.</div>{% endif %}</form>{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">hitl</div>
+    <h1>Revisão humana</h1>
+    {% if queue == 'rejected' %}
+    <p class="muted">Chunks que o extract recusou e que nunca viraram draft LIT. O trecho abaixo é o texto fonte.</p>
+    {% else %}
+    <p class="muted">Nada é autoaprovado aqui: selecione o que deve virar literatura confiável.</p>
+    {% endif %}
+  </div>
+</div>
+<nav class="queue-tabs">
+  <a class="button{% if queue != 'rejected' %} primary{% endif %}" href="/review?source_id={{ selected_source }}">Drafts</a>
+  <a class="button{% if queue == 'rejected' %} primary{% endif %}" href="/review?queue=rejected&amp;source_id={{ selected_source }}">Rejeitados pelo extract</a>
+</nav>
+<form class="filters" method="get">
+  {% if queue == 'rejected' %}<input type="hidden" name="queue" value="rejected">{% endif %}
+  <select name="source_id">
+    <option value="">Todas as fontes</option>
+    {% for source in sources %}
+    <option value="{{ source.source_id }}" {% if selected_source == source.source_id %}selected{% endif %}>{{ source.citekey }}</option>
+    {% endfor %}
+  </select>
+  {% if queue != 'rejected' %}
+  <select name="confidence">
+    <option value="">Toda confiança</option>
+    <option value="low" {% if selected_confidence=='low' %}selected{% endif %}>Baixa</option>
+    <option value="medium" {% if selected_confidence=='medium' %}selected{% endif %}>Média</option>
+    <option value="high" {% if selected_confidence=='high' %}selected{% endif %}>Alta</option>
+  </select>
+  {% endif %}
+  <button class="button">Filtrar</button>
+</form>
+<form method="post" action="/review/action" data-confirm="{% if queue == 'rejected' %}Confirma reenfileirar os chunks selecionados para o extract?{% else %}Confirma a ação nos drafts selecionados?{% endif %}">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <div class="review-actions">
+    <select name="action">
+      {% if queue == 'rejected' %}
+      <option value="requeue">Reenfileirar para o extract</option>
+      <option value="force">Processar mesmo assim</option>
+      <option value="discard">Apagar do banco</option>
+      {% else %}
+      <option value="approve">Aprovar selecionados</option>
+      <option value="reject">Rejeitar selecionados</option>
+      {% endif %}
+    </select>
+    <button class="primary" onclick="return confirmReviewAction(this)">Aplicar lote</button>
+  </div>
+  {% if chunks %}
+    {% if queue == 'rejected' %}
+      {% for chunk in chunks %}
+      <article class="review-card">
+        <label class="select"><input type="checkbox" name="chunk_ids" value="{{ chunk.chunk_id }}"><span></span></label>
+        <div class="review-body">
+          <div class="review-meta">
+            <code>{{ chunk.source_id }}</code>
+            <span>p. {{ chunk.page_in_book or chunk.page_in_file or '?' }}</span>
+            {% if chunk.section_path %}<span>{{ chunk.section_path }}</span>{% endif %}
+            <span>{{ chunk.rejection_category or 'sem categoria' }}</span>
+          </div>
+          <h2>{{ chunk.rejection_reason or 'Sem motivo registrado' }}</h2>
+          <pre class="chunk-text">{{ chunk.text }}</pre>
+        </div>
+      </article>
+      {% endfor %}
+    {% else %}
+      {% for chunk in chunks %}
+      <article class="review-card">
+        <label class="select"><input type="checkbox" name="chunk_ids" value="{{ chunk.chunk_id }}"><span></span></label>
+        <div class="review-body">
+          <div class="review-meta">
+            <code>{{ chunk.source_id }}</code>
+            <span>p. {{ chunk.page_in_book or chunk.page_in_file or '?' }}</span>
+            <span class="confidence">{{ '%.2f'|format(chunk.review_confidence or 0) }}</span>
+          </div>
+          <h2>{{ chunk.summary or 'Draft sem resumo' }}</h2>
+          <p><b>Trecho de origem:</b> {{ chunk.text[:550] }}{% if chunk.text|length > 550 %}…{% endif %}</p>
+          {% if chunk.candidates %}
+          <details>
+            <summary>{{ chunk.candidates|length }} candidato(s)</summary>
+            {% for candidate in chunk.candidates %}
+            <div class="candidate"><b>{{ candidate.thesis }}</b><p>{{ candidate.definition }}</p></div>
+            {% endfor %}
+          </details>
+          {% endif %}
+        </div>
+      </article>
+      {% endfor %}
+    {% endif %}
+    <div class="pagination">
+      {% if review_page > 1 %}
+      <a class="button" href="?{% if queue == 'rejected' %}queue=rejected&amp;{% endif %}source_id={{ selected_source }}&amp;confidence={{ selected_confidence }}&amp;page={{ review_page - 1 }}">Anterior</a>
+      {% endif %}
+      <span>Página {{ review_page }} de {{ page_count }}</span>
+      {% if has_next %}
+      <a class="button" href="?{% if queue == 'rejected' %}queue=rejected&amp;{% endif %}source_id={{ selected_source }}&amp;confidence={{ selected_confidence }}&amp;page={{ review_page + 1 }}">Próxima</a>
+      {% endif %}
+    </div>
+  {% elif queue == 'rejected' %}
+  <div class="empty panel">Nenhum chunk rejeitado pelo extract corresponde aos filtros.</div>
+  {% else %}
+  <div class="empty panel">Nenhum draft corresponde aos filtros.</div>
+  {% endif %}
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+function confirmReviewAction(button) {
+  var action = button.form.querySelector("[name=action]").value;
+  var message = action === "discard"
+    ? "Apagar os chunks selecionados do banco? Isso não pode ser desfeito."
+    : action === "force"
+    ? "O próximo extract vai gerar a nota destes trechos, sem a trava de rejeição. Confirma?"
+    : button.form.dataset.confirm;
+  return window.confirm(message);
+}
+</script>
+{% endblock %}

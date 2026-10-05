@@ -63,33 +63,49 @@ def _ready_biblio_review(client, tmp_path, csrf, *, allow_incomplete=False):
     job_id = "a" * 32
     token = hashlib.sha256(csrf.encode()).hexdigest()
     biblio = BibliographicMetadata(
-        document_type="livro", confidence=0.9, title="Obra",
-        authors=["Ana Silva"], year=2024, place="São Paulo", publisher="Editora",
+        document_type="livro",
+        confidence=0.9,
+        title="Obra",
+        authors=["Ana Silva"],
+        year=2024,
+        place="São Paulo",
+        publisher="Editora",
     )
     payload = {
-        "selected_file": str(path.resolve()), "checksum": file_sha256(path),
-        "session_hash": token, "skip_biblio": allow_incomplete,
-        "duplicate_action": "skip", "skip_paging": False,
-        "content_start_file": None, "content_start_book": None,
-        "dump_dir": None, "extraction_dump_dir": None,
+        "selected_file": str(path.resolve()),
+        "checksum": file_sha256(path),
+        "session_hash": token,
+        "skip_biblio": allow_incomplete,
+        "duplicate_action": "skip",
+        "skip_paging": False,
+        "content_start_file": None,
+        "content_start_book": None,
+        "dump_dir": None,
+        "extraction_dump_dir": None,
     }
     db = svc.db()
     try:
         assert db.create_web_job(job_id, "prepare_harvest", payload)
         db.create_web_harvest_review(job_id, token, payload["checksum"])
         db.update_web_job(
-            job_id, state="succeeded",
+            job_id,
+            state="succeeded",
             result={
-                "selected_file": str(path.resolve()), "checksum": payload["checksum"],
-                "biblio": biblio.model_dump(), "abnt_reference": format_abnt(biblio),
+                "selected_file": str(path.resolve()),
+                "checksum": payload["checksum"],
+                "biblio": biblio.model_dump(),
+                "abnt_reference": format_abnt(biblio),
             },
             finished=True,
         )
     finally:
         db.close()
     save_snapshot(
-        svc.cfg, job_id, checksum=payload["checksum"],
-        text="# Obra\n\nTexto da obra.", metadata={"title": "Obra"},
+        svc.cfg,
+        job_id,
+        checksum=payload["checksum"],
+        text="# Obra\n\nTexto da obra.",
+        metadata={"title": "Obra"},
     )
     return job_id, path
 
@@ -104,6 +120,7 @@ def test_document_review_confirms_edits_and_preserves_options(web_client, monkey
     assert "Ana Silva" in page.text and "SILVA, Ana" in page.text
     assert "book_editors" in page.text and "chapter_title" in page.text
     from zettel.web.jobs import continue_href
+
     db = client.app.state.service.db()
     try:
         assert continue_href(db.get_web_job(job_id)) == f"/documents/review/{job_id}"
@@ -111,10 +128,15 @@ def test_document_review_confirms_edits_and_preserves_options(web_client, monkey
         db.close()
 
     data = {
-        "csrf": csrf, "document_type": "livro", "title": "Obra corrigida",
-        "authors": "Ana Silva\nBruno Costa", "year": "2024",
-        "place": "Rio de Janeiro", "publisher": "Nova Editora",
-        "subtitle": "Complemento", "isbn": "978-0-123",
+        "csrf": csrf,
+        "document_type": "livro",
+        "title": "Obra corrigida",
+        "authors": "Ana Silva\nBruno Costa",
+        "year": "2024",
+        "place": "Rio de Janeiro",
+        "publisher": "Nova Editora",
+        "subtitle": "Complemento",
+        "isbn": "978-0-123",
         "abnt_reference": "Referência personalizada.",
     }
     preview = client.post(f"/documents/review/{job_id}/preview", data=data)
@@ -124,7 +146,8 @@ def test_document_review_confirms_edits_and_preserves_options(web_client, monkey
 
     captured = []
     monkeypatch.setattr(
-        client.app.state.service, "submit_review",
+        client.app.state.service,
+        "submit_review",
         lambda review_id, session_hash, payload: (
             captured.append((review_id, session_hash, payload)) or "harvest-job"
         ),
@@ -150,19 +173,25 @@ def test_review_rejects_missing_and_requires_ack_when_allowed(web_client, monkey
     job_id, _ = _ready_biblio_review(client, tmp_path, csrf, allow_incomplete=True)
     submitted = []
     monkeypatch.setattr(
-        client.app.state.service, "submit_review",
+        client.app.state.service,
+        "submit_review",
         lambda *args: submitted.append(args) or "queued",
     )
     data = {
-        "csrf": csrf, "decision": "confirm", "document_type": "livro",
-        "title": "Sem local", "authors": "Ana Silva", "year": "2024",
+        "csrf": csrf,
+        "decision": "confirm",
+        "document_type": "livro",
+        "title": "Sem local",
+        "authors": "Ana Silva",
+        "year": "2024",
     }
     denied = client.post(f"/documents/review/{job_id}", data=data)
     assert denied.status_code == 400
     assert "Confirme explicitamente" in denied.text
     assert not submitted
     accepted = client.post(
-        f"/documents/review/{job_id}", data={**data, "incomplete_ack": "1"},
+        f"/documents/review/{job_id}",
+        data={**data, "incomplete_ack": "1"},
         follow_redirects=False,
     )
     assert accepted.status_code == 303
@@ -174,25 +203,35 @@ def test_review_cancel_stale_file_and_session_isolation(web_client, monkeypatch)
     csrf = _login(client)
     job_id, path = _ready_biblio_review(client, tmp_path, csrf)
     monkeypatch.setattr(
-        client.app.state.service, "submit_review",
+        client.app.state.service,
+        "submit_review",
         lambda *args: pytest.fail("Não deve iniciar o harvest"),
     )
-    assert client.post(
-        f"/documents/review/{job_id}",
-        data={"csrf": "wrong", "decision": "cancel"},
-    ).status_code == 403
+    assert (
+        client.post(
+            f"/documents/review/{job_id}",
+            data={"csrf": "wrong", "decision": "cancel"},
+        ).status_code
+        == 403
+    )
     path.write_text("# Outra obra", encoding="utf-8")
     assert client.get(f"/documents/review/{job_id}").status_code == 409
-    assert client.post(
-        f"/documents/review/{job_id}",
-        data={"csrf": csrf, "decision": "confirm"},
-    ).status_code == 409
+    assert (
+        client.post(
+            f"/documents/review/{job_id}",
+            data={"csrf": csrf, "decision": "confirm"},
+        ).status_code
+        == 409
+    )
     path.write_text("# Obra\n\nTexto da obra.", encoding="utf-8")
-    assert client.post(
-        f"/documents/review/{job_id}",
-        data={"csrf": csrf, "decision": "cancel"},
-        follow_redirects=False,
-    ).status_code == 303
+    assert (
+        client.post(
+            f"/documents/review/{job_id}",
+            data={"csrf": csrf, "decision": "cancel"},
+            follow_redirects=False,
+        ).status_code
+        == 303
+    )
     assert client.get(f"/documents/review/{job_id}").status_code == 409
     db = client.app.state.service.db()
     try:
@@ -212,14 +251,18 @@ def test_review_queue_is_single_use_and_session_bound(web_client):
     try:
         assert not db.queue_web_harvest_review(job_id, "wrong", "c" * 32, {})
         assert db.queue_web_harvest_review(
-            job_id, token, "c" * 32,
+            job_id,
+            token,
+            "c" * 32,
             {"selected_file": str(path), "review_id": job_id},
         )
         assert not db.queue_web_harvest_review(job_id, token, "d" * 32, {})
         assert db.get_web_harvest_review(job_id, token)["harvest_job_id"] == "c" * 32
         db.update_web_job("c" * 32, state="failed", error_message="Interrompido")
         assert db.queue_web_harvest_review(
-            job_id, token, "d" * 32,
+            job_id,
+            token,
+            "d" * 32,
             {"selected_file": str(path), "review_id": job_id},
         )
         assert db.get_web_harvest_review(job_id, token)["harvest_job_id"] == "d" * 32
@@ -237,10 +280,17 @@ def test_review_recovers_confirmed_fields_after_failure(web_client):
     db = client.app.state.service.db()
     try:
         payload = {
-            "review_id": job_id, "selected_file": str(path),
-            "biblio": {"document_type": "livro", "title": "Título confirmado",
-                       "authors": ["Ana Silva"], "year": 2024, "place": "SP",
-                       "publisher": "Editora", "confidence": 0.9},
+            "review_id": job_id,
+            "selected_file": str(path),
+            "biblio": {
+                "document_type": "livro",
+                "title": "Título confirmado",
+                "authors": ["Ana Silva"],
+                "year": 2024,
+                "place": "SP",
+                "publisher": "Editora",
+                "confidence": 0.9,
+            },
             "abnt_reference": "Referência confirmada.",
         }
         assert db.queue_web_harvest_review(job_id, token, "c" * 32, payload)
@@ -275,7 +325,8 @@ def test_prepare_stages_images_and_cancel_removes_them(tmp_path, monkeypatch):
     from zettel.web_app import WebWorker
 
     cfg = AppConfig(
-        inbox_path=tmp_path / "inbox", cache_path=tmp_path / "cache",
+        inbox_path=tmp_path / "inbox",
+        cache_path=tmp_path / "cache",
         vault_path=tmp_path / "vault",
     )
     cfg.images.enabled = True
@@ -299,7 +350,10 @@ def test_prepare_stages_images_and_cancel_removes_them(tmp_path, monkeypatch):
                 pass
 
         WebWorker._dispatch(
-            cfg, db, Progress(), "prepare_harvest",
+            cfg,
+            db,
+            Progress(),
+            "prepare_harvest",
             {"selected_file": str(path), "checksum": file_sha256(path), "session_hash": "session"},
         )
         assert list((asset_stage_path(cfg, job_id) / "90_Assets").glob("img-*.png"))
@@ -319,7 +373,8 @@ def test_confirmed_worker_reuses_preparation_and_passes_file_options(tmp_path, m
     from zettel.web_app import JobProgress, WebWorker
 
     cfg = AppConfig(
-        inbox_path=tmp_path / "inbox", cache_path=tmp_path / "cache",
+        inbox_path=tmp_path / "inbox",
+        cache_path=tmp_path / "cache",
         vault_path=tmp_path / "vault",
     )
     cfg.inbox_path.mkdir()
@@ -327,8 +382,11 @@ def test_confirmed_worker_reuses_preparation_and_passes_file_options(tmp_path, m
     path.write_text("# Obra", encoding="utf-8")
     review_id, harvest_id = "e" * 32, "f" * 32
     biblio = BibliographicMetadata(
-        document_type="relatorio", confidence=0.9, title="Obra revista",
-        year=2024, institution="USP",
+        document_type="relatorio",
+        confidence=0.9,
+        title="Obra revista",
+        year=2024,
+        institution="USP",
     )
     captured = {}
 
@@ -343,22 +401,35 @@ def test_confirmed_worker_reuses_preparation_and_passes_file_options(tmp_path, m
         db.create_web_job(review_id, "prepare_harvest", {})
         db.create_web_harvest_review(review_id, "session", file_sha256(path))
         db.update_web_job(
-            review_id, state="succeeded",
+            review_id,
+            state="succeeded",
             result={"selected_file": str(path.resolve())},
         )
         save_snapshot(
-            cfg, review_id, checksum=file_sha256(path), text="Texto preparado",
+            cfg,
+            review_id,
+            checksum=file_sha256(path),
+            text="Texto preparado",
             metadata={"title": "Obra"},
         )
         payload = {
-            "selected_file": str(path.resolve()), "session_hash": "session",
-            "review_id": review_id, "biblio": biblio.model_dump(),
-            "abnt_reference": "Referência final.", "duplicate_action": "continue",
-            "skip_paging": True, "dump_dir": None, "extraction_dump_dir": None,
+            "selected_file": str(path.resolve()),
+            "session_hash": "session",
+            "review_id": review_id,
+            "biblio": biblio.model_dump(),
+            "abnt_reference": "Referência final.",
+            "duplicate_action": "continue",
+            "skip_paging": True,
+            "dump_dir": None,
+            "extraction_dump_dir": None,
         }
         assert db.queue_web_harvest_review(review_id, "session", harvest_id, payload)
         result = WebWorker._dispatch(
-            cfg, db, JobProgress(db, harvest_id), "harvest", payload,
+            cfg,
+            db,
+            JobProgress(db, harvest_id),
+            "harvest",
+            payload,
         )
         assert result["sources"] == ["@Obra2024"]
         assert captured["prepared"]["text"] == "Texto preparado"
@@ -369,7 +440,11 @@ def test_confirmed_worker_reuses_preparation_and_passes_file_options(tmp_path, m
         path.write_text("# Alterado", encoding="utf-8")
         with pytest.raises(Exception, match="arquivo mudou"):
             WebWorker._dispatch(
-                cfg, db, JobProgress(db, harvest_id), "harvest", payload,
+                cfg,
+                db,
+                JobProgress(db, harvest_id),
+                "harvest",
+                payload,
             )
     finally:
         db.close()
@@ -396,25 +471,37 @@ def test_preparation_stores_snapshot_without_source(web_client, monkeypatch, ext
     monkeypatch.setattr(
         "zettel.bibliography.build_bibliographic_metadata",
         lambda *args: BibliographicMetadata(
-            document_type="relatorio", confidence=0.8, title="Obra",
-            year=2024, institution="USP",
+            document_type="relatorio",
+            confidence=0.8,
+            title="Obra",
+            year=2024,
+            institution="USP",
         ),
     )
     svc = client.app.state.service
     job_id = "b" * 32
     import hashlib
+
     token = hashlib.sha256(csrf.encode()).hexdigest()
     db = svc.db()
     try:
         assert db.create_web_job(
-            job_id, "prepare_harvest",
+            job_id,
+            "prepare_harvest",
             {"selected_file": str(path), "checksum": file_sha256(path), "session_hash": token},
         )
+
         class Progress:
             job_id = "b" * 32
-            def emit(self, event): pass
+
+            def emit(self, event):
+                pass
+
         result = WebWorker._dispatch(
-            svc.cfg, db, Progress(), "prepare_harvest",
+            svc.cfg,
+            db,
+            Progress(),
+            "prepare_harvest",
             {"selected_file": str(path), "checksum": file_sha256(path), "session_hash": token},
         )
         assert result["biblio"]["title"] == "Obra"
@@ -425,6 +512,7 @@ def test_preparation_stores_snapshot_without_source(web_client, monkeypatch, ext
     finally:
         db.close()
 
+
 def test_favicon_serves_brand_mark(web_client):
     client, _ = web_client
     icon = client.get("/favicon.ico")
@@ -432,7 +520,6 @@ def test_favicon_serves_brand_mark(web_client):
     assert icon.headers["content-type"].startswith("image/svg+xml")
     assert b"#da5a3b" in icon.content
     assert 'rel="icon" href="/static/favicon.svg"' in client.get("/login").text
-
 
 
 def test_authentication_and_csrf_protect_mutations(web_client):
@@ -1970,3 +2057,297 @@ def test_from_lit_enqueues_ref_thesis_and_force(web_client, monkeypatch):
     assert "Kahneman2011" in captured["payload"]["ref"].replace("\\", "/")
     assert captured["payload"]["thesis"] == "Heurísticas guiam o julgamento."
     assert captured["payload"]["force"] is True
+
+
+def test_review_rejected_queue_shows_full_text_and_requeues_only_extract(web_client):
+    import json
+
+    client, _ = web_client
+    csrf = _login(client)
+    long_text = "TRECHO_COMPLETO_" + ("palavra " * 80)
+    long_reason = "MOTIVO_COMPLETO_" + ("porque " * 30)
+    extract_id = "@Book2024::ch000::rej00"
+    reviewer_id = "@Book2024::ch000::rev"
+    draft_id = "@Book2024::ch000::draft"
+    db = client.app.state.service.db()
+    try:
+        db.upsert_source(
+            "@Book2024",
+            "Book2024",
+            "Livro",
+            ["Autor"],
+            2024,
+            "h",
+            "/x.md",
+            "md",
+        )
+        db.upsert_chapter("@Book2024::ch000", "@Book2024", "Cap", "ch")
+        db.upsert_chunk(
+            extract_id,
+            "@Book2024",
+            "@Book2024::ch000",
+            long_text,
+            "ck0",
+            status="rejected",
+            section_path="Referencias",
+            chunk_index=0,
+            page_in_book=4,
+            summary_json=json.dumps(
+                {
+                    "chunk_status": "rejected",
+                    "rejection_category": "structural",
+                    "rejection_reason": long_reason,
+                    "candidates": [],
+                }
+            ),
+        )
+        for index in range(1, 11):
+            text = "PAGINA_DOIS_UNICO" if index == 10 else f"curto {index}"
+            db.upsert_chunk(
+                f"@Book2024::ch000::rej{index:02d}",
+                "@Book2024",
+                "@Book2024::ch000",
+                text,
+                f"ck{index}",
+                status="rejected",
+                chunk_index=index,
+                summary_json=json.dumps(
+                    {
+                        "rejection_category": "structural",
+                        "rejection_reason": "curto",
+                        "candidates": [],
+                    }
+                ),
+            )
+        db.upsert_chunk(
+            reviewer_id,
+            "@Book2024",
+            "@Book2024::ch000",
+            "texto do revisor",
+            "ckr",
+            status="rejected",
+            chunk_index=20,
+            summary_json=json.dumps(
+                {
+                    "candidates": [{"thesis": "TESE_DO_REVISOR"}],
+                    "rejection_reason": "revisor",
+                }
+            ),
+        )
+        db.upsert_chunk(
+            draft_id,
+            "@Book2024",
+            "@Book2024::ch000",
+            "texto do draft",
+            "ckd",
+            status="awaiting_review",
+            chunk_index=21,
+            summary_json=json.dumps({"summary": "RESUMO_DRAFT", "candidates": []}),
+        )
+    finally:
+        db.close()
+
+    rejected = client.get("/review?queue=rejected")
+    assert rejected.status_code == 200
+    assert long_text in rejected.text
+    assert long_reason in rejected.text
+    assert "PAGINA_DOIS_UNICO" not in rejected.text
+    assert "TESE_DO_REVISOR" not in rejected.text
+    assert "RESUMO_DRAFT" not in rejected.text
+    assert "Reenfileirar para o extract" in rejected.text
+    assert "Processar mesmo assim" in rejected.text
+    assert "Apagar do banco" in rejected.text
+    assert 'href="?queue=rejected&amp;source_id=&amp;confidence=&amp;page=2"' in rejected.text
+    assert "Página 1 de 2" in rejected.text
+
+    page_two = client.get("/review?queue=rejected&page=2")
+    assert "PAGINA_DOIS_UNICO" in page_two.text
+    assert long_text not in page_two.text
+    assert "Página 2 de 2" in page_two.text
+    beyond = client.get("/review?queue=rejected&page=9")
+    assert "Página 2 de 2" in beyond.text
+    assert "PAGINA_DOIS_UNICO" in beyond.text
+
+    drafts = client.get("/review")
+    assert "RESUMO_DRAFT" in drafts.text
+    assert long_text not in drafts.text
+    assert "Aprovar selecionados" in drafts.text
+
+    invalid = client.post("/review/action", data={"csrf": csrf, "action": "nope"})
+    assert invalid.status_code == 400
+
+    response = client.post(
+        "/review/action",
+        data={
+            "csrf": csrf,
+            "action": "requeue",
+            "chunk_ids": [extract_id, reviewer_id, draft_id],
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    job_id = response.headers["location"].rsplit("/", 1)[-1]
+    payload = {}
+    for _ in range(50):
+        payload = client.get(f"/api/jobs/{job_id}").json()
+        if payload["job"]["state"] not in {"queued", "running"}:
+            break
+        time.sleep(0.05)
+    assert payload["job"]["state"] == "succeeded"
+    assert payload["job"]["result"]["requeued"] == 1
+    assert payload["job"]["result"]["skipped"] == 2
+
+    db = client.app.state.service.db()
+    try:
+        assert db.get_chunk(extract_id)["status"] == "pending"
+        assert db.get_chunk(reviewer_id)["status"] == "rejected"
+        assert db.get_chunk(draft_id)["status"] == "awaiting_review"
+    finally:
+        db.close()
+
+    again = client.get("/review?queue=rejected")
+    assert long_text not in again.text
+
+
+def test_review_force_marks_only_extract_rejections(web_client):
+    import json
+
+    client, _ = web_client
+    csrf = _login(client)
+    extract_id = "@Book2024::ch000::rej"
+    reviewer_id = "@Book2024::ch000::rev"
+    db = client.app.state.service.db()
+    try:
+        db.upsert_source("@Book2024", "Book2024", "Livro", ["Autor"], 2024, "h", "/x.md", "md")
+        db.upsert_chapter("@Book2024::ch000", "@Book2024", "Cap", "ch")
+        db.upsert_chunk(
+            extract_id,
+            "@Book2024",
+            "@Book2024::ch000",
+            "texto rejeitado pelo extract",
+            "ck",
+            status="rejected",
+            chunk_index=0,
+            summary_json=json.dumps(
+                {
+                    "rejection_category": "structural",
+                    "rejection_reason": "motivo",
+                    "candidates": [],
+                }
+            ),
+        )
+        db.upsert_chunk(
+            reviewer_id,
+            "@Book2024",
+            "@Book2024::ch000",
+            "texto do revisor",
+            "ckr",
+            status="rejected",
+            chunk_index=1,
+            summary_json=json.dumps({"candidates": [{"thesis": "TESE_DO_REVISOR"}]}),
+        )
+    finally:
+        db.close()
+
+    response = client.post(
+        "/review/action",
+        data={
+            "csrf": csrf,
+            "action": "force",
+            "chunk_ids": [extract_id, reviewer_id],
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    job_id = response.headers["location"].rsplit("/", 1)[-1]
+    payload = {}
+    for _ in range(50):
+        payload = client.get(f"/api/jobs/{job_id}").json()
+        if payload["job"]["state"] not in {"queued", "running"}:
+            break
+        time.sleep(0.05)
+    assert payload["job"]["state"] == "succeeded"
+    assert payload["job"]["result"]["forced"] == 1
+    assert payload["job"]["result"]["skipped"] == 1
+
+    db = client.app.state.service.db()
+    try:
+        forced = db.get_chunk(extract_id)
+        assert forced["status"] == "pending"
+        assert json.loads(forced["summary_json"])["force_extract"] is True
+        assert db.get_chunk(reviewer_id)["status"] == "rejected"
+    finally:
+        db.close()
+
+
+def test_review_discard_deletes_only_extract_rejections(web_client, monkeypatch):
+    import json
+
+    client, _ = web_client
+    csrf = _login(client)
+    deleted: list[str] = []
+
+    class _Index:
+        def delete_chunks(self, chunk_ids):
+            deleted.extend(chunk_ids)
+
+    monkeypatch.setattr("zettel.index.VectorIndex", lambda **kwargs: _Index())
+    extract_id = "@Book2024::ch000::rej"
+    reviewer_id = "@Book2024::ch000::rev"
+    db = client.app.state.service.db()
+    try:
+        db.upsert_source("@Book2024", "Book2024", "Livro", ["Autor"], 2024, "h", "/x.md", "md")
+        db.upsert_chapter("@Book2024::ch000", "@Book2024", "Cap", "ch")
+        db.upsert_chunk(
+            extract_id,
+            "@Book2024",
+            "@Book2024::ch000",
+            "texto rejeitado pelo extract",
+            "ck",
+            status="rejected",
+            chunk_index=0,
+            summary_json=json.dumps(
+                {
+                    "rejection_category": "structural",
+                    "rejection_reason": "referencias",
+                    "candidates": [],
+                }
+            ),
+        )
+        db.upsert_chunk(
+            reviewer_id,
+            "@Book2024",
+            "@Book2024::ch000",
+            "texto do revisor",
+            "ckr",
+            status="rejected",
+            chunk_index=1,
+            summary_json=json.dumps({"candidates": [{"thesis": "TESE_DO_REVISOR"}]}),
+        )
+    finally:
+        db.close()
+
+    response = client.post(
+        "/review/action",
+        data={"csrf": csrf, "action": "discard", "chunk_ids": [extract_id, reviewer_id]},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    job_id = response.headers["location"].rsplit("/", 1)[-1]
+    payload = {}
+    for _ in range(50):
+        payload = client.get(f"/api/jobs/{job_id}").json()
+        if payload["job"]["state"] not in {"queued", "running"}:
+            break
+        time.sleep(0.05)
+    assert payload["job"]["state"] == "succeeded"
+    assert payload["job"]["result"]["discarded"] == 1
+    assert payload["job"]["result"]["skipped"] == 1
+    assert deleted == [extract_id]
+
+    db = client.app.state.service.db()
+    try:
+        assert db.get_chunk(extract_id) is None
+        assert db.get_chunk(reviewer_id)["status"] == "rejected"
+    finally:
+        db.close()
