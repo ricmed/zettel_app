@@ -1,0 +1,80 @@
+{
+  "failures": 0,
+  "inputs": "gemini-t01-a.json",
+  "items_without_notes": 3,
+  "keep_noul": {
+    "G004": 0.64,
+    "G007": 0.73,
+    "G010": 0.72,
+    "G014": 0.63,
+    "G015": 0.74,
+    "G018": 0.57,
+    "G020": 0.26,
+    "G022": 0.59,
+    "G025": 0.28,
+    "G031": 0.67,
+    "G033": 0.76,
+    "G034": 0.61,
+    "G042": 0.74,
+    "G045": 0.78,
+    "G046": 0.63,
+    "G053": 0.65,
+    "G055": 0.59,
+    "G056": 0.7,
+    "G057": 0.65,
+    "G058": 0.55,
+    "G059": 0.72,
+    "G065": 0.7,
+    "G066": 0.59,
+    "G070": 0.66,
+    "G074": 0.66,
+    "G077": 0.67,
+    "G079": 0.76,
+    "G084": 0.6,
+    "G086": 0.74,
+    "G089": 0.74,
+    "G090": 0.76,
+    "G094": 0.72,
+    "G097": 0.67,
+    "G105": 0.72,
+    "G111": 0.44,
+    "G113": 0.59,
+    "G116": 0.67,
+    "G120": 0.57
+  },
+  "lang": "en",
+  "missing_rows": 0,
+  "model": "typesafe/jev-1.13.0",
+  "n_judged": 38,
+  "permutations": 3,
+  "recording_key": "520a3ba12759",
+  "result": {
+    "keep_noul": {
+      "auc": 0.637,
+      "ci95": [
+        0.457,
+        0.816
+      ],
+      "mean_discard": 0.6121,
+      "mean_keep": 0.6625,
+      "min_detectable_auc": 0.73,
+      "n_discard": 14,
+      "n_keep": 24,
+      "verdict": "indistinguivel de moeda"
+    },
+    "quality_score": {
+      "auc": 0.598,
+      "ci95": [
+        0.413,
+        0.783
+      ],
+      "mean_discard": 3.215,
+      "mean_keep": 3.6117,
+      "min_detectable_auc": 0.73,
+      "n_discard": 14,
+      "n_keep": 24,
+      "verdict": "indistinguivel de moeda"
+    }
+  },
+  "signal": "jev_gold_reader"
+}

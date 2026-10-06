@@ -112,3 +112,24 @@ zettel/decision/
 * `scripts/probe_jev_gold.py`, `scripts/report_decision_shadow.py`
 * `evals/preregistration/206-jev-camada-decisao.md`
 * `tests/test_decision.py`, `tests/test_probe_jev_gold.py`, `tests/test_report_decision_shadow.py`
+
+## Results (2026-10-06): the pre-registered probe
+
+The four runs of `evals/preregistration/206-jev-camada-decisao.md` had no API failures and no missing items. Passages came from the labelling sheet; the reader's notes came from the recorded `gemini-t01-a` run.
+
+| run | `noul` keep AUC | IC95 | verdict |
+|---|---|---|---|
+| `extract-en` | 0.818 | [0.725, 0.911] | separates |
+| `extract-pt` | 0.853 | [0.768, 0.939] | separates |
+| `reader-en` | 0.637 | [0.457, 0.816] | indistinguishable from a coin |
+| `reader-pt` | 0.661 | [0.485, 0.836] | indistinguishable from a coin |
+
+- **Rule 1 (signal) holds** on extract, in both languages. The model separates what a human would keep from what they would discard in PT-BR content. On the reader stratum it does not: 38 items can only detect an AUC of 0.73 or more, the same limit that stopped #176.
+- **Rule 2 (language): `en`.** `pt` leads by 0.035, below the pre-registered 0.05, so `decision.instructions_language` stays `en`.
+- **Rule 3 (stability) holds.** The mean spread across the three permutations of the category `choice` is 0.006 (`en`) and 0.008 (`pt`), against a limit of 0.05. Option order barely moves this model here.
+- **Category agreement on human discards is about 0.48** (n = 65). It is reported, not ruled on.
+- **Informative comparison with the production extractor** (`evals/results/jev-vs-extract-206.json`): at the fixed 0.5 threshold, `jev-en` has recall 60.2% against `gemini-t01-a`'s 92.5%, and the paired McNemar test is not significant (p = 0.21).
+
+The probabilities **rank well but are not centred on 0.5**: the mean keep probability of items a human kept is 0.47 (`en`). Any future gate must therefore measure its own threshold on labelled data. It cannot assume the model's 0.5, nor the 0.9 the documentation suggests for acting unattended.
+
+Outcome under the pre-registration: **keep accumulating shadow**. No gate issue is opened yet. The per-site criterion still needs at least 30 shadow decisions per site, and the vault has none at the time of writing.

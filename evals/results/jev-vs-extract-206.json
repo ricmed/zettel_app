@@ -1,0 +1,635 @@
+{
+  "pairs": {
+    "gemini-t01-a:jev-en": {
+      "correct_a": 97,
+      "correct_b": 90,
+      "flipped_items": [
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G004",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G015",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G018",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G022",
+          "to": "rejected"
+        },
+        {
+          "from": "rejected",
+          "human": "keep",
+          "item_id": "G023",
+          "to": "accepted"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G031",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G034",
+          "to": "rejected"
+        },
+        {
+          "from": "rejected",
+          "human": "discard",
+          "item_id": "G036",
+          "to": "accepted"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G047",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G052",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G055",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G057",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G058",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G061",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G070",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G074",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G084",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G085",
+          "to": "rejected"
+        },
+        {
+          "from": "rejected",
+          "human": "discard",
+          "item_id": "G087",
+          "to": "accepted"
+        },
+        {
+          "from": "rejected",
+          "human": "discard",
+          "item_id": "G111",
+          "to": "accepted"
+        },
+        {
+          "from": "rejected",
+          "human": "discard",
+          "item_id": "G114",
+          "to": "accepted"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G116",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G120",
+          "to": "rejected"
+        }
+      ],
+      "flips": {
+        "accepted->rejected (discard)": 7,
+        "accepted->rejected (keep)": 11,
+        "rejected->accepted (discard)": 4,
+        "rejected->accepted (keep)": 1
+      },
+      "n_common": 118,
+      "only_a_right": 15,
+      "only_b_right": 8,
+      "paired_exact_p": 0.21,
+      "verdict_agreement": 0.8051,
+      "weighted_net_correct_b_minus_a": -39.55
+    },
+    "gemini-t01-a:jev-pt": {
+      "correct_a": 97,
+      "correct_b": 92,
+      "flipped_items": [
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G004",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G007",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G014",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G015",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G018",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G022",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G031",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G034",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G046",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G047",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G052",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G053",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G055",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G056",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G057",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G058",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G059",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G061",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G070",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G074",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G077",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G079",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G084",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G085",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G094",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G105",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G113",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G116",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G120",
+          "to": "rejected"
+        }
+      ],
+      "flips": {
+        "accepted->rejected (discard)": 12,
+        "accepted->rejected (keep)": 17
+      },
+      "n_common": 118,
+      "only_a_right": 17,
+      "only_b_right": 12,
+      "paired_exact_p": 0.4583,
+      "verdict_agreement": 0.7542,
+      "weighted_net_correct_b_minus_a": -37.55
+    },
+    "jev-en:jev-pt": {
+      "correct_a": 90,
+      "correct_b": 92,
+      "flipped_items": [
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G007",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G014",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G023",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G036",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G046",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G053",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G056",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G059",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G077",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G079",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G087",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G094",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G105",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G111",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "keep",
+          "item_id": "G113",
+          "to": "rejected"
+        },
+        {
+          "from": "accepted",
+          "human": "discard",
+          "item_id": "G114",
+          "to": "rejected"
+        }
+      ],
+      "flips": {
+        "accepted->rejected (discard)": 9,
+        "accepted->rejected (keep)": 7
+      },
+      "n_common": 118,
+      "only_a_right": 7,
+      "only_b_right": 9,
+      "paired_exact_p": 0.8036,
+      "verdict_agreement": 0.8644,
+      "weighted_net_correct_b_minus_a": 2.0
+    }
+  },
+  "runs": {
+    "gemini-t01-a": {
+      "f1": 0.7691,
+      "n_items": 120,
+      "per_source": {
+        "@Hu2025ArtigoaipoweredWorkflow": {
+          "fn": 1,
+          "fp": 2,
+          "precision": 0.0,
+          "recall": 0.0,
+          "tn": 6,
+          "tp": 0
+        },
+        "@Huang2023TowardsReasoning": {
+          "fn": 2,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 0.5,
+          "tn": 6,
+          "tp": 2
+        },
+        "@Instrutor2023IniciandoCom": {
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tn": 1,
+          "tp": 2
+        },
+        "@Kim2022KantAnd": {
+          "fn": 4,
+          "fp": 11,
+          "precision": 0.6562,
+          "recall": 0.84,
+          "tn": 40,
+          "tp": 21
+        },
+        "@Latorre2021AnáliseDe": {
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tn": 2,
+          "tp": 1
+        },
+        "@Pate2026ReplicatingHuman": {
+          "fn": 1,
+          "fp": 0,
+          "precision": null,
+          "recall": 0.0,
+          "tn": 16,
+          "tp": 0
+        }
+      },
+      "precision": 0.658,
+      "recall": 0.9254,
+      "rejected_but_keep_rate": 0.1045
+    },
+    "jev-en": {
+      "f1": 0.6364,
+      "n_items": 118,
+      "per_source": {
+        "@Hu2025ArtigoaipoweredWorkflow": {
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tn": 8,
+          "tp": 1
+        },
+        "@Huang2023TowardsReasoning": {
+          "fn": 3,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 0.25,
+          "tn": 6,
+          "tp": 1
+        },
+        "@Instrutor2023IniciandoCom": {
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tn": 1,
+          "tp": 2
+        },
+        "@Kim2022KantAnd": {
+          "fn": 14,
+          "fp": 9,
+          "precision": 0.55,
+          "recall": 0.44,
+          "tn": 42,
+          "tp": 11
+        },
+        "@Latorre2021AnáliseDe": {
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tn": 2,
+          "tp": 1
+        },
+        "@Pate2026ReplicatingHuman": {
+          "fn": 1,
+          "fp": 1,
+          "precision": 0.0,
+          "recall": 0.0,
+          "tn": 15,
+          "tp": 0
+        }
+      },
+      "precision": 0.6756,
+      "recall": 0.6015,
+      "rejected_but_keep_rate": 0.331
+    },
+    "jev-pt": {
+      "f1": 0.5132,
+      "n_items": 118,
+      "per_source": {
+        "@Hu2025ArtigoaipoweredWorkflow": {
+          "fn": 1,
+          "fp": 0,
+          "precision": null,
+          "recall": 0.0,
+          "tn": 8,
+          "tp": 0
+        },
+        "@Huang2023TowardsReasoning": {
+          "fn": 4,
+          "fp": 0,
+          "precision": null,
+          "recall": 0.0,
+          "tn": 6,
+          "tp": 0
+        },
+        "@Instrutor2023IniciandoCom": {
+          "fn": 1,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 0.5,
+          "tn": 1,
+          "tp": 1
+        },
+        "@Kim2022KantAnd": {
+          "fn": 18,
+          "fp": 1,
+          "precision": 0.875,
+          "recall": 0.28,
+          "tn": 50,
+          "tp": 7
+        },
+        "@Latorre2021AnáliseDe": {
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tn": 2,
+          "tp": 1
+        },
+        "@Pate2026ReplicatingHuman": {
+          "fn": 1,
+          "fp": 0,
+          "precision": null,
+          "recall": 0.0,
+          "tn": 16,
+          "tp": 0
+        }
+      },
+      "precision": 0.9,
+      "recall": 0.359,
+      "rejected_but_keep_rate": 0.3781
+    }
+  }
+}
