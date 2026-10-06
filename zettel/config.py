@@ -510,8 +510,13 @@ class RetrievalConfig(BaseModel):
     catalog: CatalogConfig = Field(default_factory=CatalogConfig)
 
 
-DecisionSite = Literal["dedupe", "moc_category", "article_judge"]
-DECISION_SITES: tuple[DecisionSite, ...] = ("dedupe", "moc_category", "article_judge")
+DecisionSite = Literal["dedupe", "moc_category", "article_judge", "corroborates"]
+DECISION_SITES: tuple[DecisionSite, ...] = (
+    "dedupe",
+    "moc_category",
+    "article_judge",
+    "corroborates",
+)
 
 
 class DecisionSitesConfig(BaseModel):
@@ -522,6 +527,7 @@ class DecisionSitesConfig(BaseModel):
     dedupe: Literal["off", "shadow"] = "off"
     moc_category: Literal["off", "shadow"] = "off"
     article_judge: Literal["off", "shadow"] = "off"
+    corroborates: Literal["off", "shadow"] = "off"
 
 
 class DecisionConfig(BaseModel):
@@ -548,6 +554,10 @@ class DecisionConfig(BaseModel):
     instructions_language: Literal["en", "pt"] = "en"
     # O LiteLLM nao conhece o modelo; sem isto o custo sairia US$ 0.
     input_price_per_mtok: float = 0.042
+    # Pares de fontes diferentes julgados no site `corroborates`: a partir deste
+    # cosseno, abaixo E acima de `linking.corroborates_min_similarity`, para que
+    # a mesma ideia escrita com outras palavras (falso negativo) apareca (#208).
+    corroborates_band_min: float = 0.75
     sites: DecisionSitesConfig = Field(default_factory=DecisionSitesConfig)
 
 

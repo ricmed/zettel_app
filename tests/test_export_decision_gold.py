@@ -195,3 +195,45 @@ def test_main_without_shadow_rows_explains_what_to_run(tmp_path, capsys):
     code = main(["--site", "moc_category", "--state-db", str(db_path), "--out-dir", str(tmp_path)])
     assert code == 1
     assert "zettel garden" in capsys.readouterr().out
+
+
+def _corr_row(pair, order, similarity, score=1.0):
+    return {
+        "site": "corroborates",
+        "subject_id": f"{pair}:{order}",
+        "state_checksum": f"s{pair}{order}",
+        "model": "typesafe/jev-test",
+        "state": {
+            "note_a": {"thesis": f"Tese A {order}", "definition": "Def A"},
+            "note_b": {"thesis": f"Tese B {order}", "definition": "Def B"},
+        },
+        "baseline": {"similarity": similarity, "threshold": 0.85, "edge": similarity >= 0.85},
+        "jev": {
+            "same_idea": {"score": score, "confidence": 0.8},
+            "converge": {"noul": 0.6},
+        },
+        "human": None,
+        "error": None,
+    }
+
+
+def test_corroborates_pairs_become_one_item_with_both_orders_in_the_key():
+    rows = [_corr_row("x|y", "ab", 0.9, 2.0), _corr_row("x|y", "ba", 0.9, 1.0)]
+    pairs = eligible(rows, "corroborates")
+    assert len(pairs) == 1
+    items = sample(pairs, per_stratum=5, seed=0)
+    assert items[0].item_id == "P001"
+    assert items[0].stratum == "above_threshold"
+    key = build_key(items, "corroborates", seed=0, population_counts={}, categories=[])
+    assert key["items"][0]["jev"] == {"ab_score": 2.0, "ba_score": 1.0, "ab_converge": 0.6}
+    assert key["answers"]["decisao"]["mesma-ideia"] == 2
+
+
+def test_corroborates_sheet_is_blind(tmp_path):
+    rows = eligible([_corr_row("x|y", "ab", 0.9), _corr_row("x|y", "ba", 0.9)], "corroborates")
+    sheet, reading = _sheet_and_reading(tmp_path, rows, "corroborates")
+    for text in (sheet, reading):
+        for word in FORBIDDEN_IN_SHEET:
+            assert word not in text.lower(), word
+        assert "0.9" not in text
+    assert "Tese A ab" in sheet and "`mesma-ideia`" in reading

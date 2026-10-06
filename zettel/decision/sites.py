@@ -160,6 +160,58 @@ def moc_category(
     )
 
 
+# ── Same idea across sources (corroborates) ──────────────────────────────
+
+# Three levels, after the decision model's own entity-alignment cookbook: the
+# middle level keeps "same topic" apart from "same idea", which is exactly the
+# confusion a cosine threshold cannot resolve.
+CORROBORATES_LEVELS: dict[Lang, list[str]] = {
+    "en": [
+        "The two notes state different ideas.",
+        "Same topic, but the theses differ: one adds to, restricts or contradicts the other.",
+        "The two notes state the same idea, in different words or with different examples.",
+    ],
+    "pt": [
+        "As duas notas afirmam ideias diferentes.",
+        "Mesmo tema, mas as teses diferem: uma acrescenta, restringe ou contradiz a outra.",
+        "As duas notas afirmam a mesma ideia, com outras palavras ou outros exemplos.",
+    ],
+}
+CORROBORATES_TOP_LEVEL = 2
+
+
+def corroborates(*, note_a: dict[str, str], note_b: dict[str, str], lang: Lang) -> Decision:
+    """``note_*``: ``{thesis, definition}``. The sources are left out on purpose:
+    that they differ is the premise of the question, not evidence for it."""
+    same_idea = {
+        "type": "score",
+        "instructions": _t(
+            lang,
+            "Do these two permanent notes, written from different works, state the same idea?",
+            "Estas duas notas permanentes, escritas a partir de obras diferentes, afirmam a "
+            "mesma ideia?",
+        ),
+        "criteria": CORROBORATES_LEVELS[lang],
+    }
+    converge = {
+        "type": "noul",
+        "instructions": _t(
+            lang,
+            "Would a reader say the two authors converge on the same idea?",
+            "Um leitor diria que os dois autores convergem na mesma ideia?",
+        ),
+    }
+    return Decision(
+        state={"note_a": note_a, "note_b": note_b},
+        questions={"same_idea": same_idea, "converge": converge},
+    )
+
+
+def corroborates_level(score: float) -> int:
+    """Nearest level of a 0..2 score (the cookbook's rounding rule)."""
+    return min(int(score + 0.5), CORROBORATES_TOP_LEVEL)
+
+
 # ── Article judge, one dimension per request ─────────────────────────────
 
 JUDGE_DIMENSIONS = ("fidelity", "coverage", "references", "naturalness")

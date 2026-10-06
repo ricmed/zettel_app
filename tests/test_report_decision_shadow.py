@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from report_decision_shadow import agreement_by_band, band_of, build_report, load_rows
@@ -120,3 +122,39 @@ def test_load_rows_on_a_state_without_the_table(tmp_path):
     path = tmp_path / "old.db"
     sqlite3.connect(path).close()
     assert load_rows(path) == []
+
+
+def _corr_row(pair, order, similarity, edge, score, conf=0.8, converge=0.7):
+    return _row(
+        "corroborates",
+        f"{pair}:{order}",
+        {"similarity": similarity, "threshold": 0.85, "edge": edge, "new_note": "n"},
+        {
+            "same_idea": {"score": score, "confidence": conf},
+            "converge": {"noul": converge},
+        },
+    )
+
+
+def test_similarity_bands():
+    from report_decision_shadow import similarity_band
+
+    assert similarity_band(0.9, 0.85) == "above_threshold"
+    assert similarity_band(0.82, 0.85) == "near_threshold"
+    assert similarity_band(0.76, 0.85) == "low_band"
+
+
+def test_corroborates_report_crosses_edge_with_level_and_measures_order_bias():
+    rows = [
+        _corr_row("a|b", "ab", 0.9, True, 2.0, conf=0.95),
+        _corr_row("a|b", "ba", 0.9, True, 1.8, conf=0.95),
+        _corr_row("a|c", "ab", 0.78, False, 1.9),
+        _corr_row("a|c", "ba", 0.78, False, 1.3),
+    ]
+    out = build_report(rows)["sites"]["corroborates"]
+    assert out["pairs"] == 2
+    # a|c: mean 1.6 -> "same idea" with no edge, a possible missing link.
+    assert out["edge_x_level"] == {"edge=no->level=2": 1, "edge=yes->level=2": 1}
+    assert out["order_divergence_mean"] == pytest.approx(0.4)
+    assert out["by_similarity_band"]["low_band"]["levels"] == {"2": 1}
+    assert out["edge_vs_same_idea"]["all"] == {"n": 2, "agreement": 0.5}

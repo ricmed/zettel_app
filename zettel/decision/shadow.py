@@ -249,3 +249,67 @@ def shadow_article_judge(
                 sites.judge_score_0_10(float(jev[dimension]["score"])),
                 baseline["score_0_10"],
             )
+
+
+# ── Same idea across sources (connect) ───────────────────────────────────
+
+
+def _note_thesis_and_definition(row: dict[str, Any]) -> dict[str, str]:
+    from zettel.manual_lit import thesis_from_permanent_note
+    from zettel.markdown_fences import h2_section
+
+    body = row.get("body") or ""
+    return {
+        "thesis": thesis_from_permanent_note({"title": row.get("title")}, body),
+        "definition": h2_section(body, "Definição") or h2_section(body, "Definicao"),
+    }
+
+
+def shadow_corroborates(
+    cfg: AppConfig,
+    db: StateDB,
+    *,
+    note_id: str,
+    source_id: str,
+    thesis: str,
+    definition: str,
+    similar: list[Any],
+    corroborated: set[str],
+) -> None:
+    """Judge every other-source search seed in the band around the threshold.
+
+    ``similar``: the ``RetrievedNote`` hits connect already fetched (only seeds,
+    ``hop == 0``, carry a real distance). ``corroborated``: the notes the new note
+    linked with ``corroborates`` -- the baseline, decided by the cosine threshold.
+    Each pair is asked in both orders (new note first: ``ab``; existing first:
+    ``ba``) so the report can measure position bias, the score analogue of the
+    option permutations a ``choice`` gets.
+    """
+    if not enabled(cfg, "corroborates"):
+        return
+    band_min = cfg.decision.corroborates_band_min
+    threshold = cfg.linking.corroborates_min_similarity
+    new_note = {"thesis": thesis, "definition": definition}
+    for hit in similar:
+        if hit.hop != 0 or hit.vector_distance is None or hit.note_id == note_id:
+            continue
+        similarity = 1.0 - hit.vector_distance / 2.0
+        if similarity < band_min:
+            continue
+        row = db.get_note(hit.note_id) or {}
+        other_source = row.get("source_id") or ""
+        if not other_source or other_source == source_id:
+            continue
+        other = _note_thesis_and_definition(row)
+        pair = "|".join(sorted((note_id, hit.note_id)))
+        baseline = {
+            "similarity": round(similarity, 4),
+            "threshold": threshold,
+            "edge": hit.note_id in corroborated,
+            "new_note": note_id,
+        }
+        for order, (first, second) in (("ab", (new_note, other)), ("ba", (other, new_note))):
+            decision = sites.corroborates(
+                note_a=first, note_b=second, lang=cfg.decision.instructions_language
+            )
+            _run(cfg, db, "corroborates", f"{pair}:{order}", decision, baseline)

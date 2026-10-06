@@ -24,7 +24,7 @@ import json
 import sqlite3
 import statistics
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -181,10 +181,68 @@ def report_article_judge(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return out
 
 
+def _pair_of(subject_id: str) -> tuple[str, str]:
+    """``"A|B:ab"`` -> (``"A|B"``, ``"ab"``)."""
+    pair, order = subject_id.rsplit(":", 1)
+    return pair, order
+
+
+def similarity_band(similarity: float, threshold: float) -> str:
+    if similarity >= threshold:
+        return "above_threshold"
+    return "near_threshold" if similarity >= threshold - 0.05 else "low_band"
+
+
+def report_corroborates(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    from zettel.decision.sites import corroborates_level
+
+    answered, out = _common(rows)
+    by_pair: dict[str, dict[str, dict[str, Any]]] = {}
+    for r in answered:
+        pair, order = _pair_of(r["subject_id"])
+        by_pair.setdefault(pair, {})[order] = r
+
+    matrix: dict[str, int] = defaultdict(int)
+    by_band: dict[str, dict[str, Any]] = {}
+    divergences = []
+    pairs: list[tuple[bool, float]] = []
+    for orders in by_pair.values():
+        any_row = next(iter(orders.values()))
+        base = any_row["baseline"]
+        scores = [float(o["jev"]["same_idea"]["score"]) for o in orders.values()]
+        confidences = [float(o["jev"]["same_idea"]["confidence"]) for o in orders.values()]
+        if len(scores) == 2:
+            divergences.append(abs(scores[0] - scores[1]))
+        level = corroborates_level(statistics.fmean(scores))
+        edge = bool(base["edge"])
+        matrix[f"edge={'yes' if edge else 'no'}->level={level}"] += 1
+        pairs.append((edge == (level == 2), statistics.fmean(confidences)))
+        band = similarity_band(float(base["similarity"]), float(base["threshold"]))
+        slot = by_band.setdefault(band, {"n": 0, "levels": defaultdict(int), "converge": []})
+        slot["n"] += 1
+        slot["levels"][str(level)] += 1
+        slot["converge"].extend(float(o["jev"]["converge"]["noul"]) for o in orders.values())
+
+    out["pairs"] = len(by_pair)
+    out["edge_vs_same_idea"] = agreement_by_band(pairs)
+    out["edge_x_level"] = dict(sorted(matrix.items()))
+    out["order_divergence_mean"] = round(statistics.fmean(divergences), 4) if divergences else None
+    out["by_similarity_band"] = {
+        band: {
+            "n": slot["n"],
+            "levels": dict(sorted(slot["levels"].items())),
+            "converge_mean": round(statistics.fmean(slot["converge"]), 4),
+        }
+        for band, slot in sorted(by_band.items())
+    }
+    return out
+
+
 REPORTERS = {
     "dedupe": report_dedupe,
     "moc_category": report_moc_category,
     "article_judge": report_article_judge,
+    "corroborates": report_corroborates,
 }
 
 

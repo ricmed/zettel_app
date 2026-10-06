@@ -387,10 +387,12 @@ decision:
   order_permutations: 3            # copias de cada choice com ordem rotacionada
   instructions_language: en        # en | pt -- decidido pela sonda de #206
   input_price_per_mtok: 0.042      # US$ por milhao de tokens de entrada
+  corroborates_band_min: 0.75      # pares de outra fonte julgados a partir deste cosseno (#208)
   sites:                           # off | shadow
     dedupe: shadow                 # dedupe da mesma fonte (review)
     moc_category: shadow           # categoria do cluster (garden)
     article_judge: shadow          # notas do juiz (article)
+    corroborates: shadow           # mesma ideia entre obras (connect)
 
 # ── Idioma dos prompts / texto gerado ──────────────────────────────────
 language: pt-BR

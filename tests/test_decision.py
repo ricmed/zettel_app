@@ -367,3 +367,78 @@ def test_shadow_article_judge_writes_one_row_per_dimension(tmp_path, db, fake):
     assert by_dim["naturalness"]["baseline"]["score_0_10"] == 5.0
     assert by_dim["fidelity"]["jev"]["fidelity"]["score"] == 3.0
     assert {c["label"] for c in fake.calls} == {"article_judge"}
+
+
+# ── corroborates (#208) ──────────────────────────────────────────────────
+
+
+def _hit(note_id, similarity, hop=0):
+    return SimpleNamespace(note_id=note_id, hop=hop, vector_distance=(1 - similarity) * 2)
+
+
+def _ztl_body(thesis, definition):
+    return f"> **Tese**: {thesis}\n\n## Definição\n\n{definition}\n"
+
+
+def _shadow_corroborates(cfg, db, similar, corroborated=frozenset()):
+    shadow.shadow_corroborates(
+        cfg,
+        db,
+        note_id="01NEW",
+        source_id="@A",
+        thesis="Tese nova",
+        definition="Definicao nova",
+        similar=similar,
+        corroborated=set(corroborated),
+    )
+
+
+def test_corroborates_levels_and_rounding():
+    decision = sites.corroborates(note_a={"thesis": "a"}, note_b={"thesis": "b"}, lang="en")
+    assert decision.questions["same_idea"]["type"] == "score"
+    assert len(decision.questions["same_idea"]["criteria"]) == 3
+    assert decision.questions["converge"]["type"] == "noul"
+    assert set(decision.state) == {"note_a", "note_b"}  # no source in the state
+    assert sites.corroborates_level(1.6) == 2
+    assert sites.corroborates_level(1.4) == 1
+    assert sites.corroborates_level(2.0) == 2
+
+
+def test_shadow_corroborates_judges_the_band_in_both_orders(tmp_path, db, fake):
+    db.upsert_note("01OTHER", "@B", None, title="Outra", body=_ztl_body("Tese B", "Def B"))
+    db.upsert_note("01SAME", "@A", None, title="Mesma", body=_ztl_body("Tese A", "Def A"))
+    db.upsert_note("01LOW", "@B", None, title="Longe", body=_ztl_body("x", "y"))
+    cfg = _cfg(tmp_path, corroborates="shadow")
+    similar = [
+        _hit("01OTHER", 0.80),  # other source, inside the band, below the threshold
+        _hit("01SAME", 0.95),  # same source: dedupe's business, not this one
+        _hit("01LOW", 0.60),  # below the band
+        _hit("01GRAPH", 0.99, hop=1),  # graph neighbour: no real similarity
+    ]
+    _shadow_corroborates(cfg, db, similar)
+    rows = db.list_decision_shadow("corroborates")
+    assert sorted(r["subject_id"] for r in rows) == ["01NEW|01OTHER:ab", "01NEW|01OTHER:ba"]
+    ab = next(r for r in rows if r["subject_id"].endswith(":ab"))
+    assert ab["baseline"] == {
+        "similarity": 0.8,
+        "threshold": 0.85,
+        "edge": False,
+        "new_note": "01NEW",
+    }
+    assert ab["state"]["note_a"] == {"thesis": "Tese nova", "definition": "Definicao nova"}
+    assert ab["state"]["note_b"] == {"thesis": "Tese B", "definition": "Def B"}
+    ba = next(r for r in rows if r["subject_id"].endswith(":ba"))
+    assert ba["state"]["note_a"]["thesis"] == "Tese B"
+
+
+def test_shadow_corroborates_records_the_edge_the_pipeline_made(tmp_path, db, fake):
+    db.upsert_note("01OTHER", "@B", None, title="Outra", body=_ztl_body("Tese B", "Def B"))
+    cfg = _cfg(tmp_path, corroborates="shadow")
+    _shadow_corroborates(cfg, db, [_hit("01OTHER", 0.9)], corroborated={"01OTHER"})
+    assert {r["baseline"]["edge"] for r in db.list_decision_shadow("corroborates")} == {True}
+
+
+def test_shadow_corroborates_off_never_asks(tmp_path, db, fake):
+    db.upsert_note("01OTHER", "@B", None, title="Outra", body=_ztl_body("Tese B", "Def B"))
+    _shadow_corroborates(_cfg(tmp_path), db, [_hit("01OTHER", 0.9)])
+    assert fake.calls == []

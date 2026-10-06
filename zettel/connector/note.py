@@ -22,6 +22,7 @@ from zettel.connector.prompt import (
     Prompt2Payload,
     generate_permanent_note,
 )
+from zettel.decision.shadow import shadow_corroborates
 from zettel.hashing import (
     compute_embedding_input_hash,
     extract_embeddable_text,
@@ -31,7 +32,7 @@ from zettel.hashing import (
 from zettel.index import VectorIndex
 from zettel.llm import LLMUnavailableError, PromptParts
 from zettel.retrieval import Retriever
-from zettel.schemas import PermanentNoteCandidate, PermanentNoteLLMOutput
+from zettel.schemas import PermanentNoteCandidate, PermanentNoteLLMOutput, RelationType
 from zettel.state import StateDB
 from zettel.time import now_vault_iso
 from zettel.usage import clear_progress, get_tracker, set_progress
@@ -171,6 +172,18 @@ def _process(
         note_id=note_id,
         refines_note_id=cand_dict.get("refines_note_id"),
         refine_reason=cand_dict.get("refine_reason") or "",
+    )
+    shadow_corroborates(
+        cfg,
+        db,
+        note_id=note_id,
+        source_id=source_id,
+        thesis=note_output.thesis,
+        definition=note_output.definition,
+        similar=similar,
+        corroborated={
+            c.related_note_id for c in connections if c.relation_type == RelationType.CORROBORATES
+        },
     )
     # Distant analogies are suggestions (auto-connections), never graph edges (ADR-043).
     distant_ids = {n.note_id for n in distant}

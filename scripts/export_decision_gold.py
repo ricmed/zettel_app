@@ -24,11 +24,16 @@ answer key (`*-GABARITO-NAO-ABRIR.json`) holds all of that, frozen at export tim
 * `moc_category` -- by whether the decision model agreed with the embedding
   argmax (`agree` / `disagree`), plus clusters the argmax left `unassigned`.
   Disagreements are where one of the two is wrong.
+* `corroborates` -- one item per pair of notes from different works, by cosine
+  band: `above_threshold` (the pipeline linked them), `near_threshold` and
+  `low_band` (it did not). The bands below the threshold are where the same idea
+  in other words -- a missing link -- would hide. Neither the similarity nor the
+  sources reach the sheet.
 
 Each stratum is a census up to `--per-stratum`, a seeded random draw above it; the
 key records each stratum's population so a scorer can weight the sample back.
 
-Outputs, per site (`dedupe` / `categoria` prefix):
+Outputs, per site (`dedupe` / `categoria` / `corroboracao` prefix):
 
 * ``*-planilha.csv`` -- what the human fills. `;`-separated, UTF-8 with BOM so a
   PT-BR spreadsheet opens it with accents and columns intact.
@@ -44,6 +49,7 @@ Reads SQLite read-only. Writes nothing to the database and calls no model.
 Usage:
     .venv/Scripts/python.exe scripts/export_decision_gold.py --site dedupe
     .venv/Scripts/python.exe scripts/export_decision_gold.py --site moc_category --per-stratum 25
+    .venv/Scripts/python.exe scripts/export_decision_gold.py --site corroborates
 """
 
 from __future__ import annotations
@@ -64,20 +70,31 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from report_decision_shadow import load_rows
+from report_decision_shadow import load_rows, similarity_band
 
-SITES = ("dedupe", "moc_category")
-PREFIX = {"dedupe": "dedupe", "moc_category": "categoria"}
+SITES = ("dedupe", "moc_category", "corroborates")
+PREFIX = {"dedupe": "dedupe", "moc_category": "categoria", "corroborates": "corroboracao"}
+ITEM_LETTER = {"dedupe": "D", "moc_category": "C", "corroborates": "P"}
 
 # The labeller's answers. `?` exists for the same reason as in #175: forcing a
 # verdict on an item that cannot honestly be judged puts noise into the number.
 UNJUDGEABLE = "?"
 DEDUPE_ANSWERS = {"nova": "create_new", "repete": "ignore", "desenvolve": "link"}
 NONE_CATEGORY = "nenhuma"
+CORROBORATES_ANSWERS = {"diferente": 0, "mesmo-tema": 1, "mesma-ideia": 2}
 
 # Words that would tell the labeller what a model decided. The leakage test
 # asserts none of them appears in the sheet or the reading file.
-FORBIDDEN_IN_SHEET = ("baseline", "jev", "llm_decision", "confidence", "probabilit", "_unassigned")
+FORBIDDEN_IN_SHEET = (
+    "baseline",
+    "jev",
+    "llm_decision",
+    "confidence",
+    "probabilit",
+    "_unassigned",
+    "similarity",
+    "threshold",
+)
 
 SHEET_COLUMNS = {
     "dedupe": [
@@ -91,6 +108,7 @@ SHEET_COLUMNS = {
         "notas_existentes",
     ],
     "moc_category": ["item_id", "categoria", "nota", "termos", "notas"],
+    "corroborates": ["item_id", "decisao", "nota", "nota_a", "nota_b"],
 }
 
 
@@ -107,17 +125,37 @@ class Item:
 
 
 def eligible(rows: list[dict[str, Any]], site: str) -> list[dict[str, Any]]:
-    """Rows of ``site`` the decision model answered, with the input it saw."""
-    return [
+    """Rows of ``site`` the decision model answered, with the input it saw.
+
+    A ``corroborates`` pair is stored twice (``:ab`` new note first, ``:ba``
+    reversed); it becomes one item, from the ``ab`` row, carrying the ``ba``
+    answer along for the key.
+    """
+    answered = [
         r
         for r in rows
         if r["site"] == site and r["jev"] and not r["error"] and r.get("state") is not None
     ]
+    if site != "corroborates":
+        return answered
+    reversed_of = {
+        r["subject_id"].rsplit(":", 1)[0]: r for r in answered if r["subject_id"].endswith(":ba")
+    }
+    pairs = []
+    for r in answered:
+        pair, order = r["subject_id"].rsplit(":", 1)
+        if order == "ab":
+            ba = reversed_of.get(pair)
+            pairs.append({**r, "jev_ba": ba["jev"] if ba else None})
+    return pairs
 
 
 def stratum_of(row: dict[str, Any]) -> str:
     if row["site"] == "dedupe":
         return row["baseline"]["decision"]
+    if row["site"] == "corroborates":
+        base = row["baseline"]
+        return similarity_band(float(base["similarity"]), float(base["threshold"]))
     baseline = row["baseline"]["category"]
     if baseline == "_unassigned":
         return "unassigned"
@@ -152,7 +190,7 @@ def sample(rows: list[dict[str, Any]], *, per_stratum: int, seed: int) -> list[I
 
     # Position must not leak the stratum.
     rng.shuffle(chosen)
-    letter = "D" if rows and rows[0]["site"] == "dedupe" else "C"
+    letter = ITEM_LETTER[rows[0]["site"]] if rows else "X"
     items = []
     for i, (stratum, row) in enumerate(chosen, 1):
         letters = {}
@@ -184,8 +222,20 @@ def cluster_notes_text(item: Item) -> str:
     )
 
 
+def note_text(note: dict[str, Any]) -> str:
+    return f"Tese: {note.get('thesis') or ''}\n\nDefinição: {note.get('definition') or ''}"
+
+
 def sheet_row(item: Item) -> list[str]:
     state = item.row["state"]
+    if item.row["site"] == "corroborates":
+        return [
+            item.item_id,
+            "",  # decisao: diferente | mesmo-tema | mesma-ideia | ?
+            "",  # nota livre
+            note_text(state["note_a"]),
+            note_text(state["note_b"]),
+        ]
     if item.row["site"] == "dedupe":
         cand = state["candidate"]
         return [
@@ -257,6 +307,46 @@ def _dedupe_reading(items: list[Item]) -> list[str]:
     return lines
 
 
+def _corroborates_reading(items: list[Item]) -> list[str]:
+    lines = [
+        "# Rotulagem cega — mesma ideia entre obras",
+        "",
+        "Cada item traz duas notas permanentes escritas a partir de **obras diferentes**.",
+        "Elas afirmam a mesma ideia?",
+        "",
+        "- `diferente` — afirmam ideias diferentes",
+        "- `mesmo-tema` — tratam do mesmo tema, mas as teses diferem: uma acrescenta,",
+        "  restringe ou contradiz a outra",
+        "- `mesma-ideia` — afirmam a mesma ideia, com outras palavras ou outros exemplos",
+        f"- `{UNJUDGEABLE}` — não dá para julgar com o que está aqui",
+        "",
+        "Responda na coluna `decisao`. A coluna `nota` é livre.",
+        "",
+        "Nada aqui diz o que qualquer modelo decidiu, nem quão parecidas as notas são",
+        "para o embedding. É de propósito.",
+        "",
+        "---",
+        "",
+    ]
+    for item in items:
+        state = item.row["state"]
+        lines += [
+            f"## {item.item_id}",
+            "",
+            "**Nota A**",
+            "",
+            note_text(state["note_a"]),
+            "",
+            "**Nota B**",
+            "",
+            note_text(state["note_b"]),
+            "",
+            "---",
+            "",
+        ]
+    return lines
+
+
 def _category_reading(items: list[Item], categories: list[tuple[str, str, list[str]]]) -> list[str]:
     lines = [
         "# Rotulagem cega — categoria do cluster",
@@ -297,7 +387,12 @@ def _category_reading(items: list[Item], categories: list[tuple[str, str, list[s
 def write_reading(
     items: list[Item], site: str, path: Path, categories: list[tuple[str, str, list[str]]]
 ) -> None:
-    lines = _dedupe_reading(items) if site == "dedupe" else _category_reading(items, categories)
+    if site == "dedupe":
+        lines = _dedupe_reading(items)
+    elif site == "corroborates":
+        lines = _corroborates_reading(items)
+    else:
+        lines = _category_reading(items, categories)
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -316,11 +411,11 @@ def build_key(
         "seed": seed,
         "n_items": len(items),
         "population": population_counts,
-        "answers": (
-            {"decisao": DEDUPE_ANSWERS, "unjudgeable": UNJUDGEABLE}
-            if site == "dedupe"
-            else {"none": NONE_CATEGORY, "unjudgeable": UNJUDGEABLE}
-        ),
+        "answers": {
+            "dedupe": {"decisao": DEDUPE_ANSWERS, "unjudgeable": UNJUDGEABLE},
+            "moc_category": {"none": NONE_CATEGORY, "unjudgeable": UNJUDGEABLE},
+            "corroborates": {"decisao": CORROBORATES_ANSWERS, "unjudgeable": UNJUDGEABLE},
+        }[site],
         "items": [],
     }
     if site == "moc_category":
@@ -344,6 +439,13 @@ def build_key(
                 "target": row["jev"]["target"]["choice"],
             }
             entry["reviewer"] = (row.get("human") or {}).get("verdict")
+        elif site == "corroborates":
+            ba = (row.get("jev_ba") or {}).get("same_idea") or {}
+            entry["jev"] = {
+                "ab_score": row["jev"]["same_idea"]["score"],
+                "ba_score": ba.get("score"),
+                "ab_converge": row["jev"]["converge"]["noul"],
+            }
         else:
             entry["jev"] = {
                 "category": row["jev"]["category"]["choice"],
@@ -381,8 +483,8 @@ def main(argv: list[str] | None = None) -> int:
     if not rows:
         print(
             f"Nenhuma decisao shadow respondida para '{args.site}'. Rode `zettel review` "
-            "(dedupe) ou `zettel garden` (categoria) com decision.sites em shadow e "
-            "TYPESAFE_API_KEY no .env."
+            "(dedupe), `zettel garden` (categoria) ou `zettel connect` (corroborates) "
+            "com decision.sites em shadow e TYPESAFE_API_KEY no .env."
         )
         return 1
 
