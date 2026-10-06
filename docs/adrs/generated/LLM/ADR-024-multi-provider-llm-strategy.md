@@ -69,3 +69,7 @@ Cost estimation (`pricing.py`) depends on LiteLLM's public price map staying cur
 * zettel/llm.py:46 — `is_openai_compatible()`, OpenAI-compatible gateway grouping
 * `zettel/cli/deps.py` — `load_deps()`, resolves the config each command invocation builds its LLM client from
 * config/config.yaml:20 — `llm` configuration section (provider, model, base_url, sampling params)
+
+## Addendum (2026-10-06): a decision model is not a chat provider
+
+TypeSafe Jev answers typed questions with probabilities and does not generate text. It is therefore **not** added to `get_llm` or `LLM_PHASES`, and no phase can select it. It has its own client, config block (`decision`) and credential (`TYPESAFE_API_KEY`), described in [ADR-055](./ADR-055-typed-decision-layer-shadow.md).

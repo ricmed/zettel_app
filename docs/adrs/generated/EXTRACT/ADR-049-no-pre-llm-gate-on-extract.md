@@ -130,3 +130,7 @@ Re-measure before reopening — the numbers above are pinned to `ollama/qwen3-em
 ```
 
 The script aborts below three distinct labeled sources rather than reporting the leaky chunk-level split.
+
+## Addendum (2026-10-06): a typed classifier on the gold set is measurement, not a gate
+
+#206 asks the typed decision layer ([ADR-055](../LLM/ADR-055-typed-decision-layer-shadow.md)) whether a curator would keep each of the 118 judged gold items. That is the cleanest available test of the model's PT-BR capability. It does **not** reopen this ADR: nothing gates `extract`, and a strong AUC would still meet the argument above that the saving is cents against a lost permanent note. "What Would Reopen This" is unchanged.

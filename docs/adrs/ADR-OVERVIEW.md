@@ -64,11 +64,12 @@ WEB (4 ADRs)
 ├─ ADR-039 (web.py → web/ package)
 └─ ADR-040 (JSON pickers, progressive enhancement)
 
-LLM (4 ADRs)
+LLM (5 ADRs)
 ├─ ADR-024 (Multi-provider strategy)
 ├─ ADR-025 (System+Human prompt split)
 ├─ ADR-045 (Fail-fast on LLM unavailability)
-└─ ADR-048 (Per-phase thinking mode)
+├─ ADR-048 (Per-phase thinking mode)
+└─ ADR-055 (Typed decision layer, shadow mode)
 
 CLI (4 ADRs)
 ├─ ADR-026 (Typer + Rich framework)
@@ -138,6 +139,7 @@ ASSETS (1 ADR)
 | **ADR-025** | System+Human split | ADR-024, ADR-007, ADR-003 | (all LLM calls) |
 | **ADR-045** | Fail-fast on LLM unavailability | ADR-024 | harvest, extract, connect |
 | **ADR-048** | Per-phase LLM thinking mode | ADR-024, ADR-004, ADR-007 | get_llm, llm_cache |
+| **ADR-055** | Typed decision layer (Jev), shadow mode | ADR-024, ADR-054 | dedupe (ADR-016), garden category (ADR-019), article judge (ADR-028) |
 | **ADR-026** | Typer+Rich CLI | ADR-008 | (all commands) |
 | **ADR-027** | Harvest package | ADR-011, 012, 013, 014 | (harvest module layout) |
 | **ADR-028** | LangGraph article orchestration | ADR-003, 009, 010, 024, 025 | ADR-029 |
@@ -327,6 +329,7 @@ These remain documented in `docs/adrs/potential-adrs/` as a backlog for future p
 ### For Code Review
 - **Changing persistence?** Consult ADR-001, ADR-002, ADR-005, ADR-008.
 - **Adding an LLM call?** Check ADR-024, ADR-025, ADR-045, ADR-048.
+- **A closed decision (choice, score, yes/no)?** Check ADR-055 before adding another JSON-parsing LLM call.
 - **Modifying retrieval?** Review ADR-003, ADR-009, ADR-010.
 - **Touching harvest/chunking?** Verify ADR-011–014 are still satisfied.
 

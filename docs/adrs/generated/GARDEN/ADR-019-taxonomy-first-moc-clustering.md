@@ -74,3 +74,9 @@ The silent fallback from UMAP+HDBSCAN to KMeans on `ImportError` (or any excepti
 ## Amendment (2026-09-06)
 
 Category labels default to `"{pilar}: {categoria}"`. A shared `domain` prefix on every label collapsed cosine argmax in a mixed vault. `embed_category_labels` takes `(pilar, categoria)` pairs; `domain` remains available on the template for a custom override. Category names must be globally unique (`duplicate_category_names`). The transversal pillar "Problemas Transversais" is the intended home for bridge notes. After this change, `zettel garden --recreate` is required.
+
+## Addendum (2026-10-06): shadow category per cluster
+
+Before each cluster is routed, `run_garden` calls `decision.shadow.shadow_moc_category`. The call asks the typed decision layer for a `choice` over the taxonomy categories, plus `none`, given at most 20 of the cluster's notes and its frequent terms. The verdict is recorded next to the embedding argmax and changes nothing ([ADR-055](../LLM/ADR-055-typed-decision-layer-shadow.md)).
+
+The baseline is the argmax, not the LLM's `topic`: `_create_new_moc` overwrites the LLM's topic with the embedding category whenever that category is allowed, so the LLM's topic is not an independent judgement. The `none` option also measures something the argmax cannot express, because the argmax has no threshold and always picks a category.

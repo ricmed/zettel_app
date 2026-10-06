@@ -76,3 +76,12 @@ The **timing** decided here is unchanged: dedupe still runs post-approval, still
 Its **scope** is superseded by [ADR-045](./ADR-045-cross-source-overlap-is-corroboration.md): the comparison is now filtered to the candidate's own `source_id`. Note that this ADR never decided the scope — its Context describes candidate collection as "scoped to the source being reviewed", while the *comparison* was global purely because `permanent_notes` is one collection. A hit from another source is corroboration, gets a typed edge at `connect`, and never reaches the LLM here.
 
 A `refine_existing` / `merge` verdict now crosses into `connect` through `concepts.dedupe_json` and becomes an `extends` edge. Before 2026-09-24 it was silently lost at the review/connect boundary; see the [ADR-045 amendment](./ADR-045-cross-source-overlap-is-corroboration.md#amendment-2026-09-24-refine_existing-now-reaches-connect).
+
+## Addendum (2026-10-06): shadow verdict and reviewer label
+
+Timing and scope are unchanged. After the dedupe LLM decides, `extractor.deduplicate_candidates` also calls `decision.shadow.shadow_dedupe`. The typed decision layer then asks two questions over exactly the same-source notes the LLM saw:
+
+- a `choice` between `create_new`, `ignore` and `link`. `refine_existing` and `merge` collapse into `link`, since they have the same effect;
+- a `choice` of target note, which includes a `none` option.
+
+The answer is written to `decision_shadow` and never read to decide ([ADR-055](../LLM/ADR-055-typed-decision-layer-shadow.md)). When the reviewer resolves a `dedupe_pending` concept, `review.keep_duplicate` and `review.discard_duplicate` attach `not_ignore` or `ignore` to that row. This is the first human label this decision has had. It covers only what the LLM itself flagged.
