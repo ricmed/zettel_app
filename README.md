@@ -57,7 +57,7 @@ MOCs (Mapas de Conteúdo) por clusterização semântica
 | [Solução de problemas](docs/troubleshooting.md) | Sintomas comuns e como sair deles                                                        |
 | [Prompts e taxonomia](docs/prompts.md)          | Personalizar `prompts/`, `domain_examples.yaml`, `moc_topics.yaml` e as personalidades do `article` |
 | [Avaliação do `ask`](evals/README.md)         | Replay offline de trajetórias, veredictos e guardrail de afirmações       |
-| [ADRs](docs/adrs/ADR-INDEX.md)                  | 43 decisões de arquitetura, com contexto e alternativas                                  |
+| [ADRs](docs/adrs/ADR-INDEX.md)                  | 55 decisões de arquitetura, com contexto e alternativas                                  |
 
 
 Índice completo em [docs/INDICE.md](docs/INDICE.md).
@@ -184,7 +184,7 @@ Páginas, operações enfileiráveis e recuperação após reinício: [docs/inte
 
 ## Configuração
 
-A **fonte operacional** é `[config/config.yaml](config/config.yaml)` — é o arquivo que o CLI e a web carregam. `[zettel/config.py](zettel/config.py)` define o schema Pydantic e só aplica fallback quando o YAML falta ou omite uma chave. Segredos (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY`, `SESSION_SECRET`) ficam no `.env`.
+A **fonte operacional** é `[config/config.yaml](config/config.yaml)` — é o arquivo que o CLI e a web carregam. `[zettel/config.py](zettel/config.py)` define o schema Pydantic e só aplica fallback quando o YAML falta ou omite uma chave. Segredos (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY`, `TYPESAFE_API_KEY`, `SESSION_SECRET`) ficam no `.env`.
 
 
 | Bloco                                                                                    | Controla                                                                                                                             |
@@ -198,6 +198,7 @@ A **fonte operacional** é `[config/config.yaml](config/config.yaml)` — é o a
 | `linking.*`                                                                              | RAG do `connect`, analogias distantes (piso local) e pesos de aresta                                                                 |
 | `gardener.*`, `hub_mocs.*`                                                               | Clusterização e geração de MOCs (rótulo `{pilar}: {categoria}`)                                                                      |
 | `images.*`                                                                               | Extração e descrição multimodal de imagens                                                                                           |
+| `decision.*`                                                                             | Camada de decisão tipada (TypeSafe Jev) em modo shadow: grava o veredito ao lado de dedupe, categoria do cluster e juiz do artigo, sem agir (ADR-055) |
 | `language`, `log_level`, `device`                                                        | Idioma do conteúdo gerado, logging e dispositivo (CPU/CUDA)                                                                          |
 
 

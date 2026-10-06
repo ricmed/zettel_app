@@ -84,3 +84,28 @@ Tudo o que o projeto media sobre qualidade de extração era auto-referente: rec
 - **A amostra é estratificada** (censo das rejeições contestadas, fatia de `structural`, fatia de aceitos). As estimativas de corpus são **ponderadas** por `população / amostra` de cada estrato; as contagens cruas vêm ao lado para o tamanho da amostra ficar visível. Censo não tem erro amostral; estrato amostrado leva IC95 de Wilson.
 - **`?` fica fora da conta**, contado à parte — nunca como concordância nem como erro.
 - **A planilha costuma voltar de uma planilha eletrônica** em `;` e cp850/cp1252. O leitor aceita ambos e reporta cada normalização (ex.: `y` lido como `s`).
+
+# Camada de decisão tipada (#206)
+
+O Jev (TypeSafe) responde perguntas tipadas com probabilidade ([ADR-055](../docs/adrs/generated/LLM/ADR-055-typed-decision-layer-shadow.md)). Duas medidas, com as regras pré-registradas **antes** da primeira chamada em [`preregistration/206-jev-camada-decisao.md`](preregistration/206-jev-camada-decisao.md).
+
+## Sonda no gold set (ao vivo)
+
+```bash
+.venv/Scripts/python.exe scripts/probe_jev_gold.py --task extract --lang en          # estimativa, sem chamar
+.venv/Scripts/python.exe scripts/probe_jev_gold.py --task extract --lang en --yes     --out evals/results/jev-gold-extract-en.json --out-key evals/gold/extracao-GABARITO-jev-en.json
+.venv/Scripts/python.exe scripts/probe_jev_gold.py --task reader --lang en --yes --out evals/results/jev-gold-reader-en.json
+```
+
+- **Texto**: a passagem vem da planilha rotulada (`extracao-planilha.csv`, gitignored) — o texto que o humano julgou —, não do `state.db`, que o vault de desenvolvimento reinicia. As notas do leitor vêm da rodada gravada `gemini-t01-a` de #181 (`.eval-work/prompt1/`).
+- **Sinal**: AUC do `noul` "um curador guardaria?" contra o rótulo humano, com IC95. O `--out-key` gera um gabarito para `scripts/compare_gold_runs.py`.
+- **Replay**: respostas gravadas em `.eval-work/jev-gold/`, chaveadas por tarefa, idioma, modelo, permutações e perguntas. Rodada gravada não chama nada.
+- **Medição, não porteira**: a ADR-049 continua valendo.
+
+## Relatório do shadow (offline)
+
+```bash
+.venv/Scripts/python.exe scripts/report_decision_shadow.py --out evals/results/decision-shadow.json
+```
+
+Lê `decision_shadow` do `state.db` e reporta, por site, a concordância com a decisão atual por faixa de confiança (≥ 0,9; 0,6–0,9; < 0,6), a concordância com o revisor no dedupe ao lado da do LLM, o desvio entre permutações e a latência. O rótulo humano do dedupe só existe para o que o LLM já marcou como redundante — leia o número com esse viés.
