@@ -102,6 +102,7 @@ def test_load_rows_reads_what_the_state_wrote(tmp_path):
         subject_id="a",
         state_checksum="s",
         model="m",
+        state={"candidate": {}},
         baseline={"decision": "ignore"},
         jev={"decision": _choice("ignore", 0.9)},
         latency_ms=5,

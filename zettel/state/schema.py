@@ -172,11 +172,14 @@ CREATE TABLE IF NOT EXISTS llm_cache (
 -- took (ADR-055). Shadow only: nothing reads this table to decide. One row per
 -- (site, subject, state): re-running an unchanged decision reuses the answer.
 -- `human_json` is filled when a reviewer later decides the same subject.
+-- `state_json` is exactly what the model was shown: a blind labelling sheet is
+-- exported from it, so a human judges the same input as the model and the LLM.
 CREATE TABLE IF NOT EXISTS decision_shadow (
     site            TEXT NOT NULL,
     subject_id      TEXT NOT NULL,
     state_checksum  TEXT NOT NULL,
     model           TEXT NOT NULL,
+    state_json      TEXT NOT NULL,
     baseline_json   TEXT NOT NULL,
     jev_json        TEXT,
     human_json      TEXT,

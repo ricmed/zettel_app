@@ -34,6 +34,7 @@ class DecisionsMixin(StateBase):
         subject_id: str,
         state_checksum: str,
         model: str,
+        state: dict[str, Any],
         baseline: dict[str, Any],
         jev: dict[str, Any] | None,
         latency_ms: int | None,
@@ -44,9 +45,9 @@ class DecisionsMixin(StateBase):
         now = self._now()
         self.conn.execute(
             """INSERT INTO decision_shadow
-               (site, subject_id, state_checksum, model, baseline_json, jev_json,
-                latency_ms, input_tokens, error, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               (site, subject_id, state_checksum, model, state_json, baseline_json,
+                jev_json, latency_ms, input_tokens, error, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(site, subject_id, state_checksum) DO UPDATE SET
                  model=excluded.model,
                  baseline_json=excluded.baseline_json,
@@ -60,6 +61,7 @@ class DecisionsMixin(StateBase):
                 subject_id,
                 state_checksum,
                 model,
+                json.dumps(state, ensure_ascii=False, sort_keys=True),
                 json.dumps(baseline, ensure_ascii=False, sort_keys=True),
                 json.dumps(jev, ensure_ascii=False, sort_keys=True) if jev is not None else None,
                 latency_ms,
@@ -93,6 +95,7 @@ class DecisionsMixin(StateBase):
 def _decode_shadow_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         **row,
+        "state": _loads(row.pop("state_json")),
         "baseline": _loads(row.pop("baseline_json")),
         "jev": _loads(row.pop("jev_json")),
         "human": _loads(row.pop("human_json")),

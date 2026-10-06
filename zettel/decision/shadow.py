@@ -69,6 +69,7 @@ def _run(
         "subject_id": subject_id,
         "state_checksum": checksum,
         "model": client.model,
+        "state": decision.state,
         "baseline": baseline,
     }
 
@@ -157,7 +158,7 @@ def label_dedupe(db: StateDB, concept_id: str, action: str) -> None:
 # ── Category of a garden cluster ─────────────────────────────────────────
 
 
-def _categories_with_topics(cfg: AppConfig) -> list[tuple[str, str, list[str]]]:
+def categories_with_topics(cfg: AppConfig) -> list[tuple[str, str, list[str]]]:
     from zettel.gardener_assign import category_pairs
     from zettel.taxonomy import TaxonomyLoadError, load_moc_taxonomy
 
@@ -183,7 +184,7 @@ def shadow_moc_category(
     """``category``: the bucket the embedding argmax put the cluster in (or ``_unassigned``)."""
     if not enabled(cfg, "moc_category"):
         return
-    categories = _categories_with_topics(cfg)
+    categories = categories_with_topics(cfg)
     if not categories:
         return
     sorted_ids = sorted(note_ids)

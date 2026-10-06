@@ -285,6 +285,8 @@ def test_shadow_dedupe_records_baseline_and_folded_answer(tmp_path, db, fake):
     assert row["jev"]["decision"]["copies"] == 3
     assert row["model"] == "typesafe/jev-test"
     assert row["error"] is None
+    # The row keeps exactly what the model was shown (the blind sheet is built from it).
+    assert row["state"] == fake.calls[0]["state"]
     # The model saw the same 200-char excerpt the dedupe LLM sees.
     note_a = fake.calls[0]["state"]["existing_notes"][0]
     assert len(note_a["text"]) == shadow.DEDUPE_NOTE_CHARS

@@ -218,6 +218,7 @@ def load_rows(state_db: Path) -> list[dict[str, Any]]:
         for r in con.execute("SELECT * FROM decision_shadow ORDER BY site, created_at, subject_id"):
             row = dict(r)
             for col, key in (
+                ("state_json", "state"),
                 ("baseline_json", "baseline"),
                 ("jev_json", "jev"),
                 ("human_json", "human"),
