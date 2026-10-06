@@ -249,10 +249,12 @@ decision:
   order_permutations: 3        # copias de cada choice com a ordem das opcoes rotacionada
   instructions_language: en    # en | pt -- idioma das instrucoes; o conteudo segue PT-BR
   input_price_per_mtok: 0.042  # US$ por milhao de tokens de entrada (saida e gratis)
+  corroborates_band_min: 0.75  # pares de outra fonte julgados a partir deste cosseno
   sites:                       # off | shadow -- o YAML operacional liga shadow
     dedupe: off
     moc_category: off
     article_judge: off
+    corroborates: off
 
 # ── Gerais ─────────────────────────────────────────────────────────────
 language: pt-BR              # idioma dos prompts e do texto gerado
@@ -366,6 +368,7 @@ Hoje só existe o modo **shadow**. Com `decision.sites.<site>: shadow`, o pipeli
 | `dedupe` | `review`, depois do LLM de dedupe da mesma fonte | decisão do LLM (`refine_existing`/`merge` viram `link`) + nota alvo; a escolha `m`/`d` do revisor vira rótulo humano |
 | `moc_category` | `garden`, antes de rotear cada cluster | categoria do argmax de embedding |
 | `article_judge` | `article`, depois do juiz | as quatro notas do LLM (0–10); uma pergunta por dimensão |
+| `corroborates` | `connect`, depois de montar as conexões | cosseno e se a aresta `corroborates` foi criada; julga também pares **abaixo** de 0,85 (a partir de `corroborates_band_min`), nas duas ordens |
 
 Sem a chave (ou sem o pacote `typesafe-sdk`) a camada **falha aberta**: o pipeline segue e a linha registra o erro. `zettel doctor` mostra o estado da camada. Para ler o resultado:
 

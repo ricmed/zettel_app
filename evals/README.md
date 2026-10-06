@@ -102,19 +102,20 @@ O Jev (TypeSafe) responde perguntas tipadas com probabilidade ([ADR-055](../docs
 - **Replay**: respostas gravadas em `.eval-work/jev-gold/`, chaveadas por tarefa, idioma, modelo, permutações e perguntas. Rodada gravada não chama nada.
 - **Medição, não porteira**: a ADR-049 continua valendo.
 
-## Planilha cega de dedupe e categoria
+## Planilha cega de dedupe, categoria e corroborates
 
 Dedupe e categoria não têm gabarito humano: o m/d do revisor só cobre o que o LLM já marcou como repetição, e ninguém julga a categoria de um cluster. Depois de acumular decisões shadow (`zettel review`, `zettel garden`), exporte:
 
 ```bash
 .venv/Scripts/python.exe scripts/export_decision_gold.py --site dedupe
 .venv/Scripts/python.exe scripts/export_decision_gold.py --site moc_category
+.venv/Scripts/python.exe scripts/export_decision_gold.py --site corroborates
 ```
 
 - **Mesma evidência que os modelos**: cada item vem do `state_json` da linha shadow — o candidato e as notas da mesma fonte que o dedupe viu, ou as notas e termos do cluster.
 - **Cega**: nada de decisão do LLM, resposta do Jev, confiança ou rótulo do revisor na planilha ou na leitura; itens embaralhados. As notas existentes aparecem por **letra** (A, B, …); as categorias, por **número**.
-- **Respostas**: dedupe — `decisao` = `nova` | `repete` | `desenvolve` | `?`, e `alvo` = letra da nota em `repete`/`desenvolve`; categoria — número ou nome da lista, `nenhuma` ou `?`.
-- **Estratos**: dedupe pela decisão do LLM (`create_new` amostrado, `ignore`/`link` inteiros até o teto); categoria por concordância entre o Jev e o argmax (`agree`/`disagree`/`unassigned`). `--per-stratum` (padrão 30) e `--seed` controlam a amostra; o gabarito guarda a população de cada estrato.
+- **Respostas**: dedupe — `decisao` = `nova` | `repete` | `desenvolve` | `?`, e `alvo` = letra da nota em `repete`/`desenvolve`; categoria — número ou nome da lista, `nenhuma` ou `?`; corroborates — `diferente` | `mesmo-tema` | `mesma-ideia` | `?` (duas notas de obras diferentes, sem cosseno nem fontes).
+- **Estratos**: dedupe pela decisão do LLM (`create_new` amostrado, `ignore`/`link` inteiros até o teto); categoria por concordância entre o Jev e o argmax (`agree`/`disagree`/`unassigned`); corroborates por faixa de cosseno (`low_band` 0,75–0,80, `near_threshold` 0,80–0,85, `above_threshold`), um item por par. Regras do #208 em [`preregistration/208-jev-corroborates.md`](preregistration/208-jev-corroborates.md). `--per-stratum` (padrão 30) e `--seed` controlam a amostra; o gabarito guarda a população de cada estrato.
 - **Commitável**: só o `*-GABARITO-NAO-ABRIR.json` (ids, sem texto). Planilha e leitura são gitignored. Uma planilha existente nunca é sobrescrita sem `--force`.
 
 ## Relatório do shadow (offline)

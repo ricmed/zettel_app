@@ -134,3 +134,13 @@ The four runs of `evals/preregistration/206-jev-camada-decisao.md` had no API fa
 The probabilities **rank well but are not centred on 0.5**: the mean keep probability of items a human kept is 0.47 (`en`). Any future gate must therefore measure its own threshold on labelled data. It cannot assume the model's 0.5, nor the 0.9 the documentation suggests for acting unattended.
 
 Outcome under the pre-registration: **keep accumulating shadow**. No gate issue is opened yet. The per-site criterion still needs at least 30 shadow decisions per site, and the vault has none at the time of writing.
+
+## Addendum (2026-10-06): fourth site, `corroborates` (#208)
+
+`connect` links two permanent notes from different works with `corroborates` when cosine ≥ `linking.corroborates_min_similarity` (0.85) ([ADR-045](../REVIEW/ADR-045-cross-source-overlap-is-corroboration.md)). The threshold has no measurement for the question "same idea?". The new site `decision.sites.corroborates` shadows it from `connector.note._process`, right after `assemble_connections`.
+
+- **Band, not threshold.** Every other-source search seed with cosine ≥ `decision.corroborates_band_min` (0.75) is judged, including pairs below 0.85. Judging only above the threshold would hide the missing links: the same idea in other words.
+- **Questions.** A three-level `score` (different ideas / same topic, different theses / same idea), after the model's entity-alignment cookbook, plus a `noul` "do the authors converge?". The state is the two notes' thesis and definition only. That the sources differ is the premise, not evidence, so the sources stay out.
+- **Both orders.** A `score` has no options to permute, so the pair is asked as `ab` (new note first) and `ba`. The two rows share the pair id, `A|B:ab` / `A|B:ba`, and the report measures the divergence.
+- **Baseline.** Cosine, threshold, and whether the edge was actually created. The `max_edges` cap and an LLM edge to the same target both prevent it.
+- The edge stays `origin='derived'`, decided by the threshold. The rules are pre-registered in `evals/preregistration/208-jev-corroborates.md`. `report_decision_shadow.py` crosses edge × level by cosine band, and `export_decision_gold.py --site corroborates` exports a blind sheet of pairs.

@@ -198,7 +198,7 @@ A **fonte operacional** é `[config/config.yaml](config/config.yaml)` — é o a
 | `linking.*`                                                                              | RAG do `connect`, analogias distantes (piso local) e pesos de aresta                                                                 |
 | `gardener.*`, `hub_mocs.*`                                                               | Clusterização e geração de MOCs (rótulo `{pilar}: {categoria}`)                                                                      |
 | `images.*`                                                                               | Extração e descrição multimodal de imagens                                                                                           |
-| `decision.*`                                                                             | Camada de decisão tipada (TypeSafe Jev) em modo shadow: grava o veredito ao lado de dedupe, categoria do cluster e juiz do artigo, sem agir (ADR-055) |
+| `decision.*`                                                                             | Camada de decisão tipada (TypeSafe Jev) em modo shadow: grava o veredito ao lado de dedupe, categoria do cluster, juiz do artigo e aresta `corroborates`, sem agir (ADR-055) |
 | `language`, `log_level`, `device`                                                        | Idioma do conteúdo gerado, logging e dispositivo (CPU/CUDA)                                                                          |
 
 

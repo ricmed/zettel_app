@@ -438,7 +438,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-10-06
-- **Summary**: `zettel/decision/` asks TypeSafe Jev typed questions (`noul`/`choice`/`score`, with probabilities) beside three closed decisions: same-source dedupe, garden cluster category and the article judge's scores. Verdicts go to `decision_shadow` and are never read to decide. Every `choice` is asked in rotated option orders within one request; the client fails open; the model is pinned. Switching a decision needs its own issue, gated by the pre-registered numbers of #206.
+- **Summary**: `zettel/decision/` asks TypeSafe Jev typed questions (`noul`/`choice`/`score`, with probabilities) beside four closed decisions: same-source dedupe, garden cluster category, the article judge's scores and the cross-source `corroborates` edge (#208). Verdicts go to `decision_shadow` and are never read to decide. Every `choice` is asked in rotated option orders within one request; the client fails open; the model is pinned. Switching a decision needs its own issue, gated by the pre-registered numbers of #206.
 - **Link**: [`ADR-055-typed-decision-layer-shadow.md`](./generated/LLM/ADR-055-typed-decision-layer-shadow.md)
 
 ---
@@ -555,7 +555,7 @@
 
 ## Status Update (2026-10-06)
 
-✅ **ADR-055 added**: typed decision layer (TypeSafe Jev) in shadow mode, beside dedupe, cluster category and the article judge. Addenda in ADR-016, ADR-019, ADR-024, ADR-028, ADR-038 and ADR-049. Totals recounted from `docs/adrs/generated/` (55 files; ADR-045 is used twice, ADR-044 does not exist).
+✅ **ADR-055 added**: typed decision layer (TypeSafe Jev) in shadow mode, beside dedupe, cluster category and the article judge. Addenda in ADR-016, ADR-019, ADR-024, ADR-028, ADR-038, ADR-045 (REVIEW) and ADR-049; the `corroborates` site (#208) followed the same day. Totals recounted from `docs/adrs/generated/` (55 files; ADR-045 is used twice, ADR-044 does not exist).
 
 ---
 
