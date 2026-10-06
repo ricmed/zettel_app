@@ -64,7 +64,7 @@ zettel/decision/
    - the judge asks each dimension in its own request — naturalness sees only the article, fidelity the article and the notes;
    - every `choice` whose list may not fit gets a `none` option.
 6. **Questions live in code** (`sites.py`), not in `prompts/`, because their option keys are contracts with code (`DedupeDecision`, taxonomy category names). Instructions and criteria exist in English and Portuguese (`decision.instructions_language`), and the content stays PT-BR. The language is chosen by the pre-registered probe, not by preference.
-7. **Persistence.** `decision_shadow` has one row per `(site, subject_id, state_checksum)`, holding the baseline the pipeline decided, the folded answer, latency, input tokens, error, and a human label when one exists.
+7. **Persistence.** `decision_shadow` has one row per `(site, subject_id, state_checksum)`. It holds the exact state the model was shown (`state_json`), the baseline the pipeline decided, the folded answer, latency, input tokens, error, and a human label when one exists. The stored state is what lets a human judge the same evidence later, because the same-source notes a dedupe saw change with every review.
    - Re-running an unchanged decision refreshes the baseline and reuses the stored answer.
    - The human label survives that refresh.
    - The table is created with `CREATE TABLE IF NOT EXISTS`, so no reset is needed.
@@ -83,6 +83,7 @@ zettel/decision/
   - agreement with the current decision, overall and by the model's confidence band (≥ 0.9, 0.6–0.9, < 0.6);
   - human agreement for dedupe, next to the LLM's;
   - the mean spread across permutations, latency, and the error rate.
+- **Labels where none exist.** `scripts/export_decision_gold.py` exports a blind sheet (same pattern as #175) for `dedupe` and `moc_category` from the rows' `state_json`. No baseline, model answer, confidence or reviewer label reaches the sheet. The sample is stratified where errors would hide: dedupe by the LLM's decision, with `create_new` sampled because that is where a missed duplicate lives; category by agreement between the model and the embedding argmax. The frozen key holds ids, strata, populations and both answers.
 
 ## Consequences
 
@@ -109,7 +110,7 @@ zettel/decision/
 * `zettel/decision/shadow.py` — `shadow_dedupe`, `label_dedupe`, `shadow_moc_category`, `shadow_article_judge`
 * `zettel/state/decisions.py` — `DecisionsMixin`
 * `zettel/config.py` — `DecisionConfig`, `DecisionSitesConfig`
-* `scripts/probe_jev_gold.py`, `scripts/report_decision_shadow.py`
+* `scripts/probe_jev_gold.py`, `scripts/report_decision_shadow.py`, `scripts/export_decision_gold.py`
 * `evals/preregistration/206-jev-camada-decisao.md`
 * `tests/test_decision.py`, `tests/test_probe_jev_gold.py`, `tests/test_report_decision_shadow.py`
 
