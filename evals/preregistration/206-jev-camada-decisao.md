@@ -60,6 +60,15 @@ Abrir a issue não troca nada: a issue de gate traz seu próprio pré-registro.
 
 Resultado nulo é válido e será publicado como tal.
 
+## Emenda (2026-10-06, antes de qualquer chamada)
+
+A versão original supunha que o texto dos itens viria de `data/state.db`. O ensaio sem chamadas mostrou que o vault de desenvolvimento foi reiniciado: 115 dos 118 itens julgados não têm mais linha lá. A fonte do conteúdo muda; **as regras não mudam**:
+
+- **Passagem** (as duas tarefas): a coluna `texto` da planilha rotulada `evals/gold/extracao-planilha.csv` — o texto exato que o humano julgou. Cobre os 118 itens julgados. A fonte aparece como `source_id` (a planilha não guarda o título).
+- **Notas do leitor**: os candidatos da rodada gravada `gemini-t01-a` de #181 (`.eval-work/prompt1/gemini-t01-a.json`), que é o extrator de produção (ADR-050). A rodada original do `probe_reader_signal.py` julgou notas do `gpt-4o-mini`, que não existem mais; o leitor desta issue julga as notas do modelo atual. 3 dos 38 itens não têm nota nesta rodada e entram com a lista vazia, como no probe original.
+
+Os dois arquivos são locais e não versionados (direitos autorais e texto parafraseado), como já era o caso da planilha.
+
 ## Comandos
 
 ```bash
