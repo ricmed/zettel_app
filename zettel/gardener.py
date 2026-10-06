@@ -17,6 +17,7 @@ import numpy as np
 from ulid import ULID
 
 from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, llm_phase
+from zettel.decision import shadow as decision_shadow
 from zettel.gardener_assign import (
     assign_notes_to_categories,
     build_embeddings_by_id,
@@ -171,6 +172,14 @@ def run_garden(
             current_index=cluster_index,
             total_items=len(cluster_pairs),
         )
+        if decision_shadow.enabled(cfg, "moc_category"):
+            decision_shadow.shadow_moc_category(
+                cfg,
+                db,
+                category=category,
+                note_ids=cluster_ids,
+                terms=_extract_cluster_terms(db, cluster_ids),
+            )
         moc_id = _process_cluster(cfg, db, idx, llm, category, cluster_ids, stats)
         if moc_id:
             moc_ids.append(moc_id)

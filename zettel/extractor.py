@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from ulid import ULID
 
 from zettel.config import AppConfig, effective_temperature, llm_phase, thinking_checksum_token
+from zettel.decision.shadow import shadow_dedupe
 from zettel.hashing import (
     compute_llm_call_checksum,
     normalize_text_for_hash,
@@ -1073,6 +1074,16 @@ def deduplicate_candidates(
                 approved.append(cand_dict)
                 continue
 
+            shadow_dedupe(
+                cfg,
+                db,
+                concept_id=cand_dict["concept_id"],
+                thesis=cand.thesis,
+                definition=cand.definition,
+                same_source=same_source,
+                llm_decision=result.decision.value,
+                llm_target=result.target_note_id,
+            )
             if result.decision == DedupeDecision.CREATE_NEW:
                 approved.append(cand_dict)
             elif result.decision == DedupeDecision.IGNORE:

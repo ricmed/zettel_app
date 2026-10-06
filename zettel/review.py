@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from zettel.config import AppConfig
+from zettel.decision.shadow import label_dedupe
 from zettel.index import VectorIndex
 from zettel.llm import get_llm
 from zettel.schemas import PermanentNoteCandidate
@@ -657,10 +658,12 @@ def keep_duplicate(db: StateDB, concept_id: str) -> None:
     dedupe = _load_json(concept.get("dedupe_json"))
     dedupe["override"] = True
     db.set_concept_dedupe(concept_id, "approved", dedupe)
+    label_dedupe(db, concept_id, "keep")
 
 
 def discard_duplicate(db: StateDB, concept_id: str) -> None:
     db.set_concept_dedupe(concept_id, "duplicate")
+    label_dedupe(db, concept_id, "discard")
 
 
 def format_dedupe_item(db: StateDB, concept: dict) -> str:

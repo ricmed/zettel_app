@@ -12,6 +12,7 @@ from langgraph.types import interrupt
 
 from .. import article as art
 from ..config import llm_phase
+from ..decision.shadow import shadow_article_judge
 from ..retrieval import Retriever
 from ..schemas import ArticleOutline
 from . import search
@@ -296,6 +297,15 @@ def node_judge(state: ArticleGraphState, config: RunnableConfig) -> dict:
     assert rt.catalog is not None
     body = state.get("styled_body") or state.get("draft_body") or ""
     scores, called = art.judge_article_body(rt.cfg, rt.db, rt.catalog, body)
+    shadow_article_judge(
+        rt.cfg,
+        rt.db,
+        topic=rt.catalog.topic,
+        style=rt.catalog.style,
+        catalog=art.format_notes_catalog(rt.catalog),
+        body=body,
+        llm_scores=scores,
+    )
     iteration = int(state.get("iteration_count") or 0)
     out: dict[str, Any] = {
         "judge_scores": scores,
