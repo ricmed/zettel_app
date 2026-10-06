@@ -168,6 +168,26 @@ CREATE TABLE IF NOT EXISTS llm_cache (
     created_at    TEXT NOT NULL
 );
 
+-- Typed-decision verdicts recorded beside the decision the pipeline actually
+-- took (ADR-055). Shadow only: nothing reads this table to decide. One row per
+-- (site, subject, state): re-running an unchanged decision reuses the answer.
+-- `human_json` is filled when a reviewer later decides the same subject.
+CREATE TABLE IF NOT EXISTS decision_shadow (
+    site            TEXT NOT NULL,
+    subject_id      TEXT NOT NULL,
+    state_checksum  TEXT NOT NULL,
+    model           TEXT NOT NULL,
+    baseline_json   TEXT NOT NULL,
+    jev_json        TEXT,
+    human_json      TEXT,
+    latency_ms      INTEGER,
+    input_tokens    INTEGER,
+    error           TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    PRIMARY KEY (site, subject_id, state_checksum)
+);
+
 CREATE TABLE IF NOT EXISTS note_connections (
     source_note_id TEXT NOT NULL,
     target_note_id TEXT NOT NULL,

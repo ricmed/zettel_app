@@ -291,6 +291,29 @@ def doctor(config: ConfigOption = None):
         )
     )
 
+    # Typed decision layer (ADR-055): shadow only, fail-open -- a missing key never
+    # stops the pipeline, but the shadow would record nothing.
+    from zettel.config import DECISION_SITES
+    from zettel.credentials import DECISION_PROVIDER_ENV, has_credential
+
+    dcfg = cfg.decision
+    active = [site for site in DECISION_SITES if getattr(dcfg.sites, site) != "off"]
+    if active:
+        try:
+            __import__("typesafe_sdk")
+            sdk_ok = True
+        except ImportError:
+            sdk_ok = False
+        key_ok = has_credential(DECISION_PROVIDER_ENV[dcfg.provider])
+        detail = f"{dcfg.provider}/{dcfg.model} | shadow: {', '.join(active)}"
+        if not sdk_ok:
+            detail += " | typesafe-sdk nao instalado"
+        if not key_ok:
+            detail += " | TYPESAFE_API_KEY ausente"
+        checks.append(("Camada de decisao", sdk_ok and key_ok, detail))
+    else:
+        checks.append(("Camada de decisao", True, "desligada"))
+
     # MOC taxonomy YAML: only a failure when strict_topics would actually enforce it.
     topics_path = cfg.gardener.topics_path
     if topics_path is None:

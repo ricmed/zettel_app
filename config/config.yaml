@@ -373,6 +373,25 @@ summarize:
   preflight_output_tokens_per_chapter: 600  # alvo do estimador, nao teto do modelo
   max_topics: 8                    # termos-chave por resumo
 
+# ── Camada de decisao tipada (TypeSafe Jev, ADR-055) ───────────────────
+# O Jev responde perguntas tipadas (choice/score/noul) com probabilidade, sem
+# gerar texto. Hoje so em modo shadow: roda ao lado da decisao atual e grava o
+# veredito em `decision_shadow` (state.db), sem mudar nada. Credencial:
+# TYPESAFE_API_KEY no .env. Relatorio: scripts/report_decision_shadow.py.
+decision:
+  provider: typesafe
+  model: jev-1.13.0                # fixo, nunca jev-latest
+  base_url: null                   # null = endpoint publico
+  timeout_s: 10.0
+  max_retries: 2
+  order_permutations: 3            # copias de cada choice com ordem rotacionada
+  instructions_language: en        # en | pt -- decidido pela sonda de #206
+  input_price_per_mtok: 0.042      # US$ por milhao de tokens de entrada
+  sites:                           # off | shadow
+    dedupe: shadow                 # dedupe da mesma fonte (review)
+    moc_category: shadow           # categoria do cluster (garden)
+    article_judge: shadow          # notas do juiz (article)
+
 # ── Idioma dos prompts / texto gerado ──────────────────────────────────
 language: pt-BR
 
