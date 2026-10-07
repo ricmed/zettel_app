@@ -119,3 +119,22 @@ Measured before switching (`evals/preregistration/209-dedupe-texto-completo.md`,
 - **Pre-registered outcome:** the non-inferiority rule fails, so the pre-registered outcome was **not to adopt** the full content and to fix the prompt first.
 
 **Decision (deviation, recorded):** the full content **stays** in production, by explicit decision, paired with a prompt fix ([#218](https://github.com/ricmed/zettel_app/issues/218)). The reasoning: the excerpt scores better partly because it hides the context that triggers over-linking, not because it judges better. A judge should compare whole notes with criteria that do not read "same topic" as "develops". Until #218 lands, the dedupe LLM over-links against the manual labels, and this is a known, measured regression. #218's acceptance bar is to recover at least the excerpt's 40/64 with the full content, validated on fresh labels.
+
+## Addendum (2026-10-07): a prompt that compares claims, kept by decision (#218)
+
+`prompts/dedupe_decision.md` was rewritten to compare **claims, not topics**. For each note it asks for the central claim, then applies the first rule that fits, and it lists what does not count as "develops": another concept the note merely mentions, a shared topic, or mutual context. The rewrite was pre-registered in `evals/preregistration/218-prompt-dedupe.md` and validated on items never used to write it:
+
+| | round 1 (64, development) | round 2 (42, validation) |
+|---|---|---|
+| previous prompt, 200-char excerpt | 40 | 20 |
+| previous prompt, full content | 26 | 16 |
+| **new prompt, full content** | **48** | **25** |
+| shadow LLM / Jev (excerpt) | 33 / 48 | 21 / 21 |
+
+- **Round 2 against the rules:** the new prompt is the best configuration in both rounds, but rule 1 (beat the previous prompt with full content at exact McNemar p < 0.05) fails, with p = 0.093 (16 vs 7 discordant items). Rules 2 (25 ≥ 20) and 3 (validity) pass.
+- **Pre-registered outcome:** do not adopt the new prompt.
+- **Decision (deviation, recorded):** the new prompt and the full content are **kept** by explicit decision, because the improvement points the same way in both rounds and the miss is one of statistical power on 42 items.
+- **To revisit:** #218 stays open. A larger, pre-registered round is the way to settle it.
+- **Known residual errors in round 2:** the new prompt never answers "repeats" (the human's 7 repeats become 2 "new" and 5 "develops"), and 7 of the human's 15 "develops" become "new".
+
+Results: `evals/results/dedupe-prompt-218-r1.json`, `dedupe-prompt-218-r2.json`.
