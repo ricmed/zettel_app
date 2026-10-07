@@ -86,6 +86,8 @@
     "ignore": 4,
     "link": 45
   },
+  "labels_method": "score_thresholds",
+  "labels_note": "Labels follow a 0-1 similarity score with fixed cuts; this measures agreement with that score, not human judgement of meaning. Superseded once blind manual labels exist.",
   "pairs": {
     "llm:jev": {
       "mcnemar_p": 0.2379,
