@@ -85,3 +85,25 @@ Timing and scope are unchanged. After the dedupe LLM decides, `extractor.dedupli
 - a `choice` of target note, which includes a `none` option.
 
 The answer is written to `decision_shadow` and never read to decide ([ADR-055](../LLM/ADR-055-typed-decision-layer-shadow.md)). When the reviewer resolves a `dedupe_pending` concept, `review.keep_duplicate` and `review.discard_duplicate` attach `not_ignore` or `ignore` to that row. This is the first human label this decision has had. It covers only what the LLM itself flagged.
+
+## Addendum (2026-10-07): the dedupe LLM sees whole notes (#209)
+
+Until now `extractor._format_existing_notes` showed the LLM the first 200 characters of each same-source note. Every note starts with `> **Tese**: `, so 270 of 781 theses were cut, and the definition never appeared. Each existing note now goes into the prompt in full, through `extractor.existing_note_contents` and `zettel/note_content.py`: thesis, definition, intuition, example and limits, read from SQLite. Managed blocks and `## Conexões` stay out. The only cap is `linking.dedupe_note_chars` (6000), set above any real note. The L2 distance the prompt used to print is gone, because it is not a calibrated signal for this judgement.
+
+Measured before switching (`evals/preregistration/209-dedupe-texto-completo.md`, `scripts/probe_dedupe_context.py`). The setup:
+
+- 64 items labelled blind by a human (#206);
+- the same prompt, model (`openai/gpt-4o-mini` @ 0.2), candidate and set of existing notes in both conditions;
+- two runs per condition.
+
+| condition | correct | population-weighted | target correct |
+|---|---|---|---|
+| 200-char excerpt (`trunc-a`) | 25/64 | 0.49 | 0.52 |
+| full content (`full-a`) | **43/64** | **0.69** | **0.63** |
+
+- **Effect:** exact McNemar p = 0.0005 (22 items only `full-a` gets right, 4 only `trunc-a`).
+- **Stability:** repeat runs agree on 98–100% of items.
+- **Validity:** no invalid answers.
+- **Pre-registered rule:** non-inferior and valid, so the change was adopted.
+
+What it does not fix: with whole notes the LLM says "develops" (`extends`) for 83% of items, against 70% for the human. It gets only 3 of the 15 items the human marked "new" right; 9 become `link`. Over-linking is now the dominant error. Results: `evals/results/dedupe-context-209.json`.
