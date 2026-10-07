@@ -1486,6 +1486,8 @@ def test_dedupe_flags_a_repeat_within_the_same_source(tmp_path, monkeypatch):
     concept = db.get_concept("c1")
     assert concept["status"] == "dedupe_pending"
     assert json.loads(concept["dedupe_json"])["reason"] == "repetido"
+    # The notes the LLM compared against travel with the flag, for the review card.
+    assert json.loads(concept["dedupe_json"])["compared_note_ids"] == ["N1"]
     db.close()
 
 

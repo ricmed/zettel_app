@@ -667,25 +667,40 @@ def discard_duplicate(db: StateDB, concept_id: str) -> None:
 
 
 def format_dedupe_item(db: StateDB, concept: dict) -> str:
-    """Card PT-BR: the new thesis next to what would make it redundant."""
+    """Card PT-BR: the new thesis next to what would make it redundant.
+
+    Always names the source. When the LLM named no target note, the card lists
+    every same-source note it was compared against, so the reviewer never has to
+    decide "repeats what?" blind.
+    """
     from zettel.vault import normalize_note_id
 
     cand = _load_json(concept.get("candidate_json"))
     dedupe = _load_json(concept.get("dedupe_json"))
+    source_id = concept.get("source_id") or ""
+    source = db.get_source(source_id) or {}
     lines = [
+        f"Fonte: {source_id}" + (f" - {source['title']}" if source.get("title") else ""),
         f"Tese nova: {cand.get('thesis') or '?'}",
         f"Definicao: {cand.get('definition') or '-'}",
     ]
     note_id = normalize_note_id(str(dedupe.get("target_note_id") or ""))
     other = db.get_concept(dedupe["duplicate_of"]) if dedupe.get("duplicate_of") else None
     if note_id:
-        note = db.get_note(note_id) or {}
-        lines.append(f"Nota existente: {note.get('title') or note_id} ({note_id})")
+        lines.append(f"Nota existente: {_note_label(db, note_id)}")
     elif other:
         other_thesis = _load_json(other.get("candidate_json")).get("thesis")
         lines.append(f"Candidato do mesmo lote: {other_thesis or other['concept_id']}")
+    elif dedupe.get("compared_note_ids"):
+        lines.append("Nota existente: nao indicada pelo LLM. Notas comparadas:")
+        lines.extend(f"  - {_note_label(db, nid)}" for nid in dedupe["compared_note_ids"])
     lines.append(f"Motivo: {dedupe.get('reason') or '-'}")
     return "\n".join(lines)
+
+
+def _note_label(db: StateDB, note_id: str) -> str:
+    note = db.get_note(note_id) or {}
+    return f"{note.get('title') or note_id} ({note_id})"
 
 
 def _resolve_dedupe_pending(
