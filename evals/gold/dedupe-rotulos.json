@@ -1,0 +1,519 @@
+{
+  "key_exported_at": "2026-10-07T12:07:17.926785+00:00",
+  "labels": [
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz uma nuance inédita centrada nos limites operacionais e computacionais da razão e do incomputável em Kant, o que não é abordado nas notas A ou B.",
+      "human_target": null,
+      "item_id": "D001",
+      "sampling_stratum": "link",
+      "subject_id": "@Hui2026KantMachine::concept::df754f39"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato aborda a separação estrutural e funcional entre System Prompt e User Prompt, enquanto a nota existente foca exclusivamente no Role Prompting como filtro de probabilidade.",
+      "human_target": null,
+      "item_id": "D002",
+      "sampling_stratum": "link",
+      "subject_id": "@PromptEngineering::concept::933a7648"
+    },
+    {
+      "human_decision": "ignore",
+      "human_note": "O candidato expressa essencialmente a mesma tese da nota B sobre a Humean machine e o conexionismo como empirismo estatístico, sem introduzir novas nuances conceituais.",
+      "human_target": "01M49ZS8A09PG62WK9WQCKZCKM",
+      "item_id": "D003",
+      "sampling_stratum": "link",
+      "subject_id": "@Hui2026KantMachine::concept::f57e3a24"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz o conceito específico de 'determinação kantiana' como uma percepção temporal particular distinta de juízos e conceitos, tema ausente nas notas existentes.",
+      "human_target": null,
+      "item_id": "D004",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::2f797996"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato aborda a necessidade de estruturas a priori para o entendimento de relações causais, enquanto a nota existente discute a incoerência de unificar fundações kantianas em paradigmas divergentes da ciência cognitiva.",
+      "human_target": null,
+      "item_id": "D005",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::5923a96f"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz uma tese técnica sobre a necessidade de julgamentos de inherência e subsumção em sistemas formais de apercepção artificial, aspecto não tratado nas notas A, B ou C.",
+      "human_target": null,
+      "item_id": "D006",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::aa4cb2d3"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato explora a autonomia da mente na construção de programas conceituais e sua limitação pela unidade subjetiva, desenvolvendo a crítica à inadequação de modelos puramente computacionais abordada na nota C.",
+      "human_target": "01M49ZWZMPRSJ5P8HPZGK4W5MX",
+      "item_id": "D007",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::7f784705"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz uma crítica técnica específica sobre as limitações formais do Datalog e do Apperception Engine frente à Tabela de Juízos de Kant, aspecto não abordado nas notas existentes.",
+      "human_target": null,
+      "item_id": "D008",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::df1a67db"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato a nota amplia o conceito de condições a priori e unificação sintética (Nota B) ao focar especificamente no manifold espaçotemporal como base inata para a psicologia intuitiva e cognição.",
+      "human_target": "01M4A01ANYQB0R00DH0094XGEJ",
+      "item_id": "D009",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::55e8f8c8"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato aborda especificamente a distinção epistemológica entre unidade arquitetônica e unidade técnica, um foco sistãmico e teleológico não contemplado na nota A, que se restringe à inteligãncia como unidade transcendental das faculdades.",
+      "human_target": null,
+      "item_id": "D010",
+      "sampling_stratum": "ignore",
+      "subject_id": "@Hui2026KantMachine::concept::c6acc243"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato a nota aprofunda a discussão da nota C ao propor que a arquitetura cognitiva inspirada em Kant pode superar o problema da base de realização, conferindo intencionalidade original por meio de organização estrutural.",
+      "human_target": "01M49ZXM99G0E46NW3NEXQH8PC",
+      "item_id": "D011",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::397ccf44"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz um conceito original sobre a epigênese da razão pura e sua abertura às contingências, tema n'o abordado na nota A que trata exclusivamente do mecanicismo cartesiano.",
+      "human_target": null,
+      "item_id": "D012",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Hui2026KantMachine::concept::99627a0a"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato aprofunda a tese geral da nota A ao focar especificamente na técnica de design estruturado de prompts e seus componentes semânticos, detalhando como o isolamento de contexto reduz a ambiguidade atencional.",
+      "human_target": "01M49GZNVA5MWNHR56ACHA67YE",
+      "item_id": "D013",
+      "sampling_stratum": "create_new",
+      "subject_id": "@PromptEngineering::concept::2e00b039"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz uma tese inédita sobre os critérios normativos de seleção de modelos (parcimônia e capacidade discriminatória), focando no funcionamento técnico de subsistemas cognitivos artificiais em vez de discutir a ontologia kantiana ou o processamento preditivo geral das notas A, B e C.",
+      "human_target": null,
+      "item_id": "D014",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::a0d06787"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz uma formalização técnica inédita sobre a subsunção computacional usando pesos booleanos e vetores binários, não abordada nas notas existentes.",
+      "human_target": null,
+      "item_id": "D015",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::9e3e615b"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato baseia-se na ideia de unificação conceitual da nota D, mas avança ao focar especificamente no status a priori da espontaneidade intelectual e na possibilidade de cognição em sentido amplo mesmo na ausência de input sensorial.",
+      "human_target": "01M4A01ANYQB0R00DH0094XGEJ",
+      "item_id": "D016",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::0cfebcad"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato estende o dualismo transcendental para o domínio específico da razão prática e dos sentimentos morais, argumentando que a agência ética não pode ser computada ou naturalizada.",
+      "human_target": "01M49ZXXRFEENMWFPMMVEW3NQ5",
+      "item_id": "D017",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::2de2972f"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz uma discussão original sobre a recursividade computacional e a superação dos autômatos lineares em relação ao juízo reflexivo de Kant, tema não esgotado pelas notas existentes.",
+      "human_target": null,
+      "item_id": "D018",
+      "sampling_stratum": "link",
+      "subject_id": "@Hui2026KantMachine::concept::ff2feb0b"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato baseia-se na oposição entre processamento estatístico e a necessidade interna do sentido (semelhante à pragnância da nota A), mas introduz uma nuance inédita ao focar especificamente na criação artística versus IA e na afirmação de necessidade sobre a contingência.",
+      "human_target": "01M49ZVPVWVSZ29AT8ZK1ZCERY",
+      "item_id": "D019",
+      "sampling_stratum": "link",
+      "subject_id": "@Hui2026KantMachine::concept::38c8dec7"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz uma formalização lógico-relacional inédita das categorias de relação e modalidade de Kant, tema ausente nas notas existentes.",
+      "human_target": null,
+      "item_id": "D020",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::e64b0d65"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz uma discussão epistemológica inédita sobre o contraste entre realismo empírico e transcendental e o papel fundacional do 'eu penso', não abordada nas notas existentes que focam em funcionalismo, dualismo ou ciência cognitiva.",
+      "human_target": null,
+      "item_id": "D021",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::8f53f047"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato a nota amplia a discussão do processamento preditivo (Nota B) ao focar na exigência kantiana de construção de um mundo persistente e teorias causais simbólicas sujeitas a condições de unidade.",
+      "human_target": "01M4A00J674K2R623AFKSTTZW5",
+      "item_id": "D022",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::70159f80"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "A tese trata de um tema totalmente novo e distinto das notas anteriores (a incompatibilidade da Doutrina do Duplo Efeito com a ética kantiana), focando em problemas de exegese moral e anacronismo em dilemas éticos, enquanto as notas A, B, C e D abordam a filosofia da mente, cognição e ontologia.",
+      "human_target": null,
+      "item_id": "D023",
+      "sampling_stratum": "ignore",
+      "subject_id": "@Kim2022KantAnd::concept::c095e015"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato a nota amplia a premissa de múltipla realizabilidade da nota B ao detalhar especificamente quais faculdades kantianas correspondem a módulos computacionais concretos, como redes neurais e aprendizado não supervisionado.",
+      "human_target": "01M49ZWKR68XX8D7FSN4EJCSCZ",
+      "item_id": "D024",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::fa86b1d7"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato aborda uma tese inédita focada na contraposição entre a intuição transcendental kantiana de espaço/tempo contínuos e a construção bottom-up/discreta de arquiteturas computacionais, tema ausente nas notas A, B e C.",
+      "human_target": null,
+      "item_id": "D025",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::ceeb5ff4"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato aprofunda a tese da força formativa do organismo (Nota A) ao classificá-la explicitamente como uma causalidade sui generis, distinta tanto da mecânica quanto da teleologia consciente.",
+      "human_target": "01M49ZZBF7APX8GX0TN49EAMPK",
+      "item_id": "D026",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::abc5f0d1"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato apoia-se diretamente na tese da múltipla realizabilidade da nota B, mas introduz uma nuance técnica inédita ao especificar concretamente as arquiteturas de instanciação computacional (redes neurais implícitas versus sistemas híbridos).",
+      "human_target": "01M49ZWKR68XX8D7FSN4EJCSCZ",
+      "item_id": "D027",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::c7bf6094"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz um conceito ineditamente focado na manutenibilidade do ciclo de vida dos prompts tratados como codigo de software (versionamento, trade-offs e prevencao de regressoes), o que diverge do foco da nota A em custo, qualidade e auditabilidade.",
+      "human_target": null,
+      "item_id": "D028",
+      "sampling_stratum": "link",
+      "subject_id": "@PromptEngineering::concept::5555d4dc"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato aborda especificamente a tese central do idealismo transcendental sobre espaço e tempo como formas a priori da sensibilidade, um aspecto que não é o foco principal das notas existentes.",
+      "human_target": null,
+      "item_id": "D029",
+      "sampling_stratum": "ignore",
+      "subject_id": "@Kim2022KantAnd::concept::38af100e"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz uma reflexão original sobre a liberdade de construção de regras teóricas e práticas sob o crivo da coerência e unidade, diferindo das notas existentes que tratam de naturalização, funcionalismo, síntese sensorial ou ciência cognitiva.",
+      "human_target": null,
+      "item_id": "D030",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::020e8a54"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato aborda o conceito de 'what-it-is-likeness' e o caráter subjetivo da experiência fenomenológica (Nagel), tema ausente nas notas existentes que tratam de funcionalismo, Kant e organização dinâmica.",
+      "human_target": null,
+      "item_id": "D031",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::0de99570"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz um conceito inédito ao focar na modularidade interna e na taxonomia dos componentes estruturais de um prompt único, o que difere da nota A (focada em modulação e acoplamento geral) e da nota B (focada em encadeamento de múltiplos prompts).",
+      "human_target": null,
+      "item_id": "D032",
+      "sampling_stratum": "link",
+      "subject_id": "@PromptEngineering::concept::3a49be63"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato a nota expande o conceito de processamento preditivo (Nota A) ao detalhar o papel específico da imaginação produtiva na geração computacional de determinações perceptivas para objetos não diretamente sensíveis.",
+      "human_target": "01M4A00J674K2R623AFKSTTZW5",
+      "item_id": "D033",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::ea87b80d"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato aborda a unificação entre natureza e liberdade através da finalidade e do esquema não-mecanístico, tratando de um problema da terceira crítica e do sistema arquitetônico global, enquanto a nota existente foca na inteligência transcendental e na síntese do entendimento.",
+      "human_target": null,
+      "item_id": "D034",
+      "sampling_stratum": "ignore",
+      "subject_id": "@Hui2026KantMachine::concept::5c034917"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz uma tese inédita focada na impossibilidade da moralidade kantiana em sistemas computacionais e na incalculabilidade moral, diferenciando-se das notas existentes que tratam, respectivamente, da fenomenologia de Heidegger e da unidade transcendental das faculdades cognitivas.",
+      "human_target": null,
+      "item_id": "D035",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Hui2026KantMachine::concept::7bc4ea3e"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz a tese específica da epigenese kantiana como modelo biológico para a constituição do conhecimento, tema ausente na nota existente sobre a unidade transcendental das faculdades.",
+      "human_target": null,
+      "item_id": "D036",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Hui2026KantMachine::concept::4ef86493"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato detalha a arquitetura computacional do fluxo bidirecional (bottom-up e top-down) no processamento preditivo, avançando sobre a analogia geral apresentada na nota A.",
+      "human_target": "01M4A00J674K2R623AFKSTTZW5",
+      "item_id": "D037",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::d2ddf160"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz um conceito inédito centrado na noção de antinomia e nos limites da razão pura, tema ausente nas notas existentes.",
+      "human_target": null,
+      "item_id": "D038",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Hui2026KantMachine::concept::98cf23b9"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato aprofunda uma observação secundária da nota A (a vulnerabilidade à sobrescrita) transformando-a na tese principal sobre injeção de comandos e mitigações em produção.",
+      "human_target": "01M49H0EKRGHRGX41QPW89YY34",
+      "item_id": "D039",
+      "sampling_stratum": "create_new",
+      "subject_id": "@PromptEngineering::concept::a10997ce"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato aborda a formalização lógica específica das relações dinâmicas (inerência, sucessão, simultaneidade e incompatibilidade) e seu mapeamento em formas de julgamento, tema não explorado nas notas existentes.",
+      "human_target": null,
+      "item_id": "D040",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::b5d0cea2"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato aborda a infraestrutura de engenharia e ciclo de vida de produção (versionamento, registry, testes), um foco operacional ausente nas notas existentes que tratam de modulação cognitiva e trade-offs de design.",
+      "human_target": null,
+      "item_id": "D041",
+      "sampling_stratum": "create_new",
+      "subject_id": "@PromptEngineering::concept::faaf6b2c"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato aprofunda a nota C ao especificar o mecanismo formal da unidade sintética originária da apercepção como a condição a priori indispensável que subjaz à unificação de intuições e conceitos.",
+      "human_target": "01M4A02D0C2WCME08P648DDT30",
+      "item_id": "D042",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::5885acf4"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato aborda a governança de engenharia de software e o onboarding de equipes através de prompts versionados como código, uma perspectiva organizacional ausente nas notas existentes.",
+      "human_target": null,
+      "item_id": "D043",
+      "sampling_stratum": "create_new",
+      "subject_id": "@PromptEngineering::concept::dfa78a6f"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato a nota expande a discussão de Prompt Engineering da nota A ao focar especificamente no mecanismo de enriquecimento de prompts por injeção de dados estruturados e contexto externo.",
+      "human_target": "01M49GZNVA5MWNHR56ACHA67YE",
+      "item_id": "D044",
+      "sampling_stratum": "create_new",
+      "subject_id": "@PromptEngineering::concept::c8bbf1a5"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz uma tese inédita focada na interação entre o empírico e a razão prática na moral kantiana (máquina moral), aspecto não abordado nas notas existentes.",
+      "human_target": null,
+      "item_id": "D045",
+      "sampling_stratum": "link",
+      "subject_id": "@Hui2026KantMachine::concept::fa81adc6"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato aborda especificamente a impossibilidade de agência moral em sistemas artificiais segundo a ética kantiana, um tema não tratado nas notas existentes (que focam no funcionalismo, na ciência cognitiva e na teleologia biológica).",
+      "human_target": null,
+      "item_id": "D046",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::ea1ad628"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz um conceito inédito centrado na autonomia, auto-legislação e no imperativo categórico kantiano aplicado a máquinas (máquina moral), diferenciando-se das notas existentes que tratam de inteligência transcendental, Cartesian machines e mecanicismo cartesiano.",
+      "human_target": null,
+      "item_id": "D047",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Hui2026KantMachine::concept::3983bb46"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato aborda especificamente o juízo estético e o prazer desinteressado à luz da inteligência artificial, tema ausente nas notas existentes que tratam de cognição geral, funcionalismo e dualismo.",
+      "human_target": null,
+      "item_id": "D048",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::8b93a319"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz o conceito inédito de 'Prompt como Software', focando no ciclo de vida de desenvolvimento e controle de versão, enquanto a nota existente foca no acoplamento e modulação de comportamento.",
+      "human_target": null,
+      "item_id": "D049",
+      "sampling_stratum": "link",
+      "subject_id": "@PromptEngineering::concept::3c2ad3ff"
+    },
+    {
+      "human_decision": "ignore",
+      "human_note": "O candidato reformula conceitos de decomposição, pipeline e analogia industrial já detalhados na nota A, sem introduzir nenhuma nuance conceitual inédita.",
+      "human_target": "01M49H3ET2P8045PKB4STV152W",
+      "item_id": "D050",
+      "sampling_stratum": "link",
+      "subject_id": "@PromptEngineering::concept::c78e0ca4"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato aprofunda a tese da síntese ao introduzir especificamente o conceito de 'esquema' kantiano como o mecanismo mediador da imaginação entre conceito e intuição.",
+      "human_target": "01M4A01V1Z0759ZYW00NSJXA2Q",
+      "item_id": "D051",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::fe96cc52"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato detalha o papel específico da intuição como elemento fundacional singular que precede a síntese conceitual, expandindo a discussão sobre a relação entre intuição e cognição presente na nota A.",
+      "human_target": "01M4A01ANYQB0R00DH0094XGEJ",
+      "item_id": "D052",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::03d68c5a"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz uma crítica específica sobre a Terceira Analogia de Kant aplicada ao APPERCEPTION ENGINE, focando na simultaneidade e na restrição computacional, tema ausente nas notas anteriores.",
+      "human_target": null,
+      "item_id": "D053",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::2bb6dc95"
+    },
+    {
+      "human_decision": "ignore",
+      "human_note": "O candidato repete a tese central já expressa na nota E, que diferencia o processamento de dados sem consciência da cognição em sentido estrito baseada na possibilidade do 'Eu penso' e na unidade da apercepção em Kant.",
+      "human_target": "01M4A02D0C2WCME08P648DDT30",
+      "item_id": "D054",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::fcf24971"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato aprofunda a nota A ao explicar o mecanismo interno do prompt detalhado, focando na redução da distância de embedding e no restrangimento do espaço de saída.",
+      "human_target": "01M49GZNVA5MWNHR56ACHA67YE",
+      "item_id": "D055",
+      "sampling_stratum": "link",
+      "subject_id": "@PromptEngineering::concept::0fe3c94e"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz uma comparação técnica específica entre a Apperception Engine e a sensibilidade de Kant focando no fluxo de dados em bloco versus sequencial, tema não abordado nas notas anteriores.",
+      "human_target": null,
+      "item_id": "D056",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::cb414230"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato aborda especificamente a necessidade de uma dedução sistemática dos conceitos inatos sob uma unidade transcendental para evitar a 'mera rapsódia', tema não tratado nas notas existentes.",
+      "human_target": null,
+      "item_id": "D057",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::658ea555"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz uma reflexão inédita sobre os eixos de decisão hermenêutica e computacional para o design de um Apperception Engine baseado em Kant, sem correspondência nas notas anteriores.",
+      "human_target": null,
+      "item_id": "D058",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::7ef9db43"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato aprofunda o conceito da nota A ao especificar o papel da imaginação e da síntese transcendental, detalhando o mecanismo espontâneo que evita a redução mecânica da experiência.",
+      "human_target": "01M49ZWCN84R5FHDRWG8BTCYD3",
+      "item_id": "D059",
+      "sampling_stratum": "link",
+      "subject_id": "@Hui2026KantMachine::concept::0c1612ca"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato avança na formalização computacional da síntese kantiana por meio de tuplas, aprofundando o debate sobre a tensão entre funcionalismo e apercepção introduzida na nota C.",
+      "human_target": "01M49ZWZMPRSJ5P8HPZGK4W5MX",
+      "item_id": "D060",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::23d01b71"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato introduz uma tese positiva sobre a transformaçao de uma arquitetura computacional kantiana em agente cognitivo autônomo, diferindo das notas existentes que focam em críticas ao funcionalismo, incoerências na ciência cognitiva ou dualismo transcendental.",
+      "human_target": null,
+      "item_id": "D061",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::a5615d9e"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "O candidato aborda a dicotomia epistemológica entre empirismo e racionalismo aplicada a redes neurais e aprendizado baseado em lógica (síntese neuro-simbólica), tema distinto das notas A e B, que tratam criticamente da aplicação de Kant ao funcionalismo e ao processamento preditivo.",
+      "human_target": null,
+      "item_id": "D062",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::6ba59c44"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato a nota aprofunda a discussão iniciada na nota B ao delimitar o escopo da inteligência artificial puramente como imitação técnica e instrumental de processos cognitivos pragmáticos, sem pretensão ontológica.",
+      "human_target": "01M4A02D0C2WCME08P648DDT30",
+      "item_id": "D063",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::c67ec6cc"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "O candidato baseia-se na ideia de empirismo tecnológico do conexionismo (Nota C), mas introduz a nuance epistemológica inédita da 'geologia do transcendental', argumentando que as categorias a priori são formadas pela sedimentação estatística de dados.",
+      "human_target": "01M49ZRZM9DHRPQD40HBQ297MD",
+      "item_id": "D064",
+      "sampling_stratum": "link",
+      "subject_id": "@Hui2026KantMachine::concept::df659759"
+    }
+  ],
+  "method": "manual_blind",
+  "site": "dedupe"
+}
