@@ -117,6 +117,7 @@ Dedupe e categoria não têm gabarito humano: o m/d do revisor só cobre o que o
 - **Respostas**: dedupe — `decisao` = `nova` | `repete` | `desenvolve` | `?`, e `alvo` = letra da nota em `repete`/`desenvolve`; categoria — número ou nome da lista, `nenhuma` ou `?`; corroborates — `diferente` | `mesmo-tema` | `mesma-ideia` | `?` (duas notas de obras diferentes, sem cosseno nem fontes).
 - **Estratos**: dedupe pela decisão do LLM (`create_new` amostrado, `ignore`/`link` inteiros até o teto); categoria por concordância entre o Jev e o argmax (`agree`/`disagree`/`unassigned`); corroborates por faixa de cosseno (`low_band` 0,75–0,80, `near_threshold` 0,80–0,85, `above_threshold`), um item por par. Regras do #208 em [`preregistration/208-jev-corroborates.md`](preregistration/208-jev-corroborates.md). `--per-stratum` (padrão 30) e `--seed` controlam a amostra; o gabarito guarda a população de cada estrato.
 - **Commitável**: só o `*-GABARITO-NAO-ABRIR.json` (ids, sem texto). Planilha e leitura são gitignored. Uma planilha existente nunca é sobrescrita sem `--force`.
+- **Pontuação**: `scripts/score_decision_gold.py --site dedupe|corroborates` cruza a planilha preenchida com o gabarito; `--key`/`--sheet` têm como padrão os arquivos do site. Em corroborates, "mesma ideia" é só `mesma-ideia`: o script compara a aresta criada, o nível 2 do Jev e o cosseno ≥ limiar (informativo), com McNemar exato, a matriz dos três níveis, a AUC do score do Jev e do cosseno, e a regra do #208. Resultado de 2026-10-07 na ADR-055.
 
 ## Rodadas de rotulagem e comparação de prompts
 
