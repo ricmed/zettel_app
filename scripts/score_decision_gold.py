@@ -3,8 +3,8 @@
 `scripts/export_decision_gold.py` freezes a key (`*-GABARITO-NAO-ABRIR.json`) and a
 blind sheet; a human fills the sheet. This script joins the two and answers, per
 deciding system, how often it agrees with the human -- the number the
-pre-registrations (`evals/preregistration/206-jev-camada-decisao.md`, `#209`) rule
-on. Today: `dedupe`.
+pre-registrations (`evals/preregistration/206-jev-camada-decisao.md`, `#209`,
+`208-jev-corroborates.md`) rule on. Sites: `dedupe` and `corroborates`.
 
 * **Conditions.** The key carries two: `llm` (the decision the pipeline took) and
   `jev` (the shadow answer). Other scripts add more through
@@ -21,6 +21,13 @@ on. Today: `dedupe`.
 * **Paired test.** Exact McNemar on the items exactly one of two conditions gets
   right (`compare_gold_runs.paired_exact_p`).
 * `?` answers are counted and excluded, never scored.
+* **Corroborates (#208).** The edge is binary, so a pair is `same_idea` only when
+  the human answered `mesma-ideia`. Conditions: `threshold` (the edge `connect`
+  actually created), `jev` (level 2 of the mean of both orders) and, reported
+  only, `cosine` (similarity >= threshold, which differs from the edge where the
+  hit was not a seed or the per-note cap was reached). The three levels are
+  reported as a confusion matrix, and the continuous signals (Jev mean score,
+  cosine) as an AUC against `same_idea`.
 
 Offline and deterministic: reads the sheet and the key, calls nothing. With
 `--labels-out` it writes the human labels without any source text (committable).
@@ -32,6 +39,9 @@ Usage:
     .venv/Scripts/python.exe scripts/score_decision_gold.py --site dedupe \\
         --key evals/gold/dedupe-r2-GABARITO-NAO-ABRIR.json \\
         --sheet evals/gold/dedupe-r2-planilha.csv --labels-out evals/gold/dedupe-r2-rotulos.json
+    .venv/Scripts/python.exe scripts/score_decision_gold.py --site corroborates \\
+        --labels-out evals/gold/corroboracao-rotulos.json \\
+        --out evals/results/corroborates-gold-208.json
 """
 
 from __future__ import annotations
@@ -49,6 +59,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from calibrate_review_confidence import auc_ci, min_detectable_auc
 from compare_gold_runs import paired_exact_p
 
 DEDUPE_ANSWERS = {"nova": "create_new", "repete": "ignore", "desenvolve": "link"}
@@ -56,6 +67,20 @@ UNJUDGEABLE = "?"
 BANDS = (("high", 0.9, 1.01), ("mid", 0.6, 0.9), ("low", 0.0, 0.6))
 # Pre-registration #206: the human rule needs at least this many labels.
 MIN_HUMAN_LABELS = 10
+CORROBORATES_ANSWERS = {"diferente": 0, "mesmo-tema": 1, "mesma-ideia": 2}
+SAME_IDEA, OTHER = "same_idea", "other"
+# Pre-registration #208: sample size, per-band floor and the order-bias ceiling.
+MIN_CORROBORATES_LABELS = 30
+MIN_CORROBORATES_PER_BAND = 5
+MAX_ORDER_DIVERGENCE = 0.3
+CORROBORATES_BANDS = ("low_band", "near_threshold", "above_threshold")
+DEFAULT_FILES = {
+    "dedupe": ("evals/gold/dedupe-GABARITO-NAO-ABRIR.json", "evals/gold/dedupe-planilha.csv"),
+    "corroborates": (
+        "evals/gold/corroboracao-GABARITO-NAO-ABRIR.json",
+        "evals/gold/corroboracao-planilha.csv",
+    ),
+}
 
 
 # -- Reading -------------------------------------------------------------
@@ -118,6 +143,57 @@ def dedupe_labels(
     return labels, dict(problems)
 
 
+def corroborates_labels(
+    sheet: dict[str, dict[str, str]], key: dict[str, Any]
+) -> tuple[list[dict[str, Any]], dict[str, list[str]]]:
+    """Human labels joined to the key: ``human_level`` 0..2 and the binary
+    ``human_decision`` the rule scores (both None for `?`)."""
+    labels: list[dict[str, Any]] = []
+    problems: dict[str, list[str]] = defaultdict(list)
+    for item in key["items"]:
+        row = sheet.get(item["item_id"])
+        if row is None or not row.get("decisao"):
+            problems["sem_resposta"].append(item["item_id"])
+            continue
+        answer = row["decisao"].lower()
+        if answer != UNJUDGEABLE and answer not in CORROBORATES_ANSWERS:
+            problems["decisao_invalida"].append(item["item_id"])
+            continue
+        level = CORROBORATES_ANSWERS.get(answer)
+        labels.append(
+            {
+                "item_id": item["item_id"],
+                "subject_id": item["subject_id"],
+                "sampling_stratum": item["sampling_stratum"],
+                "human_level": level,
+                "human_decision": None if level is None else SAME_IDEA if level == 2 else OTHER,
+                "human_note": row.get("nota", ""),
+            }
+        )
+    return labels, dict(problems)
+
+
+def jev_mean_score(item: dict[str, Any]) -> float:
+    """The pair's 0..2 score: mean of both orders, as `report_decision_shadow` reads it."""
+    return (float(item["jev"]["ab_score"]) + float(item["jev"]["ba_score"])) / 2
+
+
+def corroborates_conditions(key: dict[str, Any]) -> dict[str, dict[str, dict[str, Any]]]:
+    """threshold (edge created), jev (level 2) and cosine (similarity >= threshold)."""
+    from zettel.decision.sites import corroborates_level
+
+    def binary(same: bool) -> dict[str, Any]:
+        return {"decision": SAME_IDEA if same else OTHER}
+
+    out: dict[str, dict[str, dict[str, Any]]] = {"threshold": {}, "jev": {}, "cosine": {}}
+    for item in key["items"]:
+        base = item["baseline"]
+        out["threshold"][item["item_id"]] = binary(bool(base["edge"]))
+        out["jev"][item["item_id"]] = binary(corroborates_level(jev_mean_score(item)) == 2)
+        out["cosine"][item["item_id"]] = binary(base["similarity"] >= base["threshold"])
+    return out
+
+
 def key_conditions(key: dict[str, Any]) -> dict[str, dict[str, dict[str, Any]]]:
     """The two conditions every dedupe key carries: the pipeline LLM and the shadow."""
     llm, jev = {}, {}
@@ -164,7 +240,7 @@ def score_condition(
     targets = [
         answers[lab["item_id"]]["target"] == lab["human_target"]
         for lab in judged
-        if lab["human_decision"] != "create_new"
+        if lab.get("human_target") is not None
         and answers[lab["item_id"]]["decision"] != "create_new"
     ]
     out: dict[str, Any] = {
@@ -184,8 +260,9 @@ def score_condition(
                 ).items()
             )
         ),
-        "target": {"n": len(targets), "accuracy": _rate(sum(targets), len(targets))},
     }
+    if any("human_target" in lab for lab in judged):
+        out["target"] = {"n": len(targets), "accuracy": _rate(sum(targets), len(targets))}
     if all("confidence" in answers[lab["item_id"]] for lab in judged) and judged:
         bands: dict[str, list[bool]] = defaultdict(list)
         for lab in judged:
@@ -253,20 +330,101 @@ def preregistered_human_rule(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def corroborates_detail(labels: list[dict[str, Any]], key: dict[str, Any]) -> dict[str, Any]:
+    """The three levels (human x Jev), the AUC of the continuous signals against
+    `same_idea`, and the order divergence over the labelled pairs."""
+    from zettel.decision.sites import corroborates_level
+
+    items = {i["item_id"]: i for i in key["items"]}
+    judged = [items[lab["item_id"]] | lab for lab in labels if lab["human_level"] is not None]
+    same = [i for i in judged if i["human_decision"] == SAME_IDEA]
+    other = [i for i in judged if i["human_decision"] == OTHER]
+
+    def signal_auc(read: Any) -> dict[str, Any]:
+        positive, negative = [read(i) for i in same], [read(i) for i in other]
+        return {
+            **auc_ci(positive, negative),
+            "n_same_idea": len(positive),
+            "n_other": len(negative),
+            "min_detectable_auc": min_detectable_auc(len(positive), len(negative)),
+        }
+
+    levels = Counter(f"{i['human_level']}->{corroborates_level(jev_mean_score(i))}" for i in judged)
+    by_band: dict[str, Counter] = defaultdict(Counter)
+    for i in judged:
+        by_band[i["sampling_stratum"]][str(i["human_level"])] += 1
+    divergence = [abs(float(i["jev"]["ab_score"]) - float(i["jev"]["ba_score"])) for i in judged]
+    return {
+        "human_level_to_jev_level": dict(sorted(levels.items())),
+        "human_levels_by_band": {b: dict(sorted(c.items())) for b, c in sorted(by_band.items())},
+        "auc_same_idea": {
+            "jev_mean_score": signal_auc(jev_mean_score),
+            "cosine": signal_auc(lambda i: float(i["baseline"]["similarity"])),
+        },
+        "order_divergence_mean": _rate(sum(divergence), len(divergence)),
+    }
+
+
+def preregistered_rule_208(result: dict[str, Any]) -> dict[str, Any]:
+    """#208: open a gate issue iff the sample suffices (rule 1) and Jev beats the
+    threshold with exact McNemar p < 0.05 (rule 2). Rule 3 (order) only binds a
+    future gate to asking both orders."""
+    jev, threshold = result["conditions"]["jev"], result["conditions"]["threshold"]
+    per_band = {b: jev["by_stratum"].get(b, {}).get("n", 0) for b in CORROBORATES_BANDS}
+    sample = jev["n"] >= MIN_CORROBORATES_LABELS and all(
+        n >= MIN_CORROBORATES_PER_BAND for n in per_band.values()
+    )
+    beats = (
+        jev["correct"] > threshold["correct"]
+        and result["pairs"]["threshold:jev"]["mcnemar_p"] < 0.05
+    )
+    divergence = result["detail"]["order_divergence_mean"]
+    return {
+        "labels_per_band": per_band,
+        "rule1_sample": sample,
+        "rule2_jev_beats_threshold": beats,
+        "rule3_order_divergence_ok": divergence is not None and divergence <= MAX_ORDER_DIVERGENCE,
+        "open_gate_issue": sample and beats,
+    }
+
+
+def score_dedupe(labels: list[dict[str, Any]], key: dict[str, Any]) -> dict[str, Any]:
+    result = score_conditions(labels, key_conditions(key), key["population"], [("llm", "jev")])
+    result["reviewer_vs_sheet"] = reviewer_agreement(labels, key)
+    result["preregistered_human_rule_206"] = preregistered_human_rule(result)
+    return result
+
+
+def score_corroborates(labels: list[dict[str, Any]], key: dict[str, Any]) -> dict[str, Any]:
+    result = score_conditions(
+        labels,
+        corroborates_conditions(key),
+        key["population"],
+        [("threshold", "jev"), ("cosine", "jev")],
+    )
+    result["detail"] = corroborates_detail(labels, key)
+    result["preregistered_rule_208"] = preregistered_rule_208(result)
+    return result
+
+
+SITES = {
+    "dedupe": (dedupe_labels, score_dedupe),
+    "corroborates": (corroborates_labels, score_corroborates),
+}
+
+
 # -- CLI -----------------------------------------------------------------
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
-    parser.add_argument("--site", choices=("dedupe",), required=True)
-    parser.add_argument(
-        "--key", type=Path, default=Path("evals/gold/dedupe-GABARITO-NAO-ABRIR.json")
-    )
+    parser.add_argument("--site", choices=tuple(SITES), required=True)
+    parser.add_argument("--key", type=Path, default=None, help="Padrao: o gabarito do site")
     parser.add_argument(
         "--sheet",
         type=Path,
-        default=Path("evals/gold/dedupe-planilha.csv"),
-        help="Planilha preenchida da mesma rodada do gabarito (--key)",
+        default=None,
+        help="Planilha preenchida da mesma rodada do gabarito (--key); padrao: a do site",
     )
     parser.add_argument("--labels-out", type=Path, default=None)
     parser.add_argument(
@@ -280,16 +438,18 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-    key = json.loads(args.key.read_text(encoding="utf-8"))
-    sheet = read_sheet(args.sheet.read_bytes())
-    labels, problems = dedupe_labels(sheet, key)
+    default_key, default_sheet = DEFAULT_FILES[args.site]
+    key = json.loads((args.key or Path(default_key)).read_text(encoding="utf-8"))
+    if key.get("site", args.site) != args.site:
+        parser.error(f"o gabarito e do site {key['site']!r}, nao {args.site!r}")
+    sheet = read_sheet((args.sheet or Path(default_sheet)).read_bytes())
+    read_labels, score = SITES[args.site]
+    labels, problems = read_labels(sheet, key)
     if problems:
         print(f"Linhas fora da conta: {json.dumps(problems, ensure_ascii=False)}")
 
-    result = score_conditions(labels, key_conditions(key), key["population"], [("llm", "jev")])
+    result = score(labels, key)
     result["unjudgeable"] = sum(1 for lab in labels if lab["human_decision"] is None)
-    result["reviewer_vs_sheet"] = reviewer_agreement(labels, key)
-    result["preregistered_human_rule_206"] = preregistered_human_rule(result)
     result["human_distribution"] = dict(Counter(lab["human_decision"] for lab in labels))
 
     text = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
@@ -299,7 +459,7 @@ def main(argv: list[str] | None = None) -> int:
         args.out.write_text(text, encoding="utf-8")
     if args.labels_out:
         payload = {
-            "site": "dedupe",
+            "site": args.site,
             "key_exported_at": key["exported_at"],
             "method": args.labels_method,
             "labels": labels,

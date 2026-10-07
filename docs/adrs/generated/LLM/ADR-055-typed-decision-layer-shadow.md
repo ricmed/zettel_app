@@ -144,3 +144,25 @@ Outcome under the pre-registration: **keep accumulating shadow**. No gate issue 
 - **Both orders.** A `score` has no options to permute, so the pair is asked as `ab` (new note first) and `ba`. The two rows share the pair id, `A|B:ab` / `A|B:ba`, and the report measures the divergence.
 - **Baseline.** Cosine, threshold, and whether the edge was actually created. The `max_edges` cap and an LLM edge to the same target both prevent it.
 - The edge stays `origin='derived'`, decided by the threshold. The rules are pre-registered in `evals/preregistration/208-jev-corroborates.md`. `report_decision_shadow.py` crosses edge × level by cosine band, and `export_decision_gold.py --site corroborates` exports a blind sheet of pairs.
+
+## Results (2026-10-07): `corroborates` against blind human labels (#208)
+
+69 pairs, labelled blind by hand (`evals/gold/corroboracao-rotulos.json`, `method: manual_blind`): 30 above the 0.85 threshold, 30 between 0.80 and 0.85, and the whole population of 9 between 0.75 and 0.80. The shadow had 579 complete pairs and no API failures. Scored with `scripts/score_decision_gold.py --site corroborates` (`evals/results/corroborates-gold-208.json`). A pair counts as "same idea" only when the human answered `mesma-ideia`.
+
+| condition | right | wrong edges | missed |
+|---|---|---|---|
+| Jev (level 2 of the mean of both orders) | **66/69** | 1 | 2 |
+| threshold (edge actually created) | 52/69 | 13 | 4 |
+| cosine >= 0.85 (reported only) | 48/69 | 21 | 0 |
+
+- **Rule 1 (sample) holds**: 69 labels, at least 5 per band.
+- **Rule 2 holds**: Jev right on 16 pairs the threshold missed, wrong on 2 it got (exact McNemar p = 0.0013).
+- **Rule 3 holds**: mean |ab - ba| is 0.10 level on the labelled pairs (0.099 over the whole shadow).
+- **The three levels**: human -> Jev `0->0` 15, `0->1` 8, `1->0` 12, `1->1` 24, `1->2` 1, `2->1` 2, `2->2` 7. Jev never calls `diferente` the same idea.
+
+Outcome under the pre-registration: **open a gate issue**. Two facts constrain it.
+
+1. **The threshold misses nothing below 0.85.** All 39 pairs under it were `diferente` or `mesmo-tema`, and all 9 `mesma-ideia` pairs sit above it. The error is the other way: 21 of the 30 pairs above 0.85 are only the same topic, and 13 of them got a `corroborates` edge. No evidence of missing links, so no reason to lower `corroborates_min_similarity`.
+2. **A higher cosine threshold nearly closes the gap.** Cosine separates `mesma-ideia` almost as well as Jev (AUC 0.963 vs 0.987, 9 positives), and a cut at 0.883 also reaches 66/69. That cut was picked on these same labels, so it is optimistic, and a cosine number does not transfer between embedding models. The gate issue must therefore compare Jev against a **recalibrated threshold**, both fixed before a new labelled batch. If they tie, the threshold wins: no external service, no cost, no latency.
+
+Four `mesma-ideia` pairs above 0.85 got no edge (the `max_edges` cap or a hit that was not a seed). They are reported, not ruled on.
