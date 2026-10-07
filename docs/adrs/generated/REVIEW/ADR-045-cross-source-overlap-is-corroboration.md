@@ -72,3 +72,7 @@ The fix keeps the boundary where it is and sends the verdict through it:
 The edge is written with `origin='llm'`, unlike `corroborates`. It is a model's judgement (the dedupe prompt's), not a fact derived from `source_id`, and an audit of LLM-asserted edges should include it. A target id the model made up is harmless: `resolve_connections` normalizes it and drops any note that does not exist on disk.
 
 Covered by `tests/test_extractor.py::test_dedupe_same_source_can_still_refine` and `tests/test_connector.py::test_run_connect_links_refinement_and_writes_suggestions_once`.
+
+## Addendum (2026-10-06): the threshold is shadowed by a typed judgement
+
+The `corroborates` edge is still derived by code from the cosine threshold. Since #208, the typed decision layer ([ADR-055](../LLM/ADR-055-typed-decision-layer-shadow.md)) records beside it whether the two notes state the same idea, for every other-source seed with cosine ≥ 0.75. That range covers pairs below the threshold too. Nothing it records changes the graph. The point is to measure, against blind human labels, whether 0.85 creates false links or misses true ones.

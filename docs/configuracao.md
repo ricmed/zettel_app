@@ -12,7 +12,7 @@ Tudo que se ajusta sem tocar em código: o catálogo completo de `config/config.
 |---|---|
 | [`config/config.yaml`](../config/config.yaml) | **Fonte operacional.** É o arquivo que o CLI e a web carregam. |
 | [`zettel/config.py`](../zettel/config.py) | Schema Pydantic (tipos, validators) + **fallback de fábrica**. Só entra em ação quando o YAML falta, quando uma chave é omitida, ou nos testes que instanciam `AppConfig()`. |
-| `.env` | Segredos (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY`, `SESSION_SECRET`). **Nunca** no YAML. |
+| `.env` | Segredos (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY`, `TYPESAFE_API_KEY`, `SESSION_SECRET`). **Nunca** no YAML. |
 | [`config/moc_topics.yaml`](../config/moc_topics.yaml) | Taxonomia de tópicos dos MOCs (pilar > categoria > tópicos). Veja [prompts.md](prompts.md#taxonomia-de-topicos-para-mocs). |
 | [`config/domain_examples.yaml`](../config/domain_examples.yaml) | Few-shots de domínio (extract/connect). Caminho: `domain.examples_path`. |
 | [`config/personalities.yaml`](../config/personalities.yaml) | Personalidades de reescrita do `zettel article`. |
@@ -239,6 +239,23 @@ hub_mocs:
   min_neighbor_weight: 0.3   # peso BFS minimo para o vizinho entrar
   dedup_subset_threshold: 0.8  # descarta hub cuja vizinhanca ja esta contida em outra
 
+# ── Camada de decisao tipada (TypeSafe Jev, ADR-055) ───────────────────
+decision:
+  provider: typesafe
+  model: jev-1.13.0            # fixo, nunca jev-latest
+  base_url: null               # null = endpoint publico
+  timeout_s: 10.0
+  max_retries: 2
+  order_permutations: 3        # copias de cada choice com a ordem das opcoes rotacionada
+  instructions_language: en    # en | pt -- idioma das instrucoes; o conteudo segue PT-BR
+  input_price_per_mtok: 0.042  # US$ por milhao de tokens de entrada (saida e gratis)
+  corroborates_band_min: 0.75  # pares de outra fonte julgados a partir deste cosseno
+  sites:                       # off | shadow -- o YAML operacional liga shadow
+    dedupe: off
+    moc_category: off
+    article_judge: off
+    corroborates: off
+
 # ── Gerais ─────────────────────────────────────────────────────────────
 language: pt-BR              # idioma dos prompts e do texto gerado
 log_level: INFO              # raiz do pipeline (httpx/openai ficam em WARNING)
@@ -252,6 +269,7 @@ Notas de uso:
 - `retrieval.*` tem uma seção própria em [recuperacao.md](recuperacao.md).
 - `gardener.*` e `hub_mocs.*` estão detalhados em [pipeline.md](pipeline.md#fase-4--garden-jardim).
 - `gardener.allowed_topics` existe no schema como override de testes e **não** deve aparecer no YAML: a whitelist real vem de `topics_path`.
+- `decision.*` não é uma fase de LLM; veja [Camada de decisão tipada](#camada-de-decisão-tipada-typesafe-jev).
 
 ---
 
@@ -338,6 +356,27 @@ llm:
 Requer: Ollama rodando localmente. O pacote `langchain-ollama` já vem instalado.
 
 ---
+
+## Camada de decisão tipada (TypeSafe Jev)
+
+O Jev não gera texto: responde perguntas tipadas — `noul` (sim/não como probabilidade de 0 a 1), `choice` (uma entre opções rotuladas), `score` (posição numa escala ordenada) — com a distribuição de probabilidade e uma confiança. Por isso ele **não** é um `provider` de `llm.*` e não passa por `get_llm`: tem o bloco `decision` e a chave `TYPESAFE_API_KEY` no `.env` ([ADR-055](adrs/generated/LLM/ADR-055-typed-decision-layer-shadow.md)).
+
+Hoje só existe o modo **shadow**. Com `decision.sites.<site>: shadow`, o pipeline toma a decisão de sempre e, logo depois, pergunta ao Jev o que ele decidiria; o veredito vai para a tabela `decision_shadow` do `state.db` e **nada o lê para decidir**. A saída do pipeline é idêntica com shadow ligado ou desligado.
+
+| Site | Onde roda | Linha de base gravada |
+|---|---|---|
+| `dedupe` | `review`, depois do LLM de dedupe da mesma fonte | decisão do LLM (`refine_existing`/`merge` viram `link`) + nota alvo; a escolha `m`/`d` do revisor vira rótulo humano |
+| `moc_category` | `garden`, antes de rotear cada cluster | categoria do argmax de embedding |
+| `article_judge` | `article`, depois do juiz | as quatro notas do LLM (0–10); uma pergunta por dimensão |
+| `corroborates` | `connect`, depois de montar as conexões | cosseno e se a aresta `corroborates` foi criada; julga também pares **abaixo** de 0,85 (a partir de `corroborates_band_min`), nas duas ordens |
+
+Sem a chave (ou sem o pacote `typesafe-sdk`) a camada **falha aberta**: o pipeline segue e a linha registra o erro. `zettel doctor` mostra o estado da camada. Para ler o resultado:
+
+```bash
+.venv/Scripts/python.exe scripts/report_decision_shadow.py
+```
+
+Trocar qualquer decisão pelo Jev exige uma issue própria, condicionada às regras pré-registradas em [`evals/preregistration/206-jev-camada-decisao.md`](../evals/preregistration/206-jev-camada-decisao.md).
 
 ## Prompt caching do provedor vs cache SQLite
 

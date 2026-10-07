@@ -1,7 +1,7 @@
-# zettel_app ADR Index (50 Decisions)
+# zettel_app ADR Index (55 Decisions)
 
-**Last Updated**: 2026-09-28  
-**Status**: Complete — 50 formal ADRs across 13 modules
+**Last Updated**: 2026-10-06  
+**Status**: Complete — 55 formal ADRs across 13 modules
 
 ---
 
@@ -17,7 +17,7 @@
 | **CONNECT** | 1 | [053](#connect-permanent-notes) |
 | **GARDEN** | 3 | [019–021](#garden-moc-generation) |
 | **WEB** | 4 | [022–023, 039–040](#web-ui--job-queue) |
-| **LLM** | 4 | [024–025, 045, 048](#llm-provider--caching) |
+| **LLM** | 5 | [024–025, 045, 048, 055](#llm-provider--caching) |
 | **QA-WRITING** | 4 | [028–029, 038, 051](#qa-writing--article-pipeline) |
 | **MANUAL** | 1 | [030](#manual-hand-written-notes) |
 | **ASSETS** | 1 | [031](#assets-images) |
@@ -434,6 +434,15 @@
 
 ---
 
+### ADR-055: Typed Decision Layer (TypeSafe Jev) in Shadow Mode
+
+- **Status**: Accepted
+- **Date**: 2026-10-06
+- **Summary**: `zettel/decision/` asks TypeSafe Jev typed questions (`noul`/`choice`/`score`, with probabilities) beside four closed decisions: same-source dedupe, garden cluster category, the article judge's scores and the cross-source `corroborates` edge (#208). Verdicts go to `decision_shadow` and are never read to decide. Every `choice` is asked in rotated option orders within one request; the client fails open; the model is pinned. Switching a decision needs its own issue, gated by the pre-registered numbers of #206.
+- **Link**: [`ADR-055-typed-decision-layer-shadow.md`](./generated/LLM/ADR-055-typed-decision-layer-shadow.md)
+
+---
+
 ## CLI — Orchestration
 
 ### ADR-026: Typer and Rich as CLI Framework
@@ -536,11 +545,17 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 50 |
-| **Accepted** | 49 |
+| **Total ADRs** | 55 |
+| **Accepted** | 55 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 42 |
 | **Modules Covered** | 13 |
+
+---
+
+## Status Update (2026-10-06)
+
+✅ **ADR-055 added**: typed decision layer (TypeSafe Jev) in shadow mode, beside dedupe, cluster category and the article judge. Addenda in ADR-016, ADR-019, ADR-024, ADR-028, ADR-038, ADR-045 (REVIEW) and ADR-049; the `corroborates` site (#208) followed the same day. Totals recounted from `docs/adrs/generated/` (55 files; ADR-045 is used twice, ADR-044 does not exist).
 
 ---
 

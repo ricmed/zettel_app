@@ -28,15 +28,15 @@ mesmo tema).
 
 ## Regras do alvo
 
-- `target_note_id` é **obrigatório** em `refine_existing` e `merge`: copie o ID da nota existente exatamente como aparece na lista.
-- `target_note_id` é `null` em `create_new` e `ignore`.
+- `target_note_id` é **obrigatório** em `ignore`, `refine_existing` e `merge`: copie o ID da nota existente exatamente como aparece na lista. Em `ignore`, é a nota que o candidato repete — o revisor precisa vê-la para decidir.
+- `target_note_id` é `null` apenas em `create_new`.
 
 ## Formato de saída (JSON estrito)
 
 ```json
 {
   "decision": "create_new | ignore | refine_existing | merge",
-  "target_note_id": "ID da nota alvo (obrigatorio em refine_existing e merge, senao null)",
+  "target_note_id": "ID da nota alvo (obrigatorio em ignore, refine_existing e merge; null so em create_new)",
   "reason": "Justificativa breve da decisão"
 }
 ```

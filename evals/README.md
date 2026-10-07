@@ -84,3 +84,44 @@ Tudo o que o projeto media sobre qualidade de extração era auto-referente: rec
 - **A amostra é estratificada** (censo das rejeições contestadas, fatia de `structural`, fatia de aceitos). As estimativas de corpus são **ponderadas** por `população / amostra` de cada estrato; as contagens cruas vêm ao lado para o tamanho da amostra ficar visível. Censo não tem erro amostral; estrato amostrado leva IC95 de Wilson.
 - **`?` fica fora da conta**, contado à parte — nunca como concordância nem como erro.
 - **A planilha costuma voltar de uma planilha eletrônica** em `;` e cp850/cp1252. O leitor aceita ambos e reporta cada normalização (ex.: `y` lido como `s`).
+
+# Camada de decisão tipada (#206)
+
+O Jev (TypeSafe) responde perguntas tipadas com probabilidade ([ADR-055](../docs/adrs/generated/LLM/ADR-055-typed-decision-layer-shadow.md)). Duas medidas, com as regras pré-registradas **antes** da primeira chamada em [`preregistration/206-jev-camada-decisao.md`](preregistration/206-jev-camada-decisao.md).
+
+## Sonda no gold set (ao vivo)
+
+```bash
+.venv/Scripts/python.exe scripts/probe_jev_gold.py --task extract --lang en          # estimativa, sem chamar
+.venv/Scripts/python.exe scripts/probe_jev_gold.py --task extract --lang en --yes     --out evals/results/jev-gold-extract-en.json --out-key evals/gold/extracao-GABARITO-jev-en.json
+.venv/Scripts/python.exe scripts/probe_jev_gold.py --task reader --lang en --yes --out evals/results/jev-gold-reader-en.json
+```
+
+- **Texto**: a passagem vem da planilha rotulada (`extracao-planilha.csv`, gitignored) — o texto que o humano julgou —, não do `state.db`, que o vault de desenvolvimento reinicia. As notas do leitor vêm da rodada gravada `gemini-t01-a` de #181 (`.eval-work/prompt1/`).
+- **Sinal**: AUC do `noul` "um curador guardaria?" contra o rótulo humano, com IC95. O `--out-key` gera um gabarito para `scripts/compare_gold_runs.py`.
+- **Replay**: respostas gravadas em `.eval-work/jev-gold/`, chaveadas por tarefa, idioma, modelo, permutações e perguntas. Rodada gravada não chama nada.
+- **Medição, não porteira**: a ADR-049 continua valendo.
+
+## Planilha cega de dedupe, categoria e corroborates
+
+Dedupe e categoria não têm gabarito humano: o m/d do revisor só cobre o que o LLM já marcou como repetição, e ninguém julga a categoria de um cluster. Depois de acumular decisões shadow (`zettel review`, `zettel garden`), exporte:
+
+```bash
+.venv/Scripts/python.exe scripts/export_decision_gold.py --site dedupe
+.venv/Scripts/python.exe scripts/export_decision_gold.py --site moc_category
+.venv/Scripts/python.exe scripts/export_decision_gold.py --site corroborates
+```
+
+- **Nota inteira, não o trecho**: cada item é identificado pelo `state_json` da linha shadow, mas as notas aparecem **completas**, lidas do `state.db` na exportação (tese, definição, intuição, exemplo, limites). Os modelos viram menos — o LLM de dedupe vê só 200 caracteres de cada nota existente; o corroborates, só tese e definição —, e é isso que a comparação deve expor: o rótulo é o melhor julgamento possível. A seção `## Conexões` fica de fora, porque revelaria se as notas já estão ligadas.
+- **Cega**: nada de decisão do LLM, resposta do Jev, confiança ou rótulo do revisor na planilha ou na leitura; itens embaralhados. As notas existentes aparecem por **letra** (A, B, …); as categorias, por **número**.
+- **Respostas**: dedupe — `decisao` = `nova` | `repete` | `desenvolve` | `?`, e `alvo` = letra da nota em `repete`/`desenvolve`; categoria — número ou nome da lista, `nenhuma` ou `?`; corroborates — `diferente` | `mesmo-tema` | `mesma-ideia` | `?` (duas notas de obras diferentes, sem cosseno nem fontes).
+- **Estratos**: dedupe pela decisão do LLM (`create_new` amostrado, `ignore`/`link` inteiros até o teto); categoria por concordância entre o Jev e o argmax (`agree`/`disagree`/`unassigned`); corroborates por faixa de cosseno (`low_band` 0,75–0,80, `near_threshold` 0,80–0,85, `above_threshold`), um item por par. Regras do #208 em [`preregistration/208-jev-corroborates.md`](preregistration/208-jev-corroborates.md). `--per-stratum` (padrão 30) e `--seed` controlam a amostra; o gabarito guarda a população de cada estrato.
+- **Commitável**: só o `*-GABARITO-NAO-ABRIR.json` (ids, sem texto). Planilha e leitura são gitignored. Uma planilha existente nunca é sobrescrita sem `--force`.
+
+## Relatório do shadow (offline)
+
+```bash
+.venv/Scripts/python.exe scripts/report_decision_shadow.py --out evals/results/decision-shadow.json
+```
+
+Lê `decision_shadow` do `state.db` e reporta, por site, a concordância com a decisão atual por faixa de confiança (≥ 0,9; 0,6–0,9; < 0,6), a concordância com o revisor no dedupe ao lado da do LLM, o desvio entre permutações e a latência. O rótulo humano do dedupe só existe para o que o LLM já marcou como redundante — leia o número com esse viés.

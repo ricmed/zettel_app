@@ -108,3 +108,7 @@ A live runner (PD-04 equivalent) is deliberately deferred. When it lands, it sho
 * `zettel/ask.py` — `AskResult` (`sources`, `candidates`, `llm_called`, `retrieval_params`): the public surface being read
 * `evals/fixtures/sintetico-pt/` — 4 synthetic notes, 5 gold questions, 5 recorded trajectories
 * `tests/evals/` — identity, the four verdicts, determinism, no-network, no-LLM, no-production-import
+
+## Addendum (2026-10-06): live probes stay outside `zettel.evals`
+
+`scripts/probe_jev_gold.py` calls a live model, the typed decision layer of [ADR-055](../LLM/ADR-055-typed-decision-layer-shadow.md). Like `scripts/probe_reader_signal.py`, it lives in `scripts/`, never in `zettel/evals/`, so the isolation rules above still hold: the package is never imported by the pipeline, and its tests never touch the network. It follows the same replay discipline: answers are recorded under `.eval-work/`, a recorded run makes no call, uncached calls need `--yes`, and the rules are pre-registered before the first call (`evals/preregistration/206-jev-camada-decisao.md`).

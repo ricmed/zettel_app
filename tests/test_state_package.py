@@ -140,6 +140,11 @@ PUBLIC_METHODS = {
     "cancel_web_harvest_review",
     "discard_unavailable_web_harvest_reviews",
     "queue_web_harvest_review",
+    # decisions (ADR-055 shadow)
+    "get_decision_shadow",
+    "record_decision_shadow",
+    "set_decision_shadow_human",
+    "list_decision_shadow",
     "get_stats",
     "get_web_dashboard",
     # connection lifecycle (db.py)

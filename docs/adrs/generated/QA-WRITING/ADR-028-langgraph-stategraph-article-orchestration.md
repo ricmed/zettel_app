@@ -172,3 +172,14 @@ owns topology and state, not writing logic. ADR-029 formalizes that separation a
 * `zettel/article.py` — domain helpers (outline, drafting, assembly, personality, judge, verification)
 * `zettel/cli/writing.py` — `article` command and its Rich-based `_hitl` handler
 * config/config.yaml — `retrieval.article` section (`max_judge_iterations`, `judge_min_score`, `max_sections`)
+
+## Addendum (2026-10-06): judge scores in shadow, one dimension per request
+
+`node_judge` calls `decision.shadow.shadow_article_judge` after `judge_article_body`. The typed decision layer scores each of the four dimensions in its own request, each with a five-level `score` and only the state that dimension reads:
+
+- fidelity: the article and the notes;
+- coverage: the topic, the article and the notes;
+- references: the style and the article;
+- naturalness: only the article.
+
+The rows sit next to the LLM's scores ([ADR-055](../LLM/ADR-055-typed-decision-layer-shadow.md)). The verdict, the `feedback` and the redraft loop are untouched. The feedback must quote the offending passage, which a typed answer cannot do. If a gate ever follows, the generative judge stays for the feedback on rejection.

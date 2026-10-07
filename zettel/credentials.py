@@ -23,6 +23,11 @@ EMBEDDING_PROVIDER_ENV: dict[str, tuple[str, ...]] = {
 }
 
 
+DECISION_PROVIDER_ENV: dict[str, tuple[str, ...]] = {
+    "typesafe": ("TYPESAFE_API_KEY",),
+}
+
+
 def has_credential(required: tuple[str, ...] | None) -> bool:
     """True when no credential is required or any of ``required`` is set."""
     return required is None or any(os.getenv(name) for name in required)

@@ -510,6 +510,57 @@ class RetrievalConfig(BaseModel):
     catalog: CatalogConfig = Field(default_factory=CatalogConfig)
 
 
+DecisionSite = Literal["dedupe", "moc_category", "article_judge", "corroborates"]
+DECISION_SITES: tuple[DecisionSite, ...] = (
+    "dedupe",
+    "moc_category",
+    "article_judge",
+    "corroborates",
+)
+
+
+class DecisionSitesConfig(BaseModel):
+    """Modo de cada ponto de decisao. `shadow` grava o veredito do Jev sem agir."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dedupe: Literal["off", "shadow"] = "off"
+    moc_category: Literal["off", "shadow"] = "off"
+    article_judge: Literal["off", "shadow"] = "off"
+    corroborates: Literal["off", "shadow"] = "off"
+
+
+class DecisionConfig(BaseModel):
+    """Camada de decisao tipada (TypeSafe Jev, ADR-055). Catalogo: config.yaml -> decision.
+
+    Nao e uma fase de LLM: o Jev nao gera texto e nao passa por `get_llm`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["typesafe"] = "typesafe"
+    # Versao fixa, nunca `jev-latest`: um shadow que troca de modelo no meio
+    # mistura duas distribuicoes no mesmo relatorio.
+    model: str = "jev-1.13.0"
+    base_url: str | None = None
+    timeout_s: float = 10.0
+    max_retries: int = 2
+    # Copias de cada `choice` com a ordem das opcoes rotacionada, na mesma
+    # requisicao. O Jev declara vies para a primeira opcao; a media das
+    # permutacoes o neutraliza e o desvio entre elas mede a estabilidade.
+    order_permutations: int = Field(default=3, ge=1)
+    # Idioma das instrucoes e criterios (o conteudo segue em PT-BR). Escolhido
+    # pela sonda pre-registrada de #206.
+    instructions_language: Literal["en", "pt"] = "en"
+    # O LiteLLM nao conhece o modelo; sem isto o custo sairia US$ 0.
+    input_price_per_mtok: float = 0.042
+    # Pares de fontes diferentes julgados no site `corroborates`: a partir deste
+    # cosseno, abaixo E acima de `linking.corroborates_min_similarity`, para que
+    # a mesma ideia escrita com outras palavras (falso negativo) apareca (#208).
+    corroborates_band_min: float = 0.75
+    sites: DecisionSitesConfig = Field(default_factory=DecisionSitesConfig)
+
+
 class AppConfig(BaseModel):
     """Schema do pipeline. Fonte operacional: config/config.yaml (load_config).
 
@@ -538,6 +589,7 @@ class AppConfig(BaseModel):
     hub_mocs: HubMocsConfig = Field(default_factory=HubMocsConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     summarize: SummarizeConfig = Field(default_factory=SummarizeConfig)
+    decision: DecisionConfig = Field(default_factory=DecisionConfig)
 
     language: str = "pt-BR"
     vault_timezone: str = "America/Sao_Paulo"

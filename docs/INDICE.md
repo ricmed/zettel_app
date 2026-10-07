@@ -40,7 +40,7 @@
 
 | Documento | Conteúdo |
 |---|---|
-| [Índice de ADRs](adrs/ADR-INDEX.md) | 43 decisões formais em 12 módulos |
+| [Índice de ADRs](adrs/ADR-INDEX.md) | 55 decisões formais em 13 módulos |
 | [Visão geral dos ADRs](adrs/ADR-OVERVIEW.md) | Panorama e relações entre decisões |
 | [RUNBOOK](adrs/RUNBOOK.md) | Procedimentos operacionais e critérios de ajuste de limiares |
 | [Checklist de code review](code-review-adr-checklist.md) | O que verificar em mudanças que tocam decisões registradas |

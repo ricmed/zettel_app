@@ -973,6 +973,47 @@ def test_format_dedupe_item_names_the_competing_candidate(env):
     assert "Motivo: repetido" in card
 
 
+def test_format_dedupe_item_names_source_and_target_note(env):
+    from zettel.review import format_dedupe_item
+
+    _, db, _ = env
+    db.upsert_note("01NOTA", "@Book2024", None, title="Nota antiga")
+    db.upsert_concept(
+        "dup2",
+        "@Book2024",
+        "@Book2024::ch000::abc",
+        candidate_json=json.dumps({"thesis": "T", "definition": "d"}),
+        status="extracted",
+    )
+    db.set_concept_dedupe("dup2", "dedupe_pending", {"reason": "r", "target_note_id": "01NOTA"})
+    card = format_dedupe_item(db, db.get_concept("dup2"))
+    assert card.startswith("Fonte: @Book2024 - Livro Teste")
+    assert "Nota existente: Nota antiga (01NOTA)" in card
+
+
+def test_format_dedupe_item_lists_compared_notes_when_llm_named_no_target(env):
+    from zettel.review import format_dedupe_item
+
+    _, db, _ = env
+    db.upsert_note("01A", "@Book2024", None, title="Nota A")
+    db.upsert_note("01B", "@Book2024", None, title="Nota B")
+    db.upsert_concept(
+        "dup3",
+        "@Book2024",
+        "@Book2024::ch000::abc",
+        candidate_json=json.dumps({"thesis": "T", "definition": "d"}),
+        status="extracted",
+    )
+    db.set_concept_dedupe(
+        "dup3",
+        "dedupe_pending",
+        {"reason": "r", "target_note_id": None, "compared_note_ids": ["01A", "01B"]},
+    )
+    card = format_dedupe_item(db, db.get_concept("dup3"))
+    assert "nao indicada pelo LLM" in card
+    assert "  - Nota A (01A)" in card and "  - Nota B (01B)" in card
+
+
 def test_approve_lists_the_lit_once_in_the_chapter_map(env):
     from zettel.vault import literature_index_filename, read_managed_block
 

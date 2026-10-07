@@ -12,6 +12,7 @@ from zettel.state.chapters import ChaptersMixin
 from zettel.state.chunks import ChunksMixin
 from zettel.state.concepts import ConceptsMixin
 from zettel.state.connections import ConnectionsMixin
+from zettel.state.decisions import DecisionsMixin
 from zettel.state.fts import FtsMixin
 from zettel.state.llm_cache import LlmCacheMixin
 from zettel.state.mocs import MocsMixin
@@ -35,6 +36,7 @@ MIXINS = (
     MocsMixin,
     AssetsMixin,
     LlmCacheMixin,
+    DecisionsMixin,
     RunsMixin,
     FtsMixin,
     WebMixin,

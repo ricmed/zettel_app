@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from ulid import ULID
 
 from zettel.config import AppConfig, effective_temperature, llm_phase, thinking_checksum_token
+from zettel.decision.shadow import shadow_dedupe
 from zettel.hashing import (
     compute_llm_call_checksum,
     normalize_text_for_hash,
@@ -1073,11 +1074,24 @@ def deduplicate_candidates(
                 approved.append(cand_dict)
                 continue
 
+            shadow_dedupe(
+                cfg,
+                db,
+                concept_id=cand_dict["concept_id"],
+                thesis=cand.thesis,
+                definition=cand.definition,
+                same_source=same_source,
+                llm_decision=result.decision.value,
+                llm_target=result.target_note_id,
+            )
             if result.decision == DedupeDecision.CREATE_NEW:
                 approved.append(cand_dict)
             elif result.decision == DedupeDecision.IGNORE:
                 logger.info("Possivel duplicata, aguardando decisao: %s", cand.thesis[:60])
                 cand_dict["target_note_id"] = result.target_note_id
+                # What the LLM compared against, so the reviewer sees the notes even
+                # when the model names no target.
+                cand_dict["compared_note_ids"] = [n.get("id") for n in same_source]
                 cand_dict["dedupe_reason"] = result.reason
                 pending.append(cand_dict)
             elif result.decision in (
@@ -1108,6 +1122,7 @@ def deduplicate_candidates(
                 "reason": cand_dict.get("dedupe_reason") or "",
                 "target_note_id": cand_dict.get("target_note_id"),
                 "duplicate_of": cand_dict.get("duplicate_of"),
+                "compared_note_ids": cand_dict.get("compared_note_ids") or [],
             },
         )
 

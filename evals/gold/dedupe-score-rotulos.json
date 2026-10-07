@@ -1,0 +1,520 @@
+{
+  "key_exported_at": "2026-10-07T12:07:17.926785+00:00",
+  "labels": [
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.41)",
+      "human_target": "01M49ZPXXRRKSCQF860GVBHKBR",
+      "item_id": "D001",
+      "sampling_stratum": "link",
+      "subject_id": "@Hui2026KantMachine::concept::df754f39"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.39)",
+      "human_target": "01M49H0EKRGHRGX41QPW89YY34",
+      "item_id": "D002",
+      "sampling_stratum": "link",
+      "subject_id": "@PromptEngineering::concept::933a7648"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.42)",
+      "human_target": "01M49ZRZM9DHRPQD40HBQ297MD",
+      "item_id": "D003",
+      "sampling_stratum": "link",
+      "subject_id": "@Hui2026KantMachine::concept::f57e3a24"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.31)",
+      "human_target": "01M4A01ANYQB0R00DH0094XGEJ",
+      "item_id": "D004",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::2f797996"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "Ideia independente na obra (Score: 0.27)",
+      "human_target": null,
+      "item_id": "D005",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::5923a96f"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.40)",
+      "human_target": "01M4A02D0C2WCME08P648DDT30",
+      "item_id": "D006",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::aa4cb2d3"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.37)",
+      "human_target": "01M4A02D0C2WCME08P648DDT30",
+      "item_id": "D007",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::7f784705"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "Ideia independente na obra (Score: 0.29)",
+      "human_target": null,
+      "item_id": "D008",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::df1a67db"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "Ideia independente na obra (Score: 0.27)",
+      "human_target": null,
+      "item_id": "D009",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::55e8f8c8"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.45)",
+      "human_target": "01M49ZWCN84R5FHDRWG8BTCYD3",
+      "item_id": "D010",
+      "sampling_stratum": "ignore",
+      "subject_id": "@Hui2026KantMachine::concept::c6acc243"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.42)",
+      "human_target": "01M49ZXM99G0E46NW3NEXQH8PC",
+      "item_id": "D011",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::397ccf44"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.39)",
+      "human_target": "01M49ZQ9GNZ9Z4V11AGRPG8CT9",
+      "item_id": "D012",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Hui2026KantMachine::concept::99627a0a"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.36)",
+      "human_target": "01M49GZNVA5MWNHR56ACHA67YE",
+      "item_id": "D013",
+      "sampling_stratum": "create_new",
+      "subject_id": "@PromptEngineering::concept::2e00b039"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "Ideia independente na obra (Score: 0.25)",
+      "human_target": null,
+      "item_id": "D014",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::a0d06787"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.35)",
+      "human_target": "01M49ZWZMPRSJ5P8HPZGK4W5MX",
+      "item_id": "D015",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::9e3e615b"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.36)",
+      "human_target": "01M4A01ANYQB0R00DH0094XGEJ",
+      "item_id": "D016",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::0cfebcad"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "Ideia independente na obra (Score: 0.22)",
+      "human_target": null,
+      "item_id": "D017",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::2de2972f"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.30)",
+      "human_target": "01M49ZTD980NE6HG1Q4RX6JN0K",
+      "item_id": "D018",
+      "sampling_stratum": "link",
+      "subject_id": "@Hui2026KantMachine::concept::ff2feb0b"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "Ideia independente na obra (Score: 0.29)",
+      "human_target": null,
+      "item_id": "D019",
+      "sampling_stratum": "link",
+      "subject_id": "@Hui2026KantMachine::concept::38c8dec7"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.34)",
+      "human_target": "01M49ZWZMPRSJ5P8HPZGK4W5MX",
+      "item_id": "D020",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::e64b0d65"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "Ideia independente na obra (Score: 0.21)",
+      "human_target": null,
+      "item_id": "D021",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::8f53f047"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.37)",
+      "human_target": "01M4A02D0C2WCME08P648DDT30",
+      "item_id": "D022",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::70159f80"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.32)",
+      "human_target": "01M49ZWZMPRSJ5P8HPZGK4W5MX",
+      "item_id": "D023",
+      "sampling_stratum": "ignore",
+      "subject_id": "@Kim2022KantAnd::concept::c095e015"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.42)",
+      "human_target": "01M49ZWZMPRSJ5P8HPZGK4W5MX",
+      "item_id": "D024",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::fa86b1d7"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.34)",
+      "human_target": "01M49ZWZMPRSJ5P8HPZGK4W5MX",
+      "item_id": "D025",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::ceeb5ff4"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "Ideia independente na obra (Score: 0.30)",
+      "human_target": null,
+      "item_id": "D026",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::abc5f0d1"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.33)",
+      "human_target": "01M49ZWKR68XX8D7FSN4EJCSCZ",
+      "item_id": "D027",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::c7bf6094"
+    },
+    {
+      "human_decision": "ignore",
+      "human_note": "Alta similaridade semântica (Score: 0.52)",
+      "human_target": "01M49H01C3AE7P8SQQWA3E4R07",
+      "item_id": "D028",
+      "sampling_stratum": "link",
+      "subject_id": "@PromptEngineering::concept::5555d4dc"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "Ideia independente na obra (Score: 0.22)",
+      "human_target": null,
+      "item_id": "D029",
+      "sampling_stratum": "ignore",
+      "subject_id": "@Kim2022KantAnd::concept::38af100e"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.41)",
+      "human_target": "01M49ZXASEN26RD9ATZ2FZRAZ6",
+      "item_id": "D030",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::020e8a54"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.38)",
+      "human_target": "01M49ZYC2SNAGKVXKFP5863S34",
+      "item_id": "D031",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::0de99570"
+    },
+    {
+      "human_decision": "ignore",
+      "human_note": "Alta similaridade semântica (Score: 0.51)",
+      "human_target": "01M49GZNVA5MWNHR56ACHA67YE",
+      "item_id": "D032",
+      "sampling_stratum": "link",
+      "subject_id": "@PromptEngineering::concept::3a49be63"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "Ideia independente na obra (Score: 0.24)",
+      "human_target": null,
+      "item_id": "D033",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::ea87b80d"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "Ideia independente na obra (Score: 0.30)",
+      "human_target": null,
+      "item_id": "D034",
+      "sampling_stratum": "ignore",
+      "subject_id": "@Hui2026KantMachine::concept::5c034917"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.32)",
+      "human_target": "01M49ZWCN84R5FHDRWG8BTCYD3",
+      "item_id": "D035",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Hui2026KantMachine::concept::7bc4ea3e"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.33)",
+      "human_target": "01M49ZWCN84R5FHDRWG8BTCYD3",
+      "item_id": "D036",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Hui2026KantMachine::concept::4ef86493"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.33)",
+      "human_target": "01M4A01ANYQB0R00DH0094XGEJ",
+      "item_id": "D037",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::d2ddf160"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.32)",
+      "human_target": "01M49ZWCN84R5FHDRWG8BTCYD3",
+      "item_id": "D038",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Hui2026KantMachine::concept::98cf23b9"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.45)",
+      "human_target": "01M49H0EKRGHRGX41QPW89YY34",
+      "item_id": "D039",
+      "sampling_stratum": "create_new",
+      "subject_id": "@PromptEngineering::concept::a10997ce"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.35)",
+      "human_target": "01M49ZWZMPRSJ5P8HPZGK4W5MX",
+      "item_id": "D040",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::b5d0cea2"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.47)",
+      "human_target": "01M49GZNVA5MWNHR56ACHA67YE",
+      "item_id": "D041",
+      "sampling_stratum": "create_new",
+      "subject_id": "@PromptEngineering::concept::faaf6b2c"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.33)",
+      "human_target": "01M4A02D0C2WCME08P648DDT30",
+      "item_id": "D042",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::5885acf4"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.47)",
+      "human_target": "01M49GZNVA5MWNHR56ACHA67YE",
+      "item_id": "D043",
+      "sampling_stratum": "create_new",
+      "subject_id": "@PromptEngineering::concept::dfa78a6f"
+    },
+    {
+      "human_decision": "ignore",
+      "human_note": "Alta similaridade semântica (Score: 0.50)",
+      "human_target": "01M49GZNVA5MWNHR56ACHA67YE",
+      "item_id": "D044",
+      "sampling_stratum": "create_new",
+      "subject_id": "@PromptEngineering::concept::c8bbf1a5"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "Ideia independente na obra (Score: 0.21)",
+      "human_target": null,
+      "item_id": "D045",
+      "sampling_stratum": "link",
+      "subject_id": "@Hui2026KantMachine::concept::fa81adc6"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "Ideia independente na obra (Score: 0.28)",
+      "human_target": null,
+      "item_id": "D046",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::ea1ad628"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.32)",
+      "human_target": "01M49ZWCN84R5FHDRWG8BTCYD3",
+      "item_id": "D047",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Hui2026KantMachine::concept::3983bb46"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.34)",
+      "human_target": "01M4A02D0C2WCME08P648DDT30",
+      "item_id": "D048",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::8b93a319"
+    },
+    {
+      "human_decision": "ignore",
+      "human_note": "Alta similaridade semântica (Score: 0.49)",
+      "human_target": "01M49GZNVA5MWNHR56ACHA67YE",
+      "item_id": "D049",
+      "sampling_stratum": "link",
+      "subject_id": "@PromptEngineering::concept::3c2ad3ff"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.44)",
+      "human_target": "01M49H3ET2P8045PKB4STV152W",
+      "item_id": "D050",
+      "sampling_stratum": "link",
+      "subject_id": "@PromptEngineering::concept::c78e0ca4"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.35)",
+      "human_target": "01M4A01V1Z0759ZYW00NSJXA2Q",
+      "item_id": "D051",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::fe96cc52"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.32)",
+      "human_target": "01M4A01V1Z0759ZYW00NSJXA2Q",
+      "item_id": "D052",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::03d68c5a"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.31)",
+      "human_target": "01M49ZWZMPRSJ5P8HPZGK4W5MX",
+      "item_id": "D053",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::2bb6dc95"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "Ideia independente na obra (Score: 0.26)",
+      "human_target": null,
+      "item_id": "D054",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::fcf24971"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.48)",
+      "human_target": "01M49GZNVA5MWNHR56ACHA67YE",
+      "item_id": "D055",
+      "sampling_stratum": "link",
+      "subject_id": "@PromptEngineering::concept::0fe3c94e"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.34)",
+      "human_target": "01M49ZWZMPRSJ5P8HPZGK4W5MX",
+      "item_id": "D056",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::cb414230"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.31)",
+      "human_target": "01M49ZWZMPRSJ5P8HPZGK4W5MX",
+      "item_id": "D057",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::658ea555"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.32)",
+      "human_target": "01M49ZWKR68XX8D7FSN4EJCSCZ",
+      "item_id": "D058",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::7ef9db43"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.43)",
+      "human_target": "01M49ZWCN84R5FHDRWG8BTCYD3",
+      "item_id": "D059",
+      "sampling_stratum": "link",
+      "subject_id": "@Hui2026KantMachine::concept::0c1612ca"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.41)",
+      "human_target": "01M49ZWZMPRSJ5P8HPZGK4W5MX",
+      "item_id": "D060",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::23d01b71"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.40)",
+      "human_target": "01M49ZWZMPRSJ5P8HPZGK4W5MX",
+      "item_id": "D061",
+      "sampling_stratum": "link",
+      "subject_id": "@Kim2022KantAnd::concept::a5615d9e"
+    },
+    {
+      "human_decision": "create_new",
+      "human_note": "Ideia independente na obra (Score: 0.25)",
+      "human_target": null,
+      "item_id": "D062",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::6ba59c44"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.43)",
+      "human_target": "01M4A02D0C2WCME08P648DDT30",
+      "item_id": "D063",
+      "sampling_stratum": "create_new",
+      "subject_id": "@Kim2022KantAnd::concept::c67ec6cc"
+    },
+    {
+      "human_decision": "link",
+      "human_note": "Conceito relacionado/desenvolvido (Score: 0.36)",
+      "human_target": "01M49ZWCN84R5FHDRWG8BTCYD3",
+      "item_id": "D064",
+      "sampling_stratum": "link",
+      "subject_id": "@Hui2026KantMachine::concept::df659759"
+    }
+  ],
+  "method": "score_thresholds",
+  "method_note": "Every answer follows a 0-1 similarity score with fixed cuts (<0.30 nova, 0.30-0.48 desenvolve, >0.48 repete); no item departs from them. Agreement with these labels measures agreement with that score, not independent human judgement of meaning.",
+  "site": "dedupe"
+}

@@ -48,6 +48,8 @@ O sistema detecta automaticamente quando um prompt muda (via `llm_call_checksum`
 
 O caminho da pasta é configurável em `prompts_path` ([configuracao.md](configuracao.md)).
 
+As perguntas da camada de decisão tipada (TypeSafe Jev, modo shadow) **não** ficam aqui: vivem em `zettel/decision/sites.py`, porque as chaves das opções são contrato com o código (as decisões de dedupe, os nomes de categoria da taxonomia). Veja [configuracao.md](configuracao.md#camada-de-decisão-tipada-typesafe-jev).
+
 ### O marcador `<!-- zettel:user -->`
 
 Os templates usam `<!-- zettel:user -->` para separar as instruções **estáveis** (que viram `SystemMessage`) do **payload por chamada** (que vira `HumanMessage`). Esse layout é o que viabiliza o prompt caching do provedor — se você editar um prompt, mantenha do lado do sistema apenas o que não muda entre chamadas. Veja [configuracao.md](configuracao.md#prompt-caching-do-provedor-vs-cache-sqlite).

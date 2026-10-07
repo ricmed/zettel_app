@@ -356,3 +356,10 @@ def test_dedupe_prompt_lists_every_decision():
 def test_ask_prompt_uses_the_canonical_no_evidence_sentence():
     text = (PROMPTS_DIR / "ask.md").read_text(encoding="utf-8")
     assert _NO_EVIDENCE in text
+
+
+def test_dedupe_prompt_requires_a_target_when_flagging_a_repeat():
+    """The review card can only show what the candidate repeats if `ignore` names it."""
+    text = (PROMPTS_DIR / "dedupe_decision.md").read_text(encoding="utf-8")
+    assert "obrigatório** em `ignore`, `refine_existing` e `merge`" in text
+    assert "`null` apenas em `create_new`" in text

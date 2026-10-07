@@ -196,7 +196,7 @@ def generate_outline(
     """Call the LLM to produce an ArticleOutline. Returns (outline, llm_called)."""
     art_cfg = cfg.retrieval.article
     prompt_parts = load_prompt_parts(cfg.prompts_path / "article_outline.md")
-    notes_block = _format_notes_for_outline(catalog)
+    notes_block = format_notes_catalog(catalog)
     mapping = {
         "language": cfg.language,
         "topic": catalog.topic,
@@ -709,7 +709,7 @@ def _assets_from_note_body(db: StateDB, body: str, source_id: str | None) -> lis
     return out
 
 
-def _format_notes_for_outline(catalog: ArticleCatalog) -> str:
+def format_notes_catalog(catalog: ArticleCatalog) -> str:
     parts: list[str] = []
     for i, note in enumerate(catalog.notes.values(), 1):
         src_line = note.source_id or "(sem fonte)"
@@ -1172,7 +1172,7 @@ def judge_article_body(
         "language": cfg.language,
         "topic": catalog.topic,
         "style": catalog.style,
-        "notes_catalog": _format_notes_for_outline(catalog),
+        "notes_catalog": format_notes_catalog(catalog),
         "article_body": body,
     }
     system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""

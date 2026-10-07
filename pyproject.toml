@@ -39,6 +39,7 @@ dependencies = [
     "ruff>=0.16.5",
     "langchain-chroma>=1.1.0",
     "langchain-google-genai>=4.3.7",
+    "typesafe-sdk>=0.7.2",
 ]
 
 [tool.uv.sources]
