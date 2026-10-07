@@ -83,7 +83,7 @@ zettel/decision/
   - agreement with the current decision, overall and by the model's confidence band (≥ 0.9, 0.6–0.9, < 0.6);
   - human agreement for dedupe, next to the LLM's;
   - the mean spread across permutations, latency, and the error rate.
-- **Labels where none exist.** `scripts/export_decision_gold.py` exports a blind sheet (same pattern as #175) for `dedupe` and `moc_category` from the rows' `state_json`. No baseline, model answer, confidence or reviewer label reaches the sheet. The sample is stratified where errors would hide: dedupe by the LLM's decision, with `create_new` sampled because that is where a missed duplicate lives; category by agreement between the model and the embedding argmax. The frozen key holds ids, strata, populations and both answers.
+- **Labels where none exist.** `scripts/export_decision_gold.py` exports a blind sheet (same pattern as #175) for `dedupe`, `moc_category` and `corroborates`. Items are identified by the rows' `state_json`, but notes are rendered in full from `state.db`: thesis, definition, intuition, example and limits, never `## Conexões`. The label must be the best judgement available. The models saw less: the dedupe LLM sees a 200-character excerpt of each existing note, and corroborates sees only thesis and definition. That is exactly what the comparison should expose. No baseline, model answer, confidence or reviewer label reaches the sheet. The sample is stratified where errors would hide: dedupe by the LLM's decision, with `create_new` sampled because that is where a missed duplicate lives; category by agreement between the model and the embedding argmax. The frozen key holds ids, strata, populations and both answers.
 
 ## Consequences
 

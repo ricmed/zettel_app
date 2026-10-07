@@ -14,9 +14,11 @@ from export_decision_gold import (
     build_key,
     eligible,
     main,
+    note_sections,
     population,
     sample,
     stratum_of,
+    with_full_notes,
     write_reading,
     write_sheet,
 )
@@ -135,7 +137,7 @@ def test_dedupe_sheet_is_semicolon_utf8_with_answer_columns_empty(tmp_path):
     (header, row) = list(csv.reader(sheet.splitlines(keepends=True), delimiter=";"))[:2]
     assert header[:4] == ["item_id", "decisao", "alvo", "nota"]
     assert row[1:4] == ["", "", ""]
-    assert "A) Nota A: Texto A" in row[-1]
+    assert "A) Nota A\n\nTexto A" in row[-1]
     assert "`repete`" in reading
 
 
@@ -237,3 +239,52 @@ def test_corroborates_sheet_is_blind(tmp_path):
             assert word not in text.lower(), word
         assert "0.9" not in text
     assert "Tese A ab" in sheet and "`mesma-ideia`" in reading
+
+
+def _ztl(thesis, definition, intuition=""):
+    body = f"> **Tese**: {thesis}\n\n## Definição\n\n{definition}\n"
+    if intuition:
+        body += f"\n## Intuição\n\n{intuition}\n"
+    return body + "\n## Conexões\n\n- corroborado por [[ZTL - 01X]]\n"
+
+
+def test_note_sections_keep_content_and_drop_connections():
+    sections = note_sections("T", _ztl("Tese longa", "Def longa", "Intu"))
+    assert sections["thesis"] == "Tese longa"
+    assert sections["definition"] == "Def longa"
+    assert sections["intuition"] == "Intu"
+    assert "corroborado" not in " ".join(sections.values())
+
+
+def test_full_notes_replace_the_excerpts_the_models_saw(tmp_path):
+    db_path = tmp_path / "state.db"
+    db = StateDB(db_path)
+    db.upsert_note("01NOTEA", "@Src", None, title="Nota A", body=_ztl("Tese A", "Def A " * 100))
+    db.conn.execute("PRAGMA foreign_keys=OFF")  # the exporter reads concepts, not chunks
+    db.upsert_concept(
+        "@Src::concept::1",
+        "@Src",
+        "@Src::ch::1",
+        candidate_json=json.dumps({"thesis": "Tese 1", "definition": "D", "limits": "L"}),
+        status="extracted",
+    )
+    db.upsert_note("01NEW", "@A", None, title="Nova", body=_ztl("Tese nova", "Def nova", "I"))
+    db.upsert_note("01OLD", "@B", None, title="Velha", body=_ztl("Tese velha", "Def velha"))
+    db.close()
+
+    dedupe = sample([_dedupe_row("1", "ignore")], per_stratum=5, seed=0)
+    corr_row = _corr_row("01NEW|01OLD", "ab", 0.9)
+    corr_row["baseline"]["new_note"] = "01NEW"
+    corr = sample(eligible([corr_row], "corroborates"), per_stratum=5, seed=0)
+
+    (d,) = with_full_notes(dedupe, db_path)
+    state = d.row["state"]
+    assert state["candidate"]["limits"] == "L"
+    note_a = state["existing_notes"][0]
+    assert note_a["definition"].startswith("Def A") and len(note_a["definition"]) > 200
+    assert state["existing_notes"][1]["text"] == "Texto B"  # missing note keeps the excerpt
+    assert dedupe[0].row["state"]["candidate"].get("limits") is None  # input left untouched
+
+    (c,) = with_full_notes(corr, db_path)
+    assert c.row["state"]["note_a"]["intuition"] == "I"
+    assert c.row["state"]["note_b"]["thesis"] == "Tese velha"

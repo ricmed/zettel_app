@@ -7,10 +7,14 @@ flagged as a repetition. Concepts the LLM let through as "new" are exactly where
 missed duplicate would hide, and nothing looks at them. This script produces the
 sheet a human fills to close both gaps.
 
-**Same input as the models.** Each item is rendered from the row's `state_json`:
-the candidate and the same-source notes the dedupe LLM and the decision model
-saw, or the cluster's notes and terms. The human judges the same evidence, so a
-disagreement is about judgement, not about who saw more.
+**The whole note, not the excerpt.** Each item is identified by the row's
+`state_json`, but notes are rendered **in full** from `state.db` at export time
+(thesis, definition, intuition, example, limits). The models saw less -- dedupe
+shows the LLM a 200-character excerpt of each existing note, corroborates only
+thesis and definition -- and that is the point: the label must be the best
+judgement available, and a model that errs because it saw too little is exactly
+what the comparison should expose. Only content sections are shown; `## Conexoes`
+is left out because it would reveal whether two notes are already linked.
 
 **Blind by construction.** The sheet and the reading file carry no baseline, no
 model answer, no confidence and no reviewer label, and items are shuffled. The
@@ -55,9 +59,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
+import dataclasses
 import json
 import random
+import sqlite3
 import string
 import sys
 from collections import defaultdict
@@ -103,8 +110,7 @@ SHEET_COLUMNS = {
         "alvo",
         "nota",
         "fonte",
-        "tese",
-        "definicao",
+        "candidato",
         "notas_existentes",
     ],
     "moc_category": ["item_id", "categoria", "nota", "termos", "notas"],
@@ -205,7 +211,9 @@ def sample(rows: list[dict[str, Any]], *, per_stratum: int, seed: int) -> list[I
 
 
 def _note_block(letter: str, note: dict[str, Any]) -> str:
-    return f"{letter}) {note.get('title') or '(sem titulo)'}: {note.get('text') or ''}".strip()
+    title = note.get("title") or "(sem titulo)"
+    body = note_text(note) if note.get("thesis") else (note.get("text") or "")
+    return f"{letter}) {title}\n\n{body}".strip()
 
 
 def dedupe_existing_text(item: Item) -> str:
@@ -222,8 +230,74 @@ def cluster_notes_text(item: Item) -> str:
     )
 
 
+NOTE_FIELDS = (
+    ("thesis", "Tese"),
+    ("definition", "Definição"),
+    ("intuition", "Intuição"),
+    ("example", "Exemplo"),
+    ("limits", "Limites"),
+)
+_NOTE_HEADINGS = {
+    "definition": "Definição",
+    "intuition": "Intuição",
+    "example": "Exemplo",
+    "limits": "Limites",
+}
+
+
 def note_text(note: dict[str, Any]) -> str:
-    return f"Tese: {note.get('thesis') or ''}\n\nDefinição: {note.get('definition') or ''}"
+    """Every filled content field of a note or candidate, labelled."""
+    return "\n\n".join(f"{label}: {note[key]}" for key, label in NOTE_FIELDS if note.get(key))
+
+
+def note_sections(title: str, body: str) -> dict[str, str]:
+    """Content sections of a permanent note body; connections and managed blocks left out."""
+    from zettel.manual_lit import thesis_from_permanent_note
+    from zettel.markdown_fences import h2_section
+
+    sections = {"thesis": thesis_from_permanent_note({"title": title}, body)}
+    for key, heading in _NOTE_HEADINGS.items():
+        sections[key] = h2_section(body, heading)
+    return sections
+
+
+def with_full_notes(items: list[Item], state_db: Path) -> list[Item]:
+    """Replace the excerpts in each item's state with the full notes from ``state_db``.
+
+    A note or concept that no longer exists keeps the excerpt the model saw.
+    """
+    con = sqlite3.connect(f"file:{state_db}?mode=ro", uri=True)
+    try:
+
+        def full_note(note_id: str) -> dict[str, str] | None:
+            row = con.execute(
+                "SELECT title, body FROM notes WHERE note_id = ?", (note_id,)
+            ).fetchone()
+            return note_sections(row[0] or "", row[1] or "") if row else None
+
+        enriched = []
+        for item in items:
+            row = copy.deepcopy(item.row)
+            state = row["state"]
+            if row["site"] == "dedupe":
+                found = con.execute(
+                    "SELECT candidate_json FROM concepts WHERE concept_id = ?", (row["subject_id"],)
+                ).fetchone()
+                if found and found[0]:
+                    cand = json.loads(found[0])
+                    state["candidate"] = {k: cand.get(k) or "" for k, _ in NOTE_FIELDS}
+                for note in state["existing_notes"]:
+                    note.update(full_note(note["id"]) or {})
+            elif row["site"] == "corroborates":
+                new_id = row["baseline"].get("new_note") or ""
+                pair = row["subject_id"].rsplit(":", 1)[0].split("|")
+                other_id = next((n for n in pair if n != new_id), "")
+                state["note_a"] = full_note(new_id) or state["note_a"]
+                state["note_b"] = full_note(other_id) or state["note_b"]
+            enriched.append(dataclasses.replace(item, row=row))
+        return enriched
+    finally:
+        con.close()
 
 
 def sheet_row(item: Item) -> list[str]:
@@ -244,8 +318,7 @@ def sheet_row(item: Item) -> list[str]:
             "",  # alvo: letra da nota (obrigatoria em repete/desenvolve)
             "",  # nota livre
             source_of(item.row),
-            cand.get("thesis") or "",
-            cand.get("definition") or "",
+            note_text(cand),
             dedupe_existing_text(item),
         ]
     return [
@@ -293,9 +366,9 @@ def _dedupe_reading(items: list[Item]) -> list[str]:
             "",
             f"**Fonte:** {source_of(item.row)}",
             "",
-            f"**Candidato — tese:** {cand.get('thesis') or ''}",
+            "**Candidato**",
             "",
-            f"**Candidato — definição:** {cand.get('definition') or ''}",
+            note_text(cand),
             "",
             "**Notas existentes:**",
             "",
@@ -495,7 +568,9 @@ def main(argv: list[str] | None = None) -> int:
 
         categories = categories_with_topics(load_config())
 
-    items = sample(rows, per_stratum=args.per_stratum, seed=args.seed)
+    items = with_full_notes(
+        sample(rows, per_stratum=args.per_stratum, seed=args.seed), args.state_db
+    )
     args.out_dir.mkdir(parents=True, exist_ok=True)
     write_sheet(items, args.site, sheet)
     write_reading(items, args.site, reading, categories)
