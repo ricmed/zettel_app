@@ -63,3 +63,9 @@ Because job execution reads and writes the same StateDB used by CLI commands, co
 - `zettel/web_app.py` — `WebWorker.submit`, the polling loop in `_run`, and job execution/state persistence in `_execute`
 - `zettel/state/web.py` — `web_jobs` / `web_job_events` job lifecycle methods (`create_web_job`, `claim_web_job`, `update_web_job`, `recover_web_jobs`)
 - `zettel/web/enqueue.py` — `post_job` (HTTP 409 on a concurrent submit attempt)
+
+## Addendum (2026-10-07): a parked article does not hold the slot
+
+An article review sets the job to `awaiting_input`. That state is neither `queued` nor `running`, so another job may be submitted. The compiled graph stays in the worker process. `POST /jobs/{id}/resume` moves the same row back to `queued`.
+
+The worker claims `WHERE state='queued' ORDER BY created_at ASC, rowid ASC`. Taking the newest row overall would hide a resumed article behind a job that had already finished. On restart, `awaiting_input` becomes `interrupted` together with `running`. See [ADR-056](./ADR-056-web-acervo-consult-and-produce.md).

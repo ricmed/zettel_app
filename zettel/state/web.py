@@ -50,7 +50,7 @@ class WebMixin(StateBase):
         cur = self.conn.execute(
             "UPDATE web_jobs SET state='interrupted', phase='interrupted', "
             "message='Interrompido pela reinicializacao da aplicacao', finished_at=? "
-            "WHERE state='running'",
+            "WHERE state IN ('running', 'awaiting_input')",
             (self._now(),),
         )
         self.conn.commit()
@@ -155,6 +155,58 @@ class WebMixin(StateBase):
             )
             self.conn.commit()
             return True
+        except Exception:
+            self.conn.rollback()
+            raise
+
+    def has_active_web_job(self) -> bool:
+        """True when a job is ``queued`` or ``running``.
+
+        ``awaiting_input`` does not count: the worker is free while an article
+        waits for a human decision.
+        """
+        row = self._fetchone(
+            "SELECT 1 AS present FROM web_jobs WHERE state IN ('queued','running') LIMIT 1"
+        )
+        return row is not None
+
+    def next_queued_web_job(self) -> dict | None:
+        """The oldest ``queued`` job. A newer finished row must not hide it."""
+        row = self._fetchone(
+            "SELECT * FROM web_jobs WHERE state='queued' ORDER BY created_at ASC, rowid ASC LIMIT 1"
+        )
+        return _decode_web_job(row) if row else None
+
+    def requeue_parked_job(self, job_id: str, payload_update: dict) -> str:
+        """Move an ``awaiting_input`` job back to ``queued``.
+
+        Returns ``ok``, ``busy`` (another job is queued or running), or
+        ``missing`` (the job is not waiting for input).
+        """
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+            active = self.conn.execute(
+                "SELECT job_id FROM web_jobs WHERE state IN ('queued','running') LIMIT 1"
+            ).fetchone()
+            if active:
+                self.conn.rollback()
+                return "busy"
+            row = self.conn.execute(
+                "SELECT state, payload_json FROM web_jobs WHERE job_id=?",
+                (job_id,),
+            ).fetchone()
+            if row is None or row["state"] != "awaiting_input":
+                self.conn.rollback()
+                return "missing"
+            payload = json.loads(row["payload_json"] or "{}")
+            payload.update(payload_update)
+            self.conn.execute(
+                "UPDATE web_jobs SET state='queued', phase='queued', "
+                "message='Retomando artigo', payload_json=? WHERE job_id=?",
+                (json.dumps(payload), job_id),
+            )
+            self.conn.commit()
+            return "ok"
         except Exception:
             self.conn.rollback()
             raise

@@ -21,7 +21,7 @@
 <body>
 <header class="topbar"><a class="brand" href="/">zettel<span>.</span></a>
 {% if authenticated %}
-<nav>{% for href,label,key in [('/', 'Visão geral','overview'),('/documents', 'Documentos','documents'),('/pipeline','Pipeline','pipeline'),('/review','Revisão','review'),('/notes','Notas / MOCs','notes'),('/notes/new','Criar notas','manual-notes'),('/runs','Execuções','runs'),('/settings','Configuração / saúde','settings')] %}
+<nav>{% for href,label,key in [('/', 'Visão geral','overview'),('/documents', 'Documentos','documents'),('/pipeline','Pipeline','pipeline'),('/review','Revisão','review'),('/notes','Notas / MOCs','notes'),('/notes/new','Criar notas','manual-notes'),('/studio','Acervo','studio'),('/runs','Execuções','runs'),('/settings','Configuração / saúde','settings')] %}
 <a class="{% if page == key %}active{% endif %}" href="{{ href }}">{{ label }}</a>{% endfor %}</nav>
 {% endif %}
 <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Ativar modo escuro" title="Alternar tema"><span aria-hidden="true">◐</span><span class="theme-label">Escuro</span></button>

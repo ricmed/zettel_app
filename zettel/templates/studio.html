@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% block title %}Acervo · Zettelkasten{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/studio.css">{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">consulta e produção</div>
+    <h1>Acervo</h1>
+    <p class="muted">Perguntar e catalogar leem o que já foi aprovado. Resumir alimenta o catálogo. Artigo e skill produzem um texto ou um pack.</p>
+  </div>
+</div>
+
+<section class="studio-group">
+  <h2>Consultar</h2>
+  <div class="studio-grid">
+    <article class="panel">
+      <span class="eyebrow">ask</span>
+      <h2>Perguntar</h2>
+      <p>Resposta em prosa, citada nas notas permanentes.</p>
+      <form class="studio-form" method="post" action="/studio/ask">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label>Pergunta
+          <textarea name="question" required maxlength="2000" placeholder="O que o acervo diz sobre…"></textarea>
+        </label>
+        <label>Top-k sementes
+          <input name="topk" inputmode="numeric" placeholder="padrão da configuração">
+        </label>
+        <label>Modo
+          <select name="mode">
+            <option value="">padrão da configuração</option>
+            <option value="hybrid">hybrid</option>
+            <option value="vector">vector</option>
+          </select>
+        </label>
+        <label class="studio-check"><input type="checkbox" name="no_graph" value="1"> Sem expansão por grafo</label>
+        <label class="studio-check"><input type="checkbox" name="show_context" value="1"> Mostrar parâmetros de recuperação</label>
+        <label class="studio-check"><input type="checkbox" name="save" value="1"> Salvar em 00_Inbox</label>
+        <div class="studio-actions">
+          <button class="button" {% if not ask_ready %}disabled title="Credencial da fase ask ausente"{% endif %}>Perguntar</button>
+          {% if not ask_ready %}<small>Credencial da fase ask ausente</small>{% endif %}
+        </div>
+      </form>
+    </article>
+
+    <article class="panel">
+      <span class="eyebrow">catalog</span>
+      <h2>Catálogo</h2>
+      <p>Quais fontes e capítulos tratam de um assunto, e quantas notas cada capítulo gerou. Não chama LLM. Os resumos de capítulo vêm de Resumir.</p>
+      <form class="studio-form" method="get" action="/studio">
+        <label>Assunto
+          <input name="subject" value="{{ catalog_subject or '' }}" required maxlength="500">
+        </label>
+        <label class="studio-check"><input type="checkbox" name="show_context" value="1" {% if catalog_show_context is not defined or catalog_show_context %}checked{% endif %}> Mostrar pool e parâmetros</label>
+        <div class="studio-actions">
+          <button class="button" {% if not embedding_ready or index_busy %}disabled{% endif %}>Consultar</button>
+          {% if not embedding_ready %}<small>Credencial de embedding ausente</small>{% endif %}
+          {% if index_busy %}<small>O índice está em uso</small>{% endif %}
+        </div>
+      </form>
+      {% if catalog %}
+        <div class="result-heading">
+          <h3>Resultado</h3>
+          <div class="copy-actions">
+            <button type="button" class="button copy-text" data-copy="catalog-copy">Copiar</button>
+            <span class="copy-status" role="status" aria-live="polite"></span>
+          </div>
+        </div>
+        <textarea id="catalog-copy" class="copy-source" readonly>{{ catalog_copy }}</textarea>
+        {% if not catalog.sources %}
+        <p>Nenhuma fonte do acervo trata desse assunto com evidência suficiente.</p>
+        {% endif %}
+        {% for src in catalog.sources %}
+        <div class="catalog-source">
+          <h3>{{ src.title }}</h3>
+          <p class="muted">{{ src.citekey }} · {{ src.total_notes }} nota(s) permanente(s)</p>
+          <table class="studio-table">
+            <thead><tr><th>Capítulo</th><th>Páginas</th><th class="num">Notas</th><th>Achado por</th></tr></thead>
+            <tbody>
+            {% for ch in src.chapters %}
+              <tr>
+                <td>{{ ch.chapter_title }}{% if ch.summary_stale %} [defasado]{% endif %}</td>
+                <td>{{ ch.page_label or '-' }}</td>
+                <td class="num">{{ ch.note_count }}</td>
+                <td>{{ ch.origin_label }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endfor %}
+        {% if catalog_show_context %}
+        <h3>Parâmetros</h3>
+        <table class="studio-table">
+          <tbody>
+          {% for key, value in catalog.retrieval_params.items() %}
+            <tr><th>{{ key }}</th><td>{{ value }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        {% if catalog.candidates %}
+        <h3>Capítulos avaliados</h3>
+        <table class="studio-table">
+          <thead><tr><th>Capítulo</th><th>Fonte</th><th class="num">Sim.</th><th>Passou</th><th>Motivo</th></tr></thead>
+          <tbody>
+          {% for ch in catalog.candidates %}
+            <tr class="{% if not ch.passed_floor %}dim{% endif %}">
+              <td>{{ ch.chapter_title }}</td>
+              <td>{{ ch.source_id }}</td>
+              <td class="num">{% if ch.summary_similarity is not none %}{{ '%.2f'|format(ch.summary_similarity) }}{% else %}-{% endif %}</td>
+              <td>{{ 'sim' if ch.passed_floor else 'não' }}</td>
+              <td>{{ ch.floor_reason or '-' }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+        {% endif %}
+      {% endif %}
+    </article>
+  </div>
+</section>
+
+<section class="studio-group">
+  <h2>Preparar</h2>
+  <div class="studio-grid">
+    <article class="panel">
+      <span class="eyebrow">summarize</span>
+      <h2>Resumir</h2>
+      <p>Resume capítulos a partir do texto real e reduz um resumo geral por fonte. O envio confirma o pré-voo.</p>
+      <p class="muted">Pré-voo (todas as fontes com resumo pendente): {{ summarize_estimate.items }} {{ summarize_estimate.item_label }}, cerca de ${{ '%.4f'|format(summarize_estimate.cost_usd) }} ({{ summarize_estimate.model }}).</p>
+      <form class="studio-form" method="post" action="/studio/summarize">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label>Fonte
+          <select name="source_id">
+            <option value="">Todas as fontes pendentes</option>
+            {% for src in sources %}
+            <option value="{{ src.source_id }}">{{ src.title }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="studio-actions">
+          <button class="button" {% if not summarize_ready %}disabled{% endif %}>Resumir</button>
+          {% if not summarize_ready %}<small>Credencial da fase summarize ausente</small>{% endif %}
+        </div>
+      </form>
+    </article>
+  </div>
+</section>
+
+<section class="studio-group">
+  <h2>Produzir</h2>
+  <div class="studio-grid">
+    <article class="panel">
+      <span class="eyebrow">article</span>
+      <h2>Artigo</h2>
+      <p>Gera um texto longo. Com a revisão ligada, a execução pausa para você aprovar o contexto e o outline. Só o outline encerra antes da redação.</p>
+      <p class="muted">Pré-voo (piso): {{ article_estimate.items }} {{ article_estimate.item_label }}, cerca de ${{ '%.4f'|format(article_estimate.cost_usd) }} ({{ article_estimate.model }}). Revisões e a reescrita de personalidade podem aumentar.</p>
+      <form class="studio-form" method="post" action="/studio/article">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label>Tema
+          <input name="topic" required maxlength="500">
+        </label>
+        <label>Estilo
+          <select name="style">
+            <option value="blog">blog</option>
+            <option value="academic">academic</option>
+          </select>
+        </label>
+        <label>Personalidade
+          <select name="personality">
+            <option value="">padrão da configuração</option>
+            {% for profile in personalities %}
+            <option value="{{ profile.id }}">{{ profile.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Notas de estilo
+          <textarea name="style_notes" maxlength="2000"></textarea>
+        </label>
+        <label>Top-k sementes
+          <input name="topk" inputmode="numeric" placeholder="padrão da configuração">
+        </label>
+        <label>Modo
+          <select name="mode">
+            <option value="">padrão da configuração</option>
+            <option value="hybrid">hybrid</option>
+            <option value="vector">vector</option>
+          </select>
+        </label>
+        <label class="studio-check"><input type="checkbox" name="no_graph" value="1"> Sem expansão por grafo</label>
+        <label class="studio-check"><input type="checkbox" name="outline_only" value="1"> Só o outline</label>
+        <label class="studio-check" data-review="context"><input type="checkbox" name="review_context" value="1" checked> Revisar contexto</label>
+        <label class="studio-check" data-review="outline"><input type="checkbox" name="review_outline" value="1" checked> Revisar outline</label>
+        <label class="studio-check"><input type="checkbox" name="skip_judge" value="1"> Pular o juiz</label>
+        <label>Teto de ciclos do juiz
+          <input name="max_judge_iterations" inputmode="numeric" placeholder="padrão da configuração">
+        </label>
+        <label class="studio-check"><input type="checkbox" name="save" value="1" checked> Salvar em 00_Inbox</label>
+        <div class="studio-actions">
+          <button class="button" {% if not article_ready %}disabled{% endif %}>Gerar artigo</button>
+          {% if not article_ready %}<small>Credencial da fase article ausente</small>{% endif %}
+        </div>
+      </form>
+      <script>
+        (function () {
+          var outline = document.querySelector('input[name="outline_only"]');
+          if (!outline) return;
+          var reviews = document.querySelectorAll("[data-review]");
+          function sync() {
+            reviews.forEach(function (label) { label.hidden = outline.checked; });
+          }
+          outline.addEventListener("change", sync);
+          sync();
+        })();
+      </script>
+    </article>
+
+    <article class="panel">
+      <span class="eyebrow">skill</span>
+      <h2>Skill</h2>
+      <p>Exporta um recorte aprovado para <code>&lt;vault&gt;/.claude/skills/&lt;slug&gt;</code>. Sem LLM. Escolha exatamente um recorte.</p>
+      <form class="studio-form" method="post" action="/studio/skill">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label>Fonte
+          <select name="source_id">
+            <option value="">—</option>
+            {% for src in sources %}
+            <option value="{{ src.source_id }}">{{ src.title }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>MOC
+          <select name="moc_id">
+            <option value="">—</option>
+            {% for moc in mocs %}
+            <option value="{{ moc.moc_id }}">{{ moc.topic }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Categoria
+          <select name="topic">
+            <option value="">—</option>
+            {% for name in categories %}
+            <option value="{{ name }}">{{ name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Slug
+          <input name="slug" placeholder="derivado do recorte">
+        </label>
+        <label class="studio-check"><input type="checkbox" name="overwrite" value="1"> Sobrescrever pack existente</label>
+        <label class="studio-check"><input type="checkbox" name="include_excerpts" value="1"> Incluir trechos da fonte</label>
+        <button class="button">Exportar skill</button>
+      </form>
+    </article>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/copy-text.js" defer></script>{% endblock %}

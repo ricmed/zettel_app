@@ -1,7 +1,7 @@
-# zettel_app ADR Index (55 Decisions)
+# zettel_app ADR Index (56 Decisions)
 
-**Last Updated**: 2026-10-06  
-**Status**: Complete — 55 formal ADRs across 13 modules
+**Last Updated**: 2026-10-07  
+**Status**: Complete — 56 formal ADRs across 13 modules
 
 ---
 
@@ -16,7 +16,7 @@
 | **REVIEW** | 1 | [016](#review-approval-gate) |
 | **CONNECT** | 1 | [053](#connect-permanent-notes) |
 | **GARDEN** | 3 | [019–021](#garden-moc-generation) |
-| **WEB** | 4 | [022–023, 039–040](#web-ui--job-queue) |
+| **WEB** | 5 | [022–023, 039–040, 056](#web-ui--job-queue) |
 | **LLM** | 5 | [024–025, 045, 048, 055](#llm-provider--caching) |
 | **QA-WRITING** | 4 | [028–029, 038, 051](#qa-writing--article-pipeline) |
 | **MANUAL** | 1 | [030](#manual-hand-written-notes) |
@@ -396,6 +396,15 @@
 
 ---
 
+### ADR-056: Web Acervo for Consult and Produce
+
+- **Status**: Accepted
+- **Date**: 2026-10-07
+- **Summary**: One Acervo page groups ask, catalog, summarize, article and skill. Catalog is synchronous and returns 409 while a job holds the index. The article parks an in-process `ArticleDrive` at `awaiting_input` for the two human reviews. Saved files stay under the vault.
+- **Link**: [`ADR-056-web-acervo-consult-and-produce.md`](./generated/WEB/ADR-056-web-acervo-consult-and-produce.md)
+
+---
+
 ## LLM — Provider & Caching
 
 ### ADR-024: Pluggable Multi-Provider LLM Strategy
@@ -545,11 +554,17 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 55 |
-| **Accepted** | 55 |
+| **Total ADRs** | 56 |
+| **Accepted** | 56 |
 | **Needs Input** | 0 |
 | **Total Relationships** | 42 |
 | **Modules Covered** | 13 |
+
+---
+
+## Status Update (2026-10-07)
+
+✅ **ADR-056 added**: the web Acervo exposes ask, catalog, summarize, article and skill. Addenda in ADR-023 (parked jobs do not hold the slot; the worker claims the oldest queued row) and ADR-028 (the article graph is no longer CLI-only; the checkpoint stays in-process).
 
 ---
 

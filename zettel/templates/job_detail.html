@@ -1,6 +1,225 @@
-{% extends "base.html" %}{% block title %}Execução {{ job.operation }} · Zettelkasten{% endblock %}
-{% block content %}<div class="page-heading"><div><div class="eyebrow">execução</div><h1>{{ job.operation }}</h1><p class="muted">ID {{ job.job_id }}</p></div><span id="job-state" class="status large {{ job.state }}">{{ job.state }}</span></div><section class="panel progress-panel"><div class="progress-copy"><b id="job-message">{{ job.message }}</b><span id="job-phase">{{ job.phase }}</span></div><div class="progress-track"><div id="progress-bar" class="progress-bar" style="{% if job.total_items and job.current_index %}width:{{ (job.current_index / job.total_items * 100)|round }}%{% endif %}"></div></div><div id="job-count">{% if job.total_items %}{{ job.current_index or 0 }} / {{ job.total_items }}{% elif job.state == 'succeeded' %}Concluído{% elif job.state in ['failed','interrupted'] %}Encerrado{% else %}Progresso indeterminado{% endif %}</div></section><section id="job-outcome" class="panel" {% if not job.result and not job.error_message %}hidden{% endif %}><h2>Resultado</h2><pre id="job-result">{% if job.error_message %}{{ job.error_message }}{% elif job.result %}{{ job.result|tojson(indent=2) }}{% endif %}</pre></section><p id="job-continue" class="panel" {% if not continue_href or job.state != 'succeeded' %}hidden{% endif %}><a id="job-continue-link" href="{{ continue_href or '#' }}">Continuar</a></p><section class="panel"><h2>Eventos</h2><div id="events" class="event-list"></div></section>{% endblock %}
-{% block scripts %}<script>
-let after=0; const id="{{ job.job_id }}";
-async function refresh(){const r=await fetch("/api/jobs/"+id+"?after="+after); if(!r.ok)return; const d=await r.json(); const j=d.job; document.querySelector("#job-message").textContent=j.message; document.querySelector("#job-phase").textContent=j.phase; const state=document.querySelector("#job-state");state.textContent=j.state;state.className="status large "+j.state;const bar=document.querySelector("#progress-bar");const terminal=["succeeded","failed","interrupted"].includes(j.state);if(j.total_items&&j.current_index){bar.classList.remove("indeterminate");bar.style.width=(j.current_index/j.total_items*100)+"%";document.querySelector("#job-count").textContent=j.current_index+" / "+j.total_items;}else if(terminal){bar.classList.remove("indeterminate");bar.style.width=j.state==="succeeded"?"100%":"0";document.querySelector("#job-count").textContent=j.state==="succeeded"?"Concluído":"Encerrado";}else{bar.classList.add("indeterminate");document.querySelector("#job-count").textContent="Progresso indeterminado";}if(j.result||j.error_message){document.querySelector("#job-outcome").hidden=false;document.querySelector("#job-result").textContent=j.error_message||JSON.stringify(j.result,null,2);}d.events.forEach(e=>{after=Math.max(after,e.event_id);const row=document.createElement("div");const phase=document.createElement("b");const message=document.createElement("span");phase.textContent=e.phase||"";message.textContent=e.message||"";row.append(phase,message);document.querySelector("#events").prepend(row);});const cont=document.querySelector("#job-continue");const clink=document.querySelector("#job-continue-link");if(cont&&clink&&j.state==="succeeded"&&d.continue_href){cont.hidden=false;clink.href=d.continue_href;}if(terminal)clearInterval(timer)} const timer=setInterval(refresh,1000); refresh();
-</script>{% endblock %}
+{% extends "base.html" %}
+{% block title %}Execução {{ job.operation }} · Zettelkasten{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/studio.css">{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">execução</div>
+    <h1>{{ job.operation }}</h1>
+    <p class="muted">ID {{ job.job_id }}</p>
+  </div>
+  <span id="job-state" class="status large {{ job.state }}">{{ job.state }}</span>
+</div>
+<section class="panel progress-panel">
+  <div class="progress-copy"><b id="job-message">{{ job.message }}</b><span id="job-phase">{{ job.phase }}</span></div>
+  <div class="progress-track"><div id="progress-bar" class="progress-bar" style="{% if job.total_items and job.current_index %}width:{{ (job.current_index / job.total_items * 100)|round }}%{% endif %}"></div></div>
+  <div id="job-count">{% if job.total_items %}{{ job.current_index or 0 }} / {{ job.total_items }}{% elif job.state == 'succeeded' %}Concluído{% elif job.state in ['failed','interrupted'] %}Encerrado{% elif job.state == 'awaiting_input' %}Aguardando decisão{% else %}Progresso indeterminado{% endif %}</div>
+</section>
+
+{% set result = job.result or {} %}
+{% if job.state == 'awaiting_input' and result.kind == 'article_pause' %}
+<section class="panel">
+  <div class="result-heading">
+    <h2>Decisão</h2>
+    {% if copy_text %}<div class="copy-actions"><button type="button" class="button copy-text" data-copy="result-copy">Copiar</button><span class="copy-status" role="status" aria-live="polite"></span></div>{% endif %}
+  </div>
+  {% if result.interrupt_type == 'outline_review' %}
+    <div class="markdown-body">{{ preview_html|safe }}</div>
+    <form class="studio-form" method="post" action="/jobs/{{ job.job_id }}/resume">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label>Feedback para regenerar
+        <textarea name="outline_feedback" maxlength="2000"></textarea>
+      </label>
+      <div class="studio-actions">
+        <button class="button" name="decision" value="approve">Aprovar</button>
+        <button class="button" name="decision" value="regenerate">Regenerar</button>
+        <button class="button" name="decision" value="abort">Abortar</button>
+      </div>
+    </form>
+  {% else %}
+    {% if result.executed_queries %}
+    <p class="muted">Queries usadas: {{ result.executed_queries|join(', ') }}</p>
+    {% endif %}
+    <table class="studio-table">
+      <thead><tr><th>Título</th><th class="num">Score</th><th class="num">Salto</th><th>Fonte</th></tr></thead>
+      <tbody>
+      {% for note in result.notes or [] %}
+        <tr>
+          <td>{{ note.title or note.note_id }}</td>
+          <td class="num">{{ '%.4f'|format(note.score or 0) }}</td>
+          <td class="num">{{ note.hop }}</td>
+          <td>{{ note.source_id or '-' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <form class="studio-form" method="post" action="/jobs/{{ job.job_id }}/resume">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label>Queries extras (uma por linha, ou separadas por ;)
+        <textarea name="extra_queries"></textarea>
+      </label>
+      <div class="studio-actions">
+        <button class="button" name="decision" value="approve">Aprovar</button>
+        <button class="button" name="decision" value="enrich">Enriquecer</button>
+        <button class="button" name="decision" value="abort">Abortar</button>
+      </div>
+    </form>
+  {% endif %}
+</section>
+{% elif result.kind == 'ask' %}
+<section class="panel">
+  <div class="result-heading">
+    <h2>Resposta</h2>
+    {% if copy_text %}<div class="copy-actions"><button type="button" class="button copy-text" data-copy="result-copy">Copiar</button><span class="copy-status" role="status" aria-live="polite"></span></div>{% endif %}
+  </div>
+  <div class="markdown-body">{{ prose_html|safe }}</div>
+  {% if result.saved_path %}<p>Salva em <code>{{ result.saved_path }}</code></p>{% endif %}
+  {% if result.retrieval_params %}
+  <h3>Parâmetros de recuperação</h3>
+  <table class="studio-table">
+    <tbody>
+    {% for key, value in result.retrieval_params.items() %}
+      <tr><th>{{ key }}</th><td>{{ value }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% if result.candidates %}
+  <h3>Notas recuperadas</h3>
+  <table class="studio-table">
+    <thead><tr><th>Nota</th><th class="num">RRF</th><th class="num">Sim.</th><th class="num">BM25</th><th class="num">Salto</th><th>Usada?</th><th>Motivo</th><th>Origem</th></tr></thead>
+    <tbody>
+    {% for src in result.candidates %}
+      <tr class="{% if not src.passed_floor %}dim{% endif %}">
+        <td>{{ src.title or src.note_id }}</td>
+        <td class="num">{{ '%.4f'|format(src.rrf_score or 0) }}</td>
+        <td class="num">{% if src.vector_similarity is not none %}{{ '%.2f'|format(src.vector_similarity) }}{% else %}-{% endif %}</td>
+        <td class="num">{{ src.bm25_rank if src.bm25_rank is not none else '-' }}</td>
+        <td class="num">{{ src.hop }}</td>
+        <td>{{ 'sim' if src.passed_floor else 'não' }}</td>
+        <td>{{ src.floor_reason }}</td>
+        <td>{{ src.origin }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% elif result.kind == 'summarize' %}
+<section class="panel">
+  <div class="result-heading">
+    <h2>Resumo</h2>
+    {% if copy_text %}<div class="copy-actions"><button type="button" class="button copy-text" data-copy="result-copy">Copiar</button><span class="copy-status" role="status" aria-live="polite"></span></div>{% endif %}
+  </div>
+  <p>Capítulos resumidos: {{ result.chapters_summarized }} (inalterados: {{ result.chapters_skipped }}). Resumos gerais: {{ result.sources_summarized }}. Chamadas LLM: {{ result.llm_calls }}, cache: {{ result.cache_hits }}.</p>
+  {% if result.skipped %}
+  <ul>{% for msg in result.skipped %}<li>{{ msg }}</li>{% endfor %}</ul>
+  {% endif %}
+</section>
+{% elif result.kind == 'skill' %}
+<section class="panel">
+  <div class="result-heading">
+    <h2>Skill</h2>
+    {% if copy_text %}<div class="copy-actions"><button type="button" class="button copy-text" data-copy="result-copy">Copiar</button><span class="copy-status" role="status" aria-live="polite"></span></div>{% endif %}
+  </div>
+  <table class="studio-table">
+    <tbody>
+      <tr><th>Caminho</th><td><code>{{ result.path }}</code></td></tr>
+      <tr><th>Slug</th><td>{{ result.slug }}</td></tr>
+      <tr><th>Notas</th><td>{{ result.notes }}</td></tr>
+      <tr><th>Tensões</th><td>{{ result.contradictions }}</td></tr>
+      <tr><th>SKILL.md (tokens est.)</th><td>{{ result.tokens }}</td></tr>
+      <tr><th>Trechos</th><td>{{ 'sim' if result.include_excerpts else 'não' }}</td></tr>
+    </tbody>
+  </table>
+</section>
+{% elif result.kind == 'article' %}
+<section class="panel">
+  <div class="result-heading">
+    <h2>{{ result.title or 'Artigo' }}</h2>
+    {% if copy_text %}<div class="copy-actions"><button type="button" class="button copy-text" data-copy="result-copy">Copiar</button><span class="copy-status" role="status" aria-live="polite"></span></div>{% endif %}
+  </div>
+  {% if result.aborted %}<p>Geração abortada.</p>{% endif %}
+  {% if result.no_evidence %}<p>Sem evidência no acervo.</p>{% endif %}
+  {% if prose_html %}<div class="markdown-body">{{ prose_html|safe }}</div>{% endif %}
+  {% if result.warnings %}
+  <ul>{% for warning in result.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if result.saved_path %}<p>Salvo em <code>{{ result.saved_path }}</code></p>{% endif %}
+</section>
+{% endif %}
+
+{% if copy_text %}<textarea id="result-copy" class="copy-source" readonly>{{ copy_text }}</textarea>{% endif %}
+<section id="job-outcome" class="panel" {% if not job.result and not job.error_message %}hidden{% endif %}>
+  <div class="result-heading">
+    <h2>Resultado</h2>
+    <div class="copy-actions">
+      <button type="button" class="button copy-text" data-copy="job-result">{% if result.kind %}Copiar JSON{% else %}Copiar{% endif %}</button>
+      <span class="copy-status" role="status" aria-live="polite"></span>
+    </div>
+  </div>
+  <details {% if not result.kind %}open{% endif %}>
+    <summary>JSON</summary>
+    <pre id="job-result">{% if job.error_message %}{{ job.error_message }}{% elif job.result %}{{ job.result|tojson(indent=2) }}{% endif %}</pre>
+  </details>
+</section>
+<p id="job-continue" class="panel" {% if not continue_href or job.state != 'succeeded' %}hidden{% endif %}><a id="job-continue-link" href="{{ continue_href or '#' }}">Continuar</a></p>
+<section class="panel"><h2>Eventos</h2><div id="events" class="event-list"></div></section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/copy-text.js" defer></script>
+<script>
+let after=0; const id={{ job.job_id|tojson }}; const initialState={{ job.state|tojson }};
+async function refresh(){
+  const r=await fetch("/api/jobs/"+id+"?after="+after);
+  if(!r.ok)return;
+  const d=await r.json();
+  const j=d.job;
+  if(j.state!==initialState && (j.state==="awaiting_input" || initialState==="awaiting_input" || ["succeeded","failed","interrupted"].includes(j.state))){
+    location.reload();
+    return;
+  }
+  document.querySelector("#job-message").textContent=j.message;
+  document.querySelector("#job-phase").textContent=j.phase;
+  const state=document.querySelector("#job-state");
+  state.textContent=j.state;
+  state.className="status large "+j.state;
+  const bar=document.querySelector("#progress-bar");
+  const terminal=["succeeded","failed","interrupted"].includes(j.state);
+  if(j.total_items&&j.current_index){
+    bar.classList.remove("indeterminate");
+    bar.style.width=(j.current_index/j.total_items*100)+"%";
+    document.querySelector("#job-count").textContent=j.current_index+" / "+j.total_items;
+  }else if(terminal){
+    bar.classList.remove("indeterminate");
+    bar.style.width=j.state==="succeeded"?"100%":"0";
+    document.querySelector("#job-count").textContent=j.state==="succeeded"?"Concluído":"Encerrado";
+  }else if(j.state==="awaiting_input"){
+    document.querySelector("#job-count").textContent="Aguardando decisão";
+  }else{
+    bar.classList.add("indeterminate");
+    document.querySelector("#job-count").textContent="Progresso indeterminado";
+  }
+  if(j.result||j.error_message){
+    document.querySelector("#job-outcome").hidden=false;
+    document.querySelector("#job-result").textContent=j.error_message||JSON.stringify(j.result,null,2);
+  }
+  d.events.forEach(e=>{
+    after=Math.max(after,e.event_id);
+    const row=document.createElement("div");
+    const phase=document.createElement("b");
+    const message=document.createElement("span");
+    phase.textContent=e.phase||"";
+    message.textContent=e.message||"";
+    row.append(phase,message);
+    document.querySelector("#events").prepend(row);
+  });
+  const cont=document.querySelector("#job-continue");
+  const clink=document.querySelector("#job-continue-link");
+  if(cont&&clink&&j.state==="succeeded"&&d.continue_href){cont.hidden=false;clink.href=d.continue_href;}
+  if(terminal)clearInterval(timer);
+}
+const timer=setInterval(refresh,1000);
+refresh();
+</script>
+{% endblock %}
