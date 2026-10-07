@@ -124,6 +124,7 @@ chunking:
 linking:
   topk: 5                    # default do Retriever e RAG de connect/sync (CLI pode sobrescrever)
   dedupe_threshold: 0.85     # similaridade; distancia L2 = 2 * (1 - threshold) no extract
+  dedupe_note_chars: 6000    # teto por nota existente no prompt de dedupe (#209); acima de qualquer nota
   preflight_output_tokens_per_note: 1200  # alvo de saida por nota no pre-voo de custo (nao e teto)
   distant_analogy_topk: 5    # busca secundaria do connect (fora do bucket taxonomico)
   distant_analogy_min_similarity: 0.40  # piso LOCAL desta busca; nao altera relevance_floor

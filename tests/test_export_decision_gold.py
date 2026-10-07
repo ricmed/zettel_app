@@ -14,7 +14,6 @@ from export_decision_gold import (
     build_key,
     eligible,
     main,
-    note_sections,
     population,
     sample,
     stratum_of,
@@ -246,14 +245,6 @@ def _ztl(thesis, definition, intuition=""):
     if intuition:
         body += f"\n## Intuição\n\n{intuition}\n"
     return body + "\n## Conexões\n\n- corroborado por [[ZTL - 01X]]\n"
-
-
-def test_note_sections_keep_content_and_drop_connections():
-    sections = note_sections("T", _ztl("Tese longa", "Def longa", "Intu"))
-    assert sections["thesis"] == "Tese longa"
-    assert sections["definition"] == "Def longa"
-    assert sections["intuition"] == "Intu"
-    assert "corroborado" not in " ".join(sections.values())
 
 
 def test_full_notes_replace_the_excerpts_the_models_saw(tmp_path):

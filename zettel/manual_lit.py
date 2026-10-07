@@ -22,6 +22,7 @@ from zettel.config import AppConfig
 from zettel.hashing import normalize_text_for_hash, sha256_hex, short_hash
 from zettel.index import VectorIndex
 from zettel.markdown_fences import h2_section
+from zettel.note_content import thesis_from_permanent_note
 from zettel.schemas import PermanentNoteCandidate
 from zettel.state import StateDB
 from zettel.time import now_vault_iso
@@ -164,21 +165,12 @@ def concept_id_for(source_id: str, chunk_id: str, thesis: str) -> str:
 
 
 _WIKILINK_TARGET = re.compile(r"\[\[([^\]|#]+)")
-_TESE_LINE = re.compile(r"^>\s*\*\*Tese\*\*:\s*(.+)$", re.MULTILINE)
 
 
 def wikilink_target(ref: str) -> str:
     """Strip ``[[...]]`` / alias from a wikilink, leaving the path target."""
     match = _WIKILINK_TARGET.search(ref or "")
     return (match.group(1) if match else (ref or "")).strip()
-
-
-def thesis_from_permanent_note(meta: dict[str, Any], body: str) -> str:
-    """Thesis line from a ZTL body (``> **Tese**: ...``), else frontmatter title."""
-    match = _TESE_LINE.search(body or "")
-    if match:
-        return match.group(1).strip()
-    return str(meta.get("title") or "").strip()
 
 
 def _chunk_ref_targets(chunk: dict[str, Any] | None) -> set[str]:

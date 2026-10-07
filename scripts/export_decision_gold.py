@@ -230,35 +230,11 @@ def cluster_notes_text(item: Item) -> str:
     )
 
 
-NOTE_FIELDS = (
-    ("thesis", "Tese"),
-    ("definition", "Definição"),
-    ("intuition", "Intuição"),
-    ("example", "Exemplo"),
-    ("limits", "Limites"),
-)
-_NOTE_HEADINGS = {
-    "definition": "Definição",
-    "intuition": "Intuição",
-    "example": "Exemplo",
-    "limits": "Limites",
-}
-
-
 def note_text(note: dict[str, Any]) -> str:
     """Every filled content field of a note or candidate, labelled."""
-    return "\n\n".join(f"{label}: {note[key]}" for key, label in NOTE_FIELDS if note.get(key))
+    from zettel.note_content import render_note_content
 
-
-def note_sections(title: str, body: str) -> dict[str, str]:
-    """Content sections of a permanent note body; connections and managed blocks left out."""
-    from zettel.manual_lit import thesis_from_permanent_note
-    from zettel.markdown_fences import h2_section
-
-    sections = {"thesis": thesis_from_permanent_note({"title": title}, body)}
-    for key, heading in _NOTE_HEADINGS.items():
-        sections[key] = h2_section(body, heading)
-    return sections
+    return render_note_content(note)
 
 
 def with_full_notes(items: list[Item], state_db: Path) -> list[Item]:
@@ -266,6 +242,8 @@ def with_full_notes(items: list[Item], state_db: Path) -> list[Item]:
 
     A note or concept that no longer exists keeps the excerpt the model saw.
     """
+    from zettel.note_content import NOTE_FIELDS, note_sections
+
     con = sqlite3.connect(f"file:{state_db}?mode=ro", uri=True)
     try:
 
