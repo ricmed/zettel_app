@@ -1,0 +1,96 @@
+{
+  "conditions": {
+    "jev": {
+      "accuracy": 0.5,
+      "accuracy_weighted": 0.4778,
+      "by_confidence_band": {
+        "high": {
+          "accuracy": 0.6667,
+          "n": 3
+        },
+        "low": {
+          "accuracy": 0.4545,
+          "n": 22
+        },
+        "mid": {
+          "accuracy": 0.5294,
+          "n": 17
+        }
+      },
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.5833,
+          "n": 12
+        },
+        "link": {
+          "accuracy": 0.4667,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 11,
+        "create_new->link": 9,
+        "ignore->create_new": 1,
+        "ignore->link": 6,
+        "link->create_new": 5,
+        "link->link": 10
+      },
+      "correct": 21,
+      "n": 42,
+      "target": {
+        "accuracy": 0.625,
+        "n": 16
+      }
+    },
+    "llm": {
+      "accuracy": 0.5,
+      "accuracy_weighted": 0.4333,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.75,
+          "n": 12
+        },
+        "link": {
+          "accuracy": 0.4,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 9,
+        "create_new->link": 11,
+        "ignore->link": 7,
+        "link->create_new": 3,
+        "link->link": 12
+      },
+      "correct": 21,
+      "n": 42,
+      "target": {
+        "accuracy": 0.5789,
+        "n": 19
+      }
+    }
+  },
+  "human_distribution": {
+    "create_new": 20,
+    "ignore": 7,
+    "link": 15
+  },
+  "pairs": {
+    "llm:jev": {
+      "mcnemar_p": 1.0,
+      "n": 42,
+      "only_a_right": 6,
+      "only_b_right": 6
+    }
+  },
+  "preregistered_human_rule_206": {
+    "enough_labels": true,
+    "jev_at_least_llm": true,
+    "labels": 42
+  },
+  "reviewer_vs_sheet": {
+    "agreement": null,
+    "n": 0
+  },
+  "unjudgeable": 0
+}
