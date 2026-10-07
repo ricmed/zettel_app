@@ -106,8 +106,16 @@ Measured before switching (`evals/preregistration/209-dedupe-texto-completo.md`,
 - **Validity:** no invalid answers.
 - **Pre-registered rule:** non-inferior and valid, so the change was adopted.
 
-**Correction (2026-10-07): these labels are not human judgement.** Every answer in that sheet follows a 0–1 similarity score with fixed cuts: below 0.30 "new", 0.30–0.48 "develops", above 0.48 "repeats". No item departs from them. The table therefore shows that the LLM with whole notes **agrees more with that similarity score**. It is not shown to decide better.
+**Correction (2026-10-07): the table above was scored against score-based labels; against manual labels the result reverses.** The first sheet followed a 0–1 similarity score with fixed cuts: below 0.30 "new", 0.30–0.48 "develops", above 0.48 "repeats". The labeller then relabelled the same 64 items by meaning, item by item, yielding 38 "new", 23 "develops" and 3 "repeats" (`evals/gold/dedupe-rotulos.json`, `method: manual_blind`). The 256 recorded answers were rescored against those labels with no new call (`evals/results/dedupe-context-209.json`):
 
-The change stands on its own technical ground: a judge cannot compare two notes it sees 200 characters of. The evidence is provisional until a blind manual relabelling (`evals/gold/dedupe-rotulos.json`, `method: manual_blind`) exists. The 256 answers are recorded, so rescoring costs no call: `scripts/probe_dedupe_context.py --labels evals/gold/dedupe-rotulos.json`. Labels and result moved to `dedupe-score-rotulos.json` / `dedupe-context-209-score.json`.
+| condition | correct | population-weighted | "develops" answered |
+|---|---|---|---|
+| 200-char excerpt (`trunc-a`) | **40/64** | **0.65** | 26 |
+| full content (`full-a`) | 26/64 | 0.42 | 53 |
+| Jev shadow (200-char excerpt) | 48/64 | 0.72 | — |
 
-Possible remaining error: with whole notes the LLM says "develops" (`extends`) for 83% of items, against 70% in the score-based labels. Whether that is over-linking can only be judged against manual labels. Results: `evals/results/dedupe-context-209-score.json`.
+- **Effect:** exact McNemar trunc-a × full-a p = 0.0125 (21 items only the excerpt gets right, 7 only the full content). Repeat runs are stable.
+- **Where it goes wrong:** with whole notes the LLM turns 29 of the 38 "new" items into "develops". It always finds some link between notes of one work, and the prompt pushes it there ("an author returning to a concept is expanding it").
+- **Pre-registered outcome:** the non-inferiority rule fails, so the pre-registered outcome was **not to adopt** the full content and to fix the prompt first.
+
+**Decision (deviation, recorded):** the full content **stays** in production, by explicit decision, paired with a prompt fix ([#218](https://github.com/ricmed/zettel_app/issues/218)). The reasoning: the excerpt scores better partly because it hides the context that triggers over-linking, not because it judges better. A judge should compare whole notes with criteria that do not read "same topic" as "develops". Until #218 lands, the dedupe LLM over-links against the manual labels, and this is a known, measured regression. #218's acceptance bar is to recover at least the excerpt's 40/64 with the full content, validated on fresh labels.
