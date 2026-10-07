@@ -1,4 +1,4 @@
-"""Tests for the decision-gold scorer (#206, #209). Offline: sheet + key in, numbers out."""
+"""Tests for the decision-gold scorer (#206, #208, #209). Offline: sheet + key in, numbers out."""
 
 import sys
 from pathlib import Path
@@ -6,12 +6,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from score_decision_gold import (
+    corroborates_labels,
     dedupe_labels,
     key_conditions,
     preregistered_human_rule,
     read_sheet,
     reviewer_agreement,
     score_conditions,
+    score_corroborates,
 )
 
 
@@ -103,3 +105,59 @@ def test_reviewer_agreement_and_preregistered_rule():
     result = score_conditions(labels, key_conditions(KEY), KEY["population"], [])
     rule = preregistered_human_rule(result)
     assert rule == {"labels": 1, "enough_labels": False, "jev_at_least_llm": False}
+
+
+def _pair(item_id, stratum, similarity, edge, ab, ba):
+    return {
+        "item_id": item_id,
+        "subject_id": f"01A|01{item_id}:ab",
+        "sampling_stratum": stratum,
+        "baseline": {"edge": edge, "similarity": similarity, "threshold": 0.85},
+        "jev": {"ab_score": ab, "ba_score": ba},
+    }
+
+
+def test_corroborates_scores_edge_jev_level_and_cosine_against_same_idea():
+    key = {
+        "site": "corroborates",
+        "population": {"above_threshold": 20, "near_threshold": 10},
+        "items": [
+            _pair("P1", "above_threshold", 0.90, True, 1.9, 1.8),  # same idea, all right
+            _pair("P2", "above_threshold", 0.88, True, 1.0, 1.2),  # same topic: edge wrong
+            _pair("P3", "above_threshold", 0.87, False, 1.7, 1.6),  # same idea, no edge
+            _pair("P4", "near_threshold", 0.82, False, 0.2, 0.6),
+            _pair("P5", "near_threshold", 0.81, False, 0.0, 0.0),
+        ],
+    }
+    sheet = read_sheet(
+        "item_id;decisao;nota\nP1;mesma-ideia;\nP2;mesmo-tema;\nP3;Mesma-Ideia;\n"
+        "P4;diferente;\nP5;?;\n".encode("utf-8-sig")
+    )
+    labels, problems = corroborates_labels(sheet, key)
+    assert not problems
+    assert [lab["human_level"] for lab in labels] == [2, 1, 2, 0, None]
+
+    result = score_corroborates(labels, key)
+    conditions = result["conditions"]
+    assert conditions["jev"]["correct"] == 4 and conditions["jev"]["n"] == 4
+    assert conditions["threshold"]["correct"] == 2
+    assert conditions["cosine"]["correct"] == 3  # P3 above threshold, though no edge
+    assert "target" not in conditions["jev"]
+    assert result["pairs"]["threshold:jev"]["only_b_right"] == 2
+    detail = result["detail"]
+    assert detail["human_level_to_jev_level"] == {"0->0": 1, "1->1": 1, "2->2": 2}
+    assert detail["order_divergence_mean"] == 0.2
+    rule = result["preregistered_rule_208"]
+    assert rule["labels_per_band"]["low_band"] == 0
+    assert not rule["rule1_sample"] and not rule["open_gate_issue"]
+
+
+def test_corroborates_flags_invalid_and_missing_answers():
+    key = {
+        "items": [
+            _pair("P1", "low_band", 0.76, False, 0, 0),
+            _pair("P2", "low_band", 0.77, False, 0, 0),
+        ]
+    }
+    labels, problems = corroborates_labels(read_sheet(b"item_id;decisao;nota\nP1;igual;\n"), key)
+    assert labels == [] and problems == {"decisao_invalida": ["P1"], "sem_resposta": ["P2"]}
