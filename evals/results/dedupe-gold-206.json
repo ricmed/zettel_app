@@ -1,0 +1,104 @@
+{
+  "conditions": {
+    "jev": {
+      "accuracy": 0.75,
+      "accuracy_weighted": 0.7211,
+      "by_confidence_band": {
+        "high": {
+          "accuracy": 0.5,
+          "n": 4
+        },
+        "low": {
+          "accuracy": 0.6452,
+          "n": 31
+        },
+        "mid": {
+          "accuracy": 0.8966,
+          "n": 29
+        }
+      },
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.7667,
+          "n": 30
+        },
+        "ignore": {
+          "accuracy": 1.0,
+          "n": 4
+        },
+        "link": {
+          "accuracy": 0.7,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 29,
+        "create_new->link": 9,
+        "ignore->link": 3,
+        "link->create_new": 4,
+        "link->link": 19
+      },
+      "correct": 48,
+      "n": 64,
+      "target": {
+        "accuracy": 0.7273,
+        "n": 22
+      }
+    },
+    "llm": {
+      "accuracy": 0.5156,
+      "accuracy_weighted": 0.4758,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.6667,
+          "n": 30
+        },
+        "ignore": {
+          "accuracy": 0.0,
+          "n": 4
+        },
+        "link": {
+          "accuracy": 0.4333,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 20,
+        "create_new->ignore": 4,
+        "create_new->link": 14,
+        "ignore->link": 3,
+        "link->create_new": 10,
+        "link->link": 13
+      },
+      "correct": 33,
+      "n": 64,
+      "target": {
+        "accuracy": 0.625,
+        "n": 16
+      }
+    }
+  },
+  "human_distribution": {
+    "create_new": 38,
+    "ignore": 3,
+    "link": 23
+  },
+  "pairs": {
+    "llm:jev": {
+      "mcnemar_p": 0.0015,
+      "n": 64,
+      "only_a_right": 3,
+      "only_b_right": 18
+    }
+  },
+  "preregistered_human_rule_206": {
+    "enough_labels": true,
+    "jev_at_least_llm": true,
+    "labels": 64
+  },
+  "reviewer_vs_sheet": {
+    "agreement": 1.0,
+    "n": 4
+  },
+  "unjudgeable": 0
+}
