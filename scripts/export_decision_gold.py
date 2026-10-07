@@ -45,7 +45,7 @@ Outputs, per site (`dedupe` / `categoria` / `corroboracao` prefix):
 * ``*-GABARITO-NAO-ABRIR.json`` -- the frozen key. Opening it defeats the exercise.
 
 The CSV and reading file carry source text and are gitignored; the key carries ids
-only. An existing sheet is never overwritten without `--force`: it may already hold
+only. An existing sheet or key is never overwritten without `--force`: it may already hold
 an afternoon of labels.
 
 Reads SQLite read-only. Writes nothing to the database and calls no model.
@@ -54,6 +54,8 @@ Usage:
     .venv/Scripts/python.exe scripts/export_decision_gold.py --site dedupe
     .venv/Scripts/python.exe scripts/export_decision_gold.py --site moc_category --per-stratum 25
     .venv/Scripts/python.exe scripts/export_decision_gold.py --site corroborates
+    .venv/Scripts/python.exe scripts/export_decision_gold.py --site dedupe --round r2 \
+        --seed 1 --exclude-labels evals/gold/dedupe-rotulos.json
 """
 
 from __future__ import annotations
@@ -230,35 +232,11 @@ def cluster_notes_text(item: Item) -> str:
     )
 
 
-NOTE_FIELDS = (
-    ("thesis", "Tese"),
-    ("definition", "Definição"),
-    ("intuition", "Intuição"),
-    ("example", "Exemplo"),
-    ("limits", "Limites"),
-)
-_NOTE_HEADINGS = {
-    "definition": "Definição",
-    "intuition": "Intuição",
-    "example": "Exemplo",
-    "limits": "Limites",
-}
-
-
 def note_text(note: dict[str, Any]) -> str:
     """Every filled content field of a note or candidate, labelled."""
-    return "\n\n".join(f"{label}: {note[key]}" for key, label in NOTE_FIELDS if note.get(key))
+    from zettel.note_content import render_note_content
 
-
-def note_sections(title: str, body: str) -> dict[str, str]:
-    """Content sections of a permanent note body; connections and managed blocks left out."""
-    from zettel.manual_lit import thesis_from_permanent_note
-    from zettel.markdown_fences import h2_section
-
-    sections = {"thesis": thesis_from_permanent_note({"title": title}, body)}
-    for key, heading in _NOTE_HEADINGS.items():
-        sections[key] = h2_section(body, heading)
-    return sections
+    return render_note_content(note)
 
 
 def with_full_notes(items: list[Item], state_db: Path) -> list[Item]:
@@ -266,6 +244,8 @@ def with_full_notes(items: list[Item], state_db: Path) -> list[Item]:
 
     A note or concept that no longer exists keeps the excerpt the model saw.
     """
+    from zettel.note_content import NOTE_FIELDS, note_sections
+
     con = sqlite3.connect(f"file:{state_db}?mode=ro", uri=True)
     try:
 
@@ -534,6 +514,15 @@ def build_key(
     return payload
 
 
+def labelled_subjects(paths: list[Path]) -> set[str]:
+    """Subjects already labelled in earlier rounds; a new round never repeats them."""
+    subjects: set[str] = set()
+    for path in paths:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        subjects |= {lab["subject_id"] for lab in payload["labels"]}
+    return subjects
+
+
 # -- CLI -----------------------------------------------------------------
 
 
@@ -544,21 +533,46 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out-dir", type=Path, default=Path("evals/gold"))
     parser.add_argument("--per-stratum", type=int, default=30)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--force", action="store_true", help="Sobrescreve uma planilha existente")
+    parser.add_argument(
+        "--round",
+        default="",
+        help="Rodada de rotulagem (ex.: r2): grava dedupe-r2-*, sem tocar nas rodadas anteriores",
+    )
+    parser.add_argument(
+        "--exclude-labels",
+        type=Path,
+        action="append",
+        default=[],
+        help="Rotulos de rodadas anteriores (repetivel): esses itens nao entram de novo",
+    )
+    parser.add_argument(
+        "--force", action="store_true", help="Sobrescreve planilha e gabarito existentes"
+    )
     args = parser.parse_args(argv)
 
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-    prefix = PREFIX[args.site]
+    prefix = PREFIX[args.site] + (f"-{args.round}" if args.round else "")
     sheet = args.out_dir / f"{prefix}-planilha.csv"
     reading = args.out_dir / f"{prefix}-leitura.md"
     key = args.out_dir / f"{prefix}-GABARITO-NAO-ABRIR.json"
-    if sheet.exists() and not args.force:
-        print(f"{sheet} ja existe e pode ter rotulos. Use --force para sobrescrever.")
+    # A renamed sheet still leaves its key behind: that key is what the round's
+    # labels are scored against, so it is protected exactly like the sheet.
+    existing = [p for p in (sheet, key) if p.exists()]
+    if existing and not args.force:
+        print(
+            f"{', '.join(map(str, existing))} ja existe(m): pode(m) ter rotulos ou ser o gabarito "
+            "de uma rodada anterior. Use --round para uma rodada nova, ou --force para "
+            "sobrescrever."
+        )
         return 1
 
-    rows = eligible(load_rows(args.state_db), args.site)
+    labelled = labelled_subjects(args.exclude_labels)
+    all_rows = eligible(load_rows(args.state_db), args.site)
+    rows = [r for r in all_rows if r["subject_id"] not in labelled]
+    if labelled:
+        print(f"excluidos por ja rotulados: {len(all_rows) - len(rows)} de {len(all_rows)}")
     if not rows:
         print(
             f"Nenhuma decisao shadow respondida para '{args.site}'. Rode `zettel review` "
@@ -583,6 +597,8 @@ def main(argv: list[str] | None = None) -> int:
     payload = build_key(
         items, args.site, seed=args.seed, population_counts=population(rows), categories=categories
     )
+    payload["round"] = args.round or "r1"
+    payload["excluded_labelled_subjects"] = len(all_rows) - len(rows)
     key.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )

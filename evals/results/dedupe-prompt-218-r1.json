@@ -1,0 +1,545 @@
+{
+  "conditions": {
+    "current:full-a": {
+      "accuracy": 0.4062,
+      "accuracy_weighted": 0.4242,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.4333,
+          "n": 30
+        },
+        "ignore": {
+          "accuracy": 0.0,
+          "n": 4
+        },
+        "link": {
+          "accuracy": 0.4333,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 5,
+        "create_new->ignore": 4,
+        "create_new->link": 29,
+        "ignore->link": 3,
+        "link->create_new": 1,
+        "link->ignore": 1,
+        "link->link": 21
+      },
+      "correct": 26,
+      "n": 64,
+      "target": {
+        "accuracy": 0.6,
+        "n": 25
+      }
+    },
+    "current:full-b": {
+      "accuracy": 0.3906,
+      "accuracy_weighted": 0.4168,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.4,
+          "n": 30
+        },
+        "ignore": {
+          "accuracy": 0.0,
+          "n": 4
+        },
+        "link": {
+          "accuracy": 0.4333,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 4,
+        "create_new->ignore": 4,
+        "create_new->link": 30,
+        "ignore->link": 3,
+        "link->create_new": 1,
+        "link->ignore": 1,
+        "link->link": 21
+      },
+      "correct": 25,
+      "n": 64,
+      "target": {
+        "accuracy": 0.56,
+        "n": 25
+      }
+    },
+    "current:trunc-a": {
+      "accuracy": 0.625,
+      "accuracy_weighted": 0.6484,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.6,
+          "n": 30
+        },
+        "ignore": {
+          "accuracy": 0.5,
+          "n": 4
+        },
+        "link": {
+          "accuracy": 0.6667,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 26,
+        "create_new->ignore": 3,
+        "create_new->link": 9,
+        "ignore->link": 3,
+        "link->create_new": 9,
+        "link->link": 14
+      },
+      "correct": 40,
+      "n": 64,
+      "target": {
+        "accuracy": 0.5882,
+        "n": 17
+      }
+    },
+    "current:trunc-b": {
+      "accuracy": 0.625,
+      "accuracy_weighted": 0.6484,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.6,
+          "n": 30
+        },
+        "ignore": {
+          "accuracy": 0.5,
+          "n": 4
+        },
+        "link": {
+          "accuracy": 0.6667,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 26,
+        "create_new->ignore": 3,
+        "create_new->link": 9,
+        "ignore->link": 3,
+        "link->create_new": 9,
+        "link->link": 14
+      },
+      "correct": 40,
+      "n": 64,
+      "target": {
+        "accuracy": 0.5882,
+        "n": 17
+      }
+    },
+    "jev": {
+      "accuracy": 0.75,
+      "accuracy_weighted": 0.7211,
+      "by_confidence_band": {
+        "high": {
+          "accuracy": 0.5,
+          "n": 4
+        },
+        "low": {
+          "accuracy": 0.6452,
+          "n": 31
+        },
+        "mid": {
+          "accuracy": 0.8966,
+          "n": 29
+        }
+      },
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.7667,
+          "n": 30
+        },
+        "ignore": {
+          "accuracy": 1.0,
+          "n": 4
+        },
+        "link": {
+          "accuracy": 0.7,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 29,
+        "create_new->link": 9,
+        "ignore->link": 3,
+        "link->create_new": 4,
+        "link->link": 19
+      },
+      "correct": 48,
+      "n": 64,
+      "target": {
+        "accuracy": 0.7273,
+        "n": 22
+      }
+    },
+    "llm": {
+      "accuracy": 0.5156,
+      "accuracy_weighted": 0.4758,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.6667,
+          "n": 30
+        },
+        "ignore": {
+          "accuracy": 0.0,
+          "n": 4
+        },
+        "link": {
+          "accuracy": 0.4333,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 20,
+        "create_new->ignore": 4,
+        "create_new->link": 14,
+        "ignore->link": 3,
+        "link->create_new": 10,
+        "link->link": 13
+      },
+      "correct": 33,
+      "n": 64,
+      "target": {
+        "accuracy": 0.625,
+        "n": 16
+      }
+    },
+    "new:full-a": {
+      "accuracy": 0.75,
+      "accuracy_weighted": 0.7947,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.6667,
+          "n": 30
+        },
+        "ignore": {
+          "accuracy": 0.75,
+          "n": 4
+        },
+        "link": {
+          "accuracy": 0.8333,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 36,
+        "create_new->ignore": 1,
+        "create_new->link": 1,
+        "ignore->create_new": 1,
+        "ignore->link": 2,
+        "link->create_new": 11,
+        "link->link": 12
+      },
+      "correct": 48,
+      "n": 64,
+      "target": {
+        "accuracy": 0.6429,
+        "n": 14
+      }
+    },
+    "new:full-b": {
+      "accuracy": 0.7656,
+      "accuracy_weighted": 0.7821,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.7,
+          "n": 30
+        },
+        "ignore": {
+          "accuracy": 1.0,
+          "n": 4
+        },
+        "link": {
+          "accuracy": 0.8,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 38,
+        "ignore->create_new": 1,
+        "ignore->link": 2,
+        "link->create_new": 11,
+        "link->ignore": 1,
+        "link->link": 11
+      },
+      "correct": 49,
+      "n": 64,
+      "target": {
+        "accuracy": 0.6429,
+        "n": 14
+      }
+    },
+    "new:trunc-a": {
+      "accuracy": 0.625,
+      "accuracy_weighted": 0.5726,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.6667,
+          "n": 30
+        },
+        "ignore": {
+          "accuracy": 1.0,
+          "n": 4
+        },
+        "link": {
+          "accuracy": 0.5333,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 38,
+        "ignore->create_new": 2,
+        "ignore->link": 1,
+        "link->create_new": 21,
+        "link->link": 2
+      },
+      "correct": 40,
+      "n": 64,
+      "target": {
+        "accuracy": 0.3333,
+        "n": 3
+      }
+    },
+    "new:trunc-b": {
+      "accuracy": 0.625,
+      "accuracy_weighted": 0.5726,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.6667,
+          "n": 30
+        },
+        "ignore": {
+          "accuracy": 1.0,
+          "n": 4
+        },
+        "link": {
+          "accuracy": 0.5333,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 38,
+        "ignore->create_new": 2,
+        "ignore->link": 1,
+        "link->create_new": 21,
+        "link->link": 2
+      },
+      "correct": 40,
+      "n": 64,
+      "target": {
+        "accuracy": 0.3333,
+        "n": 3
+      }
+    }
+  },
+  "decision_distribution": {
+    "current:full-a": {
+      "create_new": 6,
+      "ignore": 5,
+      "link": 53
+    },
+    "current:full-b": {
+      "create_new": 5,
+      "ignore": 5,
+      "link": 54
+    },
+    "current:trunc-a": {
+      "create_new": 35,
+      "ignore": 3,
+      "link": 26
+    },
+    "current:trunc-b": {
+      "create_new": 35,
+      "ignore": 3,
+      "link": 26
+    },
+    "new:full-a": {
+      "create_new": 48,
+      "ignore": 1,
+      "link": 15
+    },
+    "new:full-b": {
+      "create_new": 50,
+      "ignore": 1,
+      "link": 13
+    },
+    "new:trunc-a": {
+      "create_new": 61,
+      "link": 3
+    },
+    "new:trunc-b": {
+      "create_new": 61,
+      "link": 3
+    }
+  },
+  "human_distribution": {
+    "create_new": 38,
+    "ignore": 3,
+    "link": 23
+  },
+  "key": "evals\\gold\\dedupe-GABARITO-NAO-ABRIR.json",
+  "labels": "evals\\gold\\dedupe-rotulos.json",
+  "labels_method": "manual_blind",
+  "model": "openai/gpt-4o-mini",
+  "pairs": {
+    "current:full-a:current:full-b": {
+      "mcnemar_p": 1.0,
+      "n": 64,
+      "only_a_right": 1,
+      "only_b_right": 0
+    },
+    "current:full-a:new:full-a": {
+      "mcnemar_p": 0.0007,
+      "n": 64,
+      "only_a_right": 9,
+      "only_b_right": 31
+    },
+    "current:trunc-a:current:full-a": {
+      "mcnemar_p": 0.0125,
+      "n": 64,
+      "only_a_right": 21,
+      "only_b_right": 7
+    },
+    "current:trunc-a:current:trunc-b": {
+      "mcnemar_p": 1.0,
+      "n": 64,
+      "only_a_right": 0,
+      "only_b_right": 0
+    },
+    "current:trunc-a:new:full-a": {
+      "mcnemar_p": 0.0768,
+      "n": 64,
+      "only_a_right": 4,
+      "only_b_right": 12
+    },
+    "current:trunc-a:new:trunc-a": {
+      "mcnemar_p": 1.0,
+      "n": 64,
+      "only_a_right": 12,
+      "only_b_right": 12
+    },
+    "jev:current:full-a": {
+      "mcnemar_p": 0.0,
+      "n": 64,
+      "only_a_right": 25,
+      "only_b_right": 3
+    },
+    "jev:new:full-a": {
+      "mcnemar_p": 1.0,
+      "n": 64,
+      "only_a_right": 9,
+      "only_b_right": 9
+    },
+    "llm:current:full-a": {
+      "mcnemar_p": 0.21,
+      "n": 64,
+      "only_a_right": 15,
+      "only_b_right": 8
+    },
+    "llm:new:full-a": {
+      "mcnemar_p": 0.0015,
+      "n": 64,
+      "only_a_right": 3,
+      "only_b_right": 18
+    },
+    "new:full-a:new:full-b": {
+      "mcnemar_p": 1.0,
+      "n": 64,
+      "only_a_right": 1,
+      "only_b_right": 2
+    },
+    "new:trunc-a:new:full-a": {
+      "mcnemar_p": 0.0386,
+      "n": 64,
+      "only_a_right": 2,
+      "only_b_right": 10
+    },
+    "new:trunc-a:new:trunc-b": {
+      "mcnemar_p": 1.0,
+      "n": 64,
+      "only_a_right": 0,
+      "only_b_right": 0
+    }
+  },
+  "preregistered_rule_218": {
+    "beats_current_full": true,
+    "current_full_a_correct": 26,
+    "current_trunc_a_correct": 40,
+    "human_link_answers": 23,
+    "mcnemar_p_current_full_a_vs_new_full_a": 0.0007,
+    "mcnemar_p_current_trunc_a_vs_new_full_a": 0.0768,
+    "new_full_a_correct": 48,
+    "new_link_answers": 15,
+    "not_worse_than_current_trunc": true,
+    "valid": true
+  },
+  "prompts": {
+    "current": {
+      "path": ".eval-work\\prompts\\dedupe-current.md",
+      "sha": "1dd108246fb9"
+    },
+    "new": {
+      "path": "prompts\\dedupe_decision.md",
+      "sha": "4d974195c510"
+    }
+  },
+  "role": "development (informative; the decision is on round 2)",
+  "round": "r1",
+  "stability": {
+    "current:full": {
+      "n": 64,
+      "same_decision": 0.9844
+    },
+    "current:trunc": {
+      "n": 64,
+      "same_decision": 1.0
+    },
+    "new:full": {
+      "n": 64,
+      "same_decision": 0.9531
+    },
+    "new:trunc": {
+      "n": 64,
+      "same_decision": 1.0
+    }
+  },
+  "temperature": 0.2,
+  "validity": {
+    "current:full-a": {
+      "invalid": 0,
+      "invalid_share": 0.0
+    },
+    "current:full-b": {
+      "invalid": 0,
+      "invalid_share": 0.0
+    },
+    "current:trunc-a": {
+      "invalid": 0,
+      "invalid_share": 0.0
+    },
+    "current:trunc-b": {
+      "invalid": 0,
+      "invalid_share": 0.0
+    },
+    "new:full-a": {
+      "invalid": 0,
+      "invalid_share": 0.0
+    },
+    "new:full-b": {
+      "invalid": 0,
+      "invalid_share": 0.0
+    },
+    "new:trunc-a": {
+      "invalid": 0,
+      "invalid_share": 0.0
+    },
+    "new:trunc-b": {
+      "invalid": 0,
+      "invalid_share": 0.0
+    }
+  },
+  "versions_tested": 1
+}

@@ -85,3 +85,56 @@ Timing and scope are unchanged. After the dedupe LLM decides, `extractor.dedupli
 - a `choice` of target note, which includes a `none` option.
 
 The answer is written to `decision_shadow` and never read to decide ([ADR-055](../LLM/ADR-055-typed-decision-layer-shadow.md)). When the reviewer resolves a `dedupe_pending` concept, `review.keep_duplicate` and `review.discard_duplicate` attach `not_ignore` or `ignore` to that row. This is the first human label this decision has had. It covers only what the LLM itself flagged.
+
+## Addendum (2026-10-07): the dedupe LLM sees whole notes (#209)
+
+Until now `extractor._format_existing_notes` showed the LLM the first 200 characters of each same-source note. Every note starts with `> **Tese**: `, so 270 of 781 theses were cut, and the definition never appeared. Each existing note now goes into the prompt in full, through `extractor.existing_note_contents` and `zettel/note_content.py`: thesis, definition, intuition, example and limits, read from SQLite. Managed blocks and `## Conexões` stay out. The only cap is `linking.dedupe_note_chars` (6000), set above any real note. The L2 distance the prompt used to print is gone, because it is not a calibrated signal for this judgement.
+
+Measured before switching (`evals/preregistration/209-dedupe-texto-completo.md`, `scripts/probe_dedupe_context.py`). The setup:
+
+- the 64 items of the #206 dedupe sheet;
+- the same prompt, model (`openai/gpt-4o-mini` @ 0.2), candidate and set of existing notes in both conditions;
+- two runs per condition.
+
+| condition | correct | population-weighted | target correct |
+|---|---|---|---|
+| 200-char excerpt (`trunc-a`) | 25/64 | 0.49 | 0.52 |
+| full content (`full-a`) | **43/64** | **0.69** | **0.63** |
+
+- **Effect:** exact McNemar p = 0.0005 (22 items only `full-a` gets right, 4 only `trunc-a`).
+- **Stability:** repeat runs agree on 98–100% of items.
+- **Validity:** no invalid answers.
+- **Pre-registered rule:** non-inferior and valid, so the change was adopted.
+
+**Correction (2026-10-07): the table above was scored against score-based labels; against manual labels the result reverses.** The first sheet followed a 0–1 similarity score with fixed cuts: below 0.30 "new", 0.30–0.48 "develops", above 0.48 "repeats". The labeller then relabelled the same 64 items by meaning, item by item, yielding 38 "new", 23 "develops" and 3 "repeats" (`evals/gold/dedupe-rotulos.json`, `method: manual_blind`). The 256 recorded answers were rescored against those labels with no new call (`evals/results/dedupe-context-209.json`):
+
+| condition | correct | population-weighted | "develops" answered |
+|---|---|---|---|
+| 200-char excerpt (`trunc-a`) | **40/64** | **0.65** | 26 |
+| full content (`full-a`) | 26/64 | 0.42 | 53 |
+| Jev shadow (200-char excerpt) | 48/64 | 0.72 | — |
+
+- **Effect:** exact McNemar trunc-a × full-a p = 0.0125 (21 items only the excerpt gets right, 7 only the full content). Repeat runs are stable.
+- **Where it goes wrong:** with whole notes the LLM turns 29 of the 38 "new" items into "develops". It always finds some link between notes of one work, and the prompt pushes it there ("an author returning to a concept is expanding it").
+- **Pre-registered outcome:** the non-inferiority rule fails, so the pre-registered outcome was **not to adopt** the full content and to fix the prompt first.
+
+**Decision (deviation, recorded):** the full content **stays** in production, by explicit decision, paired with a prompt fix ([#218](https://github.com/ricmed/zettel_app/issues/218)). The reasoning: the excerpt scores better partly because it hides the context that triggers over-linking, not because it judges better. A judge should compare whole notes with criteria that do not read "same topic" as "develops". Until #218 lands, the dedupe LLM over-links against the manual labels, and this is a known, measured regression. #218's acceptance bar is to recover at least the excerpt's 40/64 with the full content, validated on fresh labels.
+
+## Addendum (2026-10-07): a prompt that compares claims, kept by decision (#218)
+
+`prompts/dedupe_decision.md` was rewritten to compare **claims, not topics**. For each note it asks for the central claim, then applies the first rule that fits, and it lists what does not count as "develops": another concept the note merely mentions, a shared topic, or mutual context. The rewrite was pre-registered in `evals/preregistration/218-prompt-dedupe.md` and validated on items never used to write it:
+
+| | round 1 (64, development) | round 2 (42, validation) |
+|---|---|---|
+| previous prompt, 200-char excerpt | 40 | 20 |
+| previous prompt, full content | 26 | 16 |
+| **new prompt, full content** | **48** | **25** |
+| shadow LLM / Jev (excerpt) | 33 / 48 | 21 / 21 |
+
+- **Round 2 against the rules:** the new prompt is the best configuration in both rounds, but rule 1 (beat the previous prompt with full content at exact McNemar p < 0.05) fails, with p = 0.093 (16 vs 7 discordant items). Rules 2 (25 ≥ 20) and 3 (validity) pass.
+- **Pre-registered outcome:** do not adopt the new prompt.
+- **Decision (deviation, recorded):** the new prompt and the full content are **kept** by explicit decision, because the improvement points the same way in both rounds and the miss is one of statistical power on 42 items.
+- **To revisit:** #218 stays open. A larger, pre-registered round is the way to settle it.
+- **Known residual errors in round 2:** the new prompt never answers "repeats" (the human's 7 repeats become 2 "new" and 5 "develops"), and 7 of the human's 15 "develops" become "new".
+
+Results: `evals/results/dedupe-prompt-218-r1.json`, `dedupe-prompt-218-r2.json`.

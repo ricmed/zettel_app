@@ -200,6 +200,10 @@ class ChunkingConfig(BaseModel):
 class LinkingConfig(BaseModel):
     topk: int = 5
     dedupe_threshold: float = 0.85
+    # Teto de caracteres por nota existente no prompt de dedupe (#209). Acima de
+    # qualquer nota real (~4,3 mil hoje): o LLM ve o conteudo inteiro. Nao e um
+    # recorte -- ate #209 eram 200 caracteres, muitas vezes nem a tese inteira.
+    dedupe_note_chars: int = 6000
     # Alvo de saida por nota, usado APENAS na estimativa de pre-voo (nao e teto).
     preflight_output_tokens_per_note: int = 1200
     # Busca secundaria do connect: analogias fora do bucket taxonomico.

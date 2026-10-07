@@ -1,0 +1,311 @@
+{
+  "conditions": {
+    "full-a": {
+      "accuracy": 0.6719,
+      "accuracy_weighted": 0.6905,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.7,
+          "n": 30
+        },
+        "ignore": {
+          "accuracy": 0.25,
+          "n": 4
+        },
+        "link": {
+          "accuracy": 0.7,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 3,
+        "create_new->ignore": 3,
+        "create_new->link": 9,
+        "ignore->link": 4,
+        "link->create_new": 3,
+        "link->ignore": 2,
+        "link->link": 40
+      },
+      "correct": 43,
+      "n": 64,
+      "target": {
+        "accuracy": 0.6304,
+        "n": 46
+      }
+    },
+    "full-b": {
+      "accuracy": 0.6875,
+      "accuracy_weighted": 0.6979,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.7333,
+          "n": 30
+        },
+        "ignore": {
+          "accuracy": 0.25,
+          "n": 4
+        },
+        "link": {
+          "accuracy": 0.7,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 3,
+        "create_new->ignore": 3,
+        "create_new->link": 9,
+        "ignore->link": 4,
+        "link->create_new": 2,
+        "link->ignore": 2,
+        "link->link": 41
+      },
+      "correct": 44,
+      "n": 64,
+      "target": {
+        "accuracy": 0.617,
+        "n": 47
+      }
+    },
+    "jev": {
+      "accuracy": 0.5312,
+      "accuracy_weighted": 0.5684,
+      "by_confidence_band": {
+        "high": {
+          "accuracy": 0.75,
+          "n": 4
+        },
+        "low": {
+          "accuracy": 0.4839,
+          "n": 31
+        },
+        "mid": {
+          "accuracy": 0.5517,
+          "n": 29
+        }
+      },
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.4667,
+          "n": 30
+        },
+        "ignore": {
+          "accuracy": 0.5,
+          "n": 4
+        },
+        "link": {
+          "accuracy": 0.6,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 10,
+        "create_new->link": 5,
+        "ignore->create_new": 2,
+        "ignore->link": 2,
+        "link->create_new": 21,
+        "link->link": 24
+      },
+      "correct": 34,
+      "n": 64,
+      "target": {
+        "accuracy": 0.4615,
+        "n": 26
+      }
+    },
+    "llm": {
+      "accuracy": 0.4375,
+      "accuracy_weighted": 0.5821,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.2333,
+          "n": 30
+        },
+        "ignore": {
+          "accuracy": 0.0,
+          "n": 4
+        },
+        "link": {
+          "accuracy": 0.7,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 7,
+        "create_new->ignore": 2,
+        "create_new->link": 6,
+        "ignore->create_new": 1,
+        "ignore->link": 3,
+        "link->create_new": 22,
+        "link->ignore": 2,
+        "link->link": 21
+      },
+      "correct": 28,
+      "n": 64,
+      "target": {
+        "accuracy": 0.4231,
+        "n": 26
+      }
+    },
+    "trunc-a": {
+      "accuracy": 0.3906,
+      "accuracy_weighted": 0.4863,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.2333,
+          "n": 30
+        },
+        "ignore": {
+          "accuracy": 0.25,
+          "n": 4
+        },
+        "link": {
+          "accuracy": 0.5667,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 7,
+        "create_new->ignore": 2,
+        "create_new->link": 6,
+        "ignore->create_new": 2,
+        "ignore->link": 2,
+        "link->create_new": 26,
+        "link->ignore": 1,
+        "link->link": 18
+      },
+      "correct": 25,
+      "n": 64,
+      "target": {
+        "accuracy": 0.5238,
+        "n": 21
+      }
+    },
+    "trunc-b": {
+      "accuracy": 0.3906,
+      "accuracy_weighted": 0.4863,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.2333,
+          "n": 30
+        },
+        "ignore": {
+          "accuracy": 0.25,
+          "n": 4
+        },
+        "link": {
+          "accuracy": 0.5667,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 7,
+        "create_new->ignore": 2,
+        "create_new->link": 6,
+        "ignore->create_new": 2,
+        "ignore->link": 2,
+        "link->create_new": 26,
+        "link->ignore": 1,
+        "link->link": 18
+      },
+      "correct": 25,
+      "n": 64,
+      "target": {
+        "accuracy": 0.5238,
+        "n": 21
+      }
+    }
+  },
+  "decision_distribution": {
+    "full-a": {
+      "create_new": 6,
+      "ignore": 5,
+      "link": 53
+    },
+    "full-b": {
+      "create_new": 5,
+      "ignore": 5,
+      "link": 54
+    },
+    "trunc-a": {
+      "create_new": 35,
+      "ignore": 3,
+      "link": 26
+    },
+    "trunc-b": {
+      "create_new": 35,
+      "ignore": 3,
+      "link": 26
+    }
+  },
+  "labels": "evals/gold/dedupe-score-rotulos.json",
+  "labels_method": "score_thresholds",
+  "model": "openai/gpt-4o-mini",
+  "pairs": {
+    "full-a:full-b": {
+      "mcnemar_p": 1.0,
+      "n": 64,
+      "only_a_right": 0,
+      "only_b_right": 1
+    },
+    "jev:full-a": {
+      "mcnemar_p": 0.1078,
+      "n": 64,
+      "only_a_right": 8,
+      "only_b_right": 17
+    },
+    "llm:full-a": {
+      "mcnemar_p": 0.0026,
+      "n": 64,
+      "only_a_right": 4,
+      "only_b_right": 19
+    },
+    "trunc-a:full-a": {
+      "mcnemar_p": 0.0005,
+      "n": 64,
+      "only_a_right": 4,
+      "only_b_right": 22
+    },
+    "trunc-a:trunc-b": {
+      "mcnemar_p": 1.0,
+      "n": 64,
+      "only_a_right": 0,
+      "only_b_right": 0
+    }
+  },
+  "preregistered_rule_209": {
+    "full_a_correct": 43,
+    "mcnemar_p_trunc_a_vs_full_a": 0.0005,
+    "non_inferior": true,
+    "trunc_a_correct": 25,
+    "valid": true
+  },
+  "stability": {
+    "full": {
+      "n": 64,
+      "same_decision": 0.9844
+    },
+    "trunc": {
+      "n": 64,
+      "same_decision": 1.0
+    }
+  },
+  "temperature": 0.2,
+  "validity": {
+    "full-a": {
+      "invalid": 0,
+      "invalid_share": 0.0
+    },
+    "full-b": {
+      "invalid": 0,
+      "invalid_share": 0.0
+    },
+    "trunc-a": {
+      "invalid": 0,
+      "invalid_share": 0.0
+    },
+    "trunc-b": {
+      "invalid": 0,
+      "invalid_share": 0.0
+    }
+  }
+}

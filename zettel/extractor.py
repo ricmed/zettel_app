@@ -38,6 +38,7 @@ from zettel.llm import (
     parse_llm_json,
 )
 from zettel.markdown_fences import iter_fenced_spans
+from zettel.note_content import note_sections, render_note_content
 from zettel.paging import format_source_locator
 from zettel.schemas import (
     DedupeDecision,
@@ -1051,7 +1052,8 @@ def deduplicate_candidates(
                 approved.append(cand_dict)
                 continue
 
-            existing_notes_text = _format_existing_notes(same_source)
+            existing = existing_note_contents(db, same_source, cfg.linking.dedupe_note_chars)
+            existing_notes_text = format_existing_notes(existing)
             mapping = {
                 "new_thesis": cand.thesis,
                 "new_definition": cand.definition,
@@ -1080,7 +1082,7 @@ def deduplicate_candidates(
                 concept_id=cand_dict["concept_id"],
                 thesis=cand.thesis,
                 definition=cand.definition,
-                same_source=same_source,
+                existing=existing,
                 llm_decision=result.decision.value,
                 llm_target=result.target_note_id,
             )
@@ -1166,13 +1168,30 @@ def _same_source_notes(db: StateDB, notes: list[dict], source_id: str) -> list[d
     return kept
 
 
-def _format_existing_notes(notes: list[dict]) -> str:
-    parts: list[str] = []
+def existing_note_contents(db: StateDB, notes: list[dict], max_chars: int) -> list[dict[str, str]]:
+    """Same-source hits -> ``{id, title, text}`` with each note's full content (#209).
+
+    The text is what the note claims -- thesis, definition, intuition, example,
+    limits -- read from SQLite, not the embedding document: it never carries
+    managed blocks or ``## Conexões``. ``max_chars`` is a prompt-budget ceiling
+    (``linking.dedupe_note_chars``) set above any real note, not an excerpt. Until
+    #209 the LLM saw the first 200 characters, often not even the whole thesis.
+    """
+    contents: list[dict[str, str]] = []
     for n in notes:
-        nid = n.get("id", "?")
-        meta = n.get("metadata", {})
-        doc = n.get("document", "")[:200]
-        title = meta.get("title", "Sem titulo")
-        dist = n.get("distance", "?")
-        parts.append(f"- **{nid}** ({title}) [dist={dist}]: {doc}")
-    return "\n".join(parts)
+        note_id = n.get("id") or ""
+        row = db.get_note(note_id) or {}
+        title = row.get("title") or (n.get("metadata") or {}).get("title") or ""
+        if row.get("body"):
+            text = render_note_content(note_sections(title, row["body"]), max_chars)
+        else:
+            text = (n.get("document") or "")[:max_chars]
+        contents.append({"id": note_id, "title": title, "text": text})
+    return contents
+
+
+def format_existing_notes(notes: list[dict[str, str]]) -> str:
+    """The ``{existing_notes}`` block of ``prompts/dedupe_decision.md``."""
+    return "\n\n".join(
+        f"- **{n['id']}** ({n['title'] or 'Sem titulo'}):\n{n['text']}" for n in notes
+    )

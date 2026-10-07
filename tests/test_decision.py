@@ -67,10 +67,11 @@ def db(tmp_path):
     database.close()
 
 
-def _same_source():
+def _existing():
+    """Same-source notes as the dedupe LLM is shown them (`extractor.existing_note_contents`)."""
     return [
-        {"id": "01NOTEA", "document": "Texto da nota A " * 40, "metadata": {"title": "Nota A"}},
-        {"id": "01NOTEB", "document": "Texto da nota B", "metadata": {"title": "Nota B"}},
+        {"id": "01NOTEA", "title": "Nota A", "text": "Tese: A\n\nDefinição: " + "texto " * 300},
+        {"id": "01NOTEB", "title": "Nota B", "text": "Tese: B"},
     ]
 
 
@@ -79,7 +80,7 @@ def _shadow_dedupe(cfg, db, **overrides):
         "concept_id": "@X::concept::1",
         "thesis": "Tese do candidato",
         "definition": "Definicao do candidato",
-        "same_source": _same_source(),
+        "existing": _existing(),
         "llm_decision": "refine_existing",
         "llm_target": "01NOTEA",
     }
@@ -287,9 +288,8 @@ def test_shadow_dedupe_records_baseline_and_folded_answer(tmp_path, db, fake):
     assert row["error"] is None
     # The row keeps exactly what the model was shown (the blind sheet is built from it).
     assert row["state"] == fake.calls[0]["state"]
-    # The model saw the same 200-char excerpt the dedupe LLM sees.
-    note_a = fake.calls[0]["state"]["existing_notes"][0]
-    assert len(note_a["text"]) == shadow.DEDUPE_NOTE_CHARS
+    # The model sees exactly the notes the dedupe LLM saw, full length (#209).
+    assert fake.calls[0]["state"]["existing_notes"] == _existing()
 
 
 def test_shadow_reuses_a_stored_answer_and_refreshes_the_baseline(tmp_path, db, fake):
@@ -317,8 +317,8 @@ def test_shadow_retries_after_an_error(tmp_path, db, monkeypatch):
 
 
 def test_shadow_skips_a_state_too_large_to_ask(tmp_path, db, fake):
-    huge = [{"id": "01A", "document": "x", "metadata": {"title": "y" * 200_000}}]
-    _shadow_dedupe(_cfg(tmp_path, dedupe="shadow"), db, same_source=huge)
+    huge = [{"id": "01A", "title": "y", "text": "x" * 200_000}]
+    _shadow_dedupe(_cfg(tmp_path, dedupe="shadow"), db, existing=huge)
     assert fake.calls == []
     assert db.list_decision_shadow()[0]["error"] == "skipped:too_large"
 

@@ -30,7 +30,6 @@ logger = logging.getLogger(__name__)
 # headroom for the chars/4 estimate being rough on accented PT-BR.
 STATE_TOKEN_LIMIT = 28_000
 
-DEDUPE_NOTE_CHARS = 200  # same excerpt `extractor._format_existing_notes` shows the LLM
 MOC_MAX_NOTES = 20
 MOC_NOTE_CHARS = 300
 
@@ -116,21 +115,13 @@ def shadow_dedupe(
     concept_id: str,
     thesis: str,
     definition: str,
-    same_source: list[dict[str, Any]],
+    existing: list[dict[str, str]],
     llm_decision: str,
     llm_target: str | None,
 ) -> None:
-    """``same_source``: the Chroma hits the dedupe LLM was shown, in rank order."""
+    """``existing``: ``{id, title, text}`` exactly as the dedupe LLM was shown them."""
     if not enabled(cfg, "dedupe"):
         return
-    existing = [
-        {
-            "id": note.get("id") or "",
-            "title": (note.get("metadata") or {}).get("title") or "",
-            "text": (note.get("document") or "")[:DEDUPE_NOTE_CHARS],
-        }
-        for note in same_source
-    ]
     decision = sites.dedupe(
         thesis=thesis,
         definition=definition,
@@ -255,14 +246,11 @@ def shadow_article_judge(
 
 
 def _note_thesis_and_definition(row: dict[str, Any]) -> dict[str, str]:
-    from zettel.manual_lit import thesis_from_permanent_note
-    from zettel.markdown_fences import h2_section
+    """Thesis and definition only: the corroborates state pre-registered in #208."""
+    from zettel.note_content import note_sections
 
-    body = row.get("body") or ""
-    return {
-        "thesis": thesis_from_permanent_note({"title": row.get("title")}, body),
-        "definition": h2_section(body, "Definição") or h2_section(body, "Definicao"),
-    }
+    sections = note_sections(row.get("title") or "", row.get("body") or "")
+    return {"thesis": sections["thesis"], "definition": sections["definition"]}
 
 
 def shadow_corroborates(

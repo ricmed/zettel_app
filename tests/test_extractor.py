@@ -1531,3 +1531,36 @@ def test_dedupe_same_source_can_still_refine(tmp_path, monkeypatch):
     assert concept["status"] == "approved"
     assert json.loads(concept["dedupe_json"]) == {"refines_note_id": "N1", "reason": "nuance"}
     db.close()
+
+
+def test_dedupe_prompt_shows_each_existing_note_in_full(tmp_path, monkeypatch):
+    """#209: the LLM sees the whole note -- not a 200-char excerpt, not its connections."""
+    cfg, db = _dedupe_env(tmp_path, note_source_id="@S")
+    definition = "Definicao longa que ultrapassa de longe duzentos caracteres. " * 10
+    db.upsert_note(
+        "N1",
+        "@S",
+        "/n1.md",
+        title="Nota existente",
+        body=(
+            "> **Tese**: Tese da nota existente\n\n"
+            f"## Definição\n\n{definition}\n\n"
+            "## Limites\n\nSo vale para X.\n\n"
+            "## Conexões\n\n- corroborado por [[ZTL - 01OUTRA]]\n"
+        ),
+    )
+    db.upsert_concept("c1", "@S", "@S::ch000::a", status="extracted")
+    seen = {}
+
+    def fake_call(llm, user, **kw):
+        seen["user"] = user
+        return '{"decision": "create_new", "target_note_id": null, "reason": "nova"}'
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call)
+    deduplicate_candidates(cfg, db, _FakeNeighbourIndex("N1"), object(), [_cand_dict("c1")])
+
+    prompt = seen["user"]
+    assert definition.strip() in prompt
+    assert "Limites: So vale para X." in prompt
+    assert "corroborado" not in prompt and "dist=" not in prompt
+    db.close()

@@ -118,6 +118,19 @@ Dedupe e categoria não têm gabarito humano: o m/d do revisor só cobre o que o
 - **Estratos**: dedupe pela decisão do LLM (`create_new` amostrado, `ignore`/`link` inteiros até o teto); categoria por concordância entre o Jev e o argmax (`agree`/`disagree`/`unassigned`); corroborates por faixa de cosseno (`low_band` 0,75–0,80, `near_threshold` 0,80–0,85, `above_threshold`), um item por par. Regras do #208 em [`preregistration/208-jev-corroborates.md`](preregistration/208-jev-corroborates.md). `--per-stratum` (padrão 30) e `--seed` controlam a amostra; o gabarito guarda a população de cada estrato.
 - **Commitável**: só o `*-GABARITO-NAO-ABRIR.json` (ids, sem texto). Planilha e leitura são gitignored. Uma planilha existente nunca é sobrescrita sem `--force`.
 
+## Rodadas de rotulagem e comparação de prompts
+
+Cada rodada tem os próprios arquivos. A rodada 1 usa os nomes sem sufixo; uma rodada nova usa `--round`, e `--exclude-labels` garante que nenhum item já rotulado (ou usado para escrever um prompt) volte:
+
+```bash
+.venv/Scripts/python.exe scripts/export_decision_gold.py --site dedupe --round r2 --seed 1     --exclude-labels evals/gold/dedupe-rotulos.json
+.venv/Scripts/python.exe scripts/score_decision_gold.py --site dedupe     --key evals/gold/dedupe-r2-GABARITO-NAO-ABRIR.json --sheet evals/gold/dedupe-r2-planilha.csv     --labels-out evals/gold/dedupe-r2-rotulos.json
+```
+
+O exportador recusa sobrescrever a planilha **ou o gabarito** de uma rodada existente, mesmo que a planilha tenha sido renomeada.
+
+`scripts/probe_dedupe_context.py` refaz a decisão de dedupe sobre itens rotulados (`--key` e `--labels` de qualquer rodada), em duas condições de contexto (trecho de 200 caracteres e texto completo), e aceita versões de prompt com `--prompt NOME=CAMINHO`, repetível. Com `current` e `new`, ele calcula a regra do pré-registro de #218. As respostas ficam gravadas por texto do prompt, então uma versão já medida não chama o modelo de novo.
+
 ## Relatório do shadow (offline)
 
 ```bash
