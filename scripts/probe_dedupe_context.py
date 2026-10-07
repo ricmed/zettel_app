@@ -3,7 +3,7 @@
 Until #209 the same-source dedupe prompt (`prompts/dedupe_decision.md`) showed the
 LLM the first 200 characters of each existing note -- often not even the whole
 thesis. This probe re-asks the production prompt and model over the 64 items a
-human labelled in #206 (`evals/gold/dedupe-rotulos.json`), changing one thing:
+labelled in #206 (`--labels`, default `evals/gold/dedupe-rotulos.json`), changing one thing:
 
 * `trunc` -- each existing note is the 200-character excerpt the pipeline used
   (stored verbatim in the shadow row's `state_json`);
@@ -193,6 +193,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--state-db", type=Path, default=Path("data/state.db"))
     parser.add_argument("--gold-dir", type=Path, default=Path("evals/gold"))
     parser.add_argument("--record-dir", type=Path, default=DEFAULT_RECORD_DIR)
+    parser.add_argument(
+        "--labels",
+        type=Path,
+        default=Path("evals/gold/dedupe-rotulos.json"),
+        help="Rotulos usados como gabarito (padrao: a planilha cega manual)",
+    )
     parser.add_argument("--yes", action="store_true", help="Autoriza as chamadas nao gravadas")
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args(argv)
@@ -214,9 +220,8 @@ def main(argv: list[str] | None = None) -> int:
     temperature = effective_temperature(cfg, spec)
     parts = load_prompt_parts(cfg.prompts_path / "dedupe_decision.md")
     key = json.loads((args.gold_dir / "dedupe-GABARITO-NAO-ABRIR.json").read_text(encoding="utf-8"))
-    labels = json.loads((args.gold_dir / "dedupe-rotulos.json").read_text(encoding="utf-8"))[
-        "labels"
-    ]
+    labels_payload = json.loads(args.labels.read_text(encoding="utf-8"))
+    labels = labels_payload["labels"]
     states = load_states(args.state_db, key)
     item_ids = sorted(i for i in states if any(lab["item_id"] == i for lab in labels))
     print(f"modelo: {spec.provider}/{spec.model} @ {temperature}")
@@ -305,6 +310,8 @@ def main(argv: list[str] | None = None) -> int:
 
     result = summarize_runs([lab for lab in labels if lab["item_id"] in states], key, runs)
     result["model"] = f"{spec.provider}/{spec.model}"
+    result["labels"] = str(args.labels)
+    result["labels_method"] = labels_payload.get("method", "manual_blind")
     result["temperature"] = temperature
     text = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     print(text, end="")

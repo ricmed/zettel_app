@@ -237,6 +237,8 @@
       "link": 26
     }
   },
+  "labels": "evals/gold/dedupe-score-rotulos.json",
+  "labels_method": "score_thresholds",
   "model": "openai/gpt-4o-mini",
   "pairs": {
     "full-a:full-b": {

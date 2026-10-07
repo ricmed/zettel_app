@@ -92,7 +92,7 @@ Until now `extractor._format_existing_notes` showed the LLM the first 200 charac
 
 Measured before switching (`evals/preregistration/209-dedupe-texto-completo.md`, `scripts/probe_dedupe_context.py`). The setup:
 
-- 64 items labelled blind by a human (#206);
+- the 64 items of the #206 dedupe sheet;
 - the same prompt, model (`openai/gpt-4o-mini` @ 0.2), candidate and set of existing notes in both conditions;
 - two runs per condition.
 
@@ -106,4 +106,8 @@ Measured before switching (`evals/preregistration/209-dedupe-texto-completo.md`,
 - **Validity:** no invalid answers.
 - **Pre-registered rule:** non-inferior and valid, so the change was adopted.
 
-What it does not fix: with whole notes the LLM says "develops" (`extends`) for 83% of items, against 70% for the human. It gets only 3 of the 15 items the human marked "new" right; 9 become `link`. Over-linking is now the dominant error. Results: `evals/results/dedupe-context-209.json`.
+**Correction (2026-10-07): these labels are not human judgement.** Every answer in that sheet follows a 0–1 similarity score with fixed cuts: below 0.30 "new", 0.30–0.48 "develops", above 0.48 "repeats". No item departs from them. The table therefore shows that the LLM with whole notes **agrees more with that similarity score**. It is not shown to decide better.
+
+The change stands on its own technical ground: a judge cannot compare two notes it sees 200 characters of. The evidence is provisional until a blind manual relabelling (`evals/gold/dedupe-rotulos.json`, `method: manual_blind`) exists. The 256 answers are recorded, so rescoring costs no call: `scripts/probe_dedupe_context.py --labels evals/gold/dedupe-rotulos.json`. Labels and result moved to `dedupe-score-rotulos.json` / `dedupe-context-209-score.json`.
+
+Possible remaining error: with whole notes the LLM says "develops" (`extends`) for 83% of items, against 70% in the score-based labels. Whether that is over-linking can only be judged against manual labels. Results: `evals/results/dedupe-context-209-score.json`.
