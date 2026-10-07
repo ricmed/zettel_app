@@ -127,23 +127,37 @@ def parse_answer(text: str) -> dict[str, Any]:
     }
 
 
+def decision_id(item: dict[str, Any]) -> str:
+    """The recording key of one labelled decision.
+
+    Sheet ids (`D001`...) restart every labelling round, so keying recordings by
+    them would replay a round-1 answer for a different round-2 item. The shadow
+    row's subject and state checksum identify the decision itself.
+    """
+    return f"{item['subject_id']}|{item['state_checksum']}"
+
+
 def collect(
     item_ids: list[str],
     recorded: dict[str, dict[str, Any]],
     ask: Callable[[str], dict[str, Any]],
     on_record: Callable[[str, dict[str, Any]], None],
+    record_key: Callable[[str], str] = lambda item_id: item_id,
 ) -> dict[str, dict[str, Any]]:
     """Reuse recorded answers; ask only for what is missing. Parse errors are kept
-    (they count against validity) but not recorded, so a re-run retries them."""
+    (they count against validity) but not recorded, so a re-run retries them.
+
+    Answers are returned by item id; ``record_key`` maps an item to the key it is
+    recorded under (``decision_id`` in the probe)."""
     answers: dict[str, dict[str, Any]] = {}
     for item_id in item_ids:
-        if item_id in recorded:
-            answers[item_id] = recorded[item_id]
+        if record_key(item_id) in recorded:
+            answers[item_id] = recorded[record_key(item_id)]
             continue
         entry = ask(item_id)
         answers[item_id] = entry
         if "error" not in entry:
-            on_record(item_id, entry)
+            on_record(record_key(item_id), entry)
     return answers
 
 
@@ -324,6 +338,7 @@ def main(argv: list[str] | None = None) -> int:
     labels = labels_payload["labels"]
     states = load_states(args.state_db, key)
     item_ids = sorted(i for i in states if any(lab["item_id"] == i for lab in labels))
+    recording_key = {item["item_id"]: decision_id(item) for item in key["items"]}
     print(f"modelo: {spec.provider}/{spec.model} @ {temperature}")
     print(f"prompts: {', '.join(f'{n}={p}' for n, p in prompt_args)}")
     print(f"itens com estado: {len(item_ids)}/{len(labels)}")
@@ -368,7 +383,7 @@ def main(argv: list[str] | None = None) -> int:
                 if record_path.exists()
                 else {}
             )
-            missing = [i for i in item_ids if i not in recorded]
+            missing = [i for i in item_ids if recording_key[i] not in recorded]
             chars = sum(len("".join(build(name, run, i))) for i in missing)
             print(
                 f"{result_id}: gravados {len(recorded)} | a chamar {len(missing)} "
@@ -392,9 +407,9 @@ def main(argv: list[str] | None = None) -> int:
                 return parse_answer(text)
 
             def on_record(
-                item_id: str, entry: dict[str, Any], path=record_path, rec=recorded, run=run
+                key: str, entry: dict[str, Any], path=record_path, rec=recorded, run=run
             ) -> None:
-                rec[item_id] = entry
+                rec[key] = entry
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(
                     json.dumps(
@@ -411,7 +426,7 @@ def main(argv: list[str] | None = None) -> int:
                     encoding="utf-8",
                 )
 
-            runs[result_id] = collect(item_ids, recorded, ask, on_record)
+            runs[result_id] = collect(item_ids, recorded, ask, on_record, recording_key.__getitem__)
     db.close()
 
     if len(runs) < len(run_ids(names)):

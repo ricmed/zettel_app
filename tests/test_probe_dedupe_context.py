@@ -140,3 +140,13 @@ def test_summarize_two_prompts_applies_the_218_rule():
     assert rule["new_link_answers"] == 0 and rule["human_link_answers"] == 0
     assert result["stability"]["new:full"] == {"n": 2, "same_decision": 0.5}
     assert "preregistered_rule_209" not in result
+
+
+def test_recordings_are_keyed_by_decision_not_by_sheet_item_id():
+    """Item ids restart at D001 every round: two rounds must never share an answer."""
+    from probe_dedupe_context import decision_id
+
+    round_1 = {"item_id": "D001", "subject_id": "@S::concept::a", "state_checksum": "s1"}
+    round_2 = {"item_id": "D001", "subject_id": "@S::concept::b", "state_checksum": "s9"}
+    assert decision_id(round_1) != decision_id(round_2)
+    assert decision_id(round_1) == "@S::concept::a|s1"
