@@ -514,5 +514,7 @@
       "subject_id": "@Hui2026KantMachine::concept::df659759"
     }
   ],
+  "method": "score_thresholds",
+  "method_note": "Every answer follows a 0-1 similarity score with fixed cuts (<0.30 nova, 0.30-0.48 desenvolve, >0.48 repete); no item departs from them. Agreement with these labels measures agreement with that score, not independent human judgement of meaning.",
   "site": "dedupe"
 }

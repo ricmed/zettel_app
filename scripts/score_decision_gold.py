@@ -258,6 +258,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--site", choices=("dedupe",), required=True)
     parser.add_argument("--gold-dir", type=Path, default=Path("evals/gold"))
     parser.add_argument("--labels-out", type=Path, default=None)
+    parser.add_argument(
+        "--labels-method",
+        default="manual_blind",
+        help="Como os rotulos foram produzidos (manual_blind, score_thresholds, llm...)",
+    )
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args(argv)
 
@@ -282,7 +287,12 @@ def main(argv: list[str] | None = None) -> int:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(text, encoding="utf-8")
     if args.labels_out:
-        payload = {"site": "dedupe", "key_exported_at": key["exported_at"], "labels": labels}
+        payload = {
+            "site": "dedupe",
+            "key_exported_at": key["exported_at"],
+            "method": args.labels_method,
+            "labels": labels,
+        }
         args.labels_out.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
