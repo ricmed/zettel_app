@@ -279,3 +279,36 @@ def test_full_notes_replace_the_excerpts_the_models_saw(tmp_path):
     (c,) = with_full_notes(corr, db_path)
     assert c.row["state"]["note_a"]["intuition"] == "I"
     assert c.row["state"]["note_b"]["thesis"] == "Tese velha"
+
+
+def test_new_round_skips_labelled_items_and_keeps_earlier_files(tmp_path):
+    db_path = tmp_path / "state.db"
+    _db_with_one_dedupe_row(db_path)
+    out = tmp_path / "gold"
+    base = ["--site", "dedupe", "--state-db", str(db_path), "--out-dir", str(out)]
+    assert main(base) == 0
+    (out / "dedupe-planilha.csv").rename(out / "dedupe-r1-planilha.csv")
+    # The sheet was renamed, but the round-1 key is still there: a plain export
+    # must not overwrite it.
+    assert main(base) == 1
+    labels = out / "dedupe-rotulos.json"
+    labels.write_text(
+        json.dumps({"labels": [{"subject_id": "@Src::concept::1"}]}), encoding="utf-8"
+    )
+    # Everything is already labelled: round 2 has nothing to export.
+    assert main([*base, "--round", "r2", "--exclude-labels", str(labels)]) == 1
+    assert main([*base, "--round", "r2"]) == 0
+    key = json.loads((out / "dedupe-r2-GABARITO-NAO-ABRIR.json").read_text(encoding="utf-8"))
+    assert key["round"] == "r2" and key["excluded_labelled_subjects"] == 0
+    assert (out / "dedupe-GABARITO-NAO-ABRIR.json").exists()
+
+
+def test_labelled_subjects_reads_every_round(tmp_path):
+    from export_decision_gold import labelled_subjects
+
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    a.write_text(json.dumps({"labels": [{"subject_id": "x"}]}), encoding="utf-8")
+    b.write_text(
+        json.dumps({"labels": [{"subject_id": "y"}, {"subject_id": "x"}]}), encoding="utf-8"
+    )
+    assert labelled_subjects([a, b]) == {"x", "y"}

@@ -89,3 +89,54 @@ def test_summarize_applies_the_preregistered_rule():
     assert rule["valid"] is False  # full-b has 1 of 2 invalid, above 5%
     assert result["stability"]["trunc"] == {"n": 2, "same_decision": 0.5}
     assert result["decision_distribution"]["full-a"] == {"link": 2}
+
+
+def test_prompt_args_and_run_ids():
+    import pytest
+    from probe_dedupe_context import parse_prompt_args, run_ids
+
+    assert parse_prompt_args(["current=a.md", "new=b.md"]) == [
+        ("current", Path("a.md")),
+        ("new", Path("b.md")),
+    ]
+    for bad in (["semigual"], ["x:y=a.md"], ["a=1.md", "a=2.md"]):
+        with pytest.raises(ValueError):
+            parse_prompt_args(bad)
+    assert run_ids(["current"]) == ["trunc-a", "trunc-b", "full-a", "full-b"]
+    assert run_ids(["current", "new"])[:2] == ["current:trunc-a", "current:trunc-b"]
+
+
+def test_summarize_two_prompts_applies_the_218_rule():
+    key = {
+        "population": {"create_new": 2},
+        "items": [_item("D1", "create_new"), _item("D2", "create_new")],
+    }
+    labels = [
+        {
+            "item_id": i,
+            "sampling_stratum": "create_new",
+            "human_decision": "create_new",
+            "human_target": None,
+        }
+        for i in ("D1", "D2")
+    ]
+    link = {"decision": "link", "target": "01A"}
+    new = {"decision": "create_new", "target": None}
+    runs = {
+        "current:trunc-a": {"D1": new, "D2": link},
+        "current:trunc-b": {"D1": new, "D2": link},
+        "current:full-a": {"D1": link, "D2": link},
+        "current:full-b": {"D1": link, "D2": link},
+        "new:trunc-a": {"D1": new, "D2": new},
+        "new:trunc-b": {"D1": new, "D2": new},
+        "new:full-a": {"D1": new, "D2": new},
+        "new:full-b": {"D1": new, "D2": link},
+    }
+    result = summarize_runs(labels, key, runs, ["current", "new"])
+    rule = result["preregistered_rule_218"]
+    assert rule["new_full_a_correct"] == 2
+    assert rule["current_full_a_correct"] == 0 and rule["current_trunc_a_correct"] == 1
+    assert rule["beats_current_full"] and rule["not_worse_than_current_trunc"]
+    assert rule["new_link_answers"] == 0 and rule["human_link_answers"] == 0
+    assert result["stability"]["new:full"] == {"n": 2, "same_decision": 0.5}
+    assert "preregistered_rule_209" not in result

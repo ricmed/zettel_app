@@ -29,6 +29,9 @@ Usage:
     .venv/Scripts/python.exe scripts/score_decision_gold.py --site dedupe
     .venv/Scripts/python.exe scripts/score_decision_gold.py --site dedupe \\
         --labels-out evals/gold/dedupe-rotulos.json --out evals/results/dedupe-gold-206.json
+    .venv/Scripts/python.exe scripts/score_decision_gold.py --site dedupe \\
+        --key evals/gold/dedupe-r2-GABARITO-NAO-ABRIR.json \\
+        --sheet evals/gold/dedupe-r2-planilha.csv --labels-out evals/gold/dedupe-r2-rotulos.json
 """
 
 from __future__ import annotations
@@ -256,7 +259,15 @@ def preregistered_human_rule(result: dict[str, Any]) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
     parser.add_argument("--site", choices=("dedupe",), required=True)
-    parser.add_argument("--gold-dir", type=Path, default=Path("evals/gold"))
+    parser.add_argument(
+        "--key", type=Path, default=Path("evals/gold/dedupe-GABARITO-NAO-ABRIR.json")
+    )
+    parser.add_argument(
+        "--sheet",
+        type=Path,
+        default=Path("evals/gold/dedupe-planilha.csv"),
+        help="Planilha preenchida da mesma rodada do gabarito (--key)",
+    )
     parser.add_argument("--labels-out", type=Path, default=None)
     parser.add_argument(
         "--labels-method",
@@ -269,8 +280,8 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-    key = json.loads((args.gold_dir / "dedupe-GABARITO-NAO-ABRIR.json").read_text(encoding="utf-8"))
-    sheet = read_sheet((args.gold_dir / "dedupe-planilha.csv").read_bytes())
+    key = json.loads(args.key.read_text(encoding="utf-8"))
+    sheet = read_sheet(args.sheet.read_bytes())
     labels, problems = dedupe_labels(sheet, key)
     if problems:
         print(f"Linhas fora da conta: {json.dumps(problems, ensure_ascii=False)}")

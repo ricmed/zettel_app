@@ -1,30 +1,36 @@
-"""Does the dedupe LLM agree more with a human when it sees whole notes? (#209)
+"""Re-ask the dedupe LLM over labelled items: what changes its agreement with a human? (#209, #218)
 
-Until #209 the same-source dedupe prompt (`prompts/dedupe_decision.md`) showed the
-LLM the first 200 characters of each existing note -- often not even the whole
-thesis. This probe re-asks the production prompt and model over the 64 items a
-labelled in #206 (`--labels`, default `evals/gold/dedupe-rotulos.json`), changing one thing:
+The same-source dedupe prompt (`prompts/dedupe_decision.md`) is re-asked, with the
+production model, over items a human labelled blind (`--labels`, default the round-1
+sheet of #206 `evals/gold/dedupe-rotulos.json`; `--key` names that round's frozen key).
+Two things can vary:
 
-* `trunc` -- each existing note is the 200-character excerpt the pipeline used
-  (stored verbatim in the shadow row's `state_json`);
-* `full`  -- each existing note's full content (`extractor.existing_note_contents`,
-  the function the pipeline now uses).
+* **context** -- `trunc`: each existing note is the 200-character excerpt the
+  pipeline used before #209 (stored verbatim in the shadow row's `state_json`);
+  `full`: each existing note's full content (`extractor.existing_note_contents`, what
+  the pipeline uses now). #209 measured this axis.
+* **prompt** -- `--prompt NAME=PATH`, repeatable (default: `current=` the production
+  prompt). #218 compares the current prompt against a candidate rewrite on the same
+  items, under both contexts.
 
-The candidate (thesis + definition), the set of existing notes and the prompt are
-identical across conditions. Both omit the L2 distance the old prompt printed:
-the shadow state never stored it, and showing it in one condition only would
-confound the effect. Each condition runs twice (`-a`, `-b`) to show the noise at
-`llm.temperature`. The pre-registered rule
-(`evals/preregistration/209-dedupe-texto-completo.md`) uses the `-a` runs.
+The candidate (thesis + definition) and the set of existing notes are identical
+across runs. No run shows the L2 distance the pre-#209 prompt printed: the shadow
+state never stored it, and showing it in one run only would confound the effect.
+Each (prompt, context) runs twice (`-a`, `-b`) to show the noise at `llm.temperature`;
+pre-registered rules use the `-a` runs (`evals/preregistration/209-...`, `218-...`).
 
-Answers are recorded under `.eval-work/dedupe-context/` (gitignored), keyed by
-run, condition, prompt, model and temperature: a recorded run makes no call, and
-uncached calls need `--yes`. Reads state.db read-only; writes nothing to it.
+Answers are recorded under `.eval-work/dedupe-context/` (gitignored), keyed by run,
+prompt text, model and temperature: a recorded run makes no call (so an old prompt
+saved to a file replays for free), and uncached calls need `--yes`. Reads state.db
+read-only; writes nothing to it.
 
 Usage:
-    .venv/Scripts/python.exe scripts/probe_dedupe_context.py
     .venv/Scripts/python.exe scripts/probe_dedupe_context.py --yes \\
         --out evals/results/dedupe-context-209.json
+    git show main:prompts/dedupe_decision.md > .eval-work/prompts/dedupe-current.md
+    .venv/Scripts/python.exe scripts/probe_dedupe_context.py --yes \\
+        --prompt current=.eval-work/prompts/dedupe-current.md \\
+        --prompt new=prompts/dedupe_decision.md --out evals/results/dedupe-prompt-218.json
 """
 
 from __future__ import annotations
@@ -35,6 +41,7 @@ import sqlite3
 import sys
 from collections import Counter
 from collections.abc import Callable
+from itertools import combinations
 from pathlib import Path
 from typing import Any
 
@@ -46,14 +53,36 @@ from score_decision_gold import key_conditions, score_conditions
 
 RUNS = ("trunc-a", "trunc-b", "full-a", "full-b")
 DEFAULT_RECORD_DIR = Path(".eval-work/dedupe-context")
-MAX_INVALID_SHARE = 0.05  # pre-registered validity condition
+MAX_INVALID_SHARE = 0.05  # pre-registered validity condition (#209, #218)
 
 
 # -- Pure pieces ---------------------------------------------------------
 
 
 def condition_of(run: str) -> str:
-    return run.split("-", 1)[0]
+    """``trunc-a`` / ``new:full-b`` -> ``trunc`` / ``full``."""
+    return run.rsplit(":", 1)[-1].split("-", 1)[0]
+
+
+def run_ids(prompts: list[str]) -> list[str]:
+    """Result names: the bare run for one prompt (as #209 recorded it), else ``prompt:run``."""
+    if len(prompts) == 1:
+        return list(RUNS)
+    return [f"{p}:{r}" for p in prompts for r in RUNS]
+
+
+def parse_prompt_args(values: list[str]) -> list[tuple[str, Path]]:
+    """``NAME=PATH`` pairs, names unique and free of ``:``."""
+    parsed: list[tuple[str, Path]] = []
+    for value in values:
+        name, sep, path = value.partition("=")
+        if not sep or not name or not path or ":" in name:
+            raise ValueError(f"--prompt espera NOME=CAMINHO, recebeu {value!r}")
+        parsed.append((name, Path(path)))
+    names = [n for n, _ in parsed]
+    if len(set(names)) != len(names):
+        raise ValueError(f"nomes de --prompt repetidos: {names}")
+    return parsed
 
 
 def existing_notes_for(
@@ -118,23 +147,40 @@ def collect(
     return answers
 
 
+def _pairs(prompts: list[str]) -> list[tuple[str, str]]:
+    """Every comparison a rule reads: context within a prompt, prompt within a
+    context, noise within a run, and the recorded shadow against each full run."""
+
+    def rid(p: str, run: str) -> str:
+        return run if len(prompts) == 1 else f"{p}:{run}"
+
+    pairs: list[tuple[str, str]] = []
+    for p in prompts:
+        pairs += [
+            (rid(p, "trunc-a"), rid(p, "full-a")),
+            (rid(p, "trunc-a"), rid(p, "trunc-b")),
+            (rid(p, "full-a"), rid(p, "full-b")),
+            ("llm", rid(p, "full-a")),
+            ("jev", rid(p, "full-a")),
+        ]
+    for a, b in combinations(prompts, 2):
+        pairs += [(rid(a, "trunc-a"), rid(b, "trunc-a")), (rid(a, "full-a"), rid(b, "full-a"))]
+        pairs.append((rid(a, "trunc-a"), rid(b, "full-a")))
+    return pairs
+
+
 def summarize_runs(
     labels: list[dict[str, Any]],
     key: dict[str, Any],
     runs: dict[str, dict[str, dict[str, Any]]],
+    prompts: list[str] | None = None,
 ) -> dict[str, Any]:
+    prompts = prompts or ["current"]
     valid = {
         run: {i: a for i, a in answers.items() if "error" not in a} for run, answers in runs.items()
     }
     conditions = {**key_conditions(key), **valid}
-    pairs = [
-        ("trunc-a", "full-a"),
-        ("trunc-a", "trunc-b"),
-        ("full-a", "full-b"),
-        ("llm", "full-a"),
-        ("jev", "full-a"),
-    ]
-    result = score_conditions(labels, conditions, key["population"], pairs)
+    result = score_conditions(labels, conditions, key["population"], _pairs(prompts))
     n = len(labels)
     result["validity"] = {
         run: {
@@ -143,22 +189,60 @@ def summarize_runs(
         }
         for run in runs
     }
+    prefix = "" if len(prompts) == 1 else "{p}:"
     result["stability"] = {
-        cond: _agreement(valid[f"{cond}-a"], valid[f"{cond}-b"]) for cond in ("trunc", "full")
+        prefix.format(p=p) + cond: _agreement(
+            valid[prefix.format(p=p) + f"{cond}-a"], valid[prefix.format(p=p) + f"{cond}-b"]
+        )
+        for p in prompts
+        for cond in ("trunc", "full")
     }
     result["decision_distribution"] = {
         run: dict(sorted(Counter(a["decision"] for a in valid[run].values()).items()))
         for run in runs
     }
-    a, b = result["conditions"]["trunc-a"], result["conditions"]["full-a"]
-    result["preregistered_rule_209"] = {
-        "full_a_correct": b["correct"],
-        "trunc_a_correct": a["correct"],
-        "non_inferior": b["correct"] >= a["correct"],
-        "valid": all(v["invalid_share"] <= MAX_INVALID_SHARE for v in result["validity"].values()),
-        "mcnemar_p_trunc_a_vs_full_a": result["pairs"]["trunc-a:full-a"]["mcnemar_p"],
-    }
+    result["human_distribution"] = dict(
+        sorted(Counter(lab["human_decision"] for lab in labels if lab["human_decision"]).items())
+    )
+    all_valid = all(v["invalid_share"] <= MAX_INVALID_SHARE for v in result["validity"].values())
+    if len(prompts) == 1:
+        a, b = result["conditions"]["trunc-a"], result["conditions"]["full-a"]
+        result["preregistered_rule_209"] = {
+            "full_a_correct": b["correct"],
+            "trunc_a_correct": a["correct"],
+            "non_inferior": b["correct"] >= a["correct"],
+            "valid": all_valid,
+            "mcnemar_p_trunc_a_vs_full_a": result["pairs"]["trunc-a:full-a"]["mcnemar_p"],
+        }
+    if {"current", "new"} <= set(prompts):
+        result["preregistered_rule_218"] = _rule_218(result, valid, all_valid)
     return result
+
+
+def _rule_218(
+    result: dict[str, Any], valid: dict[str, dict[str, dict[str, Any]]], all_valid: bool
+) -> dict[str, Any]:
+    """The numbers `evals/preregistration/218-prompt-dedupe.md` decides on."""
+    cond = result["conditions"]
+    human_link = result["human_distribution"].get("link", 0)
+    new_link = sum(a["decision"] == "link" for a in valid["new:full-a"].values())
+    new_full = cond["new:full-a"]["correct"]
+    return {
+        "new_full_a_correct": new_full,
+        "current_full_a_correct": cond["current:full-a"]["correct"],
+        "current_trunc_a_correct": cond["current:trunc-a"]["correct"],
+        "beats_current_full": new_full >= cond["current:full-a"]["correct"],
+        "not_worse_than_current_trunc": new_full >= cond["current:trunc-a"]["correct"],
+        "new_link_answers": new_link,
+        "human_link_answers": human_link,
+        "mcnemar_p_current_trunc_a_vs_new_full_a": result["pairs"]["current:trunc-a:new:full-a"][
+            "mcnemar_p"
+        ],
+        "mcnemar_p_current_full_a_vs_new_full_a": result["pairs"]["current:full-a:new:full-a"][
+            "mcnemar_p"
+        ],
+        "valid": all_valid,
+    }
 
 
 def _agreement(a: dict[str, dict[str, Any]], b: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -191,13 +275,22 @@ def load_states(state_db: Path, key: dict[str, Any]) -> dict[str, dict[str, Any]
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
     parser.add_argument("--state-db", type=Path, default=Path("data/state.db"))
-    parser.add_argument("--gold-dir", type=Path, default=Path("evals/gold"))
+    parser.add_argument(
+        "--key", type=Path, default=Path("evals/gold/dedupe-GABARITO-NAO-ABRIR.json")
+    )
     parser.add_argument("--record-dir", type=Path, default=DEFAULT_RECORD_DIR)
     parser.add_argument(
         "--labels",
         type=Path,
         default=Path("evals/gold/dedupe-rotulos.json"),
-        help="Rotulos usados como gabarito (padrao: a planilha cega manual)",
+        help="Rotulos usados como gabarito (padrao: rodada 1, planilha cega manual)",
+    )
+    parser.add_argument(
+        "--prompt",
+        action="append",
+        default=[],
+        metavar="NOME=CAMINHO",
+        help="Versao do prompt de dedupe (repetivel). Padrao: current=<prompt de producao>",
     )
     parser.add_argument("--yes", action="store_true", help="Autoriza as chamadas nao gravadas")
     parser.add_argument("--out", type=Path, default=None)
@@ -218,13 +311,21 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load_config()
     spec = llm_phase(cfg, "review")
     temperature = effective_temperature(cfg, spec)
-    parts = load_prompt_parts(cfg.prompts_path / "dedupe_decision.md")
-    key = json.loads((args.gold_dir / "dedupe-GABARITO-NAO-ABRIR.json").read_text(encoding="utf-8"))
+    try:
+        prompt_args = parse_prompt_args(args.prompt) or [
+            ("current", cfg.prompts_path / "dedupe_decision.md")
+        ]
+    except ValueError as exc:
+        parser.error(str(exc))
+    prompts = {name: load_prompt_parts(path) for name, path in prompt_args}
+    names = list(prompts)
+    key = json.loads(args.key.read_text(encoding="utf-8"))
     labels_payload = json.loads(args.labels.read_text(encoding="utf-8"))
     labels = labels_payload["labels"]
     states = load_states(args.state_db, key)
     item_ids = sorted(i for i in states if any(lab["item_id"] == i for lab in labels))
     print(f"modelo: {spec.provider}/{spec.model} @ {temperature}")
+    print(f"prompts: {', '.join(f'{n}={p}' for n, p in prompt_args)}")
     print(f"itens com estado: {len(item_ids)}/{len(labels)}")
 
     db = StateDB(args.state_db)
@@ -232,7 +333,8 @@ def main(argv: list[str] | None = None) -> int:
     def full(hits: list[dict[str, Any]]) -> list[dict[str, str]]:
         return existing_note_contents(db, hits, cfg.linking.dedupe_note_chars)
 
-    def user_prompt(run: str, item_id: str) -> tuple[str, str]:
+    def build(name: str, run: str, item_id: str) -> tuple[str, str]:
+        parts = prompts[name]
         state = states[item_id]
         mapping = {
             "new_thesis": state["candidate"]["thesis"],
@@ -250,68 +352,82 @@ def main(argv: list[str] | None = None) -> int:
         from zettel.llm import get_llm
 
         llm = get_llm(cfg, "review")
+
     runs: dict[str, dict[str, dict[str, Any]]] = {}
-    for run in RUNS:
-        run_key = sha256_hex(
-            f"{run}|{parts.full_template}|{spec.provider}/{spec.model}@{temperature}"
-        )[:12]
-        record_path = args.record_dir / f"{run}-{run_key}.json"
-        recorded = (
-            json.loads(record_path.read_text(encoding="utf-8"))["answers"]
-            if record_path.exists()
-            else {}
-        )
-        missing = [i for i in item_ids if i not in recorded]
-        chars = sum(len("".join(user_prompt(run, i))) for i in missing)
-        print(f"{run}: gravados {len(recorded)} | a chamar {len(missing)} (~{chars // 4} tokens)")
-        if missing and not args.yes:
-            continue
-
-        def ask(item_id: str, run: str = run) -> dict[str, Any]:
-            from zettel.llm import call_llm
-
-            system, user = user_prompt(run, item_id)
-            text = call_llm(
-                llm,
-                user,
-                system=system or None,
-                provider=spec.provider,
-                prompt_cache=cfg.llm.prompt_cache,
-                label=f"probe-209:{run}",
+    for name in names:
+        for run in RUNS:
+            result_id = run if len(names) == 1 else f"{name}:{run}"
+            # The prompt text is in the key, so a prompt saved elsewhere replays
+            # what was recorded under its production path.
+            run_key = sha256_hex(
+                f"{run}|{prompts[name].full_template}|{spec.provider}/{spec.model}@{temperature}"
+            )[:12]
+            record_path = args.record_dir / f"{run}-{run_key}.json"
+            recorded = (
+                json.loads(record_path.read_text(encoding="utf-8"))["answers"]
+                if record_path.exists()
+                else {}
             )
-            return parse_answer(text)
-
-        def on_record(
-            item_id: str, entry: dict[str, Any], path=record_path, rec=recorded, run=run
-        ) -> None:
-            rec[item_id] = entry
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                json.dumps(
-                    {
-                        "run": run,
-                        "model": f"{spec.provider}/{spec.model}",
-                        "temperature": temperature,
-                        "answers": rec,
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                    sort_keys=True,
-                ),
-                encoding="utf-8",
+            missing = [i for i in item_ids if i not in recorded]
+            chars = sum(len("".join(build(name, run, i))) for i in missing)
+            print(
+                f"{result_id}: gravados {len(recorded)} | a chamar {len(missing)} "
+                f"(~{chars // 4} tokens)"
             )
+            if missing and not args.yes:
+                continue
 
-        runs[run] = collect(item_ids, recorded, ask, on_record)
+            def ask(item_id: str, name: str = name, run: str = run) -> dict[str, Any]:
+                from zettel.llm import call_llm
+
+                system, user = build(name, run, item_id)
+                text = call_llm(
+                    llm,
+                    user,
+                    system=system or None,
+                    provider=spec.provider,
+                    prompt_cache=cfg.llm.prompt_cache,
+                    label=f"probe-dedupe:{name}:{run}",
+                )
+                return parse_answer(text)
+
+            def on_record(
+                item_id: str, entry: dict[str, Any], path=record_path, rec=recorded, run=run
+            ) -> None:
+                rec[item_id] = entry
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    json.dumps(
+                        {
+                            "run": run,
+                            "model": f"{spec.provider}/{spec.model}",
+                            "temperature": temperature,
+                            "answers": rec,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                        sort_keys=True,
+                    ),
+                    encoding="utf-8",
+                )
+
+            runs[result_id] = collect(item_ids, recorded, ask, on_record)
     db.close()
 
-    if len(runs) < len(RUNS):
+    if len(runs) < len(run_ids(names)):
         print("Sem --yes: rodadas incompletas, nada pontuado.")
         return 1
 
-    result = summarize_runs([lab for lab in labels if lab["item_id"] in states], key, runs)
+    labelled = [lab for lab in labels if lab["item_id"] in states]
+    result = summarize_runs(labelled, key, runs, names)
     result["model"] = f"{spec.provider}/{spec.model}"
+    result["key"] = str(args.key)
     result["labels"] = str(args.labels)
     result["labels_method"] = labels_payload.get("method", "manual_blind")
+    result["prompts"] = {
+        name: {"path": str(path), "sha": sha256_hex(prompts[name].full_template)[:12]}
+        for name, path in prompt_args
+    }
     result["temperature"] = temperature
     text = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     print(text, end="")
