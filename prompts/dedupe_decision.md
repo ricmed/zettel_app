@@ -1,30 +1,35 @@
 # Prompt: Decisão de Deduplicação
 
-Você é um assistente que decide se um novo candidato a nota permanente é duplicata de notas existentes.
+Você decide se um candidato a nota permanente, dentro da mesma obra, repete uma nota existente, desenvolve a afirmação dela, ou afirma outra coisa.
 
-## Escopo: sempre a mesma fonte
+## Escopo
 
-As notas existentes listadas vêm **todas da mesma fonte** do candidato. Notas de
-outros autores nunca chegam aqui: quando duas fontes distintas afirmam a mesma
-ideia, isso é convergência de autoria, não redundância — o sistema cria as duas
-notas e as liga com uma aresta `corroborates`, sem consultar você.
+As notas listadas são todas da mesma fonte. Notas de outros autores não chegam aqui.
 
-Então a pergunta que você responde é estreita: **dentro desta obra**, o candidato
-repete algo que já foi registrado, ou o autor está avançando sobre o tema?
-Um autor que retoma um conceito para aprofundá-lo conforme o livro progride está
-expandindo (`refine_existing`), não se repetindo.
+Compare **afirmações**, não temas. Vocabulário compartilhado, o mesmo capítulo ou o fato de o autor voltar ao assunto mais adiante não decidem nada.
 
-## Decisões possíveis
+## Procedimento (nesta ordem)
 
-- `create_new`: o candidato é suficientemente distinto — criar nova nota
-- `ignore`: o candidato é idêntico ou trivialmente redundante — descartar
-- `refine_existing`: o candidato traz nuance nova sobre um tema já coberto — criar nova nota conectada à existente, formando uma linha de pensamento
-- `merge`: o candidato reformula a mesma ideia de uma nota existente com material adicional — criar nova nota conectada à existente, como em `refine_existing`
+1. Escreva, numa frase, a afirmação central do candidato.
+2. Para cada nota existente, escreva a afirmação central dela — o que a tese e a definição sustentam. Uma menção num exemplo, um termo na seção de limites ou um conceito vizinho não contam como afirmação da nota.
+3. Aplique a primeira regra que couber:
 
-`refine_existing` e `merge` têm o **mesmo efeito** no pipeline: a nota nova nasce
-ligada à nota alvo. Use `merge` quando a sobreposição for de conteúdo (mesma ideia,
-formulação mais completa) e `refine_existing` quando for de nuance (aspecto novo do
-mesmo tema).
+- `ignore` — alguma nota já afirma o que o candidato afirma. Apagar o candidato não perderia nenhuma condição, aspecto ou consequência.
+- `refine_existing` — alguma nota já afirma esta mesma ideia, e o candidato acrescenta uma condição, uma exceção, um aspecto ou uma consequência **dessa ideia**, que a nota ainda não afirma.
+- `merge` — alguma nota afirma a mesma ideia, e o candidato só a reformula de modo mais completo (mais escopo, mais detalhe), sem uma condição ou consequência nova.
+- `create_new` — nenhuma nota afirma esta ideia. O candidato pode usar as mesmas palavras e caber no mesmo assunto.
+
+Na dúvida entre `create_new` e `refine_existing` ou `merge`, escolha `create_new`.
+
+## O que não é desenvolver
+
+Não use `refine_existing` nem `merge` quando:
+
+- o candidato trata de outro conceito, ainda que a nota existente o mencione;
+- as duas notas serviriam uma à outra de contexto ou de elo, mas cada uma afirma uma tese própria;
+- o candidato é sobre o tema amplo do livro sem partir da afirmação específica da nota alvo.
+
+`refine_existing` e `merge` exigem que a nota alvo já sustente a ideia. Desenvolver é acrescentar algo que pressupõe essa ideia. Um assunto em comum é `create_new`.
 
 ## Regras do alvo
 
