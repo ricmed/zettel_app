@@ -389,6 +389,26 @@ def rag_context_for(item: dict[str, Any], note_chars: int) -> str:
 # -- Export --------------------------------------------------------------
 
 
+# The relation definitions of #231, in order, for every labeller guide.
+RELATION_RULES = [
+    "1. `contradicts` — as duas teses **não podem ser verdadeiras juntas**. Resolver ou",
+    "   contornar uma limitação que a outra aponta **não** é contradição (é `extends`).",
+    "2. `depends_on` — o conceito **não pode ser definido nem entendido** sem o conceito",
+    "   da nota existente. Partir dela ou construir sobre ela não basta.",
+    "3. `exemplifies` — um é um **caso concreto** do outro (dados, domínio, situação),",
+    "   sem acrescentar mecanismo, condição ou técnica.",
+    "4. `extends` — acrescenta **condição, mecanismo, especialização, técnica,",
+    "   consequência** ou a solução de uma limitação apontada pela outra.",
+    "5. `supports` — traz **evidência ou argumento para a mesma afirmação**, sem afirmar",
+    "   nada novo.",
+    "6. `related` — relação conceitual que se descreve numa frase e não cabe acima",
+    "   (soluções alternativas para o mesmo problema; o mesmo mecanismo em outro",
+    "   domínio).",
+    "7. `nenhuma` — **tema em comum não basta**: se a única descrição possível é",
+    '   "ambos tratam de X", é `nenhuma`. Uma relação fraca também é `nenhuma`.',
+]
+
+
 def _concept_text(candidate: dict[str, Any]) -> str:
     from zettel.note_content import render_note_content
 
@@ -436,19 +456,12 @@ def write_export(
         "existe** no vault, recuperada por proximidade. Qual relação o conceito tem com a",
         "nota existente? Leia como: *o conceito ___ a nota existente*.",
         "",
-        "- `supports` — reforça ou valida a tese dela com evidência ou argumento",
-        "- `contradicts` — contradiz ou tensiona a tese dela",
-        "- `extends` — amplia, aprofunda ou especializa o conceito dela",
-        "- `depends_on` — pressupõe a nota existente; não se entende sem ela",
-        "- `exemplifies` — é um caso particular dela, ou ela é um caso particular dele",
-        "- `related` — relação temática clara, mas que não cabe acima",
-        f"- `{NO_EDGE}` — não há relação conceitual que valha uma aresta; dividir o tema",
-        "  não basta",
+        "Aplique as regras **na ordem**: a primeira que valer decide.",
+        "",
+        *RELATION_RULES,
         f"- `{UNJUDGEABLE}` — não dá para julgar com o que está aqui",
         "",
-        "Responda na coluna `relacao`. A coluna `nota` é livre. Na dúvida entre uma",
-        f"relação fraca e `{NO_EDGE}`, prefira `{NO_EDGE}`: o prompt pede só conexões",
-        "genuínas, de 0 a 3 por nota.",
+        "Responda na coluna `relacao`. A coluna `nota` é livre.",
         "",
         "Decida pelo **sentido**, sem score de similaridade e sem outro modelo. Nada aqui",
         "diz o que qualquer modelo decidiu, nem por que a nota foi recuperada.",
@@ -506,21 +519,7 @@ REVISION_GUIDE = [
     "(`relacao_anterior`). Confirme ou troque, aplicando as regras **na ordem**: a",
     "primeira que valer decide. Leia como *o conceito ___ a nota existente*.",
     "",
-    "1. `contradicts` — as duas teses **não podem ser verdadeiras juntas**. Resolver ou",
-    "   contornar uma limitação que a outra aponta **não** é contradição (é `extends`).",
-    "2. `depends_on` — o conceito **não pode ser definido nem entendido** sem o conceito",
-    "   da nota existente. Partir dela ou construir sobre ela não basta.",
-    "3. `exemplifies` — um é um **caso concreto** do outro (dados, domínio, situação),",
-    "   sem acrescentar mecanismo, condição ou técnica.",
-    "4. `extends` — acrescenta **condição, mecanismo, especialização, técnica,",
-    "   consequência** ou a solução de uma limitação apontada pela outra.",
-    "5. `supports` — traz **evidência ou argumento para a mesma afirmação**, sem afirmar",
-    "   nada novo.",
-    "6. `related` — relação conceitual que se descreve numa frase e não cabe acima",
-    "   (soluções alternativas para o mesmo problema; o mesmo mecanismo em outro",
-    "   domínio).",
-    "7. `nenhuma` — **tema em comum não basta**: se a única descrição possível é",
-    '   "ambos tratam de X", é `nenhuma`. Uma relação fraca também é `nenhuma`.',
+    *RELATION_RULES,
     "",
     "Responda em `relacao` (pode repetir a anterior). `?` se não der para julgar.",
     "",
