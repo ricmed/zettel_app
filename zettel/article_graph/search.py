@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 from .. import article as art
 from .. import graph as note_graph
+from ..note_content import note_content
 
 if TYPE_CHECKING:
     from ..config import AppConfig
@@ -107,7 +108,7 @@ def expand_extra_hops(
             "note_id": nid,
             "score": neigh.weight,
             "title": row.get("title") or "",
-            "document": row.get("body") or "",
+            "document": note_content(row.get("title") or "", row.get("body") or ""),
             "metadata": {
                 "source_id": row.get("source_id"),
                 "path": row.get("path"),

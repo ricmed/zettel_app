@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from zettel.note_content import thesis_from_permanent_note
 from zettel.search_terms import PT_STOPWORDS, fold
 
 if TYPE_CHECKING:
@@ -184,7 +185,7 @@ def sources_from_permanent_notes(db: StateDB, note_ids: list[str]) -> list[TermS
                 label=permanent_wikilink(note_id, row.get("title") or "", path=row.get("path")),
                 frameworks=tuple(meta.get("named_frameworks") or []),
                 tags=tuple(str(t) for t in (meta.get("tags") or [])),
-                thesis=_thesis_from_body(row.get("body") or ""),
+                thesis=thesis_from_permanent_note({}, row.get("body") or ""),
             )
         )
     return sources
@@ -198,11 +199,3 @@ def _load_json(raw: str | None) -> dict:
     except (json.JSONDecodeError, TypeError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
-
-
-_THESIS_RE = re.compile(r"^>\s*\*\*Tese\*\*:\s*(.+?)\s*$", re.MULTILINE)
-
-
-def _thesis_from_body(body: str) -> str:
-    match = _THESIS_RE.search(body or "")
-    return match.group(1).strip() if match else ""

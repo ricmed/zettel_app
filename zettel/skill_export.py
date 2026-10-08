@@ -22,6 +22,7 @@ from typing import Any
 from zettel.citation import load_provenance
 from zettel.config import AppConfig
 from zettel.markdown_fences import h2_section
+from zettel.note_content import thesis_from_permanent_note
 from zettel.state import StateDB
 from zettel.time import vault_date_iso
 from zettel.topic_index import TermEntry, TermSource, build_term_map
@@ -39,7 +40,6 @@ class SkillExportError(RuntimeError):
 SKILL_TOKEN_BUDGET = 4000
 DEFAULT_SKILL_ROOT = Path(".claude") / "skills"
 _NOTE_ID_RE = re.compile(r"[0-9A-HJKMNP-TV-Z]{26}")
-_THESIS_RE = re.compile(r"^>\s*\*\*Tese\*\*:\s*(.+?)\s*$", re.MULTILINE)
 
 
 def estimate_tokens(text: str) -> int:
@@ -202,7 +202,7 @@ def load_notes(
                 note_id=note_id,
                 kind="permanent",
                 title=row.get("title") or meta.get("title") or note_id,
-                thesis=_thesis_from_body(body),
+                thesis=thesis_from_permanent_note({}, body),
                 body=body,
                 citekey=str(meta.get("source_id") or row.get("source_id") or ""),
                 locator=str(load_provenance(row).get("source_locator") or ""),
@@ -579,11 +579,6 @@ def _judgement(meta: dict, candidate: dict, key: str) -> list[str]:
     """Frontmatter wins; the concept row is the fallback for older notes."""
     values = meta.get(key) or candidate.get(key) or []
     return [str(v) for v in values if str(v).strip()]
-
-
-def _thesis_from_body(body: str) -> str:
-    match = _THESIS_RE.search(body or "")
-    return match.group(1).strip() if match else ""
 
 
 def _drop_excerpt(body: str) -> str:

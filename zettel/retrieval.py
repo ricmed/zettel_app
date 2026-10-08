@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 from . import graph
+from .note_content import note_content
 from .search_terms import fold, fts_query_terms
 
 if TYPE_CHECKING:
@@ -55,7 +56,7 @@ class RetrievedNote:
     note_id: str
     score: float  # fused RRF score (+ graph boost)
     title: str = ""
-    document: str = ""  # embeddable text / note body snippet
+    document: str = ""  # note_content of the note, whatever path found it (#211)
     metadata: dict = field(default_factory=dict)
     vector_rank: int | None = None
     bm25_rank: int | None = None
@@ -603,18 +604,24 @@ class Retriever:
         self._hydrate_notes(results)
         return results
 
-    # ── Hydration (fill title/document for ids that came only from BM25) ──
+    # ── Hydration (title and content from SQLite, for every path) ──────
 
     def _hydrate_notes(self, results: list[RetrievedNote]) -> None:
+        """Fill ``document`` with :func:`note_content` for every hit (#211).
+
+        A vector hit used to carry Chroma's embeddable text and a BM25 or graph hit
+        the raw body, with ``auto-evidence`` and ``auto-connections``: the same note
+        read differently depending on how it was found. One row per hit, one
+        definition, so it no longer does. A hit missing from SQLite keeps what
+        Chroma returned.
+        """
+        rows = self.db.get_notes_by_ids([rn.note_id for rn in results])
         for rn in results:
-            if rn.title and rn.document:
-                continue
-            row = self.db.get_note(rn.note_id)
+            row = rows.get(rn.note_id)
             if not row:
                 continue
-            rn.title = rn.title or row.get("title", "")
-            if not rn.document:
-                rn.document = row.get("body") or ""
+            rn.title = rn.title or row.get("title") or ""
+            rn.document = note_content(row.get("title") or "", row.get("body") or "")
             rn.metadata.setdefault("source_id", row.get("source_id"))
             rn.metadata.setdefault("path", row.get("path"))
 
