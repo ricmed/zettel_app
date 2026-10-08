@@ -71,10 +71,10 @@ CONTEXT_CHARS = {"trunc": 150, "full": FULL_NOTE_CHARS}
 RELATIONS = ("supports", "contradicts", "extends", "depends_on", "exemplifies", "related")
 NO_EDGE = "nenhuma"
 UNJUDGEABLE = "?"
-STRATA = ("both", "trunc_only", "full_only", "neither")
 DEFAULT_RECORD_DIR = Path(".eval-work/connect-context")
 SHEET_PREFIX = "relacoes"
 MAX_INVALID_SHARE = 0.05  # pre-registered validity condition (#212)
+MAX_EDGES_231 = 4  # connection cap decided in #231
 
 
 # -- Pure pieces ---------------------------------------------------------
@@ -143,26 +143,43 @@ def usable(entry: dict[str, Any] | None) -> bool:
     return bool(entry) and entry.get("status") == "accepted"
 
 
-def stratum_of(trunc: str, full: str) -> str:
-    if NO_EDGE not in (trunc, full):
-        return "both"
-    if trunc != NO_EDGE:
-        return "trunc_only"
-    return "full_only" if full != NO_EDGE else "neither"
+def condition_label(run: str) -> str:
+    """The name a stratum uses for a run: ``trunc-a`` -> ``trunc``, ``new:trunc-a`` -> ``new``."""
+    return run.split(":", 1)[0] if ":" in run else condition_of(run)
+
+
+def strata_for(compared: tuple[str, str]) -> tuple[str, str, str, str]:
+    """``both``, ``<a>_only``, ``<b>_only``, ``neither`` for the two compared runs."""
+    a, b = (condition_label(run) for run in compared)
+    return ("both", f"{a}_only", f"{b}_only", "neither")
+
+
+def stratum_of(first: str, second: str, compared: tuple[str, str] = ("trunc-a", "full-a")) -> str:
+    """Which of the two compared runs proposed an edge for one pair."""
+    both, first_only, second_only, neither = strata_for(compared)
+    if NO_EDGE not in (first, second):
+        return both
+    if first != NO_EDGE:
+        return first_only
+    return second_only if second != NO_EDGE else neither
 
 
 def build_pairs(
-    snapshot: list[dict[str, Any]], runs: dict[str, dict[str, dict[str, Any]]]
+    snapshot: list[dict[str, Any]],
+    runs: dict[str, dict[str, dict[str, Any]]],
+    compared: tuple[str, str] = ("trunc-a", "full-a"),
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """Every (concept, retrieved neighbour) pair whose concept both `-a` runs accepted.
+    """Every (concept, retrieved neighbour) pair whose concept both compared runs accepted.
 
-    Returns the pairs and the concepts left out (rejected or invalid in a `-a` run).
+    Strata say which compared run proposed an edge; every run's answer travels in
+    the key. Returns the pairs and the concepts left out (rejected or invalid in a
+    compared run).
     """
     pairs, excluded = [], []
     for item in snapshot:
         key = item["item_key"]
-        trunc, full = runs["trunc-a"].get(key), runs["full-a"].get(key)
-        if not (usable(trunc) and usable(full)):
+        first, second = (runs[run].get(key) for run in compared)
+        if not (usable(first) and usable(second)):
             excluded.append(key)
             continue
         for neighbour in item["similar"]:
@@ -172,15 +189,23 @@ def build_pairs(
                     "pair": f"{key}|{nid}",
                     "item_key": key,
                     "note_id": nid,
-                    "sampling_stratum": stratum_of(answer_for(trunc, nid), answer_for(full, nid)),
-                    "answers": {run: answer_for(runs[run].get(key), nid) for run in RUNS},
+                    "sampling_stratum": stratum_of(
+                        answer_for(first, nid), answer_for(second, nid), compared
+                    ),
+                    "answers": {
+                        run: answer_for(answers.get(key), nid) for run, answers in runs.items()
+                    },
                 }
             )
     return pairs, excluded
 
 
 def sample_pairs(
-    pairs: list[dict[str, Any]], *, per_stratum: int, seed: int
+    pairs: list[dict[str, Any]],
+    *,
+    per_stratum: int,
+    seed: int,
+    compared: tuple[str, str] = ("trunc-a", "full-a"),
 ) -> list[dict[str, Any]]:
     """Census up to ``per_stratum`` per stratum, seeded draw above it, shuffled ids."""
     rng = random.Random(seed)  # noqa: S311 -- sampling a sheet, not security
@@ -188,7 +213,7 @@ def sample_pairs(
     for p in sorted(pairs, key=lambda p: p["pair"]):
         by_stratum[p["sampling_stratum"]].append(p)
     chosen = []
-    for stratum in STRATA:
+    for stratum in strata_for(compared):
         group = by_stratum.get(stratum, [])
         chosen.extend(rng.sample(group, per_stratum) if len(group) > per_stratum else group)
     rng.shuffle(chosen)  # position must not leak the stratum
@@ -220,6 +245,12 @@ def summarize_runs(
             if accepted
             else None,
             "relations": dict(sorted(relations.items())),
+            "max_edges": max((len(a["edges"]) for a in accepted), default=None),
+            "share_at_most_4_edges": round(
+                sum(len(a["edges"]) <= MAX_EDGES_231 for a in accepted) / len(accepted), 4
+            )
+            if accepted
+            else None,
         }
 
     def agreement(a: str, b: str) -> dict[str, Any]:
@@ -373,12 +404,14 @@ def write_export(
     seed: int,
     run_meta: dict[str, Any],
     excluded: list[str],
+    prefix: str = SHEET_PREFIX,
+    compared: tuple[str, str] = ("trunc-a", "full-a"),
 ) -> tuple[Path, Path, Path]:
     items = {item["item_key"]: item for item in snapshot}
     notes = {(item["item_key"], n["note_id"]): n for item in snapshot for n in item["similar"]}
-    sheet = out_dir / f"{SHEET_PREFIX}-planilha.csv"
-    reading = out_dir / f"{SHEET_PREFIX}-leitura.md"
-    key = out_dir / f"{SHEET_PREFIX}-GABARITO-NAO-ABRIR.json"
+    sheet = out_dir / f"{prefix}-planilha.csv"
+    reading = out_dir / f"{prefix}-leitura.md"
+    key = out_dir / f"{prefix}-GABARITO-NAO-ABRIR.json"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     with sheet.open("w", encoding="utf-8-sig", newline="") as fh:
@@ -448,6 +481,7 @@ def write_export(
         "population": population,
         "excluded_concepts": excluded,
         "runs": run_meta,
+        "compared": list(compared),
         "answers": {"relacao": [*RELATIONS, NO_EDGE], "unjudgeable": UNJUDGEABLE},
         "items": [
             {
@@ -558,6 +592,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--record-dir", type=Path, default=DEFAULT_RECORD_DIR)
     parser.add_argument("--sample", type=int, default=40)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--exclude-snapshot",
+        type=Path,
+        action="append",
+        default=[],
+        help="Snapshot anterior (repetivel): seus conceitos nao entram num snapshot novo",
+    )
     parser.add_argument("--yes", action="store_true", help="Autoriza as chamadas nao gravadas")
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--export", action="store_true", help="Exporta a planilha cega de pares")
@@ -576,6 +617,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--score-key", type=Path, default=None, help="Gabarito de pares rotulados")
     parser.add_argument("--labels", type=Path, default=None, help="Rotulos desse gabarito")
+    parser.add_argument(
+        "--compare",
+        default="trunc-a,full-a",
+        help="As duas rodadas que estratificam a planilha (ex.: current:trunc-a,new:trunc-a)",
+    )
+    parser.add_argument(
+        "--sheet-prefix", default=SHEET_PREFIX, help="Prefixo dos arquivos da planilha exportada"
+    )
     parser.add_argument(
         "--revise", type=Path, default=None, help="Rotulos a revisar: gera a planilha de revisao"
     )
@@ -607,7 +656,13 @@ def main(argv: list[str] | None = None) -> int:
     if snapshot_path.exists():
         snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))["items"]
     else:
-        rows = pick_concepts(_eligible_rows(db), args.sample, args.seed)
+        used = {
+            item["concept_id"]
+            for path in args.exclude_snapshot
+            for item in json.loads(path.read_text(encoding="utf-8"))["items"]
+        }
+        eligible = [r for r in _eligible_rows(db) if r["concept_id"] not in used]
+        rows = pick_concepts(eligible, args.sample, args.seed)
         snapshot = build_snapshot(cfg, db, rows)
         snapshot_path.parent.mkdir(parents=True, exist_ok=True)
         snapshot_path.write_text(
@@ -746,25 +801,26 @@ def main(argv: list[str] | None = None) -> int:
         args.out.write_text(text, encoding="utf-8")
 
     if args.export:
-        if len(prompts) > 1 or any(
-            len(runs.get(r, {})) < len(snapshot) for r in ("trunc-a", "full-a")
-        ):
-            print("Exportacao exige trunc-a e full-a completos: rode com --yes antes.")
+        compared = tuple(args.compare.split(","))
+        if len(compared) != 2 or any(len(runs.get(r, {})) < len(snapshot) for r in compared):
+            print(f"Exportacao exige {args.compare} completos: rode com --yes antes.")
             return 1
         existing = [
             p
             for p in (
-                args.out_dir / f"{SHEET_PREFIX}-planilha.csv",
-                args.out_dir / f"{SHEET_PREFIX}-GABARITO-NAO-ABRIR.json",
+                args.out_dir / f"{args.sheet_prefix}-planilha.csv",
+                args.out_dir / f"{args.sheet_prefix}-GABARITO-NAO-ABRIR.json",
             )
             if p.exists()
         ]
         if existing and not args.force:
             print(f"{', '.join(map(str, existing))} ja existe(m). Use --force para sobrescrever.")
             return 1
-        pairs, excluded = build_pairs(snapshot, runs)
+        pairs, excluded = build_pairs(snapshot, runs, compared)
         population = dict(Counter(p["sampling_stratum"] for p in pairs))
-        sampled = sample_pairs(pairs, per_stratum=args.per_stratum, seed=args.seed)
+        sampled = sample_pairs(
+            pairs, per_stratum=args.per_stratum, seed=args.seed, compared=compared
+        )
         paths = write_export(
             sampled,
             snapshot,
@@ -773,9 +829,11 @@ def main(argv: list[str] | None = None) -> int:
             seed=args.seed,
             run_meta=run_meta,
             excluded=excluded,
+            prefix=args.sheet_prefix,
+            compared=compared,
         )
         print(f"{len(sampled)} pares exportados de {len(pairs)} (fora: {len(excluded)} conceitos)")
-        for stratum in STRATA:
+        for stratum in strata_for(compared):
             print(
                 f"  {stratum}: {sum(p['sampling_stratum'] == stratum for p in sampled)}"
                 f" de {population.get(stratum, 0)}"

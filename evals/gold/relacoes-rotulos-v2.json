@@ -1,0 +1,567 @@
+{
+  "key_exported_at": "2026-10-08T13:46:13.054550+00:00",
+  "labels": [
+    {
+      "human_decision": "contradicts",
+      "human_note": "A regra 1 (contradicts) foi ativada porque o nativismo postula conhecimentos inatos anteriores à experiência, o que entra em conflito direto com a tese da nota existente de que as categorias não são conceitos inatos pré-existentes.",
+      "item_id": "R001",
+      "sampling_stratum": "both",
+      "subject_id": "@Hui2026KantMachine::concept::c97e9160|01M49ZPHQ9TH9ZJVDPM9TZS2D3|01M4A5Y8TBQKA9Y3X50JCRP2X9"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito novo adiciona um mecanismo específico e ordenação (bottom-up, do mais simples ao mais complexo) à técnica geral de decomposição descrita na nota existente.",
+      "item_id": "R002",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c1046af2|01M46VK69AMY1NSFH6ZNT0KT3P|01M46KT8BGX71CT50AMD1ZHXEM"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito novo introduz testes automatizados como uma técnica de validação complementar que se apoia na estrutura gerenciada pelo registry, resolvendo a limitação de evitar regressões na entrega dos prompts.",
+      "item_id": "R003",
+      "sampling_stratum": "neither",
+      "subject_id": "@PromptEngineering::concept::b983e893|01M49ZA5Z518VGSX5GZYAZRCFY|01M49Z8EY0AH51KJ5QPQPGHKAA"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 foi ativada porque o conceito novo acrescenta uma limitação específica (dependência de artefatos e escassez de dados) e um mecanismo de análise sobre o fine-tuning supervisionado que complementa a discussão de ajuste de parâmetros da nota existente.",
+      "item_id": "R004",
+      "sampling_stratum": "neither",
+      "subject_id": "@Huang2021TowardsReasoning::concept::d30a9820|01M46KRK2FKN3VE0FX92CP95HK|01M46KTMS37SNTXRZS04TQHNQK"
+    },
+    {
+      "human_decision": "nenhuma",
+      "human_note": "Regra 7 ativada. O conceito novo trata da filosofia política e econômica da paz via comércio internacional, enquanto a nota existente aborda a ética e a moralidade pura na razão prática kantiana; o tema em comum (Kant) não basta para estabelecer uma dependência ou extensão conceitual direta.",
+      "item_id": "R005",
+      "sampling_stratum": "neither",
+      "subject_id": "@Hui2026KantMachine::concept::5e18cedf|01M4A5MWFYVQWC69SQF0MZAD3J|01M4A7867TV7ZQ31SW03SPCCPE"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito novo aplica a consequência do custo quadrático da nota existente a um caso específico (o uso redundante de Chain-of-Thought).",
+      "item_id": "R006",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c7846f0a|01M46VND70FX9K3D02PW4PR0DB|01M49YXCBR92YFGCRGH5BGQ31C"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o novo conceito especializa o design de prompts ao propor uma técnica específica de seleção de exemplos (few-shot com formato restrito) focada em resolver o trade-off de qualidade e custo em classificação de logs.",
+      "item_id": "R007",
+      "sampling_stratum": "neither",
+      "subject_id": "@IniciandoComPromptEngineering::concept::e6baa53b|01M46VN1A1CFSTXJ5CCV4BTBC9|01M49H01C3AE7P8SQQWA3E4R07"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "Regra 6 ativada: Tratam de abordagens alternativas para a divisão de tarefas em múltiplos agentes, sendo a nota existente focada em fluxos sequenciais (Prompt Chaining) e o novo conceito em execução paralela.",
+      "item_id": "R008",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@PromptEngineering::concept::e1251fcd|01M49Z4QN8BW9CCHCDTBFETPNN|01M49YY39EZZDM11GXPAP3DM5F"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 foi ativada porque o novo conceito adiciona uma consequência e especialização (o impacto do uso redundante de CoT externo somado ao raciocínio interno), construindo sobre a constatação de custo da nota existente.",
+      "item_id": "R009",
+      "sampling_stratum": "both",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c7846f0a|01M46VND70FX9K3D02PW4PR0DB|01M49YMNV2H526KXVVGCSW1C7G"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo se encaixa na regra 4 (extends) pois adiciona uma consequência específica sobre a tradução de normas sociais implícitas em regras computacionais, expandindo o princípio geral de verificabilidade e explicitação da nota existente.",
+      "item_id": "R010",
+      "sampling_stratum": "both",
+      "subject_id": "@Kim2022KantAnd::concept::3bc7f979|01M4A87VZYYZMA0ZT0ZPMPD3EN|01M4A6K6CJ7WERBJTK3WVHSFKB"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O nível 4 da regra foi ativado, pois o conceito novo estende a nota existente ao introduzir uma abordagem híbrida que combina modificação estrutural de parâmetros com elicitação de raciocínio, superando limitações.",
+      "item_id": "R011",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::e126d922|01M46KTMS37SNTXRZS04TQHNQK|01M46KV28T4CJQAE5KTQFR6FVA"
+    },
+    {
+      "human_decision": "depends_on",
+      "human_note": "A regra 2 (depends_on) foi ativada porque o conceito novo (ARIMA) depende fundamentalmente do conceito da nota existente (estacionariedade) para ser definido, uma vez que o operador de diferenciação existe exatamente para alcançar a estacionariedade exigida.",
+      "item_id": "R012",
+      "sampling_stratum": "both",
+      "subject_id": "@Latorre2021AnáliseDe::concept::250265ab|01M34QBHPMCH10WRWQHKSG22AY|01M34QB4TVAQCHYGJD74YWG5TP"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o novo conceito introduz o Chain-of-Thought como mecanismo e técnica específica para solucionar a limitação de planejamento e raciocínio apontada na nota existente.",
+      "item_id": "R013",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::6d5e77e5|01M46KS11622VY31BHVG8CWVM9|01M46KRSTQJMFJR8MW5GGZP2PN"
+    },
+    {
+      "human_decision": "nenhuma",
+      "human_note": "A regra 7 foi ativada. Ambos tratam de limitações da arquitetura de LLMs e da janela de contexto, mas o conceito novo descreve um mecanismo de gerenciamento de histórico (janela deslizante) enquanto a nota existente foca na modularidade e na estrutura interna de um prompt.",
+      "item_id": "R014",
+      "sampling_stratum": "neither",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M46VKCYRBR2R433TGW33ZWK3"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o novo conceito aprofunda e especializa a tese do conflito como motor da universalidade, focando na sua institucionalização e articulação em obras tardias, sem contradizer a nota existente.",
+      "item_id": "R015",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Hui2026KantMachine::concept::efe54101|01M4A5JBJ5K1VRDJTB99BKYQC4|01M4A5J5A3DNWE77PY1ZM1ACTA"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "A regra 6 foi ativada porque ambos os conceitos tratam de abordagens para lidar com tendências em séries temporais (uma via modelagem estocástica com diferenciação e outra via decomposição estrutural), sendo soluções alternativas ou complementares para o mesmo problema.",
+      "item_id": "R016",
+      "sampling_stratum": "both",
+      "subject_id": "@Latorre2021AnáliseDe::concept::250265ab|01M34QBHPMCH10WRWQHKSG22AY|01M34Q9ZGSHTHW11JVJVAGXH0B"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "Regra 6 ativada. Ambos tratam de modelagem estatística de séries temporais ou processos estocásticos, mas constituem abordagens e formulações distintas para problemas diferentes.",
+      "item_id": "R017",
+      "sampling_stratum": "neither",
+      "subject_id": "@Latorre2021AnáliseDe::concept::1902c93d|01M34Q91C5P0Q8YMSWMBWY5SHT|01M34QBAWKG7MQVZEHRSPK4JBH"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 foi ativada: o conceito novo define o nativismo em ciência cognitiva de forma geral, enquanto a nota existente especializa e aplica esse debate diretamente à arquitetura da inteligência artificial geral.",
+      "item_id": "R018",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Hui2026KantMachine::concept::c97e9160|01M49ZPHQ9TH9ZJVDPM9TZS2D3|01M4A5V4PJR0KFC4FVCTGK3PFJ"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o novo conceito adiciona um mecanismo técnico específico (testes automatizados de templates via asserções) para mitigar falhas estruturais, especializando a garantia de contratos de dados em pipelines discutida na nota.",
+      "item_id": "R019",
+      "sampling_stratum": "full_only",
+      "subject_id": "@PromptEngineering::concept::b983e893|01M49ZA5Z518VGSX5GZYAZRCFY|01M49Z1VYEH50AHE2ED4TP7GDX"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "Regra 4 (extends) ativada: o conceito novo soluciona uma limitação da nota existente (a complexidade quadrática do self-attention para sequências longas) ao introduzir uma técnica específica (janela deslizante) para gerenciar e limitar o tamanho do histórico.",
+      "item_id": "R020",
+      "sampling_stratum": "neither",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49ZTPTDDM5YN368HGC2Y5S7"
+    },
+    {
+      "human_decision": "nenhuma",
+      "human_note": "Regra 7 acionada. O conceito novo discute a localização física da mente ('sede da alma' vs. 'presença virtual'), enquanto a nota existente trata da inseparabilidade entre percepção de alto nível e processos cognitivos. Compartilham o domínio amplo da filosofia da mente, mas tratam de problemas distintos.",
+      "item_id": "R021",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Kim2022KantAnd::concept::e5ff5fc4|01M49ZY5FQRD6YTNZG3GY30BPV|01M4A6RGEAAATQV8YR8EW8EVV0"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito novo introduz um mecanismo técnico específico (a janela deslizante) como solução para o problema de eficiência e custo abordado na nota existente.",
+      "item_id": "R022",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49YXCBR92YFGCRGH5BGQ31C"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito novo especializa e acrescenta uma técnica específica (few-shot com alta qualidade de dados e restrição de formato) para mitigar a limitação de custos e latência tratada na nota existente.",
+      "item_id": "R023",
+      "sampling_stratum": "full_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::e6baa53b|01M46VN1A1CFSTXJ5CCV4BTBC9|01M49Z2C3X04M4X447P324H1XA"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito novo acrescenta uma técnica específica (o controle rigoroso de fatores de confusão como sazonalidade e clima usando funções não paramétricas) para isolar a associação entre poluição e morbidade, construindo sobre os fundamentos dos GAMs.",
+      "item_id": "R024",
+      "sampling_stratum": "both",
+      "subject_id": "@Latorre2021AnáliseDe::concept::ce042c29|01M34QCA8GCAPEWFRQFRSZ6VRT|01M34Q9K90M9PQ22XCEQ2B7XPY"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o novo conceito adiciona especificações de mecanismo sobre o equilíbrio empírico e os riscos de instabilidade por excesso de exemplos, construindo sobre a nota existente.",
+      "item_id": "R025",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::5e6a7288|01M46VHMWS3WXKRF7FFNJKYMC7|01M49Z06YNF1NA72NQDQQ385Z3"
+    },
+    {
+      "human_decision": "nenhuma",
+      "human_note": "A regra 7 foi ativada. Embora ambos tratem de modelagem estatística aplicada a dados temporais e controle de tendências, o conceito novo foca em modelos aditivos generalizados de Poisson para poluição e morbidade, enquanto a nota existente foca na centralização temporal para mitigar multicolinearidade em regressões polinomiais. Trata-se de temas em comum, mas sem dependência ou extensão direta.",
+      "item_id": "R026",
+      "sampling_stratum": "neither",
+      "subject_id": "@Latorre2021AnáliseDe::concept::ce042c29|01M34QCA8GCAPEWFRQFRSZ6VRT|01M34QA540HDRX8GSTN6B24NB4"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "Regra 6 ativada: ambas são abordagens iterativas estruturadas para raciocínio em LLMs (soluções alternativas ou complementares para o mesmo problema), mas uma não depende conceitualmente da outra nem se encaixa nas regras anteriores.",
+      "item_id": "R027",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::9a07ebee|01M46VMMV5ZQR7VE1PTXSCHTQF|01M46KTEP9J9KPQW73ZZBYB72B"
+    },
+    {
+      "human_decision": "exemplifies",
+      "human_note": "A regra 3 foi ativada porque o conceito específico de 'fim natural' na nota existente aplica a distinção geral entre princípios constitutivos e regulativos a um domínio concreto (a teleologia natural e o juízo reflexionante), sem adicionar novos mecanismos.",
+      "item_id": "R028",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Hui2026KantMachine::concept::d9850545|01M4A5GTY973P1MBAX3JXDK2RV|01M4A5CHKVKDG34XCGJR6PHZD7"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito novo apresenta o padrão ReAct como uma técnica e mecanismo específico para solucionar a limitação de planejamento multi-etapa apontada na nota existente.",
+      "item_id": "R029",
+      "sampling_stratum": "both",
+      "subject_id": "@IniciandoComPromptEngineering::concept::9a07ebee|01M46VMMV5ZQR7VE1PTXSCHTQF|01M46KWPESKB48CWEXXF8E1JA3"
+    },
+    {
+      "human_decision": "nenhuma",
+      "human_note": "Regra 7 ativada. Ambos os conceitos tratam de modelagem estatística, mas abordam domínios e objetivos completamente diferentes (GAMs para relações não lineares versus processos estocásticos e séries temporais). O tema em comum não justifica nenhuma conexão estrutural direta.",
+      "item_id": "R030",
+      "sampling_stratum": "neither",
+      "subject_id": "@Latorre2021AnáliseDe::concept::9f395297|01M34QC4BW8C7DXA9WQX7M5KYA|01M34Q9SMFP9XH0CKTHJFCDG91"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "A regra 6 (related) foi ativada porque ambas são técnicas avançadas de estruturação de raciocínio para modelos de linguagem que lidam com problemas complexos, funcionando como soluções alternativas ou complementares para o mesmo domínio.",
+      "item_id": "R031",
+      "sampling_stratum": "neither",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c1046af2|01M46VK69AMY1NSFH6ZNT0KT3P|01M49H2CPNZC356ZZDZD56M3MQ"
+    },
+    {
+      "human_decision": "exemplifies",
+      "human_note": "A regra 3 (exemplifies) foi ativada porque o novo conceito descreve um caso concreto de aplicação do ARIMA (o processo de diferenciação e seus limites) dentro do escopo geral já estabelecido pela nota existente, sem adicionar novos mecanismos estruturais fundamentais.",
+      "item_id": "R032",
+      "sampling_stratum": "both",
+      "subject_id": "@Latorre2021AnáliseDe::concept::250265ab|01M34QBHPMCH10WRWQHKSG22AY|01M34Q9CXJYXWF3ZDF0SF6HD3F"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o novo conceito propõe a separação estrita de prompts como um mecanismo técnico e uma solução arquitetural para mitigar a vulnerabilidade de sobrescrita descrita na nota existente.",
+      "item_id": "R033",
+      "sampling_stratum": "full_only",
+      "subject_id": "@PromptEngineering::concept::375c21d0|01M49Z3M6PE872K2C49MP8FG6Y|01M46VP0SV0ZCCMVECAGE2BK52"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito novo apresenta uma técnica específica de decomposição (least-to-most prompting) que soluciona diretamente a limitação de planejamento e raciocínio multi-passo apontada na nota existente.",
+      "item_id": "R034",
+      "sampling_stratum": "both",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c1046af2|01M46VK69AMY1NSFH6ZNT0KT3P|01M46KRSTQJMFJR8MW5GGZP2PN"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito novo adiciona um panorama macro de trade-offs arquiteturais (custo, qualidade e auditabilidade) que especializa e contextualiza técnicas específicas como a da nota existente.",
+      "item_id": "R035",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@PromptEngineering::concept::40f43f19|01M49H01C3AE7P8SQQWA3E4R07|01M46KS11622VY31BHVG8CWVM9"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "A regra 6 (related) foi ativada porque ambas são técnicas de prompting baseadas em decomposição para estruturar a resolução de problemas complexos, mas representam estratégias alternativas e independentes.",
+      "item_id": "R036",
+      "sampling_stratum": "neither",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c1046af2|01M46VK69AMY1NSFH6ZNT0KT3P|01M46VMDCF3GV0X34KDNVTRCH0"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o Least-to-Most acrescenta uma nova técnica e mecanismo de especialização (decomposição cumulativa ordenada) em cima do raciocínio passo a passo básico do Chain-of-Thought.",
+      "item_id": "R037",
+      "sampling_stratum": "both",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c1046af2|01M46VK69AMY1NSFH6ZNT0KT3P|01M46KS11622VY31BHVG8CWVM9"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada, pois o novo conceito especializa um dos pilares da nota existente (a verificação sistemática), introduzindo um mecanismo e técnica específica de mitigação de erros por verificação de rationale.",
+      "item_id": "R038",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::87ed1133|01M46KT1Q4Z9JF4QF8H2W0B9WE|01M46KSEJHT4XG53E10D9V99GS"
+    },
+    {
+      "human_decision": "nenhuma",
+      "human_note": "Regra 7 ativada: tema em comum não basta. Enquanto a nota existente aborda a ausência de semântica no processamento puramente sintático, o conceito novo trata das limitações práticas e dos artefatos estatísticos do fine-tuning supervisionado para raciocínio, sem conexão conceitual direta.",
+      "item_id": "R039",
+      "sampling_stratum": "neither",
+      "subject_id": "@Huang2021TowardsReasoning::concept::d30a9820|01M46KRK2FKN3VE0FX92CP95HK|01M49ZQWCXC2R0HDE6VMNA0FPZ"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o novo conceito aprofunda a nota existente, deslocando o foco da simples contenção do conflito para a sua função positiva e necessária na articulação do universal.",
+      "item_id": "R040",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Hui2026KantMachine::concept::efe54101|01M4A5JBJ5K1VRDJTB99BKYQC4|01M4A5HZ0GV0ZEFX0QK3N8C7Y5"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "Regra 6 ativada: a janela deslizante e a sumarização são soluções alternativas para o mesmo problema de gerenciamento de contexto em LLMs, mas uma não depende ou estende diretamente o mecanismo da outra.",
+      "item_id": "R041",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49YTN7VB2H2A0V066NBX8E3"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 foi ativada porque o conceito novo soluciona a limitação da nota existente ao propor a análise formal das justificativas para superar heurísticas superficiais, acrescentando um mecanismo de validação à verificação de rationales.",
+      "item_id": "R042",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::6b0db7f7|01M46KVWEG49VP86E4DDC4JS2F|01M46KT1Q4Z9JF4QF8H2W0B9WE"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "A regra 6 (related) foi ativada porque ambos tratam de estratégias de decomposição sequencial de problemas para LLMs, mas representam soluções alternativas com mecanismos distintos (least-to-most foca em contexto cumulativo de sub-problemas e prompt chaining em pipelines modulares).",
+      "item_id": "R043",
+      "sampling_stratum": "full_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c1046af2|01M46VK69AMY1NSFH6ZNT0KT3P|01M46VJZK2Q61JXJ39FXQZQ47G"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o padrão ReAct acrescenta um mecanismo e técnica específica (ciclos de pensamento, ação e observação) sobre o conceito geral de raciocínio intermediário da nota existente.",
+      "item_id": "R044",
+      "sampling_stratum": "full_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::9a07ebee|01M46VMMV5ZQR7VE1PTXSCHTQF|01M46KWWX58WBAF4RXPGNSB94E"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito novo adiciona mecanismos específicos, como o uso de checklist em Markdown e atualização visual de estado, à técnica geral descrita na nota existente.",
+      "item_id": "R045",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::89365447|01M46VMVE87WWHFGRSGT3G86WW|01M46KT8BGX71CT50AMD1ZHXEM"
+    },
+    {
+      "human_decision": "nenhuma",
+      "human_note": "Regra 7 ativada. Embora ambos os conceitos abordem temas correlatos sobre o universal e o plural, a tese do novo conceito trata da institucionalização do conflito político na filosofia, enquanto a nota existente foca no problema técnico-filosófico do alinhamento de IA, sendo uma relação temática fraca que não se encaixa nas regras anteriores.",
+      "item_id": "R046",
+      "sampling_stratum": "neither",
+      "subject_id": "@Hui2026KantMachine::concept::efe54101|01M4A5JBJ5K1VRDJTB99BKYQC4|01M4A562DVRNXSFF1Q57FG47S3"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito novo adiciona a especialização da expressão 'mecanismos teleológicos' sobre o arcabouço da terceira Crítica kantiana já estabelecido na nota existente.",
+      "item_id": "R047",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Hui2026KantMachine::concept::c77e38e5|01M4A51RVQE5BAW0MCK8SCDN3G|01M4A550QX7RWJXQ4KBXJQ3XXM"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito novo acrescenta um mecanismo específico ao problema da nota existente: a institucionalização do conflito como motor para a articulação do universal, expandindo a tese sobre a necessidade da tensão sistêmica.",
+      "item_id": "R048",
+      "sampling_stratum": "both",
+      "subject_id": "@Hui2026KantMachine::concept::efe54101|01M4A5JBJ5K1VRDJTB99BKYQC4|01M4A5PB0HDBKW8HAQ7Q229QPA"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "Regra 4 (extends) ativada: o conceito novo acrescenta uma consequencia epistemologica especifica ao tratar da incapacidade dos dados empiricos de eliminar a contingencia em sistemas tecnicos.",
+      "item_id": "R049",
+      "sampling_stratum": "both",
+      "subject_id": "@Hui2026KantMachine::concept::878f4a61|01M4A575EYQYZGRRRSEZ6D1GTC|01M49ZSGFXTMB33VH2H0SWQY8D"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 foi ativada porque o conceito novo especializa e generaliza a distinção entre princípios constitutivos e regulativos, expandindo a aplicação da tese existente para a estrutura da experiência com o entendimento.",
+      "item_id": "R050",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Hui2026KantMachine::concept::d9850545|01M4A5GTY973P1MBAX3JXDK2RV|01M4A5HGJGNTRHR1R8HEHERF09"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 foi ativada porque o conceito novo aplica o problema de heuristicas superficiais (nota existente) ao contexto especifico do fine-tuning totalmente supervisionado e seus artefatos, acrescentando um mecanismo e especializacao.",
+      "item_id": "R051",
+      "sampling_stratum": "both",
+      "subject_id": "@Huang2021TowardsReasoning::concept::d30a9820|01M46KRK2FKN3VE0FX92CP95HK|01M46KVWEG49VP86E4DDC4JS2F"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "Regra 4 (extends) ativada: o conceito novo acrescenta um mecanismo específico e consequência sobre custos e latência ao discutir a técnica de Chain-of-Thought dentro do trade-off triplo estabelecido na nota existente.",
+      "item_id": "R052",
+      "sampling_stratum": "neither",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c7846f0a|01M46VND70FX9K3D02PW4PR0DB|01M49H01C3AE7P8SQQWA3E4R07"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o Zero-shot-CoT acrescenta uma técnica e um mecanismo específico (gatilho textual sem exemplos few-shot) para resolver uma limitação da nota existente.",
+      "item_id": "R053",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::0f23b62c|01M46KS82R8FSSS9WQ951ZG5NQ|01M46KW9B2SVAD9AKJ45B1J28K"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito do Handelsgeist adiciona um mecanismo econômico específico (a interdependência comercial) que concretiza o funcionamento do algoritmo sistêmico da peace machine.",
+      "item_id": "R054",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Hui2026KantMachine::concept::5e18cedf|01M4A5MWFYVQWC69SQF0MZAD3J|01M4A5GMDK87CH6Q2JWRFG52B5"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o novo conceito propõe a superação de uma limitação da nota existente (o in-context learning falha em múltiplos passos, o qual o ReAct resolve).",
+      "item_id": "R055",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::4ff6eb9a|01M46KRSTQJMFJR8MW5GGZP2PN|01M46VMMV5ZQR7VE1PTXSCHTQF"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito novo aplica a crítica epistemológica à indução em sistemas técnicos e financeiros, estendendo a consequência prática da limitação empirista descrita na nota existente.",
+      "item_id": "R056",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Hui2026KantMachine::concept::878f4a61|01M4A575EYQYZGRRRSEZ6D1GTC|01M4A4T1D74G8YM1GZS3QWWKDB"
+    },
+    {
+      "human_decision": "nenhuma",
+      "human_note": "A regra 7 foi ativada porque ambos tratam de técnicas de LLM, mas abordam problemas e mecanismos completamente distintos (abordagem híbrida de parâmetros versus HyDE para busca vetorial), não havendo conexão direta.",
+      "item_id": "R057",
+      "sampling_stratum": "neither",
+      "subject_id": "@Huang2021TowardsReasoning::concept::e126d922|01M46KTMS37SNTXRZS04TQHNQK|01M49ZGG7A7PWKAZ6RX7TB7P50"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o novo conceito adiciona um mecanismo de síntese de programas à tupla formal existente, especificando como os dados são convertidos.",
+      "item_id": "R058",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Kim2022KantAnd::concept::fbdda008|01M4A6DVDRXWT4SAWWGHJV48SA|01M4A6F6R7D6S4PV92YG9G81DN"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "Ativada a regra 4 (extends): o conceito novo acrescenta um mecanismo específico (a janela deslizante) para gerenciar e mitigar o problema do tamanho da janela de contexto apresentado na nota existente.",
+      "item_id": "R059",
+      "sampling_stratum": "full_only",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49YSSMC2PRG2N8HJQFY89KN"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o novo conceito aprofunda a nota existente ao conectar o mecanismo cibernético de feedback diretamente à estratégia filosófica da Crítica do Juízo de Kant.",
+      "item_id": "R060",
+      "sampling_stratum": "both",
+      "subject_id": "@Hui2026KantMachine::concept::c77e38e5|01M4A51RVQE5BAW0MCK8SCDN3G|01M4A50EBT8D9M8M2KS3VXZ6FQ"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito novo soluciona uma limitação da nota existente ao propor a análise formal de justificativas para distinguir heurísticas superficiais de raciocínio real.",
+      "item_id": "R061",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::6b0db7f7|01M46KVWEG49VP86E4DDC4JS2F|01M46KWWX58WBAF4RXPGNSB94E"
+    },
+    {
+      "human_decision": "exemplifies",
+      "human_note": "A regra 3 foi ativada porque o conceito novo aplica o raciocínio indutivo a um domínio específico (séries temporais), funcionando como um caso concreto da nota existente sem acrescentar um novo mecanismo estrutural.",
+      "item_id": "R062",
+      "sampling_stratum": "both",
+      "subject_id": "@Latorre2021AnáliseDe::concept::e0bd5fff|01M34Q9SMFP9XH0CKTHJFCDG91|01M46KR5EA2XAAMJVG45MR2A00"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o novo conceito acrescenta um mecanismo específico (a tradução explícita de normas em regras computacionais devido à ausência de mediação social tácita) para lidar com a lacuna ética na tomada de decisão algorítmica.",
+      "item_id": "R063",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Kim2022KantAnd::concept::3bc7f979|01M4A87VZYYZMA0ZT0ZPMPD3EN|01M4A80JV3FEGP73D361TBH0A3"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito do SARIMA acrescenta um mecanismo tecnico especifico (funcoes trigonometricas para sazonalidade estocastica) sobre a base de decomposicao de series temporais e sazonalidade descrita na nota existente.",
+      "item_id": "R064",
+      "sampling_stratum": "both",
+      "subject_id": "@Latorre2021AnáliseDe::concept::1e363a1e|01M34QBR6AYRNG6KDXNETWNKS8|01M34Q9ZGSHTHW11JVJVAGXH0B"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito novo descreve a janela deslizante genérica e suas limitações gerais, enquanto a nota existente especializa essa técnica ao adicionar um mecanismo de arquivamento persistente para solucionar o problema de perda de dados.",
+      "item_id": "R065",
+      "sampling_stratum": "both",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49YWKSRHXKD4P25J8KVTS5J"
+    },
+    {
+      "human_decision": "nenhuma",
+      "human_note": "A regra 7 foi ativada, pois o novo conceito trata de Modelos Lineares Generalizados enquanto a nota existente trata de sazonalidade e regressão linear com funções harmônicas; tema em comum (estatística/séries temporais) não basta.",
+      "item_id": "R066",
+      "sampling_stratum": "neither",
+      "subject_id": "@Latorre2021AnáliseDe::concept::1902c93d|01M34Q91C5P0Q8YMSWMBWY5SHT|01M34QARHHXXTES8ZFVZV764HD"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "Regra 4 (extends) ativada: o conceito novo acrescenta um mecanismo tecnico especifico (Least-to-Most Prompting com checklist) que soluciona diretamente a limitação apontada na nota existente sobre a ausencia de planejamento e decomposição.",
+      "item_id": "R067",
+      "sampling_stratum": "both",
+      "subject_id": "@IniciandoComPromptEngineering::concept::89365447|01M46VMVE87WWHFGRSGT3G86WW|01M46KRSTQJMFJR8MW5GGZP2PN"
+    },
+    {
+      "human_decision": "nenhuma",
+      "human_note": "Regra 7 ativada: a janela deslizante trata do gerenciamento de contexto por limite de tokens, enquanto o Prompt Chaining aborda a decomposição de tarefas em pipelines. Ambas lidam com LLMs, mas tratam de problemas distintos, configurando apenas um tema em comum.",
+      "item_id": "R068",
+      "sampling_stratum": "neither",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49H3ET2P8045PKB4STV152W"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 ('extends') foi ativada porque o conceito novo aplica a distinção kantiana de princípios regulativos a um novo domínio (a cibernética e os mecanismos teleológicos), especializando e expandindo o uso da teoria da nota existente.",
+      "item_id": "R069",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Hui2026KantMachine::concept::c77e38e5|01M4A51RVQE5BAW0MCK8SCDN3G|01M4A5GTY973P1MBAX3JXDK2RV"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "Regra 4 (extends) ativada, pois o conceito novo resolve a limitacao da avaliacao tradicional apontada pela nota existente ao introduzir abordagens formais de analise passo a passo das justificativas.",
+      "item_id": "R070",
+      "sampling_stratum": "both",
+      "subject_id": "@Huang2021TowardsReasoning::concept::6b0db7f7|01M46KVWEG49VP86E4DDC4JS2F|01M46KX3CVESGN341KZSHEWVXD"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O nível 4 (extends) foi ativado porque o conceito novo detalha um mecanismo específico (janela deslizante pura) que a nota existente utiliza como parte de uma arquitetura composta (sumarização + janela deslizante), especializando a abordagem.",
+      "item_id": "R071",
+      "sampling_stratum": "neither",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49YWZMD33F919845ZKZWBG7"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada, pois o conceito novo especializa e detalha o mecanismo de separação entre System Prompt e User Prompt que é apenas mencionado brevemente na nota existente.",
+      "item_id": "R072",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@PromptEngineering::concept::375c21d0|01M49Z3M6PE872K2C49MP8FG6Y|01M49Z2Y7J2Q61Q4EXXEBHQ36H"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito novo (GLM) abrange uma classe mais ampla de modelos estatísticos, da qual a nota existente (GAM de Poisson) é uma especialização que adiciona componentes não lineares e funções de alisamento.",
+      "item_id": "R073",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Latorre2021AnáliseDe::concept::1902c93d|01M34Q91C5P0Q8YMSWMBWY5SHT|01M34QCA8GCAPEWFRQFRSZ6VRT"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o novo conceito adiciona um mecanismo técnico específico (síntese de programas) que especializa o processo de unificação entre intuição e entendimento descrito na nota existente.",
+      "item_id": "R074",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Kim2022KantAnd::concept::fbdda008|01M4A6DVDRXWT4SAWWGHJV48SA|01M4A01ANYQB0R00DH0094XGEJ"
+    },
+    {
+      "human_decision": "depends_on",
+      "human_note": "A regra 2 (depends_on) foi ativada porque o enativismo, como teoria da cognição baseada no acoplamento estrutural e na autonomia, é construído diretamente sobre o conceito de autopoiese (vida como organização autoprodutiva), sendo impossível entendê-lo plenamente sem essa base biológica.",
+      "item_id": "R075",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Kim2022KantAnd::concept::c2b0ffe7|01M49ZYMNDAJFPANH78ZZH8QTX|01M49ZZJ0FE4N7HH7CNH87MW3H"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito novo especializa a unificação da nota existente ao dividi-la em duas categorias (matemática e dinâmica), acrescentando mecanismos e condições específicas para cada tipo de síntese.",
+      "item_id": "R076",
+      "sampling_stratum": "neither",
+      "subject_id": "@Kim2022KantAnd::concept::0463e102|01M4A65C3TE7RSHE4TXS48MZHY|01M4A62RWQ1Y90W460ZX0Y3631"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o novo conceito generaliza e formaliza a tese da unidade sintética da apercepção, especializando o mecanismo computacional da tupla já introduzida na nota existente.",
+      "item_id": "R077",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Kim2022KantAnd::concept::23d01b71|01M4A6BAKRBEWB36ASW4S4F6Z3|01M4A6EH3Q2JPWGATKH7VPW8QC"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A regra 4 (extends) foi ativada porque o conceito novo acrescenta uma crítica detalhada sobre a falta de confiabilidade das intuições morais, fornecendo um mecanismo que reforça e especializa a rejeição da proliferação de variações hipotética proposta na nota existente.",
+      "item_id": "R078",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Kim2022KantAnd::concept::a212e922|01M4A7X0K2W59VWDANNPKMS054|01M4A7N88WJ324ES4G79GJ3ESP"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "A regra 6 foi ativada porque ambos tratam de decomposição de tarefas para agentes/modelos, mas o conceito novo aborda execução paralela independente com orquestração centralizada, enquanto a nota existente trata de pipelines sequenciais interconectados.",
+      "item_id": "R079",
+      "sampling_stratum": "neither",
+      "subject_id": "@PromptEngineering::concept::e1251fcd|01M49Z4QN8BW9CCHCDTBFETPNN|01M49GZCTRFEPXP4Z4JYTBBFEK"
+    },
+    {
+      "human_decision": "supports",
+      "human_note": "A regra 5 ('supports') foi ativada porque o conceito novo traz argumentos e distinções sobre princípios constitutivos e regulativos que reforçam a mesma tese da nota existente, sem introduzir um mecanismo novo ou contradição.",
+      "item_id": "R080",
+      "sampling_stratum": "both",
+      "subject_id": "@Hui2026KantMachine::concept::d9850545|01M4A5GTY973P1MBAX3JXDK2RV|01M4A5H2CN50VGMGFN8NCP509G"
+    }
+  ],
+  "method": "manual_blind",
+  "site": "relations"
+}

@@ -119,6 +119,8 @@ def test_summary_reports_validity_edges_and_stability():
     summary = summarize_runs(snapshot, runs, [("trunc-a", "full-a")])
     assert summary["runs"]["full-a"]["invalid_share"] == 0.5
     assert summary["runs"]["trunc-a"]["edges_per_note"] == 0.5
+    assert summary["runs"]["trunc-a"]["max_edges"] == 1
+    assert summary["runs"]["trunc-a"]["share_at_most_4_edges"] == 1.0
     assert summary["stability"]["trunc"] == {"pairs": 3, "agreement": 0.6667}
     assert summary["agreement"]["trunc-a x full-a"] == {"pairs": 2, "agreement": 0.0}
     assert summary["stability"]["full"] == {"pairs": 0, "agreement": None}  # full-b is empty
@@ -190,3 +192,17 @@ def test_revision_sheet_shows_the_previous_label_and_the_new_rules(tmp_path):
     assert rows["R001"]["relacao_anterior"] == "related" and rows["R001"]["relacao"] == ""
     text = reading.read_text(encoding="utf-8")
     assert "R001 — antes: `related`" in text and "tema em comum não basta" in text
+
+
+def test_strata_follow_the_compared_runs():
+    snapshot = [_item("k1", [A, B])]
+    runs = {
+        "current:trunc-a": {"k1": _accepted(**{A: "extends"})},
+        "new:trunc-a": {"k1": _accepted(**{B: "related"})},
+    }
+    pairs, _ = build_pairs(snapshot, runs, ("current:trunc-a", "new:trunc-a"))
+    assert {p["note_id"]: p["sampling_stratum"] for p in pairs} == {
+        A: "current_only",
+        B: "new_only",
+    }
+    assert pairs[0]["answers"] == {"current:trunc-a": "extends", "new:trunc-a": NO_EDGE}
