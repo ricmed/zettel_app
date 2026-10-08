@@ -1,0 +1,567 @@
+{
+  "key_exported_at": "2026-10-08T13:46:13.054550+00:00",
+  "labels": [
+    {
+      "human_decision": "contradicts",
+      "human_note": "O nativismo defende estruturas cognitivas inatas e anteriores à experiência, o que entra em direto contraste com a tese kantiana da nota existente de que as categorias do entendimento são derivadas da atividade espontânea das faculdades sobre dados sensoriais.",
+      "item_id": "R001",
+      "sampling_stratum": "both",
+      "subject_id": "@Hui2026KantMachine::concept::c97e9160|01M49ZPHQ9TH9ZJVDPM9TZS2D3|01M4A5Y8TBQKA9Y3X50JCRP2X9"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo aprofunda a nota existente ao especificar a mecânica e a intuição do least-to-most prompting, focando na ordenação do mais simples ao mais complexo e no reuso cumulativo de soluções.",
+      "item_id": "R002",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c1046af2|01M46VK69AMY1NSFH6ZNT0KT3P|01M46KT8BGX71CT50AMD1ZHXEM"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo expande o escopo do ecossistema de engenharia de prompts ao introduzir testes automatizados para os artefatos gerenciados pelo registry, aprofundando a garantia de qualidade no ciclo de vida do prompt.",
+      "item_id": "R003",
+      "sampling_stratum": "neither",
+      "subject_id": "@PromptEngineering::concept::b983e893|01M49ZA5Z518VGSX5GZYAZRCFY|01M49Z8EY0AH51KJ5QPQPGHKAA"
+    },
+    {
+      "human_decision": "depends_on",
+      "human_note": "O conceito novo descreve uma limitação fundamental do fine-tuning supervisionado puro, que é justamente a técnica de alteração paramétrica sobre a qual a abordagem híbrida da nota existente se apoia e tenta mitigar.",
+      "item_id": "R004",
+      "sampling_stratum": "neither",
+      "subject_id": "@Huang2021TowardsReasoning::concept::d30a9820|01M46KRK2FKN3VE0FX92CP95HK|01M46KTMS37SNTXRZS04TQHNQK"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "Ambos os conceitos compartilham o arcabouço filosófico de Immanuel Kant, mas tratam de domínios distintos: a nota existente foca na autonomia da moralidade pura, enquanto o conceito novo aborda a dinâmica empírica do comércio e da paz internacional.",
+      "item_id": "R005",
+      "sampling_stratum": "neither",
+      "subject_id": "@Hui2026KantMachine::concept::5e18cedf|01M4A5MWFYVQWC69SQF0MZAD3J|01M4A7867TV7ZQ31SW03SPCCPE"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo aplica o princípio geral do custo computacional quadrático do contexto (nota existente) a um caso específico, demonstrando como a redundância de Chain-of-Thought incha o contexto e eleva custos sem ganho analítico.",
+      "item_id": "R006",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c7846f0a|01M46VND70FX9K3D02PW4PR0DB|01M49YXCBR92YFGCRGH5BGQ31C"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo especializa a discussão sobre a dimensão da 'qualidade' e 'custo' da nota existente ao focar especificamente em técnicas de few-shot para classificação de logs. Ele aprofunda como a curadoria de exemplos impacta a eficiência e a precisão do prompt em um domínio prático.",
+      "item_id": "R007",
+      "sampling_stratum": "neither",
+      "subject_id": "@IniciandoComPromptEngineering::concept::e6baa53b|01M46VN1A1CFSTXJ5CCV4BTBC9|01M49H01C3AE7P8SQQWA3E4R07"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo expande a lógica de múltiplos passos da nota existente para um modelo de execução concorrente e paralela, mantendo a preocupação com a gestão de estado.",
+      "item_id": "R008",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@PromptEngineering::concept::e1251fcd|01M49Z4QN8BW9CCHCDTBFETPNN|01M49YY39EZZDM11GXPAP3DM5F"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo expande a nota existente ao analisar especificamente o impacto de adicionar instruções de Chain-of-Thought externo sobre modelos que já possuem raciocínio interno nativo.",
+      "item_id": "R009",
+      "sampling_stratum": "both",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c7846f0a|01M46VND70FX9K3D02PW4PR0DB|01M49YMNV2H526KXVVGCSW1C7G"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo expande a exigência de explicitação de regras da nota existente, aplicando-a especificamente à tradução de normas sociais implícitas em padrões computacionais e avaliação moral.",
+      "item_id": "R010",
+      "sampling_stratum": "both",
+      "subject_id": "@Kim2022KantAnd::concept::3bc7f979|01M4A87VZYYZMA0ZT0ZPMPD3EN|01M4A6K6CJ7WERBJTK3WVHSFKB"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A abordagem híbrida amplia o escopo da nota existente ao integrar a modificação estrutural de parâmetros com técnicas de prompting, indo além do mero ajuste fino baseado em autotreinamento de cadeias de pensamento.",
+      "item_id": "R011",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::e126d922|01M46KTMS37SNTXRZS04TQHNQK|01M46KV28T4CJQAE5KTQFR6FVA"
+    },
+    {
+      "human_decision": "depends_on",
+      "human_note": "O modelo ARIMA pressupõe o conceito de estacionariedade como condição fundamental, pois utiliza a diferenciação exatamente para eliminar tendências e satisfazer essa premissa.",
+      "item_id": "R012",
+      "sampling_stratum": "both",
+      "subject_id": "@Latorre2021AnáliseDe::concept::250265ab|01M34QBHPMCH10WRWQHKSG22AY|01M34QB4TVAQCHYGJD74YWG5TP"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo apresenta o Chain-of-Thought como solução direta para a falha de planejamento e raciocínio multi-passo identificada na nota existente, aprofundando o mecanismo de in-context learning.",
+      "item_id": "R013",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::6d5e77e5|01M46KS11622VY31BHVG8CWVM9|01M46KRSTQJMFJR8MW5GGZP2PN"
+    },
+    {
+      "human_decision": "depends_on",
+      "human_note": "O conceito novo sobre janela deslizante pressupõe a existência de limites na janela de contexto mencionados na nota existente, pois a técnica surge exatamente para gerenciar essa restrição arquitetural.",
+      "item_id": "R014",
+      "sampling_stratum": "neither",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M46VKCYRBR2R433TGW33ZWK3"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo aprofunda e especializa a tese da nota existente sobre o papel do conflito como motor da universalidade, focando especificamente em sua institucionalização e desdobramentos em obras tardias.",
+      "item_id": "R015",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Hui2026KantMachine::concept::efe54101|01M4A5JBJ5K1VRDJTB99BKYQC4|01M4A5J5A3DNWE77PY1ZM1ACTA"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "Ambos os conceitos tratam do tratamento e análise de séries temporais não estacionárias, focando na identificação e remoção de tendências, mas abordam métodos analíticos diferentes (modelagem ARIMA versus decomposição clássica).",
+      "item_id": "R016",
+      "sampling_stratum": "both",
+      "subject_id": "@Latorre2021AnáliseDe::concept::250265ab|01M34QBHPMCH10WRWQHKSG22AY|01M34Q9ZGSHTHW11JVJVAGXH0B"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "Ambos s'o modelos estatísticos aplicados a análise de dados e séries temporais, mas operam em fundamentos matemáticos e propósitos diferentes, sem uma depend\não estrutural direta.",
+      "item_id": "R017",
+      "sampling_stratum": "neither",
+      "subject_id": "@Latorre2021AnáliseDe::concept::1902c93d|01M34Q91C5P0Q8YMSWMBWY5SHT|01M34QBAWKG7MQVZEHRSPK4JBH"
+    },
+    {
+      "human_decision": "exemplifies",
+      "human_note": "O conceito geral de nativismo e empirismo em ciência cognitiva atua como o fundamento teórico que a nota existente aplica e exemplifica especificamente no contexto da arquitetura de inteligência artificial.",
+      "item_id": "R018",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Hui2026KantMachine::concept::c97e9160|01M49ZPHQ9TH9ZJVDPM9TZS2D3|01M4A5V4PJR0KFC4FVCTGK3PFJ"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O teste automatizado de templates abordado no novo conceito aprofunda a garantia de contratos de dados em pipelines mencionada na nota existente, validando não apenas a saída em JSON, mas também a integridade estrutural do prompt antes da execução.",
+      "item_id": "R019",
+      "sampling_stratum": "full_only",
+      "subject_id": "@PromptEngineering::concept::b983e893|01M49ZA5Z518VGSX5GZYAZRCFY|01M49Z1VYEH50AHE2ED4TP7GDX"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A janela deslizante aborda justamente a limitação de escalabilidade quadrática da nota existente, propondo uma solução prática para gerenciar sequências que ultrapassam o limite computacional do self-attention.",
+      "item_id": "R020",
+      "sampling_stratum": "neither",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49ZTPTDDM5YN368HGC2Y5S7"
+    },
+    {
+      "human_decision": "nenhuma",
+      "human_note": "O conceito novo trata do problema topográfico da consciência e da 'sede da alma', enquanto a nota existente discute a inseparabilidade entre percepção de alto nível e processos cognitivos. Não há dependência direta ou intersecção argumentativa que justifique um link.",
+      "item_id": "R021",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Kim2022KantAnd::concept::e5ff5fc4|01M49ZY5FQRD6YTNZG3GY30BPV|01M4A6RGEAAATQV8YR8EW8EVV0"
+    },
+    {
+      "human_decision": "depends_on",
+      "human_note": "A estratégia de janela deslizante depende diretamente do imperativo de eficiência tratado na nota existente, pois busca conter a complexidade computacional quadrática limitando o volume de tokens processados.",
+      "item_id": "R022",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49YXCBR92YFGCRGH5BGQ31C"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo aprofunda a nota existente ao detalhar como aplicar uma abordagem enxuta de poucos exemplos (few-shot) para otimizar a eficiência na classificação de logs sem incorrer em custos excessivos.",
+      "item_id": "R023",
+      "sampling_stratum": "full_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::e6baa53b|01M46VN1A1CFSTXJ5CCV4BTBC9|01M49Z2C3X04M4X447P324H1XA"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo aplica especificamente o arcabouço teórico dos Modelos Aditivos Generalizados (GAM) introduzidos na nota existente para resolver um problema causal e epidemiológico específico: isolar o impacto da poluição atmosférica controlando fatores de confusão.",
+      "item_id": "R024",
+      "sampling_stratum": "both",
+      "subject_id": "@Latorre2021AnáliseDe::concept::ce042c29|01M34QCA8GCAPEWFRQFRSZ6VRT|01M34Q9K90M9PQ22XCEQ2B7XPY"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo aprofunda a nota existente ao introduzir uma análise detalhada sobre o equilíbrio empírico entre a escassez e o excesso de exemplos no few-shot prompting.",
+      "item_id": "R025",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::5e6a7288|01M46VHMWS3WXKRF7FFNJKYMC7|01M49Z06YNF1NA72NQDQQ385Z3"
+    },
+    {
+      "human_decision": "nenhuma",
+      "human_note": "O conceito novo trata de modelos aditivos generalizados com suavização não paramétrica para controle de sazonalidade na poluição, enquanto a nota existente aborda a centralização de tempo em regressão polinomial para mitigar multicolinearidade. Tratam-se de abordagens estatísticas distintas sem dependência ou extensão direta entre si.",
+      "item_id": "R026",
+      "sampling_stratum": "neither",
+      "subject_id": "@Latorre2021AnáliseDe::concept::ce042c29|01M34QCA8GCAPEWFRQFRSZ6VRT|01M34QA540HDRX8GSTN6B24NB4"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "Ambos os conceitos descrevem frameworks iterativos baseados em LLMs para decompor e resolver problemas complexos através de ciclos estruturados. No entanto, operam com abordagens distintas (ReAct foca em pensamento, ação e observação; seleção-inferência foca em curadoria de fatos e dedução), justificando uma relação temática mas sem dependência ou extensão direta.",
+      "item_id": "R027",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::9a07ebee|01M46VMMV5ZQR7VE1PTXSCHTQF|01M46KTEP9J9KPQW73ZZBYB72B"
+    },
+    {
+      "human_decision": "exemplifies",
+      "human_note": "O conceito geral de princípios constitutivos versus regulativos serve como a moldura teórica da qual a distinção kantiana sobre o fim natural na nota existente é um caso particular.",
+      "item_id": "R028",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Hui2026KantMachine::concept::d9850545|01M4A5GTY973P1MBAX3JXDK2RV|01M4A5CHKVKDG34XCGJR6PHZD7"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O padrão ReAct atua diretamente sobre a falha de planejamento multi-etapa apontada na nota existente, oferecendo uma solução metodológica baseada em ciclos de raciocínio e ação.",
+      "item_id": "R029",
+      "sampling_stratum": "both",
+      "subject_id": "@IniciandoComPromptEngineering::concept::9a07ebee|01M46VMMV5ZQR7VE1PTXSCHTQF|01M46KWPESKB48CWEXXF8E1JA3"
+    },
+    {
+      "human_decision": "nenhuma",
+      "human_note": "O conceito novo trata de Modelos Aditivos Generalizados para estimar não-linearidades, enquanto a nota existente aborda processos estocásticos e séries temporais. Não há dependência direta ou extensão conceitual entre essas abordagens estatísticas distintas.",
+      "item_id": "R030",
+      "sampling_stratum": "neither",
+      "subject_id": "@Latorre2021AnáliseDe::concept::9f395297|01M34QC4BW8C7DXA9WQX7M5KYA|01M34Q9SMFP9XH0CKTHJFCDG91"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "Ambas são técnicas avançadas de estruturação de raciocínio para grandes modelos de linguagem focadas na resolução de problemas complexos, mas operam por paradigmas distintos (decomposição sequencial versus exploração hierárquica em árvore).",
+      "item_id": "R031",
+      "sampling_stratum": "neither",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c1046af2|01M46VK69AMY1NSFH6ZNT0KT3P|01M49H2CPNZC356ZZDZD56M3MQ"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O novo conceito aprofunda e detalha o funcionamento interno e os limites da diferenciação no modelo ARIMA, detalhando aspectos que a nota existente apenas menciona de forma geral.",
+      "item_id": "R032",
+      "sampling_stratum": "both",
+      "subject_id": "@Latorre2021AnáliseDe::concept::250265ab|01M34QBHPMCH10WRWQHKSG22AY|01M34Q9CXJYXWF3ZDF0SF6HD3F"
+    },
+    {
+      "human_decision": "depends_on",
+      "human_note": "O conceito novo propõe a separação estrutural entre System Prompt e User Prompt como solução, o que pressupõe diretamente a vulnerabilidade descrita na nota existente onde instruções do usuário sobrescrevem o papel do sistema.",
+      "item_id": "R033",
+      "sampling_stratum": "full_only",
+      "subject_id": "@PromptEngineering::concept::375c21d0|01M49Z3M6PE872K2C49MP8FG6Y|01M46VP0SV0ZCCMVECAGE2BK52"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O least-to-most prompting resolve diretamente a limitação de planejamento e decomposição apontada na nota existente, estendendo o in-context learning com uma estrutura sequencial de sub-problemas.",
+      "item_id": "R034",
+      "sampling_stratum": "both",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c1046af2|01M46VK69AMY1NSFH6ZNT0KT3P|01M46KRSTQJMFJR8MW5GGZP2PN"
+    },
+    {
+      "human_decision": "depends_on",
+      "human_note": "O conceito novo trata a auditabilidade e o raciocínio multi-etapas como parte de um trade-off triplo, o que pressupõe técnicas como o Chain-of-Thought descritas na nota existente para justificar a necessidade de auditoria.",
+      "item_id": "R035",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@PromptEngineering::concept::40f43f19|01M49H01C3AE7P8SQQWA3E4R07|01M46KS11622VY31BHVG8CWVM9"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "Ambos os conceitos tratam de técnicas de engenharia de prompt voltadas para a decomposição e resolução estruturada de tarefas complexas por modelos de linguagem. No entanto, operam de formas distintas (sequencial acumulativa versus macroestruturação seguida de expansão), não havendo dependência direta ou extensão estrita entre eles.",
+      "item_id": "R036",
+      "sampling_stratum": "neither",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c1046af2|01M46VK69AMY1NSFH6ZNT0KT3P|01M46VMDCF3GV0X34KDNVTRCH0"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O least-to-most prompting amplia o conceito de raciocínio intermediário do Chain-of-Thought ao introduzir uma decomposição estruturada e sequencial em sub-problemas com contexto cumulativo.",
+      "item_id": "R037",
+      "sampling_stratum": "both",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c1046af2|01M46VK69AMY1NSFH6ZNT0KT3P|01M46KS11622VY31BHVG8CWVM9"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo aprofunda um dos pilares específicos da nota existente (a verificação da validade de etapas intermediárias), detalhando seus mecanismos e custos computacionais.",
+      "item_id": "R038",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::87ed1133|01M46KT1Q4Z9JF4QF8H2W0B9WE|01M46KSEJHT4XG53E10D9V99GS"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "Ambos os conceitos abordam as limitações de modelos baseados em processamento formal ou estatístico (sintático) para atingirem uma compreensão semântica ou generalização genuína. No entanto, tratam de níveis distintos de análise, focando o conceito novo na restrição do fine-tuning supervisionado e a nota existente no paradoxo da mecanização simbólica.",
+      "item_id": "R039",
+      "sampling_stratum": "neither",
+      "subject_id": "@Huang2021TowardsReasoning::concept::d30a9820|01M46KRK2FKN3VE0FX92CP95HK|01M49ZQWCXC2R0HDE6VMNA0FPZ"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo aprofunda o limite final da nota existente, transformando a mera contenção da violência física em um motor ativo para a articulação do universal.",
+      "item_id": "R040",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Hui2026KantMachine::concept::efe54101|01M4A5JBJ5K1VRDJTB99BKYQC4|01M4A5HZ0GV0ZEFX0QK3N8C7Y5"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "A janela deslizante e a sumarização representam abordagens alternativas ou complementares para gerenciar os limites de contexto em LLMs, sendo a primeira um corte estrutural e a segunda uma condensação. O novo conceito amplia o escopo de técnicas de gerenciamento de contexto para além da sumarização descrita na nota existente.",
+      "item_id": "R041",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49YTN7VB2H2A0V066NBX8E3"
+    },
+    {
+      "human_decision": "depends_on",
+      "human_note": "O conceito novo argumenta que a acurácia isolada não garante raciocínio genuíno e propõe a análise de rationales, o que pressupõe o mecanismo de verificação e controle de passos intermediários descrito na nota existente.",
+      "item_id": "R042",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::6b0db7f7|01M46KVWEG49VP86E4DDC4JS2F|01M46KT1Q4Z9JF4QF8H2W0B9WE"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O least-to-most prompting especializa a ideia geral de decomposição e encadeamento de tarefas da nota existente, focando especificamente em ordenar sub-problemas do mais simples ao mais complexo com contexto cumulativo.",
+      "item_id": "R043",
+      "sampling_stratum": "full_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c1046af2|01M46VK69AMY1NSFH6ZNT0KT3P|01M46VJZK2Q61JXJ39FXQZQ47G"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O padrão ReAct especializa o conceito geral de raciocínio explícito da nota existente ao introduzir um framework iterativo específico que intercala pensamento, ação e observação.",
+      "item_id": "R044",
+      "sampling_stratum": "full_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::9a07ebee|01M46VMMV5ZQR7VE1PTXSCHTQF|01M46KWWX58WBAF4RXPGNSB94E"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo especializa a nota existente ao introduzir uma implementação específica (checklist em Markdown e atualização de estado visual) para a técnica geral de decomposição e resolução sequencial.",
+      "item_id": "R045",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::89365447|01M46VMVE87WWHFGRSGT3G86WW|01M46KT8BGX71CT50AMD1ZHXEM"
+    },
+    {
+      "human_decision": "contradicts",
+      "human_note": "O conceito novo defende que o conflito institucionalizado é o motor necessário para articular o universal, enquanto a nota existente argumenta que a busca por valores universais estáveis no alinhamento de IA é frágil devido à irredutível pluralidade e divergência das normas.",
+      "item_id": "R046",
+      "sampling_stratum": "neither",
+      "subject_id": "@Hui2026KantMachine::concept::efe54101|01M4A5JBJ5K1VRDJTB99BKYQC4|01M4A562DVRNXSFF1Q57FG47S3"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O novo conceito aprofunda a nota existente ao direcionar a aplicação da terceira Crítica para a expressão cibernética específica de 'mecanismos teleológicos', focando na explicabilidade algorítmica da aparência e na finalidade imanente.",
+      "item_id": "R047",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Hui2026KantMachine::concept::c77e38e5|01M4A51RVQE5BAW0MCK8SCDN3G|01M4A550QX7RWJXQ4KBXJQ3XXM"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O novo conceito aprofunda a tese da nota existente ao mostrar como o conflito, além de evitar a estagnação sistêmica, torna-se especificamente a condição para a articulação do universal e a regulação institucional em obras tardias.",
+      "item_id": "R048",
+      "sampling_stratum": "both",
+      "subject_id": "@Hui2026KantMachine::concept::efe54101|01M4A5JBJ5K1VRDJTB99BKYQC4|01M4A5PB0HDBKW8HAQ7Q229QPA"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O novo conceito aprofunda a crítica empirista tratada na nota existente, demonstrando que a falha dos modelos estatísticos decorre diretamente da vulnerabilidade estrutural da indução frente à contingência.",
+      "item_id": "R049",
+      "sampling_stratum": "both",
+      "subject_id": "@Hui2026KantMachine::concept::878f4a61|01M4A575EYQYZGRRRSEZ6D1GTC|01M49ZSGFXTMB33VH2H0SWQY8D"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo aborda a distinção geral entre princípios constitutivos e regulativos na razão teórica, enquanto a nota existente especializa essa mesma dicotomia no contexto específico do juízo e da teleologia na Crítica da Faculdade do Juízo.",
+      "item_id": "R050",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Hui2026KantMachine::concept::d9850545|01M4A5GTY973P1MBAX3JXDK2RV|01M4A5HGJGNTRHR1R8HEHERF09"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo expande a tese da nota existente ao focar em um método específico (o fine-tuning totalmente supervisionado) que exemplifica como os modelos aprendem atalhos e artefatos superficiais em vez de raciocínio genuíno.",
+      "item_id": "R051",
+      "sampling_stratum": "both",
+      "subject_id": "@Huang2021TowardsReasoning::concept::d30a9820|01M46KRK2FKN3VE0FX92CP95HK|01M46KVWEG49VP86E4DDC4JS2F"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo aprofunda a dimensão de custo e qualidade da nota existente, detalhando um caso específico (redundância de CoT em modelos com raciocínio nativo) dentro do trade-off triplo.",
+      "item_id": "R052",
+      "sampling_stratum": "neither",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c7846f0a|01M46VND70FX9K3D02PW4PR0DB|01M49H01C3AE7P8SQQWA3E4R07"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito de Zero-shot-CoT amplia a técnica de Chain-of-Thought existente, demonstrando que a decomposição de passos pode ser eliciada apenas com um gatilho textual instrucional, sem a necessidade de exemplos few-shot.",
+      "item_id": "R053",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::0f23b62c|01M46KS82R8FSSS9WQ951ZG5NQ|01M46KW9B2SVAD9AKJ45B1J28K"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito do Handelsgeist detalha um dos mecanismos econômicos e materiais concretos que alimentam a peace machine kantiana descrita na nota existente. Ele aprofunda a compreensão de como a interdependência opera empiricamente para sustentar a estabilidade sistêmica.",
+      "item_id": "R054",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Hui2026KantMachine::concept::5e18cedf|01M4A5MWFYVQWC69SQF0MZAD3J|01M4A5GMDK87CH6Q2JWRFG52B5"
+    },
+    {
+      "human_decision": "depends_on",
+      "human_note": "O conceito novo identifica a falha estrutural do in-context learning em raciocínios multi-passos, o que pressupõe diretamente a existência da nota sobre o framework ReAct como a solução arquitetural para esse problema.",
+      "item_id": "R055",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::4ff6eb9a|01M46KRSTQJMFJR8MW5GGZP2PN|01M46VMMV5ZQR7VE1PTXSCHTQF"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo aplica a crítica epistemológica do empirismo à fragilidade preditiva de sistemas técnicos, aprofundando o argumento da nota existente sobre a incapacidade dos dados contingentes de garantirem universalidade e necessidade.",
+      "item_id": "R056",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Hui2026KantMachine::concept::878f4a61|01M4A575EYQYZGRRRSEZ6D1GTC|01M4A4T1D74G8YM1GZS3QWWKDB"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "Ambos os conceitos abordam o uso de Large Language Models para otimizar desempenho, mas o conceito novo trata de uma estratégia híbrida estrutural versus prompting, enquanto a nota existente descreve uma técnica específica de recuperação (HyDE). Há uma proximidade temática no ecossistema de engenharia de prompts e LLMs, porém o HyDE não é um caso direto da hibridização estrutural proposta.",
+      "item_id": "R057",
+      "sampling_stratum": "neither",
+      "subject_id": "@Huang2021TowardsReasoning::concept::e126d922|01M46KTMS37SNTXRZS04TQHNQK|01M49ZGG7A7PWKAZ6RX7TB7P50"
+    },
+    {
+      "human_decision": "depends_on",
+      "human_note": "O conceito novo pressupõe a estrutura formal da tupla descrita na nota existente para concretizar sua operação de síntese de programas e conversão de dados sensoriais.",
+      "item_id": "R058",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Kim2022KantAnd::concept::fbdda008|01M4A6DVDRXWT4SAWWGHJV48SA|01M4A6F6R7D6S4PV92YG9G81DN"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo aprofunda o gerenciamento do tamanho da janela de contexto apresentado na nota existente, introduzindo uma técnica específica (janela deslizante) para lidar com a limitação de tokens.",
+      "item_id": "R059",
+      "sampling_stratum": "full_only",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49YSSMC2PRG2N8HJQFY89KN"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O novo conceito aprofunda a nota existente ao conectar explicitamente a solução cibernética da oposição entre mecanismo e teleologia à própria estratégia filosófica da Crítica do Juízo de Kant.",
+      "item_id": "R060",
+      "sampling_stratum": "both",
+      "subject_id": "@Hui2026KantMachine::concept::c77e38e5|01M4A51RVQE5BAW0MCK8SCDN3G|01M4A50EBT8D9M8M2KS3VXZ6FQ"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo aprofunda a nota existente ao introduzir uma crítica cética, argumentando que os passos intermediários podem ser heurísticas superficiais e não garantem raciocínio genuíno.",
+      "item_id": "R061",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::6b0db7f7|01M46KVWEG49VP86E4DDC4JS2F|01M46KWWX58WBAF4RXPGNSB94E"
+    },
+    {
+      "human_decision": "depends_on",
+      "human_note": "A definição do conceito novo como uma amostra finita de um processo estocástico pressupõe diretamente a lógica da inferência indutiva descrita na nota existente para extrair conclusões e regularidades.",
+      "item_id": "R062",
+      "sampling_stratum": "both",
+      "subject_id": "@Latorre2021AnáliseDe::concept::e0bd5fff|01M34Q9SMFP9XH0CKTHJFCDG91|01M46KR5EA2XAAMJVG45MR2A00"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo aprofunda o problema da normatividade em sistemas de IA ao focar na necessidade de explicitar regras onde antes havia normas sociais tácitas, expandindo a discussão sobre a fundamentação moral abordada na nota existente.",
+      "item_id": "R063",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Kim2022KantAnd::concept::3bc7f979|01M4A87VZYYZMA0ZT0ZPMPD3EN|01M4A80JV3FEGP73D361TBH0A3"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo sobre SARIMA aprofunda o tratamento da sazonalidade introduzido na nota existente, avançando de uma decomposição básica para a modelagem estocástica e trigonométrica de padrões periódicos complexos.",
+      "item_id": "R064",
+      "sampling_stratum": "both",
+      "subject_id": "@Latorre2021AnáliseDe::concept::1e363a1e|01M34QBR6AYRNG6KDXNETWNKS8|01M34Q9ZGSHTHW11JVJVAGXH0B"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo introduz a definição básica e a limitação geral da janela deslizante, enquanto a nota existente aprofunda o tema ao adicionar o arquivamento acoplado como solução para essas limitações.",
+      "item_id": "R065",
+      "sampling_stratum": "both",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49YWKSRHXKD4P25J8KVTS5J"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "Ambos os conceitos tratam de extensões e técnicas de modelagem de regressão para lidar com estruturas de dados não tradicionais, mas não dependem diretamente um do outro.",
+      "item_id": "R066",
+      "sampling_stratum": "neither",
+      "subject_id": "@Latorre2021AnáliseDe::concept::1902c93d|01M34Q91C5P0Q8YMSWMBWY5SHT|01M34QARHHXXTES8ZFVZV764HD"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo apresenta uma técnica específica de prompt (Least-to-Most com checklist) que resolve diretamente a falha de planejamento em múltiplos passos identificada na nota existente.",
+      "item_id": "R067",
+      "sampling_stratum": "both",
+      "subject_id": "@IniciandoComPromptEngineering::concept::89365447|01M46VMVE87WWHFGRSGT3G86WW|01M46KRSTQJMFJR8MW5GGZP2PN"
+    },
+    {
+      "human_decision": "related",
+      "human_note": "Ambos os conceitos descrevem técnicas arquiteturais fundamentais para gerenciar limitações e otimizar o fluxo de trabalho em sistemas de LLMs. No entanto, tratam de dimensões distintas: a janela deslizante foca na gestão de contexto e histórico, enquanto o prompt chaining foca na decomposição de tarefas.",
+      "item_id": "R068",
+      "sampling_stratum": "neither",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49H3ET2P8045PKB4STV152W"
+    },
+    {
+      "human_decision": "depends_on",
+      "human_note": "O novo conceito depende diretamente da distinção kantiana entre princípios constitutivos e regulativos para fundamentar sua crítica ao risco de naturalização da teleologia.",
+      "item_id": "R069",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Hui2026KantMachine::concept::c77e38e5|01M4A51RVQE5BAW0MCK8SCDN3G|01M4A5GTY973P1MBAX3JXDK2RV"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo aprofunda a tese da nota existente ao introduzir a necessidade metodológica de analisar formalmente a coerência passo a passo das justificativas geradas (rationales) para superar as limitações das avaliações tradicionais baseadas apenas no resultado final.",
+      "item_id": "R070",
+      "sampling_stratum": "both",
+      "subject_id": "@Huang2021TowardsReasoning::concept::6b0db7f7|01M46KVWEG49VP86E4DDC4JS2F|01M46KX3CVESGN341KZSHEWVXD"
+    },
+    {
+      "human_decision": "exemplifies",
+      "human_note": "O conceito novo descreve isoladamente o mecanismo de janela deslizante, que a nota existente utiliza como componente fundamental em um padrão arquitetural mais amplo.",
+      "item_id": "R071",
+      "sampling_stratum": "neither",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49YWZMD33F919845ZKZWBG7"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo aprofunda e especializa a discussão sobre a separação entre System Prompt e User Prompt mencionada na nota existente, focando na persistência de regras de comportamento e estabilidade da inferência.",
+      "item_id": "R072",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@PromptEngineering::concept::375c21d0|01M49Z3M6PE872K2C49MP8FG6Y|01M49Z2Y7J2Q61Q4EXXEBHQ36H"
+    },
+    {
+      "human_decision": "depends_on",
+      "human_note": "Os modelos aditivos generalizados (GAM) de Poisson pressupõem os modelos lineares generalizados como base teórica, uma vez que utilizam a regressão de Poisson pertencente àquela classe mais ampla.",
+      "item_id": "R073",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Latorre2021AnáliseDe::concept::1902c93d|01M34Q91C5P0Q8YMSWMBWY5SHT|01M34QCA8GCAPEWFRQFRSZ6VRT"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo aprofunda a tese da nota existente ao formalizar a espontaneidade do entendimento como um sistema computacional de síntese de programas que unifica o fluxo sensorial em juízos.",
+      "item_id": "R074",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Kim2022KantAnd::concept::fbdda008|01M4A6DVDRXWT4SAWWGHJV48SA|01M4A01ANYQB0R00DH0094XGEJ"
+    },
+    {
+      "human_decision": "depends_on",
+      "human_note": "O enativismo pressupõe a base biológica da autonomia e da autopoiese do organismo para fundamentar sua visão de cognição acoplada ao ambiente.",
+      "item_id": "R075",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Kim2022KantAnd::concept::c2b0ffe7|01M49ZYMNDAJFPANH78ZZH8QTX|01M49ZZJ0FE4N7HH7CNH87MW3H"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo detalha a divisão interna das relações puras (matemáticas e dinâmicas) que operam a unificação tratada na nota existente. Ele aprofunda os critérios específicos da síntese sob a regência do entendimento.",
+      "item_id": "R076",
+      "sampling_stratum": "neither",
+      "subject_id": "@Kim2022KantAnd::concept::0463e102|01M4A65C3TE7RSHE4TXS48MZHY|01M4A62RWQ1Y90W460ZX0Y3631"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo aprofunda a formalização matemática e computacional da tupla introduzida na nota existente, especificando as condições estritas de unidade sintética.",
+      "item_id": "R077",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Kim2022KantAnd::concept::23d01b71|01M4A6BAKRBEWB36ASW4S4F6Z3|01M4A6EH3Q2JPWGATKH7VPW8QC"
+    },
+    {
+      "human_decision": "supports",
+      "human_note": "O conceito novo fornece a justificativa epistêmica exata para a crítica metodológica da nota existente: as intuições morais variáveis (fragilidade epistêmica) explicam por que a proliferação de variações hipotéticas falha e por que devemos focar no problema do bonde precedente.",
+      "item_id": "R078",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Kim2022KantAnd::concept::a212e922|01M4A7X0K2W59VWDANNPKMS054|01M4A7N88WJ324ES4G79GJ3ESP"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo amplia a lógica de pipelines sequenciais da nota existente para uma abordagem de execução concorrente e paralela com múltiplos agentes, mantendo a mesma preocupação com a otimização de fluxos complexos.",
+      "item_id": "R079",
+      "sampling_stratum": "neither",
+      "subject_id": "@PromptEngineering::concept::e1251fcd|01M49Z4QN8BW9CCHCDTBFETPNN|01M49GZCTRFEPXP4Z4JYTBBFEK"
+    },
+    {
+      "human_decision": "extends",
+      "human_note": "O conceito novo generaliza a distinção entre princípios constitutivos e regulativos para além da faculdade do juízo, aprofundando o arcabouço epistemológico kantiano presente na nota existente.",
+      "item_id": "R080",
+      "sampling_stratum": "both",
+      "subject_id": "@Hui2026KantMachine::concept::d9850545|01M4A5GTY973P1MBAX3JXDK2RV|01M4A5H2CN50VGMGFN8NCP509G"
+    }
+  ],
+  "method": "manual_blind",
+  "site": "relations"
+}

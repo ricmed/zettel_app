@@ -433,7 +433,7 @@ def test_build_rag_context_two_groups():
             via=[{"from": "AAA", "relation_type": "contradicts", "description": ""}],
         ),
     ]
-    ctx = build_rag_context(_FakeDB({}), hits)
+    ctx = build_rag_context(_FakeDB({}), hits, note_chars=150)
     assert "### Similares por embedding" in ctx
     assert "### Vizinhas por conexao no grafo" in ctx
     assert "[[ZTL - AAA - nota-semente]]" in ctx
@@ -444,15 +444,31 @@ def test_build_rag_context_two_groups():
     assert "relacao: contradicts a partir de note_id: AAA" in ctx
 
 
+def test_build_rag_context_cuts_at_note_chars_and_indents_the_content():
+    """#212: the neighbour's content follows its header, cut only at ``note_chars``."""
+    content = "Tese: " + "t" * 200 + "\n\nDefinição: d"
+    hits = [RetrievedNote(note_id="AAA", score=0.9, title="N", document=content, hop=0)]
+    excerpt = build_rag_context(_FakeDB({}), hits, note_chars=150)
+    header, body = excerpt.split("\n")[1:3]
+    assert header.startswith("- note_id: AAA |") and header.endswith("(tags: )")
+    assert body == "  " + content[:150] + "..."
+    assert "Definição" not in excerpt
+
+    full = build_rag_context(_FakeDB({}), hits, note_chars=6000)
+    assert "  Definição: d" in full and "..." not in full
+
+
 def test_build_rag_context_only_seeds_no_graph_heading():
     hits = [RetrievedNote(note_id="AAA", score=0.9, title="So Semente", hop=0)]
-    ctx = build_rag_context(_FakeDB({}), hits)
+    ctx = build_rag_context(_FakeDB({}), hits, note_chars=150)
     assert "### Similares por embedding" in ctx
     assert "### Vizinhas por conexao no grafo" not in ctx
 
 
 def test_build_rag_context_empty():
-    assert build_rag_context(_FakeDB({}), []) == "Nenhuma nota existente encontrada."
+    assert (
+        build_rag_context(_FakeDB({}), [], note_chars=150) == "Nenhuma nota existente encontrada."
+    )
 
 
 def test_build_rag_context_distant_group():
@@ -466,7 +482,7 @@ def test_build_rag_context_distant_group():
             origin="distant_analogy",
         )
     ]
-    ctx = build_rag_context(_FakeDB({}), similar, distant)
+    ctx = build_rag_context(_FakeDB({}), similar, distant, note_chars=150)
     assert "### Analogias distantes (outro dominio)" in ctx
     assert "note_id: CCC" in ctx
     assert "analogia: outro bucket taxonomico" in ctx

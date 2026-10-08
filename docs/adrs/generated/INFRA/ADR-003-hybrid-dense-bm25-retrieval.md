@@ -219,3 +219,40 @@ Chroma returned.
   measurement.
 * LLM cache keys of `ask`, `article` and `connect` change, because their context
   changes. That is expected and costs one regeneration per question.
+
+## Addendum (2026-10-08): the connect neighbour budget, measured (#212)
+
+`connector.context.build_rag_context` renders each neighbour as a header line
+plus its `note_content`, cut at `linking.rag_note_chars`. Whether Prompt 2 picks
+better typed relations with whole neighbours (6000, above any note) than with the
+historical 150-character excerpt was pre-registered in
+`evals/preregistration/212-connect-contexto-completo.md` and measured with
+`scripts/probe_connect_context.py`:
+
+* **Setup.** 40 concepts from 6 works, with retrieval frozen per concept so
+  that only the budget differed. Prompt 2 ran twice per condition, 160 calls,
+  with no invalid answer; one concept was rejected under `full` and excluded.
+* **Labels.** 80 (concept, neighbour) pairs were labelled blind by hand
+  (`evals/gold/relacoes-rotulos.json`, `evals/results/relacoes-gold-212.json`).
+
+| run | exact relation right | edge presence right | type right on shared edges |
+|---|---|---|---|
+| `trunc-a` | 20/80 | 0.54 | 0.43 (n = 40) |
+| `full-a` | 18/80 | 0.51 | 0.41 (n = 39) |
+
+* **Rule 1 fails.** `full-a` is not at least as good as `trunc-a`. The gap is
+  noise (exact McNemar p = 0.80, 9 pairs only `trunc-a` gets right and 7 only
+  `full-a` does). Validity and sample hold. **`rag_note_chars` stays at 150**, as
+  pre-registered.
+* **No over-linking.** Both conditions propose about 3 edges per note and 40 on
+  the 80 labelled pairs.
+* **Context is not the bottleneck.** Whole neighbours change about 14% of the
+  answers (repeat runs disagree on about 7.5%), but not toward the human. Both
+  conditions fail the same way. About 37 errors per run are "human sees a
+  relation, model proposes none": the human labelled a relation on 77 of 80
+  pairs, while the prompt asks for 0 to 3 connections out of about 20
+  neighbours. About 23 errors per run are a wrong type, mostly `extends` read as
+  `supports`, `depends_on` or `contradicts`.
+* **What would move the number is the prompt, not the budget.** The candidates
+  are how many connections Prompt 2 may keep, and how `extends` and `related`
+  are defined. That is a separate change with its own measurement, as in #218.

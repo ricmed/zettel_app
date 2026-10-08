@@ -23,18 +23,32 @@ _NO_NOTES = "Nenhuma nota existente encontrada."
 # ── RAG context ───────────────────────────────────────────────────────
 
 
-def _rag_note_line(db: StateDB, n: RetrievedNote, extra: str = "") -> str:
+def _rag_note_line(db: StateDB, n: RetrievedNote, note_chars: int, extra: str = "") -> str:
+    """Header line (id, wikilink, tags or relation) and the note's content, indented.
+
+    ``document`` is ``note_content`` (#211). ``note_chars`` is
+    ``linking.rag_note_chars``: an excerpt at its historical 150, a ceiling above
+    any real note (#212).
+    """
     title = n.title or n.metadata.get("title", "Sem titulo")
     row = db.get_note(n.note_id)
     wiki = permanent_wikilink(n.note_id, title, path=row.get("path") if row else None)
     suffix = extra or f" (tags: {n.metadata.get('tags', '')})"
-    return f"- note_id: {n.note_id} | **{wiki}**: {(n.document or '')[:150]}...{suffix}"
+    header = f"- note_id: {n.note_id} | **{wiki}**{suffix}"
+    content = (n.document or "").strip()
+    if len(content) > note_chars:
+        content = content[:note_chars].rstrip() + "..."
+    if not content:
+        return header
+    return header + "\n" + "\n".join(f"  {line}" if line else "" for line in content.splitlines())
 
 
 def build_rag_context(
     db: StateDB,
     similar_notes: list[RetrievedNote],
     distant_notes: list[RetrievedNote] | None = None,
+    *,
+    note_chars: int,
 ) -> str:
     """Build RAG context from retrieved notes, split by provenance.
 
@@ -52,7 +66,7 @@ def build_rag_context(
 
     if embedding_hits:
         parts.append("### Similares por embedding")
-        parts.extend(_rag_note_line(db, n) for n in embedding_hits)
+        parts.extend(_rag_note_line(db, n, note_chars) for n in embedding_hits)
 
     if graph_hits:
         parts.extend(["", "### Vizinhas por conexao no grafo"])
@@ -61,14 +75,14 @@ def build_rag_context(
             rel = last_hop.get("relation_type", "related")
             anchor = last_hop.get("from", "")
             anchor_txt = f" a partir de note_id: {anchor}" if anchor else ""
-            parts.append(_rag_note_line(db, n, extra=f" (relacao: {rel}{anchor_txt})"))
+            parts.append(_rag_note_line(db, n, note_chars, extra=f" (relacao: {rel}{anchor_txt})"))
 
     if distant_notes:
         if parts:
             parts.append("")
         parts.append("### Analogias distantes (outro dominio)")
         parts.extend(
-            _rag_note_line(db, n, extra=" (analogia: outro bucket taxonomico)")
+            _rag_note_line(db, n, note_chars, extra=" (analogia: outro bucket taxonomico)")
             for n in distant_notes
         )
 
