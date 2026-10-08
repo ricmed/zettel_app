@@ -1,4 +1,4 @@
-"""Re-run Prompt 2 with the RAG neighbours cut or whole: which relations agree with a human? (#212)
+"""Re-run Prompt 2 over frozen retrieval: which relations agree with a human? (#212, #231)
 
 Prompt 2 (`prompts/permanent_note.md`) picks typed relations (`supports`,
 `contradicts`, `extends`, ...) between a new note and the notes `connect` retrieved.
@@ -30,6 +30,11 @@ Three steps, each reusing what the previous one recorded under
    `neither`), for `scripts/score_decision_gold.py --site relations`. Distant
    analogies stay out: they become suggestions, never edges (ADR-043).
 
+#231 reuses the same snapshot to compare **prompt versions** (`--prompt NOME=CAMINHO`,
+repeatable; `--runs` limits the conditions) on pairs already labelled
+(`--score-key` + `--labels`), and writes a revision sheet of those labels under new
+relation definitions (`--revise`).
+
 Reads state.db and the vector index; writes nothing to either.
 
 Usage:
@@ -37,6 +42,12 @@ Usage:
     .venv/Scripts/python.exe scripts/probe_connect_context.py --sample 40 --seed 0 --yes \\
         --out evals/results/connect-context-212.json
     .venv/Scripts/python.exe scripts/probe_connect_context.py --sample 40 --seed 0 --export
+    git show main:prompts/permanent_note.md > .eval-work/prompts/permanent-current.md
+    .venv/Scripts/python.exe scripts/probe_connect_context.py --sample 40 --seed 0 --yes \\
+        --runs trunc-a,trunc-b --prompt current=.eval-work/prompts/permanent-current.md \\
+        --prompt new=prompts/permanent_note.md \\
+        --score-key evals/gold/relacoes-GABARITO-NAO-ABRIR.json \\
+        --labels evals/gold/relacoes-rotulos-v2.json
 """
 
 from __future__ import annotations
@@ -185,14 +196,17 @@ def sample_pairs(
 
 
 def summarize_runs(
-    snapshot: list[dict[str, Any]], runs: dict[str, dict[str, dict[str, Any]]]
+    snapshot: list[dict[str, Any]],
+    runs: dict[str, dict[str, dict[str, Any]]],
+    comparisons: list[tuple[str, str]] = (),
 ) -> dict[str, Any]:
-    """Validity, edges per note and relation mix per run; stability and condition
-    agreement over the offered pairs. Informative: the rule reads human labels."""
+    """Validity, edges per note and relation mix per run; `-a`/`-b` stability and
+    the agreement of each ``comparisons`` pair over the offered pairs.
+    Informative: the rules read human labels."""
     keys = [item["item_key"] for item in snapshot]
     out: dict[str, Any] = {"items": len(keys), "runs": {}}
-    for run in RUNS:
-        answers = runs.get(run, {})
+    for run in sorted(runs):
+        answers = runs[run]
         valid = [answers[k] for k in keys if k in answers and "error" not in answers[k]]
         accepted = [a for a in valid if a["status"] == "accepted"]
         relations = Counter(r for a in accepted for r in a["edges"].values())
@@ -219,8 +233,32 @@ def summarize_runs(
                 same += answer_for(ea, n["note_id"]) == answer_for(eb, n["note_id"])
         return {"pairs": total, "agreement": round(same / total, 4) if total else None}
 
-    out["stability"] = {c: agreement(f"{c}-a", f"{c}-b") for c in CONTEXT_CHARS}
-    out["trunc_vs_full_a"] = agreement("trunc-a", "full-a")
+    out["stability"] = {
+        run[:-2]: agreement(run, f"{run[:-2]}-b")
+        for run in sorted(runs)
+        if run.endswith("-a") and f"{run[:-2]}-b" in runs
+    }
+    out["agreement"] = {f"{a} x {b}": agreement(a, b) for a, b in comparisons}
+    return out
+
+
+def result_ids(prompts: list[str], runs: list[str]) -> list[str]:
+    """The bare run for one prompt (as #212 recorded it), else ``prompt:run``."""
+    if len(prompts) == 1:
+        return list(runs)
+    return [f"{p}:{r}" for p in prompts for r in runs]
+
+
+def labelled_conditions(
+    key: dict[str, Any], runs: dict[str, dict[str, dict[str, Any]]]
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Each run's relation for every pair of a sheet key, as scorer conditions."""
+    out: dict[str, dict[str, dict[str, Any]]] = {}
+    for run, answers in runs.items():
+        out[run] = {}
+        for item in key["items"]:
+            item_key, note_id = item["subject_id"].rsplit("|", 1)
+            out[run][item["item_id"]] = {"decision": answer_for(answers.get(item_key), note_id)}
     return out
 
 
@@ -427,6 +465,78 @@ def write_export(
     return sheet, reading, key
 
 
+REVISION_GUIDE = [
+    "# Revisão dos rótulos de relação sob as definições de #231",
+    "",
+    "Os mesmos 80 pares de #212. Cada item mostra o rótulo que você deu antes",
+    "(`relacao_anterior`). Confirme ou troque, aplicando as regras **na ordem**: a",
+    "primeira que valer decide. Leia como *o conceito ___ a nota existente*.",
+    "",
+    "1. `contradicts` — as duas teses **não podem ser verdadeiras juntas**. Resolver ou",
+    "   contornar uma limitação que a outra aponta **não** é contradição (é `extends`).",
+    "2. `depends_on` — o conceito **não pode ser definido nem entendido** sem o conceito",
+    "   da nota existente. Partir dela ou construir sobre ela não basta.",
+    "3. `exemplifies` — um é um **caso concreto** do outro (dados, domínio, situação),",
+    "   sem acrescentar mecanismo, condição ou técnica.",
+    "4. `extends` — acrescenta **condição, mecanismo, especialização, técnica,",
+    "   consequência** ou a solução de uma limitação apontada pela outra.",
+    "5. `supports` — traz **evidência ou argumento para a mesma afirmação**, sem afirmar",
+    "   nada novo.",
+    "6. `related` — relação conceitual que se descreve numa frase e não cabe acima",
+    "   (soluções alternativas para o mesmo problema; o mesmo mecanismo em outro",
+    "   domínio).",
+    "7. `nenhuma` — **tema em comum não basta**: se a única descrição possível é",
+    '   "ambos tratam de X", é `nenhuma`. Uma relação fraca também é `nenhuma`.',
+    "",
+    "Responda em `relacao` (pode repetir a anterior). `?` se não der para julgar.",
+    "",
+    "---",
+]
+
+
+def write_revision(
+    key: dict[str, Any],
+    labels: list[dict[str, Any]],
+    snapshot: list[dict[str, Any]],
+    out_dir: Path,
+) -> tuple[Path, Path]:
+    """The labelled pairs again, with the previous label, under the new definitions."""
+    items = {item["item_key"]: item for item in snapshot}
+    previous = {lab["item_id"]: lab["human_decision"] or UNJUDGEABLE for lab in labels}
+    sheet = out_dir / f"{SHEET_PREFIX}-revisao-planilha.csv"
+    reading = out_dir / f"{SHEET_PREFIX}-revisao-leitura.md"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    lines = list(REVISION_GUIDE)
+    with sheet.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.writer(fh, delimiter=";")
+        writer.writerow(
+            ["item_id", "relacao_anterior", "relacao", "nota", "conceito", "nota_existente"]
+        )
+        for entry in key["items"]:
+            item_key, note_id = entry["subject_id"].rsplit("|", 1)
+            item = items[item_key]
+            neighbour = next(n for n in item["similar"] if n["note_id"] == note_id)
+            concept = _concept_text(item["candidate"])
+            old = previous.get(entry["item_id"], "")
+            writer.writerow([entry["item_id"], old, "", "", concept, neighbour["document"]])
+            lines += [
+                "",
+                f"## {entry['item_id']} — antes: `{old}`",
+                "",
+                "**Conceito**",
+                "",
+                concept,
+                "",
+                f"**Nota existente** — {neighbour['title']}",
+                "",
+                neighbour["document"],
+                "",
+                "---",
+            ]
+    reading.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return sheet, reading
+
+
 # -- CLI -----------------------------------------------------------------
 
 
@@ -454,7 +564,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--per-stratum", type=int, default=20)
     parser.add_argument("--out-dir", type=Path, default=Path("evals/gold"))
     parser.add_argument("--force", action="store_true", help="Sobrescreve planilha e gabarito")
+    parser.add_argument(
+        "--prompt",
+        action="append",
+        default=[],
+        metavar="NOME=CAMINHO",
+        help="Versao do Prompt 2 (repetivel). Padrao: current=<prompt de producao>",
+    )
+    parser.add_argument(
+        "--runs", default=",".join(RUNS), help=f"Rodadas, separadas por virgula ({','.join(RUNS)})"
+    )
+    parser.add_argument("--score-key", type=Path, default=None, help="Gabarito de pares rotulados")
+    parser.add_argument("--labels", type=Path, default=None, help="Rotulos desse gabarito")
+    parser.add_argument(
+        "--revise", type=Path, default=None, help="Rotulos a revisar: gera a planilha de revisao"
+    )
     args = parser.parse_args(argv)
+    run_names = [r for r in args.runs.split(",") if r]
+    if unknown := set(run_names) - set(RUNS):
+        parser.error(f"rodadas desconhecidas: {sorted(unknown)}")
 
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -488,10 +616,28 @@ def main(argv: list[str] | None = None) -> int:
     print(f"modelo: {spec.provider}/{spec.model} @ {temperature}")
     print(f"snapshot: {snapshot_path} ({len(snapshot)} conceitos)")
 
-    parts = load_prompt_parts(cfg.prompts_path / "permanent_note.md")
+    if args.revise:
+        key = json.loads(
+            (args.score_key or args.out_dir / f"{SHEET_PREFIX}-GABARITO-NAO-ABRIR.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        labels = json.loads(args.revise.read_text(encoding="utf-8"))["labels"]
+        sheet, reading = write_revision(key, labels, snapshot, args.out_dir)
+        print(f"revisao: {sheet}\nleitura: {reading}")
+        return 0
+
+    prompt_args = []
+    for value in args.prompt:
+        name, sep, path = value.partition("=")
+        if not sep or not name or not path or ":" in name:
+            parser.error(f"--prompt espera NOME=CAMINHO, recebeu {value!r}")
+        prompt_args.append((name, Path(path)))
+    prompt_args = prompt_args or [("current", cfg.prompts_path / "permanent_note.md")]
+    prompts = {name: load_prompt_parts(path) for name, path in prompt_args}
     examples = render_for_prompt(load_domain_examples(cfg.domain.examples_path), "permanent_note")
 
-    def build(run: str, item: dict[str, Any]) -> tuple[str, str]:
+    def build(run: str, item: dict[str, Any], parts: Any) -> tuple[str, str]:
         payload = Prompt2Payload(
             source_id=item["source_id"],
             literature_ref=item["literature_ref"],
@@ -510,7 +656,9 @@ def main(argv: list[str] | None = None) -> int:
 
     runs: dict[str, dict[str, dict[str, Any]]] = {}
     run_meta: dict[str, Any] = {}
-    for run in RUNS:
+    for result_id in result_ids(list(prompts), run_names):
+        name, _, run = result_id.rpartition(":")
+        parts = prompts[name or next(iter(prompts))]
         run_key = sha256_hex(
             f"{run}|{CONTEXT_CHARS[condition_of(run)]}|{parts.full_template}|"
             f"{spec.provider}/{spec.model}@{temperature}"
@@ -522,21 +670,27 @@ def main(argv: list[str] | None = None) -> int:
             else {}
         )
         missing = [item for item in snapshot if item["item_key"] not in recorded]
-        chars = sum(len("".join(build(run, item))) for item in missing)
-        print(f"{run}: gravados {len(recorded)} | a chamar {len(missing)} (~{chars // 4} tokens)")
-        run_meta[run] = {"record": record_path.name, "note_chars": CONTEXT_CHARS[condition_of(run)]}
+        chars = sum(len("".join(build(run, item, parts))) for item in missing)
+        print(
+            f"{result_id}: gravados {len(recorded)} | a chamar {len(missing)} "
+            f"(~{chars // 4} tokens)"
+        )
+        run_meta[result_id] = {
+            "record": record_path.name,
+            "note_chars": CONTEXT_CHARS[condition_of(run)],
+        }
         if missing and args.yes:
             from zettel.llm import call_llm
 
             for item in missing:
-                system, user = build(run, item)
+                system, user = build(run, item, parts)
                 text = call_llm(
                     llm,
                     user,
                     system=system or None,
                     provider=spec.provider,
                     prompt_cache=cfg.llm.prompt_cache,
-                    label=f"probe-connect:{run}",
+                    label=f"probe-connect:{result_id}",
                 )
                 entry = parse_answer(
                     text, {n["note_id"] for n in item["similar"] + item["distant"]}
@@ -561,12 +715,30 @@ def main(argv: list[str] | None = None) -> int:
                     + "\n",
                     encoding="utf-8",
                 )
-        runs[run] = recorded
+        runs[result_id] = recorded
 
-    summary = summarize_runs(snapshot, runs)
+    comparisons = [("trunc-a", "full-a")] if {"trunc-a", "full-a"} <= set(runs) else []
+    names = list(prompts)
+    comparisons += [
+        (f"{names[0]}:{run}", f"{other}:{run}")
+        for other in names[1:]
+        for run in run_names
+        if run.endswith("-a")
+    ]
+    summary = summarize_runs(snapshot, runs, comparisons)
     summary["model"] = f"{spec.provider}/{spec.model}"
     summary["temperature"] = temperature
     summary["note_chars"] = CONTEXT_CHARS
+    summary["prompts"] = {name: str(path) for name, path in prompt_args}
+    if args.score_key and args.labels:
+        from score_decision_gold import relations_detail, score_conditions
+
+        key = json.loads(args.score_key.read_text(encoding="utf-8"))
+        labels = json.loads(args.labels.read_text(encoding="utf-8"))["labels"]
+        conditions = labelled_conditions(key, runs)
+        scored = score_conditions(labels, conditions, key["population"], comparisons)
+        scored["detail"] = relations_detail(labels, conditions)
+        summary["labelled"] = scored
     text = json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     print(text, end="")
     if args.out:
@@ -574,7 +746,9 @@ def main(argv: list[str] | None = None) -> int:
         args.out.write_text(text, encoding="utf-8")
 
     if args.export:
-        if any(len(runs[r]) < len(snapshot) for r in ("trunc-a", "full-a")):
+        if len(prompts) > 1 or any(
+            len(runs.get(r, {})) < len(snapshot) for r in ("trunc-a", "full-a")
+        ):
             print("Exportacao exige trunc-a e full-a completos: rode com --yes antes.")
             return 1
         existing = [

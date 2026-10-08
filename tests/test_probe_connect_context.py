@@ -1,4 +1,4 @@
-"""Tests for the #212 connect-context probe: pure pieces, export and scoring. Offline."""
+"""Tests for the #212/#231 connect probe: pure pieces, export, scoring, revision. Offline."""
 
 import json
 import sys
@@ -9,13 +9,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from probe_connect_context import (
     NO_EDGE,
     build_pairs,
+    labelled_conditions,
     parse_answer,
     pick_concepts,
     rag_context_for,
+    result_ids,
     sample_pairs,
     stratum_of,
     summarize_runs,
     write_export,
+    write_revision,
 )
 from score_decision_gold import read_sheet, relations_labels, score_relations
 
@@ -113,11 +116,12 @@ def test_summary_reports_validity_edges_and_stability():
         "full-a": {"k1": _accepted(**{A: "extends", B: "related"})},
         "full-b": {},
     }
-    summary = summarize_runs(snapshot, runs)
+    summary = summarize_runs(snapshot, runs, [("trunc-a", "full-a")])
     assert summary["runs"]["full-a"]["invalid_share"] == 0.5
     assert summary["runs"]["trunc-a"]["edges_per_note"] == 0.5
     assert summary["stability"]["trunc"] == {"pairs": 3, "agreement": 0.6667}
-    assert summary["trunc_vs_full_a"] == {"pairs": 2, "agreement": 0.0}
+    assert summary["agreement"]["trunc-a x full-a"] == {"pairs": 2, "agreement": 0.0}
+    assert summary["stability"]["full"] == {"pairs": 0, "agreement": None}  # full-b is empty
 
 
 def test_export_then_score_relations(tmp_path):
@@ -154,3 +158,35 @@ def test_export_then_score_relations(tmp_path):
     assert result["detail"]["trunc-a"]["edge_presence"]["accuracy"] == 1.0
     assert result["detail"]["trunc-a"]["type_on_shared_edges"]["accuracy"] == 0.0
     assert result["preregistered_rule_212"]["full_not_worse"]
+
+
+def test_result_ids_keep_bare_runs_for_one_prompt():
+    assert result_ids(["current"], ["trunc-a"]) == ["trunc-a"]
+    assert result_ids(["current", "new"], ["trunc-a"]) == ["current:trunc-a", "new:trunc-a"]
+
+
+def test_labelled_conditions_read_each_run_for_the_sheet_pairs():
+    key = {
+        "items": [
+            {"item_id": "R001", "subject_id": f"c1|n1|{A}"},
+            {"item_id": "R002", "subject_id": f"c1|n1|{B}"},
+        ]
+    }
+    runs = {"new:trunc-a": {"c1|n1": _accepted(**{A: "extends"})}, "current:trunc-a": {}}
+    conditions = labelled_conditions(key, runs)
+    assert conditions["new:trunc-a"] == {
+        "R001": {"decision": "extends"},
+        "R002": {"decision": NO_EDGE},
+    }
+    assert conditions["current:trunc-a"]["R001"] == {"decision": NO_EDGE}
+
+
+def test_revision_sheet_shows_the_previous_label_and_the_new_rules(tmp_path):
+    snapshot = [_item("c1|n1", [A])]
+    key = {"items": [{"item_id": "R001", "subject_id": f"c1|n1|{A}"}]}
+    labels = [{"item_id": "R001", "human_decision": "related"}]
+    sheet, reading = write_revision(key, labels, snapshot, tmp_path)
+    rows = read_sheet(sheet.read_bytes())
+    assert rows["R001"]["relacao_anterior"] == "related" and rows["R001"]["relacao"] == ""
+    text = reading.read_text(encoding="utf-8")
+    assert "R001 — antes: `related`" in text and "tema em comum não basta" in text
