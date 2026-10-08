@@ -155,7 +155,9 @@ primeira que valer decide.
 1. `contradicts`: as duas teses **não podem ser verdadeiras juntas**. Resolver ou
    contornar uma limitação que a outra nota aponta **não** é contradição (é `extends`)
 2. `depends_on`: a nota nova **não pode ser definida nem entendida** sem o conceito da
-   nota relacionada (pré-requisito). Partir dela ou construir sobre ela não basta
+   nota relacionada (pré-requisito): a tese nova usa um termo que só a outra nota
+   define. Se a nota nova **especializa, aprofunda, aplica ou responde** à outra, é
+   `extends` (regra 4), mesmo que parta dela
 3. `exemplifies`: uma é um **caso concreto** da outra (dados, domínio, situação), sem
    acrescentar mecanismo, condição ou técnica
 4. `extends`: acrescenta **condição, mecanismo, especialização, técnica, consequência**
@@ -164,7 +166,8 @@ primeira que valer decide.
    novo
 6. `related`: relação conceitual que se descreve em uma frase e não cabe acima
    (soluções alternativas para o mesmo problema; o mesmo mecanismo em outro domínio).
-   Tema em comum não basta
+   Tema em comum não basta: se a única frase possível for "ambos tratam de X" ou
+   "ambos são técnicas de Y", não conecte
 
 ---
 
