@@ -1,0 +1,319 @@
+{
+  "agreement": {
+    "current:trunc-a x new:trunc-a": {
+      "agreement": 0.9195,
+      "pairs": 783
+    }
+  },
+  "items": 40,
+  "labelled": {
+    "conditions": {
+      "current:trunc-a": {
+        "accuracy": 0.2625,
+        "accuracy_weighted": 0.4387,
+        "by_stratum": {
+          "both": {
+            "accuracy": 0.25,
+            "n": 20
+          },
+          "full_only": {
+            "accuracy": 0.1,
+            "n": 20
+          },
+          "neither": {
+            "accuracy": 0.5,
+            "n": 20
+          },
+          "trunc_only": {
+            "accuracy": 0.2,
+            "n": 20
+          }
+        },
+        "confusion_human_to_model": {
+          "contradicts->nenhuma": 1,
+          "depends_on->depends_on": 1,
+          "depends_on->nenhuma": 1,
+          "exemplifies->exemplifies": 1,
+          "exemplifies->extends": 1,
+          "exemplifies->nenhuma": 1,
+          "extends->contradicts": 1,
+          "extends->depends_on": 3,
+          "extends->extends": 8,
+          "extends->nenhuma": 39,
+          "extends->related": 1,
+          "extends->supports": 2,
+          "nenhuma->nenhuma": 10,
+          "related->nenhuma": 8,
+          "related->related": 1,
+          "supports->extends": 1
+        },
+        "correct": 21,
+        "n": 80
+      },
+      "current:trunc-b": {
+        "accuracy": 0.25,
+        "accuracy_weighted": 0.4001,
+        "by_stratum": {
+          "both": {
+            "accuracy": 0.3,
+            "n": 20
+          },
+          "full_only": {
+            "accuracy": 0.15,
+            "n": 20
+          },
+          "neither": {
+            "accuracy": 0.45,
+            "n": 20
+          },
+          "trunc_only": {
+            "accuracy": 0.1,
+            "n": 20
+          }
+        },
+        "confusion_human_to_model": {
+          "contradicts->nenhuma": 1,
+          "depends_on->nenhuma": 2,
+          "exemplifies->exemplifies": 2,
+          "exemplifies->nenhuma": 1,
+          "extends->contradicts": 1,
+          "extends->depends_on": 4,
+          "extends->exemplifies": 1,
+          "extends->extends": 8,
+          "extends->nenhuma": 38,
+          "extends->related": 1,
+          "extends->supports": 1,
+          "nenhuma->nenhuma": 10,
+          "related->nenhuma": 9,
+          "supports->extends": 1
+        },
+        "correct": 20,
+        "n": 80
+      },
+      "new:trunc-a": {
+        "accuracy": 0.2875,
+        "accuracy_weighted": 0.4481,
+        "by_stratum": {
+          "both": {
+            "accuracy": 0.4,
+            "n": 20
+          },
+          "full_only": {
+            "accuracy": 0.1,
+            "n": 20
+          },
+          "neither": {
+            "accuracy": 0.5,
+            "n": 20
+          },
+          "trunc_only": {
+            "accuracy": 0.15,
+            "n": 20
+          }
+        },
+        "confusion_human_to_model": {
+          "contradicts->nenhuma": 1,
+          "depends_on->depends_on": 1,
+          "depends_on->nenhuma": 1,
+          "exemplifies->extends": 1,
+          "exemplifies->nenhuma": 1,
+          "exemplifies->supports": 1,
+          "extends->depends_on": 4,
+          "extends->extends": 12,
+          "extends->nenhuma": 35,
+          "extends->supports": 3,
+          "nenhuma->nenhuma": 10,
+          "related->nenhuma": 9,
+          "supports->extends": 1
+        },
+        "correct": 23,
+        "n": 80
+      },
+      "new:trunc-b": {
+        "accuracy": 0.2875,
+        "accuracy_weighted": 0.4458,
+        "by_stratum": {
+          "both": {
+            "accuracy": 0.3,
+            "n": 20
+          },
+          "full_only": {
+            "accuracy": 0.15,
+            "n": 20
+          },
+          "neither": {
+            "accuracy": 0.5,
+            "n": 20
+          },
+          "trunc_only": {
+            "accuracy": 0.2,
+            "n": 20
+          }
+        },
+        "confusion_human_to_model": {
+          "contradicts->nenhuma": 1,
+          "depends_on->depends_on": 1,
+          "depends_on->nenhuma": 1,
+          "exemplifies->extends": 1,
+          "exemplifies->nenhuma": 1,
+          "exemplifies->supports": 1,
+          "extends->contradicts": 1,
+          "extends->depends_on": 2,
+          "extends->extends": 11,
+          "extends->nenhuma": 37,
+          "extends->supports": 3,
+          "nenhuma->nenhuma": 10,
+          "related->nenhuma": 8,
+          "related->related": 1,
+          "supports->extends": 1
+        },
+        "correct": 23,
+        "n": 80
+      }
+    },
+    "detail": {
+      "current:trunc-a": {
+        "edge_presence": {
+          "accuracy": 0.375,
+          "n": 80
+        },
+        "edges_proposed": 20,
+        "type_on_shared_edges": {
+          "accuracy": 0.55,
+          "n": 20
+        }
+      },
+      "current:trunc-b": {
+        "edge_presence": {
+          "accuracy": 0.3625,
+          "n": 80
+        },
+        "edges_proposed": 19,
+        "type_on_shared_edges": {
+          "accuracy": 0.5263,
+          "n": 19
+        }
+      },
+      "human_edges": 70,
+      "new:trunc-a": {
+        "edge_presence": {
+          "accuracy": 0.4125,
+          "n": 80
+        },
+        "edges_proposed": 23,
+        "type_on_shared_edges": {
+          "accuracy": 0.5652,
+          "n": 23
+        }
+      },
+      "new:trunc-b": {
+        "edge_presence": {
+          "accuracy": 0.4,
+          "n": 80
+        },
+        "edges_proposed": 22,
+        "type_on_shared_edges": {
+          "accuracy": 0.5909,
+          "n": 22
+        }
+      }
+    },
+    "pairs": {
+      "current:trunc-a:new:trunc-a": {
+        "mcnemar_p": 0.6875,
+        "n": 80,
+        "only_a_right": 2,
+        "only_b_right": 4
+      }
+    }
+  },
+  "model": "gemini/gemini-3.5-flash-lite",
+  "note_chars": {
+    "full": 6000,
+    "trunc": 150
+  },
+  "prompts": {
+    "current": ".eval-work\\prompts\\permanent-current.md",
+    "new": "prompts\\permanent_note.md"
+  },
+  "runs": {
+    "current:trunc-a": {
+      "answered": 39,
+      "edges_per_note": 1.923,
+      "invalid_or_missing": 1,
+      "invalid_share": 0.025,
+      "max_edges": 3,
+      "rejected": 0,
+      "relations": {
+        "contradicts": 3,
+        "depends_on": 16,
+        "exemplifies": 5,
+        "extends": 32,
+        "related": 5,
+        "supports": 14
+      },
+      "share_at_most_4_edges": 1.0
+    },
+    "current:trunc-b": {
+      "answered": 40,
+      "edges_per_note": 1.875,
+      "invalid_or_missing": 0,
+      "invalid_share": 0.0,
+      "max_edges": 3,
+      "rejected": 0,
+      "relations": {
+        "contradicts": 3,
+        "depends_on": 18,
+        "exemplifies": 6,
+        "extends": 29,
+        "related": 2,
+        "supports": 17
+      },
+      "share_at_most_4_edges": 1.0
+    },
+    "new:trunc-a": {
+      "answered": 40,
+      "edges_per_note": 1.8,
+      "invalid_or_missing": 0,
+      "invalid_share": 0.0,
+      "max_edges": 3,
+      "rejected": 0,
+      "relations": {
+        "contradicts": 1,
+        "depends_on": 11,
+        "extends": 43,
+        "related": 2,
+        "supports": 15
+      },
+      "share_at_most_4_edges": 1.0
+    },
+    "new:trunc-b": {
+      "answered": 39,
+      "edges_per_note": 1.872,
+      "invalid_or_missing": 1,
+      "invalid_share": 0.025,
+      "max_edges": 3,
+      "rejected": 0,
+      "relations": {
+        "contradicts": 2,
+        "depends_on": 9,
+        "exemplifies": 1,
+        "extends": 40,
+        "related": 5,
+        "supports": 16
+      },
+      "share_at_most_4_edges": 1.0
+    }
+  },
+  "stability": {
+    "current:trunc": {
+      "agreement": 0.9374,
+      "pairs": 783
+    },
+    "new:trunc": {
+      "agreement": 0.9425,
+      "pairs": 783
+    }
+  },
+  "temperature": 0.15
+}
