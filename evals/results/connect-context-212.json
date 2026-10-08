@@ -1,0 +1,85 @@
+{
+  "items": 40,
+  "model": "gemini/gemini-3.1-flash-lite",
+  "note_chars": {
+    "full": 6000,
+    "trunc": 150
+  },
+  "runs": {
+    "full-a": {
+      "answered": 40,
+      "edges_per_note": 2.974,
+      "invalid_or_missing": 0,
+      "invalid_share": 0.0,
+      "rejected": 1,
+      "relations": {
+        "contradicts": 10,
+        "depends_on": 18,
+        "exemplifies": 7,
+        "extends": 33,
+        "related": 22,
+        "supports": 26
+      }
+    },
+    "full-b": {
+      "answered": 40,
+      "edges_per_note": 2.974,
+      "invalid_or_missing": 0,
+      "invalid_share": 0.0,
+      "rejected": 1,
+      "relations": {
+        "contradicts": 9,
+        "depends_on": 15,
+        "exemplifies": 5,
+        "extends": 33,
+        "related": 21,
+        "supports": 33
+      }
+    },
+    "trunc-a": {
+      "answered": 40,
+      "edges_per_note": 2.975,
+      "invalid_or_missing": 0,
+      "invalid_share": 0.0,
+      "rejected": 0,
+      "relations": {
+        "contradicts": 12,
+        "depends_on": 21,
+        "exemplifies": 7,
+        "extends": 31,
+        "related": 18,
+        "supports": 30
+      }
+    },
+    "trunc-b": {
+      "answered": 40,
+      "edges_per_note": 2.95,
+      "invalid_or_missing": 0,
+      "invalid_share": 0.0,
+      "rejected": 0,
+      "relations": {
+        "contradicts": 14,
+        "depends_on": 20,
+        "exemplifies": 6,
+        "extends": 30,
+        "related": 19,
+        "supports": 29
+      }
+    }
+  },
+  "stability": {
+    "full": {
+      "agreement": 0.9272,
+      "pairs": 783
+    },
+    "trunc": {
+      "agreement": 0.924,
+      "pairs": 803
+    }
+  },
+  "temperature": 0.15,
+  "trunc_vs_full_a": {
+    "agreement": 0.8582,
+    "pairs": 783
+  }
+}
