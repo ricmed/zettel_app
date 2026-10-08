@@ -1,6 +1,11 @@
-"""The content of a permanent note as prompts read it (#209)."""
+"""The content of a permanent note as prompts read it (#209, #211)."""
 
-from zettel.note_content import note_sections, render_note_content, thesis_from_permanent_note
+from zettel.note_content import (
+    note_content,
+    note_sections,
+    render_note_content,
+    thesis_from_permanent_note,
+)
 
 
 def _ztl(thesis, definition, intuition=""):
@@ -36,3 +41,26 @@ def test_max_chars_is_a_ceiling_not_an_excerpt():
     fields = {"thesis": "T" * 50}
     assert render_note_content(fields, max_chars=1000) == "Tese: " + "T" * 50
     assert render_note_content(fields, max_chars=20).endswith("...")
+
+
+def test_note_content_renders_a_pipeline_note_from_its_sections():
+    body = _ztl("Tese longa", "Def longa", "Intu")
+    assert note_content("T", body) == render_note_content(note_sections("T", body))
+    assert "citacao" not in note_content("T", body)
+
+
+def test_note_content_keeps_a_free_form_note_prose_without_what_is_about_it():
+    body = (
+        "Uma ideia escrita a mao.\n\n## Desdobramento\n\nMais texto.\n\n"
+        "```md\n## Fonte\nexemplo dentro do bloco\n```\n\n"
+        "## Fonte\n\n[[LIT - X]]\n\n"
+        "<!-- zettel:auto-connections:start -->\n- [[ZTL - 01Y]]\n"
+        "<!-- zettel:auto-connections:end -->\n\n"
+        "## Conexões\n\n- [[ZTL - 01X]]\n"
+    )
+    text = note_content("Titulo", body)
+    assert text.startswith("Uma ideia escrita a mao.")
+    assert "## Desdobramento" in text and "Mais texto." in text
+    assert "exemplo dentro do bloco" in text  # a fenced heading is not structure
+    assert "[[LIT - X]]" not in text
+    assert "ZTL - 01Y" not in text and "ZTL - 01X" not in text

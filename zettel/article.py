@@ -30,6 +30,7 @@ from .llm import (
     load_prompt_parts,
     parse_llm_json,
 )
+from .note_content import note_content
 from .retrieval import RetrievedNote
 from .schemas import ArticleOutline, ArticleOutlineSection
 from .vault import _slug, permanent_wikilink, render_frontmatter
@@ -564,7 +565,7 @@ def merge_moc_notes(db: StateDB, hits: list[RetrievedNote], moc: dict) -> list[R
             note_id=nid,
             score=1.0,
             title=row.get("title") or "",
-            document=row.get("body") or "",
+            document=note_content(row.get("title") or "", row.get("body") or ""),
             metadata={
                 "source_id": row.get("source_id"),
                 "path": row.get("path"),
@@ -597,7 +598,9 @@ def _populate_catalog(
             body = body or row.get("body") or ""
             title = title or row.get("title") or ""
 
-        note_assets = _assets_from_note_body(db, body, source_id)
+        # Figures are not note content (#211): read them from the stored body.
+        raw_body = (row.get("body") if row else None) or body
+        note_assets = _assets_from_note_body(db, raw_body, source_id)
         for a in note_assets:
             catalog.assets[a.asset_id] = a
             asset_freq[a.asset_id] = asset_freq.get(a.asset_id, 0) + 1
@@ -616,8 +619,6 @@ def _populate_catalog(
                 )
 
         summary = (body or "").strip()
-        # Strip managed/figures blocks for summary
-        summary = re.sub(r"## Figuras\n.*?(?=\n## |\Z)", "", summary, flags=re.DOTALL).strip()
         if len(summary) > 200:
             summary = summary[:200].rstrip() + "..."
 

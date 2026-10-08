@@ -187,3 +187,35 @@ lexical signal, and is left alone rather than tuned away.
 * The 0.5 threshold is measured on 62 notes in a narrow corpus. The bands are
   wide apart (0.50 vs 0.50 at the edges, 0.25 vs 1.00 at the medians), but this
   motivates a value rather than settling one — re-measure on a broader vault.
+
+## Addendum (2026-10-08): one note content for every path (#211)
+
+A hit's `document` depended on how the note was found. A vector hit carried
+Chroma's embeddable text (managed blocks stripped, but `## Fonte`, figures and a
+hand-written `## Conexões` kept). A BM25-only, graph or MOC hit carried the raw
+SQLite body, with `auto-evidence` (citation and anchor quote) and
+`auto-connections`. The same character budget in `ask`, `article` and `connect`
+therefore covered different text for the same note.
+
+`Retriever._hydrate_notes` now fills `document` for **every** hit from one
+batched SQLite read (`StateDB.get_notes_by_ids`) through
+`note_content.note_content(title, body)`: the labelled thesis, definition,
+intuition, example and limits of a pipeline note. A hand-written note without
+those sections keeps its own prose, minus managed blocks and the sections about
+the note (`## Conexões`, `## Fonte`, `## Figuras`). The article's MOC boost and
+extra graph hops use the same function. A hit missing from SQLite keeps what
+Chroma returned.
+
+### Consequences
+
+* Ranking is untouched: fusion, the relevance floor and BM25 coverage read the
+  same signals as before. Only what a prompt reads changes.
+* A prompt that reads `document` no longer sees citations, anchor quotes or
+  existing connections, so it cannot echo an edge that already exists.
+* The article catalog reads figures from the stored body, since they are not
+  note content.
+* Per-consumer limits (`connect`'s 150 characters, the article's 200-character
+  summary) are untouched here; #212 and #213 change them with their own
+  measurement.
+* LLM cache keys of `ask`, `article` and `connect` change, because their context
+  changes. That is expected and costs one regeneration per question.

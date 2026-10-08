@@ -78,6 +78,7 @@ PUBLIC_METHODS = {
     "get_notes_for_source",
     "get_note_ids_for_source",
     "get_notes_for_chunk",
+    "get_notes_by_ids",
     "get_note_texts",
     "list_permanent_note_ids",
     "count_permanent_notes",

@@ -130,6 +130,59 @@ def test_graph_expansion_adds_neighbors(db):
     assert neigh.via and neigh.via[-1]["relation_type"] == "contradicts"
 
 
+N1, N2 = "01ARZ3NDEKTSV4RRFFQ69G5FAV", "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+_ZTL_BODY = (
+    "> **Tese**: grafo tipado guia a busca\n\n## Definição\n\nArestas com tipo.\n\n"
+    "## Fonte\n\n[[LIT - X]]\n\n"
+    "<!-- zettel:auto-evidence:start -->\n> citacao literal\n"
+    "<!-- zettel:auto-evidence:end -->\n\n"
+    "<!-- zettel:auto-connections:start -->\n- [[ZTL - n9]]\n"
+    "<!-- zettel:auto-connections:end -->\n"
+)
+
+
+def test_a_note_reads_the_same_by_every_retrieval_path(db):
+    """#211: vector, BM25, graph and MOC hand a prompt one and the same text."""
+    if not db.fts_enabled:
+        pytest.skip("SQLite build sem FTS5")
+    from zettel.article import merge_moc_notes
+    from zettel.article_graph.search import expand_extra_hops
+    from zettel.note_content import note_content
+
+    db.upsert_note(N1, "@S", "/p/a.md", "Grafo", body=_ZTL_BODY)
+    db.upsert_note(N2, "@S", "/p/b.md", "Outra", body="> **Tese**: outra\n\n## Definição\n\nX")
+    db.upsert_note_connection(N2, N1, "supports", "")
+    expected = note_content("Grafo", _ZTL_BODY)
+    r = Retriever(_cfg(), db, FakeIndex(note_ids=[N1]))
+
+    by_vector = r.search_notes("qualquer", topk=5, mode="vector", expand_graph=False).hits
+    by_bm25 = Retriever(_cfg(), db, FakeIndex()).search_notes("tipado", expand_graph=False).hits
+    by_graph = (
+        Retriever(_cfg(), db, FakeIndex(note_ids=[N2]))
+        .search_notes("qualquer", topk=1, mode="vector", expand_graph=True)
+        .hits
+    )
+    by_moc = merge_moc_notes(db, [], {"body": f"- [[ZTL - {N1}|Grafo]]"})
+    cfg = _cfg()
+    by_hops = expand_extra_hops(
+        db,
+        [{"note_id": N2, "score": 1.0, "hop": 0}],
+        topk=1,
+        article_cfg=cfg.retrieval.article,
+        graph_cfg=cfg.retrieval.graph_expansion,
+    )
+
+    documents = [
+        next(h.document for h in by_vector if h.note_id == N1),
+        next(h.document for h in by_bm25 if h.note_id == N1),
+        next(h.document for h in by_graph if h.note_id == N1),
+        next(h.document for h in by_moc if h.note_id == N1),
+        next(d["document"] for d in by_hops if d["note_id"] == N1),
+    ]
+    assert documents == [expected] * 5
+    assert "citacao literal" not in expected and "ZTL - n9" not in expected
+
+
 # ── Absolute relevance floor ────────────────────────────────────────────
 
 
