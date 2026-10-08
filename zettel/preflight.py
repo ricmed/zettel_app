@@ -20,15 +20,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from zettel.config import AppConfig, llm_phase
+from zettel.note_content import note_content
 from zettel.pricing import estimate_llm_cost
 from zettel.state import StateDB
 
 logger = logging.getLogger(__name__)
 
-# `connector.context.build_rag_context` renders each retrieved note as a wikilink
-# plus a 150-char snippet and its tags, so a context entry costs far less than a
-# whole note.
-RAG_CHARS_PER_NOTE = 250
+# `connector.context.build_rag_context` renders each retrieved note as a header
+# line (id, wikilink, tags or relation) plus its content up to
+# `linking.rag_note_chars` (#212).
+RAG_HEADER_CHARS = 120
 
 
 def estimate_tokens(text: str) -> int:
@@ -117,6 +118,20 @@ def estimate_extract(cfg: AppConfig, db: StateDB) -> PreflightEstimate:
     )
 
 
+def rag_note_chars(db: StateDB, cap: int) -> int:
+    """Mean characters one neighbour adds to the RAG context: its content, capped.
+
+    An empty vault has no mean, so the cap stands in as the upper bound.
+    """
+    notes = db.list_notes()
+    if not notes:
+        return cap
+    lengths = [
+        min(len(note_content(n.get("title") or "", n.get("body") or "")), cap) for n in notes
+    ]
+    return sum(lengths) // len(lengths)
+
+
 def estimate_connect(
     cfg: AppConfig,
     db: StateDB,
@@ -125,7 +140,8 @@ def estimate_connect(
     """One Prompt 2 call per approved candidate, plus its RAG context."""
     graph_cfg = cfg.retrieval.graph_expansion
     context_notes = cfg.linking.topk + (graph_cfg.max_neighbors if graph_cfg.enabled else 0)
-    context_tokens = estimate_tokens("x" * (context_notes * RAG_CHARS_PER_NOTE))
+    per_note = RAG_HEADER_CHARS + rag_note_chars(db, cfg.linking.rag_note_chars)
+    context_tokens = estimate_tokens("x" * (context_notes * per_note))
     overhead = _prompt_tokens(cfg, "permanent_note.md")
 
     input_tokens = 0
