@@ -292,3 +292,66 @@ def test_hitl_handler_receives_interrupt_payload(tmp_path, monkeypatch):
     assert received[0]["executed_queries"] == ["tema"]
     assert "Ok" in result.body
     db.close()
+
+
+def test_article_drive_keeps_the_run_open_across_a_pause(tmp_path, monkeypatch):
+    """A pause returns the interrupt and leaves the pipeline run running."""
+    from zettel.article_graph.graph import ArticleDrive
+
+    db = StateDB(tmp_path / "drive.db")
+    vault = tmp_path / "vault"
+    vault.mkdir()
+
+    class FakeCompiled:
+        def __init__(self):
+            self._n = 0
+
+        def invoke(self, input_or_cmd, config=None):
+            self._n += 1
+            if self._n == 1:
+                return {
+                    "__interrupt__": [
+                        _FakeInterrupt(
+                            {
+                                "type": "context_review",
+                                "notes": [],
+                                "executed_queries": ["tema"],
+                            }
+                        )
+                    ]
+                }
+            return {
+                "final_body": "Texto retomado.\n",
+                "frontmatter": {"title": "Ok"},
+                "warnings": [],
+                "llm_called": False,
+                "used_note_ids": [],
+                "cited_source_ids": [],
+                "no_evidence": False,
+                "aborted": False,
+            }
+
+    class FakeBuilder:
+        def compile(self, checkpointer=None):
+            return FakeCompiled()
+
+    monkeypatch.setattr("zettel.article_graph.graph.build_article_graph", lambda: FakeBuilder())
+    cfg = AppConfig(vault_path=vault, prompts_path=Path("prompts"))
+    drive = ArticleDrive(
+        cfg,
+        db,
+        FakeIndex(),
+        "tema",
+        style="blog",
+        skip_judge=True,
+        pause_for_review=True,
+    )
+    step = drive.start()
+    assert step.interrupt is not None
+    assert step.interrupt["executed_queries"] == ["tema"]
+    assert db.get_last_run()["status"] == "running"
+    step = drive.resume({"context_decision": "approve", "extra_queries": []})
+    assert step.result is not None
+    assert "Texto retomado" in step.result.body
+    assert db.get_last_run()["status"] == "completed"
+    db.close()

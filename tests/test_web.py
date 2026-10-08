@@ -809,6 +809,7 @@ def test_navigation_and_retry_job_flow(web_client):
         ("/review", "Revisão humana"),
         ("/notes", "Notas / MOCs"),
         ("/notes/new", "Criar notas"),
+        ("/studio", "Consultar"),
         ("/runs", "Execuções"),
         ("/settings", "SQLite FTS5"),
     ]:

@@ -52,7 +52,8 @@ uv run pytest tests/test_web.py tests/test_web_state.py tests/test_web_package.p
 | **Revisão** (`/review`) | Duas filas. Drafts: filtros por fonte/confiança, trecho, candidatos e aprovação/rejeição **em lote**. Rejeitados pelo extract (`?queue=rejected`): categoria, motivo e trecho **completos** (o chunk nunca virou LIT). O lote reenfileira para uma segunda opinião, marca extração obrigatória (`force_extract`: o próximo extract gera o draft sem a trava de rejeição) ou apaga os selecionados do banco (SQLite e índice de chunks). Um draft ou uma rejeição do revisor não entra nessa ação. Sem auto-approve por limiar — use a CLI para `--yes`, faixas e a leitura um a um (`e`/`f`/`m`/`p`) |
 | **Notas / MOCs** (`/notes`, `/notes/{id}`, `/mocs/{id}`, `/sources/{id}`) | Busca por título/corpo das ZTLs e MOCs indexados, filtros de tipo, origem, fonte e autor, ordenação, paginação e páginas de detalhe; botões para copiar ou baixar o Markdown original do vault |
 | **Criar notas** (`/notes/new`) | Scaffolds manuais SRC, LIT (índice ou granular) e ZTL; busca de fonte/LIT com combobox (a partir de 3 letras; fallback `<select>`); SRC monta a referência ABNT no form (`POST /notes/new/biblio-preview`, sem job) para revisão antes de criar; LIT granular aceita trecho, resumo, conceitos e candidato no próprio form; ZTL a partir de LIT enfileira `manual-ztl-from-lit` com ou sem LLM |
-| **Execuções** (`/runs`, `/jobs/{id}`) | Estado persistente, progresso (polling em `/api/jobs/{id}`), eventos, resultado e erro sanitizado |
+| **Acervo** (`/studio`) | Três grupos. **Consultar:** perguntar (job) e catálogo (na própria página, sem LLM). **Preparar:** resumir capítulos, com o pré-voo visível antes do envio. **Produzir:** artigo e skill. O artigo pausa na execução para revisar contexto e outline. A skill grava em `<vault>/.claude/skills/<slug>/` |
+| **Execuções** (`/runs`, `/jobs/{id}`) | Estado persistente, progresso (polling em `/api/jobs/{id}`), eventos, resultado legível (resposta, resumo, skill ou artigo) e erro sanitizado. Um artigo em `awaiting_input` mostra o formulário da pausa |
 | **Configuração / saúde** (`/settings`) | FTS5, diretórios, identidade LLM/embedding (incluindo drift de `dimensions`) — sem segredos |
 
 Os filtros de **fonte e autor** usam a relação da ZTL com a SRC indexada; MOCs não têm fonte ou autor direto, portanto não aparecem quando esses filtros estão ativos. A busca usa o índice SQLite: após editar ou criar notas manualmente no vault, execute **Sync manual** no Pipeline para atualizar os resultados. Nas listagens e páginas de detalhe, **Copiar** e **Baixar .md** leem o arquivo atual do vault (com frontmatter), não a cópia do corpo no banco. Se o arquivo tiver sido removido ou estiver fora do vault, a exportação retorna erro em vez de entregar uma cópia desatualizada.
@@ -61,18 +62,23 @@ Na aba **Documentos**, envie um PDF, Markdown ou TXT (máximo de 25 MB, sem sobr
 
 ### Operações enfileiráveis
 
-`prepare_harvest` (extrai e infere um arquivo para revisão), `harvest` (um arquivo confirmado do inbox, com dumps opcionais), `manual-ztl-from-lit`, `run_all`, `extract`, `review`, `connect`, `garden`, `garden` + hubs, `sync`, `retry_chunks`, `retry_assets`.
+`prepare_harvest` (extrai e infere um arquivo para revisão), `harvest` (um arquivo confirmado do inbox, com dumps opcionais), `manual-ztl-from-lit`, `run_all`, `extract`, `review`, `connect`, `garden`, `garden` + hubs, `sync`, `retry_chunks`, `retry_assets`, `ask`, `summarize`, `skill`, `article`.
 
-Antes de enfileirar, a rota valida pré-condições e responde **409** com uma mensagem legível — por exemplo, `extract` sem chunks pendentes, `connect` sem candidatos aprovados, `garden` sem notas permanentes, ou provedor de LLM sem credencial configurada.
+O catálogo não entra na fila: `GET /studio?subject=...` responde na página. Se já houver um job `queued` ou `running`, a rota devolve **409** e não abre o índice.
+
+Antes de enfileirar, a rota valida pré-condições e responde **409** com uma mensagem legível — por exemplo, `extract` sem chunks pendentes, `connect` sem candidatos aprovados, `garden` sem notas permanentes, ou provedor de LLM sem credencial configurada. Perguntar, resumir e artigo exigem a credencial da fase correspondente. O envio do formulário confirma o pré-voo de resumir e de artigo.
+
+Um artigo com revisão de contexto ou de outline fica em `awaiting_input`. A vaga da fila fica livre. A decisão volta por `POST /jobs/{id}/resume`. Reiniciar o servidor marca essa pausa como `interrupted`: o grafo vive só no processo.
 
 ### Exclusivo da CLI
 
-Operações destrutivas e interativas **não** são expostas na web:
+Operações destrutivas e alguns caminhos de arquivo **não** são expostos na web:
 
 - `init --reset`, `delete-source`, `purge-rejected`, `reindex`, `rebuild`, `garden --recreate`
-- criação de MOC, `ask`, `article`, `skill`, `suggest-links`
+- criação de MOC, `suggest-links`
 - resolução interativa de duplicatas semânticas e o HITL de paginação
 - `set-paging`, `rechunk`, execução isolada de `dump-chunks`/`dump-extraction`, `doctor`, `status`
+- `--save-to` e `skill --out` (a web grava em `00_Inbox/` e em `<vault>/.claude/skills/`)
 
 A CLI permanece compatível e continua usando a apresentação Rich normalmente.
 
@@ -80,10 +86,10 @@ A CLI permanece compatível e continua usando a apresentação Rich normalmente.
 
 ## Persistência, concorrência e recuperação
 
-- A implantação é de **instância única** e executa no máximo um trabalho mutante por vez (`queued`/`running`); um segundo submit recebe **409**. Não use múltiplos processos/workers Uvicorn.
+- A implantação é de **instância única** e executa no máximo um trabalho mutante por vez (`queued`/`running`); um segundo submit recebe **409**. Um artigo em `awaiting_input` não ocupa essa vaga. Não use múltiplos processos/workers Uvicorn.
 - A fila vive no SQLite (`web_jobs`, `web_job_events` em [`state/web.py`](../zettel/state/web.py)) e é servida por uma thread daemon.
 - Preserve `data/` e `vault/` em armazenamento persistente. `data/state.db` contém a fila e os eventos; `data/chroma/` contém vetores; `vault/` contém as notas.
-- Recarregar ou fechar a página não interrompe o trabalho. Ao reiniciar o servidor, jobs que estavam `running` viram `interrupted`; jobs ainda `queued` são retomados.
+- Recarregar ou fechar a página não interrompe o trabalho. Ao reiniciar o servidor, jobs que estavam `running` ou `awaiting_input` viram `interrupted`; jobs ainda `queued` são retomados. A pausa de um artigo não sobrevive ao reinício.
 - Chamadas LLM/PDF em curso não são canceladas à força. A recuperação ocorre entre checkpoints seguros, executando novamente a fase quando necessário.
 
 > **Nota de implementação**: a web e a CLI abrem o `VectorIndex` pela mesma função, `index.index_kwargs(cfg)`. Antes havia uma cópia em cada lado e elas divergiram — a do `web_app.py` omitia `embedding.dimensions`, de modo que os dois caminhos gravavam vetores de larguras diferentes no mesmo Chroma. Não crie uma nova cópia.

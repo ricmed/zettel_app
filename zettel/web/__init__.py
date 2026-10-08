@@ -35,6 +35,7 @@ from zettel.web import pipeline  # /pipeline
 from zettel.web import review  # /review
 from zettel.web import notes  # /notes (listing)
 from zettel.web import manual  # /notes/new
+from zettel.web import studio  # /studio
 from zettel.web import pickers  # /api/pickers/*
 from zettel.web import jobs  # /runs, /jobs, /api/jobs
 from zettel.web import settings  # /settings
@@ -49,6 +50,7 @@ ROUTE_MODULES = (
     review,
     notes,
     manual,
+    studio,
     pickers,
     jobs,
     settings,

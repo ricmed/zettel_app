@@ -26,6 +26,16 @@ class UserFacingError(RuntimeError):
     """Expected operational failure whose message is safe for the browser."""
 
 
+class JobParked(Exception):
+    """The worker should leave this job in ``awaiting_input`` and move on."""
+
+    def __init__(self, phase: str, message: str, result: dict[str, Any]):
+        super().__init__(message)
+        self.phase = phase
+        self.message = message
+        self.result = result
+
+
 def safe_error(exc: BaseException) -> str:
     """Return a useful, non-sensitive message for a browser response."""
     text = str(exc).replace("\n", " ").strip()
@@ -233,6 +243,250 @@ def _discard_extract_review(
     return stats
 
 
+def _vault_rel(path: Path, vault: Path) -> str:
+    try:
+        return str(path.relative_to(vault))
+    except ValueError:
+        return str(path)
+
+
+def _ask_candidate(src: Any) -> dict[str, Any]:
+    return {
+        "title": src.title or src.note_id,
+        "note_id": src.note_id,
+        "rrf_score": src.rrf_score,
+        "vector_similarity": src.vector_similarity,
+        "bm25_rank": src.bm25_rank,
+        "hop": src.hop,
+        "passed_floor": src.passed_floor,
+        "floor_reason": src.floor_reason,
+        "origin": src.origin,
+    }
+
+
+def _dispatch_ask(
+    cfg: AppConfig, db: StateDB, idx: Any, progress: JobProgress, payload: dict
+) -> dict:
+    from zettel.ask import run_ask, save_ask_note
+
+    progress.emit(ProgressEvent("ask", "Consultando o acervo."))
+    result = run_ask(
+        cfg,
+        db,
+        idx,
+        payload["question"],
+        topk=payload.get("topk"),
+        use_graph=False if payload.get("no_graph") else None,
+        mode=payload.get("mode") or None,
+    )
+    saved = None
+    if payload.get("save"):
+        saved = _vault_rel(
+            save_ask_note(result, cfg.vault_path, vault_timezone=cfg.vault_timezone),
+            cfg.vault_path,
+        )
+    body: dict[str, Any] = {
+        "kind": "ask",
+        "question": result.question,
+        "answer": result.answer,
+        "saved_path": saved,
+        "llm_called": result.llm_called,
+        "candidates": [_ask_candidate(src) for src in result.candidates],
+    }
+    if payload.get("show_context"):
+        body["retrieval_params"] = result.retrieval_params
+    return body
+
+
+def _dispatch_summarize(
+    cfg: AppConfig, db: StateDB, idx: Any, progress: JobProgress, payload: dict
+) -> dict:
+    from zettel.summarize import generate_summaries
+
+    progress.emit(ProgressEvent("summarize", "Resumindo capítulos."))
+    outcome = generate_summaries(cfg, db, idx, payload.get("source_id") or None)
+    return {
+        "kind": "summarize",
+        "chapters_summarized": outcome.chapters_summarized,
+        "chapters_skipped": outcome.chapters_skipped,
+        "sources_summarized": outcome.sources_summarized,
+        "llm_calls": outcome.llm_calls,
+        "cache_hits": outcome.cache_hits,
+        "skipped": list(outcome.skipped),
+        "source_ids": list(outcome.source_ids),
+    }
+
+
+def _dispatch_skill(cfg: AppConfig, db: StateDB, progress: JobProgress, payload: dict) -> dict:
+    from zettel.skill_export import SkillExportError, estimate_tokens, run_skill_export
+
+    progress.emit(ProgressEvent("skill", "Exportando skill."))
+    try:
+        pack_dir, pack = run_skill_export(
+            cfg,
+            db,
+            source_id=payload.get("source_id") or None,
+            moc_id=payload.get("moc_id") or None,
+            topic=payload.get("topic") or None,
+            slug=payload.get("slug") or None,
+            overwrite=bool(payload.get("overwrite")),
+            include_excerpts=bool(payload.get("include_excerpts")),
+        )
+    except SkillExportError as exc:
+        raise UserFacingError(str(exc)) from exc
+    skill_md = pack_dir / "SKILL.md"
+    tokens = estimate_tokens(skill_md.read_text(encoding="utf-8")) if skill_md.is_file() else 0
+    return {
+        "kind": "skill",
+        "path": _vault_rel(pack_dir, cfg.vault_path),
+        "slug": pack.slug,
+        "notes": len(pack.notes),
+        "contradictions": len(pack.contradictions),
+        "tokens": tokens,
+        "include_excerpts": pack.include_excerpts,
+    }
+
+
+def _pause_result(payload: dict) -> tuple[str, str, dict[str, Any]]:
+    kind = str(payload.get("type") or "context_review")
+    if kind == "outline_review":
+        message = "Aguardando revisão do outline."
+        result = {
+            "kind": "article_pause",
+            "interrupt_type": "outline_review",
+            "preview": str(payload.get("preview") or ""),
+        }
+        return kind, message, result
+    notes = []
+    for note in payload.get("notes") or []:
+        if not isinstance(note, dict):
+            continue
+        meta = note.get("metadata") or {}
+        notes.append(
+            {
+                "title": str(note.get("title") or note.get("note_id") or ""),
+                "note_id": str(note.get("note_id") or ""),
+                "score": float(note.get("score") or 0),
+                "hop": int(note.get("hop") or 0),
+                "source_id": str(meta.get("source_id") or ""),
+            }
+        )
+    message = "Aguardando revisão do contexto."
+    result = {
+        "kind": "article_pause",
+        "interrupt_type": "context_review",
+        "notes": notes,
+        "executed_queries": [str(q) for q in (payload.get("executed_queries") or [])],
+    }
+    return "context_review", message, result
+
+
+def _article_result(result: Any, cfg: AppConfig, payload: dict) -> dict[str, Any]:
+    from zettel.article import save_article_note
+
+    saved = None
+    outline_only = bool(payload.get("outline_only"))
+    if payload.get("save") and not result.aborted and not result.no_evidence and not outline_only:
+        saved = _vault_rel(
+            save_article_note(result, cfg.vault_path, vault_timezone=cfg.vault_timezone),
+            cfg.vault_path,
+        )
+    return {
+        "kind": "article",
+        "title": result.title,
+        "body": result.body,
+        "warnings": list(result.warnings),
+        "aborted": bool(result.aborted),
+        "no_evidence": bool(result.no_evidence),
+        "outline_only": outline_only,
+        "saved_path": saved,
+    }
+
+
+def _release_article(drive: Any, *, failed: bool) -> None:
+    try:
+        if failed:
+            drive.abandon()
+    finally:
+        db = getattr(drive, "db", None)
+        if db is not None:
+            db.close()
+
+
+def _dispatch_article(
+    cfg: AppConfig,
+    progress: JobProgress,
+    payload: dict,
+    sessions: dict[str, Any],
+    job_id: str,
+) -> dict[str, Any]:
+    from zettel.article_graph.graph import ArticleDrive
+    from zettel.index import VectorIndex, index_kwargs
+
+    resume = payload.get("resume")
+    drive = sessions.get(job_id)
+    if resume:
+        if drive is None:
+            raise UserFacingError("A pausa do artigo expirou. Gere o artigo novamente.")
+        progress.emit(ProgressEvent("article", "Retomando o artigo."))
+        try:
+            step = drive.resume(resume)
+        except Exception:
+            sessions.pop(job_id, None)
+            _release_article(drive, failed=True)
+            raise
+    else:
+        if drive is not None:
+            sessions.pop(job_id, None)
+            _release_article(drive, failed=True)
+        owned = StateDB(cfg.state_db_path)
+        try:
+            idx = VectorIndex(**index_kwargs(cfg))
+        except Exception:
+            owned.close()
+            raise
+        review_context = bool(payload.get("review_context")) and not payload.get("outline_only")
+        review_outline = bool(payload.get("review_outline")) and not payload.get("outline_only")
+
+        def _approve(_outline: Any) -> tuple[str, None]:
+            return ("approve", None)
+
+        drive = ArticleDrive(
+            cfg,
+            owned,
+            idx,
+            payload["topic"],
+            style=payload.get("style") or "blog",
+            topk=payload.get("topk"),
+            use_graph=False if payload.get("no_graph") else None,
+            mode=payload.get("mode") or None,
+            outline_only=bool(payload.get("outline_only")),
+            approve_outline=None if review_outline else _approve,
+            personality=payload.get("personality") or None,
+            custom_style_notes=payload.get("style_notes") or None,
+            skip_context_review=not review_context,
+            skip_judge=bool(payload.get("skip_judge")),
+            max_judge_iterations=payload.get("max_judge_iterations"),
+            pause_for_review=review_context or review_outline,
+        )
+        sessions[job_id] = drive
+        progress.emit(ProgressEvent("article", "Gerando o artigo."))
+        try:
+            step = drive.start()
+        except Exception:
+            sessions.pop(job_id, None)
+            _release_article(drive, failed=True)
+            raise
+    if step.interrupt is not None:
+        phase, message, result = _pause_result(step.interrupt)
+        raise JobParked(phase, message, result)
+    sessions.pop(job_id, None)
+    try:
+        return _article_result(step.result, cfg, payload)
+    finally:
+        _release_article(drive, failed=False)
+
+
 class WebWorker:
     """A durable queue backed by SQLite and one process-local worker thread."""
 
@@ -241,6 +495,7 @@ class WebWorker:
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
+        self._articles: dict[str, Any] = {}
 
     def _db(self) -> StateDB:
         return StateDB(load_config(self.config_path).state_db_path)
@@ -272,6 +527,12 @@ class WebWorker:
         self._wake.set()
         if self._thread:
             self._thread.join(timeout=5)
+        for job_id, drive in list(self._articles.items()):
+            self._articles.pop(job_id, None)
+            try:
+                _release_article(drive, failed=True)
+            except Exception:
+                logger.warning("Não foi possível encerrar o artigo pausado %s", job_id)
 
     def submit(self, operation: str, payload: dict[str, Any]) -> str | None:
         job_id = uuid4().hex
@@ -303,8 +564,7 @@ class WebWorker:
         while not self._stop.is_set():
             db = self._db()
             try:
-                queued = db.list_web_jobs(limit=1)
-                job = queued[0] if queued and queued[0]["state"] == "queued" else None
+                job = db.next_queued_web_job()
             finally:
                 db.close()
             if not job:
@@ -327,7 +587,15 @@ class WebWorker:
         previous_run_id = previous_run["run_id"] if previous_run else None
         progress.emit(ProgressEvent("starting", f"Iniciando {operation}."))
         try:
-            result = self._dispatch(cfg, db, progress, operation, payload)
+            result = self._dispatch(
+                cfg,
+                db,
+                progress,
+                operation,
+                payload,
+                sessions=self._articles,
+                job_id=job_id,
+            )
             last_run = db.get_last_run()
             run_id = (
                 last_run["run_id"] if last_run and last_run["run_id"] != previous_run_id else None
@@ -342,6 +610,15 @@ class WebWorker:
                 finished=True,
             )
             db.add_web_job_event(job_id, "completed", message="Operação concluída.")
+        except JobParked as parked:
+            db.update_web_job(
+                job_id,
+                state="awaiting_input",
+                phase=parked.phase,
+                message=parked.message,
+                result=parked.result,
+            )
+            db.add_web_job_event(job_id, parked.phase, message=parked.message)
         except (UserFacingError, LLMUnavailableError) as exc:
             logger.warning("Trabalho web %s falhou: %s", job_id, exc)
             message = safe_error(exc)
@@ -391,6 +668,9 @@ class WebWorker:
         progress: JobProgress,
         operation: str,
         payload: dict[str, Any],
+        *,
+        sessions: dict[str, Any] | None = None,
+        job_id: str | None = None,
     ) -> dict[str, Any]:
         progress.emit(ProgressEvent(operation, f"Carregando dependências para {operation}."))
         if operation == "retry_chunks":
@@ -471,9 +751,20 @@ class WebWorker:
         if operation == "review" and payload.get("action") == "discard":
             return _discard_extract_review(cfg, db, progress, payload)
 
+        if operation == "skill":
+            return _dispatch_skill(cfg, db, progress, payload)
+        if operation == "article":
+            return _dispatch_article(
+                cfg, progress, payload, sessions if sessions is not None else {}, job_id or ""
+            )
+
         from zettel.index import VectorIndex, index_kwargs
 
         idx = VectorIndex(**index_kwargs(cfg))
+        if operation == "ask":
+            return _dispatch_ask(cfg, db, idx, progress, payload)
+        if operation == "summarize":
+            return _dispatch_summarize(cfg, db, idx, progress, payload)
         if operation == "run_all":
             from zettel.connector import load_approved_candidates, run_connect
             from zettel.extractor import run_extract
@@ -739,6 +1030,39 @@ class WebApplication:
         self, review_id: str, session_hash: str, payload: dict[str, Any]
     ) -> str | None:
         return self.worker.submit_review(review_id, session_hash, payload)
+
+    def resume_article(self, job_id: str, decision: dict[str, Any]) -> str | None:
+        """Re-queue a parked article. ``None`` means another job holds the slot.
+
+        Raises ``UserFacingError`` when the in-memory graph is gone or the job
+        is not waiting.
+        """
+        if job_id not in self.worker._articles:
+            db = self.db()
+            try:
+                job = db.get_web_job(job_id)
+                if job and job["state"] == "awaiting_input":
+                    db.update_web_job(
+                        job_id,
+                        state="interrupted",
+                        phase="interrupted",
+                        message="A pausa do artigo expirou.",
+                        finished=True,
+                    )
+            finally:
+                db.close()
+            raise UserFacingError("A pausa do artigo expirou. Gere o artigo novamente.")
+        db = self.db()
+        try:
+            status = db.requeue_parked_job(job_id, {"resume": decision})
+        finally:
+            db.close()
+        if status == "busy":
+            return None
+        if status != "ok":
+            raise UserFacingError("Esta execução não está aguardando uma decisão.")
+        self.worker._wake.set()
+        return job_id
 
     def dashboard(self) -> dict[str, Any]:
         db = self.db()

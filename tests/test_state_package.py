@@ -129,6 +129,9 @@ PUBLIC_METHODS = {
     # web + aggregates
     "recover_web_jobs",
     "create_web_job",
+    "has_active_web_job",
+    "next_queued_web_job",
+    "requeue_parked_job",
     "claim_web_job",
     "get_web_job",
     "list_web_jobs",

@@ -76,7 +76,7 @@ class EmptyTextLayerError(PdfExtractionError):
 
 # A scanned PDF costs ~1.5s/page in Docling and yields nothing, so the text
 # layer is probed on the first few pages before the converter is built.
-TEXT_LAYER_PROBE_PAGES = 3
+TEXT_LAYER_PROBE_PAGES = 4
 TEXT_LAYER_MIN_CHARS = 40
 
 

@@ -102,8 +102,9 @@ A fresh `MemorySaver` and a per-run `thread_id` (`article-<uuid12>`) are created
 The checkpointer exists to make `interrupt()` and resume work within a single process; article runs
 are deliberately **not** persisted across processes.
 
-Scope boundary: `zettel article` is **CLI-only**. The web interface does not enqueue article jobs —
-`web.py` and `web_app.py` contain no article code path.
+Scope boundary (amended 2026-10-07): the same graph serves the CLI, non-interactive callers, and
+the web Acervo. The web parks the in-process checkpointer between the two reviews. See the addendum
+and [ADR-056](../WEB/ADR-056-web-acervo-consult-and-produce.md).
 
 ## Pros and Cons of the Options
 
@@ -183,3 +184,9 @@ owns topology and state, not writing logic. ADR-029 formalizes that separation a
 - naturalness: only the article.
 
 The rows sit next to the LLM's scores ([ADR-055](../LLM/ADR-055-typed-decision-layer-shadow.md)). The verdict, the `feedback` and the redraft loop are untouched. The feedback must quote the offending passage, which a typed answer cannot do. If a gate ever follows, the generative judge stays for the feedback on rejection.
+
+## Addendum (2026-10-07): the web parks the same in-process drive
+
+`run_article_graph` is now a loop over `ArticleDrive`. The CLI still passes its Rich `hitl_handler`. The web Acervo ([ADR-056](../WEB/ADR-056-web-acervo-consult-and-produce.md)) keeps the drive on the worker and sets the job to `awaiting_input` when the graph interrupts. Resume sends `Command(resume=...)` to that same object.
+
+The `MemorySaver` still does not survive a process restart. A restart marks the parked job `interrupted`, and the operator starts the article again. The catalog object stays on the live `ArticleRuntime`; it is not serialized.

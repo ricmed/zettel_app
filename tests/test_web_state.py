@@ -31,6 +31,49 @@ def test_web_queue_enforces_mutual_exclusion_and_transitions(tmp_path: Path):
         db.close()
 
 
+def test_next_queued_job_is_the_oldest_even_after_a_newer_one_finished(tmp_path: Path):
+    db = StateDB(tmp_path / "state.db")
+    try:
+        assert db.create_web_job("old", "article", {"topic": "a"})
+        db.update_web_job("old", state="succeeded", finished=True)
+        assert db.create_web_job("new", "extract", {})
+        db.update_web_job("new", state="succeeded", finished=True)
+        db.conn.execute("UPDATE web_jobs SET state='queued', phase='queued'")
+        db.conn.commit()
+        job = db.next_queued_web_job()
+        assert job is not None
+        assert job["job_id"] == "old"
+    finally:
+        db.close()
+
+
+def test_parked_article_does_not_block_and_requeues(tmp_path: Path):
+    db = StateDB(tmp_path / "state.db")
+    try:
+        assert db.create_web_job("parked", "article", {"topic": "t"})
+        db.update_web_job("parked", state="awaiting_input", phase="context_review")
+        assert not db.has_active_web_job()
+        assert db.requeue_parked_job("parked", {"resume": {"context_decision": "approve"}}) == "ok"
+        job = db.get_web_job("parked")
+        assert job is not None
+        assert job["state"] == "queued"
+        assert job["payload"]["resume"]["context_decision"] == "approve"
+        assert db.requeue_parked_job("parked", {"resume": {}}) == "busy"
+    finally:
+        db.close()
+
+
+def test_recovery_interrupts_a_parked_article(tmp_path: Path):
+    db = StateDB(tmp_path / "state.db")
+    try:
+        assert db.create_web_job("parked", "article", {})
+        db.update_web_job("parked", state="awaiting_input", phase="outline_review")
+        assert db.recover_web_jobs() == 1
+        assert db.get_web_job("parked")["state"] == "interrupted"
+    finally:
+        db.close()
+
+
 def test_recovery_interrupts_running_but_keeps_queued(tmp_path: Path):
     db = StateDB(tmp_path / "state.db")
     try:

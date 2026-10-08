@@ -426,6 +426,23 @@ def reset() -> None:
     _progress.set(None)
 
 
+def suspend_run() -> CostTracker | None:
+    """Take the active tracker off this thread without finishing the run.
+
+    The web article pause frees the worker for another job. That job calls
+    ``begin_run``, which would replace this tracker. The caller keeps the
+    returned object and puts it back with ``resume_run``.
+    """
+    tracker = _tracker.get()
+    reset()
+    return tracker
+
+
+def resume_run(tracker: CostTracker | None) -> None:
+    """Put a tracker from ``suspend_run`` back on this thread."""
+    _tracker.set(tracker)
+
+
 def record_llm(
     *,
     model: str,
