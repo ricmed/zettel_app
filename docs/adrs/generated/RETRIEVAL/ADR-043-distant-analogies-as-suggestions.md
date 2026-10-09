@@ -34,3 +34,11 @@ A wrong analogy stays a suggestion. Graph expansion and hub ranking only see end
 The rule here — *connect writes edges without a human gate, therefore speculative links stay suggestions* — gates **LLM judgement**. [ADR-045](../REVIEW/ADR-045-cross-source-overlap-is-corroboration.md) writes `corroborates` straight to `note_connections`, and that is consistent rather than an exception: the edge is derived by code from `source_id` plus a similarity threshold, never proposed by a model. `corroborates` is deliberately absent from `permanent_note.md`'s relation menu (a test pins the absence), and a model that emits it anyway is downgraded to `supports` before the code's own edges are injected.
 
 The distinction to preserve: a distant analogy is a guess about mechanism and can be wrong; corroboration is a fact about authorship and cannot.
+
+## Amendment (2026-10-08) — preferred type for a distant analogy (#231)
+
+`permanent_note.md` used to steer a distant analogy to `exemplifies` ("the same
+scheme in another field"). Under the ordered definitions of #231, `exemplifies` is
+a concrete case that adds no mechanism, and "the same mechanism in another domain"
+is `related`, so the analogy group now prefers `related` or `contradicts`
+(incompatible theses). Distant analogies remain suggestions, never edges.

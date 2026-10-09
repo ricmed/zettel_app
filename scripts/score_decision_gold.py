@@ -90,6 +90,8 @@ RELATION_ANSWERS = (
     "nenhuma",
 )
 NO_EDGE = "nenhuma"
+# Pre-registration #231: judged pairs the validation round needs.
+MIN_RELATIONS_GATE_LABELS = 60
 DEFAULT_FILES = {
     "relations": (
         "evals/gold/relacoes-GABARITO-NAO-ABRIR.json",
@@ -510,14 +512,36 @@ def preregistered_rule_212(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def preregistered_rule_231(result: dict[str, Any], compared: tuple[str, str]) -> dict[str, Any]:
+    """#231, validation round: adopt the new Prompt 2 iff it gets more pairs exactly
+    right than the current one with exact McNemar p < 0.05, on >= 60 judged pairs.
+    The cap and validity conditions are read from the probe's run summary."""
+    current, new = (result["conditions"][run] for run in compared)
+    p = result["pairs"][f"{compared[0]}:{compared[1]}"]["mcnemar_p"]
+    return {
+        "labels": new["n"],
+        "enough_labels": new["n"] >= MIN_RELATIONS_GATE_LABELS,
+        "current_correct": current["correct"],
+        "new_correct": new["correct"],
+        "mcnemar_p": p,
+        "new_beats_current": new["correct"] > current["correct"] and p < 0.05,
+    }
+
+
 def score_relations(labels: list[dict[str, Any]], key: dict[str, Any]) -> dict[str, Any]:
+    """Pairs and rule follow the key: #212 compared contexts, #231 prompts."""
     conditions = relations_conditions(key)
-    pairs = [("trunc-a", "full-a")]
-    if {"trunc-b", "full-b"} <= set(conditions):
-        pairs.append(("trunc-b", "full-b"))
+    compared = tuple(key.get("compared") or ("trunc-a", "full-a"))
+    pairs = [compared]
+    repeat = tuple(run[:-2] + "-b" for run in compared)
+    if set(repeat) <= set(conditions):
+        pairs.append(repeat)
     result = score_conditions(labels, conditions, key["population"], pairs)
     result["detail"] = relations_detail(labels, conditions)
-    result["preregistered_rule_212"] = preregistered_rule_212(result)
+    if compared == ("trunc-a", "full-a"):
+        result["preregistered_rule_212"] = preregistered_rule_212(result)
+    else:
+        result["preregistered_rule_231"] = preregistered_rule_231(result, compared)
     return result
 
 
@@ -565,7 +589,9 @@ def main(argv: list[str] | None = None) -> int:
 
     result = score(labels, key)
     result["unjudgeable"] = sum(1 for lab in labels if lab["human_decision"] is None)
-    result["human_distribution"] = dict(Counter(lab["human_decision"] for lab in labels))
+    result["human_distribution"] = dict(
+        Counter(lab["human_decision"] or UNJUDGEABLE for lab in labels)
+    )
 
     text = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     print(text, end="")

@@ -1,4 +1,4 @@
-"""Re-run Prompt 2 with the RAG neighbours cut or whole: which relations agree with a human? (#212)
+"""Re-run Prompt 2 over frozen retrieval: which relations agree with a human? (#212, #231)
 
 Prompt 2 (`prompts/permanent_note.md`) picks typed relations (`supports`,
 `contradicts`, `extends`, ...) between a new note and the notes `connect` retrieved.
@@ -30,6 +30,11 @@ Three steps, each reusing what the previous one recorded under
    `neither`), for `scripts/score_decision_gold.py --site relations`. Distant
    analogies stay out: they become suggestions, never edges (ADR-043).
 
+#231 reuses the same snapshot to compare **prompt versions** (`--prompt NOME=CAMINHO`,
+repeatable; `--runs` limits the conditions) on pairs already labelled
+(`--score-key` + `--labels`), and writes a revision sheet of those labels under new
+relation definitions (`--revise`).
+
 Reads state.db and the vector index; writes nothing to either.
 
 Usage:
@@ -37,6 +42,12 @@ Usage:
     .venv/Scripts/python.exe scripts/probe_connect_context.py --sample 40 --seed 0 --yes \\
         --out evals/results/connect-context-212.json
     .venv/Scripts/python.exe scripts/probe_connect_context.py --sample 40 --seed 0 --export
+    git show main:prompts/permanent_note.md > .eval-work/prompts/permanent-current.md
+    .venv/Scripts/python.exe scripts/probe_connect_context.py --sample 40 --seed 0 --yes \\
+        --runs trunc-a,trunc-b --prompt current=.eval-work/prompts/permanent-current.md \\
+        --prompt new=prompts/permanent_note.md \\
+        --score-key evals/gold/relacoes-GABARITO-NAO-ABRIR.json \\
+        --labels evals/gold/relacoes-rotulos-v2.json
 """
 
 from __future__ import annotations
@@ -60,10 +71,10 @@ CONTEXT_CHARS = {"trunc": 150, "full": FULL_NOTE_CHARS}
 RELATIONS = ("supports", "contradicts", "extends", "depends_on", "exemplifies", "related")
 NO_EDGE = "nenhuma"
 UNJUDGEABLE = "?"
-STRATA = ("both", "trunc_only", "full_only", "neither")
 DEFAULT_RECORD_DIR = Path(".eval-work/connect-context")
 SHEET_PREFIX = "relacoes"
 MAX_INVALID_SHARE = 0.05  # pre-registered validity condition (#212)
+MAX_EDGES_231 = 4  # connection cap decided in #231
 
 
 # -- Pure pieces ---------------------------------------------------------
@@ -132,26 +143,43 @@ def usable(entry: dict[str, Any] | None) -> bool:
     return bool(entry) and entry.get("status") == "accepted"
 
 
-def stratum_of(trunc: str, full: str) -> str:
-    if NO_EDGE not in (trunc, full):
-        return "both"
-    if trunc != NO_EDGE:
-        return "trunc_only"
-    return "full_only" if full != NO_EDGE else "neither"
+def condition_label(run: str) -> str:
+    """The name a stratum uses for a run: ``trunc-a`` -> ``trunc``, ``new:trunc-a`` -> ``new``."""
+    return run.split(":", 1)[0] if ":" in run else condition_of(run)
+
+
+def strata_for(compared: tuple[str, str]) -> tuple[str, str, str, str]:
+    """``both``, ``<a>_only``, ``<b>_only``, ``neither`` for the two compared runs."""
+    a, b = (condition_label(run) for run in compared)
+    return ("both", f"{a}_only", f"{b}_only", "neither")
+
+
+def stratum_of(first: str, second: str, compared: tuple[str, str] = ("trunc-a", "full-a")) -> str:
+    """Which of the two compared runs proposed an edge for one pair."""
+    both, first_only, second_only, neither = strata_for(compared)
+    if NO_EDGE not in (first, second):
+        return both
+    if first != NO_EDGE:
+        return first_only
+    return second_only if second != NO_EDGE else neither
 
 
 def build_pairs(
-    snapshot: list[dict[str, Any]], runs: dict[str, dict[str, dict[str, Any]]]
+    snapshot: list[dict[str, Any]],
+    runs: dict[str, dict[str, dict[str, Any]]],
+    compared: tuple[str, str] = ("trunc-a", "full-a"),
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """Every (concept, retrieved neighbour) pair whose concept both `-a` runs accepted.
+    """Every (concept, retrieved neighbour) pair whose concept both compared runs accepted.
 
-    Returns the pairs and the concepts left out (rejected or invalid in a `-a` run).
+    Strata say which compared run proposed an edge; every run's answer travels in
+    the key. Returns the pairs and the concepts left out (rejected or invalid in a
+    compared run).
     """
     pairs, excluded = [], []
     for item in snapshot:
         key = item["item_key"]
-        trunc, full = runs["trunc-a"].get(key), runs["full-a"].get(key)
-        if not (usable(trunc) and usable(full)):
+        first, second = (runs[run].get(key) for run in compared)
+        if not (usable(first) and usable(second)):
             excluded.append(key)
             continue
         for neighbour in item["similar"]:
@@ -161,15 +189,23 @@ def build_pairs(
                     "pair": f"{key}|{nid}",
                     "item_key": key,
                     "note_id": nid,
-                    "sampling_stratum": stratum_of(answer_for(trunc, nid), answer_for(full, nid)),
-                    "answers": {run: answer_for(runs[run].get(key), nid) for run in RUNS},
+                    "sampling_stratum": stratum_of(
+                        answer_for(first, nid), answer_for(second, nid), compared
+                    ),
+                    "answers": {
+                        run: answer_for(answers.get(key), nid) for run, answers in runs.items()
+                    },
                 }
             )
     return pairs, excluded
 
 
 def sample_pairs(
-    pairs: list[dict[str, Any]], *, per_stratum: int, seed: int
+    pairs: list[dict[str, Any]],
+    *,
+    per_stratum: int,
+    seed: int,
+    compared: tuple[str, str] = ("trunc-a", "full-a"),
 ) -> list[dict[str, Any]]:
     """Census up to ``per_stratum`` per stratum, seeded draw above it, shuffled ids."""
     rng = random.Random(seed)  # noqa: S311 -- sampling a sheet, not security
@@ -177,7 +213,7 @@ def sample_pairs(
     for p in sorted(pairs, key=lambda p: p["pair"]):
         by_stratum[p["sampling_stratum"]].append(p)
     chosen = []
-    for stratum in STRATA:
+    for stratum in strata_for(compared):
         group = by_stratum.get(stratum, [])
         chosen.extend(rng.sample(group, per_stratum) if len(group) > per_stratum else group)
     rng.shuffle(chosen)  # position must not leak the stratum
@@ -185,14 +221,17 @@ def sample_pairs(
 
 
 def summarize_runs(
-    snapshot: list[dict[str, Any]], runs: dict[str, dict[str, dict[str, Any]]]
+    snapshot: list[dict[str, Any]],
+    runs: dict[str, dict[str, dict[str, Any]]],
+    comparisons: list[tuple[str, str]] = (),
 ) -> dict[str, Any]:
-    """Validity, edges per note and relation mix per run; stability and condition
-    agreement over the offered pairs. Informative: the rule reads human labels."""
+    """Validity, edges per note and relation mix per run; `-a`/`-b` stability and
+    the agreement of each ``comparisons`` pair over the offered pairs.
+    Informative: the rules read human labels."""
     keys = [item["item_key"] for item in snapshot]
     out: dict[str, Any] = {"items": len(keys), "runs": {}}
-    for run in RUNS:
-        answers = runs.get(run, {})
+    for run in sorted(runs):
+        answers = runs[run]
         valid = [answers[k] for k in keys if k in answers and "error" not in answers[k]]
         accepted = [a for a in valid if a["status"] == "accepted"]
         relations = Counter(r for a in accepted for r in a["edges"].values())
@@ -206,6 +245,12 @@ def summarize_runs(
             if accepted
             else None,
             "relations": dict(sorted(relations.items())),
+            "max_edges": max((len(a["edges"]) for a in accepted), default=None),
+            "share_at_most_4_edges": round(
+                sum(len(a["edges"]) <= MAX_EDGES_231 for a in accepted) / len(accepted), 4
+            )
+            if accepted
+            else None,
         }
 
     def agreement(a: str, b: str) -> dict[str, Any]:
@@ -219,8 +264,32 @@ def summarize_runs(
                 same += answer_for(ea, n["note_id"]) == answer_for(eb, n["note_id"])
         return {"pairs": total, "agreement": round(same / total, 4) if total else None}
 
-    out["stability"] = {c: agreement(f"{c}-a", f"{c}-b") for c in CONTEXT_CHARS}
-    out["trunc_vs_full_a"] = agreement("trunc-a", "full-a")
+    out["stability"] = {
+        run[:-2]: agreement(run, f"{run[:-2]}-b")
+        for run in sorted(runs)
+        if run.endswith("-a") and f"{run[:-2]}-b" in runs
+    }
+    out["agreement"] = {f"{a} x {b}": agreement(a, b) for a, b in comparisons}
+    return out
+
+
+def result_ids(prompts: list[str], runs: list[str]) -> list[str]:
+    """The bare run for one prompt (as #212 recorded it), else ``prompt:run``."""
+    if len(prompts) == 1:
+        return list(runs)
+    return [f"{p}:{r}" for p in prompts for r in runs]
+
+
+def labelled_conditions(
+    key: dict[str, Any], runs: dict[str, dict[str, dict[str, Any]]]
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Each run's relation for every pair of a sheet key, as scorer conditions."""
+    out: dict[str, dict[str, dict[str, Any]]] = {}
+    for run, answers in runs.items():
+        out[run] = {}
+        for item in key["items"]:
+            item_key, note_id = item["subject_id"].rsplit("|", 1)
+            out[run][item["item_id"]] = {"decision": answer_for(answers.get(item_key), note_id)}
     return out
 
 
@@ -320,6 +389,26 @@ def rag_context_for(item: dict[str, Any], note_chars: int) -> str:
 # -- Export --------------------------------------------------------------
 
 
+# The relation definitions of #231, in order, for every labeller guide.
+RELATION_RULES = [
+    "1. `contradicts` — as duas teses **não podem ser verdadeiras juntas**. Resolver ou",
+    "   contornar uma limitação que a outra aponta **não** é contradição (é `extends`).",
+    "2. `depends_on` — o conceito **não pode ser definido nem entendido** sem o conceito",
+    "   da nota existente. Partir dela ou construir sobre ela não basta.",
+    "3. `exemplifies` — um é um **caso concreto** do outro (dados, domínio, situação),",
+    "   sem acrescentar mecanismo, condição ou técnica.",
+    "4. `extends` — acrescenta **condição, mecanismo, especialização, técnica,",
+    "   consequência** ou a solução de uma limitação apontada pela outra.",
+    "5. `supports` — traz **evidência ou argumento para a mesma afirmação**, sem afirmar",
+    "   nada novo.",
+    "6. `related` — relação conceitual que se descreve numa frase e não cabe acima",
+    "   (soluções alternativas para o mesmo problema; o mesmo mecanismo em outro",
+    "   domínio).",
+    "7. `nenhuma` — **tema em comum não basta**: se a única descrição possível é",
+    '   "ambos tratam de X", é `nenhuma`. Uma relação fraca também é `nenhuma`.',
+]
+
+
 def _concept_text(candidate: dict[str, Any]) -> str:
     from zettel.note_content import render_note_content
 
@@ -335,12 +424,14 @@ def write_export(
     seed: int,
     run_meta: dict[str, Any],
     excluded: list[str],
+    prefix: str = SHEET_PREFIX,
+    compared: tuple[str, str] = ("trunc-a", "full-a"),
 ) -> tuple[Path, Path, Path]:
     items = {item["item_key"]: item for item in snapshot}
     notes = {(item["item_key"], n["note_id"]): n for item in snapshot for n in item["similar"]}
-    sheet = out_dir / f"{SHEET_PREFIX}-planilha.csv"
-    reading = out_dir / f"{SHEET_PREFIX}-leitura.md"
-    key = out_dir / f"{SHEET_PREFIX}-GABARITO-NAO-ABRIR.json"
+    sheet = out_dir / f"{prefix}-planilha.csv"
+    reading = out_dir / f"{prefix}-leitura.md"
+    key = out_dir / f"{prefix}-GABARITO-NAO-ABRIR.json"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     with sheet.open("w", encoding="utf-8-sig", newline="") as fh:
@@ -365,19 +456,12 @@ def write_export(
         "existe** no vault, recuperada por proximidade. Qual relação o conceito tem com a",
         "nota existente? Leia como: *o conceito ___ a nota existente*.",
         "",
-        "- `supports` — reforça ou valida a tese dela com evidência ou argumento",
-        "- `contradicts` — contradiz ou tensiona a tese dela",
-        "- `extends` — amplia, aprofunda ou especializa o conceito dela",
-        "- `depends_on` — pressupõe a nota existente; não se entende sem ela",
-        "- `exemplifies` — é um caso particular dela, ou ela é um caso particular dele",
-        "- `related` — relação temática clara, mas que não cabe acima",
-        f"- `{NO_EDGE}` — não há relação conceitual que valha uma aresta; dividir o tema",
-        "  não basta",
+        "Aplique as regras **na ordem**: a primeira que valer decide.",
+        "",
+        *RELATION_RULES,
         f"- `{UNJUDGEABLE}` — não dá para julgar com o que está aqui",
         "",
-        "Responda na coluna `relacao`. A coluna `nota` é livre. Na dúvida entre uma",
-        f"relação fraca e `{NO_EDGE}`, prefira `{NO_EDGE}`: o prompt pede só conexões",
-        "genuínas, de 0 a 3 por nota.",
+        "Responda na coluna `relacao`. A coluna `nota` é livre.",
         "",
         "Decida pelo **sentido**, sem score de similaridade e sem outro modelo. Nada aqui",
         "diz o que qualquer modelo decidiu, nem por que a nota foi recuperada.",
@@ -410,6 +494,7 @@ def write_export(
         "population": population,
         "excluded_concepts": excluded,
         "runs": run_meta,
+        "compared": list(compared),
         "answers": {"relacao": [*RELATIONS, NO_EDGE], "unjudgeable": UNJUDGEABLE},
         "items": [
             {
@@ -425,6 +510,64 @@ def write_export(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     return sheet, reading, key
+
+
+REVISION_GUIDE = [
+    "# Revisão dos rótulos de relação sob as definições de #231",
+    "",
+    "Os mesmos 80 pares de #212. Cada item mostra o rótulo que você deu antes",
+    "(`relacao_anterior`). Confirme ou troque, aplicando as regras **na ordem**: a",
+    "primeira que valer decide. Leia como *o conceito ___ a nota existente*.",
+    "",
+    *RELATION_RULES,
+    "",
+    "Responda em `relacao` (pode repetir a anterior). `?` se não der para julgar.",
+    "",
+    "---",
+]
+
+
+def write_revision(
+    key: dict[str, Any],
+    labels: list[dict[str, Any]],
+    snapshot: list[dict[str, Any]],
+    out_dir: Path,
+) -> tuple[Path, Path]:
+    """The labelled pairs again, with the previous label, under the new definitions."""
+    items = {item["item_key"]: item for item in snapshot}
+    previous = {lab["item_id"]: lab["human_decision"] or UNJUDGEABLE for lab in labels}
+    sheet = out_dir / f"{SHEET_PREFIX}-revisao-planilha.csv"
+    reading = out_dir / f"{SHEET_PREFIX}-revisao-leitura.md"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    lines = list(REVISION_GUIDE)
+    with sheet.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.writer(fh, delimiter=";")
+        writer.writerow(
+            ["item_id", "relacao_anterior", "relacao", "nota", "conceito", "nota_existente"]
+        )
+        for entry in key["items"]:
+            item_key, note_id = entry["subject_id"].rsplit("|", 1)
+            item = items[item_key]
+            neighbour = next(n for n in item["similar"] if n["note_id"] == note_id)
+            concept = _concept_text(item["candidate"])
+            old = previous.get(entry["item_id"], "")
+            writer.writerow([entry["item_id"], old, "", "", concept, neighbour["document"]])
+            lines += [
+                "",
+                f"## {entry['item_id']} — antes: `{old}`",
+                "",
+                "**Conceito**",
+                "",
+                concept,
+                "",
+                f"**Nota existente** — {neighbour['title']}",
+                "",
+                neighbour["document"],
+                "",
+                "---",
+            ]
+    reading.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return sheet, reading
 
 
 # -- CLI -----------------------------------------------------------------
@@ -448,13 +591,46 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--record-dir", type=Path, default=DEFAULT_RECORD_DIR)
     parser.add_argument("--sample", type=int, default=40)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--exclude-snapshot",
+        type=Path,
+        action="append",
+        default=[],
+        help="Snapshot anterior (repetivel): seus conceitos nao entram num snapshot novo",
+    )
     parser.add_argument("--yes", action="store_true", help="Autoriza as chamadas nao gravadas")
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--export", action="store_true", help="Exporta a planilha cega de pares")
     parser.add_argument("--per-stratum", type=int, default=20)
     parser.add_argument("--out-dir", type=Path, default=Path("evals/gold"))
     parser.add_argument("--force", action="store_true", help="Sobrescreve planilha e gabarito")
+    parser.add_argument(
+        "--prompt",
+        action="append",
+        default=[],
+        metavar="NOME=CAMINHO",
+        help="Versao do Prompt 2 (repetivel). Padrao: current=<prompt de producao>",
+    )
+    parser.add_argument(
+        "--runs", default=",".join(RUNS), help=f"Rodadas, separadas por virgula ({','.join(RUNS)})"
+    )
+    parser.add_argument("--score-key", type=Path, default=None, help="Gabarito de pares rotulados")
+    parser.add_argument("--labels", type=Path, default=None, help="Rotulos desse gabarito")
+    parser.add_argument(
+        "--compare",
+        default="trunc-a,full-a",
+        help="As duas rodadas que estratificam a planilha (ex.: current:trunc-a,new:trunc-a)",
+    )
+    parser.add_argument(
+        "--sheet-prefix", default=SHEET_PREFIX, help="Prefixo dos arquivos da planilha exportada"
+    )
+    parser.add_argument(
+        "--revise", type=Path, default=None, help="Rotulos a revisar: gera a planilha de revisao"
+    )
     args = parser.parse_args(argv)
+    run_names = [r for r in args.runs.split(",") if r]
+    if unknown := set(run_names) - set(RUNS):
+        parser.error(f"rodadas desconhecidas: {sorted(unknown)}")
 
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -479,7 +655,13 @@ def main(argv: list[str] | None = None) -> int:
     if snapshot_path.exists():
         snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))["items"]
     else:
-        rows = pick_concepts(_eligible_rows(db), args.sample, args.seed)
+        used = {
+            item["concept_id"]
+            for path in args.exclude_snapshot
+            for item in json.loads(path.read_text(encoding="utf-8"))["items"]
+        }
+        eligible = [r for r in _eligible_rows(db) if r["concept_id"] not in used]
+        rows = pick_concepts(eligible, args.sample, args.seed)
         snapshot = build_snapshot(cfg, db, rows)
         snapshot_path.parent.mkdir(parents=True, exist_ok=True)
         snapshot_path.write_text(
@@ -488,10 +670,28 @@ def main(argv: list[str] | None = None) -> int:
     print(f"modelo: {spec.provider}/{spec.model} @ {temperature}")
     print(f"snapshot: {snapshot_path} ({len(snapshot)} conceitos)")
 
-    parts = load_prompt_parts(cfg.prompts_path / "permanent_note.md")
+    if args.revise:
+        key = json.loads(
+            (args.score_key or args.out_dir / f"{SHEET_PREFIX}-GABARITO-NAO-ABRIR.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        labels = json.loads(args.revise.read_text(encoding="utf-8"))["labels"]
+        sheet, reading = write_revision(key, labels, snapshot, args.out_dir)
+        print(f"revisao: {sheet}\nleitura: {reading}")
+        return 0
+
+    prompt_args = []
+    for value in args.prompt:
+        name, sep, path = value.partition("=")
+        if not sep or not name or not path or ":" in name:
+            parser.error(f"--prompt espera NOME=CAMINHO, recebeu {value!r}")
+        prompt_args.append((name, Path(path)))
+    prompt_args = prompt_args or [("current", cfg.prompts_path / "permanent_note.md")]
+    prompts = {name: load_prompt_parts(path) for name, path in prompt_args}
     examples = render_for_prompt(load_domain_examples(cfg.domain.examples_path), "permanent_note")
 
-    def build(run: str, item: dict[str, Any]) -> tuple[str, str]:
+    def build(run: str, item: dict[str, Any], parts: Any) -> tuple[str, str]:
         payload = Prompt2Payload(
             source_id=item["source_id"],
             literature_ref=item["literature_ref"],
@@ -510,7 +710,9 @@ def main(argv: list[str] | None = None) -> int:
 
     runs: dict[str, dict[str, dict[str, Any]]] = {}
     run_meta: dict[str, Any] = {}
-    for run in RUNS:
+    for result_id in result_ids(list(prompts), run_names):
+        name, _, run = result_id.rpartition(":")
+        parts = prompts[name or next(iter(prompts))]
         run_key = sha256_hex(
             f"{run}|{CONTEXT_CHARS[condition_of(run)]}|{parts.full_template}|"
             f"{spec.provider}/{spec.model}@{temperature}"
@@ -522,21 +724,27 @@ def main(argv: list[str] | None = None) -> int:
             else {}
         )
         missing = [item for item in snapshot if item["item_key"] not in recorded]
-        chars = sum(len("".join(build(run, item))) for item in missing)
-        print(f"{run}: gravados {len(recorded)} | a chamar {len(missing)} (~{chars // 4} tokens)")
-        run_meta[run] = {"record": record_path.name, "note_chars": CONTEXT_CHARS[condition_of(run)]}
+        chars = sum(len("".join(build(run, item, parts))) for item in missing)
+        print(
+            f"{result_id}: gravados {len(recorded)} | a chamar {len(missing)} "
+            f"(~{chars // 4} tokens)"
+        )
+        run_meta[result_id] = {
+            "record": record_path.name,
+            "note_chars": CONTEXT_CHARS[condition_of(run)],
+        }
         if missing and args.yes:
             from zettel.llm import call_llm
 
             for item in missing:
-                system, user = build(run, item)
+                system, user = build(run, item, parts)
                 text = call_llm(
                     llm,
                     user,
                     system=system or None,
                     provider=spec.provider,
                     prompt_cache=cfg.llm.prompt_cache,
-                    label=f"probe-connect:{run}",
+                    label=f"probe-connect:{result_id}",
                 )
                 entry = parse_answer(
                     text, {n["note_id"] for n in item["similar"] + item["distant"]}
@@ -561,12 +769,30 @@ def main(argv: list[str] | None = None) -> int:
                     + "\n",
                     encoding="utf-8",
                 )
-        runs[run] = recorded
+        runs[result_id] = recorded
 
-    summary = summarize_runs(snapshot, runs)
+    comparisons = [("trunc-a", "full-a")] if {"trunc-a", "full-a"} <= set(runs) else []
+    names = list(prompts)
+    comparisons += [
+        (f"{names[0]}:{run}", f"{other}:{run}")
+        for other in names[1:]
+        for run in run_names
+        if run.endswith("-a")
+    ]
+    summary = summarize_runs(snapshot, runs, comparisons)
     summary["model"] = f"{spec.provider}/{spec.model}"
     summary["temperature"] = temperature
     summary["note_chars"] = CONTEXT_CHARS
+    summary["prompts"] = {name: str(path) for name, path in prompt_args}
+    if args.score_key and args.labels:
+        from score_decision_gold import relations_detail, score_conditions
+
+        key = json.loads(args.score_key.read_text(encoding="utf-8"))
+        labels = json.loads(args.labels.read_text(encoding="utf-8"))["labels"]
+        conditions = labelled_conditions(key, runs)
+        scored = score_conditions(labels, conditions, key["population"], comparisons)
+        scored["detail"] = relations_detail(labels, conditions)
+        summary["labelled"] = scored
     text = json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     print(text, end="")
     if args.out:
@@ -574,23 +800,26 @@ def main(argv: list[str] | None = None) -> int:
         args.out.write_text(text, encoding="utf-8")
 
     if args.export:
-        if any(len(runs[r]) < len(snapshot) for r in ("trunc-a", "full-a")):
-            print("Exportacao exige trunc-a e full-a completos: rode com --yes antes.")
+        compared = tuple(args.compare.split(","))
+        if len(compared) != 2 or any(len(runs.get(r, {})) < len(snapshot) for r in compared):
+            print(f"Exportacao exige {args.compare} completos: rode com --yes antes.")
             return 1
         existing = [
             p
             for p in (
-                args.out_dir / f"{SHEET_PREFIX}-planilha.csv",
-                args.out_dir / f"{SHEET_PREFIX}-GABARITO-NAO-ABRIR.json",
+                args.out_dir / f"{args.sheet_prefix}-planilha.csv",
+                args.out_dir / f"{args.sheet_prefix}-GABARITO-NAO-ABRIR.json",
             )
             if p.exists()
         ]
         if existing and not args.force:
             print(f"{', '.join(map(str, existing))} ja existe(m). Use --force para sobrescrever.")
             return 1
-        pairs, excluded = build_pairs(snapshot, runs)
+        pairs, excluded = build_pairs(snapshot, runs, compared)
         population = dict(Counter(p["sampling_stratum"] for p in pairs))
-        sampled = sample_pairs(pairs, per_stratum=args.per_stratum, seed=args.seed)
+        sampled = sample_pairs(
+            pairs, per_stratum=args.per_stratum, seed=args.seed, compared=compared
+        )
         paths = write_export(
             sampled,
             snapshot,
@@ -599,9 +828,11 @@ def main(argv: list[str] | None = None) -> int:
             seed=args.seed,
             run_meta=run_meta,
             excluded=excluded,
+            prefix=args.sheet_prefix,
+            compared=compared,
         )
         print(f"{len(sampled)} pares exportados de {len(pairs)} (fora: {len(excluded)} conceitos)")
-        for stratum in STRATA:
+        for stratum in strata_for(compared):
             print(
                 f"  {stratum}: {sum(p['sampling_stratum'] == stratum for p in sampled)}"
                 f" de {population.get(stratum, 0)}"
