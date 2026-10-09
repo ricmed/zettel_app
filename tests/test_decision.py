@@ -421,7 +421,7 @@ def test_shadow_corroborates_judges_the_band_in_both_orders(tmp_path, db, fake):
     ab = next(r for r in rows if r["subject_id"].endswith(":ab"))
     assert ab["baseline"] == {
         "similarity": 0.8,
-        "threshold": 0.85,
+        "threshold": cfg.linking.corroborates_min_similarity,
         "edge": False,
         "new_note": "01NEW",
     }

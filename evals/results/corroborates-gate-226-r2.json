@@ -1,0 +1,185 @@
+{
+  "conditions": {
+    "cos88": {
+      "accuracy": 0.9625,
+      "accuracy_weighted": 0.9624,
+      "by_stratum": {
+        "above_threshold": {
+          "accuracy": 0.925,
+          "n": 40
+        },
+        "near_threshold": {
+          "accuracy": 1.0,
+          "n": 40
+        }
+      },
+      "confusion_human_to_model": {
+        "other->other": 67,
+        "other->same_idea": 2,
+        "same_idea->other": 1,
+        "same_idea->same_idea": 10
+      },
+      "correct": 77,
+      "n": 80
+    },
+    "cosine": {
+      "accuracy": 0.6375,
+      "accuracy_weighted": 0.6361,
+      "by_stratum": {
+        "above_threshold": {
+          "accuracy": 0.275,
+          "n": 40
+        },
+        "near_threshold": {
+          "accuracy": 1.0,
+          "n": 40
+        }
+      },
+      "confusion_human_to_model": {
+        "other->other": 40,
+        "other->same_idea": 29,
+        "same_idea->same_idea": 11
+      },
+      "correct": 51,
+      "n": 80
+    },
+    "jev": {
+      "accuracy": 0.975,
+      "accuracy_weighted": 0.9749,
+      "by_stratum": {
+        "above_threshold": {
+          "accuracy": 0.95,
+          "n": 40
+        },
+        "near_threshold": {
+          "accuracy": 1.0,
+          "n": 40
+        }
+      },
+      "confusion_human_to_model": {
+        "other->other": 67,
+        "other->same_idea": 2,
+        "same_idea->same_idea": 11
+      },
+      "correct": 78,
+      "n": 80
+    },
+    "threshold": {
+      "accuracy": 0.775,
+      "accuracy_weighted": 0.7741,
+      "by_stratum": {
+        "above_threshold": {
+          "accuracy": 0.55,
+          "n": 40
+        },
+        "near_threshold": {
+          "accuracy": 1.0,
+          "n": 40
+        }
+      },
+      "confusion_human_to_model": {
+        "other->other": 53,
+        "other->same_idea": 16,
+        "same_idea->other": 2,
+        "same_idea->same_idea": 9
+      },
+      "correct": 62,
+      "n": 80
+    }
+  },
+  "detail": {
+    "auc_same_idea": {
+      "cosine": {
+        "auc": 0.985,
+        "ci95": [
+          0.934,
+          1.0
+        ],
+        "min_detectable_auc": 0.75,
+        "n_other": 69,
+        "n_same_idea": 11,
+        "verdict": "separa"
+      },
+      "jev_mean_score": {
+        "auc": 1.0,
+        "ci95": [
+          1.0,
+          1.0
+        ],
+        "min_detectable_auc": 0.75,
+        "n_other": 69,
+        "n_same_idea": 11,
+        "verdict": "separa"
+      }
+    },
+    "human_level_to_jev_level": {
+      "0->0": 11,
+      "1->0": 13,
+      "1->1": 43,
+      "1->2": 2,
+      "2->2": 11
+    },
+    "human_levels_by_band": {
+      "above_threshold": {
+        "1": 29,
+        "2": 11
+      },
+      "near_threshold": {
+        "0": 11,
+        "1": 29
+      }
+    },
+    "order_divergence_mean": 0.107
+  },
+  "human_distribution": {
+    "other": 69,
+    "same_idea": 11
+  },
+  "pairs": {
+    "cos88:jev": {
+      "mcnemar_p": 1.0,
+      "n": 80,
+      "only_a_right": 2,
+      "only_b_right": 3
+    },
+    "cosine:cos88": {
+      "mcnemar_p": 0.0,
+      "n": 80,
+      "only_a_right": 1,
+      "only_b_right": 27
+    },
+    "cosine:jev": {
+      "mcnemar_p": 0.0,
+      "n": 80,
+      "only_a_right": 0,
+      "only_b_right": 27
+    },
+    "threshold:jev": {
+      "mcnemar_p": 0.0001,
+      "n": 80,
+      "only_a_right": 1,
+      "only_b_right": 17
+    }
+  },
+  "preregistered_rule_208": {
+    "labels_per_band": {
+      "above_threshold": 40,
+      "low_band": 0,
+      "near_threshold": 40
+    },
+    "open_gate_issue": false,
+    "rule1_sample": false,
+    "rule2_jev_beats_threshold": true,
+    "rule3_order_divergence_ok": true
+  },
+  "preregistered_rule_226": {
+    "cut": 0.88,
+    "cut_beats_threshold": true,
+    "jev_beats_cut": false,
+    "labels": 80,
+    "outcome": "raise_threshold_to_cut",
+    "same_idea": 11,
+    "valid": true
+  },
+  "unjudgeable": 0
+}

@@ -76,3 +76,32 @@ Covered by `tests/test_extractor.py::test_dedupe_same_source_can_still_refine` a
 ## Addendum (2026-10-06): the threshold is shadowed by a typed judgement
 
 The `corroborates` edge is still derived by code from the cosine threshold. Since #208, the typed decision layer ([ADR-055](../LLM/ADR-055-typed-decision-layer-shadow.md)) records beside it whether the two notes state the same idea, for every other-source seed with cosine ≥ 0.75. That range covers pairs below the threshold too. Nothing it records changes the graph. The point is to measure, against blind human labels, whether 0.85 creates false links or misses true ones.
+
+## Amendment (2026-10-08): the threshold is 0.88, measured (#208, #226)
+
+`linking.corroborates_min_similarity` goes from 0.85 to **0.88**. The 0.85 had no
+measurement behind it for the question "do these two notes state the same idea?".
+
+* **Round 1 (#208, 69 blind pairs).** Every `mesma-ideia` pair sat above 0.85, so
+  the threshold missed nothing. Its only error was false edges: 21 of the 30 pairs
+  above 0.85 shared just a topic. The cut 0.88 was chosen there, between the
+  highest "other" under it (0.878) and the lowest "same idea" above it (0.883).
+* **Round 2 (#226, 80 pairs never labelled, rules pre-registered in
+  `evals/preregistration/226-corroborates-gate.md`).**
+
+| rule | right |
+|---|---|
+| cosine >= 0.88 | **77/80** |
+| cosine >= 0.85 | 51/80 |
+| edge actually created at 0.85 | 62/80 |
+| TypeSafe Jev (level 2) | 78/80 |
+
+* The cut beats 0.85 (exact McNemar p < 0.0001: 27 pairs only the cut gets right,
+  1 the other way). Jev does not beat the cut (p = 1.0), and a tie goes to the
+  threshold: no external service, no cost, no latency. Pre-registered outcome
+  `raise_threshold_to_cut`.
+* The cut keeps 10 of the 11 `mesma-ideia` pairs and adds 2 false edges.
+* **Scope.** The number holds for `ollama/qwen3-embedding@1024d`. A different
+  embedding model needs a new measurement.
+* **Not rebuilt.** Existing edges are not rebuilt; notes connected from now on use
+  0.88.

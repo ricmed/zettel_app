@@ -217,8 +217,11 @@ class LinkingConfig(BaseModel):
     # Corroboracao entre fontes: duas ZTL de source_id diferentes que dizem a
     # mesma coisa viram duas notas ligadas por `corroborates`, nao uma so.
     # Derivado por codigo a partir dos hits que o Retriever ja trouxe no connect
-    # (zero embedding e zero chamada de LLM adicionais).
-    corroborates_min_similarity: float = 0.85
+    # (zero embedding e zero chamada de LLM adicionais). 0,88 medido contra
+    # rotulos cegos (#208, #226): a 0,85 o erro era so aresta indevida (pares do
+    # mesmo tema); nenhum par "mesma ideia" ficou abaixo de 0,85. Vale para
+    # ollama/qwen3-embedding@1024d: outro embedding exige medir de novo.
+    corroborates_min_similarity: float = 0.88
     corroborates_max_edges: int = 3
 
 

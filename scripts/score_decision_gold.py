@@ -29,6 +29,9 @@ pre-registrations (`evals/preregistration/206-jev-camada-decisao.md`, `#209`,
   hit was not a seed or the per-note cap was reached). The three levels are
   reported as a confusion matrix, and the continuous signals (Jev mean score,
   cosine) as an AUC against `same_idea`.
+* **Corroborates gate (#226).** Adds `cos88` (similarity >= 0.88, the cut fixed
+  on round 1) and the round-2 rule: Jev against `cos88`, then `cos88` against
+  `cosine`. Computed on every key, binding only on round 2.
 * **Relations (#212).** One (concept, existing note) pair per row; the answer is
   a relation type or `nenhuma`. Conditions are the Prompt 2 runs of
   `scripts/probe_connect_context.py` (`trunc-a`, `full-a`, ...); the scored
@@ -80,6 +83,12 @@ MIN_CORROBORATES_LABELS = 30
 MIN_CORROBORATES_PER_BAND = 5
 MAX_ORDER_DIVERGENCE = 0.3
 CORROBORATES_BANDS = ("low_band", "near_threshold", "above_threshold")
+# Pre-registration #226: the cosine cut fixed on round 1 (between the highest
+# "other" under it, 0.878, and the lowest "mesma-ideia" above it, 0.883) and
+# the minimum round-2 sample.
+GATE_226_CUT = 0.88
+MIN_GATE_LABELS = 60
+MIN_GATE_SAME_IDEA = 8
 RELATION_ANSWERS = (
     "supports",
     "contradicts",
@@ -237,18 +246,25 @@ def jev_mean_score(item: dict[str, Any]) -> float:
 
 
 def corroborates_conditions(key: dict[str, Any]) -> dict[str, dict[str, dict[str, Any]]]:
-    """threshold (edge created), jev (level 2) and cosine (similarity >= threshold)."""
+    """threshold (edge created), jev (level 2), cosine (similarity >= threshold) and
+    cos88 (similarity >= the cut #226 fixed from round 1)."""
     from zettel.decision.sites import corroborates_level
 
     def binary(same: bool) -> dict[str, Any]:
         return {"decision": SAME_IDEA if same else OTHER}
 
-    out: dict[str, dict[str, dict[str, Any]]] = {"threshold": {}, "jev": {}, "cosine": {}}
+    out: dict[str, dict[str, dict[str, Any]]] = {
+        "threshold": {},
+        "jev": {},
+        "cosine": {},
+        "cos88": {},
+    }
     for item in key["items"]:
         base = item["baseline"]
         out["threshold"][item["item_id"]] = binary(bool(base["edge"]))
         out["jev"][item["item_id"]] = binary(corroborates_level(jev_mean_score(item)) == 2)
         out["cosine"][item["item_id"]] = binary(base["similarity"] >= base["threshold"])
+        out["cos88"][item["item_id"]] = binary(base["similarity"] >= GATE_226_CUT)
     return out
 
 
@@ -446,6 +462,34 @@ def preregistered_rule_208(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def preregistered_rule_226(result: dict[str, Any]) -> dict[str, Any]:
+    """#226, decided on round 2 only: Jev against the recalibrated cut, then the
+    recalibrated cut against today's cosine threshold. A tie goes to the cut."""
+    conditions, pairs = result["conditions"], result["pairs"]
+    jev, cos88, cosine = conditions["jev"], conditions["cos88"], conditions["cosine"]
+    same_idea = result["detail"]["auc_same_idea"]["cosine"]["n_same_idea"]
+    valid = jev["n"] >= MIN_GATE_LABELS and same_idea >= MIN_GATE_SAME_IDEA
+    jev_wins = jev["correct"] > cos88["correct"] and pairs["cos88:jev"]["mcnemar_p"] < 0.05
+    cut_wins = cos88["correct"] > cosine["correct"] and pairs["cosine:cos88"]["mcnemar_p"] < 0.05
+    if not valid:
+        outcome = "keep_accumulating"
+    elif jev_wins:
+        outcome = "jev_decides_edge"
+    elif cut_wins:
+        outcome = "raise_threshold_to_cut"
+    else:
+        outcome = "keep_threshold"
+    return {
+        "cut": GATE_226_CUT,
+        "labels": jev["n"],
+        "same_idea": same_idea,
+        "valid": valid,
+        "jev_beats_cut": jev_wins,
+        "cut_beats_threshold": cut_wins,
+        "outcome": outcome,
+    }
+
+
 def score_dedupe(labels: list[dict[str, Any]], key: dict[str, Any]) -> dict[str, Any]:
     result = score_conditions(labels, key_conditions(key), key["population"], [("llm", "jev")])
     result["reviewer_vs_sheet"] = reviewer_agreement(labels, key)
@@ -458,10 +502,11 @@ def score_corroborates(labels: list[dict[str, Any]], key: dict[str, Any]) -> dic
         labels,
         corroborates_conditions(key),
         key["population"],
-        [("threshold", "jev"), ("cosine", "jev")],
+        [("threshold", "jev"), ("cosine", "jev"), ("cos88", "jev"), ("cosine", "cos88")],
     )
     result["detail"] = corroborates_detail(labels, key)
     result["preregistered_rule_208"] = preregistered_rule_208(result)
+    result["preregistered_rule_226"] = preregistered_rule_226(result)
     return result
 
 

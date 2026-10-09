@@ -1,4 +1,4 @@
-"""Tests for the decision-gold scorer (#206, #208, #209). Offline: sheet + key in, numbers out."""
+"""Tests for the decision-gold scorer (#206, #208, #209, #212, #226, #231). Offline."""
 
 import sys
 from pathlib import Path
@@ -10,6 +10,7 @@ from score_decision_gold import (
     dedupe_labels,
     key_conditions,
     preregistered_human_rule,
+    preregistered_rule_226,
     read_sheet,
     relations_labels,
     reviewer_agreement,
@@ -152,6 +153,8 @@ def test_corroborates_scores_edge_jev_level_and_cosine_against_same_idea():
     rule = result["preregistered_rule_208"]
     assert rule["labels_per_band"]["low_band"] == 0
     assert not rule["rule1_sample"] and not rule["open_gate_issue"]
+    assert conditions["cos88"]["correct"] == 2  # P2 reaches 0.88, P3 does not
+    assert result["preregistered_rule_226"]["outcome"] == "keep_accumulating"
 
 
 def test_corroborates_flags_invalid_and_missing_answers():
@@ -163,6 +166,28 @@ def test_corroborates_flags_invalid_and_missing_answers():
     }
     labels, problems = corroborates_labels(read_sheet(b"item_id;decisao;nota\nP1;igual;\n"), key)
     assert labels == [] and problems == {"decisao_invalida": ["P1"], "sem_resposta": ["P2"]}
+
+
+def _gate_result(*, n=80, same_idea=10, jev=78, cos88=70, cosine=60, p_jev=0.01, p_cut=0.01):
+    return {
+        "conditions": {
+            "jev": {"n": n, "correct": jev},
+            "cos88": {"n": n, "correct": cos88},
+            "cosine": {"n": n, "correct": cosine},
+        },
+        "pairs": {"cos88:jev": {"mcnemar_p": p_jev}, "cosine:cos88": {"mcnemar_p": p_cut}},
+        "detail": {"auc_same_idea": {"cosine": {"n_same_idea": same_idea}}},
+    }
+
+
+def test_rule_226_outcomes_and_tie_goes_to_the_cut():
+    assert preregistered_rule_226(_gate_result())["outcome"] == "jev_decides_edge"
+    assert preregistered_rule_226(_gate_result(p_jev=0.2))["outcome"] == "raise_threshold_to_cut"
+    tie = _gate_result(jev=70)
+    assert preregistered_rule_226(tie)["outcome"] == "raise_threshold_to_cut"
+    assert preregistered_rule_226(_gate_result(p_jev=0.2, p_cut=0.3))["outcome"] == "keep_threshold"
+    assert preregistered_rule_226(_gate_result(n=59))["outcome"] == "keep_accumulating"
+    assert preregistered_rule_226(_gate_result(same_idea=7))["outcome"] == "keep_accumulating"
 
 
 def test_relations_key_with_compared_prompts_scores_rule_231_and_keeps_unjudgeable():

@@ -1,0 +1,647 @@
+{
+  "key_exported_at": "2026-10-08T12:04:19.454949+00:00",
+  "labels": [
+    {
+      "human_decision": "other",
+      "human_level": 0,
+      "human_note": "A Nota A aborda a fenomenologia existencial da instrumentalidade e o engajamento prático pré-reflexivo com objetos, enquanto a Nota B trata de modelos computacionais de raciocínio de senso comum e inferência em inteligência artificial.",
+      "item_id": "P001",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M46KVEMPZJAH5DX9E5ZZECX5|01M49ZREQRBV6MWK1WZB59190D:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 0,
+      "human_note": "A Nota A foca na definição matemática e estrutural do mecanismo de self-attention em Transformers, enquanto a Nota B aborda uma técnica de infraestrutura e engenharia de software (cache de contexto via API) para otimizar custos em inferência.",
+      "item_id": "P002",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M49YX5PQM02G8VDJZ334J42X|01M49ZTPTDDM5YN368HGC2Y5S7:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas tratam da técnica Chain-of-Thought e de sua decomposição em passos intermediários, mas a Nota A foca na mecânica de redução de saltos inferenciais via prompting, enquanto a Nota B foca no raciocínio como propriedade emergente dependente da escala do modelo.",
+      "item_id": "P003",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M46KQH6PK42PWKMFP6F6KP86|01M49H1K1H75XX8AYQYCGGZRCF:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas tratam do papel das categorias na organização da experiência empírica, mas a Nota A foca no mecanismo técnico de determinação da função lógica em juízos (assimetria sujeito-predicado), enquanto a Nota B adota uma visão panorâmica e aberta do transcendentalismo, admitindo inclusive variações evolutivas ou históricas.",
+      "item_id": "P004",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M4A4XAYGWEYSJRKJJKR05KS6|01M4A66E7NRNW6B5A07JC6WKPT:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas discutem a decomposição modular de prompts, mas a Nota A foca no uso de delimitadores para evitar confusão entre dados e instruções, enquanto a Nota B foca em como a combinação de diferentes blocos conceituais define a técnica de interação.",
+      "item_id": "P005",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M46VKCYRBR2R433TGW33ZWK3|01M49Z12PQRA82F940078PENAG:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 0,
+      "human_note": "A Nota A descreve o funcionamento matemático e técnico do algoritmo de retropropagação em redes neurais, enquanto a Nota B apresenta uma reflexão filosófica sobre a recursividade técnica contemporânea em relação ao sistema transcendental kantiano.",
+      "item_id": "P006",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M4A58D6VSPC8Z3VXA6FCGQFK|01M4A74MBEA23RVE4CHFN3BJHV:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas tratam da autonomia da razão prática frente ao determinismo sensível em Kant, mas a Nota A foca na distinção psicológica entre a escolha animal e humana (Willkür), enquanto a Nota B foca na divisão metafísica e epistemológica entre sensível e supersensível.",
+      "item_id": "P007",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M4A5KBS6BWGYR4QQRV6M58DX|01M4A79Q3EBH5WJCDD6W9FK5G8:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas discutem critérios ontológicos e filosóficos para a definição de inteligência artificial, mas a Nota A foca na necessidade de autarquia teleológica e energética, enquanto a Nota B refuta o solipsismo epistemológico que exige identidade ontológica com a subjetividade humana.",
+      "item_id": "P008",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M4A53HJP4MZGDMR4H59E8VGK|01M4A85WM1GZ4GW933GVXT5RCM:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 0,
+      "human_note": "A Nota A trata da incoerência historiográfica ao atribuir raízes kantianas a paradigmas cognitivos divergentes, enquanto a Nota B define a tese do nativismo sobre estruturas mentais inatas.",
+      "item_id": "P009",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M49ZPHQ9TH9ZJVDPM9TZS2D3|01M4A012AAKXP52MGFGYJQ4N8V:ab"
+    },
+    {
+      "human_decision": "same_idea",
+      "human_level": 2,
+      "human_note": "Ambas as notas sustentam rigorosamente a mesma tese kantiana da epigênese da razão pura (aquisição originária), rejeitando tanto o empirismo puro quanto o inatismo estático em favor de categorias que emergem funcionalmente da espontaneidade sintética do entendimento.",
+      "item_id": "P010",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M4A4X4YCDGY9HS1HJM77AQ6W|01M4A6CD1JHZ80ZJDNXMRRR2Q8:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas discutem a diferença entre correlação estatística e lógica formal em redes neurais, mas a Nota A faz uma análise epistemológica do paradigma conexionista como empirismo, enquanto a Nota B foca no problema metodológico de avaliar se LLMs realizam raciocínio genuíno.",
+      "item_id": "P011",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M46KVWEG49VP86E4DDC4JS2F|01M49ZRZM9DHRPQD40HBQ297MD:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas formalizam a cognição kantiana computacionalmente, mas a Nota A foca na síntese ativa e não supervisionada de programas causais, enquanto a Nota B foca na imposição de categorias a priori como restrições estruturais fixas (hardcoded).",
+      "item_id": "P012",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M4A4VB28V4XEGBF2H008TE40|01M4A60RFACXFEJ9NE4FRRS08N:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas tratam da formalização da causalidade e inferência a partir de dados, mas a Nota A foca na hierarquia de três níveis causais (Pearl), enquanto a Nota B foca na atualização de crenças via probabilidade bayesiana.",
+      "item_id": "P013",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M49ZSYE9992JJMSFKFX4CMCF|01M4A5X5SVTABPAYCPW9F23WTV:ab"
+    },
+    {
+      "human_decision": "same_idea",
+      "human_level": 2,
+      "human_note": "Ambas as notas defendem rigorosamente a mesma tese, definindo zero-shot prompting como a execução de tarefas guiada puramente por instruções sem exemplos, compartilhando a mesma intuição, mecânica e limitações.",
+      "item_id": "P014",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M46VHEHYFN2BBS6BY83P7YRK|01M49H0SYAHTS9GG647660V0F8:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas abordam o funcionamento do aprendizado de máquina, mas a Nota A foca no mecanismo arquitetural de extração hierárquica em camadas profundas, enquanto a Nota B defende uma tese epistemológica sobre compressão estatística e indução.",
+      "item_id": "P015",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M4A52S84N5621233TYHHCQ85|01M4A5RPTS754KNQH2E3JSAAEY:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas tratam da ineficiência de usar modelos avançados/de raciocínio para tarefas triviais, mas a Nota A foca no mecanismo interno de tokens ocultos de reasoning models, enquanto a Nota B propõe um padrão arquitetural de prompt chaining e roteamento.",
+      "item_id": "P016",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M46VNSZCXMV1DGZPYCYJJ7EA|01M49YMNV2H526KXVVGCSW1C7G:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas criticam abordagens reducionistas da IA em relação à complexidade humana, mas a Nota A foca estritamente no reconhecimento automatizado de emoções, enquanto a Nota B discute a substituição de deliberações morais e decisões humanas por algoritmos.",
+      "item_id": "P017",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M4A5ERZ90DZAA6RGG157ZBAJ|01M4A8E3VAHHFW3SE186WPHJS3:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 0,
+      "human_note": "Embora ambas abordem conceitos de Kant, tratam de temas e problemas inteiramente distintos: a Nota A foca na ética e filosofia política do progresso moral, enquanto a Nota B discute a epistemologia e a filosofia da mente em relação ao funcionalismo computacional.",
+      "item_id": "P018",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M49ZWZMPRSJ5P8HPZGK4W5MX|01M4A5JKTWGPK12WPVF4ZZ5D1Z:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "A Nota B define a disciplina abrangente de Prompt Engineering e sua função geral moduladora, enquanto a Nota A foca em uma técnica específica dessa disciplina voltada para a auditoria de premissas e mitigação de ambiguidade.",
+      "item_id": "P019",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M46VGT0S7TEP5YKY7W5V6F9J|01M49Z0TB1P3JC81BZ8N2D13GY:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Embora ambas tratem de custos, qualidade e auditabilidade em engenharia de prompts, a Nota A foca na documentação do prompt como artefato de software versionável, enquanto a Nota B foca no trade-off triplo intrínseco à otimização de execução do próprio prompt.",
+      "item_id": "P020",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M46VH1QBKW44E5E6RAMZ80N8|01M49Z19Z4N1HSBJ41ZQQNEV19:ab"
+    },
+    {
+      "human_decision": "same_idea",
+      "human_level": 2,
+      "human_note": "Ambas as notas defendem que a eficácia do aprendizado in-context decorre da qualidade, clareza e precisão semântica de um conjunto enxuto de exemplos, e não da quantidade, alertando que exemplos excessivos ou ambíguos introduzem ruído inferencial.",
+      "item_id": "P021",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M46VN1A1CFSTXJ5CCV4BTBC9|01M49YQP5RZ0NT43WQXN8CX3TY:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas abordam vulnerabilidades operacionais de LLMs em produção, mas a Nota A foca na degradação por atualização de versões do modelo, enquanto a Nota B foca em segurança contra injeção de prompt.",
+      "item_id": "P022",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M46VP0SV0ZCCMVECAGE2BK52|01M49Z34VK0RS5X634CAWVCXSX:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas utilizam o arcabouço kantiano sobre espontaneidade e apercepção, mas a Nota A trata dos limites do autoconhecimento do sujeito como fenômeno, enquanto a Nota B define as condições necessárias para a cognição de objetos reais.",
+      "item_id": "P023",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M4A02D0C2WCME08P648DDT30|01M4A4SQC6HVJ84CDEWK1FJBFM:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas tratam de estruturas cognitivas anteriores à experiência, mas a Nota A foca especificamente na causalidade como categoria a priori (viés epistemológico kantiano), enquanto a Nota B aborda o nativismo cognitivo de modo geral e biológico.",
+      "item_id": "P024",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M49ZPHQ9TH9ZJVDPM9TZS2D3|01M4A5TGGGJF2DB2B6RGA8CS3K:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "A Nota A estabelece o princípio geral da tríade custo-latência-qualidade no design de LLMs, enquanto a Nota B prescreve uma tática arquitetural específica (estratificação em prompt chaining) para lidar com essa otimização.",
+      "item_id": "P025",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M46VNSZCXMV1DGZPYCYJJ7EA|01M49YSG1YCZNX00YE3CB4H9GF:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas tratam da oposição fundamental entre nativismo e empirismo, mas a Nota A foca nas abordagens arquiteturais para Inteligência Artificial Geral, enquanto a Nota B conceitua o nativismo na cognição e mente humana.",
+      "item_id": "P026",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M49ZPHQ9TH9ZJVDPM9TZS2D3|01M4A5V4PJR0KFC4FVCTGK3PFJ:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 0,
+      "human_note": "A Nota A aborda a institucionalização política do conflito na transição do estado de natureza, enquanto a Nota B discute a incompatibilidade entre o funcionalismo computacional e a filosofia da mente de Kant.",
+      "item_id": "P027",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M49ZWZMPRSJ5P8HPZGK4W5MX|01M4A5JBJ5K1VRDJTB99BKYQC4:ab"
+    },
+    {
+      "human_decision": "same_idea",
+      "human_level": 2,
+      "human_note": "Ambas as notas defendem rigorosamente a mesma tese: a alocação estratificada de LLMs em fluxos de prompt chaining com base na complexidade cognitiva de cada subtarefa para otimizar custo e eficiência.",
+      "item_id": "P028",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M49GZCTRFEPXP4Z4JYTBBFEK|01M49YQZ10FFFZK74EWWJ2ZYYM:ab"
+    },
+    {
+      "human_decision": "same_idea",
+      "human_level": 2,
+      "human_note": "Ambas as notas defendem a mesma tese e mecanismo cognitivo: a resolução de problemas complexos em LLMs por meio da decomposição sequencial cumulativa, onde soluções de etapas anteriores servem de base para as seguintes.",
+      "item_id": "P029",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M46KT8BGX71CT50AMD1ZHXEM|01M49H3TCGR2P59S62V8ASRDB6:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas situam-se no domínio da epistemologia kantiana e na interação entre entendimento e sensibilidade, mas a Nota A trata da distinção ontológica entre intuição e conceito, enquanto a Nota B foca nos limites do autoconhecimento do 'eu penso'.",
+      "item_id": "P030",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M4A4SQC6HVJ84CDEWK1FJBFM|01M4A6228MAA8X4FTZXYV8NYKT:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas abordam o funcionamento de redes neurais e aprendizado de máquina, mas a Nota A foca na arquitetura hierárquica de múltiplas camadas (deep learning), enquanto a Nota B defende uma tese epistemológica relacionando o modelo ao empirismo humeano.",
+      "item_id": "P031",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M4A529ZQ8PR83HDT290WGS03|01M4A5RPTS754KNQH2E3JSAAEY:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas tratam de modelos teóricos da cognição e da mente, porém defendem paradigmas estruturalmente opostos: a Nota A descreve a perspectiva anti-representacionista e dinâmica do enativismo, enquanto a Nota B analisa a abordagem lógica, representacional e mecanicista da tradição cartesiana/IA simbólica.",
+      "item_id": "P032",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M49ZQJBNRSG7S4E186S06JJ5|01M49ZYMNDAJFPANH78ZZH8QTX:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas tratam de estratégias e capacidades de raciocínio em LLMs, mas a Nota A aborda a arquitetura interativa ReAct com uso de ferramentas externas, enquanto a Nota B discute o raciocínio emergente via Chain-of-Thought e escala de parâmetros.",
+      "item_id": "P033",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M46KQH6PK42PWKMFP6F6KP86|01M49H3289SFX56QXC4Y30890S:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 0,
+      "human_note": "A Nota A aborda a governança organizacional e a distribuição de poder via contribuição de trabalho (sweat equity), enquanto a Nota B trata de relações internacionais kantianas e cooperação entre estados soberanos.",
+      "item_id": "P034",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M4A5GMDK87CH6Q2JWRFG52B5|01M4A8749VSXXCCVVF5EYAAZN7:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "A Nota A aborda o conceito amplo e geral de Prompt Engineering como disciplina de acoplamento de entrada e comportamento do modelo. A Nota B foca especificamente em uma técnica particular, o Role Prompting (uso de personas), detalhando seu mecanismo e limitações próprias.",
+      "item_id": "P035",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M46VH8NK65GHKRB72QK92FXY|01M49GZNVA5MWNHR56ACHA67YE:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Embora ambas compartilhem o arcabouço da minimização de energia livre, a Nota A foca na inferência ativa via acoplamento entre ação e percepção para intervir no mundo, enquanto a Nota B concentra-se na arquitetura perceptual e hierárquica do processamento preditivo.",
+      "item_id": "P036",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M4A008N2DZZ4N6D84XH891QM|01M4A51ERTDBYQ535P3TCXXPEM:ab"
+    },
+    {
+      "human_decision": "same_idea",
+      "human_level": 2,
+      "human_note": "Ambas as notas compartilham a mesma tese, intuição, exemplo e raciocínio estrutural sobre o funcionamento e impacto da técnica Tree of Thoughts.",
+      "item_id": "P037",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M46VM665D6W670NXSTTAWEXT|01M49YNCXZPFPXE8ZRSTNMSXZM:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas tratam das categorias em Kant, mas a Nota A aborda seu papel funcional na determinação lógica da intuição, enquanto a Nota B foca no caráter jurídico de legitimação da Dedução Transcendental.",
+      "item_id": "P038",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M4A4WK4WB763TCNVTE6ZSG82|01M4A66E7NRNW6B5A07JC6WKPT:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas tratam da fundamentação do idealismo transcendental kantiano, mas a Nota A foca na limitação fenomênica imposta pelo espaço e tempo (Estética), enquanto a Nota B foca na analogia epigenética da constituição ativa das categorias do entendimento.",
+      "item_id": "P039",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M4A4WWM984ZPHDAAH5YQXF4E|01M4A72PPQ5CPRJGBVBV0PGJXX:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas tratam de funcionalismo e cognição na filosofia da mente, mas possuem teses e objetos distintos: a Nota A analisa o critério epistemológico do Teste de Turing, enquanto a Nota B refuta a leitura funcionalista da filosofia transcendental de Kant.",
+      "item_id": "P040",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M49ZWZMPRSJ5P8HPZGK4W5MX|01M4A538PVAP8VHMAPZJKV2JC2:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas tratam do custo computacional e latência em LLMs, mas a Nota A foca na complexidade quadrática da janela de contexto, enquanto a Nota B foca na geração excessiva de tokens por modelos de raciocínio em tarefas simples.",
+      "item_id": "P041",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M46VKSNS6EM8BBX7PRC47EMF|01M49YSSMC2PRG2N8HJQFY89KN:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Embora ambas tratem do treinamento e ajuste de parâmetros em modelos de aprendizado, a Nota A foca no mecanismo de retropropagação (cálculo e propagação do erro pelas camadas), enquanto a Nota B foca no algoritmo de otimização (gradiente descendente estocástico).",
+      "item_id": "P042",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M4A51272V2YSGY0SZT8JJKF7|01M4A74MBEA23RVE4CHFN3BJHV:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas articulam conceitos kantianos aplicados à inteligência artificial, mas a Nota A defende a permissibilidade ética de restringir a agência moral de IAs, enquanto a Nota B trata da impossibilidade computacional de formalizar o imperativo categórico.",
+      "item_id": "P043",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M4A58ZSJNV79DBZ5FCBXKDJR|01M4A75NQQV96N3PJDKBW1PHC8:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "A Nota A aborda o conceito geral de zero-shot prompting, enquanto a Nota B foca especificamente no Zero-shot-CoT como mecanismo de decomposição lógica para raciocínio multi-etapa.",
+      "item_id": "P044",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M46KS82R8FSSS9WQ951ZG5NQ|01M49YZWTJWMPTW295S958B85D:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas tratam do imperativo categórico kantiano, mas a Nota A analisa a distinção entre deveres perfeitos e imperfeitos via teste de universalizabilidade, enquanto a Nota B foca no caráter recursivo e regulativo ('como se') da deliberação moral.",
+      "item_id": "P045",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M4A5AKT8SABENW1JH0TSC2KW|01M4A7E95GHAYC5KK9JDR8TY3A:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas tratam da relação entre aparato cognitivo e realidade na tradição kantiana, mas a Nota A descreve o realismo transcendental (independência ontológica dos objetos), enquanto a Nota B foca no papel constitutivo a priori das categorias na estruturação da experiência.",
+      "item_id": "P046",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M4A4XAYGWEYSJRKJJKR05KS6|01M4A73GNNA8T28A74ET6AMWVZ:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas discutem a moralidade kantiana aplicada a sistemas artificiais, mas a Nota A defende a impossibilidade estrutural dessa realização, enquanto a Nota B conceitua como operaria uma máquina moral genuinamente autolegisladora.",
+      "item_id": "P047",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M4A54TDQ5CV15K4ZPNTFR42P|01M4A75ASQDBT6N4ZWJ84RRZZV:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas mobilizam a metáfora kantiana da epigênese contra o inatismo e o empirismo, mas a Nota A foca na gênese das próprias categorias a partir da síntese empírica, enquanto a Nota B foca nos juízos sintéticos a priori e toma as categorias como limites invariantes.",
+      "item_id": "P048",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M4A4XH4JDPN5ZTBG1Q4R19S1|01M4A6CD1JHZ80ZJDNXMRRR2Q8:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas compartilham o mesmo campo epistemológico de crítica à suficiência dos dados puramente empíricos, mas a Nota A foca especificamente na necessidade de estruturas a priori para a cognição causal, enquanto a Nota B formula uma crítica geral à incapacidade do empirismo de fundamentar a razão e a verdade.",
+      "item_id": "P049",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M4A4T1D74G8YM1GZS3QWWKDB|01M4A5TGGGJF2DB2B6RGA8CS3K:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas exploram a interseção entre a epistemologia kantiana e a computação, mas a Nota A traça uma analogia de limites formais entre a cognição e a máquina de Turing, enquanto a Nota B rejeita a assimilação funcionalista/computacional da mente em Kant.",
+      "item_id": "P050",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M49ZWZMPRSJ5P8HPZGK4W5MX|01M4A59JS64SFFP1NSQJSFFPYW:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 0,
+      "human_note": "A Nota A trata da plasticidade e adaptação dinâmica de regras na cognição humana/artificial, enquanto a Nota B discute a separação entre o rigor formal do direito e a flexibilidade da ética na filosofia prática.",
+      "item_id": "P051",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M4A5J5A3DNWE77PY1ZM1ACTA|01M4A6HKRZTZAQT0NFC3JRS0TD:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas tratam da espontaneidade do sujeito kantiano, mas a Nota A foca na estruturação e legislação da experiência objetiva sob condições de unidade, enquanto a Nota B foca nos limites do autoconhecimento do 'eu penso' restrito ao fenômeno.",
+      "item_id": "P052",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M4A4SQC6HVJ84CDEWK1FJBFM|01M4A6GQJBAS5DF7EYWZED8XM2:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas tratam da teleologia como princípio regulativo para sistemas auto-organizados sob a ótica kantiana, mas a Nota A foca na definição da finalidade interna versus externa, enquanto a Nota B foca na insuficiência da causalidade mecânica frente aos organismos vivos.",
+      "item_id": "P053",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M49ZZ451ZVR91QHQHCTN1VSZ|01M4A4Z3PC4ZY2DDZSVYEAK732:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas exploram a computação baseada no modelo transcendental kantiano, mas a Nota A foca na emergência de agência cognitiva autônoma, enquanto a Nota B foca na operacionalização estrutural de princípios a priori como restrições formais de processamento.",
+      "item_id": "P054",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M4A4VB28V4XEGBF2H008TE40|01M4A6SB6X9QEPH902HKCZPJ81:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas tratam da ética kantiana e do imperativo categórico, mas defendem teses distintas: a Nota A foca na primazia prática da Formula of Humanity sobre as demais formulações, enquanto a Nota B foca no caráter não-analítico e não-empírico do imperativo como procedimento autônomo da razão.",
+      "item_id": "P055",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M4A57BYNS1JCFZ329X52EDWB|01M4A7DJPXK7NFY8S7AC8EQVJN:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas tratam da epistemologia kantiana e da não redução das faculdades cognitivas, mas a Nota A foca no modelo epigenético de aquisição/constituição do conhecimento, enquanto a Nota B defende um dualismo antirreducionista frente ao fisicalismo.",
+      "item_id": "P056",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M49ZXXRFEENMWFPMMVEW3NQ5|01M4A4WWM984ZPHDAAH5YQXF4E:ab"
+    },
+    {
+      "human_decision": "same_idea",
+      "human_level": 2,
+      "human_note": "Ambas as notas defendem a mesma tese de estratificar modelos em cadeias de prompts conforme a complexidade da tarefa, usando LLMs menores para tarefas estruturais e modelos avançados para raciocínio a fim de otimizar custos.",
+      "item_id": "P057",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M46VPPGD7QHRK38TQ5BJ6X0H|01M49YQZ10FFFZK74EWWJ2ZYYM:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 0,
+      "human_note": "A Nota A trata da distinção cognitiva entre julgamento tácito e proposição explícita, enquanto a Nota B aborda as propriedades lógicas e formais do raciocínio dedutivo.",
+      "item_id": "P058",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M46KQYR7TEH0MGPPVEN1FDQ0|01M4A6JWBCRZ8XS36PYW8PKC2N:ab"
+    },
+    {
+      "human_decision": "same_idea",
+      "human_level": 2,
+      "human_note": "Ambas as notas possuem teses idênticas e defendem rigorosamente a mesma intuição teórica e limites, variando apenas o contexto prático da aplicação no exemplo.",
+      "item_id": "P059",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M46VKZV84MYR970P6134NBG9|01M49YN16GBV6SW37K9JPDJ5NN:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas utilizam a ideia de restringir o espaço probabilístico de busca de tokens, mas a Nota A foca na estruturação geral de regras para obter previsibilidade/determinismo, enquanto a Nota B foca especificamente no role prompting para modular tom, estilo e nível de abstração técnica.",
+      "item_id": "P060",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M46VKKR6BRZVNRVK2YG9PQ3D|01M49YZ4SDBEC6G418933F0A8C:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas tratam da ética da inteligência artificial e da relação com a agência humana, mas a Nota A defende a restrição moral da agência em IA, enquanto a Nota B critica a instrumentalização do combate a vieses como motor de expansão técnica.",
+      "item_id": "P061",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M4A5FDHGZPBV0WA11J9N7WZ5|01M4A75NQQV96N3PJDKBW1PHC8:ab"
+    },
+    {
+      "human_decision": "same_idea",
+      "human_level": 2,
+      "human_note": "Ambas as notas defendem a mesma tese central: decompor fluxos via encadeamento de prompts para distribuir subtarefas entre modelos heterogêneos conforme a complexidade, otimizando custos e eficiência.",
+      "item_id": "P062",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M46VPPGD7QHRK38TQ5BJ6X0H|01M49YQ0DEGN83EBC8QTBAX7KE:ab"
+    },
+    {
+      "human_decision": "same_idea",
+      "human_level": 2,
+      "human_note": "Ambas as notas compartilham a mesma tese, intuição, definição estrutural e limitações, variando apenas nos exemplos práticos utilizados.",
+      "item_id": "P063",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M46VGT0S7TEP5YKY7W5V6F9J|01M49GZNVA5MWNHR56ACHA67YE:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas tratam da irredutibilidade da cognição/pensamento a modelos computacionais ou funcionalistas, mas o fazem a partir de arcabouços e teses filosóficas distintas (criticismo kantiano versus fenomenologia heideggeriana).",
+      "item_id": "P064",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M49ZRQE62M3S43TBNVFWV10W|01M49ZWZMPRSJ5P8HPZGK4W5MX:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas tratam de estratégias de otimização para sistemas com LLMs, mas abordam técnicas distintas: a Nota A foca em prompt caching (reutilização de prefixos no modelo), enquanto a Nota B foca em prompt chaining (decomposição de tarefas em múltiplos prompts sequenciais).",
+      "item_id": "P065",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M46VJZK2Q61JXJ39FXQZQ47G|01M49YV3QGT0EP3PVTPQCN57N7:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas abordam a otimização de custo e complexidade em LLMs, mas a Nota A propõe a heterogeneidade de modelos em pipelines encadeados, enquanto a Nota B foca na progressão de técnicas de prompting (zero-shot a CoT).",
+      "item_id": "P066",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M46VPG8172WECSBE9TMM4577|01M49YS5TC3025E70A4A6Q54ZJ:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas relacionam inteligência artificial a correntes epistemológicas (notadamente o empirismo), mas a Nota A esquematiza a disputa arquitetural entre nativismo e empirismo na AGI, enquanto a Nota B foca especificamente em caracterizar o conexionismo como empirismo tecnológico.",
+      "item_id": "P067",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M49ZRZM9DHRPQD40HBQ297MD|01M4A5V4PJR0KFC4FVCTGK3PFJ:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas abordam a estruturação e restrições de prompts, mas a Nota A foca especificamente no uso de saídas JSON para automação em CI/CD, enquanto a Nota B teoriza sobre a anatomia modular de componentes funcionais de um prompt.",
+      "item_id": "P068",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M46VKCYRBR2R433TGW33ZWK3|01M49Z1VYEH50AHE2ED4TP7GDX:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas exploram a distinção entre a rigidez do direito e a latitude da ética (inclusive aplicando ao contexto de IA), mas a Nota A defende a priorização exclusiva do direito na arquitetura de agentes, enquanto a Nota B analisa a função estrutural e complementar de ambas as esferas.",
+      "item_id": "P069",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M4A5J5A3DNWE77PY1ZM1ACTA|01M4A7XPYVTX8C7JCFBAM9M6NW:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas tratam da relação entre substrato físico e capacidades mentais em IA, mas a Nota A foca na emergência ontológica da consciência via complexidade, enquanto a Nota B faz uma crítica epistemológica ao solipsismo no reconhecimento da inteligência funcional.",
+      "item_id": "P070",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M4A53HJP4MZGDMR4H59E8VGK|01M4A7MJY2P1P0477W04AVSERD:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas tratam da operacionalização computacional da cognição kantiana via restrições sintéticas a priori, mas a Nota A detalha a arquitetura funcional da Apperception Engine (subsistemas não-determinísticos e ASP), enquanto a Nota B conceitua a 'máquina kantiana' como um arcabouço estrutural estático/kernel frente a outros paradigmas.",
+      "item_id": "P071",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M4A4VB28V4XEGBF2H008TE40|01M4A6MQFSD8GT80C56DYTWAH3:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 0,
+      "human_note": "A Nota A aborda a incapacidade do empirismo em fundamentar a verdade e a necessidade lógica, enquanto a Nota B discute a incompatibilidade entre o funcionalismo contemporâneo e a filosofia da mente em Kant.",
+      "item_id": "P072",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M49ZWZMPRSJ5P8HPZGK4W5MX|01M4A4T1D74G8YM1GZS3QWWKDB:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas abordam estratégias de otimização de custo e eficiência em sistemas com LLMs, mas defendem abordagens arquiteturais distintas: uma foca no agrupamento em lote de requisições similares (batch prompting) e a outra na decomposição sequencial em múltiplos modelos heterogêneos (prompt chaining).",
+      "item_id": "P073",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M49GZCTRFEPXP4Z4JYTBBFEK|01M49YVC91PKWPH7EYN62HZVGD:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas situam-se no domínio de engenharia de prompts e controle de LLMs, mas tratam de tópicos distintos: a Nota A foca no uso de instruções negativas para guiar a geração, enquanto a Nota B discute vulnerabilidades de segurança e injeção em instruções de papel.",
+      "item_id": "P074",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M46VP0SV0ZCCMVECAGE2BK52|01M49Z0GYZ0N4JK3KMXA2GEB6X:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas as notas tratam da computabilidade do imperativo categórico kantiano, mas sustentam teses opostas: a Nota A defende a viabilidade de sua implementação lógica, enquanto a Nota B argumenta que ela colapsa diante dos limites formais da computação e da autonomia moral.",
+      "item_id": "P075",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M4A58ZSJNV79DBZ5FCBXKDJR|01M4A7G40PBRHYYSY1YQN921JE:ab"
+    },
+    {
+      "human_decision": "same_idea",
+      "human_level": 2,
+      "human_note": "Ambas as notas descrevem precisamente a técnica de Self-Consistency, fundamentada na geração de múltiplos caminhos de raciocínio independentes e na agregação por voto majoritário para mitigar erros estocásticos.",
+      "item_id": "P076",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M46KSVC0WVXH3QQEFDSMSKWN|01M49H206SEH75Y98G66GDDXB3:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas tratam da necessidade do Estado civil face ao estado de natureza, mas a Nota A foca na impossibilidade jurídica de resolver disputas sobre direitos sem arbitragem pública (mesmo entre pessoas benevolentes), enquanto a Nota B foca na contenção pragmática da hostilidade e da 'insociável sociabilidade'.",
+      "item_id": "P077",
+      "sampling_stratum": "above_threshold",
+      "subject_id": "01M4A5HZ0GV0ZEFX0QK3N8C7Y5|01M4A7ZM520X3WPTTD1GBJFGF8:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas tratam dos fundamentos do aprendizado em inteligência artificial sem regras manuais, mas a Nota A foca na hierarquia de representações em camadas, enquanto a Nota B foca na recursividade e autorreferencialidade iterativa dos processos.",
+      "item_id": "P078",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M4A50RSWEAT1Z5HEVKRW9X29|01M4A5S2Q6YEKMN7D57VFKECEQ:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 0,
+      "human_note": "A Nota A define a cognição em sentido amplo com foco na representação mental independente da verdade, enquanto a Nota B discute a irredutibilidade do significado qualitativo (pragnância) ao processamento estatístico.",
+      "item_id": "P079",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M49ZVPVWVSZ29AT8ZK1ZCERY|01M4A01J4X7YVQ74GQRD3BFBZV:ab"
+    },
+    {
+      "human_decision": "other",
+      "human_level": 1,
+      "human_note": "Ambas tratam do papel e das limitações dos sistemas formais e lógicos na cognição, mas a Nota A foca especificamente na modelagem da unidade da experiência via Datalog, enquanto a Nota B compara as características do raciocínio formal com o informal.",
+      "item_id": "P080",
+      "sampling_stratum": "near_threshold",
+      "subject_id": "01M46KQQNJRY6XN8E06XQ544WX|01M4A6ARJQNT66YPGZDWSWTHEV:ab"
+    }
+  ],
+  "method": "manual_blind",
+  "site": "corroborates"
+}
