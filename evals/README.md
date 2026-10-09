@@ -132,6 +132,33 @@ O exportador recusa sobrescrever a planilha **ou o gabarito** de uma rodada exis
 
 `scripts/probe_dedupe_context.py` refaz a decisão de dedupe sobre itens rotulados (`--key` e `--labels` de qualquer rodada), em duas condições de contexto (trecho de 200 caracteres e texto completo), e aceita versões de prompt com `--prompt NOME=CAMINHO`, repetível. Com `current` e `new`, ele calcula a regra do pré-registro de #218. As respostas ficam gravadas por texto do prompt, então uma versão já medida não chama o modelo de novo.
 
+## Relações tipadas do connect (#212, #231)
+
+Na #231, a mesma sonda compara versões do Prompt 2 sobre o mesmo snapshot:
+
+- `--prompt NOME=CAMINHO` (repetível) define as versões, e `--runs` limita as condições.
+- `--score-key` e `--labels` pontuam cada rodada nos pares já rotulados.
+- `--revise` gera uma planilha de revisão com o rótulo anterior.
+- `--exclude-snapshot` deixa de fora os conceitos de um snapshot anterior, para que a validação use conceitos nunca vistos.
+- `--compare A,B` e `--sheet-prefix` estratificam a planilha pelas duas rodadas comparadas.
+
+As definições de relação, aplicadas na ordem, ficam em `RELATION_RULES` e aparecem no topo de toda planilha.
+
+`scripts/probe_connect_context.py` mede se o Prompt 2 escolhe relações melhores quando vê as notas vizinhas inteiras, e não um trecho de 150 caracteres (`linking.rag_note_chars`). Regras em [`preregistration/212-connect-contexto-completo.md`](preregistration/212-connect-contexto-completo.md).
+
+```bash
+.venv/Scripts/python.exe scripts/probe_connect_context.py --sample 40 --seed 0 --yes \
+    --out evals/results/connect-context-212.json
+.venv/Scripts/python.exe scripts/probe_connect_context.py --sample 40 --seed 0 --export
+.venv/Scripts/python.exe scripts/score_decision_gold.py --site relations \
+    --labels-out evals/gold/relacoes-rotulos.json --out evals/results/relacoes-gold-212.json
+```
+
+- **Snapshot**: para cada conceito sorteado (alternando entre as obras), congela o que o `connect` entregaria ao Prompt 2, em `.eval-work/connect-context/snapshot-*.json`: o candidato, as vizinhas com `note_content`, as analogias distantes, a referência de literatura e as imagens. Custa só embeddings da consulta. As duas condições leem o mesmo snapshot, então a recuperação não pode variar entre elas.
+- **Rodadas**: `trunc` (150) e `full` (6000), cada uma duas vezes (`-a`, `-b`). As respostas ficam gravadas por rodada, texto do prompt, modelo e temperatura, e uma resposta gravada não chama o modelo de novo. Chamadas novas exigem `--yes`.
+- **Planilha**: pares (conceito, vizinha), estratificados por qual rodada `-a` propôs aresta (`both`, `trunc_only`, `full_only`, `neither`). A resposta é a relação ou `nenhuma`. As analogias distantes ficam de fora, porque nunca viram aresta (ADR-043).
+- **Pontuação**: acerto é a relação exata. Ao lado, o script reporta a presença de aresta, o tipo nas arestas compartilhadas e quantas arestas cada rodada propôs contra as do humano.
+
 ## Relatório do shadow (offline)
 
 ```bash

@@ -187,3 +187,72 @@ lexical signal, and is left alone rather than tuned away.
 * The 0.5 threshold is measured on 62 notes in a narrow corpus. The bands are
   wide apart (0.50 vs 0.50 at the edges, 0.25 vs 1.00 at the medians), but this
   motivates a value rather than settling one — re-measure on a broader vault.
+
+## Addendum (2026-10-08): one note content for every path (#211)
+
+A hit's `document` depended on how the note was found. A vector hit carried
+Chroma's embeddable text (managed blocks stripped, but `## Fonte`, figures and a
+hand-written `## Conexões` kept). A BM25-only, graph or MOC hit carried the raw
+SQLite body, with `auto-evidence` (citation and anchor quote) and
+`auto-connections`. The same character budget in `ask`, `article` and `connect`
+therefore covered different text for the same note.
+
+`Retriever._hydrate_notes` now fills `document` for **every** hit from one
+batched SQLite read (`StateDB.get_notes_by_ids`) through
+`note_content.note_content(title, body)`: the labelled thesis, definition,
+intuition, example and limits of a pipeline note. A hand-written note without
+those sections keeps its own prose, minus managed blocks and the sections about
+the note (`## Conexões`, `## Fonte`, `## Figuras`). The article's MOC boost and
+extra graph hops use the same function. A hit missing from SQLite keeps what
+Chroma returned.
+
+### Consequences
+
+* Ranking is untouched: fusion, the relevance floor and BM25 coverage read the
+  same signals as before. Only what a prompt reads changes.
+* A prompt that reads `document` no longer sees citations, anchor quotes or
+  existing connections, so it cannot echo an edge that already exists.
+* The article catalog reads figures from the stored body, since they are not
+  note content.
+* Per-consumer limits (`connect`'s 150 characters, the article's 200-character
+  summary) are untouched here; #212 and #213 change them with their own
+  measurement.
+* LLM cache keys of `ask`, `article` and `connect` change, because their context
+  changes. That is expected and costs one regeneration per question.
+
+## Addendum (2026-10-08): the connect neighbour budget, measured (#212)
+
+`connector.context.build_rag_context` renders each neighbour as a header line
+plus its `note_content`, cut at `linking.rag_note_chars`. Whether Prompt 2 picks
+better typed relations with whole neighbours (6000, above any note) than with the
+historical 150-character excerpt was pre-registered in
+`evals/preregistration/212-connect-contexto-completo.md` and measured with
+`scripts/probe_connect_context.py`:
+
+* **Setup.** 40 concepts from 6 works, with retrieval frozen per concept so
+  that only the budget differed. Prompt 2 ran twice per condition, 160 calls,
+  with no invalid answer; one concept was rejected under `full` and excluded.
+* **Labels.** 80 (concept, neighbour) pairs were labelled blind by hand
+  (`evals/gold/relacoes-rotulos.json`, `evals/results/relacoes-gold-212.json`).
+
+| run | exact relation right | edge presence right | type right on shared edges |
+|---|---|---|---|
+| `trunc-a` | 20/80 | 0.54 | 0.43 (n = 40) |
+| `full-a` | 18/80 | 0.51 | 0.41 (n = 39) |
+
+* **Rule 1 fails.** `full-a` is not at least as good as `trunc-a`. The gap is
+  noise (exact McNemar p = 0.80, 9 pairs only `trunc-a` gets right and 7 only
+  `full-a` does). Validity and sample hold. **`rag_note_chars` stays at 150**, as
+  pre-registered.
+* **No over-linking.** Both conditions propose about 3 edges per note and 40 on
+  the 80 labelled pairs.
+* **Context is not the bottleneck.** Whole neighbours change about 14% of the
+  answers (repeat runs disagree on about 7.5%), but not toward the human. Both
+  conditions fail the same way. About 37 errors per run are "human sees a
+  relation, model proposes none": the human labelled a relation on 77 of 80
+  pairs, while the prompt asks for 0 to 3 connections out of about 20
+  neighbours. About 23 errors per run are a wrong type, mostly `extends` read as
+  `supports`, `depends_on` or `contradicts`.
+* **What would move the number is the prompt, not the budget.** The candidates
+  are how many connections Prompt 2 may keep, and how `extends` and `related`
+  are defined. That is a separate change with its own measurement, as in #218.

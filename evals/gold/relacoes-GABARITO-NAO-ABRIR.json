@@ -1,0 +1,927 @@
+{
+  "answers": {
+    "relacao": [
+      "supports",
+      "contradicts",
+      "extends",
+      "depends_on",
+      "exemplifies",
+      "related",
+      "nenhuma"
+    ],
+    "unjudgeable": "?"
+  },
+  "excluded_concepts": [
+    "@PromptEngineering::concept::b9ef124d|01M49YQ0DEGN83EBC8QTBAX7KE"
+  ],
+  "exported_at": "2026-10-08T13:46:13.054550+00:00",
+  "items": [
+    {
+      "answers": {
+        "full-a": "contradicts",
+        "full-b": "contradicts",
+        "trunc-a": "contradicts",
+        "trunc-b": "contradicts"
+      },
+      "item_id": "R001",
+      "sampling_stratum": "both",
+      "subject_id": "@Hui2026KantMachine::concept::c97e9160|01M49ZPHQ9TH9ZJVDPM9TZS2D3|01M4A5Y8TBQKA9Y3X50JCRP2X9"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "supports",
+        "trunc-a": "supports",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R002",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c1046af2|01M46VK69AMY1NSFH6ZNT0KT3P|01M46KT8BGX71CT50AMD1ZHXEM"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R003",
+      "sampling_stratum": "neither",
+      "subject_id": "@PromptEngineering::concept::b983e893|01M49ZA5Z518VGSX5GZYAZRCFY|01M49Z8EY0AH51KJ5QPQPGHKAA"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R004",
+      "sampling_stratum": "neither",
+      "subject_id": "@Huang2021TowardsReasoning::concept::d30a9820|01M46KRK2FKN3VE0FX92CP95HK|01M46KTMS37SNTXRZS04TQHNQK"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R005",
+      "sampling_stratum": "neither",
+      "subject_id": "@Hui2026KantMachine::concept::5e18cedf|01M4A5MWFYVQWC69SQF0MZAD3J|01M4A7867TV7ZQ31SW03SPCCPE"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "depends_on",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R006",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c7846f0a|01M46VND70FX9K3D02PW4PR0DB|01M49YXCBR92YFGCRGH5BGQ31C"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R007",
+      "sampling_stratum": "neither",
+      "subject_id": "@IniciandoComPromptEngineering::concept::e6baa53b|01M46VN1A1CFSTXJ5CCV4BTBC9|01M49H01C3AE7P8SQQWA3E4R07"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "contradicts",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R008",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@PromptEngineering::concept::e1251fcd|01M49Z4QN8BW9CCHCDTBFETPNN|01M49YY39EZZDM11GXPAP3DM5F"
+    },
+    {
+      "answers": {
+        "full-a": "extends",
+        "full-b": "supports",
+        "trunc-a": "supports",
+        "trunc-b": "supports"
+      },
+      "item_id": "R009",
+      "sampling_stratum": "both",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c7846f0a|01M46VND70FX9K3D02PW4PR0DB|01M49YMNV2H526KXVVGCSW1C7G"
+    },
+    {
+      "answers": {
+        "full-a": "depends_on",
+        "full-b": "depends_on",
+        "trunc-a": "supports",
+        "trunc-b": "supports"
+      },
+      "item_id": "R010",
+      "sampling_stratum": "both",
+      "subject_id": "@Kim2022KantAnd::concept::3bc7f979|01M4A87VZYYZMA0ZT0ZPMPD3EN|01M4A6K6CJ7WERBJTK3WVHSFKB"
+    },
+    {
+      "answers": {
+        "full-a": "extends",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R011",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::e126d922|01M46KTMS37SNTXRZS04TQHNQK|01M46KV28T4CJQAE5KTQFR6FVA"
+    },
+    {
+      "answers": {
+        "full-a": "depends_on",
+        "full-b": "depends_on",
+        "trunc-a": "depends_on",
+        "trunc-b": "depends_on"
+      },
+      "item_id": "R012",
+      "sampling_stratum": "both",
+      "subject_id": "@Latorre2021AnáliseDe::concept::250265ab|01M34QBHPMCH10WRWQHKSG22AY|01M34QB4TVAQCHYGJD74YWG5TP"
+    },
+    {
+      "answers": {
+        "full-a": "contradicts",
+        "full-b": "contradicts",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R013",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::6d5e77e5|01M46KS11622VY31BHVG8CWVM9|01M46KRSTQJMFJR8MW5GGZP2PN"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R014",
+      "sampling_stratum": "neither",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M46VKCYRBR2R433TGW33ZWK3"
+    },
+    {
+      "answers": {
+        "full-a": "related",
+        "full-b": "related",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R015",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Hui2026KantMachine::concept::efe54101|01M4A5JBJ5K1VRDJTB99BKYQC4|01M4A5J5A3DNWE77PY1ZM1ACTA"
+    },
+    {
+      "answers": {
+        "full-a": "related",
+        "full-b": "related",
+        "trunc-a": "related",
+        "trunc-b": "related"
+      },
+      "item_id": "R016",
+      "sampling_stratum": "both",
+      "subject_id": "@Latorre2021AnáliseDe::concept::250265ab|01M34QBHPMCH10WRWQHKSG22AY|01M34Q9ZGSHTHW11JVJVAGXH0B"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R017",
+      "sampling_stratum": "neither",
+      "subject_id": "@Latorre2021AnáliseDe::concept::1902c93d|01M34Q91C5P0Q8YMSWMBWY5SHT|01M34QBAWKG7MQVZEHRSPK4JBH"
+    },
+    {
+      "answers": {
+        "full-a": "related",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R018",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Hui2026KantMachine::concept::c97e9160|01M49ZPHQ9TH9ZJVDPM9TZS2D3|01M4A5V4PJR0KFC4FVCTGK3PFJ"
+    },
+    {
+      "answers": {
+        "full-a": "depends_on",
+        "full-b": "supports",
+        "trunc-a": "nenhuma",
+        "trunc-b": "depends_on"
+      },
+      "item_id": "R019",
+      "sampling_stratum": "full_only",
+      "subject_id": "@PromptEngineering::concept::b983e893|01M49ZA5Z518VGSX5GZYAZRCFY|01M49Z1VYEH50AHE2ED4TP7GDX"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R020",
+      "sampling_stratum": "neither",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49ZTPTDDM5YN368HGC2Y5S7"
+    },
+    {
+      "answers": {
+        "full-a": "related",
+        "full-b": "related",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R021",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Kim2022KantAnd::concept::e5ff5fc4|01M49ZY5FQRD6YTNZG3GY30BPV|01M4A6RGEAAATQV8YR8EW8EVV0"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "depends_on",
+        "trunc-b": "depends_on"
+      },
+      "item_id": "R022",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49YXCBR92YFGCRGH5BGQ31C"
+    },
+    {
+      "answers": {
+        "full-a": "related",
+        "full-b": "related",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R023",
+      "sampling_stratum": "full_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::e6baa53b|01M46VN1A1CFSTXJ5CCV4BTBC9|01M49Z2C3X04M4X447P324H1XA"
+    },
+    {
+      "answers": {
+        "full-a": "exemplifies",
+        "full-b": "exemplifies",
+        "trunc-a": "exemplifies",
+        "trunc-b": "exemplifies"
+      },
+      "item_id": "R024",
+      "sampling_stratum": "both",
+      "subject_id": "@Latorre2021AnáliseDe::concept::ce042c29|01M34QCA8GCAPEWFRQFRSZ6VRT|01M34Q9K90M9PQ22XCEQ2B7XPY"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "depends_on",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R025",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::5e6a7288|01M46VHMWS3WXKRF7FFNJKYMC7|01M49Z06YNF1NA72NQDQQ385Z3"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R026",
+      "sampling_stratum": "neither",
+      "subject_id": "@Latorre2021AnáliseDe::concept::ce042c29|01M34QCA8GCAPEWFRQFRSZ6VRT|01M34QA540HDRX8GSTN6B24NB4"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "supports",
+        "trunc-b": "extends"
+      },
+      "item_id": "R027",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::9a07ebee|01M46VMMV5ZQR7VE1PTXSCHTQF|01M46KTEP9J9KPQW73ZZBYB72B"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "exemplifies",
+        "trunc-b": "exemplifies"
+      },
+      "item_id": "R028",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Hui2026KantMachine::concept::d9850545|01M4A5GTY973P1MBAX3JXDK2RV|01M4A5CHKVKDG34XCGJR6PHZD7"
+    },
+    {
+      "answers": {
+        "full-a": "extends",
+        "full-b": "nenhuma",
+        "trunc-a": "extends",
+        "trunc-b": "contradicts"
+      },
+      "item_id": "R029",
+      "sampling_stratum": "both",
+      "subject_id": "@IniciandoComPromptEngineering::concept::9a07ebee|01M46VMMV5ZQR7VE1PTXSCHTQF|01M46KWPESKB48CWEXXF8E1JA3"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R030",
+      "sampling_stratum": "neither",
+      "subject_id": "@Latorre2021AnáliseDe::concept::9f395297|01M34QC4BW8C7DXA9WQX7M5KYA|01M34Q9SMFP9XH0CKTHJFCDG91"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R031",
+      "sampling_stratum": "neither",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c1046af2|01M46VK69AMY1NSFH6ZNT0KT3P|01M49H2CPNZC356ZZDZD56M3MQ"
+    },
+    {
+      "answers": {
+        "full-a": "extends",
+        "full-b": "extends",
+        "trunc-a": "extends",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R032",
+      "sampling_stratum": "both",
+      "subject_id": "@Latorre2021AnáliseDe::concept::250265ab|01M34QBHPMCH10WRWQHKSG22AY|01M34Q9CXJYXWF3ZDF0SF6HD3F"
+    },
+    {
+      "answers": {
+        "full-a": "related",
+        "full-b": "contradicts",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R033",
+      "sampling_stratum": "full_only",
+      "subject_id": "@PromptEngineering::concept::375c21d0|01M49Z3M6PE872K2C49MP8FG6Y|01M46VP0SV0ZCCMVECAGE2BK52"
+    },
+    {
+      "answers": {
+        "full-a": "contradicts",
+        "full-b": "contradicts",
+        "trunc-a": "contradicts",
+        "trunc-b": "contradicts"
+      },
+      "item_id": "R034",
+      "sampling_stratum": "both",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c1046af2|01M46VK69AMY1NSFH6ZNT0KT3P|01M46KRSTQJMFJR8MW5GGZP2PN"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "exemplifies",
+        "trunc-b": "depends_on"
+      },
+      "item_id": "R035",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@PromptEngineering::concept::40f43f19|01M49H01C3AE7P8SQQWA3E4R07|01M46KS11622VY31BHVG8CWVM9"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R036",
+      "sampling_stratum": "neither",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c1046af2|01M46VK69AMY1NSFH6ZNT0KT3P|01M46VMDCF3GV0X34KDNVTRCH0"
+    },
+    {
+      "answers": {
+        "full-a": "extends",
+        "full-b": "extends",
+        "trunc-a": "extends",
+        "trunc-b": "extends"
+      },
+      "item_id": "R037",
+      "sampling_stratum": "both",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c1046af2|01M46VK69AMY1NSFH6ZNT0KT3P|01M46KS11622VY31BHVG8CWVM9"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "extends",
+        "trunc-a": "extends",
+        "trunc-b": "extends"
+      },
+      "item_id": "R038",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::87ed1133|01M46KT1Q4Z9JF4QF8H2W0B9WE|01M46KSEJHT4XG53E10D9V99GS"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R039",
+      "sampling_stratum": "neither",
+      "subject_id": "@Huang2021TowardsReasoning::concept::d30a9820|01M46KRK2FKN3VE0FX92CP95HK|01M49ZQWCXC2R0HDE6VMNA0FPZ"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "extends",
+        "trunc-b": "depends_on"
+      },
+      "item_id": "R040",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Hui2026KantMachine::concept::efe54101|01M4A5JBJ5K1VRDJTB99BKYQC4|01M4A5HZ0GV0ZEFX0QK3N8C7Y5"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "related",
+        "trunc-b": "related"
+      },
+      "item_id": "R041",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49YTN7VB2H2A0V066NBX8E3"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "extends",
+        "trunc-b": "extends"
+      },
+      "item_id": "R042",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::6b0db7f7|01M46KVWEG49VP86E4DDC4JS2F|01M46KT1Q4Z9JF4QF8H2W0B9WE"
+    },
+    {
+      "answers": {
+        "full-a": "related",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R043",
+      "sampling_stratum": "full_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c1046af2|01M46VK69AMY1NSFH6ZNT0KT3P|01M46VJZK2Q61JXJ39FXQZQ47G"
+    },
+    {
+      "answers": {
+        "full-a": "depends_on",
+        "full-b": "extends",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R044",
+      "sampling_stratum": "full_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::9a07ebee|01M46VMMV5ZQR7VE1PTXSCHTQF|01M46KWWX58WBAF4RXPGNSB94E"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "extends",
+        "trunc-b": "extends"
+      },
+      "item_id": "R045",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@IniciandoComPromptEngineering::concept::89365447|01M46VMVE87WWHFGRSGT3G86WW|01M46KT8BGX71CT50AMD1ZHXEM"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R046",
+      "sampling_stratum": "neither",
+      "subject_id": "@Hui2026KantMachine::concept::efe54101|01M4A5JBJ5K1VRDJTB99BKYQC4|01M4A562DVRNXSFF1Q57FG47S3"
+    },
+    {
+      "answers": {
+        "full-a": "supports",
+        "full-b": "supports",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R047",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Hui2026KantMachine::concept::c77e38e5|01M4A51RVQE5BAW0MCK8SCDN3G|01M4A550QX7RWJXQ4KBXJQ3XXM"
+    },
+    {
+      "answers": {
+        "full-a": "supports",
+        "full-b": "supports",
+        "trunc-a": "contradicts",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R048",
+      "sampling_stratum": "both",
+      "subject_id": "@Hui2026KantMachine::concept::efe54101|01M4A5JBJ5K1VRDJTB99BKYQC4|01M4A5PB0HDBKW8HAQ7Q229QPA"
+    },
+    {
+      "answers": {
+        "full-a": "supports",
+        "full-b": "supports",
+        "trunc-a": "supports",
+        "trunc-b": "supports"
+      },
+      "item_id": "R049",
+      "sampling_stratum": "both",
+      "subject_id": "@Hui2026KantMachine::concept::878f4a61|01M4A575EYQYZGRRRSEZ6D1GTC|01M49ZSGFXTMB33VH2H0SWQY8D"
+    },
+    {
+      "answers": {
+        "full-a": "supports",
+        "full-b": "supports",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R050",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Hui2026KantMachine::concept::d9850545|01M4A5GTY973P1MBAX3JXDK2RV|01M4A5HGJGNTRHR1R8HEHERF09"
+    },
+    {
+      "answers": {
+        "full-a": "supports",
+        "full-b": "supports",
+        "trunc-a": "supports",
+        "trunc-b": "supports"
+      },
+      "item_id": "R051",
+      "sampling_stratum": "both",
+      "subject_id": "@Huang2021TowardsReasoning::concept::d30a9820|01M46KRK2FKN3VE0FX92CP95HK|01M46KVWEG49VP86E4DDC4JS2F"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R052",
+      "sampling_stratum": "neither",
+      "subject_id": "@IniciandoComPromptEngineering::concept::c7846f0a|01M46VND70FX9K3D02PW4PR0DB|01M49H01C3AE7P8SQQWA3E4R07"
+    },
+    {
+      "answers": {
+        "full-a": "extends",
+        "full-b": "extends",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R053",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::0f23b62c|01M46KS82R8FSSS9WQ951ZG5NQ|01M46KW9B2SVAD9AKJ45B1J28K"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "extends",
+        "trunc-b": "extends"
+      },
+      "item_id": "R054",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Hui2026KantMachine::concept::5e18cedf|01M4A5MWFYVQWC69SQF0MZAD3J|01M4A5GMDK87CH6Q2JWRFG52B5"
+    },
+    {
+      "answers": {
+        "full-a": "related",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R055",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::4ff6eb9a|01M46KRSTQJMFJR8MW5GGZP2PN|01M46VMMV5ZQR7VE1PTXSCHTQF"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "supports",
+        "trunc-a": "supports",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R056",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Hui2026KantMachine::concept::878f4a61|01M4A575EYQYZGRRRSEZ6D1GTC|01M4A4T1D74G8YM1GZS3QWWKDB"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R057",
+      "sampling_stratum": "neither",
+      "subject_id": "@Huang2021TowardsReasoning::concept::e126d922|01M46KTMS37SNTXRZS04TQHNQK|01M49ZGG7A7PWKAZ6RX7TB7P50"
+    },
+    {
+      "answers": {
+        "full-a": "depends_on",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R058",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Kim2022KantAnd::concept::fbdda008|01M4A6DVDRXWT4SAWWGHJV48SA|01M4A6F6R7D6S4PV92YG9G81DN"
+    },
+    {
+      "answers": {
+        "full-a": "depends_on",
+        "full-b": "depends_on",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R059",
+      "sampling_stratum": "full_only",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49YSSMC2PRG2N8HJQFY89KN"
+    },
+    {
+      "answers": {
+        "full-a": "extends",
+        "full-b": "extends",
+        "trunc-a": "extends",
+        "trunc-b": "extends"
+      },
+      "item_id": "R060",
+      "sampling_stratum": "both",
+      "subject_id": "@Hui2026KantMachine::concept::c77e38e5|01M4A51RVQE5BAW0MCK8SCDN3G|01M4A50EBT8D9M8M2KS3VXZ6FQ"
+    },
+    {
+      "answers": {
+        "full-a": "extends",
+        "full-b": "extends",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R061",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Huang2021TowardsReasoning::concept::6b0db7f7|01M46KVWEG49VP86E4DDC4JS2F|01M46KWWX58WBAF4RXPGNSB94E"
+    },
+    {
+      "answers": {
+        "full-a": "supports",
+        "full-b": "supports",
+        "trunc-a": "supports",
+        "trunc-b": "supports"
+      },
+      "item_id": "R062",
+      "sampling_stratum": "both",
+      "subject_id": "@Latorre2021AnáliseDe::concept::e0bd5fff|01M34Q9SMFP9XH0CKTHJFCDG91|01M46KR5EA2XAAMJVG45MR2A00"
+    },
+    {
+      "answers": {
+        "full-a": "extends",
+        "full-b": "extends",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R063",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Kim2022KantAnd::concept::3bc7f979|01M4A87VZYYZMA0ZT0ZPMPD3EN|01M4A80JV3FEGP73D361TBH0A3"
+    },
+    {
+      "answers": {
+        "full-a": "related",
+        "full-b": "nenhuma",
+        "trunc-a": "supports",
+        "trunc-b": "supports"
+      },
+      "item_id": "R064",
+      "sampling_stratum": "both",
+      "subject_id": "@Latorre2021AnáliseDe::concept::1e363a1e|01M34QBR6AYRNG6KDXNETWNKS8|01M34Q9ZGSHTHW11JVJVAGXH0B"
+    },
+    {
+      "answers": {
+        "full-a": "extends",
+        "full-b": "extends",
+        "trunc-a": "extends",
+        "trunc-b": "extends"
+      },
+      "item_id": "R065",
+      "sampling_stratum": "both",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49YWKSRHXKD4P25J8KVTS5J"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R066",
+      "sampling_stratum": "neither",
+      "subject_id": "@Latorre2021AnáliseDe::concept::1902c93d|01M34Q91C5P0Q8YMSWMBWY5SHT|01M34QARHHXXTES8ZFVZV764HD"
+    },
+    {
+      "answers": {
+        "full-a": "contradicts",
+        "full-b": "contradicts",
+        "trunc-a": "contradicts",
+        "trunc-b": "contradicts"
+      },
+      "item_id": "R067",
+      "sampling_stratum": "both",
+      "subject_id": "@IniciandoComPromptEngineering::concept::89365447|01M46VMVE87WWHFGRSGT3G86WW|01M46KRSTQJMFJR8MW5GGZP2PN"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R068",
+      "sampling_stratum": "neither",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49H3ET2P8045PKB4STV152W"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "depends_on",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R069",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Hui2026KantMachine::concept::c77e38e5|01M4A51RVQE5BAW0MCK8SCDN3G|01M4A5GTY973P1MBAX3JXDK2RV"
+    },
+    {
+      "answers": {
+        "full-a": "supports",
+        "full-b": "supports",
+        "trunc-a": "supports",
+        "trunc-b": "supports"
+      },
+      "item_id": "R070",
+      "sampling_stratum": "both",
+      "subject_id": "@Huang2021TowardsReasoning::concept::6b0db7f7|01M46KVWEG49VP86E4DDC4JS2F|01M46KX3CVESGN341KZSHEWVXD"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R071",
+      "sampling_stratum": "neither",
+      "subject_id": "@PromptEngineering::concept::258d3e6f|01M49YTWBZV06GTMNW6Y8VSY8Y|01M49YWZMD33F919845ZKZWBG7"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "related",
+        "trunc-b": "depends_on"
+      },
+      "item_id": "R072",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@PromptEngineering::concept::375c21d0|01M49Z3M6PE872K2C49MP8FG6Y|01M49Z2Y7J2Q61Q4EXXEBHQ36H"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "depends_on",
+        "trunc-b": "depends_on"
+      },
+      "item_id": "R073",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Latorre2021AnáliseDe::concept::1902c93d|01M34Q91C5P0Q8YMSWMBWY5SHT|01M34QCA8GCAPEWFRQFRSZ6VRT"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "depends_on",
+        "trunc-b": "depends_on"
+      },
+      "item_id": "R074",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Kim2022KantAnd::concept::fbdda008|01M4A6DVDRXWT4SAWWGHJV48SA|01M4A01ANYQB0R00DH0094XGEJ"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "extends",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R075",
+      "sampling_stratum": "trunc_only",
+      "subject_id": "@Kim2022KantAnd::concept::c2b0ffe7|01M49ZYMNDAJFPANH78ZZH8QTX|01M49ZZJ0FE4N7HH7CNH87MW3H"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R076",
+      "sampling_stratum": "neither",
+      "subject_id": "@Kim2022KantAnd::concept::0463e102|01M4A65C3TE7RSHE4TXS48MZHY|01M4A62RWQ1Y90W460ZX0Y3631"
+    },
+    {
+      "answers": {
+        "full-a": "depends_on",
+        "full-b": "supports",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R077",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Kim2022KantAnd::concept::23d01b71|01M4A6BAKRBEWB36ASW4S4F6Z3|01M4A6EH3Q2JPWGATKH7VPW8QC"
+    },
+    {
+      "answers": {
+        "full-a": "supports",
+        "full-b": "supports",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R078",
+      "sampling_stratum": "full_only",
+      "subject_id": "@Kim2022KantAnd::concept::a212e922|01M4A7X0K2W59VWDANNPKMS054|01M4A7N88WJ324ES4G79GJ3ESP"
+    },
+    {
+      "answers": {
+        "full-a": "nenhuma",
+        "full-b": "nenhuma",
+        "trunc-a": "nenhuma",
+        "trunc-b": "nenhuma"
+      },
+      "item_id": "R079",
+      "sampling_stratum": "neither",
+      "subject_id": "@PromptEngineering::concept::e1251fcd|01M49Z4QN8BW9CCHCDTBFETPNN|01M49GZCTRFEPXP4Z4JYTBBFEK"
+    },
+    {
+      "answers": {
+        "full-a": "extends",
+        "full-b": "exemplifies",
+        "trunc-a": "extends",
+        "trunc-b": "extends"
+      },
+      "item_id": "R080",
+      "sampling_stratum": "both",
+      "subject_id": "@Hui2026KantMachine::concept::d9850545|01M4A5GTY973P1MBAX3JXDK2RV|01M4A5H2CN50VGMGFN8NCP509G"
+    }
+  ],
+  "n_items": 80,
+  "population": {
+    "both": 64,
+    "full_only": 47,
+    "neither": 628,
+    "trunc_only": 44
+  },
+  "runs": {
+    "full-a": {
+      "note_chars": 6000,
+      "record": "full-a-bbff611d8f8a.json"
+    },
+    "full-b": {
+      "note_chars": 6000,
+      "record": "full-b-b6dd605e2b7a.json"
+    },
+    "trunc-a": {
+      "note_chars": 150,
+      "record": "trunc-a-9108b962c8f4.json"
+    },
+    "trunc-b": {
+      "note_chars": 150,
+      "record": "trunc-b-ffd76f166954.json"
+    }
+  },
+  "seed": 0,
+  "site": "relations"
+}

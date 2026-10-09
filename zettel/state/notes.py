@@ -143,6 +143,16 @@ class NotesMixin(StateBase):
             (chunk_id,),
         )
 
+    def get_notes_by_ids(self, note_ids: list[str]) -> dict[str, dict]:
+        """`{note_id: row}` for many notes in one query; missing ids are absent."""
+        if not note_ids:
+            return {}
+        unique = list(dict.fromkeys(note_ids))
+        rows = self._fetchall(
+            f"SELECT * FROM notes WHERE note_id IN ({placeholders(unique)})", tuple(unique)
+        )
+        return {r["note_id"]: r for r in rows}
+
     def get_note_texts(self, note_ids: list[str]) -> dict[str, str]:
         """`{note_id: "title body"}` for many notes in one query.
 

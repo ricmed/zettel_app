@@ -11,11 +11,13 @@ from pathlib import Path
 
 import pytest
 from zettel.config import AppConfig, LLMConfig, LLMPhaseConfig
+from zettel.note_content import note_content
 from zettel.preflight import (
     estimate_article,
     estimate_connect,
     estimate_extract,
     estimate_tokens,
+    rag_note_chars,
 )
 from zettel.schemas import PermanentNoteCandidate
 from zettel.state import StateDB
@@ -145,10 +147,21 @@ def test_connect_counts_candidates_and_rag_context(cfg, db):
     cfg.retrieval.graph_expansion.max_neighbors = 10
     est = estimate_connect(cfg, db, _candidates(2))
     assert est.items == 2
-    # Context is 15 notes x 250 chars / 4 = 937 tokens per candidate.
+    # Empty vault: 15 notes x (120 header + the 150 cap) chars / 4 = 1012 tokens.
     assert "15 nota(s)" in " ".join(est.caveats)
-    assert est.input_tokens > 2 * 937
+    assert est.input_tokens > 2 * 1012
     assert est.output_tokens == 2 * cfg.linking.preflight_output_tokens_per_note
+
+
+def test_connect_context_follows_the_real_note_length_up_to_the_cap(cfg, db):
+    body = "> **Tese**: t\n\n## Definição\n\n" + "d" * 994
+    db.upsert_note("N1", "@S", "/p/n1.md", "Titulo", body=body)
+    assert rag_note_chars(db, 6000) == len(note_content("Titulo", body))
+    assert rag_note_chars(db, 150) == 150
+    cfg.linking.rag_note_chars = 150
+    short = estimate_connect(cfg, db, _candidates(1)).input_tokens
+    cfg.linking.rag_note_chars = 6000
+    assert estimate_connect(cfg, db, _candidates(1)).input_tokens > short
 
 
 def test_connect_context_shrinks_without_graph_expansion(cfg, db):

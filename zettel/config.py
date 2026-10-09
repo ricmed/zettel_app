@@ -204,6 +204,10 @@ class LinkingConfig(BaseModel):
     # qualquer nota real (~4,3 mil hoje): o LLM ve o conteudo inteiro. Nao e um
     # recorte -- ate #209 eram 200 caracteres, muitas vezes nem a tese inteira.
     dedupe_note_chars: int = 6000
+    # Caracteres por nota vizinha no contexto RAG do Prompt 2 (#212). 150 e o
+    # recorte historico (corta 98% das teses); a troca por um teto acima de
+    # qualquer nota depende da medicao pre-registrada em #212.
+    rag_note_chars: int = 150
     # Alvo de saida por nota, usado APENAS na estimativa de pre-voo (nao e teto).
     preflight_output_tokens_per_note: int = 1200
     # Busca secundaria do connect: analogias fora do bucket taxonomico.

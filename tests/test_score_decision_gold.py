@@ -1,4 +1,4 @@
-"""Tests for the decision-gold scorer (#206, #208, #209, #226): sheet + key in, numbers out."""
+"""Tests for the decision-gold scorer (#206, #208, #209, #212, #226, #231). Offline."""
 
 import sys
 from pathlib import Path
@@ -12,9 +12,11 @@ from score_decision_gold import (
     preregistered_human_rule,
     preregistered_rule_226,
     read_sheet,
+    relations_labels,
     reviewer_agreement,
     score_conditions,
     score_corroborates,
+    score_relations,
 )
 
 
@@ -186,3 +188,33 @@ def test_rule_226_outcomes_and_tie_goes_to_the_cut():
     assert preregistered_rule_226(_gate_result(p_jev=0.2, p_cut=0.3))["outcome"] == "keep_threshold"
     assert preregistered_rule_226(_gate_result(n=59))["outcome"] == "keep_accumulating"
     assert preregistered_rule_226(_gate_result(same_idea=7))["outcome"] == "keep_accumulating"
+
+
+def test_relations_key_with_compared_prompts_scores_rule_231_and_keeps_unjudgeable():
+    runs = ("current:trunc-a", "new:trunc-a")
+
+    def item(item_id, current, new):
+        return {
+            "item_id": item_id,
+            "subject_id": f"c|n|{item_id}",
+            "sampling_stratum": "both",
+            "answers": {runs[0]: current, runs[1]: new},
+        }
+
+    key = {
+        "compared": list(runs),
+        "population": {"both": 3},
+        "items": [
+            item("R1", "supports", "extends"),
+            item("R2", "nenhuma", "nenhuma"),
+            item("R3", "related", "nenhuma"),
+        ],
+    }
+    sheet = read_sheet(b"item_id;relacao;nota\nR1;extends;\nR2;nenhuma;\nR3;?;\n")
+    labels, problems = relations_labels(sheet, key)
+    assert not problems
+    result = score_relations(labels, key)
+    assert "preregistered_rule_212" not in result
+    rule = result["preregistered_rule_231"]
+    assert (rule["current_correct"], rule["new_correct"], rule["labels"]) == (1, 2, 2)
+    assert not rule["enough_labels"] and not rule["new_beats_current"]

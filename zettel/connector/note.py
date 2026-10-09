@@ -137,7 +137,9 @@ def _process(
     payload = Prompt2Payload(
         source_id=source_id,
         literature_ref=literature_ref,
-        rag_context=context.build_rag_context(db, similar, distant),
+        rag_context=context.build_rag_context(
+            db, similar, distant, note_chars=cfg.linking.rag_note_chars
+        ),
         images_context=context.images_context(db, cand.relevant_image_ids),
         examples=session.example_fields,
     )

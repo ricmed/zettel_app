@@ -130,10 +130,12 @@ anti-padrão ou um nome de framework que não esteja no input.
 
 ### Conexões
 
-- **SOMENTE se houver relação conceitual genuína**
-- Evite conexões forçadas ou temáticas rasas
-- Priorize qualidade sobre quantidade (0-3 conexões é ideal)
-- Cada conexão deve adicionar valor real à compreensão
+- **SOMENTE se houver relação conceitual genuína**, de **0 a 4 conexões**. Zero é uma
+  resposta válida: não force uma conexão fraca para preencher
+- **Tema em comum não é relação.** Se a única descrição possível for "ambos tratam de
+  X", não conecte
+- Cada conexão deve adicionar valor real à compreensão, e a `description` diz em uma
+  frase o que uma tese faz com a outra
 - `related_note_id` é **somente o ULID de 26 caracteres** listado como `note_id:` no bloco RAG (ex. `01HAAAAAAAAAAAAAAAAAAAAAAA`). Nunca copie o prefixo `ZTL`, o filename ou o wikilink `[[...]]`. Ignore qualquer id que não apareça nesse bloco.
 
 ### Tags
@@ -147,12 +149,22 @@ anti-padrão ou um nome de framework que não esteja no input.
 
 ## Tipos de Relação para Conexões
 
-- `supports`: reforça ou valida a tese com evidência/argumento
-- `contradicts`: contradiz ou tensiona a tese
-- `extends`: amplia, aprofunda ou especializa o conceito
-- `depends_on`: pressupõe ou depende conceitualmente da nota relacionada
-- `exemplifies`: uma serve como caso particular da outra
-- `related`: relação temática clara mas não categorizável acima
+Leia como "a nota nova ___ a nota relacionada". Aplique as regras **na ordem**: a
+primeira que valer decide.
+
+1. `contradicts`: as duas teses **não podem ser verdadeiras juntas**. Resolver ou
+   contornar uma limitação que a outra nota aponta **não** é contradição (é `extends`)
+2. `depends_on`: a nota nova **não pode ser definida nem entendida** sem o conceito da
+   nota relacionada (pré-requisito). Partir dela ou construir sobre ela não basta
+3. `exemplifies`: uma é um **caso concreto** da outra (dados, domínio, situação), sem
+   acrescentar mecanismo, condição ou técnica
+4. `extends`: acrescenta **condição, mecanismo, especialização, técnica, consequência**
+   ou a solução de uma limitação apontada pela outra
+5. `supports`: traz **evidência ou argumento para a mesma afirmação**, sem afirmar nada
+   novo
+6. `related`: relação conceitual que se descreve em uma frase e não cabe acima
+   (soluções alternativas para o mesmo problema; o mesmo mecanismo em outro domínio).
+   Tema em comum não basta
 
 ---
 
@@ -189,12 +201,12 @@ O bloco de notas relacionadas pode vir em até três grupos:
   atenção especial antes de propor `connections`.
 - **Analogias distantes (outro dominio)**: notas de **outro bucket taxonomico**.
   Aqui o criterio nao e vocabulario compartilhado — e **mecanismo que transfere**.
-  Prefira `exemplifies` (o mesmo esquema em outro campo) ou `contradicts` (o
-  embedding nao captura tensao). Uma analogia especulativa e valida como proposta;
+  Prefira `related` (o mesmo mecanismo em outro campo) ou `contradicts` (teses
+  incompativeis; o embedding nao captura tensao). Uma analogia especulativa e valida como proposta;
   o sistema a gravara como sugestao, nao como aresta.
 
 Use os grupos apenas como candidatos a conexão; continue priorizando
-qualidade (0-3 conexões duras) e só conecte quando houver relação conceitual genuína.
+qualidade (0-4 conexões duras) e só conecte quando houver relação conceitual genuína.
 Em `related_note_id` copie **apenas** o valor de `note_id:` (ULID de 26 caracteres),
 nunca o wikilink nem o prefixo `ZTL`.
 

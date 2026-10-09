@@ -81,3 +81,53 @@ Relation weights live in `config.yaml` as static values rather than being learne
 The low value is the point, and it follows directly from this ADR's own Consequences. Weight governs **traversal**, not importance. N sources stating one idea form a clique of near-identical notes: valuable to a human reading the vault, and the worst possible use of `max_neighbors` slots, since each such hop returns a paraphrase instead of new information. Because all four consumers share one graph configuration, a high weight here would degrade `ask` and `article` to buy nothing. The relation earns its prominence in rendered `## Conexões` / `auto-backlinks` instead. `tests/test_config.py` pins `corroborates <= related`.
 
 `note_connections.origin` gains a third value, **`derived`**, for edges the pipeline computes rather than receives from a model. Weighting is unchanged by it — only `manual` overrides the relation weight — but it keeps `origin='llm'` an honest audit filter.
+
+## Amendment (2026-10-08) — what a typed edge means (#231)
+
+The weighted BFS trusts each relation type to mean what its weight assumes. Until
+#231, `prompts/permanent_note.md` defined the types with overlapping words
+("reinforces with argument" vs "deepens", "presupposes" vs "builds on", "tension"
+vs "a limit the other note solves"). In #212's labelled pairs, 18 of 23 type errors
+were a human `extends` read as `supports`, `depends_on` or `contradicts`.
+
+The prompt now:
+* **applies the types in order**, so the first that holds decides: `contradicts`
+  (the theses cannot both be true; solving the other note's limit is not
+  contradiction), `depends_on` (the new note cannot be defined without the other),
+  `exemplifies` (a concrete case, adding no mechanism), `extends` (adds a
+  condition, mechanism, specialisation, technique, consequence, or the solution to
+  a stated limit), `supports` (evidence for the same claim, nothing new), `related`
+  (a one-sentence conceptual link that fits nowhere above);
+* **does not treat a shared topic as a relation**: "both are about X" is no edge,
+  since embedding similarity and the taxonomy MOCs already carry topic, and a topic
+  edge would spend `max_neighbors` slots on it;
+* **allows 0 to 4 connections** (was 0 to 3), without forcing a weak one.
+
+These are the user's decisions, fixed in #231 before any measurement, and the
+labeller applies the same rules.
+
+**Measured** (`evals/preregistration/231-prompt-relacoes.md`, `scripts/probe_connect_context.py`,
+`gemini-3.1-flash-lite` @ 0.15, neighbours at 150 characters):
+
+| round | current | new | exact McNemar p |
+|---|---|---|---|
+| development (80 pairs, relabelled under the new rules) | 24/80 | 27/80 | 0.58 |
+| validation `-a` (69 judged pairs, 40 unseen concepts) | 17/69 | 20/69 | 0.66 |
+| validation `-b` (repeat run) | 17/69 | 24/69 | 0.19 |
+
+* **The pre-registered rule is not met.** It required more exact relations with
+  p < 0.05. The cap (3.1 edges per note, maximum 4), validity (0 invalid, 0
+  excluded) and sample (>= 60) conditions hold.
+* **Kept by explicit decision of the user**, as in #218. The prompt encodes design
+  rules chosen independently of the score, the direction favoured it in all three
+  comparisons, and no safety condition failed. #231 stays open for a larger round.
+* Two prompt versions were tried in development. Draft v2 (a sharper `depends_on`)
+  scored 24/80 and was reverted. `gemini-3.5-flash-lite` was also probed on the
+  development pairs and not adopted: it is more conservative (about 1.9 edges per
+  note), more precise on type (0.57) and lower on exact relations (23/80). It also
+  rejects `thinking: false`.
+* **Residual errors.** `extends` is still read as `depends_on` (5 of 69 pairs).
+  Many human relations go unproposed, because the model keeps the strongest of
+  about 20 neighbours.
+* **Existing edges are not rebuilt.** Only notes connected from now on, or
+  reprocessed, use the new definitions.

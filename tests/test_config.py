@@ -178,6 +178,7 @@ def test_pydantic_defaults_match_operational_yaml_for_chunking_and_linking():
     assert defaults.chunking.min_section_chars == operational.chunking.min_section_chars
     assert defaults.chunking.min_chunk_chars == operational.chunking.min_chunk_chars
     assert defaults.linking.dedupe_threshold == operational.linking.dedupe_threshold
+    assert defaults.linking.rag_note_chars == operational.linking.rag_note_chars
 
 
 def test_load_config_paths_ignore_process_cwd(monkeypatch, tmp_path: Path):

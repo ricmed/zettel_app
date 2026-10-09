@@ -1,10 +1,11 @@
-"""Score shadow decisions against the blind human sheet (#206, #208, #209).
+"""Score shadow decisions against the blind human sheet (#206, #208, #209, #212).
 
 `scripts/export_decision_gold.py` freezes a key (`*-GABARITO-NAO-ABRIR.json`) and a
 blind sheet; a human fills the sheet. This script joins the two and answers, per
 deciding system, how often it agrees with the human -- the number the
 pre-registrations (`evals/preregistration/206-jev-camada-decisao.md`, `#209`,
-`208-jev-corroborates.md`) rule on. Sites: `dedupe` and `corroborates`.
+`208-jev-corroborates.md`, `212-connect-contexto-completo.md`) rule on. Sites:
+`dedupe`, `corroborates` and `relations`.
 
 * **Conditions.** The key carries two: `llm` (the decision the pipeline took) and
   `jev` (the shadow answer). Other scripts add more through
@@ -31,6 +32,11 @@ pre-registrations (`evals/preregistration/206-jev-camada-decisao.md`, `#209`,
 * **Corroborates gate (#226).** Adds `cos88` (similarity >= 0.88, the cut fixed
   on round 1) and the round-2 rule: Jev against `cos88`, then `cos88` against
   `cosine`. Computed on every key, binding only on round 2.
+* **Relations (#212).** One (concept, existing note) pair per row; the answer is
+  a relation type or `nenhuma`. Conditions are the Prompt 2 runs of
+  `scripts/probe_connect_context.py` (`trunc-a`, `full-a`, ...); the scored
+  answer is the exact seven-way label, and edge presence and type agreement on
+  shared edges are reported next to it.
 
 Offline and deterministic: reads the sheet and the key, calls nothing. With
 `--labels-out` it writes the human labels without any source text (committable).
@@ -83,7 +89,23 @@ CORROBORATES_BANDS = ("low_band", "near_threshold", "above_threshold")
 GATE_226_CUT = 0.88
 MIN_GATE_LABELS = 60
 MIN_GATE_SAME_IDEA = 8
+RELATION_ANSWERS = (
+    "supports",
+    "contradicts",
+    "extends",
+    "depends_on",
+    "exemplifies",
+    "related",
+    "nenhuma",
+)
+NO_EDGE = "nenhuma"
+# Pre-registration #231: judged pairs the validation round needs.
+MIN_RELATIONS_GATE_LABELS = 60
 DEFAULT_FILES = {
+    "relations": (
+        "evals/gold/relacoes-GABARITO-NAO-ABRIR.json",
+        "evals/gold/relacoes-planilha.csv",
+    ),
     "dedupe": ("evals/gold/dedupe-GABARITO-NAO-ABRIR.json", "evals/gold/dedupe-planilha.csv"),
     "corroborates": (
         "evals/gold/corroboracao-GABARITO-NAO-ABRIR.json",
@@ -150,6 +172,42 @@ def dedupe_labels(
             }
         )
     return labels, dict(problems)
+
+
+def relations_labels(
+    sheet: dict[str, dict[str, str]], key: dict[str, Any]
+) -> tuple[list[dict[str, Any]], dict[str, list[str]]]:
+    """Human relation per pair (``human_decision``; None for `?`)."""
+    labels: list[dict[str, Any]] = []
+    problems: dict[str, list[str]] = defaultdict(list)
+    for item in key["items"]:
+        row = sheet.get(item["item_id"])
+        if row is None or not row.get("relacao"):
+            problems["sem_resposta"].append(item["item_id"])
+            continue
+        answer = row["relacao"].lower()
+        if answer != UNJUDGEABLE and answer not in RELATION_ANSWERS:
+            problems["relacao_invalida"].append(item["item_id"])
+            continue
+        labels.append(
+            {
+                "item_id": item["item_id"],
+                "subject_id": item["subject_id"],
+                "sampling_stratum": item["sampling_stratum"],
+                "human_decision": None if answer == UNJUDGEABLE else answer,
+                "human_note": row.get("nota", ""),
+            }
+        )
+    return labels, dict(problems)
+
+
+def relations_conditions(key: dict[str, Any]) -> dict[str, dict[str, dict[str, Any]]]:
+    """One condition per recorded Prompt 2 run: the relation it gave each pair."""
+    runs = sorted({run for item in key["items"] for run in item["answers"]})
+    return {
+        run: {item["item_id"]: {"decision": item["answers"][run]} for item in key["items"]}
+        for run in runs
+    }
 
 
 def corroborates_labels(
@@ -452,9 +510,90 @@ def score_corroborates(labels: list[dict[str, Any]], key: dict[str, Any]) -> dic
     return result
 
 
+def relations_detail(
+    labels: list[dict[str, Any]], conditions: dict[str, dict[str, dict[str, Any]]]
+) -> dict[str, Any]:
+    """Edge presence and type agreement on shared edges, per run."""
+    judged = [lab for lab in labels if lab["human_decision"]]
+    out: dict[str, Any] = {}
+    for run, answers in conditions.items():
+        edge_right = sum(
+            (answers[lab["item_id"]]["decision"] != NO_EDGE) == (lab["human_decision"] != NO_EDGE)
+            for lab in judged
+        )
+        shared = [
+            lab
+            for lab in judged
+            if lab["human_decision"] != NO_EDGE and answers[lab["item_id"]]["decision"] != NO_EDGE
+        ]
+        out[run] = {
+            "edge_presence": {"n": len(judged), "accuracy": _rate(edge_right, len(judged))},
+            "type_on_shared_edges": {
+                "n": len(shared),
+                "accuracy": _rate(
+                    sum(
+                        answers[lab["item_id"]]["decision"] == lab["human_decision"]
+                        for lab in shared
+                    ),
+                    len(shared),
+                ),
+            },
+            "edges_proposed": sum(answers[lab["item_id"]]["decision"] != NO_EDGE for lab in judged),
+        }
+    out["human_edges"] = sum(lab["human_decision"] != NO_EDGE for lab in judged)
+    return out
+
+
+def preregistered_rule_212(result: dict[str, Any]) -> dict[str, Any]:
+    """#212: adopt the whole neighbour content iff `full-a` gets at least as many
+    pairs right as `trunc-a` (exact label). Validity is the probe's invalid share."""
+    full, trunc = result["conditions"]["full-a"], result["conditions"]["trunc-a"]
+    return {
+        "labels": full["n"],
+        "full_correct": full["correct"],
+        "trunc_correct": trunc["correct"],
+        "mcnemar_p": result["pairs"]["trunc-a:full-a"]["mcnemar_p"],
+        "full_not_worse": full["correct"] >= trunc["correct"],
+    }
+
+
+def preregistered_rule_231(result: dict[str, Any], compared: tuple[str, str]) -> dict[str, Any]:
+    """#231, validation round: adopt the new Prompt 2 iff it gets more pairs exactly
+    right than the current one with exact McNemar p < 0.05, on >= 60 judged pairs.
+    The cap and validity conditions are read from the probe's run summary."""
+    current, new = (result["conditions"][run] for run in compared)
+    p = result["pairs"][f"{compared[0]}:{compared[1]}"]["mcnemar_p"]
+    return {
+        "labels": new["n"],
+        "enough_labels": new["n"] >= MIN_RELATIONS_GATE_LABELS,
+        "current_correct": current["correct"],
+        "new_correct": new["correct"],
+        "mcnemar_p": p,
+        "new_beats_current": new["correct"] > current["correct"] and p < 0.05,
+    }
+
+
+def score_relations(labels: list[dict[str, Any]], key: dict[str, Any]) -> dict[str, Any]:
+    """Pairs and rule follow the key: #212 compared contexts, #231 prompts."""
+    conditions = relations_conditions(key)
+    compared = tuple(key.get("compared") or ("trunc-a", "full-a"))
+    pairs = [compared]
+    repeat = tuple(run[:-2] + "-b" for run in compared)
+    if set(repeat) <= set(conditions):
+        pairs.append(repeat)
+    result = score_conditions(labels, conditions, key["population"], pairs)
+    result["detail"] = relations_detail(labels, conditions)
+    if compared == ("trunc-a", "full-a"):
+        result["preregistered_rule_212"] = preregistered_rule_212(result)
+    else:
+        result["preregistered_rule_231"] = preregistered_rule_231(result, compared)
+    return result
+
+
 SITES = {
     "dedupe": (dedupe_labels, score_dedupe),
     "corroborates": (corroborates_labels, score_corroborates),
+    "relations": (relations_labels, score_relations),
 }
 
 
@@ -495,7 +634,9 @@ def main(argv: list[str] | None = None) -> int:
 
     result = score(labels, key)
     result["unjudgeable"] = sum(1 for lab in labels if lab["human_decision"] is None)
-    result["human_distribution"] = dict(Counter(lab["human_decision"] for lab in labels))
+    result["human_distribution"] = dict(
+        Counter(lab["human_decision"] or UNJUDGEABLE for lab in labels)
+    )
 
     text = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     print(text, end="")

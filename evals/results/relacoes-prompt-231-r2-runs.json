@@ -1,0 +1,97 @@
+{
+  "agreement": {
+    "current:trunc-a x new:trunc-a": {
+      "agreement": 0.8821,
+      "pairs": 806
+    }
+  },
+  "items": 40,
+  "model": "gemini/gemini-3.1-flash-lite",
+  "note_chars": {
+    "full": 6000,
+    "trunc": 150
+  },
+  "prompts": {
+    "current": ".eval-work\\prompts\\permanent-current.md",
+    "new": "prompts\\permanent_note.md"
+  },
+  "runs": {
+    "current:trunc-a": {
+      "answered": 40,
+      "edges_per_note": 2.925,
+      "invalid_or_missing": 0,
+      "invalid_share": 0.0,
+      "max_edges": 3,
+      "rejected": 0,
+      "relations": {
+        "contradicts": 13,
+        "depends_on": 18,
+        "exemplifies": 6,
+        "extends": 33,
+        "related": 15,
+        "supports": 32
+      },
+      "share_at_most_4_edges": 1.0
+    },
+    "current:trunc-b": {
+      "answered": 40,
+      "edges_per_note": 2.95,
+      "invalid_or_missing": 0,
+      "invalid_share": 0.0,
+      "max_edges": 3,
+      "rejected": 0,
+      "relations": {
+        "contradicts": 13,
+        "depends_on": 18,
+        "exemplifies": 10,
+        "extends": 36,
+        "related": 14,
+        "supports": 27
+      },
+      "share_at_most_4_edges": 1.0
+    },
+    "new:trunc-a": {
+      "answered": 40,
+      "edges_per_note": 3.1,
+      "invalid_or_missing": 0,
+      "invalid_share": 0.0,
+      "max_edges": 4,
+      "rejected": 0,
+      "relations": {
+        "contradicts": 13,
+        "depends_on": 15,
+        "extends": 37,
+        "related": 33,
+        "supports": 26
+      },
+      "share_at_most_4_edges": 1.0
+    },
+    "new:trunc-b": {
+      "answered": 40,
+      "edges_per_note": 3.0,
+      "invalid_or_missing": 0,
+      "invalid_share": 0.0,
+      "max_edges": 4,
+      "rejected": 0,
+      "relations": {
+        "contradicts": 8,
+        "depends_on": 23,
+        "extends": 38,
+        "related": 35,
+        "supports": 16
+      },
+      "share_at_most_4_edges": 1.0
+    }
+  },
+  "stability": {
+    "current:trunc": {
+      "agreement": 0.9392,
+      "pairs": 806
+    },
+    "new:trunc": {
+      "agreement": 0.9305,
+      "pairs": 806
+    }
+  },
+  "temperature": 0.15
+}
