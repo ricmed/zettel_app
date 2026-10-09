@@ -132,7 +132,7 @@ linking:
   # Corroboracao entre fontes: mesma ideia em source_id diferentes vira duas ZTL
   # ligadas por `corroborates`, em vez de uma nota so. Derivada dos hits que o
   # Retriever ja trouxe no connect — nao custa embedding nem chamada de LLM.
-  corroborates_min_similarity: 0.85
+  corroborates_min_similarity: 0.88  # medido em #208/#226 (rotulos cegos); remedir se trocar o embedding
   corroborates_max_edges: 3  # teto de arestas de corroboracao por nota
 
 # ── Harvest (Deduplicação de Arquivos + ABNT) ──────────────────────────

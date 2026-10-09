@@ -166,3 +166,27 @@ Outcome under the pre-registration: **open a gate issue**. Two facts constrain i
 2. **A higher cosine threshold nearly closes the gap.** Cosine separates `mesma-ideia` almost as well as Jev (AUC 0.963 vs 0.987, 9 positives), and a cut at 0.883 also reaches 66/69. That cut was picked on these same labels, so it is optimistic, and a cosine number does not transfer between embedding models. The gate issue must therefore compare Jev against a **recalibrated threshold**, both fixed before a new labelled batch. If they tie, the threshold wins: no external service, no cost, no latency.
 
 Four `mesma-ideia` pairs above 0.85 got no edge (the `max_edges` cap or a hit that was not a seed). They are reported, not ruled on.
+
+## Results (2026-10-09): the `corroborates` gate (#226)
+
+Round 2: 80 pairs never labelled (40 above 0.85, 40 in 0.80-0.85, seed 1), labelled
+blind by hand. The shadow had 0 API failures and every pair in both orders. Mean
+order divergence was 0.107 level.
+
+| condition | right | wrong edges | missed |
+|---|---|---|---|
+| Jev (level 2) | 78/80 | 2 | 0 |
+| cosine >= 0.88 (`cos88`, fixed on round 1) | 77/80 | 2 | 1 |
+| edge created at 0.85 | 62/80 | 16 | 2 |
+| cosine >= 0.85 | 51/80 | 29 | 0 |
+
+* Jev against `cos88`: 3 pairs only Jev gets right, 2 only the cut (exact McNemar
+  p = 1.0), so **Jev does not decide the edge**.
+* `cos88` against `cosine`: 27 to 1 (p < 0.0001), so **the threshold rises to
+  0.88** (ADR-045 amendment).
+* Both continuous signals separate "same idea" almost perfectly: Jev mean score
+  AUC 1.0, cosine 0.985. On this question a cosine cut is as good as a typed
+  judgement, and costs nothing.
+* The `decision.sites.corroborates` shadow can now be switched off. It is left on
+  until the user decides, since it costs about $0.0001 per pair and keeps a check
+  on the new threshold.
