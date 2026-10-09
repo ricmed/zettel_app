@@ -65,9 +65,9 @@ llm:
     temperature: null       # null = herda llm.temperature
     thinking: null
   article:
-    provider: openai
-    model: gpt-4o-mini      # zettel article (todos os nos)
-    base_url: null
+    provider: deepseek
+    model: deepseek-v4-flash      # zettel article (todos os nos)
+    base_url: https://api.deepseek.com
     temperature: null       # null = herda llm.temperature (nos individuais podem sobrescrever em codigo)
     thinking: null
   images:
