@@ -132,7 +132,17 @@ O exportador recusa sobrescrever a planilha **ou o gabarito** de uma rodada exis
 
 `scripts/probe_dedupe_context.py` refaz a decisão de dedupe sobre itens rotulados (`--key` e `--labels` de qualquer rodada), em duas condições de contexto (trecho de 200 caracteres e texto completo), e aceita versões de prompt com `--prompt NOME=CAMINHO`, repetível. Com `current` e `new`, ele calcula a regra do pré-registro de #218. As respostas ficam gravadas por texto do prompt, então uma versão já medida não chama o modelo de novo.
 
-## Relações tipadas do connect (#212)
+## Relações tipadas do connect (#212, #231)
+
+Na #231, a mesma sonda compara versões do Prompt 2 sobre o mesmo snapshot:
+
+- `--prompt NOME=CAMINHO` (repetível) define as versões, e `--runs` limita as condições.
+- `--score-key` e `--labels` pontuam cada rodada nos pares já rotulados.
+- `--revise` gera uma planilha de revisão com o rótulo anterior.
+- `--exclude-snapshot` deixa de fora os conceitos de um snapshot anterior, para que a validação use conceitos nunca vistos.
+- `--compare A,B` e `--sheet-prefix` estratificam a planilha pelas duas rodadas comparadas.
+
+As definições de relação, aplicadas na ordem, ficam em `RELATION_RULES` e aparecem no topo de toda planilha.
 
 `scripts/probe_connect_context.py` mede se o Prompt 2 escolhe relações melhores quando vê as notas vizinhas inteiras, e não um trecho de 150 caracteres (`linking.rag_note_chars`). Regras em [`preregistration/212-connect-contexto-completo.md`](preregistration/212-connect-contexto-completo.md).
 
