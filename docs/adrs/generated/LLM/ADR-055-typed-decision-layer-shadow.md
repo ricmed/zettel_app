@@ -167,7 +167,7 @@ Outcome under the pre-registration: **open a gate issue**. Two facts constrain i
 
 Four `mesma-ideia` pairs above 0.85 got no edge (the `max_edges` cap or a hit that was not a seed). They are reported, not ruled on.
 
-## Results (2026-10-09): the `corroborates` gate (#226)
+## Results (2026-10-08): the `corroborates` gate (#226)
 
 Round 2: 80 pairs never labelled (40 above 0.85, 40 in 0.80-0.85, seed 1), labelled
 blind by hand. The shadow had 0 API failures and every pair in both orders. Mean
