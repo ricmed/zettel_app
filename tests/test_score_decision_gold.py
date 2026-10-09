@@ -11,9 +11,11 @@ from score_decision_gold import (
     key_conditions,
     preregistered_human_rule,
     read_sheet,
+    relations_labels,
     reviewer_agreement,
     score_conditions,
     score_corroborates,
+    score_relations,
 )
 
 
@@ -161,3 +163,33 @@ def test_corroborates_flags_invalid_and_missing_answers():
     }
     labels, problems = corroborates_labels(read_sheet(b"item_id;decisao;nota\nP1;igual;\n"), key)
     assert labels == [] and problems == {"decisao_invalida": ["P1"], "sem_resposta": ["P2"]}
+
+
+def test_relations_key_with_compared_prompts_scores_rule_231_and_keeps_unjudgeable():
+    runs = ("current:trunc-a", "new:trunc-a")
+
+    def item(item_id, current, new):
+        return {
+            "item_id": item_id,
+            "subject_id": f"c|n|{item_id}",
+            "sampling_stratum": "both",
+            "answers": {runs[0]: current, runs[1]: new},
+        }
+
+    key = {
+        "compared": list(runs),
+        "population": {"both": 3},
+        "items": [
+            item("R1", "supports", "extends"),
+            item("R2", "nenhuma", "nenhuma"),
+            item("R3", "related", "nenhuma"),
+        ],
+    }
+    sheet = read_sheet(b"item_id;relacao;nota\nR1;extends;\nR2;nenhuma;\nR3;?;\n")
+    labels, problems = relations_labels(sheet, key)
+    assert not problems
+    result = score_relations(labels, key)
+    assert "preregistered_rule_212" not in result
+    rule = result["preregistered_rule_231"]
+    assert (rule["current_correct"], rule["new_correct"], rule["labels"]) == (1, 2, 2)
+    assert not rule["enough_labels"] and not rule["new_beats_current"]
