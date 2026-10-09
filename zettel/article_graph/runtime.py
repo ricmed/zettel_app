@@ -80,6 +80,7 @@ class ArticleRuntime:
     catalog: art.ArticleCatalog | None = None
     context_callback: ContextCallback | None = None
     outline_callback: OutlineCallback | None = None
+    on_phase: Callable[[str], None] | None = None
     llm_called: bool = False
 
 

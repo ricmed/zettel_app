@@ -468,6 +468,7 @@ def _dispatch_article(
             skip_judge=bool(payload.get("skip_judge")),
             max_judge_iterations=payload.get("max_judge_iterations"),
             pause_for_review=review_context or review_outline,
+            on_phase=lambda message: progress.emit(ProgressEvent("article", message)),
         )
         sessions[job_id] = drive
         progress.emit(ProgressEvent("article", "Gerando o artigo."))

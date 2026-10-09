@@ -12,8 +12,8 @@
 </div>
 <section class="panel progress-panel">
   <div class="progress-copy"><b id="job-message">{{ job.message }}</b><span id="job-phase">{{ job.phase }}</span></div>
-  <div class="progress-track"><div id="progress-bar" class="progress-bar" style="{% if job.total_items and job.current_index %}width:{{ (job.current_index / job.total_items * 100)|round }}%{% endif %}"></div></div>
-  <div id="job-count">{% if job.total_items %}{{ job.current_index or 0 }} / {{ job.total_items }}{% elif job.state == 'succeeded' %}Concluído{% elif job.state in ['failed','interrupted'] %}Encerrado{% elif job.state == 'awaiting_input' %}Aguardando decisão{% else %}Progresso indeterminado{% endif %}</div>
+  <div class="progress-track"><div id="progress-bar" class="progress-bar{% if job.state in ['queued','running'] and not job.total_items %} indeterminate{% endif %}" style="{% if job.total_items and job.current_index %}width:{{ (job.current_index / job.total_items * 100)|round }}%{% endif %}"></div></div>
+  <div id="job-count">{% if job.total_items %}{{ job.current_index or 0 }} / {{ job.total_items }}{% elif job.state == 'succeeded' %}Concluído{% elif job.state in ['failed','interrupted'] %}Encerrado{% elif job.state == 'awaiting_input' %}Aguardando decisão{% else %}{{ job.message or 'Em andamento' }}{% endif %}</div>
 </section>
 
 {% set result = job.result or {} %}
@@ -195,10 +195,12 @@ async function refresh(){
     bar.style.width=j.state==="succeeded"?"100%":"0";
     document.querySelector("#job-count").textContent=j.state==="succeeded"?"Concluído":"Encerrado";
   }else if(j.state==="awaiting_input"){
+    bar.classList.remove("indeterminate");
     document.querySelector("#job-count").textContent="Aguardando decisão";
   }else{
     bar.classList.add("indeterminate");
-    document.querySelector("#job-count").textContent="Progresso indeterminado";
+    bar.style.width="";
+    document.querySelector("#job-count").textContent=j.message||"Em andamento";
   }
   if(j.result||j.error_message){
     document.querySelector("#job-outcome").hidden=false;

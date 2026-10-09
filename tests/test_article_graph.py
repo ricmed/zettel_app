@@ -355,3 +355,27 @@ def test_article_drive_keeps_the_run_open_across_a_pause(tmp_path, monkeypatch):
     assert "Texto retomado" in step.result.body
     assert db.get_last_run()["status"] == "completed"
     db.close()
+
+
+def test_watched_node_reports_the_phase_only_when_a_hook_is_set():
+    from zettel.article_graph.graph import _phase_message, _watched
+
+    assert _phase_message("context_review", {}) is None
+    assert _phase_message("judge", {"iteration_count": 1}) == ("Avaliando com o juiz (ciclo 2).")
+
+    seen: list[str] = []
+
+    class Runtime:
+        on_phase = staticmethod(seen.append)
+
+    def inner(state, config):
+        return {"kept": state.get("topic")}
+
+    wrapped = _watched("query_enricher", inner)
+    assert wrapped({"topic": "rag"}, {"configurable": {"runtime": Runtime()}}) == {"kept": "rag"}
+    assert seen == ["Enriquecendo as queries."]
+
+    class Quiet:
+        on_phase = None
+
+    assert wrapped({"topic": "rag"}, {"configurable": {"runtime": Quiet()}}) == {"kept": "rag"}

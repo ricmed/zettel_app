@@ -80,6 +80,7 @@ from .runtime import (
     build_initial_state,
     resolve_run_options,
     result_from_state,
+    runtime_from,
 )
 
 if TYPE_CHECKING:
@@ -88,20 +89,55 @@ if TYPE_CHECKING:
     from ..state import StateDB
 
 
+_PHASE_LABELS = {
+    "query_enricher": "Enriquecendo as queries.",
+    "vector_search_merge": "Buscando notas no acervo.",
+    "build_catalog": "Montando o catálogo.",
+    "generate_outline": "Gerando o outline.",
+    "draft_sections": "Redigindo as seções.",
+    "assemble": "Montando o artigo.",
+    "personality": "Reescrevendo a personalidade.",
+    "finish": "Verificando o artigo.",
+}
+
+
+def _phase_message(name: str, state: dict) -> str | None:
+    """Status line for one graph node. Pause and abort nodes stay silent."""
+    if name == "judge":
+        cycle = int(state.get("iteration_count") or 0) + 1
+        return f"Avaliando com o juiz (ciclo {cycle})."
+    return _PHASE_LABELS.get(name)
+
+
+def _watched(name: str, fn: Callable[..., Any]) -> Callable[..., Any]:
+    """Announce the node, then run it. No hook means the node is unchanged."""
+
+    def node(state: dict, config: dict) -> Any:
+        hook = runtime_from(config).on_phase
+        if hook is not None:
+            message = _phase_message(name, state)
+            if message:
+                hook(message)
+        return fn(state, config)
+
+    node.__name__ = getattr(fn, "__name__", name)
+    return node
+
+
 def build_article_graph():
     g = StateGraph(ArticleGraphState)
-    g.add_node("query_enricher", node_query_enricher)
-    g.add_node("vector_search_merge", node_vector_search_merge)
+    g.add_node("query_enricher", _watched("query_enricher", node_query_enricher))
+    g.add_node("vector_search_merge", _watched("vector_search_merge", node_vector_search_merge))
     g.add_node("context_review", node_context_review)
-    g.add_node("build_catalog", node_build_catalog)
-    g.add_node("generate_outline", node_generate_outline)
+    g.add_node("build_catalog", _watched("build_catalog", node_build_catalog))
+    g.add_node("generate_outline", _watched("generate_outline", node_generate_outline))
     g.add_node("outline_review", node_outline_review)
     g.add_node("outline_only_finish", node_outline_only_finish)
-    g.add_node("draft_sections", node_draft_sections)
-    g.add_node("assemble", node_assemble)
-    g.add_node("personality", node_personality)
-    g.add_node("judge", node_judge)
-    g.add_node("finish", node_finish)
+    g.add_node("draft_sections", _watched("draft_sections", node_draft_sections))
+    g.add_node("assemble", _watched("assemble", node_assemble))
+    g.add_node("personality", _watched("personality", node_personality))
+    g.add_node("judge", _watched("judge", node_judge))
+    g.add_node("finish", _watched("finish", node_finish))
     g.add_node("abort", node_abort)
 
     g.add_edge(START, "query_enricher")
@@ -200,6 +236,7 @@ class ArticleDrive:
         context_callback: ContextCallback | None = None,
         hitl_handler: Callable[[dict], dict] | None = None,
         pause_for_review: bool = False,
+        on_phase: Callable[[str], None] | None = None,
     ):
         from zettel.usage import begin_run
 
@@ -227,6 +264,7 @@ class ArticleDrive:
             idx=idx,
             context_callback=context_callback,
             outline_callback=options.outline_callback,
+            on_phase=on_phase,
         )
         self._graph = build_article_graph().compile(checkpointer=MemorySaver())
         self._config: dict[str, Any] = {
