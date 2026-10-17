@@ -779,3 +779,100 @@ def test_citekey_disambiguation_past_z_uses_aa(db, monkeypatch):
     key = generate_citekey(db, ["Ann Silva"], 2020, "Obra")
     assert key.endswith("aa")
     assert "{" not in key
+
+
+def _two_chapter_book(second: str) -> str:
+    stable = "Conteudo estavel do primeiro capitulo para o chunk. " * 8
+    return f"# Cap A\n\n{stable}\n\n# Cap B\n\n{second}\n"
+
+
+def _harvest_markdown(cfg, db, path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return _process_file(
+        cfg,
+        db,
+        FakeVectorIndex(),
+        path,
+        run_id=db.start_run("mod"),
+        interactive=False,
+        skip_biblio=True,
+    )
+
+
+def test_modified_file_skip_keeps_the_path_on_the_same_source(cfg, db, tmp_path, caplog):
+    path = tmp_path / "inbox" / "livro.md"
+    sid, _stats = _harvest_markdown(
+        cfg, db, path, _two_chapter_book("Texto original do segundo capitulo. " * 8)
+    )
+    assert sid
+    before = {row["chunk_id"] for row in db.get_chunks_for_source(sid)}
+    with caplog.at_level("WARNING"):
+        again, stats = _harvest_markdown(
+            cfg, db, path, _two_chapter_book("Texto revisado do segundo capitulo. " * 8)
+        )
+    assert again is None
+    assert stats == {}
+    assert db.get_file(str(path))["source_id"] == sid
+    assert {row["chunk_id"] for row in db.get_chunks_for_source(sid)} == before
+    assert len(db.list_sources()) == 1
+    assert "acao='skip'" in caplog.text
+
+
+def test_modified_file_update_keeps_unchanged_chunks_and_pends_new_ones(cfg, db, tmp_path):
+    cfg.harvest.modified_file_action = "update"
+    path = tmp_path / "inbox" / "livro.md"
+    sid, _stats = _harvest_markdown(
+        cfg, db, path, _two_chapter_book("Texto original do segundo capitulo. " * 8)
+    )
+    stable = next(row for row in db.get_chunks_for_source(sid) if "estavel" in row["text"])
+    db.update_chunk_status(stable["chunk_id"], "persisted")
+    again, _stats = _harvest_markdown(
+        cfg, db, path, _two_chapter_book("Texto revisado do segundo capitulo. " * 8)
+    )
+    assert again == sid
+    assert len(db.list_sources()) == 1
+    assert db.get_file(str(path))["source_id"] == sid
+    kept = db.get_chunk(stable["chunk_id"])
+    assert kept is not None
+    assert kept["status"] == "persisted"
+    assert "estavel" in kept["text"]
+    revised = [row for row in db.get_chunks_for_source(sid) if "revisado" in row["text"]]
+    assert revised
+    assert all(row["status"] == "pending" for row in revised)
+
+
+def test_modified_file_new_moves_the_path_and_keeps_the_old_source(cfg, db, tmp_path):
+    cfg.harvest.modified_file_action = "new"
+    path = tmp_path / "inbox" / "livro.md"
+    sid, _stats = _harvest_markdown(
+        cfg, db, path, _two_chapter_book("Texto original do segundo capitulo. " * 8)
+    )
+    again, _stats = _harvest_markdown(
+        cfg, db, path, _two_chapter_book("Texto revisado do segundo capitulo. " * 8)
+    )
+    assert again and again != sid
+    assert db.get_source(sid) is not None
+    assert db.get_file(str(path))["source_id"] == again
+
+
+def test_update_does_not_treat_the_sources_own_doi_as_a_duplicate(cfg, db, tmp_path):
+    cfg.harvest.modified_file_action = "update"
+    path = tmp_path / "inbox" / "obra.md"
+    body = (
+        "---\n"
+        "title: Obra\n"
+        "author: Ana Silva\n"
+        "year: 2020\n"
+        "document_type: livro\n"
+        "place: Sao Paulo\n"
+        "publisher: Editora\n"
+        "doi: 10.1000/xyz123\n"
+        "---\n\n"
+        "# Cap\n\n" + ("Texto original longo o bastante para um chunk. " * 8)
+    )
+    sid, _stats = _harvest_markdown(cfg, db, path, body)
+    revised = body.replace("original", "revisado")
+    again, _stats = _harvest_markdown(cfg, db, path, revised)
+    assert again == sid
+    assert any("revisado" in row["text"] for row in db.get_chunks_for_source(sid))

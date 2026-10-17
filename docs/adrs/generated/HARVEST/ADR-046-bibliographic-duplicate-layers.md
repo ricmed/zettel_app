@@ -73,4 +73,6 @@ Layer 4 scans `list_sources_with_authors()` linearly — a projection without th
 
 The fields these layers read carry a per-field origin (`bibliography_json.provenance`: `user`, `file_metadata`, `llm`, `heuristic`). A frontmatter value is not replaced by the model before the match runs. See [ADR-057](./ADR-057-bibliographic-field-provenance.md).
 
+A file that changes at an inbox path already recorded in `files` is not a duplicate. `harvest.modified_file_action` (`skip` by default, also `update` or `new`) decides without a TTY; interactive harvest asks. `update` reuses `source_id` and citekey. A DOI or ISBN match against that same source continues the update instead of returning the old text. Unchanged chapters keep their chunk ids; a rewritten chapter's new chunks are `pending`. Removed chunks drop their concepts. Permanent notes stay, and the LIT file on disk is not deleted.
+
 A shared ISBN merges without a prompt only when `normalize_title` agrees and neither `document_type` is `capitulo_livro` or `anais_evento`. A chapter PDF that carries the book's ISBN, or two different titles with one ISBN, asks. Without a TTY the answer is layer 4's `continue` (new source). DOI is unchanged: it still merges without asking. The decision is still recorded as `biblio`.

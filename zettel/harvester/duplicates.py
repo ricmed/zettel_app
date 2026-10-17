@@ -147,3 +147,39 @@ def resolve_duplicate_decision(
         console=console,
     )
     return {"pular": "skip", "continuar": "continue", "abortar": "abort"}[choice]
+
+
+def resolve_modified_file(
+    file_path: Path,
+    source_id: str,
+    interactive: bool,
+    cfg: AppConfig,
+) -> str:
+    """A known inbox path whose bytes changed. Returns update, new, or skip.
+
+    Without a TTY the answer is ``harvest.modified_file_action`` (default
+    ``skip``). Updating reuses the source; ``new`` ingests a second one and
+    moves the path; ``skip`` leaves the stored source untouched.
+    """
+    if not interactive:
+        action = cfg.harvest.modified_file_action
+        logger.warning(
+            "Arquivo '%s' mudou no mesmo caminho da fonte %s (modo nao-interativo, acao='%s').",
+            file_path.name,
+            source_id,
+            action,
+        )
+        return action
+
+    from rich.console import Console
+    from rich.prompt import Prompt
+
+    console = Console(stderr=True)
+    console.print(f"[cyan]'{file_path.name}' mudou no caminho ja associado a {source_id}.[/cyan]")
+    choice = Prompt.ask(
+        "O que deseja fazer?",
+        choices=["atualizar", "nova", "pular"],
+        default="pular",
+        console=console,
+    )
+    return {"atualizar": "update", "nova": "new", "pular": "skip"}[choice]

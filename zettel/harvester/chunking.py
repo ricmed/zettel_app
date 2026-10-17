@@ -675,6 +675,12 @@ def chunk_and_persist(
             db.conn.rollback()
             raise
         if removed:
+            logger.info(
+                "Chunks removidos de %s: %s. Notas permanentes da fonte permanecem; "
+                "o arquivo LIT no vault nao e apagado.",
+                group["chapter_id"],
+                ", ".join(removed),
+            )
             idx.delete_chunks(removed)
         to_embed.extend(kept)
 

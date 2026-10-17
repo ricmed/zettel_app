@@ -343,6 +343,19 @@ def _process_file(
         logger.debug("Arquivo inalterado, pulando: %s", file_path.name)
         return None, empty_stats
 
+    updating_source_id: str | None = None
+    if existing and existing.get("source_id") and existing["file_checksum"] != checksum:
+        action = duplicates.resolve_modified_file(
+            file_path,
+            existing["source_id"],
+            interactive,
+            cfg,
+        )
+        if action == "skip":
+            return None, empty_stats
+        if action == "update":
+            updating_source_id = existing["source_id"]
+
     renamed_from = db.get_file_by_checksum(checksum, exclude_path=str(file_path))
     if renamed_from and renamed_from.get("source_id"):
         check_reviewed_source(renamed_from["source_id"])
@@ -443,12 +456,23 @@ def _process_file(
     # citekey (Silva2020Obra -> Silva2020Obraa) on the way to being rejected.
     exact = biblio_dedupe.find_exact_bibliographic_match(db, doi=doi, isbn=isbn)
     if exact:
-        existing, key_kind = exact
-        ask_isbn = key_kind == "isbn" and biblio_dedupe.isbn_requires_confirmation(
-            biblio.document_type, existing, title
+        matched, key_kind = exact
+        if updating_source_id and matched["source_id"] == updating_source_id:
+            logger.info(
+                "Arquivo '%s' mudou no caminho de %s e o %s e o da propria fonte. "
+                "Segue como atualizacao, nao como duplicata.",
+                file_path.name,
+                updating_source_id,
+                key_kind.upper(),
+            )
+            exact = None
+        ask_isbn = (
+            exact is not None
+            and key_kind == "isbn"
+            and biblio_dedupe.isbn_requires_confirmation(biblio.document_type, matched, title)
         )
         if ask_isbn:
-            decision = biblio_dedupe.resolve_isbn_decision(file_path, existing, interactive)
+            decision = biblio_dedupe.resolve_isbn_decision(file_path, matched, interactive)
             db.record_duplicate(run_id, "biblio")
             if decision == "abort":
                 raise HarvestAborted(f"Usuario abortou o harvest ao processar {file_path.name}")
@@ -456,24 +480,24 @@ def _process_file(
                 logger.warning(
                     "Arquivo '%s' pulado: ISBN compartilhado com %s, sem identidade de obra.",
                     file_path.name,
-                    existing.get("citekey"),
+                    matched.get("citekey"),
                 )
                 return None, empty_stats
             logger.info(
                 "Arquivo '%s' segue como nova fonte apesar do ISBN de %s.",
                 file_path.name,
-                existing.get("citekey"),
+                matched.get("citekey"),
             )
-        else:
-            check_reviewed_source(existing["source_id"])
-            sid = existing["source_id"]
+        elif exact is not None:
+            check_reviewed_source(matched["source_id"])
+            sid = matched["source_id"]
             logger.info(
                 "Arquivo '%s' tem o mesmo %s da fonte %s (%s). Reaproveitando fonte, "
                 "sem gerar novo citekey/SRC/LIT/chunks.",
                 file_path.name,
                 key_kind.upper(),
                 sid,
-                existing["citekey"],
+                matched["citekey"],
             )
             db.upsert_file(str(file_path), checksum, origin_type, sid)
             db.record_duplicate(run_id, "biblio")
@@ -485,6 +509,8 @@ def _process_file(
     title_matches = biblio_dedupe.find_title_author_candidates(
         db, title=title, authors=authors, year=year
     )
+    if updating_source_id:
+        title_matches = [row for row in title_matches if row["source_id"] != updating_source_id]
     if title_matches:
         decision = biblio_dedupe.resolve_title_author_decision(
             file_path, title_matches, interactive
@@ -500,21 +526,24 @@ def _process_file(
             )
             return None, empty_stats
 
-    citekey = generate_citekey(db, authors, year, title)
-    source_id = f"@{citekey}"
+    stored = db.get_source(updating_source_id) if updating_source_id else None
+    if updating_source_id and stored is None:
+        logger.warning(
+            "Caminho de '%s' apontava para %s, que nao existe mais. Seguindo como nova fonte.",
+            file_path.name,
+            updating_source_id,
+        )
+        updating_source_id = None
+    if updating_source_id and stored is not None:
+        citekey = stored["citekey"]
+        source_id = updating_source_id
+    else:
+        citekey = generate_citekey(db, authors, year, title)
+        source_id = f"@{citekey}"
 
     from zettel.usage import get_tracker, set_source
 
     set_source(source_id)
-
-    existing_source = db.get_source(source_id)
-    if existing_source and existing_source.get("extraction_checksum") == extraction_checksum:
-        db.upsert_file(str(file_path), checksum, origin_type, source_id)
-        set_source(None)
-        if source_chunking_incomplete(db, source_id):
-            return _complete_incomplete_source(cfg, db, idx, source_id)
-        logger.info("Texto extraido inalterado para %s, pulando rechunking", source_id)
-        return None, empty_stats
 
     chapters = chunking.split_into_chapters(text, origin_type)
 
@@ -526,6 +555,8 @@ def _process_file(
         if cfg.harvest.semantic_duplicate_enabled
         else []
     )
+    if updating_source_id:
+        dup_candidates = [row for row in dup_candidates if row["source_id"] != updating_source_id]
     if dup_candidates:
         decision = duplicates.resolve_duplicate_decision(
             file_path,

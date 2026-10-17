@@ -246,6 +246,10 @@ class HarvestConfig(BaseModel):
     duplicate_chunk_threshold: float = 0.88
     duplicate_sample_size: int = 5
     non_interactive_duplicate_action: Literal["skip", "continue", "abort"] = "skip"
+    # Same inbox path, different bytes. ``skip`` leaves the stored source
+    # alone (the safe default). ``update`` rewrites that source. ``new``
+    # ingests a second source and points the path at it.
+    modified_file_action: Literal["skip", "update", "new"] = "skip"
     biblio_confidence_threshold: float = 0.7
     biblio_llm_enabled: bool = True
     biblio_text_sample_chars: int = 5000
