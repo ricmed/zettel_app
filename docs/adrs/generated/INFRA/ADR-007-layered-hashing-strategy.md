@@ -34,7 +34,7 @@ The chapter-level layer, which the evidence gathered for this decision treated a
 
 ## Decision Outcome
 
-Chosen option: layered SHA-256 checksums over canonically normalized text, because it gives every consumer a cheap, deterministic equality check at the granularity it needs, while the shared normalization step keeps checksums stable across formatting noise and across extraction formats (PDF vs. Markdown) for the same underlying content. [NEEDS INPUT: Why SHA-256 specifically rather than a faster non-cryptographic hash such as xxHash — deduplication and cache-keying here do not require cryptographic collision resistance, only low accidental-collision probability.]
+Chosen option: layered SHA-256 checksums over canonically normalized text, because it gives every consumer a cheap, deterministic equality check at the granularity it needs, while the shared normalization step keeps checksums stable across formatting noise and across extraction formats (PDF vs. Markdown) for the same underlying content. SHA-256 stays (answered 2026-10-16, #245): hashing a file is tens of milliseconds, against half a second to three seconds per page inside Docling, so a faster non-cryptographic hash would not move harvest time, and SHA-256 removes the collision discussion.
 
 Because normalization is shared code (`normalize_text_for_hash`) rather than reimplemented per layer, all six checksum layers stay consistent with each other by construction — a chunk and the extraction it came from will not silently diverge in how whitespace or hyphenation is treated.
 
@@ -81,6 +81,12 @@ Amendment:
 * `zettel/harvester/extract.py` — addendum: `extract_pdf_docling` calls `dehyphenate_pdf_linebreaks` on the assembled text before returning it for persistence
 * `zettel/harvester/pipeline.py` — `_process_file`, file checksum (`file_sha256`) and extraction checksum computation and comparison during harvest
 * `zettel/harvester/chunking.py` — `chunk_and_persist`, chapter and chunk checksums (the chapter checksum is what skips unchanged chapters)
+
+## Amendment (2026-10-16): `chapter_checksum` means the chapter's chunks are committed (#237)
+
+The checksum used to be written, and committed, before any chunk of that chapter. A crash in the chunk loop left every chapter row in place and the chunks missing; the next pass treated the checksum match as "unchanged" and did not rewrite them. `source_chunking_incomplete` only checked that the chapter ids existed, so the source looked finished.
+
+`chunk_and_persist` now commits the chapter row and that chapter's chunks in one transaction. The checksum match skips a chapter only when the stored chunk ids are exactly the ids this pass would write. `processing_status` stays `in_progress` until the pass returns, including the Chroma `chunks` upserts when layer 5 is on. Those embeddings stay recomputable: the next pass calls `existing_ids` and embeds what is missing. SQLite is the source of truth. Chunk ids and boundaries are unchanged.
 * `zettel/extractor.py` — `compute_llm_call_checksum` construction for deterministic response caching
 * `zettel/connector/prompt.py` — `compute_llm_call_checksum` usage; `zettel/connector/note.py` — `compute_embedding_input_hash` (embed-skip)
 * `zettel/state/llm_cache.py` — `llm_cache` table storing checksum-keyed cached responses; `get_cached_llm_response` / `cache_llm_response`

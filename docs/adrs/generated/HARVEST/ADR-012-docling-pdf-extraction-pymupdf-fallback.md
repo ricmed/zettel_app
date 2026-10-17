@@ -31,7 +31,7 @@ Both extractors were historically wired in with fallback; however, a decision wa
 Historical drivers (2024-08-30), superseded on 2026-08-31 by the licensing driver above:
 
 * ~~A fallback extractor is needed so harvest does not hard-fail when Docling is unavailable, misconfigured, or GPU acceleration cannot be used.~~ Harvest now fails explicitly with `PdfExtractionError` rather than degrading to plain text — the robustness was traded for distribution freedom.
-* ~~PyMuPDF's page-to-heading map is used for paging regardless of which extractor produced the chunked text, making its accuracy a shared dependency for both paths.~~ No longer true: the page map comes from Docling (`docling_page_map_by_export`, `<!-- zettel:page-break -->` markers) — see ADR-013.
+* ~~PyMuPDF's page-to-heading map is used for paging regardless of which extractor produced the chunked text, making its accuracy a shared dependency for both paths.~~ No longer true: the page map comes from Docling (`docling_page_map_by_export`, numbered `<!-- zettel:page N -->` markers) — see ADR-013.
 
 ## Considered Options
 
@@ -90,3 +90,7 @@ Docling is now mandatory; if Docling extraction fails, harvest fails explicitly 
 * `zettel/harvester/extract.py` — `docling_page_map_by_export` and `docling_num_pages`, the Docling page map used for content-start paging inference (see ADR-013)
 * `zettel/config.py` — `ImagesConfig` (image-extraction settings) and `device`; there is no extractor selector any more, since Docling is the only path
 * `pyproject.toml` / `uv.lock` — the Docling version pin discussed in *Consequences*
+
+## Amendment (2026-10-16): the installed Docling version is part of the config hash (#245)
+
+`compute_docling_config_hash` now includes `docling.__version__` and `docling_core.__version__`. An upgrade changes the hash of every source at once; the next harvest warns and points at `zettel rechunk` instead of resuming text extracted by another library version. That is the deliberate-upgrade rule in *Consequences*, made visible.

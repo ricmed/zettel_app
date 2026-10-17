@@ -232,6 +232,7 @@ def run_rechunk(
             confidence=src.get("page_offset_confidence") or "skipped",
         )
         page_map = extract.page_map_for_source(src)
+        db.update_source_paging(sid, processing_status="in_progress")
         n = chunking.chunk_and_persist(
             cfg,
             db,
@@ -243,6 +244,7 @@ def run_rechunk(
             origin_type=src.get("origin_type") or "",
         )
         _finalize_source_chunking(db, idx, sid, chapters)
+        db.update_source_paging(sid, processing_status="completed", total_chunks=n)
         _maybe_dump_chunks(cfg, db, sid, dump_dir)
         stats["sources"] += 1
         stats["chunks"] += n
@@ -251,10 +253,19 @@ def run_rechunk(
 
 
 def source_chunking_incomplete(db: StateDB, source_id: str) -> bool:
-    """True when persisted chapters do not cover the current H1/H2 split of extracted_text."""
+    """True when this source still needs a chunk pass.
+
+    A finished pass sets ``processing_status='completed'`` only after every
+    chapter's chunks have been committed. ``in_progress`` (a crash, or a
+    Chroma embed that failed after SQLite committed) is incomplete even when
+    every chapter row already exists — the checksum alone used to hide the
+    missing chunks. Missing chapter ids are incomplete too.
+    """
     src = db.get_source(source_id)
     if not src or not src.get("extracted_text"):
         return False
+    if (src.get("processing_status") or "completed") != "completed":
+        return True
     chapters = chunking.split_into_chapters(src["extracted_text"], src["origin_type"])
     return not _chapters_fully_persisted(db, source_id, chapters)
 
@@ -307,10 +318,7 @@ def _process_file(
         source = db.get_source(source_id)
         reviewed = bibliography_dict(BibliographicMetadata.model_validate(prepared["biblio"]))
         saved = json.loads(source["bibliography_json"] or "{}") if source else {}
-        if (
-            saved != reviewed
-            or (source.get("abnt_reference") or "") != prepared["abnt_reference"]
-        ):
+        if saved != reviewed or (source.get("abnt_reference") or "") != prepared["abnt_reference"]:
             raise ValueError(
                 "Este documento já pertence a uma fonte com bibliografia diferente. "
                 "A revisão não foi aplicada: edite a fonte existente antes de tentar novamente."
@@ -418,7 +426,9 @@ def _process_file(
     abnt_reference = (
         prepared["abnt_reference"]
         if prepared is not None
-        else format_abnt(biblio) if biblio.document_type else ""
+        else format_abnt(biblio)
+        if biblio.document_type
+        else ""
     )
     biblio_json = json.dumps(bibliography_dict(biblio), ensure_ascii=False)
     biblio_fm = frontmatter_biblio_fields(biblio)
@@ -426,27 +436,50 @@ def _process_file(
     doi = biblio_dedupe.normalize_doi(biblio.doi)
     isbn = biblio_dedupe.normalize_isbn(biblio.isbn)
 
-    # Layer 3 — DOI/ISBN. An identity, not a similarity: reuse without asking.
+    # Layer 3 — DOI is an identity (reuse without asking). ISBN is an edition:
+    # a chapter PDF often carries the book's ISBN, so that match asks unless
+    # the normalized titles agree and neither record is a chapter or paper.
     # Runs before generate_citekey so a duplicate never burns a disambiguated
     # citekey (Silva2020Obra -> Silva2020Obraa) on the way to being rejected.
     exact = biblio_dedupe.find_exact_bibliographic_match(db, doi=doi, isbn=isbn)
     if exact:
         existing, key_kind = exact
-        check_reviewed_source(existing["source_id"])
-        sid = existing["source_id"]
-        logger.info(
-            "Arquivo '%s' tem o mesmo %s da fonte %s (%s). Reaproveitando fonte, "
-            "sem gerar novo citekey/SRC/LIT/chunks.",
-            file_path.name,
-            key_kind.upper(),
-            sid,
-            existing["citekey"],
+        ask_isbn = key_kind == "isbn" and biblio_dedupe.isbn_requires_confirmation(
+            biblio.document_type, existing, title
         )
-        db.upsert_file(str(file_path), checksum, origin_type, sid)
-        db.record_duplicate(run_id, "biblio")
-        if source_chunking_incomplete(db, sid):
-            return _complete_incomplete_source(cfg, db, idx, sid)
-        return None, empty_stats
+        if ask_isbn:
+            decision = biblio_dedupe.resolve_isbn_decision(file_path, existing, interactive)
+            db.record_duplicate(run_id, "biblio")
+            if decision == "abort":
+                raise HarvestAborted(f"Usuario abortou o harvest ao processar {file_path.name}")
+            if decision == "skip":
+                logger.warning(
+                    "Arquivo '%s' pulado: ISBN compartilhado com %s, sem identidade de obra.",
+                    file_path.name,
+                    existing.get("citekey"),
+                )
+                return None, empty_stats
+            logger.info(
+                "Arquivo '%s' segue como nova fonte apesar do ISBN de %s.",
+                file_path.name,
+                existing.get("citekey"),
+            )
+        else:
+            check_reviewed_source(existing["source_id"])
+            sid = existing["source_id"]
+            logger.info(
+                "Arquivo '%s' tem o mesmo %s da fonte %s (%s). Reaproveitando fonte, "
+                "sem gerar novo citekey/SRC/LIT/chunks.",
+                file_path.name,
+                key_kind.upper(),
+                sid,
+                existing["citekey"],
+            )
+            db.upsert_file(str(file_path), checksum, origin_type, sid)
+            db.record_duplicate(run_id, "biblio")
+            if source_chunking_incomplete(db, sid):
+                return _complete_incomplete_source(cfg, db, idx, sid)
+            return None, empty_stats
 
     # Layer 4 — title + author. A heuristic, so it asks and never merges alone.
     title_matches = biblio_dedupe.find_title_author_candidates(

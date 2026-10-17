@@ -73,3 +73,11 @@ The interpolation layer's linear assumption means inference quality tracks how u
 * `zettel/harvester/chunking.py` — `chunk_and_persist`, per-chunk page assignment and the file-to-book offset (`compute_page_in_book`)
 * `zettel/paging.py` — `resolve_content_paging` and `suggest_content_start`, content-start offset resolution consumed by the offset computation
 * `zettel/harvester/set_paging.py` — `run_set_paging`, repairs the printed offset on an existing source without re-extracting
+
+## Amendment (2026-10-16): empty PDF pages must not slide the file page (#236)
+
+Docling emits one page-break placeholder when the next item's `prov.page_no` jumps, and the serializer discards the target page number. Splitting `<!-- zettel:page-break -->` and numbering the pieces `i + 1` therefore assigned every chunk after a blank (or image-only) page a `page_in_file` smaller than the real file page. Measured on `@Kim2022KantAnd` the mean error was 5.7 pages.
+
+The file page now comes from a per-page Docling export (`export_to_markdown(page_no=)`), which is empty for a page with no items. `extracted_text` stores `<!-- zettel:page N -->` before each page, including empty ones. `page_map_from_marked_markdown` reads `N`; it does not invent a page from marker position. The unnumbered marker is stripped so it cannot leak into a chunk, and it is not a map.
+
+**Invariant:** the map is used only when its page numbers are exactly `1..total_pages_file` (`page_map_is_complete`). A divergent map is logged and not attached, so no chunk is labeled `explicit` from it. The file is still harvested — a page-detection failure does not abort the source (this ADR's original resilience rule). `rechunk` and resume read the same markers; there is no migration. Sources harvested with the positional marker need a re-harvest, and citations built from them stay shifted until then (ADR-051).

@@ -26,7 +26,7 @@ Módulos: o pacote [`zettel/harvester/`](../zettel/harvester) ([ADR-027](adrs/ge
 
 1. Varre `data/inbox/` por arquivos `.pdf` e `.md`
 2. Calcula checksum SHA-256 de cada arquivo (pula inalterados) e aplica **detecção de duplicatas em 5 camadas** (hash de arquivo → hash do texto extraído → DOI/ISBN exato → título+autor → similaridade semântica de chunks)
-3. Extrai texto usando **Docling** (PDF) ou parser nativo (Markdown). Antes do Docling, um *probe* de camada de texto (`pypdfium2`, dependência do próprio Docling) lê as 3 primeiras páginas: menos de 40 caracteres visíveis = PDF escaneado, recusado na hora com sugestão de OCR, sem pagar conversão. Logo depois, o texto passa por `text_sanitize` (zero-width, marcas bidi, bloco de tags Unicode) **antes** do checksum de extração ([ADR-033](adrs/generated/HARVEST/ADR-033-invisible-unicode-sanitization-and-text-layer-probe.md))
+3. Extrai texto usando **Docling** (PDF) ou parser nativo (Markdown). Antes do Docling, um *probe* de camada de texto (`pypdfium2`, dependência do próprio Docling) lê as 4 primeiras páginas: menos de 40 caracteres visíveis = PDF escaneado, recusado na hora com sugestão de OCR, sem pagar conversão. Logo depois, o texto passa por `text_sanitize` (zero-width, marcas bidi, bloco de tags Unicode) **antes** do checksum de extração ([ADR-033](adrs/generated/HARVEST/ADR-033-invisible-unicode-sanitization-and-text-layer-probe.md))
 4. **Metadados bibliográficos (ABNT)**:
    - Infere o **tipo documental** (`livro`, `capitulo_livro`, `artigo_periodico`, `artigo_internet`, `material_curso`, `tese`, `anais_evento`, `relatorio`) e os campos tipados a partir de metadados do arquivo, heurísticas no texto e, se habilitado, LLM (`prompts/bibliographic_metadata.md`, com cache)
    - Campos obrigatórios variam por tipo (ex.: livro exige autores, título, cidade, editora, ano; artigo de internet exige título, URL e data de acesso)
@@ -51,7 +51,7 @@ Cada camada é mais barata e mais certeira que a seguinte, e roda antes de o arq
 |---|---|---|---|
 | 1 | **Hash de arquivo** (`get_file_by_checksum`) | Bytes idênticos em outro caminho | Trata como cópia renomeada, reusa o `source_id`, não reprocessa |
 | 2 | **Hash de extração** (`get_source_by_extraction_checksum`) | Bytes diferentes, texto extraído normalizado idêntico (ex.: mesmo paper em PDF re-exportado e em Markdown) | Reusa a fonte existente |
-| 3 | **DOI / ISBN exato** (`find_exact_bibliographic_match`) | Igualdade sobre `sources.doi` / `sources.isbn` (colunas indexadas, normalizadas: `doi:` e URLs do doi.org removidos, prefixo `10.` exigido; ISBN sem pontuação, 10 ou 13 dígitos) | **Identidade**: reusa a fonte sem perguntar |
+| 3 | **DOI / ISBN** (`find_exact_bibliographic_match`) | DOI no formato Crossref, pontuação final removida. ISBN com dígito verificador. | **DOI**: reusa sem perguntar. **ISBN**: só sem perguntar quando o título normalizado coincide e nenhum dos dois é capítulo ou anais; senão pergunta (sem TTY, segue como fonte nova) |
 | 4 | **Título + autor** (`find_title_author_candidates`) | Exige título normalizado idêntico **e** sobrenome de autor em comum. `normalize_title` reusa `hashing.fold_for_match` e descarta o subtítulo após `:`; sobrenomes comparam o último token, então "D. Kahneman" casa com "Daniel Kahneman" | **Heurística**: sempre pergunta, nunca funde sozinha. Sem TTY o default é **`continue`** (cria fonte nova) |
 | 5 | **Similaridade semântica** (`find_semantic_duplicate_candidates`) — **desligada por padrão**, ver abaixo | Amostra chunks do arquivo novo e consulta o Chroma por chunks quase idênticos (`harvest.duplicate_chunk_threshold`, default `0.88`) pertencentes a **outras** fontes | Se houver candidatos, `resolve_duplicate_decision` pergunta (Rich `Prompt`) ou aplica `harvest.non_interactive_duplicate_action` (`skip`/`continue`/`abort`) |
 
@@ -109,7 +109,7 @@ Como o início é resolvido ([ADR-013](adrs/generated/HARVEST/ADR-013-three-laye
 - `--yes` / web / `run-all` sem flags: aplica a heurística em silêncio
 - `--skip-paging`: força arquivo p.1 = impressa p.1 (não detecta miolo nem revista)
 
-O mapa de `page_in_file` vem do **Docling** (`export_to_markdown` com `page_break_placeholder`, comentários `<!-- zettel:page-break -->` no texto extraído — o mesmo Markdown dos chunks). O `prov.page_no` do Docling é o índice do arquivo, não o número impresso. Docling é obrigatório — não há fallback para outro extrator ([ADR-012](adrs/generated/HARVEST/ADR-012-docling-pdf-extraction-pymupdf-fallback.md)). Regex no corpo do chunk só roda quando não há mapa e a fonte não é Markdown.
+O mapa de `page_in_file` vem do **Docling**, uma fatia por página do arquivo (`export_to_markdown(page_no=)`, o `prov.page_no`), inclusive páginas sem texto. O texto persistido leva um marcador numerado `<!-- zettel:page N -->` por página. O mapa só é usado quando cobre `1..total_pages_file`; se divergir, o harvest registra o erro e não rotula nenhuma página como exata. O marcador antigo `<!-- zettel:page-break -->` não é mapa — um re-harvest é necessário. O `prov.page_no` é o índice do arquivo, não o número impresso. Docling é obrigatório — não há fallback para outro extrator ([ADR-012](adrs/generated/HARVEST/ADR-012-docling-pdf-extraction-pymupdf-fallback.md), [ADR-013](adrs/generated/HARVEST/ADR-013-three-layer-page-inference-strategy.md)). Regex no corpo do chunk só roda quando não há mapa e a fonte não é Markdown.
 
 Para corrigir uma fonte já harvestada:
 
@@ -117,7 +117,9 @@ Para corrigir uma fonte já harvestada:
 python -m zettel set-paging --source-id @Citekey --content-start-file 35 --content-start-book 10
 ```
 
-Isso recalcula o número impresso sem chamar o LLM. Se `page_in_file` estiver errado ou vazio (harvest antigo, anterior ao mapa Docling), reprocesse o PDF (`zettel harvest`) ou rode `zettel rechunk` se o `extracted_text` já tiver os marcadores de quebra.
+Isso recalcula o número impresso sem chamar o LLM. Se `page_in_file` estiver errado ou vazio (harvest antigo, ou texto ainda com `<!-- zettel:page-break -->`), reprocesse o PDF (`zettel harvest`). `zettel rechunk` só reconstrói o mapa se o `extracted_text` já tiver os marcadores numerados `<!-- zettel:page N -->`.
+
+Um harvest interrompido fica com `processing_status=in_progress`. A passada seguinte retoma: o `chapter_checksum` só vale quando os chunks daquele capítulo foram commitados na mesma transação. O índice Chroma de chunks é refeito a partir do SQLite.
 
 ---
 

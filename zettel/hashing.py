@@ -114,7 +114,13 @@ def file_sha256(path: str | Path) -> str:
 
 
 def short_hash(text: str, length: int = 8) -> str:
-    """Return a short hash suitable for ID suffixes."""
+    """Hex prefix of SHA-256. 8 chars is 32 bits.
+
+    Safe as a chunk discriminator only because ``chunk_id`` also carries
+    ``source_id::chapter_id``. Do not drop that prefix: within one chapter the
+    collision chance is about n²/2³³, which is negligible at a handful of
+    chunks, and meaningless as a global id.
+    """
     return sha256_hex(text)[:length]
 
 

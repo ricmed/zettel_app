@@ -14,7 +14,10 @@ from zettel.paging import (
     locate_quote_pages,
     lookup_page_for_chunk,
     page_map_from_marked_markdown,
+    page_map_is_complete,
+    page_marker,
     parse_biblio_start_page,
+    render_page_marked_markdown,
     strip_page_break_markers,
     suggest_content_start,
 )
@@ -124,6 +127,21 @@ def test_compute_docling_config_hash_changes_with_min_chunk_chars():
     assert before != after
 
 
+def test_compute_docling_config_hash_changes_with_docling_version(monkeypatch):
+    """A Docling upgrade must not resume a source extracted by the previous library."""
+    monkeypatch.setattr(
+        "zettel.paging._docling_versions",
+        lambda: {"docling": "1.0.0", "docling_core": "1.0.0"},
+    )
+    before = compute_docling_config_hash(AppConfig())
+    monkeypatch.setattr(
+        "zettel.paging._docling_versions",
+        lambda: {"docling": "2.0.0", "docling_core": "1.0.0"},
+    )
+    after = compute_docling_config_hash(AppConfig())
+    assert before != after
+
+
 def test_compute_docling_config_hash_changes_with_formula_and_code_enrichment():
     """Both change the text Docling emits; a resume across a flip must not reuse pages."""
     base = compute_docling_config_hash(AppConfig())
@@ -133,13 +151,30 @@ def test_compute_docling_config_hash_changes_with_formula_and_code_enrichment():
 
 
 def test_page_map_from_marked_markdown():
-    marked = f"# Cover\n\n{PAGE_BREAK_MARKER}\n\n# Chapter 1\n\nOnce upon a unique graph story."
+    marked = render_page_marked_markdown(
+        [
+            (1, "# Cover"),
+            (2, ""),
+            (3, "# Chapter 1\n\nOnce upon a unique graph story."),
+        ]
+    )
     page_map = page_map_from_marked_markdown(marked)
-    assert [p for p, _ in page_map] == [1, 2]
-    assert "Cover" in page_map[0][1]
-    assert "Chapter 1" in page_map[1][1]
-    assert PAGE_BREAK_MARKER not in strip_page_break_markers(marked)
+    assert page_map == [
+        (1, "# Cover"),
+        (2, ""),
+        (3, "# Chapter 1\n\nOnce upon a unique graph story."),
+    ]
+    assert page_map_is_complete(page_map, 3)
+    assert page_marker(2) not in strip_page_break_markers(marked)
     assert page_map_from_marked_markdown("sem marcador") == []
+
+
+def test_unnumbered_page_break_is_not_a_page_map():
+    """The old positional split slid every page after a blank one."""
+    marked = f"# Cover\n\n{PAGE_BREAK_MARKER}\n\n# Chapter 1"
+    assert page_map_from_marked_markdown(marked) == []
+    assert PAGE_BREAK_MARKER not in strip_page_break_markers(marked)
+    assert not page_map_is_complete([(1, "a"), (3, "c")], 3)
 
 
 def test_lookup_page_normalizes_markdown_headings():
@@ -221,7 +256,7 @@ _QUOTE = "o sistema um opera de forma automatica e rapida com pouco esforco"
 
 
 def _marked(*pages: str) -> str:
-    return f"\n\n{PAGE_BREAK_MARKER}\n\n".join(pages)
+    return render_page_marked_markdown([(i, page) for i, page in enumerate(pages, start=1)])
 
 
 def test_locate_quote_on_first_page_of_chunk():
@@ -253,6 +288,16 @@ def test_locate_quote_tolerates_an_editorial_ellipsis():
 def test_locate_quote_does_not_look_before_the_chunk_page():
     text = _marked(f"Prefacio cita: {_QUOTE}.", "Pagina do chunk, sem a citacao.")
     assert locate_quote_pages(text, _QUOTE, 2) is None
+
+
+def test_locate_quote_across_an_empty_page():
+    """A blank file page between the chunk start and the anchor keeps its number."""
+    text = _marked(
+        "Inicio do chunk, sem a citacao nesta primeira pagina.",
+        "",
+        f"Adiante: {_QUOTE}.",
+    )
+    assert locate_quote_pages(text, _QUOTE, 1) == (3, 3)
 
 
 def test_locate_quote_without_page_map_or_match():

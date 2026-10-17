@@ -10,7 +10,7 @@ from zettel.citation import (
     stored_authors,
 )
 from zettel.hashing import extract_embeddable_text
-from zettel.paging import PAGE_BREAK_MARKER
+from zettel.paging import render_page_marked_markdown
 from zettel.vault import build_permanent_note_body, read_managed_block
 
 QUOTE = "O Sistema 1 opera de forma automatica e rapida, com pouco ou nenhum esforco"
@@ -21,12 +21,12 @@ SOURCE = {
     # PDF file pages 1-2 are front matter; printed p.1 is file p.3.
     "content_start_file_page": 3,
     "content_start_book_page": 1,
-    "extracted_text": f"\n\n{PAGE_BREAK_MARKER}\n\n".join(
+    "extracted_text": render_page_marked_markdown(
         [
-            "capa",
-            "sumario",
-            "Capitulo 1. Sem a citacao nesta pagina.",
-            f"Adiante o autor afirma: {QUOTE}. E segue.",
+            (1, "capa"),
+            (2, "sumario"),
+            (3, "Capitulo 1. Sem a citacao nesta pagina."),
+            (4, f"Adiante o autor afirma: {QUOTE}. E segue."),
         ]
     ),
 }

@@ -466,9 +466,12 @@ def chunk_and_persist(
 
     Chunks carry a hierarchical `section_path` locator plus inferred page numbers.
     Chunks with ``page_in_file < content_start_file_page`` are discarded (not
-    persisted). Unchanged chapters are skipped (by checksum); when a chapter
-    changes, its stale chunks are removed and only genuinely new chunk ids are
-    re-embedded.
+    persisted). A chapter is unchanged only when its checksum matches **and**
+    the stored chunk ids are exactly the ones this pass would write. The
+    checksum and those chunks commit in one transaction, so a crash cannot
+    leave the chapter marked complete with chunks missing. Chroma embeddings
+    run after that commit and are retried from ``existing_ids`` on the next
+    pass. Chunk ids and boundaries are unchanged.
     Returns total chunk count for the source after this pass (all chapters).
     """
     page_map = page_map or []
@@ -488,29 +491,15 @@ def chunk_and_persist(
         if idxs:
             next_index = max(idxs) + 1
 
-    # First pass: collect all new specs with provisional pages, then infer.
-    pending_specs: list[dict[str, Any]] = []
-
+    # Plan every chapter, then infer pages across the document. A checksum
+    # match is not enough to skip: the row used to be committed before the
+    # chunks, so a crash left the chapter "unchanged" and the chunks gone.
+    groups: list[dict[str, Any]] = []
     for ch_idx, chapter in enumerate(chapters):
         chapter_text = chapter["text"]
         normalized = normalize_text_for_hash(chapter_text)
         chapter_checksum = sha256_hex(normalized)
-
         chapter_id = f"{source_id}::ch{ch_idx:03d}"
-
-        existing_chapters = db.get_chapters_for_source(source_id)
-        existing_ch = next((c for c in existing_chapters if c["chapter_id"] == chapter_id), None)
-        if existing_ch and existing_ch["chapter_checksum"] == chapter_checksum:
-            logger.debug("Capitulo inalterado: %s", chapter_id)
-            continue
-
-        db.upsert_chapter(
-            chapter_id,
-            source_id,
-            chapter["title"],
-            chapter_checksum,
-            chapter["locator"],
-        )
 
         chunk_pairs = split_chapter_into_chunks(cfg, chapter)
         keep_ids: set[str] = set()
@@ -519,6 +508,8 @@ def chunk_and_persist(
             chunk_text = strip_page_break_markers(chunk_text)
             chunk_norm = normalize_text_for_hash(chunk_text)
             chunk_checksum = sha256_hex(chunk_norm)
+            # short_hash is 32 bits. The source and chapter prefix is what makes
+            # a collision harmless; do not shorten this id to the hash alone.
             chunk_id = f"{source_id}::{chapter_id}::{short_hash(chunk_checksum)}"
             if chunk_id in keep_ids:
                 logger.debug(
@@ -544,124 +535,152 @@ def chunk_and_persist(
                     "page_hint": hint,
                 }
             )
+        groups.append(
+            {
+                "chapter_id": chapter_id,
+                "title": chapter["title"],
+                "locator": chapter["locator"],
+                "checksum": chapter_checksum,
+                "specs": chapter_specs,
+            }
+        )
 
-        removed = db.delete_chunks_for_chapter(chapter_id, keep_ids)
-        if removed:
-            idx.delete_chunks(removed)
-
-        # Assign sequential indices for new/changed chapter chunks
-        for spec in chapter_specs:
-            # Reuse index if chunk already existed
+    flat: list[dict[str, Any]] = []
+    for group in groups:
+        for spec in group["specs"]:
             old = db.get_chunk(spec["chunk_id"])
             if old and old.get("chunk_index") is not None:
                 spec["chunk_index"] = old["chunk_index"]
             else:
                 spec["chunk_index"] = next_index
                 next_index += 1
-            pending_specs.append(spec)
+            flat.append(spec)
 
-    # Infer missing pages across the newly written batch using only this batch's
-    # hints plus already-persisted pages for the source.
-    if pending_specs:
-        hints = [s["page_hint"] for s in pending_specs]
-        inferred = apply_page_inference(hints)
-        for spec, hint in zip(pending_specs, inferred, strict=False):
+    if flat:
+        inferred = apply_page_inference([spec["page_hint"] for spec in flat])
+        for spec, hint in zip(flat, inferred, strict=True):
             spec["page_in_file"] = hint.page_in_file
             spec["page_confidence"] = hint.confidence
 
-        before = len(pending_specs)
+    existing_chapters = {row["chapter_id"]: row for row in db.get_chapters_for_source(source_id)}
+    to_embed: list[dict[str, Any]] = []
+    skipped_front = 0
+    planned = 0
+    for group in groups:
         kept: list[dict[str, Any]] = []
-        skipped_ids: list[str] = []
-        for spec in pending_specs:
+        for spec in group["specs"]:
+            planned += 1
             page_file = spec.get("page_in_file")
             # Unknown page: keep (cannot prove it is before content start).
             if page_file is not None and page_file < start_file:
-                skipped_ids.append(spec["chunk_id"])
+                skipped_front += 1
                 continue
-            page_book = compute_page_in_book(page_file, start_file, start_book)
-            spec["page_in_book"] = page_book
+            spec["page_in_book"] = compute_page_in_book(page_file, start_file, start_book)
             kept.append(spec)
-        pending_specs = kept
-        if skipped_ids:
-            db.delete_chunks(skipped_ids)
-            idx.delete_chunks(skipped_ids)
-            logger.info(
-                "[SOURCE=%s] %d chunk(s) antes da p.%d do arquivo ignorados (%d permanecem de %d)",
+        kept_ids = {spec["chunk_id"] for spec in kept}
+        stored_ids = {row["chunk_id"] for row in db.get_chunks_for_chapter(group["chapter_id"])}
+        existing_ch = existing_chapters.get(group["chapter_id"])
+        if (
+            existing_ch
+            and existing_ch["chapter_checksum"] == group["checksum"]
+            and stored_ids == kept_ids
+        ):
+            logger.debug("Capitulo inalterado: %s", group["chapter_id"])
+            to_embed.extend(kept)
+            continue
+        try:
+            # The chapter row has to exist before its chunks (FK), but it
+            # becomes durable only with this commit — a crash rolls both back.
+            db.upsert_chapter(
+                group["chapter_id"],
                 source_id,
-                len(skipped_ids),
-                start_file,
-                len(pending_specs),
-                before,
+                group["title"],
+                group["checksum"],
+                group["locator"],
+                commit=False,
             )
-
-        # The Chroma `chunks` collection has exactly one reader: harvest dedupe
-        # layer 5. With it off there is no target index to maintain, so the
-        # embeddings are skipped entirely — this is the single largest slice of
-        # harvest wall-clock. SQLite (and FTS5) still get every chunk.
-        embed_enabled = cfg.harvest.semantic_duplicate_enabled
-        already = (
-            idx.existing_ids("chunks", [s["chunk_id"] for s in pending_specs])
-            if pending_specs and embed_enabled
-            else set()
-        )
-        to_embed = (
-            [s for s in pending_specs if s["chunk_id"] not in already] if embed_enabled else []
-        )
-        if embed_enabled:
-            logger.info(
-                "[SOURCE=%s] Persistindo %d chunks no SQLite; "
-                "gerando embeddings no Chroma para %d novos "
-                "(%d ja indexados, pulados)",
-                source_id,
-                len(pending_specs),
-                len(to_embed),
-                len(already),
-            )
-        else:
-            logger.info(
-                "[SOURCE=%s] Persistindo %d chunks no SQLite; sem embeddings "
-                "(harvest.semantic_duplicate_enabled=false — dedupe camada 5 desligada)",
-                source_id,
-                len(pending_specs),
-            )
-        embed_i = 0
-        for spec in pending_specs:
-            db.upsert_chunk(
-                chunk_id=spec["chunk_id"],
-                source_id=source_id,
-                chapter_id=spec["chapter_id"],
-                text=spec["text"],
-                chunk_checksum=spec["chunk_checksum"],
-                locator=spec["section_path"],
-                section_path=spec["section_path"],
-                chunk_index=spec["chunk_index"],
-                page_in_file=spec.get("page_in_file"),
-                page_in_book=spec.get("page_in_book"),
-                page_confidence=spec.get("page_confidence", "unknown"),
-            )
-            if embed_enabled and spec["chunk_id"] not in already:
-                embed_i += 1
-                idx.upsert_chunk(
-                    spec["chunk_id"],
-                    spec["text"],
-                    {
-                        "source_id": source_id,
-                        "chapter_id": spec["chapter_id"],
-                        "locator": spec["section_path"],
-                        "section_path": spec["section_path"],
-                        "chunk_index": spec["chunk_index"],
-                        "page_in_file": spec.get("page_in_file") or -1,
-                        "page_in_book": spec.get("page_in_book") or -1,
-                    },
-                    progress=(embed_i, len(to_embed)),
+            removed = db.delete_chunks_for_chapter(group["chapter_id"], kept_ids, commit=False)
+            for spec in kept:
+                db.upsert_chunk(
+                    chunk_id=spec["chunk_id"],
+                    source_id=source_id,
+                    chapter_id=spec["chapter_id"],
+                    text=spec["text"],
+                    chunk_checksum=spec["chunk_checksum"],
+                    locator=spec["section_path"],
+                    section_path=spec["section_path"],
+                    chunk_index=spec["chunk_index"],
+                    page_in_file=spec.get("page_in_file"),
+                    page_in_book=spec.get("page_in_book"),
+                    page_confidence=spec.get("page_confidence", "unknown"),
+                    commit=False,
                 )
-        if to_embed:
-            logger.info(
-                "[SOURCE=%s] Embeddings de chunks concluidos: %d/%d",
-                source_id,
-                len(to_embed),
-                len(to_embed),
-            )
+            db.conn.commit()
+        except Exception:
+            db.conn.rollback()
+            raise
+        if removed:
+            idx.delete_chunks(removed)
+        to_embed.extend(kept)
 
-    # Return total chunks currently stored for the source
+    if skipped_front:
+        logger.info(
+            "[SOURCE=%s] %d chunk(s) antes da p.%d do arquivo ignorados (%d permanecem de %d)",
+            source_id,
+            skipped_front,
+            start_file,
+            len(to_embed),
+            planned,
+        )
+
+    # The Chroma `chunks` collection has exactly one reader: harvest dedupe
+    # layer 5. With it off there is no target index to maintain, so the
+    # embeddings are skipped entirely. SQLite is the source of truth; a failed
+    # embed is retried on the next pass because the chapter checksum already
+    # matches and ``existing_ids`` skips what landed.
+    embed_enabled = cfg.harvest.semantic_duplicate_enabled
+    already: set[str] = set()
+    pending_embed: list[dict[str, Any]] = []
+    if embed_enabled and to_embed:
+        already = idx.existing_ids("chunks", [spec["chunk_id"] for spec in to_embed])
+        pending_embed = [spec for spec in to_embed if spec["chunk_id"] not in already]
+    if embed_enabled:
+        logger.info(
+            "[SOURCE=%s] %d chunks no SQLite; embeddings no Chroma para %d "
+            "(%d ja indexados, pulados)",
+            source_id,
+            len(to_embed),
+            len(pending_embed),
+            len(already),
+        )
+    else:
+        logger.info(
+            "[SOURCE=%s] %d chunks no SQLite; sem embeddings "
+            "(harvest.semantic_duplicate_enabled=false — dedupe camada 5 desligada)",
+            source_id,
+            len(to_embed),
+        )
+    for embed_i, spec in enumerate(pending_embed, start=1):
+        idx.upsert_chunk(
+            spec["chunk_id"],
+            spec["text"],
+            {
+                "source_id": source_id,
+                "chapter_id": spec["chapter_id"],
+                "locator": spec["section_path"],
+                "section_path": spec["section_path"],
+                "chunk_index": spec["chunk_index"],
+                "page_in_file": spec.get("page_in_file") or -1,
+                "page_in_book": spec.get("page_in_book") or -1,
+            },
+            progress=(embed_i, len(pending_embed)),
+        )
+    if pending_embed:
+        logger.info(
+            "[SOURCE=%s] Embeddings de chunks concluidos: %d/%d",
+            source_id,
+            len(pending_embed),
+            len(pending_embed),
+        )
+
     return len(db.get_chunks_for_source(source_id))

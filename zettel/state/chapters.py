@@ -15,9 +15,13 @@ class ChaptersMixin(StateBase):
         title: str,
         chapter_checksum: str,
         locator: str = "",
+        *,
+        commit: bool = True,
     ) -> None:
         # The summary_* columns are deliberately absent from DO UPDATE SET: a
         # re-harvest preserves the summary and the checksum divergence marks it stale.
+        # ``commit=False`` lets harvest write the chapter in the same transaction
+        # as its chunks; the checksum is not durable until that commit.
         self.conn.execute(
             """INSERT INTO chapters (chapter_id, source_id, title, chapter_checksum, locator)
                VALUES (?, ?, ?, ?, ?)
@@ -27,7 +31,8 @@ class ChaptersMixin(StateBase):
                  locator=excluded.locator""",
             (chapter_id, source_id, title, chapter_checksum, locator),
         )
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
 
     def get_chapters_for_source(self, source_id: str) -> list[dict]:
         """Chapters in document order — `chapter_id` ends in `chNNN`, so it sorts."""

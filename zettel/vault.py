@@ -233,9 +233,18 @@ def init_vault(vault_path: Path) -> None:
     logger.info("Vault inicializado em: %s", vault_path)
 
 
-_AUTHOR_YEAR = re.compile(r"^([A-Za-z]+\d{4})")
+_AUTHOR_YEAR = re.compile(r"^([^\W\d_]+\d{4})")
 _GENERIC_SECTION_TOPICS = frozenset({"documento completo", ""})
 _TOPIC_SLUG_MAX = 40
+
+
+def safe_vault_component(value: str) -> str:
+    """One path segment. Strips separators and ``..`` so document data cannot escape the vault."""
+    text = str(value or "").replace("\\", "/")
+    kept = [part for part in text.split("/") if part not in {"", ".", ".."}]
+    cleaned = "-".join(kept).replace("..", "")
+    cleaned = cleaned.strip().strip(".")
+    return cleaned or "nota"
 
 
 def _slug(text: str, max_len: int = 100) -> str:
@@ -253,14 +262,14 @@ def author_year_label(citekey: str) -> str:
     becomes ``{surname}{year}``. Citekeys without that prefix are returned
     unchanged (after stripping a leading ``@``).
     """
-    key = citekey.lstrip("@")
+    key = safe_vault_component(citekey.lstrip("@"))
     match = _AUTHOR_YEAR.match(key)
     return match.group(1) if match else key
 
 
 def literature_source_dirname(citekey: str) -> str:
     """Per-source folder under ``20_Literature/`` or ``00_Inbox/Review/`` (no ``@``)."""
-    return citekey.lstrip("@")
+    return safe_vault_component(citekey.lstrip("@"))
 
 
 def source_note_filename(citekey: str, title: str) -> str:
@@ -938,8 +947,8 @@ def build_permanent_note_body(
 
 def note_filename(prefix: str, identifier: str, title: str) -> str:
     """Build a standardized filename: PREFIX - ID - slug.md"""
-    slug = _slug(title)
-    return f"{prefix} - {identifier} - {slug}.md"
+    slug = _slug(title) or "nota"
+    return f"{prefix} - {safe_vault_component(identifier)} - {slug}.md"
 
 
 def normalize_note_id(raw: str) -> str | None:

@@ -66,3 +66,9 @@ Layer 4 scans `list_sources_with_authors()` linearly — a projection without th
 * `zettel/state/sources.py` (`sources.doi`/`isbn`, `get_source_by_doi`, `get_source_by_isbn`, `list_sources_with_authors`), `zettel/state/runs.py` (`record_duplicate`)
 * `zettel/hashing.py` (`fold_for_match`, reused rather than duplicated)
 * `tests/test_harvester_dedup.py`
+
+## Amendment (2026-10-16): ISBN is an edition, and the check digit counts (#239)
+
+`normalize_doi` strips trailing `.` `)` `;` `,` and keeps the value only when it matches the Crossref pattern (`10.` plus a 4–9 digit registrant and a suffix). `normalize_isbn` requires a valid ISBN-10 (check character `X` allowed) or ISBN-13 check digit; anything else is `""` and layer 3 does not see it.
+
+A shared ISBN merges without a prompt only when `normalize_title` agrees and neither `document_type` is `capitulo_livro` or `anais_evento`. A chapter PDF that carries the book's ISBN, or two different titles with one ISBN, asks. Without a TTY the answer is layer 4's `continue` (new source). DOI is unchanged: it still merges without asking. The decision is still recorded as `biblio`.

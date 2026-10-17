@@ -73,7 +73,7 @@ Amendment:
 * Headings H1–H6 whose offset falls inside a fenced span do **not** partition chapters (`split_into_chapters`) or sections (`split_chapter_into_sections`). Headings outside fences keep partitioning exactly as before.
 * Fences are located by a line-based scanner (`iter_fenced_spans`): an opening fence is up to 3 spaces of indent followed by 3+ backticks or tildes plus an optional info string; a closing fence must be the same marker family (a backtick fence never closes a tilde fence), at least as long as the opening marker, and carry no info string — so ```` ```json ```` cannot close ```` ```markdown ````. An unclosed fence spans to EOF.
 * In `split_chapter_into_chunks` the fence is an atom: the `RecursiveCharacterTextSplitter` is applied only to the prose between fences, never across a fence.
-* **Size exception:** when a fence is larger than `chunk_size` (1500 in the operational YAML), a single oversized chunk is emitted. Cutting a template or a code block at a `\n\n` boundary is worse than one large chunk, so the size ceiling asserted above is deliberately not enforced for fenced content. `chunk_size` itself is unchanged — the exception is per-fence, not a global relaxation.
+* **Size exception:** when a fence is larger than `chunk_size` (2500 in the operational YAML), a single oversized chunk is emitted. Cutting a template or a code block at a `\n\n` boundary is worse than one large chunk, so the size ceiling asserted above is deliberately not enforced for fenced content. `chunk_size` itself is unchanged — the exception is per-fence, not a global relaxation.
 * Out of scope of the scanner, and therefore still able to affect boundaries: indented code blocks (4 spaces), Markdown tables outside fences, and raw HTML.
 
 Consistent with the migration cost already described in *Consequences*, this changes boundaries only for sources chunked after the amendment: already-harvested sources keep their old chunks until the operator runs `zettel rechunk`. There is no silent re-chunking.
@@ -219,3 +219,7 @@ line ranges, since the line ranges are what rotted.
 * `config/config.yaml` — operational chunking defaults (`chunking.*`)
 * `zettel/paging.py` — `compute_docling_config_hash` (includes `min_chunk_chars`); page-inference helpers consumed by `chunk_and_persist` (see ADR-013) — the heading path itself is built in `zettel/harvester/chunking.py`, not here
 * [ADR-027: Harvest Phase as Python Package](./ADR-027-harvest-phase-as-python-package.md) — the module extraction that moved this code
+
+## Amendment (2026-10-16): chapter persistence is atomic (#237)
+
+`chunk_and_persist` commits each chapter together with the chunks it decided to keep. A checksum match does not skip the chapter unless those chunk ids are already stored. See the ADR-007 amendment for the resume rule. Chunk boundaries are the same function of text and config as before.

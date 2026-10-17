@@ -10,10 +10,13 @@ Three layers for ``page_in_file``:
 Book/journal pages use content-start bounds:
   ``page_in_book = page_in_file - content_start_file_page + content_start_book_page``
 
-Docling ``prov.page_no`` and page-break markers are the PDF *file* index
-(1-based), not the printed number. Printed numbers (book p.1 after front
-matter, journal article starting at p.200) come from the content-start offset,
-seeded by HITL (``--content-start-*``) or a bibliographic page range (``pages:``
+Docling ``prov.page_no`` is the PDF *file* index (1-based), not the printed
+number. The persisted map is one numbered marker per file page, including
+pages with no exportable text (``<!-- zettel:page N -->``). A positional
+split of an unnumbered break is not a page map: empty pages used to slide
+every later chunk. Printed numbers (book p.1 after front matter, journal
+article starting at p.200) come from the content-start offset, seeded by
+HITL (``--content-start-*``) or a bibliographic page range (``pages:``
 frontmatter) — there is no automated header/footer scan (ADR-012, no PyMuPDF).
 """
 
@@ -32,10 +35,13 @@ from zettel.hashing import fold_for_match
 
 logger = logging.getLogger(__name__)
 
-# Inserted by Docling export_to_markdown(page_break_placeholder=...). Sequential
-# splits are 1-based PDF file pages — the same index as ProvenanceItem.page_no.
+# Numbered file-page marker persisted in ``extracted_text``. The number is
+# Docling's ``prov.page_no`` (1-based PDF index), not the position of the
+# marker and not the printed page. Empty pages still get a marker so a later
+# page cannot slide left.
 PAGE_BREAK_MARKER = "<!-- zettel:page-break -->"
-PAGE_BREAK_RE = re.compile(r"\n*" + re.escape(PAGE_BREAK_MARKER) + r"\n*")
+PAGE_NUMBERED_RE = re.compile(r"<!-- zettel:page (\d+) -->")
+PAGE_BREAK_RE = re.compile(r"\n*(?:<!-- zettel:page-break -->|<!-- zettel:page \d+ -->)\n*")
 
 PAGE_PATTERNS = [
     re.compile(r"^\s*(\d{1,4})\s*$", re.MULTILINE),
@@ -188,24 +194,79 @@ def compute_page_in_book(
     return page_in_file - start_file + start_book
 
 
+def page_marker(page_no: int) -> str:
+    """HTML comment that names one PDF file page inside ``extracted_text``."""
+    return f"<!-- zettel:page {int(page_no)} -->"
+
+
 def strip_page_break_markers(text: str) -> str:
-    """Remove Docling page-break comments inserted during harvest."""
-    if not text or PAGE_BREAK_MARKER not in text:
+    """Remove page-map comments so they never become chunk text."""
+    if not text or "<!-- zettel:page" not in text:
         return text
     cleaned = PAGE_BREAK_RE.sub("\n\n", text)
     return cleaned.strip()
 
 
-def page_map_from_marked_markdown(text: str) -> list[tuple[int, str]]:
-    """Split markdown that contains ``PAGE_BREAK_MARKER`` into a file-page map.
+def render_page_marked_markdown(page_map: Sequence[tuple[int, str]]) -> str:
+    """Serialize a file-page map with one numbered marker per page.
 
-    Empty (marker-less) input returns ``[]`` so callers fall back to the
-    regex/interpolation layers in this module.
+    Empty pages are markers with no body. The marker number, not its position,
+    is the page. Sources harvested with the unnumbered ``PAGE_BREAK_MARKER``
+    are not rewritten here — they need a re-harvest.
     """
-    if not text or PAGE_BREAK_MARKER not in text:
+    blocks: list[str] = []
+    for page_no, body in page_map:
+        text = (body or "").strip()
+        marker = page_marker(page_no)
+        blocks.append(f"{marker}\n\n{text}" if text else marker)
+    return "\n\n".join(blocks).strip()
+
+
+def page_map_from_marked_markdown(text: str) -> list[tuple[int, str]]:
+    """Rebuild a file-page map from numbered ``<!-- zettel:page N -->`` markers.
+
+    The page number is the marker's ``N``. A gap is left missing (not filled
+    by shifting later pages). Duplicate numbers are an error and yield ``[]``.
+    Unnumbered ``<!-- zettel:page-break -->`` markers are not a map: that
+    format dropped empty pages. Marker-less input returns ``[]`` so callers
+    fall back to the regex/interpolation layers in this module.
+    """
+    if not text:
         return []
-    parts = text.split(PAGE_BREAK_MARKER)
-    return [(i + 1, part.strip()) for i, part in enumerate(parts)]
+    matches = list(PAGE_NUMBERED_RE.finditer(text))
+    if not matches:
+        if PAGE_BREAK_MARKER in text:
+            logger.error(
+                "Marcador de pagina sem numero (%s) ignorado; o mapa posicional "
+                "desloca paginas vazias. Re-harvest necessario.",
+                PAGE_BREAK_MARKER,
+            )
+        return []
+    spans: dict[int, str] = {}
+    for i, match in enumerate(matches):
+        page_no = int(match.group(1))
+        if page_no in spans:
+            logger.error(
+                "Marcador de pagina %d repetido; mapa descartado para nao rotular pagina exata.",
+                page_no,
+            )
+            return []
+        start = match.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        spans[page_no] = text[start:end].strip()
+    if not spans or min(spans) < 1:
+        return []
+    return [(page_no, spans[page_no]) for page_no in sorted(spans)]
+
+
+def page_map_is_complete(
+    page_map: Sequence[tuple[int, str]],
+    total_pages: int | None,
+) -> bool:
+    """True when the map is exactly file pages ``1..total_pages``, empties included."""
+    if not total_pages or int(total_pages) < 1 or not page_map:
+        return False
+    return [page_no for page_no, _ in page_map] == list(range(1, int(total_pages) + 1))
 
 
 _QUOTE_EDGE_WORDS = 5
@@ -452,9 +513,30 @@ def lookup_page_for_chunk(
     return best_page
 
 
+def _docling_versions() -> dict[str, str]:
+    """Installed Docling versions. An upgrade changes the Markdown, so it belongs in the hash."""
+    versions: dict[str, str] = {}
+    for name in ("docling", "docling_core"):
+        try:
+            module = __import__(name)
+        except ImportError:
+            versions[name] = "missing"
+            continue
+        versions[name] = str(getattr(module, "__version__", "unknown"))
+    return versions
+
+
 def compute_docling_config_hash(cfg: AppConfig) -> str:
-    """Stable hash of ingestion knobs that invalidate mid-flight resume."""
+    """Stable hash of ingestion knobs that invalidate mid-flight resume.
+
+    Includes the installed Docling versions: a library upgrade is what most
+    changes the extracted Markdown, and every existing source then warns on
+    the next harvest (rechunk or re-harvest), rather than mixing two dialects.
+    """
+    versions = _docling_versions()
     payload = {
+        "docling_version": versions["docling"],
+        "docling_core_version": versions["docling_core"],
         "chunk_size": cfg.chunking.chunk_size,
         "chunk_overlap": cfg.chunking.chunk_overlap,
         "min_section_chars": cfg.chunking.min_section_chars,

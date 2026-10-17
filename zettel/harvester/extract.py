@@ -10,7 +10,11 @@ from typing import Any
 
 from zettel.config import AppConfig
 from zettel.hashing import dehyphenate_pdf_linebreaks
-from zettel.paging import PAGE_BREAK_MARKER, page_map_from_marked_markdown
+from zettel.paging import (
+    page_map_from_marked_markdown,
+    page_map_is_complete,
+    render_page_marked_markdown,
+)
 from zettel.text_sanitize import sanitize_extracted_text, visible_char_count
 
 logger = logging.getLogger(__name__)
@@ -266,12 +270,24 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
     finally:
         release_docling_pipelines(converter)
 
-    # Page-break comments keep file-page provenance in the same Markdown
-    # dialect as the chunked text. export_to_markdown() without them drops
-    # page boundaries.
-    text = result.document.export_to_markdown(
-        page_break_placeholder=f"\n\n{PAGE_BREAK_MARKER}\n\n",
-    )
+    # One entry per PDF file page, from Docling's per-page export (prov.page_no).
+    # An unnumbered page-break placeholder drops pages that have no exportable
+    # item, and every later chunk then cites a page that is too small.
+    num_pages = docling_num_pages(result.document)
+    page_map = docling_page_map_by_export(result.document, num_pages)
+    exact = page_map_is_complete(page_map, num_pages)
+    if exact:
+        text = render_page_marked_markdown(page_map)
+    else:
+        logger.error(
+            "Mapa de paginas incompleto para %s (%s paginas no arquivo, %s no mapa). "
+            "Nenhuma pagina sera rotulada como exata.",
+            file_path.name,
+            num_pages if num_pages is not None else "?",
+            len(page_map),
+        )
+        text = result.document.export_to_markdown()
+        page_map = []
 
     images: list[dict[str, Any]] = []
     if cfg.images.enabled:
@@ -283,6 +299,19 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
     # LLM prompt, the embedding and the anchor_quote never see "pala-\nvra".
     # normalize_text_for_hash() also runs this (idempotent) for the hashing path.
     text = dehyphenate_pdf_linebreaks(text)
+    if exact:
+        parsed = page_map_from_marked_markdown(text)
+        if page_map_is_complete(parsed, num_pages):
+            page_map = parsed
+        else:
+            logger.error(
+                "Mapa de paginas de %s deixou de cobrir 1..%s apos a limpeza do texto. "
+                "Nenhuma pagina sera rotulada como exata.",
+                file_path.name,
+                num_pages,
+            )
+            page_map = []
+            exact = False
 
     metadata: dict[str, Any] = {
         "title": file_path.stem,
@@ -302,22 +331,16 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
     except Exception:
         pass
 
-    num_pages = docling_num_pages(result.document)
     if num_pages:
         metadata["total_pages_file"] = num_pages
 
-    page_map = page_map_from_marked_markdown(text)
-    if not page_map:
-        page_map = docling_page_map_by_export(result.document, num_pages)
-    if page_map:
+    if exact and page_map:
         metadata["_page_map"] = page_map
-        if "total_pages_file" not in metadata:
-            metadata["total_pages_file"] = len(page_map)
         logger.info("Mapa de paginas (Docling): %d paginas do arquivo", len(page_map))
-    else:
+    elif not exact:
         logger.warning(
-            "Nenhum mapa de paginas Docling disponivel para %s; paging.py cai "
-            "para regex/interpolacao (sem PyMuPDF).",
+            "Nenhum mapa de paginas exato para %s; paging.py nao rotula pagina "
+            "como explicita (sem PyMuPDF).",
             file_path.name,
         )
 
@@ -352,31 +375,62 @@ def docling_num_pages(document: Any) -> int | None:
 
 
 def docling_page_map_by_export(document: Any, num_pages: int | None) -> list[tuple[int, str]]:
-    """Per-page Markdown export when page-break placeholders were not emitted."""
+    """One Markdown slice per PDF file page, including pages with no items.
+
+    ``export_to_markdown(page_no=)`` is filtered by Docling's provenance, so a
+    blank or image-only page is an empty string instead of a missing slot.
+    ``[]`` when the document does not support per-page export — the caller
+    then refuses to label any page as exact.
+    """
     n = num_pages or docling_num_pages(document) or 0
     if n <= 0:
         return []
-    if n == 1:
-        md = document.export_to_markdown()
-        return [(1, md)] if md else []
     page_map: list[tuple[int, str]] = []
     for page_no in range(1, n + 1):
         try:
             md = document.export_to_markdown(page_no=page_no)
         except TypeError:
+            logger.error(
+                "Docling nao exporta por pagina; mapa de %d paginas descartado.",
+                n,
+            )
             return []
-        page_map.append((page_no, md or ""))
+        page_map.append((page_no, (md or "").strip()))
     return page_map
 
 
 def page_map_for_source(src: dict[str, Any]) -> list[tuple[int, str]]:
     """Rebuild a page map for rechunk / resume from persisted marked text.
 
-    Only the Docling page-break markers in the persisted ``extracted_text``
+    Only numbered ``<!-- zettel:page N -->`` markers in ``extracted_text``
     are used — there is no PyMuPDF fallback to reopen the original PDF.
+    The map is returned only when it covers ``1..total_pages_file`` (or the
+    source has no stored page count and the markers themselves are 1..N
+    with no gaps). A divergent map is dropped so resume cannot label a
+    slid page as exact.
     """
     text = src.get("extracted_text") or ""
-    return page_map_from_marked_markdown(text)
+    page_map = page_map_from_marked_markdown(text)
+    if not page_map:
+        return []
+    total = src.get("total_pages_file")
+    if total:
+        if page_map_is_complete(page_map, int(total)):
+            return page_map
+        logger.error(
+            "Mapa persistido tem %d entradas e a fonte declara %s paginas; "
+            "paginas nao serao rotuladas como exatas.",
+            len(page_map),
+            total,
+        )
+        return []
+    if page_map_is_complete(page_map, page_map[-1][0]):
+        return page_map
+    logger.error(
+        "Mapa persistido nao cobre 1..%s sem buracos; paginas nao serao rotuladas como exatas.",
+        page_map[-1][0],
+    )
+    return []
 
 
 # ── Markdown Extraction ────────────────────────────────────────────────

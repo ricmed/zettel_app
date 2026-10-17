@@ -239,6 +239,36 @@ def test_h1_without_any_following_heading_stays_a_chapter():
     assert [c["title"] for c in chapters] == ["Unico Titulo"]
 
 
+def test_blank_file_pages_do_not_slide_the_chunk_page(tmp_path):
+    """A chunk is labeled with the file page that holds its text, blanks included."""
+    db = StateDB(tmp_path / "s.db")
+    try:
+        db.upsert_source("@S", "S", "T", [], None, "h", "/p", "pdf")
+        body = "Trecho unico que so existe na pagina cinco do arquivo. " * 12
+        page_map = [
+            (1, ""),
+            (2, "outra pagina sem o trecho unico."),
+            (3, ""),
+            (4, ""),
+            (5, body),
+        ]
+        n = _chunk_and_persist(
+            _cfg(chunk_size=8000, min_chunk_chars=40),
+            db,
+            _FakeIdx(),
+            "@S",
+            [{"title": "Cap", "text": body, "locator": "Cap"}],
+            page_map=page_map,
+            origin_type="pdf",
+        )
+        assert n == 1
+        chunk = db.get_chunks_for_source("@S")[0]
+        assert chunk["page_in_file"] == 5
+        assert chunk["page_confidence"] == "explicit"
+    finally:
+        db.close()
+
+
 def test_chunk_and_persist_writes_section_path(tmp_path):
     db = StateDB(tmp_path / "s.db")
     try:

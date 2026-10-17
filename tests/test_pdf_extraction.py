@@ -13,7 +13,7 @@ from zettel.harvester.extract import (
     extract_pdf_docling,
     page_map_for_source,
 )
-from zettel.paging import PAGE_BREAK_MARKER
+from zettel.paging import page_marker
 
 
 def _cfg(**kwargs) -> AppConfig:
@@ -173,20 +173,23 @@ class _FakeOrigin:
 
 
 class _FakeDocument:
-    def __init__(self, markdown: str):
-        self._markdown = markdown
+    def __init__(self, pages: str | list[str]):
+        self._pages = [pages] if isinstance(pages, str) else list(pages)
         self.origin = _FakeOrigin()
-        self.num_pages = 2
+        self.num_pages = len(self._pages)
 
     def export_to_markdown(self, page_break_placeholder: str | None = None, page_no=None):
-        if page_break_placeholder is not None:
-            return self._markdown
-        return self._markdown
+        if page_no is None:
+            return "\n\n".join(page for page in self._pages if page)
+        index = int(page_no) - 1
+        if index < 0 or index >= len(self._pages):
+            return ""
+        return self._pages[index]
 
 
 class _FakeResult:
-    def __init__(self, markdown: str):
-        self.document = _FakeDocument(markdown)
+    def __init__(self, pages: str | list[str]):
+        self.document = _FakeDocument(pages)
 
 
 class _FakeConverter:
@@ -194,11 +197,12 @@ class _FakeConverter:
         pass
 
     def convert(self, path):
-        marked = (
-            f"# Capa\n\n{PAGE_BREAK_MARKER}\n\n"
-            f"# Capitulo 1\n\nConteudo unico sobre grafos de conhecimento."
+        return _FakeResult(
+            [
+                "# Capa",
+                "# Capitulo 1\n\nConteudo unico sobre grafos de conhecimento.",
+            ]
         )
-        return _FakeResult(marked)
 
 
 def test_extract_pdf_docling_success_builds_text_and_page_map(monkeypatch, tmp_path):
@@ -210,10 +214,12 @@ def test_extract_pdf_docling_success_builds_text_and_page_map(monkeypatch, tmp_p
 
     text, metadata = extract_pdf_docling(_cfg(), pdf)
 
-    assert PAGE_BREAK_MARKER in text
+    assert page_marker(1) in text
+    assert page_marker(2) in text
     assert metadata["title"] == "Titulo Extraido"
     assert metadata["authors"] == ["Fulano", "Beltrano"]
     assert metadata["year"] == 2023
+    assert metadata["total_pages_file"] == 2
     assert metadata["_page_map"] == [
         (1, "# Capa"),
         (2, "# Capitulo 1\n\nConteudo unico sobre grafos de conhecimento."),
@@ -257,14 +263,17 @@ def test_extract_pdf_dispatches_only_to_docling(monkeypatch, tmp_path):
     pdf.write_bytes(b"%PDF-1.4 fake")
     monkeypatch.setattr("docling.document_converter.DocumentConverter", _FakeConverter)
     text, _metadata = extract_pdf(_cfg(), pdf)
-    assert PAGE_BREAK_MARKER in text
+    assert page_marker(1) in text
     assert not hasattr(AppConfig(), "pdf_extractor")
 
 
 def test_page_map_for_source_has_no_pymupdf_fallback(tmp_path):
-    """Rechunk/resume only reads Docling markers from persisted text — no PDF reopen."""
+    """Rechunk/resume only reads numbered markers from persisted text — no PDF reopen."""
+    from zettel.paging import render_page_marked_markdown
+
+    marked = render_page_marked_markdown([(1, "# A"), (2, "# B")])
     src_with_markers = {
-        "extracted_text": f"# A\n\n{PAGE_BREAK_MARKER}\n\n# B",
+        "extracted_text": marked,
         "origin_path": str(tmp_path / "missing.pdf"),
     }
     assert page_map_for_source(src_with_markers) == [(1, "# A"), (2, "# B")]
@@ -274,3 +283,78 @@ def test_page_map_for_source_has_no_pymupdf_fallback(tmp_path):
         "origin_path": str(tmp_path / "missing.pdf"),
     }
     assert page_map_for_source(src_without_markers) == []
+
+
+def test_extract_pdf_keeps_blank_pages_in_the_map(monkeypatch, tmp_path):
+    """Pages with no exportable text stay in the map so later pages do not slide."""
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+
+    class _BlankPages:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def convert(self, path):
+            return _FakeResult(
+                [
+                    "",
+                    "Trecho unico que so existe na pagina dois.",
+                    "",
+                    "Trecho unico que so existe na pagina quatro.",
+                    "",
+                ]
+            )
+
+    monkeypatch.setattr("docling.document_converter.DocumentConverter", _BlankPages)
+    text, metadata = extract_pdf_docling(_cfg(), pdf)
+    page_map = metadata["_page_map"]
+    assert [page for page, _ in page_map] == [1, 2, 3, 4, 5]
+    assert page_map[0][1] == ""
+    assert page_map[2][1] == ""
+    assert page_map[4][1] == ""
+    assert "pagina dois" in page_map[1][1]
+    assert "pagina quatro" in page_map[3][1]
+    assert page_marker(2) in text
+    assert page_marker(5) in text
+    assert (
+        page_map_for_source(
+            {"extracted_text": text, "total_pages_file": metadata["total_pages_file"]}
+        )
+        == page_map
+    )
+
+
+def test_extract_pdf_drops_the_map_when_per_page_export_fails(monkeypatch, tmp_path, caplog):
+    """A map that is not 1..N is not attached, so no chunk is labeled exact."""
+    import logging
+
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+
+    class _NoPageExport:
+        num_pages = 3
+        origin = _FakeOrigin()
+
+        def export_to_markdown(self, page_break_placeholder=None, page_no=None):
+            if page_no is not None:
+                raise TypeError("sem exportacao por pagina")
+            return "# Ainda da para ler\n\nTexto do documento."
+
+    class _Converter:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def convert(self, path):
+            class _Result:
+                document = _NoPageExport()
+
+            return _Result()
+
+    monkeypatch.setattr("docling.document_converter.DocumentConverter", _Converter)
+    with caplog.at_level(logging.ERROR):
+        text, metadata = extract_pdf_docling(_cfg(), pdf)
+    assert "_page_map" not in metadata
+    assert metadata["total_pages_file"] == 3
+    assert page_marker(1) not in text
+    assert "Ainda da para ler" in text
+    assert "rotulada como exata" in caplog.text.lower()

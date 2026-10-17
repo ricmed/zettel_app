@@ -43,6 +43,8 @@ class ChunksMixin(StateBase):
         literature_id: str | None = None,
         review_confidence: float | None = None,
         summary_json: str | None = None,
+        *,
+        commit: bool = True,
     ) -> None:
         self.conn.execute(
             """INSERT INTO chunks (chunk_id, source_id, chapter_id, text, chunk_checksum,
@@ -85,7 +87,8 @@ class ChunksMixin(StateBase):
             ),
         )
         self._fts_index_chunk(chunk_id, text)
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
 
     def get_chunk(self, chunk_id: str) -> dict | None:
         return self._fetchone("SELECT * FROM chunks WHERE chunk_id=?", (chunk_id,))
@@ -214,7 +217,7 @@ class ChunksMixin(StateBase):
 
     # ── Deletion ───────────────────────────────────────────────────────
 
-    def delete_chunks(self, chunk_ids: list[str]) -> int:
+    def delete_chunks(self, chunk_ids: list[str], *, commit: bool = True) -> int:
         """Delete chunks by id (SQLite + FTS + concepts). Returns how many were removed."""
         if not chunk_ids:
             return 0
@@ -222,10 +225,13 @@ class ChunksMixin(StateBase):
         self.conn.executemany("DELETE FROM concepts WHERE chunk_id=?", params)
         removed = self.conn.executemany("DELETE FROM chunks WHERE chunk_id=?", params).rowcount
         self._fts_delete_chunks(chunk_ids)
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return removed
 
-    def delete_chunks_for_chapter(self, chapter_id: str, keep_ids: set[str]) -> list[str]:
+    def delete_chunks_for_chapter(
+        self, chapter_id: str, keep_ids: set[str], *, commit: bool = True
+    ) -> list[str]:
         """Delete chunks of a chapter whose id is not in keep_ids. Returns removed ids.
 
         Used after re-chunking a chapter so stale chunks (from an earlier chunking
@@ -233,7 +239,7 @@ class ChunksMixin(StateBase):
         """
         rows = self._fetchall("SELECT chunk_id FROM chunks WHERE chapter_id=?", (chapter_id,))
         removed = [r["chunk_id"] for r in rows if r["chunk_id"] not in keep_ids]
-        self.delete_chunks(removed)
+        self.delete_chunks(removed, commit=commit)
         return removed
 
     def delete_chapter(self, chapter_id: str) -> list[str]:
