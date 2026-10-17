@@ -73,6 +73,21 @@ Layer 4 scans `list_sources_with_authors()` linearly — a projection without th
 
 The fields these layers read carry a per-field origin (`bibliography_json.provenance`: `user`, `file_metadata`, `llm`, `heuristic`). A frontmatter value is not replaced by the model before the match runs. See [ADR-057](./ADR-057-bibliographic-field-provenance.md).
 
+## Amendment (2026-10-17): MinHash was measured and not adopted (#251)
+
+`zettel/harvester/minhash.py` estimates Jaccard over 5-word shingles of `fold_for_match` text, with 128 hash functions and a fixed seed. Harvest does not call it. Layer 5 stays off, and `semantic_duplicate_enabled` still gates embedding write and read together.
+
+Constructed pairs, not vault files (exact Jaccard, MinHash estimate, containment of the first text in the second):
+
+| pair | Jaccard | MinHash | containment |
+|---|---|---|---|
+| same words, PDF punctuation vs Markdown | 1.000 | 1.000 | 1.000 |
+| 8 words changed in 400 | 0.833 | 0.812 | 0.909 |
+| chapter pasted inside a book | 0.542 | — | 1.000 |
+| two works, one author, disjoint vocabulary | 0.000 | 0.000 | 0.000 |
+
+A signature over about 10 000 shingles took about 0.6 s in CPython. Layer 5's cost is an embedding of every chunk of every source; that was not re-timed here. A Jaccard cut near 0.8 would separate the small edit from the disjoint works on these pairs, and containment is what sees a chapter inside a book. The cut is not promoted to config: the pairs are synthetic, so a threshold chosen from them would be fitted to the test. Real PDF-versus-Markdown pairs of the same work, and a decision to replace or complement layer 5, stay open.
+
 A file that changes at an inbox path already recorded in `files` is not a duplicate. `harvest.modified_file_action` (`skip` by default, also `update` or `new`) decides without a TTY; interactive harvest asks. `update` reuses `source_id` and citekey. A DOI or ISBN match against that same source continues the update instead of returning the old text. Unchanged chapters keep their chunk ids; a rewritten chapter's new chunks are `pending`. Removed chunks drop their concepts. Permanent notes stay, and the LIT file on disk is not deleted.
 
 A shared ISBN merges without a prompt only when `normalize_title` agrees and neither `document_type` is `capitulo_livro` or `anais_evento`. A chapter PDF that carries the book's ISBN, or two different titles with one ISBN, asks. Without a TTY the answer is layer 4's `continue` (new source). DOI is unchanged: it still merges without asking. The decision is still recorded as `biblio`.
