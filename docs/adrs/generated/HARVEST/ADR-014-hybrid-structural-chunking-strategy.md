@@ -242,3 +242,7 @@ Docling exports every PDF `section_header` as `##`, so `split_into_chapters` tre
 | `artigo-Towards Reasoning in Large Language Models - A Survey.pdf` | 0 | none |
 
 `apply_pdf_outline` runs only when the shallowest level that has at least two real titles also has a deeper level. That level becomes `#` (the chapter). The next level becomes `###`, which `split_chapter_into_sections` puts on `section_path`. A `##` the outline did not name is demoted to `###`. A flat outline, or one whose chapter titles do not occur as headings, leaves the Docling markup alone. An all-digit bookmark (an ISBN above the contents) is not a chapter. Chapter ids change for a PDF that gains this hierarchy; re-harvest, then re-extract and summarize (ADR-047). Markdown is untouched.
+
+## Amendment (2026-10-17): chunk overlap and the size floor stay at the defaults (#250)
+
+`chunk_overlap` stays 400, `min_chunk_chars` stays 200, and `chunk_size` stays 2500. A literature result that overlap does not help question answering is not a measurement of this extract. The comparison is pre-registered in [evals/preregistration/250-chunking-gold.md](../../../../evals/preregistration/250-chunking-gold.md), against the #175 gold set, and it has not been run. The defaults change only if that rule is met.
