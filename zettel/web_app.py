@@ -741,6 +741,7 @@ class WebWorker:
                 "checksum": payload["checksum"],
                 "biblio": biblio.model_dump(),
                 "abnt_reference": format_abnt(biblio),
+                "render_hidden": metadata.get("_render_hidden") or [],
             }
 
         if operation == "review" and payload.get("action") == "requeue":

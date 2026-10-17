@@ -11,6 +11,7 @@ from zettel.harvester.extract import (
     build_pdf_pipeline_options,
     extract_pdf,
     extract_pdf_docling,
+    find_render_hidden_text,
     page_map_for_source,
 )
 from zettel.paging import page_marker
@@ -358,3 +359,49 @@ def test_extract_pdf_drops_the_map_when_per_page_export_fails(monkeypatch, tmp_p
     assert page_marker(1) not in text
     assert "Ainda da para ler" in text
     assert "rotulada como exata" in caplog.text.lower()
+
+
+def _write_text_pdf(path, stream: bytes) -> None:
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        (
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>"
+        ),
+        b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"endstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for number, obj in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += f"{number} 0 obj\n".encode() + obj + b"\nendobj\n"
+    xref = len(out)
+    out += f"xref\n0 {len(offsets)}\n".encode() + b"0000000000 65535 f \n"
+    for offset in offsets[1:]:
+        out += f"{offset:010d} 00000 n \n".encode()
+    out += f"trailer << /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    path.write_bytes(out)
+
+
+def test_render_hidden_text_flags_white_and_one_point(tmp_path):
+    stream = (
+        b"BT /F1 12 Tf 0 0 0 rg 72 720 Td (Visible sentence for the reviewer.) Tj "
+        b"1 1 1 rg 0 -24 Td (Hidden white sentence for the model.) Tj "
+        b"0 0 0 rg /F1 1 Tf 0 -24 Td (Tiny one point sentence here.) Tj ET"
+    )
+    path = tmp_path / "hidden.pdf"
+    _write_text_pdf(path, stream)
+    hits = find_render_hidden_text(path)
+    reasons = {hit["reason"] for hit in hits}
+    assert reasons == {"white", "tiny"}
+    assert any("Hidden white" in hit["sample"] for hit in hits)
+    assert any("Tiny one point" in hit["sample"] for hit in hits)
+
+
+def test_render_hidden_text_ignores_ordinary_black_body(tmp_path):
+    stream = b"BT /F1 12 Tf 0 0 0 rg 72 720 Td (A normal sentence on the page.) Tj ET"
+    path = tmp_path / "plain.pdf"
+    _write_text_pdf(path, stream)
+    assert find_render_hidden_text(path) == []

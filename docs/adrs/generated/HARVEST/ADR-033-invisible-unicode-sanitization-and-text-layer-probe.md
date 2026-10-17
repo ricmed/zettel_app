@@ -99,6 +99,12 @@ Any future extractor (EPUB, DOCX, HTML) gets sanitization for free by returning 
 
 Prompt-injection scanning of *generated* notes is a different problem at a different boundary and is deliberately out of scope here.
 
+## Amendment (2026-10-17): text invisible by rendering is signaled, not stripped (#248)
+
+Zero-width characters are invisible in every rendering of the string, so they are removed before the checksum. White-on-white text and a 1 pt run are invisible only in that drawing. pdfium's character stream and Docling's Markdown are not the same cut, so deleting a matched substring would also delete a visible copy of those words.
+
+`find_render_hidden_text` walks each character with `FPDFText_GetFillColor`. A run is `white` when alpha is 0 or every channel is at least 250. It is `tiny` when the rendered size — font size times the text matrix's vertical scale, because `Tf` is often 1 while the matrix carries the real size — is above 0 and at most 2 pt. A run shorter than 12 characters is ignored: the inbox's epidemiology article draws its page number in white (`145`…`152`), and that is not a hidden sentence. The harvest logs a warning and keeps the text. The web bibliography review shows the same warning when the preparation found a run. On `data/inbox` (4 PDFs, 467 pages) the probe found no run that long, at about 60 ms per page. It does not open Docling.
+
 ## References
 
 * `zettel/text_sanitize.py` — `strip_invisible_unicode`, `sanitize_extracted_text`, `visible_char_count`, `INVISIBLE_RANGES`

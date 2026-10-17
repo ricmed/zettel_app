@@ -336,6 +336,7 @@ def _review_page(
             "abnt_reference", saved.get("abnt_reference", job["result"]["abnt_reference"])
         ),
         allow_incomplete=bool(job["payload"]["skip_biblio"]),
+        render_hidden=job["result"].get("render_hidden") or [],
         retry=bool(saved),
         error=error,
     )

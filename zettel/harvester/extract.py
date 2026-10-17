@@ -87,6 +87,125 @@ class EmptyTextLayerError(PdfExtractionError):
 # layer is probed on the first few pages before the converter is built.
 TEXT_LAYER_PROBE_PAGES = 4
 TEXT_LAYER_MIN_CHARS = 40
+# Rendered glyph height, not the raw Tf operand. A text matrix often leaves
+# Tf at 1 while the glyph is body-sized; the character box is the size on
+# the page. Body text and footnotes sit well above 2 pt.
+_TINY_FONT_PT = 2.0
+_NEAR_WHITE = 250
+
+
+def find_render_hidden_text(file_path: Path) -> list[dict[str, Any]]:
+    """Runs of PDF text a reviewer cannot see: near-white fill, or about 1 pt.
+
+    Signaling only. The characters stay in the extracted Markdown: pdfium's
+    stream and Docling's text are not the same cut, so deleting a matched
+    substring would also delete a visible copy of the same words. The caller
+    logs the finding. ``[]`` when pdfium cannot open the file.
+    """
+    try:
+        import pypdfium2 as pdfium
+        import pypdfium2.raw as pdfium_c
+    except ImportError:
+        logger.debug("pdfium indisponivel; probe de texto oculto ignorado.")
+        return []
+
+    try:
+        document = pdfium.PdfDocument(str(file_path))
+    except Exception as exc:
+        logger.debug("pdfium nao abriu %s para texto oculto (%s).", file_path.name, exc)
+        return []
+
+    try:
+        return _hidden_runs(document, pdfium_c)
+    finally:
+        document.close()
+
+
+def _hidden_runs(document: Any, pdfium_c: Any) -> list[dict[str, Any]]:
+    import ctypes
+
+    hits: list[dict[str, Any]] = []
+    for page_index in range(len(document)):
+        page = document[page_index]
+        text_page = page.get_textpage()
+        try:
+            count = text_page.count_chars()
+            reasons: list[str | None] = []
+            chars: list[str] = []
+            for index in range(count):
+                chars.append(text_page.get_text_range(index, 1) or "")
+                reasons.append(_char_hidden_reason(pdfium_c, ctypes, text_page, index))
+            hits.extend(_collapse_hidden_runs(page_index + 1, chars, reasons))
+        finally:
+            text_page.close()
+            page.close()
+    return hits
+
+
+def _rendered_font_pt(text_page: Any, index: int) -> float:
+    """Font size on the page. ``Tf`` alone is 1 when the text matrix does the scaling."""
+    obj = text_page.get_textobj(index)
+    if obj is None:
+        return 0.0
+    try:
+        matrix = obj.get_matrix()
+        scale = (matrix.c * matrix.c + matrix.d * matrix.d) ** 0.5
+        return float(obj.get_font_size()) * (scale or 1.0)
+    finally:
+        obj.close()
+
+
+def _char_hidden_reason(pdfium_c: Any, ctypes: Any, text_page: Any, index: int) -> str | None:
+    red, green, blue, alpha = (
+        ctypes.c_uint(),
+        ctypes.c_uint(),
+        ctypes.c_uint(),
+        ctypes.c_uint(),
+    )
+    if pdfium_c.FPDFText_GetFillColor(
+        text_page.raw,
+        index,
+        ctypes.byref(red),
+        ctypes.byref(green),
+        ctypes.byref(blue),
+        ctypes.byref(alpha),
+    ):
+        if alpha.value == 0 or min(red.value, green.value, blue.value) >= _NEAR_WHITE:
+            return "white"
+    rendered = _rendered_font_pt(text_page, index)
+    if 0 < rendered <= _TINY_FONT_PT:
+        return "tiny"
+    return None
+
+
+def _collapse_hidden_runs(
+    page: int, chars: list[str], reasons: list[str | None]
+) -> list[dict[str, Any]]:
+    runs: list[dict[str, Any]] = []
+    start: int | None = None
+    reason = ""
+    for index, current in enumerate([*reasons, None]):
+        if start is None:
+            if current:
+                start = index
+                reason = current
+            continue
+        if current == reason:
+            continue
+        sample = "".join(chars[start:index]).strip()
+        # A white page number is a few glyphs. A hidden instruction is a phrase.
+        if len(sample) >= 12:
+            runs.append(
+                {
+                    "page": page,
+                    "reason": reason,
+                    "chars": index - start,
+                    "sample": sample[:80],
+                }
+            )
+        start = index if current else None
+        reason = current or ""
+    return runs
 
 
 def assert_pdf_has_text_layer(file_path: Path) -> None:
@@ -143,7 +262,23 @@ def _pdfium_page_text(document: Any, page_no: int) -> str:
 def extract_pdf(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str, Any]]:
     """Extract text from PDF using Docling (the only supported extractor)."""
     assert_pdf_has_text_layer(file_path)
-    return extract_pdf_docling(cfg, file_path)
+    hidden = find_render_hidden_text(file_path)
+    if hidden:
+        preview = "; ".join(
+            f"p.{hit['page']} {hit['reason']} ({hit['chars']}c) {hit['sample']!r}"
+            for hit in hidden[:6]
+        )
+        logger.warning(
+            "PDF '%s' tem texto invisivel por renderizacao (%d trechos). "
+            "O texto permanece na extracao; o revisor nao o ve no PDF. %s",
+            file_path.name,
+            len(hidden),
+            preview,
+        )
+    text, metadata = extract_pdf_docling(cfg, file_path)
+    if hidden:
+        metadata["_render_hidden"] = hidden
+    return text, metadata
 
 
 def build_pdf_pipeline_options(cfg: AppConfig, device: str) -> Any:

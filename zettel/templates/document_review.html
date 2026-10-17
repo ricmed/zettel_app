@@ -7,6 +7,9 @@
     <p class="muted">Confira os dados inferidos de <strong>{{ filename }}</strong> antes de gravar a fonte.</p></div>
 </div>
 {% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
+{% if render_hidden %}
+<div class="alert" role="status">Este PDF tem texto que a página não mostra (branco ou cerca de 1 pt). Ele entra na extração. {% for hit in render_hidden[:4] %}p.{{ hit.page }} {{ hit.reason }}: {{ hit.sample }}{% if not loop.last %}; {% endif %}{% endfor %}.</div>
+{% endif %}
 <form method="post" action="/documents/review/{{ review_id }}" id="document-review-form" class="review-form">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <section class="panel">
