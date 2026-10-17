@@ -112,6 +112,14 @@ def test_dehyphenate_pdf_linebreaks_is_idempotent():
     assert once == twice == "experimental e outra palavra"
 
 
+def test_dehyphenate_pdf_linebreaks_keeps_digit_hyphens():
+    assert dehyphenate_pdf_linebreaks("entre 2010-\n2020") == "entre 2010-\n2020"
+    assert dehyphenate_pdf_linebreaks("COVID-\n19") == "COVID-\n19"
+    assert dehyphenate_pdf_linebreaks("pp. 200-\n210") == "pp. 200-\n210"
+    # A real compound with a lowercase tail is still fused. No dictionary.
+    assert dehyphenate_pdf_linebreaks("bem-\nvindo") == "bemvindo"
+
+
 def test_dehyphenate_pdf_linebreaks_leaves_unrelated_hyphens_alone():
     text = "well-known e um hifen no meio da linha, nao no fim."
     assert dehyphenate_pdf_linebreaks(text) == text

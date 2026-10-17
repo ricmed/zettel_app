@@ -75,6 +75,12 @@ Amendment:
 * PDF-only by construction: the call site is inside `extract_pdf_docling`, never on the Markdown extraction path, so a native Markdown file's legitimate end-of-line hyphen is untouched.
 * `extraction_checksum` changes for a PDF re-harvested after this amendment (the persisted text itself is now different, not just the hash normalization of it). Already-harvested sources do not change on their own — the corpus needs an explicit re-harvest, not `rechunk`, since `extracted_text` is the origin data this addendum affects. No silent migration.
 
+## Amendment (2026-10-17): a digit is not a split word (#249)
+
+The pattern used `\w` on both sides of the hyphen, so `2010-\n2020` became `20102020`, `COVID-\n19` became `COVID19` and `pp. 200-\n210` became `pp. 200210`. Those are page ranges and dates, which is what a citation stores. Both sides must now be letters. A lowercase compound (`bem-\nvindo`, `state-\nof-the-art`) is still fused; that limit is unchanged.
+
+The same function still runs in `extract_pdf_docling` and in `normalize_text_for_hash`. A PDF whose persisted text was already fused keeps the fused form until it is extracted again. A text that still contains `digit-\n` hashes differently on the next normalization. There is no migration. Incidence on the current vault cannot be recovered from `extracted_text`, because the old rule already consumed the breaks. The decision rests on the reproduced cases, which corrupt a citation even when rare.
+
 ## References
 
 * `zettel/hashing.py` — `normalize_text_for_hash`, `sha256_hex`, `file_sha256`, `short_hash`, `compute_llm_call_checksum`, `compute_embedding_input_hash`; addendum: `dehyphenate_pdf_linebreaks` (single implementation reused by both the extraction and the hashing path)
