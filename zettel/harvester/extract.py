@@ -351,6 +351,18 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
         metadata["total_pages_file"] = num_pages
 
     metadata["_page_labels"] = read_pdf_page_labels(file_path)
+    outline = read_pdf_outline(file_path)
+    if outline:
+        from zettel.harvester.chunking import apply_pdf_outline
+
+        rewritten = apply_pdf_outline(text, outline)
+        if rewritten != text:
+            text = rewritten
+            logger.info(
+                "Outline do PDF aplicado a %s (%d entradas).",
+                file_path.name,
+                len(outline),
+            )
 
     if exact and page_map:
         metadata["_page_map"] = page_map
@@ -415,6 +427,33 @@ def docling_page_map_by_export(document: Any, num_pages: int | None) -> list[tup
             return []
         page_map.append((page_no, (md or "").strip()))
     return page_map
+
+
+def read_pdf_outline(file_path: Path) -> list[tuple[int, str]]:
+    """Bookmark ``(level, title)`` pairs. ``[]`` when the PDF has no outline.
+
+    ``level`` is pdfium's: 0 is the top of the tree. Heading text is what the
+    chunker matches; the destination page is not required.
+    """
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
+        logger.debug("pdfium indisponivel; outline do PDF ignorado.")
+        return []
+    try:
+        document = pdfium.PdfDocument(str(file_path))
+    except Exception as exc:
+        logger.debug("pdfium nao abriu %s para o outline (%s).", file_path.name, exc)
+        return []
+    try:
+        entries: list[tuple[int, str]] = []
+        for bookmark in document.get_toc(max_depth=6):
+            title = str(bookmark.get_title() or "").strip()
+            if title:
+                entries.append((int(bookmark.level), title))
+        return entries
+    finally:
+        document.close()
 
 
 def page_map_for_source(src: dict[str, Any]) -> list[tuple[int, str]]:

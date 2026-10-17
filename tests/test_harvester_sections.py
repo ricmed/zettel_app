@@ -270,6 +270,40 @@ def test_oversized_table_repeats_the_header_on_every_part():
         assert "| celula" in piece
 
 
+def test_pdf_outline_chapters_are_level_one_and_sections_nest():
+    from zettel.harvester.chunking import apply_pdf_outline
+
+    text = (
+        "## Chapter 1\n\nbody one long enough.\n\n"
+        "## Section A\n\ndetail of the section.\n\n"
+        "## Not in the outline\n\nstill inside the chapter.\n\n"
+        "## Chapter 2\n\nbody two long enough.\n\n"
+        "## Section B\n\nmore detail here.\n"
+    )
+    rewritten = apply_pdf_outline(
+        text,
+        [(0, "Chapter 1"), (1, "Section A"), (0, "Chapter 2"), (1, "Section B")],
+    )
+    chapters = _split_into_chapters(rewritten, "pdf")
+    assert [chapter["title"] for chapter in chapters] == ["Chapter 1", "Chapter 2"]
+    sections = _split_chapter_into_sections(
+        "Chapter 1",
+        chapters[0]["text"],
+        1,
+        chapters[0].get("heading", ""),
+    )
+    paths = [section["section_path"] for section in sections]
+    assert "Chapter 1 > Section A" in paths
+    assert any("Not in the outline" in path for path in paths)
+
+
+def test_flat_pdf_outline_leaves_docling_headings_alone():
+    from zettel.harvester.chunking import apply_pdf_outline
+
+    text = "## Resumo\n\ncorpo do artigo.\n\n## Definicao\n\nmais texto.\n"
+    assert apply_pdf_outline(text, [(0, "Resumo"), (0, "Definicao")]) == text
+
+
 def test_blank_file_pages_do_not_slide_the_chunk_page(tmp_path):
     """A chunk is labeled with the file page that holds its text, blanks included."""
     db = StateDB(tmp_path / "s.db")
