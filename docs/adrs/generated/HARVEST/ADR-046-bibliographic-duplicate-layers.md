@@ -71,4 +71,6 @@ Layer 4 scans `list_sources_with_authors()` linearly — a projection without th
 
 `normalize_doi` strips trailing `.` `)` `;` `,` and keeps the value only when it matches the Crossref pattern (`10.` plus a 4–9 digit registrant and a suffix). `normalize_isbn` requires a valid ISBN-10 (check character `X` allowed) or ISBN-13 check digit; anything else is `""` and layer 3 does not see it.
 
+The fields these layers read carry a per-field origin (`bibliography_json.provenance`: `user`, `file_metadata`, `llm`, `heuristic`). A frontmatter value is not replaced by the model before the match runs. See [ADR-057](./ADR-057-bibliographic-field-provenance.md).
+
 A shared ISBN merges without a prompt only when `normalize_title` agrees and neither `document_type` is `capitulo_livro` or `anais_evento`. A chapter PDF that carries the book's ISBN, or two different titles with one ISBN, asks. Without a TTY the answer is layer 4's `continue` (new source). DOI is unchanged: it still merges without asking. The decision is still recorded as `biblio`.

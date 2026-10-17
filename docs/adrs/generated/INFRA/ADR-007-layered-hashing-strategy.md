@@ -87,6 +87,10 @@ Amendment:
 The checksum used to be written, and committed, before any chunk of that chapter. A crash in the chunk loop left every chapter row in place and the chunks missing; the next pass treated the checksum match as "unchanged" and did not rewrite them. `source_chunking_incomplete` only checked that the chapter ids existed, so the source looked finished.
 
 `chunk_and_persist` now commits the chapter row and that chapter's chunks in one transaction. The checksum match skips a chapter only when the stored chunk ids are exactly the ids this pass would write. `processing_status` stays `in_progress` until the pass returns, including the Chroma `chunks` upserts when layer 5 is on. Those embeddings stay recomputable: the next pass calls `existing_ids` and embeds what is missing. SQLite is the source of truth. Chunk ids and boundaries are unchanged.
+
+## Amendment (2026-10-17): table padding is collapsed before the extraction checksum (#242)
+
+`extract_text` collapses runs of spaces inside Markdown table rows (outside fences) before `extraction_checksum` is computed. The persisted text changes, so a source harvested with padded Docling tables keeps its old checksum until it is extracted again. `rechunk` does not rewrite `extracted_text`.
 * `zettel/extractor.py` — `compute_llm_call_checksum` construction for deterministic response caching
 * `zettel/connector/prompt.py` — `compute_llm_call_checksum` usage; `zettel/connector/note.py` — `compute_embedding_input_hash` (embed-skip)
 * `zettel/state/llm_cache.py` — `llm_cache` table storing checksum-keyed cached responses; `get_cached_llm_response` / `cache_llm_response`

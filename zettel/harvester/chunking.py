@@ -9,13 +9,13 @@ from typing import Any
 from zettel.config import AppConfig
 from zettel.hashing import normalize_text_for_hash, sha256_hex, short_hash
 from zettel.index import VectorIndex
-from zettel.markdown_fences import headings_outside_fences, iter_fenced_spans
+from zettel.markdown_fences import headings_outside_fences, iter_fenced_spans, iter_table_spans
 from zettel.paging import (
     ContentPaging,
+    PageIndex,
     apply_page_inference,
     compute_page_in_book,
     extract_page_hint,
-    lookup_page_for_chunk,
     strip_page_break_markers,
 )
 from zettel.state import StateDB
@@ -325,18 +325,68 @@ def _absorb_orphan_prose(
     return [text for text in merged if text is not None]
 
 
+_TABLE_SEPARATOR_RE = re.compile(r"^[ \t]*\|[\s:\-|]*-[-\s:|]*\|[ \t]*$")
+
+
+def _split_table_by_rows(table: str, budget: int) -> list[str]:
+    """Split a table that does not fit, repeating the header and separator.
+
+    A part that is only the header is not emitted. One data row that itself
+    exceeds the budget is still emitted with its header: cutting a row is worse
+    than one oversized chunk, same exception a fence already has.
+    """
+    lines = [line for line in table.strip().splitlines() if line.strip()]
+    if len(lines) < 2:
+        return [table.strip()] if table.strip() else []
+    header, second, *rest = lines
+    if _TABLE_SEPARATOR_RE.match(second):
+        separator = second
+        rows = rest
+    else:
+        separator = None
+        rows = [second, *rest]
+    prefix = [header] if separator is None else [header, separator]
+
+    def _pack(row_lines: list[str]) -> str:
+        return "\n".join([*prefix, *row_lines])
+
+    if not rows:
+        return ["\n".join(prefix)]
+    parts: list[str] = []
+    current: list[str] = []
+    for row in rows:
+        trial = _pack([*current, row])
+        if current and len(trial) > budget:
+            parts.append(_pack(current))
+            current = [row]
+        else:
+            current.append(row)
+    if current:
+        parts.append(_pack(current))
+    return parts
+
+
+def _atomic_spans(text: str) -> list[tuple[int, int, str]]:
+    """Fences and tables, in order. A table inside a fence is not a span."""
+    spans = [(start, end, "fence") for start, end in iter_fenced_spans(text)]
+    spans.extend((start, end, "table") for start, end in iter_table_spans(text))
+    spans.sort()
+    return spans
+
+
 def _split_preserving_fences(
     text: str, splitter: Any, chunk_size: int, fence_budget: int
 ) -> list[str]:
-    """Split `text` by size while keeping each fenced block atomic.
+    """Split `text` by size while keeping each fenced block and each table atomic.
 
-    Prose between fences goes through the generic splitter; every fence is emitted
-    whole, even when it is longer than `chunk_size` (documented oversized-chunk
-    exception to ADR-014 — cutting a template/code block is worse than one big chunk).
-    Prose left orphaned by that cut is glued back onto its fence by
-    `_absorb_orphan_prose`.
+    Prose between those atoms goes through the generic splitter. A fence is
+    emitted whole even when it is longer than `chunk_size` (documented
+    oversized-chunk exception to ADR-014). A table that fits in `fence_budget`
+    stays whole; above that it is cut by row, and every part repeats the header
+    and the separator. Prose left orphaned by a fence cut is glued back onto
+    its fence by `_absorb_orphan_prose`.
     """
-    spans = iter_fenced_spans(text)
+    spans = _atomic_spans(text)
     if not spans:
         return splitter.split_text(text)
 
@@ -350,11 +400,13 @@ def _split_preserving_fences(
 
     pieces: list[tuple[str, bool]] = []
     cursor = 0
-    for start, end in spans:
+    for start, end, kind in spans:
         pieces.extend(_prose(text[cursor:start]))
-        fence = text[start:end].strip()
-        if fence:
-            pieces.append((fence, True))
+        atom = text[start:end].strip()
+        if atom and kind == "table" and len(atom) > fence_budget:
+            pieces.extend((part, True) for part in _split_table_by_rows(atom, fence_budget))
+        elif atom:
+            pieces.append((atom, True))
         cursor = end
     pieces.extend(_prose(text[cursor:]))
     return _absorb_orphan_prose(pieces, chunk_size, fence_budget)
@@ -387,7 +439,7 @@ def _fits_as_whole_fenced_section(text: str, fence_budget: int) -> bool:
     plus its own prose. Beyond the budget the section is cut as before —
     the point is to tolerate a modest overshoot, not to defeat `chunk_size`.
     """
-    return len(text) <= fence_budget and bool(iter_fenced_spans(text))
+    return len(text) <= fence_budget and bool(iter_fenced_spans(text) or iter_table_spans(text))
 
 
 def split_chapter_into_chunks(cfg: AppConfig, chapter: dict[str, str]) -> list[tuple[str, str]]:
@@ -475,6 +527,8 @@ def chunk_and_persist(
     Returns total chunk count for the source after this pass (all chapters).
     """
     page_map = page_map or []
+    page_index = PageIndex.build(page_map) if page_map else None
+    page_cursor = 0
     paging = paging or ContentPaging()
     # Regex on body digits is a last resort for PDFs with no page map. Native
     # Markdown has no pages — never invent them from stray numbers.
@@ -519,12 +573,13 @@ def chunk_and_persist(
                 )
                 continue
             keep_ids.add(chunk_id)
-            meta_page = lookup_page_for_chunk(chunk_text, page_map) if page_map else None
-            hint = extract_page_hint(
-                chunk_text,
-                page_from_meta=meta_page,
-                allow_regex=allow_regex,
-            )
+            if page_index is not None:
+                hint, page_cursor = page_index.locate(chunk_text, page_cursor)
+            else:
+                hint = extract_page_hint(
+                    chunk_text,
+                    allow_regex=allow_regex,
+                )
             chapter_specs.append(
                 {
                     "chunk_id": chunk_id,

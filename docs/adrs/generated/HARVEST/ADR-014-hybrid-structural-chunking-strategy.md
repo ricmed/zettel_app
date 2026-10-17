@@ -223,3 +223,9 @@ line ranges, since the line ranges are what rotted.
 ## Amendment (2026-10-16): chapter persistence is atomic (#237)
 
 `chunk_and_persist` commits each chapter together with the chunks it decided to keep. A checksum match does not skip the chapter unless those chunk ids are already stored. See the ADR-007 amendment for the resume rule. Chunk boundaries are the same function of text and config as before.
+
+## Amendment (2026-10-17): Markdown tables are atoms (#242)
+
+Docling emits tables padded with spaces so the columns line up, and the recursive splitter cut those rows in the middle. Measured on the corpus, 130 chunks started on a table row, 82% of their characters were padding, and all 130 were rejected by extract.
+
+`collapse_table_padding` runs in `extract_text`, after invisible-character sanitization and before the extraction checksum (ADR-007). It collapses runs of spaces on `|` lines that are outside a fence. `iter_table_spans` (in `markdown_fences.py`, so every Markdown reader shares it) marks two or more consecutive pipe lines. A table that fits in `chunk_size * fence_section_slack` is kept whole, including a section whose only reason to stay whole is that table. Above the budget it is split by row; every part starts with the header and the separator. A pipe line inside a fence is not a table. There is no pre-LLM gate on table-heavy chunks (ADR-049). Already-harvested sources keep the padded text until re-harvest; `rechunk` only helps once `extracted_text` is the collapsed form, and chunk ids of table sections change.

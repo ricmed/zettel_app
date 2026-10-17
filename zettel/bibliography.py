@@ -198,6 +198,8 @@ class BibliographicMetadata(BaseModel):
     advisor: str | None = None
     event_name: str | None = None
     report_number: str | None = None
+    # Where each filled field came from: user, file_metadata, llm, heuristic.
+    provenance: dict[str, str] = Field(default_factory=dict)
 
 
 # ── Field helpers ──────────────────────────────────────────────────────
@@ -234,6 +236,21 @@ def is_complete(meta: BibliographicMetadata, confidence_threshold: float = 0.7) 
     return not missing_required(meta)
 
 
+def required_filled_only_by_llm(meta: BibliographicMetadata) -> bool:
+    """True when every required field, including the type, was written by the model.
+
+    Completeness is not correctness. A non-interactive harvest accepts a full
+    record only when at least one required field came from the user, the file,
+    or a heuristic — otherwise the model can fill the form and pass the
+    confidence bump without anyone looking.
+    """
+    if not meta.document_type:
+        return False
+    names = ["document_type", *REQUIRED_FIELDS[meta.document_type]]
+    origins = [meta.provenance.get(name, "") for name in names]
+    return bool(origins) and all(origin == "llm" for origin in origins)
+
+
 def primary_authors(meta: BibliographicMetadata) -> list[str]:
     if meta.document_type == "capitulo_livro" and meta.chapter_authors:
         return list(meta.chapter_authors)
@@ -257,6 +274,8 @@ def bibliography_dict(meta: BibliographicMetadata) -> dict[str, Any]:
         if isinstance(value, list) and not value:
             continue
         if isinstance(value, str) and not value.strip():
+            continue
+        if isinstance(value, dict) and not value:
             continue
         out[key] = value
     return out
@@ -674,6 +693,13 @@ def _parse_year(value: Any) -> int | None:
     return None
 
 
+def _contains_word(text: str, *words: str) -> bool:
+    """Whole-word match. ``curso`` does not hit ``discurso``, nor ``tese`` ``hipótese``."""
+    return any(
+        re.search(rf"(?i)(?<!\w){re.escape(word)}(?!\w)", text) is not None for word in words
+    )
+
+
 def infer_from_file_metadata(
     metadata: dict[str, Any],
     text_sample: str,
@@ -693,15 +719,14 @@ def infer_from_file_metadata(
     url_match = re.search(r"https?://[^\s\)\]\>\"']+", text_sample or "")
     has_url = bool(url_match) or bool(metadata.get("url"))
 
-    if (
-        any(k in sample_lower for k in ("tese (", "disserta", "trabalho de conclus"))
-        or "tese" in fname_lower
-    ):
+    if any(
+        k in sample_lower for k in ("tese (", "disserta", "trabalho de conclus")
+    ) or _contains_word(fname_lower, "tese", "dissertacao", "dissertação"):
         doc_type = "tese"
         confidence = 0.55
-    elif any(k in sample_lower for k in ("disciplina", "plano de aula", "material did")) or any(
-        k in fname_lower for k in ("aula", "curso", "disciplina")
-    ):
+    elif any(
+        k in sample_lower for k in ("disciplina", "plano de aula", "material did")
+    ) or _contains_word(fname_lower, "aula", "curso", "disciplina"):
         doc_type = "material_curso"
         confidence = 0.5
     elif any(
@@ -768,7 +793,45 @@ def infer_from_file_metadata(
         chapter_authors=_as_str_list(metadata.get("chapter_authors")),
         book_editors=_as_str_list(metadata.get("book_editors") or metadata.get("editors")),
     )
+    meta.provenance = _provenance_for(
+        meta, metadata, url_from_sample=bool(url_match) and not metadata.get("url")
+    )
     return meta
+
+
+def _provenance_for(
+    meta: BibliographicMetadata,
+    metadata: dict[str, Any],
+    *,
+    url_from_sample: bool,
+) -> dict[str, str]:
+    """user (frontmatter) > file_metadata (PDF origin) > heuristic."""
+    user_fields = {str(name) for name in (metadata.get("_user_fields") or [])}
+    file_fields = {str(name) for name in (metadata.get("_file_fields") or [])}
+    provenance: dict[str, str] = {}
+    names = [
+        "document_type",
+        *[
+            name
+            for name in BibliographicMetadata.model_fields
+            if name not in {"document_type", "confidence", "provenance"}
+        ],
+    ]
+    for name in names:
+        if name == "document_type":
+            if not meta.document_type:
+                continue
+        elif _field_empty(meta, name):
+            continue
+        if name in user_fields:
+            provenance[name] = "user"
+        elif name in file_fields:
+            provenance[name] = "file_metadata"
+        elif name == "url" and url_from_sample:
+            provenance[name] = "heuristic"
+        else:
+            provenance[name] = "heuristic"
+    return provenance
 
 
 def _str_or_none(value: Any) -> str | None:
@@ -807,21 +870,32 @@ def _merge_biblio(
 ) -> BibliographicMetadata:
     """Merge LLM fields into the seed.
 
-    Default (harvest): non-empty LLM values win. ``prefer_seed=True`` keeps
-    whatever the user already typed and only fills empty seed fields.
+    A field the user wrote, or that came from the file's own metadata, is kept.
+    The model fills empty fields and may replace a heuristic. ``prefer_seed``
+    (the manual form) keeps every non-empty seed field, whatever its origin.
     """
     merged = seed.model_copy(deep=True)
+    provenance = dict(seed.provenance)
     llm_dump = llm_meta.model_dump()
     for key, value in llm_dump.items():
-        if key == "confidence":
+        if key in {"confidence", "provenance"}:
             continue
         if _value_empty(value):
             continue
         if prefer_seed and not _field_empty(seed, key):
             continue
+        if not prefer_seed and provenance.get(key) in {"user", "file_metadata"}:
+            continue
         setattr(merged, key, value)
-    if llm_meta.document_type and not (prefer_seed and seed.document_type):
+        provenance[key] = "llm"
+    merged.provenance = provenance
+    if llm_meta.document_type and not (
+        (prefer_seed and seed.document_type)
+        or (not prefer_seed and seed.provenance.get("document_type") in {"user", "file_metadata"})
+    ):
         merged.document_type = llm_meta.document_type
+        provenance["document_type"] = "llm"
+        merged.provenance = provenance
     merged.confidence = max(seed.confidence, llm_meta.confidence or 0.0)
     if llm_meta.confidence:
         merged.confidence = max(merged.confidence, llm_meta.confidence)

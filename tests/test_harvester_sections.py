@@ -239,6 +239,37 @@ def test_h1_without_any_following_heading_stays_a_chapter():
     assert [c["title"] for c in chapters] == ["Unico Titulo"]
 
 
+def test_table_that_fits_is_kept_whole():
+    table = "| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n"
+    pairs = _split_chapter_into_chunks(
+        _cfg(chunk_size=500, min_section_chars=1, min_chunk_chars=1),
+        {"title": "Cap", "text": table, "locator": "Cap"},
+    )
+    assert len(pairs) == 1
+    assert "| 1 | 2 |" in pairs[0][1]
+    assert "| 3 | 4 |" in pairs[0][1]
+
+
+def test_oversized_table_repeats_the_header_on_every_part():
+    row = "| " + ("celula " * 6) + "| valor |\n"
+    table = "| nome | valor |\n| --- | --- |\n" + (row * 12)
+    pairs = _split_chapter_into_chunks(
+        _cfg(
+            chunk_size=160,
+            chunk_overlap=0,
+            fence_section_slack=1.0,
+            min_section_chars=1,
+            min_chunk_chars=1,
+        ),
+        {"title": "Cap", "text": table, "locator": "Cap"},
+    )
+    texts = [text for _path, text in pairs]
+    assert len(texts) > 1
+    for piece in texts:
+        assert piece.startswith("| nome | valor |\n| --- | --- |\n")
+        assert "| celula" in piece
+
+
 def test_blank_file_pages_do_not_slide_the_chunk_page(tmp_path):
     """A chunk is labeled with the file page that holds its text, blanks included."""
     db = StateDB(tmp_path / "s.db")
@@ -264,7 +295,7 @@ def test_blank_file_pages_do_not_slide_the_chunk_page(tmp_path):
         assert n == 1
         chunk = db.get_chunks_for_source("@S")[0]
         assert chunk["page_in_file"] == 5
-        assert chunk["page_confidence"] == "explicit"
+        assert chunk["page_confidence"] == "exact"
     finally:
         db.close()
 

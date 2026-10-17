@@ -70,6 +70,7 @@ def _ready_biblio_review(client, tmp_path, csrf, *, allow_incomplete=False):
         year=2024,
         place="São Paulo",
         publisher="Editora",
+        provenance={"authors": "user", "title": "llm"},
     )
     payload = {
         "selected_file": str(path.resolve()),
@@ -118,6 +119,7 @@ def test_document_review_confirms_edits_and_preserves_options(web_client, monkey
     assert page.status_code == 200
     assert "Confiança da inferência: 90%" in page.text
     assert "Ana Silva" in page.text and "SILVA, Ana" in page.text
+    assert "usuário" in page.text and "modelo" in page.text
     assert "book_editors" in page.text and "chapter_title" in page.text
     from zettel.web.jobs import continue_href
 

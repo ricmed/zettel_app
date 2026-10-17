@@ -10,6 +10,7 @@ from typing import Any
 
 from zettel.config import AppConfig
 from zettel.hashing import dehyphenate_pdf_linebreaks
+from zettel.markdown_fences import collapse_table_padding
 from zettel.paging import (
     page_map_from_marked_markdown,
     page_map_is_complete,
@@ -58,6 +59,9 @@ def extract_text(cfg: AppConfig, file_path: Path, origin_type: str) -> tuple[str
     # Single sanitization point: everything downstream (extraction checksum,
     # chunks, prompts, embeddings, vault) reads the cleaned text.
     text = sanitize_extracted_text(text, file_path.name)
+    # Docling pads Markdown tables with spaces. Collapse that before the
+    # extraction checksum so chunks and dedupe see the cells, not the alignment.
+    text = collapse_table_padding(text)
     if visible_char_count(text) == 0:
         raise EmptyTextLayerError(
             f"Arquivo '{file_path.name}' nao produziu texto visivel apos a "
@@ -318,18 +322,29 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
         "authors": [],
         "year": None,
         "_images": images,
+        "_file_fields": [],
     }
     try:
         origin = getattr(result.document, "origin", None)
         if origin:
+            file_fields: list[str] = []
             if getattr(origin, "title", None):
                 metadata["title"] = origin.title
+                file_fields.append("title")
             if getattr(origin, "author", None):
                 metadata["authors"] = [a.strip() for a in origin.author.split(",") if a.strip()]
+                file_fields.append("authors")
             if getattr(origin, "date", None):
                 metadata["year"] = extract_year_from_string(origin.date)
-    except Exception:
-        pass
+                if metadata["year"] is not None:
+                    file_fields.append("year")
+            metadata["_file_fields"] = file_fields
+    except Exception as exc:
+        logger.warning(
+            "Metadados embutidos do PDF %s nao foram lidos: %s",
+            file_path.name,
+            exc,
+        )
 
     if num_pages:
         metadata["total_pages_file"] = num_pages
@@ -487,13 +502,36 @@ def extract_markdown(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str, An
 
     body, images = extract_markdown_images(cfg, body, file_path)
 
+    user_fields: list[str] = []
+    if fm_meta.get("title"):
+        user_fields.append("title")
+    if authors:
+        user_fields.append("authors")
+    if year is not None and (fm_meta.get("year") or fm_meta.get("date")):
+        user_fields.append("year")
+
     meta: dict[str, Any] = {
         "title": title,
         "authors": authors,
         "year": year,
         "_images": images,
+        "_user_fields": user_fields,
     }
     # Pass through known bibliographic frontmatter fields for ABNT inference.
+    _FM_CANONICAL = {
+        "city": "place",
+        "editora": "publisher",
+        "traducao": "translator",
+        "periodico": "journal",
+        "number": "issue",
+        "paginas": "pages",
+        "access_date": "accessed_at",
+        "instituicao": "institution",
+        "curso": "course",
+        "disciplina": "discipline",
+        "orientador": "advisor",
+        "editors": "book_editors",
+    }
     _BIBLIO_KEYS = (
         "document_type",
         "subtitle",
@@ -538,5 +576,6 @@ def extract_markdown(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str, An
     for key in _BIBLIO_KEYS:
         if key in fm_meta and fm_meta[key] not in (None, ""):
             meta[key] = fm_meta[key]
+            user_fields.append(_FM_CANONICAL.get(key, key))
 
     return body, meta

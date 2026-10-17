@@ -296,7 +296,7 @@ def _review_page(
     labels = {**FIELD_LABELS, "document_type": "Tipo de documento"}
     displayed = {}
     for name in BibliographicMetadata.model_fields:
-        if name in {"document_type", "confidence"}:
+        if name in {"document_type", "confidence", "provenance"}:
             continue
         value = values.get(name)
         displayed[name] = (
@@ -310,6 +310,13 @@ def _review_page(
         review_id=review_id,
         filename=Path(job["result"]["selected_file"]).name,
         confidence=inferred.confidence,
+        provenance=inferred.provenance,
+        provenance_labels={
+            "user": "usuário",
+            "file_metadata": "arquivo",
+            "llm": "modelo",
+            "heuristic": "heurística",
+        },
         fields=displayed,
         field_labels=labels,
         document_types=DOCUMENT_TYPE_LABELS,
@@ -321,9 +328,9 @@ def _review_page(
         selected_type=values.get("document_type") or "",
         initial_missing=[
             labels.get(n, n)
-            for n in missing_required(BibliographicMetadata.model_validate(
-                saved.get("biblio", inferred.model_dump())
-            ))
+            for n in missing_required(
+                BibliographicMetadata.model_validate(saved.get("biblio", inferred.model_dump()))
+            )
         ],
         abnt_reference=values.get(
             "abnt_reference", saved.get("abnt_reference", job["result"]["abnt_reference"])
@@ -341,8 +348,13 @@ def _parsed_biblio(form: Any, original: dict):
     if raw_type and raw_type not in DOCUMENT_TYPES:
         raise ValueError("Selecione um tipo documental válido.")
     data = {"document_type": raw_type or None, "confidence": original["confidence"]}
+    provenance = {
+        key: value
+        for key, value in (original.get("provenance") or {}).items()
+        if isinstance(key, str) and isinstance(value, str)
+    }
     for name in BibliographicMetadata.model_fields:
-        if name in {"document_type", "confidence"}:
+        if name in {"document_type", "confidence", "provenance"}:
             continue
         raw = str(form.get(name) or "").strip()
         if len(raw) > 2000:
@@ -355,6 +367,17 @@ def _parsed_biblio(form: Any, original: dict):
             data[name] = int(raw) if raw else None
         else:
             data[name] = raw or None
+        value = data[name]
+        empty = value in (None, "") or value == []
+        if empty:
+            provenance.pop(name, None)
+        else:
+            provenance[name] = "user"
+    if data["document_type"]:
+        provenance["document_type"] = "user"
+    else:
+        provenance.pop("document_type", None)
+    data["provenance"] = provenance
     return BibliographicMetadata.model_validate(data)
 
 
@@ -427,8 +450,10 @@ async def confirm_document_review(request: Request, review_id: str):
         return HTMLResponse("Escolha uma ação válida.", status_code=400)
     from zettel.bibliography import FIELD_LABELS, missing_required
 
-    values = {name: str(form.get(name) or "") for name in
-              (*job["result"]["biblio"].keys(), "abnt_reference")}
+    values = {
+        name: str(form.get(name) or "")
+        for name in (*job["result"]["biblio"].keys(), "abnt_reference")
+    }
     try:
         biblio = _parsed_biblio(form, job["result"]["biblio"])
         missing = missing_required(biblio)
@@ -455,11 +480,9 @@ async def confirm_document_review(request: Request, review_id: str):
                 "abnt_reference": job["result"]["abnt_reference"],
             }
         )
-        if (
-            reference == previous["abnt_reference"]
-            and biblio.model_dump(exclude={"confidence"})
-            != {k: v for k, v in previous["biblio"].items() if k != "confidence"}
-        ):
+        if reference == previous["abnt_reference"] and biblio.model_dump(
+            exclude={"confidence"}
+        ) != {k: v for k, v in previous["biblio"].items() if k != "confidence"}:
             reference = format_abnt(biblio)
         if len(reference) > 5000:
             raise ValueError("A referência ABNT é muito longa.")
@@ -467,9 +490,7 @@ async def confirm_document_review(request: Request, review_id: str):
             biblio.confidence, service(request).cfg.harvest.biblio_confidence_threshold
         )
     except ValueError as exc:
-        return _review_page(
-            request, review_id, job, error=str(exc), values=values, status_code=400
-        )
+        return _review_page(request, review_id, job, error=str(exc), values=values, status_code=400)
     payload = {
         **{k: v for k, v in job["payload"].items() if k not in {"checksum", "session_hash"}},
         "review_id": review_id,

@@ -1,11 +1,13 @@
 """Page inference: file page vs book page, content-start paging, interpolation.
 
 Three layers for ``page_in_file``:
-1. Explicit metadata (Docling page-break map) — preferred; uses the **first**
-   page of the chunk when content spans multiple pages
+1. Docling page map, located by character offset (bisect) — preferred; uses
+   the **first** page of the chunk when content spans multiple pages.
+   Confidence is ``exact`` when that offset's probe is unique, ``fuzzy`` when
+   the same probe sits on more than one page or only a word-overlap remains.
 2. Regex on chunk head/tail (fallback only when no page map exists; never for
-   native Markdown sources, which have no pages)
-3. Interpolation between neighbouring explicit pages
+   native Markdown sources, which have no pages) — confidence ``fuzzy``
+3. Interpolation between neighbouring anchored pages — confidence ``inferred``
 
 Book/journal pages use content-start bounds:
   ``page_in_book = page_in_file - content_start_file_page + content_start_book_page``
@@ -22,6 +24,7 @@ frontmatter) — there is no automated header/footer scan (ADR-012, no PyMuPDF).
 
 from __future__ import annotations
 
+import bisect
 import hashlib
 import json
 import logging
@@ -32,6 +35,7 @@ from typing import Any
 
 from zettel.config import AppConfig
 from zettel.hashing import fold_for_match
+from zettel.search_terms import PT_STOPWORDS
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +78,7 @@ _BIBLIO_PAGE_RANGE = re.compile(r"(?<!\d)(\d{1,4})\s*[-\u2013\u2014]\s*(\d{1,4})
 @dataclass
 class PageHint:
     page_in_file: int | None
-    confidence: str  # explicit | inferred | unknown
+    confidence: str  # exact | fuzzy | inferred | unknown
 
 
 @dataclass
@@ -103,7 +107,7 @@ def extract_page_hint(
     the body (TOC entries, "2 EPILOGUE", etc.) are not treated as file pages.
     """
     if page_from_meta is not None and page_from_meta > 0:
-        return PageHint(page_in_file=int(page_from_meta), confidence="explicit")
+        return PageHint(page_in_file=int(page_from_meta), confidence="exact")
 
     if not allow_regex:
         return PageHint(page_in_file=None, confidence="unknown")
@@ -114,7 +118,8 @@ def extract_page_hint(
             match = pattern.search(region)
             if match:
                 try:
-                    return PageHint(page_in_file=int(match.group(1)), confidence="explicit")
+                    # A digit in the body is a guess, not a unique map hit.
+                    return PageHint(page_in_file=int(match.group(1)), confidence="fuzzy")
                 except (TypeError, ValueError):
                     continue
     return PageHint(page_in_file=None, confidence="unknown")
@@ -124,7 +129,7 @@ def infer_missing_page(
     chunk_index: int,
     pages: Sequence[int | None],
 ) -> int | None:
-    """Interpolate page_in_file between nearest explicit neighbours."""
+    """Interpolate page_in_file between nearest anchored neighbours."""
     if chunk_index < 0 or chunk_index >= len(pages):
         return None
     if pages[chunk_index] is not None:
@@ -164,7 +169,7 @@ def apply_page_inference(
     raw = [h.page_in_file for h in page_hints]
     out: list[PageHint] = []
     for i, hint in enumerate(page_hints):
-        if hint.page_in_file is not None and hint.confidence == "explicit":
+        if hint.page_in_file is not None and hint.confidence in {"exact", "fuzzy"}:
             out.append(hint)
             continue
         estimated = infer_missing_page(i, raw)
@@ -477,6 +482,13 @@ def resolve_content_paging(
     return ContentPaging(start_file, start_book, "confirmed")
 
 
+_PROBE_CHARS = 120
+_MIN_PROBE_CHARS = 20
+_FUZZY_MIN_FRACTION = 0.5
+_FUZZY_MIN_HITS = 4
+_FUZZY_NEIGHBORS = 2
+
+
 def _normalize_for_page_lookup(text: str) -> str:
     """Collapse whitespace and heading hashes so Docling MD matches page slices."""
     stripped = strip_page_break_markers(text or "")
@@ -484,33 +496,157 @@ def _normalize_for_page_lookup(text: str) -> str:
     return re.sub(r"\s+", " ", stripped).strip()
 
 
+def _content_tokens(text: str) -> set[str]:
+    """Words that can identify a page. Stopwords and one-letter tokens cannot."""
+    return {tok for tok in text.lower().split() if len(tok) >= 3 and tok not in PT_STOPWORDS}
+
+
+class PageIndex:
+    """One normalization of a document's pages, plus offsets for bisect.
+
+    Built once per harvest. Each chunk is then a ``str.find`` from the previous
+    hit and a ``bisect`` onto the page starts, so a long book stays linear in
+    the text instead of quadratic in pages times chunks.
+    """
+
+    def __init__(
+        self,
+        page_nos: list[int],
+        starts: list[int],
+        document: str,
+        token_sets: list[set[str]],
+    ) -> None:
+        self.page_nos = page_nos
+        self.starts = starts
+        self.document = document
+        self.token_sets = token_sets
+
+    @classmethod
+    def build(cls, page_map: Sequence[tuple[int, str]]) -> PageIndex:
+        page_nos: list[int] = []
+        starts: list[int] = []
+        token_sets: list[set[str]] = []
+        parts: list[str] = []
+        cursor = 0
+        have_text = False
+        for page_no, raw in page_map:
+            text = _normalize_for_page_lookup(raw)
+            page_nos.append(int(page_no))
+            starts.append(cursor)
+            token_sets.append(_content_tokens(text))
+            if not text:
+                continue
+            if have_text:
+                parts.append(" ")
+                cursor += 1
+                starts[-1] = cursor
+            parts.append(text)
+            cursor += len(text)
+            have_text = True
+        return cls(page_nos, starts, "".join(parts), token_sets)
+
+    def page_at(self, offset: int) -> int | None:
+        if not self.starts:
+            return None
+        index = bisect.bisect_right(self.starts, offset) - 1
+        if index < 0:
+            return None
+        return self.page_nos[index]
+
+    def _spans_other_page(self, probe: str, pos: int) -> bool:
+        """True when the same probe also occurs on a different file page.
+
+        Repeating inside one page (a sentence copied down the page) is still
+        one page. A running header that shows up on two pages is not ``exact``.
+        """
+        home = self.page_at(pos)
+        cursor = 0
+        while True:
+            found = self.document.find(probe, cursor)
+            if found < 0:
+                return False
+            if found != pos and self.page_at(found) != home:
+                return True
+            cursor = found + 1
+
+    def _fuzzy_page(self, probe: str, around: int | None) -> int | None:
+        tokens = _content_tokens(probe)
+        if len(tokens) < _FUZZY_MIN_HITS:
+            return None
+        if around is None:
+            indexes = range(len(self.page_nos))
+        else:
+            indexes = range(
+                max(0, around - _FUZZY_NEIGHBORS),
+                min(len(self.page_nos), around + _FUZZY_NEIGHBORS + 1),
+            )
+        best_i: int | None = None
+        best_hits = 0
+        for i in indexes:
+            hits = len(tokens & self.token_sets[i])
+            if hits > best_hits:
+                best_hits = hits
+                best_i = i
+        if best_i is None:
+            return None
+        if best_hits < _FUZZY_MIN_HITS or best_hits / len(tokens) < _FUZZY_MIN_FRACTION:
+            if around is not None:
+                return self._fuzzy_page(probe, None)
+            return None
+        return self.page_nos[best_i]
+
+    def locate(self, chunk_text: str, search_from: int = 0) -> tuple[PageHint, int]:
+        """Page where the chunk starts, and the cursor for the next chunk.
+
+        The probe is the first 120 normalized characters. A hit in the joined
+        document is ``exact`` only when that probe occurs once. A probe that
+        crosses a page boundary still matches, and ``page_at`` reports the page
+        that holds its first character. Word overlap is the fallback, and it
+        never earns ``exact``.
+        """
+        needle = _normalize_for_page_lookup(chunk_text[:400])
+        if len(needle) < _MIN_PROBE_CHARS or not self.document:
+            return PageHint(page_in_file=None, confidence="unknown"), search_from
+        probe = needle[:_PROBE_CHARS]
+        pos = self.document.find(probe, max(0, search_from))
+        if pos < 0 and search_from > 0:
+            pos = self.document.find(probe)
+        if pos >= 0:
+            page = self.page_at(pos)
+            confidence = "fuzzy" if self._spans_other_page(probe, pos) else "exact"
+            return PageHint(page_in_file=page, confidence=confidence), pos + 1
+        around = None
+        if search_from > 0:
+            anchor = self.page_at(search_from)
+            if anchor is not None and anchor in self.page_nos:
+                around = self.page_nos.index(anchor)
+        page = self._fuzzy_page(probe, around)
+        if page is None:
+            return PageHint(page_in_file=None, confidence="unknown"), search_from
+        return PageHint(page_in_file=page, confidence="fuzzy"), search_from
+
+
 def lookup_page_for_chunk(
     chunk_text: str,
     page_map: Sequence[tuple[int, str]],
     min_overlap: int = 40,
-) -> int | None:
-    """Return the **first** file page that matches the chunk start (not a span).
+    *,
+    index: PageIndex | None = None,
+    search_from: int = 0,
+) -> PageHint:
+    """Return the file page where the chunk starts, with an honest confidence.
 
-    Uses only the beginning of the chunk (~120 chars) so a chunk that crosses a
-    page boundary is attributed to the page where it begins. Both sides are
-    normalized (heading hashes stripped, whitespace collapsed) so Docling
-    markdown chunks match the Docling per-page map.
+    ``min_overlap`` is retained so older callers keep working; the fuzzy gate
+    is a fraction of the probe's content words, not a raw count of four tokens.
+    Pass ``index`` (and thread ``search_from``) when locating many chunks of
+    one document.
     """
-    needle = _normalize_for_page_lookup(chunk_text[:400])
-    if len(needle) < 20 or not page_map:
-        return None
-    best_page, best_score = None, 0
-    probe = needle[:120]
-    for page_no, page_text in page_map:
-        normalized = _normalize_for_page_lookup(page_text)
-        if probe in normalized:
-            return page_no
-        words = set(probe.lower().split())
-        page_words = set(normalized[:2000].lower().split())
-        score = len(words & page_words)
-        if score > best_score and score >= max(3, min_overlap // 10):
-            best_score, best_page = score, page_no
-    return best_page
+    del min_overlap
+    if not page_map and index is None:
+        return PageHint(page_in_file=None, confidence="unknown")
+    built = index if index is not None else PageIndex.build(page_map)
+    hint, _cursor = built.locate(chunk_text, search_from)
+    return hint
 
 
 def _docling_versions() -> dict[str, str]:

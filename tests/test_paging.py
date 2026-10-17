@@ -5,6 +5,7 @@ from zettel.paging import (
     PAGE_BREAK_MARKER,
     ContentPaging,
     PageHint,
+    PageIndex,
     apply_page_inference,
     compute_docling_config_hash,
     compute_page_in_book,
@@ -29,14 +30,14 @@ from zettel.paging import (
 def test_extract_page_hint_from_meta():
     hint = extract_page_hint("texto sem numero", page_from_meta=12)
     assert hint.page_in_file == 12
-    assert hint.confidence == "explicit"
+    assert hint.confidence == "exact"
 
 
 def test_extract_page_hint_from_regex():
     text = "Conteudo do paragrafo.\n\n42\n\nMais texto."
     hint = extract_page_hint(text)
     assert hint.page_in_file == 42
-    assert hint.confidence == "explicit"
+    assert hint.confidence == "fuzzy"
 
 
 def test_extract_page_hint_skips_regex_when_disallowed():
@@ -54,12 +55,13 @@ def test_infer_missing_page_interpolation():
 
 def test_apply_page_inference():
     hints = [
-        PageHint(10, "explicit"),
+        PageHint(10, "exact"),
         PageHint(None, "unknown"),
-        PageHint(14, "explicit"),
+        PageHint(14, "fuzzy"),
     ]
     out = apply_page_inference(hints)
-    assert out[0].confidence == "explicit"
+    assert out[0].confidence == "exact"
+    assert out[2].confidence == "fuzzy"
     assert out[1].page_in_file == 12
     assert out[1].confidence == "inferred"
 
@@ -103,7 +105,9 @@ def test_lookup_page_uses_chunk_start_only():
         "AAA unique start of the section about knowledge graphs here. "
         "BBB continuation material that appears later in the chunk body."
     )
-    assert lookup_page_for_chunk(chunk, page_map) == 10
+    hint = lookup_page_for_chunk(chunk, page_map)
+    assert hint.page_in_file == 10
+    assert hint.confidence == "exact"
 
 
 def test_format_source_locator():
@@ -182,7 +186,72 @@ def test_lookup_page_normalizes_markdown_headings():
         (7, "# Unique heading about latent spaces\n\nParagraph on embeddings."),
     ]
     chunk = "## Unique heading about latent spaces\n\nParagraph on embeddings."
-    assert lookup_page_for_chunk(chunk, page_map) == 7
+    assert lookup_page_for_chunk(chunk, page_map).page_in_file == 7
+
+
+def test_lookup_page_spanning_chunk_keeps_the_start_page():
+    """A probe that crosses the break is labeled with the page where it begins."""
+    page_map = [
+        (4, "introducao curta FIMUNICO"),
+        (5, "COMECO da pagina seguinte com texto bastante para a sonda."),
+    ]
+    chunk = "FIMUNICO COMECO da pagina seguinte com texto bastante para a sonda."
+    hint = lookup_page_for_chunk(chunk, page_map)
+    assert hint.page_in_file == 4
+    assert hint.confidence == "exact"
+
+
+def test_lookup_page_repeated_header_is_not_exact():
+    header = " ".join(f"tok{i:03d}" for i in range(30)) + " "
+    page_map = [
+        (1, header + " primeira ocorrencia exclusiva."),
+        (9, header + " segunda ocorrencia exclusiva."),
+    ]
+    index = PageIndex.build(page_map)
+    first, cursor = index.locate(page_map[0][1])
+    assert first.page_in_file == 1
+    assert first.confidence == "fuzzy"
+    second, _cursor = index.locate(page_map[1][1], cursor)
+    assert second.page_in_file == 9
+    assert second.confidence == "fuzzy"
+
+
+def test_lookup_page_fuzzy_ignores_stopwords():
+    """Shared closed-class words do not pick a page; content words do."""
+    shared = "de que um uma para com os as "
+    page_map = [
+        (2, shared + "conceito isolado sem relacao com o trecho buscado."),
+        (3, "zettel literatura permanente citacao evidencias ancora no capitulo."),
+    ]
+    chunk = "ancora evidencias citacao permanente literatura zettel no capitulo."
+    hint = lookup_page_for_chunk(chunk, page_map)
+    assert hint.page_in_file == 3
+    assert hint.confidence == "fuzzy"
+
+
+def test_page_lookup_stays_under_two_seconds_for_a_long_book():
+    """1 000 pages x 1 500 chunks. The old scan was quadratic and took minutes."""
+    import time
+
+    filler = "texto de enchimento do paragrafo " * 20
+    pages = [(i, f"pagina{i:04d} marcador unico {filler}") for i in range(1, 1001)]
+    index = PageIndex.build(pages)
+    chunks: list[str] = []
+    for _page_no, text in pages:
+        chunks.append(text)
+        chunks.append(text[len(text) // 2 :])
+    assert len(chunks) == 2000
+    started = time.perf_counter()
+    cursor = 0
+    hints = []
+    for text in chunks[:1500]:
+        hint, cursor = index.locate(text, cursor)
+        hints.append(hint)
+    elapsed = time.perf_counter() - started
+    assert elapsed < 2.0
+    assert hints[0].page_in_file == 1
+    assert hints[0].confidence == "exact"
+    assert all(h.page_in_file is not None for h in hints)
 
 
 def test_suggest_content_start_skips_toc_then_finds_chapter():

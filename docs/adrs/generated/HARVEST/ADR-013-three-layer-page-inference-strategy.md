@@ -80,4 +80,17 @@ Docling emits one page-break placeholder when the next item's `prov.page_no` jum
 
 The file page now comes from a per-page Docling export (`export_to_markdown(page_no=)`), which is empty for a page with no items. `extracted_text` stores `<!-- zettel:page N -->` before each page, including empty ones. `page_map_from_marked_markdown` reads `N`; it does not invent a page from marker position. The unnumbered marker is stripped so it cannot leak into a chunk, and it is not a map.
 
-**Invariant:** the map is used only when its page numbers are exactly `1..total_pages_file` (`page_map_is_complete`). A divergent map is logged and not attached, so no chunk is labeled `explicit` from it. The file is still harvested — a page-detection failure does not abort the source (this ADR's original resilience rule). `rechunk` and resume read the same markers; there is no migration. Sources harvested with the positional marker need a re-harvest, and citations built from them stay shifted until then (ADR-051).
+**Invariant:** the map is used only when its page numbers are exactly `1..total_pages_file` (`page_map_is_complete`). A divergent map is logged and not attached, so no chunk is labeled from it. The file is still harvested — a page-detection failure does not abort the source (this ADR's original resilience rule). `rechunk` and resume read the same markers; there is no migration. Sources harvested with the positional marker need a re-harvest, and citations built from them stay shifted until then (ADR-051).
+
+## Amendment (2026-10-17): linear lookup and honest confidence (#238)
+
+`lookup_page_for_chunk` used to renormalize every page for every chunk and call any hit `explicit`, including a four-word overlap. On a 1 000-page book that was minutes, and a running header was indistinguishable from a unique quote.
+
+`PageIndex` normalizes each page once, joins them, and maps the chunk's first 120 characters to a page with `bisect` on the page starts. A harvest threads the search cursor, so the cost follows the length of the text. Confidence is now four levels:
+
+* `exact` — the probe occurs on one file page (a sentence repeated down that same page still counts).
+* `fuzzy` — the probe also occurs on another page, or the page was chosen by content-word overlap (stopwords excluded, at least half the probe's content words and at least four hits). A body-digit regex, used only when there is no map, is `fuzzy` too.
+* `inferred` — interpolation between anchored neighbours. It does not overwrite `exact` or `fuzzy`.
+* `unknown` — no page.
+
+`set-paging` copies `page_confidence` through; it only recomputes the printed number. `citation_page_confidence` (`quote` / `chunk`) is a different field and is unchanged (ADR-051).
