@@ -97,16 +97,17 @@ O número que o leitor vê no livro/revista (`page_in_book`) é o que vai para L
 
 | Tipo de fonte | O que acontece |
 |---|---|
-| Livro com miolo (capa, sumario, prefacio) | Detecta Capitulo 1 / Introduction (pula pagina de sumario). Paginas anteriores ao inicio nao viram chunk. Numero impresso nessa pagina: cabecalho/rodape, senao 1. |
-| Artigo de revista (PDF p.1 = revista p.200) | Sem marcador de capitulo; usa o numero isolado no cabecalho/rodape da p.1, ou o intervalo bibliografico `pages: 200-210`. |
+| Livro com miolo (capa, sumario, prefacio) | Se o PDF tem `/PageLabels` (romanos e depois `1`), o início é a primeira página rotulada `1`. Senão detecta Capitulo 1 / Introduction (pula pagina de sumario). Paginas anteriores ao inicio nao viram chunk. |
+| Artigo de revista (PDF p.1 = revista p.200) | Se os rótulos começam em `200`, esse é o número impresso. Senão, sem marcador de capitulo, usa o intervalo bibliografico `pages: 200-210`. |
 | Apostila, tutorial, artigo que comeca em 1 | arquivo p.1 = impressa p.1 |
 | Markdown (anotacoes de curso, etc.) | Sem pagina. Localizador = `section_path`. Digitos no texto nao viram pagina. |
 
 Como o início é resolvido ([ADR-013](adrs/generated/HARVEST/ADR-013-three-layer-page-inference-strategy.md)):
 
-- Interativo: prompt HITL (sugestão da heurística como default)
+- `/PageLabels` numéricos (pypdfium2): primeira página rotulada `1`, ou o primeiro rótulo arábico quando nenhum é `1`. O padrão `1..N` que o pdfium devolve sem rótulos não conta. Confiança `labels`, sem prompt
+- Interativo: prompt HITL (sugestão como default) e a primeira linha do texto da página sugerida
 - `--content-start-file` / `--content-start-book`: valor explícito (ganha de tudo)
-- `--yes` / web / `run-all` sem flags: aplica a heurística em silêncio
+- `--yes` / web / `run-all` sem flags: aplica rótulos ou, na falta deles, a heurística em silêncio
 - `--skip-paging`: força arquivo p.1 = impressa p.1 (não detecta miolo nem revista)
 
 O mapa de `page_in_file` vem do **Docling**, uma fatia por página do arquivo (`export_to_markdown(page_no=)`, o `prov.page_no`), inclusive páginas sem texto. O texto persistido leva um marcador numerado `<!-- zettel:page N -->` por página. O mapa só é usado quando cobre `1..total_pages_file`; se divergir, o harvest registra o erro e não rotula nenhuma página como exata. A página do chunk é o deslocamento do início do texto nesse mapa (`exact` se a sonda está numa só página, `fuzzy` se o cabeçalho se repete ou só há interseção de palavras, `inferred` por interpolação). `set-paging` preserva o rótulo. O marcador antigo `<!-- zettel:page-break -->` não é mapa — um re-harvest é necessário. O `prov.page_no` é o índice do arquivo, não o número impresso. Docling é obrigatório — não há fallback para outro extrator ([ADR-012](adrs/generated/HARVEST/ADR-012-docling-pdf-extraction-pymupdf-fallback.md), [ADR-013](adrs/generated/HARVEST/ADR-013-three-layer-page-inference-strategy.md)). Regex no corpo do chunk só roda quando não há mapa e a fonte não é Markdown.

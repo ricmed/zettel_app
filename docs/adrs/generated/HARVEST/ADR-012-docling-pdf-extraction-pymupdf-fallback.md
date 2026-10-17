@@ -31,7 +31,7 @@ Both extractors were historically wired in with fallback; however, a decision wa
 Historical drivers (2024-08-30), superseded on 2026-08-31 by the licensing driver above:
 
 * ~~A fallback extractor is needed so harvest does not hard-fail when Docling is unavailable, misconfigured, or GPU acceleration cannot be used.~~ Harvest now fails explicitly with `PdfExtractionError` rather than degrading to plain text — the robustness was traded for distribution freedom.
-* ~~PyMuPDF's page-to-heading map is used for paging regardless of which extractor produced the chunked text, making its accuracy a shared dependency for both paths.~~ No longer true: the page map comes from Docling (`docling_page_map_by_export`, numbered `<!-- zettel:page N -->` markers) — see ADR-013.
+* ~~PyMuPDF's page-to-heading map is used for paging regardless of which extractor produced the chunked text, making its accuracy a shared dependency for both paths.~~ No longer true: the page map comes from Docling (`docling_page_map_by_export`, numbered `<!-- zettel:page N -->` markers) — see ADR-013. Printed numbers, when the PDF defines `/PageLabels`, come from pypdfium2 rather than from a header/footer scan (ADR-013 amendment, #243).
 
 ## Considered Options
 

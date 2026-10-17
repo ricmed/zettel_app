@@ -563,6 +563,7 @@ def _process_file(
         content_start_book=content_start_book,
         skip_paging=skip_paging or origin_type == "md",
         biblio_pages=getattr(biblio, "pages", None),
+        page_labels=metadata.get("_page_labels"),
     )
     logger.info(
         "[SOURCE=%s] Paginacao: arquivo p.%d = impressa p.%d (offset derivado=%d, %s)",

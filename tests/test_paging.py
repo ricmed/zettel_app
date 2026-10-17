@@ -9,6 +9,7 @@ from zettel.paging import (
     apply_page_inference,
     compute_docling_config_hash,
     compute_page_in_book,
+    content_start_from_page_labels,
     extract_page_hint,
     format_source_locator,
     infer_missing_page,
@@ -18,9 +19,11 @@ from zettel.paging import (
     page_map_is_complete,
     page_marker,
     parse_biblio_start_page,
+    read_pdf_page_labels,
     render_page_marked_markdown,
     strip_page_break_markers,
     suggest_content_start,
+    suggested_page_excerpt,
 )
 from zettel.paging import (
     resolve_content_paging as _resolve_content_paging,
@@ -306,6 +309,106 @@ def test_resolve_content_paging_skip_paging_ignores_heuristic():
     assert paging.content_start_file_page == 1
     assert paging.content_start_book_page == 1
     assert paging.confidence == "skipped"
+
+
+def _write_labeled_pdf(path, n_pages: int, nums: str) -> None:
+    kids = " ".join(f"{3 + i} 0 R" for i in range(n_pages))
+    objects = {
+        1: f"<< /Type /Catalog /Pages 2 0 R /PageLabels << /Nums [ {nums} ] >> >>".encode(),
+        2: f"<< /Type /Pages /Kids [{kids}] /Count {n_pages} >>".encode(),
+    }
+    for index in range(n_pages):
+        objects[3 + index] = b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>"
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for number in range(1, 3 + n_pages):
+        offsets.append(len(out))
+        out += f"{number} 0 obj\n".encode() + objects[number] + b"\nendobj\n"
+    xref = len(out)
+    size = len(offsets)
+    out += f"xref\n0 {size}\n".encode()
+    out += b"0000000000 65535 f \n"
+    for offset in offsets[1:]:
+        out += f"{offset:010d} 00000 n \n".encode()
+    out += f"trailer << /Size {size} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    path.write_bytes(out)
+
+
+def test_page_labels_after_roman_front_matter_start_at_printed_one(tmp_path):
+    path = tmp_path / "livro.pdf"
+    _write_labeled_pdf(path, 4, "0 << /S /r >> 2 << /S /D >>")
+    labels = read_pdf_page_labels(path)
+    assert labels == ["i", "ii", "1", "2"]
+    start = content_start_from_page_labels(labels)
+    assert start["content_start_file_page"] == 3
+    assert start["content_start_book_page"] == 1
+    assert start["confidence"] == "labels"
+    paging = _resolve_content_paging(
+        [(3, "# Capitulo 1\n\nO argumento comeca aqui.")],
+        interactive=False,
+        content_start_file=None,
+        content_start_book=None,
+        skip_paging=False,
+        page_labels=labels,
+    )
+    assert paging == ContentPaging(3, 1, "labels")
+
+
+def test_page_labels_starting_at_200_are_the_printed_number(tmp_path):
+    path = tmp_path / "artigo.pdf"
+    _write_labeled_pdf(path, 3, "0 << /S /D /St 200 >>")
+    labels = read_pdf_page_labels(path)
+    assert labels == ["200", "201", "202"]
+    start = content_start_from_page_labels(labels)
+    assert start["content_start_file_page"] == 1
+    assert start["content_start_book_page"] == 200
+
+
+def test_default_page_labels_do_not_override_the_chapter_heuristic(tmp_path):
+    path = tmp_path / "sem-rotulo.pdf"
+    _write_labeled_pdf(path, 2, "")
+    labels = read_pdf_page_labels(path)
+    assert content_start_from_page_labels(labels) is None
+    page_map = [(2, "# Chapter 1\n\nGetting started with graphs.")]
+    paging = _resolve_content_paging(
+        page_map,
+        interactive=False,
+        content_start_file=None,
+        content_start_book=None,
+        skip_paging=False,
+        page_labels=labels,
+    )
+    assert paging.content_start_file_page == 2
+    assert paging.content_start_book_page == 1
+    assert paging.confidence == "heuristic"
+
+
+def test_interactive_prompt_shows_the_suggested_page_excerpt(monkeypatch):
+    printed: list[str] = []
+
+    class _Console:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def print(self, *args, **kwargs):
+            printed.append(" ".join(str(arg) for arg in args))
+
+    monkeypatch.setattr("rich.console.Console", _Console)
+    monkeypatch.setattr(
+        "rich.prompt.Prompt.ask", lambda *args, **kwargs: kwargs.get("default", "1")
+    )
+    page_map = [(4, "O argumento comeca nesta linha.\n\ncontinua.")]
+    paging = _resolve_content_paging(
+        page_map,
+        interactive=True,
+        content_start_file=None,
+        content_start_book=None,
+        skip_paging=False,
+        page_labels=["i", "ii", "iii", "1"],
+    )
+    assert paging == ContentPaging(4, 1, "confirmed")
+    assert any("O argumento comeca nesta linha." in line for line in printed)
+    assert suggested_page_excerpt(page_map, 4) == "O argumento comeca nesta linha."
 
 
 def test_resolve_content_paging_explicit_flags_win():

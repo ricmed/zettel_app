@@ -19,7 +19,9 @@ split of an unnumbered break is not a page map: empty pages used to slide
 every later chunk. Printed numbers (book p.1 after front matter, journal
 article starting at p.200) come from the content-start offset, seeded by
 HITL (``--content-start-*``) or a bibliographic page range (``pages:``
-frontmatter) — there is no automated header/footer scan (ADR-012, no PyMuPDF).
+frontmatter), or from the PDF ``/PageLabels`` when the file defines them
+(pypdfium2, not a header/footer scan — ADR-012). There is still no automated
+header/footer OCR.
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ import logging
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from zettel.config import AppConfig
@@ -87,7 +90,7 @@ class ContentPaging:
 
     content_start_file_page: int = 1
     content_start_book_page: int = 1
-    confidence: str = "skipped"  # confirmed | heuristic | skipped
+    confidence: str = "skipped"  # labels | confirmed | heuristic | skipped
 
     @property
     def page_offset(self) -> int:
@@ -347,19 +350,104 @@ def _page_has_chapter_start(head: str, patterns: Sequence[re.Pattern[str]]) -> b
     return any(p.search(head) for p in patterns)
 
 
+_ARABIC_LABEL = re.compile(r"\d{1,6}")
+
+
+def page_labels_are_custom(labels: Sequence[str]) -> bool:
+    """True when the labels are not pdfium's default of ``1..N``.
+
+    ``get_page_label`` returns ``\"1\"``, ``\"2\"``, … even when the PDF has no
+    ``/PageLabels``. That default is the file index, not a printed number, so
+    it must not override the chapter heuristic.
+    """
+    if not labels:
+        return False
+    return any((label or "").strip() != str(index) for index, label in enumerate(labels, start=1))
+
+
+def content_start_from_page_labels(labels: Sequence[str]) -> dict[str, Any] | None:
+    """File page and printed number from numeric ``/PageLabels``.
+
+    The first arabic ``1`` is the start of the body after roman front matter.
+    When no label is ``1``, the first arabic label is the printed start (a
+    journal article whose PDF starts at page 200).
+    """
+    if not page_labels_are_custom(labels):
+        return None
+    arabic: list[tuple[int, int]] = []
+    for index, label in enumerate(labels, start=1):
+        text = (label or "").strip()
+        if _ARABIC_LABEL.fullmatch(text):
+            arabic.append((index, int(text)))
+    if not arabic:
+        return None
+    for file_page, number in arabic:
+        if number == 1:
+            chosen = (file_page, 1)
+            break
+    else:
+        chosen = arabic[0]
+    file_page, book_page = chosen
+    return {
+        "content_start_file_page": file_page,
+        "content_start_book_page": book_page,
+        "confidence": "labels",
+        "needs_confirmation": False,
+        "anchor_page_in_file": file_page,
+    }
+
+
+def read_pdf_page_labels(file_path: Path) -> list[str]:
+    """One label per PDF page. ``[]`` when pdfium cannot open the file."""
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
+        logger.debug("pdfium indisponivel; rotulos de pagina ignorados.")
+        return []
+    try:
+        document = pdfium.PdfDocument(str(file_path))
+    except Exception as exc:
+        logger.debug("pdfium nao abriu %s para rotulos (%s).", file_path.name, exc)
+        return []
+    try:
+        return [str(document.get_page_label(index) or "") for index in range(len(document))]
+    finally:
+        document.close()
+
+
+def suggested_page_excerpt(page_map: Sequence[tuple[int, str]], page_no: int | None) -> str:
+    """First non-empty line of the file page the suggestion points at."""
+    if page_no is None:
+        return ""
+    for number, text in page_map:
+        if int(number) != int(page_no):
+            continue
+        for line in (text or "").splitlines():
+            stripped = line.strip().lstrip("#").strip()
+            if stripped:
+                return stripped[:200]
+    return ""
+
+
 def suggest_content_start(
     page_map: Sequence[tuple[int, str]],
     *,
     biblio_pages: str | None = None,
+    page_labels: Sequence[str] | None = None,
 ) -> dict[str, Any]:
-    """Heuristic content-start: book front matter vs journal vs 1=1 document.
+    """Where content starts: PDF page labels, then the chapter/journal heuristic.
 
+    * Labels: numeric ``/PageLabels`` (roman front matter, or an article that
+      starts at printed page 200). pdfium's default ``1..N`` is not a label.
     * Book: first non-TOC page matching Capítulo 1 / Introduction; printed
-      page number is always 1 (no header/footer OCR -- ADR-012 ruled that out
-      along with PyMuPDF).
+      page number is 1. There is no header/footer OCR (ADR-012).
     * Journal article: no chapter marker, bibliographic ``pages: 200-210``.
     * Handout / article starting at 1: file 1 = printed 1, confidence none.
     """
+    labeled = content_start_from_page_labels(page_labels or [])
+    if labeled is not None:
+        return labeled
+
     biblio_start = parse_biblio_start_page(biblio_pages)
 
     # Markdown headings first (Docling map); skip TOC-style pages.
@@ -404,6 +492,7 @@ def resolve_content_paging(
     content_start_book: int | None,
     skip_paging: bool,
     biblio_pages: str | None = None,
+    page_labels: Sequence[str] | None = None,
 ) -> ContentPaging:
     """Resolve content-start file/book pages before chunking.
 
@@ -414,7 +503,7 @@ def resolve_content_paging(
     if skip_paging and content_start_file is None:
         return ContentPaging(1, 1, "skipped")
 
-    suggested = suggest_content_start(page_map, biblio_pages=biblio_pages)
+    suggested = suggest_content_start(page_map, biblio_pages=biblio_pages, page_labels=page_labels)
     sug_file = int(suggested.get("content_start_file_page") or 1)
     sug_book = int(suggested.get("content_start_book_page") or 1)
 
@@ -424,13 +513,14 @@ def resolve_content_paging(
         return ContentPaging(start_file, start_book, "confirmed")
 
     if not interactive:
-        if suggested.get("confidence") == "heuristic":
+        if suggested.get("confidence") in {"labels", "heuristic"}:
             logger.info(
-                "Paginacao heuristica (nao-interativo): arquivo p.%d = impressa p.%d",
+                "Paginacao %s (nao-interativo): arquivo p.%d = impressa p.%d",
+                suggested.get("confidence"),
                 sug_file,
                 sug_book,
             )
-            return ContentPaging(sug_file, sug_book, "heuristic")
+            return ContentPaging(sug_file, sug_book, str(suggested.get("confidence")))
         return ContentPaging(1, 1, "skipped")
 
     from rich.console import Console
@@ -438,11 +528,14 @@ def resolve_content_paging(
 
     console = Console(stderr=True)
     anchor = suggested.get("anchor_page_in_file")
+    excerpt = suggested_page_excerpt(page_map, anchor if isinstance(anchor, int) else None)
     if anchor is not None:
         console.print(
             f"[cyan]Detectei inicio de conteudo na pagina {anchor} do arquivo. "
             f"Sugestao: arquivo p.{sug_file} = impressa p.{sug_book}.[/cyan]"
         )
+        if excerpt:
+            console.print(f"[dim]Trecho nessa pagina: {excerpt}[/dim]")
     else:
         console.print(
             "[cyan]Nao detectei Capitulo 1 / Introduction no mapa de paginas. "

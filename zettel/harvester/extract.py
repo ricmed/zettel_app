@@ -14,6 +14,7 @@ from zettel.markdown_fences import collapse_table_padding
 from zettel.paging import (
     page_map_from_marked_markdown,
     page_map_is_complete,
+    read_pdf_page_labels,
     render_page_marked_markdown,
 )
 from zettel.text_sanitize import sanitize_extracted_text, visible_char_count
@@ -348,6 +349,8 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
 
     if num_pages:
         metadata["total_pages_file"] = num_pages
+
+    metadata["_page_labels"] = read_pdf_page_labels(file_path)
 
     if exact and page_map:
         metadata["_page_map"] = page_map

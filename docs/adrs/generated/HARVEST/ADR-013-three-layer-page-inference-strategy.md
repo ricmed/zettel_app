@@ -94,3 +94,7 @@ The file page now comes from a per-page Docling export (`export_to_markdown(page
 * `unknown` — no page.
 
 `set-paging` copies `page_confidence` through; it only recomputes the printed number. `citation_page_confidence` (`quote` / `chunk`) is a different field and is unchanged (ADR-051).
+
+## Amendment (2026-10-17): printed numbers from PDF page labels (#243)
+
+`/PageLabels` is read with pypdfium2 (`PdfDocument.get_page_label`) before the chapter heuristic. pdfium returns `"1"`, `"2"`, … even when the file has no such dictionary; that sequence is ignored, so a book still starts at "Chapter 1". A custom sequence is used as-is: the first arabic `1` is the body after roman front matter, and if no label is `1` the first arabic label is the printed start (an article at page 200). Confidence is `labels`. Explicit `--content-start-*` still wins. The interactive prompt prints the first line of the suggested file page. Header and footer text are not scanned (ADR-012); a consistent footer number is not a second layer yet.
