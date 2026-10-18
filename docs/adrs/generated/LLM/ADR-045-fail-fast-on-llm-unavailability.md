@@ -38,3 +38,7 @@ An outage is visible and cheap to resume. A malformed JSON on one chunk still ma
 ## Addendum (2026-10-18): vision is part of the same fail-fast (issue #258)
 
 **Status:** Accepted amendment. `LLMUnavailableError` raised while describing images propagates out of `describe_pending_assets` and out of `run_extract`. Images that were not described stay `pending`. They are not marked `failed`. A rate-limit abort still leaves the rest of the batch `pending`, and a chunk whose neighborhood (same chapter, page ± 1) still has a pending image stays `pending` and is not sent to Prompt 1. Images disabled in config do not hold chunks back.
+
+## Addendum (2026-10-18): a raw vision transport error is classified too
+
+**Status:** Accepted amendment. Image description calls `llm.invoke` directly, so a dead provider arrives as `ConnectionError`, a timeout, or a provider exception, not as `LLMUnavailableError`. `describe_pending_assets` runs that exception through `is_llm_unavailable` / `_raise_unavailable(phase="images")` before the per-asset `failed` mark — the same boundary `call_llm` already uses. The asset stays `pending` and the extract run stops. A 429 still becomes `RateLimitExhausted` and keeps the existing retry-and-abort-the-batch path. A content error (empty answer, unreadable file) still marks that one image `failed`.

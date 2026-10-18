@@ -27,7 +27,7 @@ from zettel.hashing import (
     sha256_hex,
     short_hash,
 )
-from zettel.llm import LLMUnavailableError, get_llm
+from zettel.llm import LLMUnavailableError, _raise_unavailable, get_llm, is_llm_unavailable
 from zettel.state import StateDB
 
 logger = logging.getLogger(__name__)
@@ -617,6 +617,8 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB, *, observer=None) -> in
         except LLMUnavailableError:
             raise
         except Exception as e:
+            if is_llm_unavailable(e):
+                _raise_unavailable(e, phase="images")
             logger.error("Falha ao descrever imagem %s: %s", asset["asset_id"], e)
             db.update_asset_description(asset["asset_id"], "", call_checksum, status="failed")
             consecutive_exhausted = 0
