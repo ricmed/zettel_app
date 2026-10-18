@@ -30,7 +30,7 @@ llm:
   prompt_cache: true        # layout System+Human + hints Anthropic; ≠ llm_cache SQLite
   harvest:
     provider: openai
-    model: gpt-4o-mini      # bibliografia ABNT no harvest
+    model: gpt-6-luna      # bibliografia ABNT no harvest
     base_url: null
     temperature: null       # null = herda llm.temperature
     thinking: null
@@ -42,7 +42,7 @@ llm:
     thinking: null          # default do vendor: e a condicao medida no ADR-050
   review:
     provider: openai
-    model: gpt-4o-mini      # dedupe de conceitos pos-aprovacao
+    model: gpt-6-luna      # dedupe de conceitos pos-aprovacao
     base_url: null
     temperature: null       # null = herda llm.temperature
     thinking: null
@@ -54,7 +54,7 @@ llm:
     thinking: false          # Gemini 3 costuma ligar thinking no vendor; false desliga
   garden:
     provider: openai
-    model: gpt-4o-mini      # MOCs taxonomicos e hub
+    model: gpt-6-luna      # MOCs taxonomicos e hub
     base_url: null
     temperature: null       # null = herda llm.temperature
     thinking: null
@@ -72,13 +72,13 @@ llm:
     thinking: null
   images:
     provider: openai
-    model: gpt-4o-mini      # descricao multimodal (precisa ser vision)
+    model: gpt-6-luna      # descricao multimodal (precisa ser vision)
     base_url: null
     temperature: null       # null = herda llm.temperature
     thinking: null
   summarize:
     provider: openai
-    model: gpt-4o-mini      # resumo de capitulo e de fonte (zettel summarize)
+    model: gpt-6-luna      # resumo de capitulo e de fonte (zettel summarize)
     base_url: null
     temperature: 0.0        # saida estruturada: contrato fechado, cache determinístico
     thinking: null
