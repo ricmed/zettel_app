@@ -31,7 +31,7 @@ Both extractors were historically wired in with fallback; however, a decision wa
 Historical drivers (2024-08-30), superseded on 2026-08-31 by the licensing driver above:
 
 * ~~A fallback extractor is needed so harvest does not hard-fail when Docling is unavailable, misconfigured, or GPU acceleration cannot be used.~~ Harvest now fails explicitly with `PdfExtractionError` rather than degrading to plain text — the robustness was traded for distribution freedom.
-* ~~PyMuPDF's page-to-heading map is used for paging regardless of which extractor produced the chunked text, making its accuracy a shared dependency for both paths.~~ No longer true: the page map comes from Docling (`docling_page_map_by_export`, `<!-- zettel:page-break -->` markers) — see ADR-013.
+* ~~PyMuPDF's page-to-heading map is used for paging regardless of which extractor produced the chunked text, making its accuracy a shared dependency for both paths.~~ No longer true: the page map comes from Docling (`docling_page_map_by_export`, numbered `<!-- zettel:page N -->` markers) — see ADR-013. Printed numbers, when the PDF defines `/PageLabels`, come from pypdfium2 rather than from a header/footer scan (ADR-013 amendment, #243).
 
 ## Considered Options
 
@@ -90,3 +90,20 @@ Docling is now mandatory; if Docling extraction fails, harvest fails explicitly 
 * `zettel/harvester/extract.py` — `docling_page_map_by_export` and `docling_num_pages`, the Docling page map used for content-start paging inference (see ADR-013)
 * `zettel/config.py` — `ImagesConfig` (image-extraction settings) and `device`; there is no extractor selector any more, since Docling is the only path
 * `pyproject.toml` / `uv.lock` — the Docling version pin discussed in *Consequences*
+
+## Amendment (2026-10-16): the installed Docling version is part of the config hash (#245)
+
+`compute_docling_config_hash` now includes `docling.__version__` and `docling_core.__version__`. An upgrade changes the hash of every source at once; the next harvest warns and points at `zettel rechunk` instead of resuming text extracted by another library version. That is the deliberate-upgrade rule in *Consequences*, made visible.
+
+## Amendment (2026-10-17): batch reuse and OCR stay as they are (#247)
+
+`extract_pdf_docling` builds a `DocumentConverter` per file and `release_docling_pipelines` clears `initialized_pipelines` in a `finally`, including when conversion raises (`tests/test_pdf_extraction.py`). The release is not an oversight. An exception cached during the lazy Docling import keeps a traceback whose frame still holds the converter, so the CodeFormula model would otherwise live until interpreter shutdown. Emptying the cache returns the VRAM after each file. On a 6 GB GPU that peak was measured at 2.45–8.63 GB depending on dtype (see `cuda_has_native_bf16` in the same module).
+
+Reusing one converter for a batch was not adopted. The issue requires a timing and VRAM table on five or more corpus PDFs, and a Markdown diff for `do_ocr` true versus false, before changing either. That batch was not run, so there is no number to put in a table. The four decisions:
+
+* **Converter reuse:** rejected until that measurement exists. A context manager that keeps models resident for N books can exceed the VRAM the per-file release was written to protect.
+* **`do_ocr`:** left at Docling's default. `build_pdf_pipeline_options` does not set it. Turning it off changes extracted text and would belong in `docling_config_hash`; the text diff was not measured.
+* **`harvest.ocr` for scans:** not added. A PDF without a text layer still fails in `assert_pdf_has_text_layer` and the operator runs OCR outside the pipeline (ADR-033). Opt-in full-page OCR would make a scan's text depend on an engine that is not pinned here.
+* **`num_threads=4`:** kept as a literal on `AcceleratorOptions`. It is not a config knob. Changing the thread count can change layout timing and, on a loaded machine, the memory schedule; that was not measured either.
+
+A future change adopts reuse or `do_ocr=False` only with the batch table this issue asked for.

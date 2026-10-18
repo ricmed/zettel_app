@@ -35,6 +35,9 @@ class _FakeIdx:
         for cid in chunk_ids:
             self.chunks_store.discard(cid)
 
+    def chunk_ids_for_source(self, source_id):
+        return set(self.chunks_store)
+
     def existing_ids(self, collection_name, ids):
         return {cid for cid in ids if cid in self.chunks_store}
 
@@ -237,6 +240,101 @@ def test_h1_without_any_following_heading_stays_a_chapter():
     text = "# Unico Titulo\n\nCorpo do documento inteiro sem outras secoes.\n"
     chapters = _split_into_chapters(text, "md")
     assert [c["title"] for c in chapters] == ["Unico Titulo"]
+
+
+def test_table_that_fits_is_kept_whole():
+    table = "| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n"
+    pairs = _split_chapter_into_chunks(
+        _cfg(chunk_size=500, min_section_chars=1, min_chunk_chars=1),
+        {"title": "Cap", "text": table, "locator": "Cap"},
+    )
+    assert len(pairs) == 1
+    assert "| 1 | 2 |" in pairs[0][1]
+    assert "| 3 | 4 |" in pairs[0][1]
+
+
+def test_oversized_table_repeats_the_header_on_every_part():
+    row = "| " + ("celula " * 6) + "| valor |\n"
+    table = "| nome | valor |\n| --- | --- |\n" + (row * 12)
+    pairs = _split_chapter_into_chunks(
+        _cfg(
+            chunk_size=160,
+            chunk_overlap=0,
+            fence_section_slack=1.0,
+            min_section_chars=1,
+            min_chunk_chars=1,
+        ),
+        {"title": "Cap", "text": table, "locator": "Cap"},
+    )
+    texts = [text for _path, text in pairs]
+    assert len(texts) > 1
+    for piece in texts:
+        assert piece.startswith("| nome | valor |\n| --- | --- |\n")
+        assert "| celula" in piece
+
+
+def test_pdf_outline_chapters_are_level_one_and_sections_nest():
+    from zettel.harvester.chunking import apply_pdf_outline
+
+    text = (
+        "## Chapter 1\n\nbody one long enough.\n\n"
+        "## Section A\n\ndetail of the section.\n\n"
+        "## Not in the outline\n\nstill inside the chapter.\n\n"
+        "## Chapter 2\n\nbody two long enough.\n\n"
+        "## Section B\n\nmore detail here.\n"
+    )
+    rewritten = apply_pdf_outline(
+        text,
+        [(0, "Chapter 1"), (1, "Section A"), (0, "Chapter 2"), (1, "Section B")],
+    )
+    chapters = _split_into_chapters(rewritten, "pdf")
+    assert [chapter["title"] for chapter in chapters] == ["Chapter 1", "Chapter 2"]
+    sections = _split_chapter_into_sections(
+        "Chapter 1",
+        chapters[0]["text"],
+        1,
+        chapters[0].get("heading", ""),
+    )
+    paths = [section["section_path"] for section in sections]
+    assert "Chapter 1 > Section A" in paths
+    assert any("Not in the outline" in path for path in paths)
+
+
+def test_flat_pdf_outline_leaves_docling_headings_alone():
+    from zettel.harvester.chunking import apply_pdf_outline
+
+    text = "## Resumo\n\ncorpo do artigo.\n\n## Definicao\n\nmais texto.\n"
+    assert apply_pdf_outline(text, [(0, "Resumo"), (0, "Definicao")]) == text
+
+
+def test_blank_file_pages_do_not_slide_the_chunk_page(tmp_path):
+    """A chunk is labeled with the file page that holds its text, blanks included."""
+    db = StateDB(tmp_path / "s.db")
+    try:
+        db.upsert_source("@S", "S", "T", [], None, "h", "/p", "pdf")
+        body = "Trecho unico que so existe na pagina cinco do arquivo. " * 12
+        page_map = [
+            (1, ""),
+            (2, "outra pagina sem o trecho unico."),
+            (3, ""),
+            (4, ""),
+            (5, body),
+        ]
+        n = _chunk_and_persist(
+            _cfg(chunk_size=8000, min_chunk_chars=40),
+            db,
+            _FakeIdx(),
+            "@S",
+            [{"title": "Cap", "text": body, "locator": "Cap"}],
+            page_map=page_map,
+            origin_type="pdf",
+        )
+        assert n == 1
+        chunk = db.get_chunks_for_source("@S")[0]
+        assert chunk["page_in_file"] == 5
+        assert chunk["page_confidence"] == "exact"
+    finally:
+        db.close()
 
 
 def test_chunk_and_persist_writes_section_path(tmp_path):

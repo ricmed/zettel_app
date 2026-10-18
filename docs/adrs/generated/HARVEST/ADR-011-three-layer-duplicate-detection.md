@@ -78,4 +78,4 @@ Extended to **five** layers by [ADR-046](./ADR-046-bibliographic-duplicate-layer
 
 The sequencing principle here is preserved and reinforced: both new layers are cheaper than the semantic one and run before any embedding is computed. Layer 3 (now layer 5) was **not** replaced — it remains the only net for material whose metadata is unusable.
 
-This narrows, but does not close, the two open questions above. An exact DOI or ISBN is an identity claim with no threshold to calibrate; `duplicate_chunk_threshold: 0.88` remains uncalibrated for the cases the semantic layer still owns.
+This narrows, but does not close, the two open questions above. An exact DOI is an identity claim with no threshold to calibrate; an ISBN is an edition and, since the 2026-10-16 amendment of ADR-046, does not merge a chapter into its book without asking. `duplicate_chunk_threshold: 0.88` remains uncalibrated for the cases the semantic layer still owns.

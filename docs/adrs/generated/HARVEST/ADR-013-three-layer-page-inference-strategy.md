@@ -73,3 +73,28 @@ The interpolation layer's linear assumption means inference quality tracks how u
 * `zettel/harvester/chunking.py` — `chunk_and_persist`, per-chunk page assignment and the file-to-book offset (`compute_page_in_book`)
 * `zettel/paging.py` — `resolve_content_paging` and `suggest_content_start`, content-start offset resolution consumed by the offset computation
 * `zettel/harvester/set_paging.py` — `run_set_paging`, repairs the printed offset on an existing source without re-extracting
+
+## Amendment (2026-10-16): empty PDF pages must not slide the file page (#236)
+
+Docling emits one page-break placeholder when the next item's `prov.page_no` jumps, and the serializer discards the target page number. Splitting `<!-- zettel:page-break -->` and numbering the pieces `i + 1` therefore assigned every chunk after a blank (or image-only) page a `page_in_file` smaller than the real file page. Measured on `@Kim2022KantAnd` the mean error was 5.7 pages.
+
+The file page now comes from a per-page Docling export (`export_to_markdown(page_no=)`), which is empty for a page with no items. `extracted_text` stores `<!-- zettel:page N -->` before each page, including empty ones. `page_map_from_marked_markdown` reads `N`; it does not invent a page from marker position. The unnumbered marker is stripped so it cannot leak into a chunk, and it is not a map.
+
+**Invariant:** the map is used only when its page numbers are exactly `1..total_pages_file` (`page_map_is_complete`). A divergent map is logged and not attached, so no chunk is labeled from it. The file is still harvested — a page-detection failure does not abort the source (this ADR's original resilience rule). `rechunk` and resume read the same markers; there is no migration. Sources harvested with the positional marker need a re-harvest, and citations built from them stay shifted until then (ADR-051).
+
+## Amendment (2026-10-17): linear lookup and honest confidence (#238)
+
+`lookup_page_for_chunk` used to renormalize every page for every chunk and call any hit `explicit`, including a four-word overlap. On a 1 000-page book that was minutes, and a running header was indistinguishable from a unique quote.
+
+`PageIndex` normalizes each page once, joins them, and maps the chunk's first 120 characters to a page with `bisect` on the page starts. A harvest threads the search cursor, so the cost follows the length of the text. Confidence is now four levels:
+
+* `exact` — the probe occurs on one file page (a sentence repeated down that same page still counts).
+* `fuzzy` — the probe also occurs on another page, or the page was chosen by content-word overlap (stopwords excluded, at least half the probe's content words and at least four hits). A body-digit regex, used only when there is no map, is `fuzzy` too.
+* `inferred` — interpolation between anchored neighbours. It does not overwrite `exact` or `fuzzy`.
+* `unknown` — no page.
+
+`set-paging` copies `page_confidence` through; it only recomputes the printed number. `citation_page_confidence` (`quote` / `chunk`) is a different field and is unchanged (ADR-051).
+
+## Amendment (2026-10-17): printed numbers from PDF page labels (#243)
+
+`/PageLabels` is read with pypdfium2 (`PdfDocument.get_page_label`) before the chapter heuristic. pdfium returns `"1"`, `"2"`, … even when the file has no such dictionary; that sequence is ignored, so a book still starts at "Chapter 1". A custom sequence is used as-is: the first arabic `1` is the body after roman front matter, and if no label is `1` the first arabic label is the printed start (an article at page 200). Confidence is `labels`. Explicit `--content-start-*` still wins. The interactive prompt prints the first line of the suggested file page. Header and footer text are not scanned (ADR-012); a consistent footer number is not a second layer yet.

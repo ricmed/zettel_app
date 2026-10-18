@@ -7,12 +7,15 @@
     <p class="muted">Confira os dados inferidos de <strong>{{ filename }}</strong> antes de gravar a fonte.</p></div>
 </div>
 {% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
+{% if render_hidden %}
+<div class="alert" role="status">Este PDF tem texto que a página não mostra (branco ou cerca de 1 pt). Ele entra na extração. {% for hit in render_hidden[:4] %}p.{{ hit.page }} {{ hit.reason }}: {{ hit.sample }}{% if not loop.last %}; {% endif %}{% endfor %}.</div>
+{% endif %}
 <form method="post" action="/documents/review/{{ review_id }}" id="document-review-form" class="review-form">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <section class="panel">
     <div class="review-intro">
       <div><div class="eyebrow">01 · conferir</div><h2>Dados da obra</h2>
-        <p class="muted">Confiança da inferência: {{ (confidence * 100)|round|int }}%. Você decide quais informações serão usadas.</p></div>
+        <p class="muted">Confiança da inferência: {{ (confidence * 100)|round|int }}%. Você decide quais informações serão usadas.{% if provenance.get('document_type') %} Tipo: {{ provenance_labels.get(provenance.get('document_type'), provenance.get('document_type')) }}.{% endif %}</p></div>
       <a href="/documents">Voltar aos documentos</a>
     </div>
     <label for="review-type">Tipo de documento
@@ -27,6 +30,7 @@
       {% for name in ['title', 'authors', 'year'] %}
       <label data-review-field="{{ name }}" data-required-types="{{ required_by_field[name]|join(' ') }}">
         {{ field_labels.get(name, name) }} <span class="required-mark" hidden>· obrigatório</span>
+        {% if provenance.get(name) %}<small class="muted">· {{ provenance_labels.get(provenance.get(name), provenance.get(name)) }}</small>{% endif %}
         {% if name == 'authors' %}<textarea name="{{ name }}" rows="3" placeholder="Um autor por linha">{{ fields[name] }}</textarea>
         {% else %}<input name="{{ name }}" value="{{ fields[name] }}" {% if name == 'year' %}type="number" min="1000" max="2100"{% endif %}>{% endif %}
       </label>
@@ -38,6 +42,7 @@
         {% for name, value in fields.items() if name not in ['title', 'authors', 'year'] %}
         <label data-review-field="{{ name }}" data-required-types="{{ required_by_field[name]|join(' ') }}">
           {{ field_labels.get(name, name) }} <span class="required-mark" hidden>· obrigatório</span>
+          {% if provenance.get(name) %}<small class="muted">· {{ provenance_labels.get(provenance.get(name), provenance.get(name)) }}</small>{% endif %}
           {% if name in ['chapter_authors', 'book_editors'] %}
           <textarea name="{{ name }}" rows="2" placeholder="Um nome por linha">{{ value }}</textarea>
           {% else %}<input name="{{ name }}" value="{{ value }}">{% endif %}

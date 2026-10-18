@@ -92,6 +92,7 @@ def test_run_set_paging_updates_book_and_drops_pending(tmp_path: Path):
         chunk_index=1,
         page_in_file=40,
         page_in_book=40,
+        page_confidence="fuzzy",
         status="awaiting_review",
         literature_note_path=str(draft),
     )
@@ -110,6 +111,7 @@ def test_run_set_paging_updates_book_and_drops_pending(tmp_path: Path):
     assert db.get_chunk("@TestBook::ch000::aaaa") is None
     kept = db.get_chunk("@TestBook::ch001::bbbb")
     assert kept["page_in_book"] == 15  # 40 - 35 + 10
+    assert kept["page_confidence"] == "fuzzy"
     renamed = literature_chunk_filename(
         "TestBook",
         chunk_index=1,

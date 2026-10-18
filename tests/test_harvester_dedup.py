@@ -604,3 +604,307 @@ def test_layer5_on_still_embeds_and_checks(db, cfg, tmp_path):
 
     assert sid is not None
     assert idx.upserted_chunks, "com a camada 5 ligada, os chunks alimentam o indice-alvo"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("10.1000/xyz.", "10.1000/xyz"),
+        ("10.1000/xyz)", "10.1000/xyz"),
+        ("10.1000/xyz;", "10.1000/xyz"),
+        ("10.1/curto", ""),
+    ],
+)
+def test_normalize_doi_strips_trailing_punctuation_and_rejects_junk(raw, expected):
+    assert _normalize_doi(raw) == expected
+
+
+def test_normalize_isbn_rejects_a_bad_check_digit():
+    assert _normalize_isbn("978-85-333-0227-4") == ""
+    assert _normalize_isbn("0-306-40615-3") == ""
+    assert _normalize_isbn("0-8044-2957-X") == "080442957X"
+
+
+def test_process_file_reuses_source_on_doi_with_trailing_punctuation(db, cfg, tmp_path):
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    first = inbox / "com-doi.md"
+    second = inbox / "doi-com-ponto.md"
+    first.write_text(
+        "---\ntitle: Artigo Um\nauthor: Ana Silva\nyear: 2020\ndoi: 10.1000/artigo\n---\n\n"
+        "Corpo original do artigo.",
+        encoding="utf-8",
+    )
+    second.write_text(
+        "---\ntitle: Outro texto\nauthor: Outra Pessoa\nyear: 2021\ndoi: 10.1000/artigo.\n---\n\n"
+        "Corpo completamente diferente, so o DOI coincide.",
+        encoding="utf-8",
+    )
+    idx = FakeVectorIndex()
+    sid1, _ = _process_file(
+        cfg, db, idx, first, run_id=db.start_run("s1"), interactive=False, skip_biblio=True
+    )
+    sid2, stats2 = _process_file(
+        cfg, db, idx, second, run_id=db.start_run("s2"), interactive=False, skip_biblio=True
+    )
+    assert sid1 is not None
+    assert sid2 is None
+    assert stats2 == {}
+    assert db.get_file(str(second))["source_id"] == sid1
+
+
+def test_invalid_isbn_does_not_merge(db, cfg, tmp_path):
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    first = inbox / "livro.md"
+    second = inbox / "outro.md"
+    first.write_text(
+        "---\ntitle: Obra A\nauthor: Ana Silva\nyear: 2020\nisbn: 978-85-333-0227-4\n"
+        "document_type: livro\n---\n\nCorpo do primeiro livro, bem longo.",
+        encoding="utf-8",
+    )
+    second.write_text(
+        "---\ntitle: Obra B\nauthor: Bruno Costa\nyear: 2021\nisbn: 9788533302274\n"
+        "document_type: livro\n---\n\nCorpo do segundo livro, diferente.",
+        encoding="utf-8",
+    )
+    idx = FakeVectorIndex()
+    sid1, _ = _process_file(
+        cfg, db, idx, first, run_id=db.start_run("s1"), interactive=False, skip_biblio=True
+    )
+    sid2, _ = _process_file(
+        cfg, db, idx, second, run_id=db.start_run("s2"), interactive=False, skip_biblio=True
+    )
+    assert sid1 and sid2 and sid1 != sid2
+
+
+def test_same_isbn_and_title_still_merges_without_asking(db, cfg, tmp_path):
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    isbn = "978-85-333-0227-3"
+    first = inbox / "edicao.md"
+    second = inbox / "reedicao.md"
+    first.write_text(
+        f"---\ntitle: Manual de Metodo\nauthor: Ana Silva\nyear: 2020\nisbn: {isbn}\n"
+        "document_type: livro\n---\n\nPrimeira extracao do manual.",
+        encoding="utf-8",
+    )
+    second.write_text(
+        f"---\ntitle: Manual de Metodo\nauthor: Ana Silva\nyear: 2020\nisbn: {isbn}\n"
+        "document_type: livro\n---\n\nSegunda extracao, texto outro.",
+        encoding="utf-8",
+    )
+    idx = FakeVectorIndex()
+    sid1, _ = _process_file(
+        cfg, db, idx, first, run_id=db.start_run("s1"), interactive=False, skip_biblio=True
+    )
+    sid2, stats2 = _process_file(
+        cfg, db, idx, second, run_id=db.start_run("s2"), interactive=False, skip_biblio=True
+    )
+    assert sid1 is not None
+    assert sid2 is None
+    assert stats2 == {}
+    assert db.get_file(str(second))["source_id"] == sid1
+
+
+def test_chapter_isbn_does_not_merge_without_a_tty(db, cfg, tmp_path):
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    isbn = "978-85-333-0227-3"
+    book = inbox / "livro-inteiro.md"
+    chapter = inbox / "capitulo.md"
+    book.write_text(
+        f"---\ntitle: Manual de Metodo\nauthor: Ana Silva\nyear: 2020\nisbn: {isbn}\n"
+        "document_type: livro\n---\n\nO livro inteiro.",
+        encoding="utf-8",
+    )
+    chapter.write_text(
+        f"---\ntitle: So o capitulo tres\nauthor: Ana Silva\nyear: 2020\nisbn: {isbn}\n"
+        "document_type: capitulo_livro\n---\n\nO capitulo avulso, texto proprio.",
+        encoding="utf-8",
+    )
+    idx = FakeVectorIndex()
+    sid_book, _ = _process_file(
+        cfg, db, idx, book, run_id=db.start_run("s1"), interactive=False, skip_biblio=True
+    )
+    sid_chapter, _ = _process_file(
+        cfg, db, idx, chapter, run_id=db.start_run("s2"), interactive=False, skip_biblio=True
+    )
+    assert sid_book and sid_chapter and sid_book != sid_chapter
+
+
+def test_chapter_isbn_asks_when_interactive(tmp_path, monkeypatch):
+    from zettel.harvester.biblio_dedupe import resolve_isbn_decision
+
+    asked = {}
+
+    def _ask(*args, **kwargs):
+        asked["choices"] = kwargs.get("choices")
+        return "pular"
+
+    monkeypatch.setattr("rich.prompt.Prompt.ask", _ask)
+    decision = resolve_isbn_decision(
+        tmp_path / "cap.md",
+        {"citekey": "Silva2020", "title": "Manual", "year": 2020},
+        interactive=True,
+    )
+    assert asked.get("choices") == ["pular", "continuar", "abortar"]
+    assert decision == "skip"
+
+
+def test_citekey_drops_path_separators_and_keeps_accents(db):
+    from zettel.harvester.citekey import generate_citekey
+
+    hostile = generate_citekey(db, ["John ../../evil"], 2020, "Some Title")
+    assert "/" not in hostile and "\\" not in hostile and ".." not in hostile
+    assert hostile.startswith("evil2020")
+    empty = generate_citekey(db, ["../.."], 2020, "Some Title")
+    assert empty.startswith("2020")
+    accented = generate_citekey(db, ["Ana Gonçalves"], 2021, "Análise")
+    assert accented.startswith("Gonçalves2021")
+
+
+def test_citekey_disambiguation_past_z_uses_aa(db, monkeypatch):
+    from zettel.harvester.citekey import generate_citekey
+
+    calls = {"n": 0}
+
+    def _taken(citekey):
+        calls["n"] += 1
+        if calls["n"] <= 27:
+            return {"citekey": citekey}
+        return None
+
+    monkeypatch.setattr(db, "get_source_by_citekey", _taken)
+    key = generate_citekey(db, ["Ann Silva"], 2020, "Obra")
+    assert key.endswith("aa")
+    assert "{" not in key
+
+
+def _two_chapter_book(second: str) -> str:
+    stable = "Conteudo estavel do primeiro capitulo para o chunk. " * 8
+    return f"# Cap A\n\n{stable}\n\n# Cap B\n\n{second}\n"
+
+
+def _harvest_markdown(cfg, db, path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return _process_file(
+        cfg,
+        db,
+        FakeVectorIndex(),
+        path,
+        run_id=db.start_run("mod"),
+        interactive=False,
+        skip_biblio=True,
+    )
+
+
+def test_modified_file_skip_keeps_the_path_on_the_same_source(cfg, db, tmp_path, caplog):
+    path = tmp_path / "inbox" / "livro.md"
+    sid, _stats = _harvest_markdown(
+        cfg, db, path, _two_chapter_book("Texto original do segundo capitulo. " * 8)
+    )
+    assert sid
+    before = {row["chunk_id"] for row in db.get_chunks_for_source(sid)}
+    with caplog.at_level("WARNING"):
+        again, stats = _harvest_markdown(
+            cfg, db, path, _two_chapter_book("Texto revisado do segundo capitulo. " * 8)
+        )
+    assert again is None
+    assert stats == {}
+    assert db.get_file(str(path))["source_id"] == sid
+    assert {row["chunk_id"] for row in db.get_chunks_for_source(sid)} == before
+    assert len(db.list_sources()) == 1
+    assert "acao='skip'" in caplog.text
+
+
+def test_modified_file_update_keeps_unchanged_chunks_and_pends_new_ones(cfg, db, tmp_path):
+    cfg.harvest.modified_file_action = "update"
+    path = tmp_path / "inbox" / "livro.md"
+    sid, _stats = _harvest_markdown(
+        cfg, db, path, _two_chapter_book("Texto original do segundo capitulo. " * 8)
+    )
+    stable = next(row for row in db.get_chunks_for_source(sid) if "estavel" in row["text"])
+    db.update_chunk_status(stable["chunk_id"], "persisted")
+    again, _stats = _harvest_markdown(
+        cfg, db, path, _two_chapter_book("Texto revisado do segundo capitulo. " * 8)
+    )
+    assert again == sid
+    assert len(db.list_sources()) == 1
+    assert db.get_file(str(path))["source_id"] == sid
+    kept = db.get_chunk(stable["chunk_id"])
+    assert kept is not None
+    assert kept["status"] == "persisted"
+    assert "estavel" in kept["text"]
+    revised = [row for row in db.get_chunks_for_source(sid) if "revisado" in row["text"]]
+    assert revised
+    assert all(row["status"] == "pending" for row in revised)
+
+
+def test_modified_file_new_moves_the_path_and_keeps_the_old_source(cfg, db, tmp_path):
+    cfg.harvest.modified_file_action = "new"
+    path = tmp_path / "inbox" / "livro.md"
+    sid, _stats = _harvest_markdown(
+        cfg, db, path, _two_chapter_book("Texto original do segundo capitulo. " * 8)
+    )
+    again, _stats = _harvest_markdown(
+        cfg, db, path, _two_chapter_book("Texto revisado do segundo capitulo. " * 8)
+    )
+    assert again and again != sid
+    assert db.get_source(sid) is not None
+    assert db.get_file(str(path))["source_id"] == again
+
+
+def test_update_does_not_treat_the_sources_own_doi_as_a_duplicate(cfg, db, tmp_path):
+    cfg.harvest.modified_file_action = "update"
+    path = tmp_path / "inbox" / "obra.md"
+    body = (
+        "---\n"
+        "title: Obra\n"
+        "author: Ana Silva\n"
+        "year: 2020\n"
+        "document_type: livro\n"
+        "place: Sao Paulo\n"
+        "publisher: Editora\n"
+        "doi: 10.1000/xyz123\n"
+        "---\n\n"
+        "# Cap\n\n" + ("Texto original longo o bastante para um chunk. " * 8)
+    )
+    sid, _stats = _harvest_markdown(cfg, db, path, body)
+    revised = body.replace("original", "revisado")
+    again, _stats = _harvest_markdown(cfg, db, path, revised)
+    assert again == sid
+    assert any("revisado" in row["text"] for row in db.get_chunks_for_source(sid))
+
+
+def test_update_rewrites_bibliography_when_only_frontmatter_changes(cfg, db, tmp_path):
+    cfg.harvest.modified_file_action = "update"
+    path = tmp_path / "inbox" / "obra.md"
+    prose = "Texto estavel do corpo para o chunk. " * 8
+    body = (
+        "---\n"
+        "title: Obra\n"
+        "author: Ana Silva\n"
+        "year: 2020\n"
+        "document_type: livro\n"
+        "place: Sao Paulo\n"
+        "publisher: Editora\n"
+        "doi: 10.1000/xyz123\n"
+        "---\n\n"
+        f"# Cap\n\n{prose}"
+    )
+    sid, _stats = _harvest_markdown(cfg, db, path, body)
+    before = {row["chunk_id"] for row in db.get_chunks_for_source(sid)}
+    citekey = db.get_source(sid)["citekey"]
+    revised = body.replace("author: Ana Silva", "author: Bruno Costa").replace(
+        "doi: 10.1000/xyz123", "doi: 10.1000/abc999"
+    )
+    again, _stats = _harvest_markdown(cfg, db, path, revised)
+    src = db.get_source(sid)
+    assert again == sid
+    assert src["citekey"] == citekey
+    assert "Bruno Costa" in src["authors"]
+    assert "COSTA" in (src["abnt_reference"] or "")
+    assert src["doi"] == "10.1000/abc999"
+    assert {row["chunk_id"] for row in db.get_chunks_for_source(sid)} == before

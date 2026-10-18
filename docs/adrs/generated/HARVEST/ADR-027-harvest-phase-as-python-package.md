@@ -159,3 +159,7 @@ Reason: Windows file locks; git tracking clarity.
 **Decided by**: Ricardo Medeiros  
 **Date**: 2026-08-31  
 **Implementation**: Issue #48
+
+## Amendment (2026-10-16): resume after a crash (#237)
+
+`pipeline.source_chunking_incomplete` is true when `processing_status` is not `completed`, not only when a chapter id is missing. `run_rechunk` marks the source `in_progress` before the pass and `completed` only after `chunk_and_persist` returns. The atomic write itself lives in `chunking.chunk_and_persist` (ADR-007, ADR-014).

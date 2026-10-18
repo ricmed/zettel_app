@@ -153,6 +153,26 @@ def test_author_year_label():
     assert author_year_label("@Negro2026KnowledgeGraphs") == "Negro2026"
     assert author_year_label("Book2024") == "Book2024"
     assert author_year_label("UntitledOnly") == "UntitledOnly"
+    assert author_year_label("Gonçalves2021AnáliseDe") == "Gonçalves2021"
+    assert author_year_label("Müller2019Teoria") == "Müller2019"
+
+
+def test_vault_paths_stay_inside_the_vault(tmp_path):
+    """Document metadata must not choose a path outside the vault."""
+    hostile = "../../evil\\..\\x"
+    vault = tmp_path / "vault"
+    names = [
+        vault / "10_Sources" / source_note_filename(hostile, "titulo ../sair"),
+        vault / "20_Literature" / literature_index_filename(hostile, "titulo"),
+        vault / "20_Literature" / literature_source_dirname(hostile),
+        vault
+        / "20_Literature"
+        / literature_chunk_filename(hostile, chunk_index=1, section_path="../fora"),
+    ]
+    root = vault.resolve()
+    for path in names:
+        assert ".." not in path.name
+        assert path.resolve().is_relative_to(root)
 
 
 def test_literature_source_dirname_strips_at():

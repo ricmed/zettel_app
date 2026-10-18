@@ -498,7 +498,7 @@ Exige `--source-id` ou `--all`. Default: `data/cache/chunk-dumps/`.
 
 ```bash
 # Exportar o Markdown extraido (Docling/MD, headings H1-H6;
-# PDF pode ter <!-- zettel:page-break -->)
+# PDF pode ter <!-- zettel:page N -->)
 python -m zettel dump-extraction --source-id @AutorAnoTitulo
 python -m zettel dump-extraction --all --dump-dir ./tmp/extraction
 ```

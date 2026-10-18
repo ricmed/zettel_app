@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from zettel.bibliography import (
     BibliographicMetadata,
     _merge_biblio,
+    enrich_with_llm,
     form_fields_from_metadata,
     format_abnt,
     format_authors_abnt,
@@ -18,6 +20,7 @@ from zettel.bibliography import (
     metadata_from_manual_seed,
     missing_required,
     required_fields,
+    required_filled_only_by_llm,
 )
 from zettel.config import AppConfig, HarvestConfig
 from zettel.harvester import resolve_bibliography as _resolve_bibliography
@@ -227,6 +230,61 @@ def test_infer_artigo_internet_from_url():
     assert meta.url and meta.url.startswith("https://")
 
 
+def test_discurso_filename_is_not_course_material():
+    meta = infer_from_file_metadata({}, "Texto sobre o metodo.", "Discurso do método.pdf")
+    assert meta.document_type != "material_curso"
+    assert meta.provenance["document_type"] == "heuristic"
+
+
+def test_hipotese_filename_is_not_a_thesis():
+    meta = infer_from_file_metadata({}, "um ensaio curto.", "hipótese.pdf")
+    assert meta.document_type != "tese"
+
+
+def test_user_frontmatter_is_not_overwritten_by_the_model(monkeypatch, tmp_path):
+    cfg = AppConfig(
+        vault_path=tmp_path / "vault",
+        prompts_path=Path("prompts"),
+        harvest=HarvestConfig(biblio_llm_enabled=True),
+    )
+    db = StateDB(tmp_path / "state.db")
+    seed = infer_from_file_metadata(
+        {
+            "title": "O Capital",
+            "authors": ["Karl Marx"],
+            "year": 2013,
+            "_user_fields": ["title", "authors", "year"],
+        },
+        "texto do livro",
+        "capital.md",
+    )
+    assert seed.provenance["authors"] == "user"
+
+    monkeypatch.setattr("zettel.bibliography.get_llm", lambda *_a, **_k: object())
+    monkeypatch.setattr(
+        "zettel.bibliography.call_llm",
+        lambda *_a, **_k: json.dumps(
+            {
+                "document_type": "livro",
+                "title": "Alucinado",
+                "authors": ["Outra Pessoa"],
+                "year": 1999,
+                "place": "Sao Paulo",
+                "publisher": "Boitempo",
+                "confidence": 0.95,
+            }
+        ),
+    )
+    merged = enrich_with_llm(cfg, db, seed, "texto do livro", "capital.md")
+    assert merged.authors == ["Karl Marx"]
+    assert merged.title == "O Capital"
+    assert merged.year == 2013
+    assert merged.place == "Sao Paulo"
+    assert merged.provenance["authors"] == "user"
+    assert merged.provenance["place"] == "llm"
+    db.close()
+
+
 def test_infer_respects_frontmatter_document_type():
     meta = infer_from_file_metadata(
         {
@@ -334,6 +392,43 @@ def cfg(tmp_path):
     (tmp_path / "vault" / "10_Sources").mkdir(parents=True, exist_ok=True)
     (tmp_path / "vault" / "20_Literature").mkdir(parents=True, exist_ok=True)
     return c
+
+
+def test_noninteractive_refuses_a_record_filled_only_by_the_model(cfg, tmp_path):
+    names = ["document_type", "authors", "title", "place", "publisher", "year"]
+    meta = BibliographicMetadata(
+        document_type="livro",
+        confidence=0.9,
+        title="T",
+        authors=["A B"],
+        year=2020,
+        place="SP",
+        publisher="Ed",
+        provenance=dict.fromkeys(names, "llm"),
+    )
+    assert required_filled_only_by_llm(meta)
+    assert is_complete(meta, cfg.harvest.biblio_confidence_threshold)
+    assert (
+        _resolve_bibliography(
+            tmp_path / "x.pdf",
+            meta,
+            interactive=False,
+            skip_biblio=False,
+            cfg=cfg,
+        )
+        is None
+    )
+    meta.provenance = {**meta.provenance, "authors": "user"}
+    assert (
+        _resolve_bibliography(
+            tmp_path / "x.pdf",
+            meta,
+            interactive=False,
+            skip_biblio=False,
+            cfg=cfg,
+        )
+        is meta
+    )
 
 
 def test_resolve_bibliography_noninteractive_skips_without_flag(cfg, tmp_path):
@@ -460,9 +555,15 @@ def test_prepared_review_persists_edits_without_reextracting(db, cfg, tmp_path, 
         "text": text,
         "metadata": {"title": "Obra original"},
         "biblio": BibliographicMetadata(
-            document_type="livro", confidence=0.9, title="Obra corrigida",
-            authors=["Ana Silva"], year=2024, publisher="Nova Editora",
-            place="Rio de Janeiro", subtitle="Complemento", isbn="978-0-123",
+            document_type="livro",
+            confidence=0.9,
+            title="Obra corrigida",
+            authors=["Ana Silva"],
+            year=2024,
+            publisher="Nova Editora",
+            place="Rio de Janeiro",
+            subtitle="Complemento",
+            isbn="978-0-123",
         ).model_dump(),
         "abnt_reference": "Referência corrigida manualmente.",
     }
@@ -475,8 +576,13 @@ def test_prepared_review_persists_edits_without_reextracting(db, cfg, tmp_path, 
         lambda *args: pytest.fail("Não deve repetir o LLM bibliográfico"),
     )
     sid, stats = _process_file(
-        cfg, db, FakeVectorIndex(), path, run_id=db.start_run("sig"),
-        interactive=False, prepared=prepared,
+        cfg,
+        db,
+        FakeVectorIndex(),
+        path,
+        run_id=db.start_run("sig"),
+        interactive=False,
+        prepared=prepared,
     )
     assert sid and stats.get("chunks", 0) >= 1
     src = db.get_source(sid)
@@ -496,14 +602,21 @@ def test_prepared_review_rejects_changed_file_before_writing(db, cfg, tmp_path):
     path.write_text("# Outra obra", encoding="utf-8")
     with pytest.raises(ValueError, match="mudou após a revisão"):
         _process_file(
-            cfg, db, FakeVectorIndex(), path, run_id=db.start_run("sig"),
-            interactive=False, prepared=prepared,
+            cfg,
+            db,
+            FakeVectorIndex(),
+            path,
+            run_id=db.start_run("sig"),
+            interactive=False,
+            prepared=prepared,
         )
     assert db.list_sources() == []
 
 
 def test_review_cannot_succeed_by_reusing_source_with_different_bibliography(
-    db, cfg, tmp_path,
+    db,
+    cfg,
+    tmp_path,
 ):
     from zettel.hashing import file_sha256
     from zettel.paging import compute_docling_config_hash
@@ -519,7 +632,11 @@ def test_review_cannot_succeed_by_reusing_source_with_different_bibliography(
         encoding="utf-8",
     )
     sid, _ = _process_file(
-        cfg, db, FakeVectorIndex(), path, run_id=db.start_run("sig"),
+        cfg,
+        db,
+        FakeVectorIndex(),
+        path,
+        run_id=db.start_run("sig"),
         interactive=False,
     )
     assert sid
@@ -530,16 +647,25 @@ def test_review_cannot_succeed_by_reusing_source_with_different_bibliography(
         "text": "# Obra",
         "metadata": {},
         "biblio": BibliographicMetadata(
-            document_type="livro", title="Título corrigido",
-            authors=["Ana Silva"], year=2024, place="São Paulo",
-            publisher="Editora", confidence=0.9,
+            document_type="livro",
+            title="Título corrigido",
+            authors=["Ana Silva"],
+            year=2024,
+            place="São Paulo",
+            publisher="Editora",
+            confidence=0.9,
         ).model_dump(),
         "abnt_reference": "Referência corrigida.",
     }
     with pytest.raises(ValueError, match="revisão não foi aplicada"):
         _process_file(
-            cfg, db, FakeVectorIndex(), path, run_id=db.start_run("sig"),
-            interactive=False, prepared=prepared,
+            cfg,
+            db,
+            FakeVectorIndex(),
+            path,
+            run_id=db.start_run("sig"),
+            interactive=False,
+            prepared=prepared,
         )
     assert db.get_source(sid)["bibliography_json"] == original["bibliography_json"]
     assert db.get_source(sid)["abnt_reference"] == original["abnt_reference"]
@@ -547,8 +673,13 @@ def test_review_cannot_succeed_by_reusing_source_with_different_bibliography(
     duplicate.write_bytes(path.read_bytes())
     with pytest.raises(ValueError, match="revisão não foi aplicada"):
         _process_file(
-            cfg, db, FakeVectorIndex(), duplicate, run_id=db.start_run("sig"),
-            interactive=False, prepared=prepared,
+            cfg,
+            db,
+            FakeVectorIndex(),
+            duplicate,
+            run_id=db.start_run("sig"),
+            interactive=False,
+            prepared=prepared,
         )
     assert db.get_file(str(duplicate)) is None
 
@@ -562,15 +693,23 @@ def test_prepared_review_rejects_changed_extraction_configuration(db, cfg, tmp_p
     prepared = {
         "checksum": file_sha256(path),
         "config_hash": compute_docling_config_hash(cfg),
-        "text": "# Obra", "metadata": {}, "biblio": {},
+        "text": "# Obra",
+        "metadata": {},
+        "biblio": {},
     }
     cfg.images.enabled = not cfg.images.enabled
     with pytest.raises(ValueError, match="configuração de extração mudou"):
         _process_file(
-            cfg, db, FakeVectorIndex(), path, run_id=db.start_run("sig"),
-            interactive=False, prepared=prepared,
+            cfg,
+            db,
+            FakeVectorIndex(),
+            path,
+            run_id=db.start_run("sig"),
+            interactive=False,
+            prepared=prepared,
         )
     assert db.list_sources() == []
+
 
 def test_process_file_skip_biblio_persists_partial(db, cfg, tmp_path):
     inbox = tmp_path / "inbox"

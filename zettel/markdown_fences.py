@@ -59,6 +59,71 @@ def iter_fenced_spans(text: str) -> list[tuple[int, int]]:
     return spans
 
 
+# A Docling table row. Indented code and pipe characters inside a fence are not rows.
+_TABLE_LINE_RE = re.compile(r"^[ \t]{0,3}\|")
+_TABLE_CELL_PAD_RE = re.compile(r"[ \t]{2,}")
+
+
+def iter_table_spans(text: str) -> list[tuple[int, int]]:
+    """Character spans of Markdown tables that sit outside fenced blocks.
+
+    A table is two or more consecutive lines that start with ``|``. A blank
+    line ends it. Pipe lines inside a fence are the fence's content.
+    """
+    source = text or ""
+    fences = iter_fenced_spans(source)
+    spans: list[tuple[int, int]] = []
+    pos = 0
+    run_start: int | None = None
+    run_end = 0
+    rows = 0
+    for line in source.splitlines(keepends=True):
+        line_start = pos
+        pos += len(line)
+        is_row = not offset_is_fenced(line_start, fences) and bool(_TABLE_LINE_RE.match(line))
+        if is_row:
+            if run_start is None:
+                run_start = line_start
+            run_end = pos
+            rows += 1
+            continue
+        if run_start is not None and rows >= 2:
+            spans.append((run_start, run_end))
+        run_start = None
+        rows = 0
+    if run_start is not None and rows >= 2:
+        spans.append((run_start, run_end))
+    return spans
+
+
+def collapse_table_padding(text: str) -> str:
+    """Collapse runs of spaces inside Markdown table rows, outside fences.
+
+    Docling pads cells so the columns line up. The characters are not content,
+    and they consume ``chunk_size``. ``| a | b |`` stays a table.
+    """
+    source = text or ""
+    if "|" not in source:
+        return source
+    fences = iter_fenced_spans(source)
+    out: list[str] = []
+    pos = 0
+    for line in source.splitlines(keepends=True):
+        line_start = pos
+        pos += len(line)
+        if offset_is_fenced(line_start, fences) or not _TABLE_LINE_RE.match(line):
+            out.append(line)
+            continue
+        ending = ""
+        body = line
+        if body.endswith("\r\n"):
+            body, ending = body[:-2], "\r\n"
+        elif body.endswith("\n"):
+            body, ending = body[:-1], "\n"
+        out.append(_TABLE_CELL_PAD_RE.sub(" ", body) + ending)
+    return "".join(out)
+
+
 def offset_is_fenced(offset: int, spans: list[tuple[int, int]]) -> bool:
     return any(start <= offset < end for start, end in spans)
 

@@ -26,12 +26,12 @@ Módulos: o pacote [`zettel/harvester/`](../zettel/harvester) ([ADR-027](adrs/ge
 
 1. Varre `data/inbox/` por arquivos `.pdf` e `.md`
 2. Calcula checksum SHA-256 de cada arquivo (pula inalterados) e aplica **detecção de duplicatas em 5 camadas** (hash de arquivo → hash do texto extraído → DOI/ISBN exato → título+autor → similaridade semântica de chunks)
-3. Extrai texto usando **Docling** (PDF) ou parser nativo (Markdown). Antes do Docling, um *probe* de camada de texto (`pypdfium2`, dependência do próprio Docling) lê as 3 primeiras páginas: menos de 40 caracteres visíveis = PDF escaneado, recusado na hora com sugestão de OCR, sem pagar conversão. Logo depois, o texto passa por `text_sanitize` (zero-width, marcas bidi, bloco de tags Unicode) **antes** do checksum de extração ([ADR-033](adrs/generated/HARVEST/ADR-033-invisible-unicode-sanitization-and-text-layer-probe.md))
+3. Extrai texto usando **Docling** (PDF) ou parser nativo (Markdown). Antes do Docling, um *probe* de camada de texto (`pypdfium2`, dependência do próprio Docling) lê as 4 primeiras páginas: menos de 40 caracteres visíveis = PDF escaneado, recusado na hora com sugestão de OCR, sem pagar conversão. Logo depois, o texto passa por `text_sanitize` (zero-width, marcas bidi, bloco de tags Unicode) **antes** do checksum de extração ([ADR-033](adrs/generated/HARVEST/ADR-033-invisible-unicode-sanitization-and-text-layer-probe.md))
 4. **Metadados bibliográficos (ABNT)**:
    - Infere o **tipo documental** (`livro`, `capitulo_livro`, `artigo_periodico`, `artigo_internet`, `material_curso`, `tese`, `anais_evento`, `relatorio`) e os campos tipados a partir de metadados do arquivo, heurísticas no texto e, se habilitado, LLM (`prompts/bibliographic_metadata.md`, com cache)
    - Campos obrigatórios variam por tipo (ex.: livro exige autores, título, cidade, editora, ano; artigo de internet exige título, URL e data de acesso)
    - Em modo interativo, **sempre** mostra preview (tabela + referência ABNT) e pede confirmação antes de gravar a SRC — mesmo quando os metadados já estão completos; dá para editar tipo/campos se recusar
-   - Em modo não-interativo (`--yes`), bibliografia completa é aceita sem prompt; incompleta **pula o arquivo**, salvo `--skip-biblio` (segue com parcial + aviso)
+   - Em modo não-interativo (`--yes`), bibliografia completa é aceita sem prompt **desde que algum campo obrigatório não tenha vindo só do modelo**; se autores, título e os demais obrigatórios são todos `llm`, o arquivo é pulado como incompleto. Incompleta **pula o arquivo**, salvo `--skip-biblio` (segue com parcial + aviso). O que está no frontmatter (`user`) não é sobrescrito pelo LLM. A origem de cada campo fica em `bibliography_json.provenance` (`user`, `file_metadata`, `llm`, `heuristic`) e aparece no preview do CLI e na revisão da web.
    - Persiste `document_type`, `bibliography_json` e `abnt_reference` no SQLite; a nota **SRC** recebe os campos separados no frontmatter **e** a string `abnt_reference` pronta para citar
 5. Gera **citekey** determinístico: `@SobrenomeAnoTituloSlug` (a partir dos metadados já enriquecidos)
 6. Grava nota **SRC** (`SRC - AuthorYear - slug.md`) em `10_Sources/` e o **índice LIT** (`LIT - AuthorYear - slug.md`) em `20_Literature/` **antes** do chunking/embeddings (que podem demorar minutos); `processing_status=in_progress`. Pastas e arquivos **não** usam `@` (o `@` fica só em `source_id` / CLI). O layout antigo (`@Citekey/`, `chunk_NNNN.md`, `*-index.md`) não é lido; reescreva notas `pipeline` com `zettel rebuild --force` e apague leftovers à mão.
@@ -51,9 +51,11 @@ Cada camada é mais barata e mais certeira que a seguinte, e roda antes de o arq
 |---|---|---|---|
 | 1 | **Hash de arquivo** (`get_file_by_checksum`) | Bytes idênticos em outro caminho | Trata como cópia renomeada, reusa o `source_id`, não reprocessa |
 | 2 | **Hash de extração** (`get_source_by_extraction_checksum`) | Bytes diferentes, texto extraído normalizado idêntico (ex.: mesmo paper em PDF re-exportado e em Markdown) | Reusa a fonte existente |
-| 3 | **DOI / ISBN exato** (`find_exact_bibliographic_match`) | Igualdade sobre `sources.doi` / `sources.isbn` (colunas indexadas, normalizadas: `doi:` e URLs do doi.org removidos, prefixo `10.` exigido; ISBN sem pontuação, 10 ou 13 dígitos) | **Identidade**: reusa a fonte sem perguntar |
+| 3 | **DOI / ISBN** (`find_exact_bibliographic_match`) | DOI no formato Crossref, pontuação final removida. ISBN com dígito verificador. | **DOI**: reusa sem perguntar. **ISBN**: só sem perguntar quando o título normalizado coincide e nenhum dos dois é capítulo ou anais; senão pergunta (sem TTY, segue como fonte nova) |
 | 4 | **Título + autor** (`find_title_author_candidates`) | Exige título normalizado idêntico **e** sobrenome de autor em comum. `normalize_title` reusa `hashing.fold_for_match` e descarta o subtítulo após `:`; sobrenomes comparam o último token, então "D. Kahneman" casa com "Daniel Kahneman" | **Heurística**: sempre pergunta, nunca funde sozinha. Sem TTY o default é **`continue`** (cria fonte nova) |
 | 5 | **Similaridade semântica** (`find_semantic_duplicate_candidates`) — **desligada por padrão**, ver abaixo | Amostra chunks do arquivo novo e consulta o Chroma por chunks quase idênticos (`harvest.duplicate_chunk_threshold`, default `0.88`) pertencentes a **outras** fontes | Se houver candidatos, `resolve_duplicate_decision` pergunta (Rich `Prompt`) ou aplica `harvest.non_interactive_duplicate_action` (`skip`/`continue`/`abort`) |
+
+Um arquivo que **já está nesse caminho** e mudou de bytes não é nenhuma dessas camadas. `harvest.modified_file_action` decide: `skip` (padrão) deixa a fonte como está; `update` regrava a mesma fonte (citekey estável; capítulo inalterado conserva o `chunk_id`; capítulo reescrito volta com chunks `pending`); `new` cria outra fonte e o caminho passa a apontar para ela. No modo interativo o harvest pergunta. DOI/ISBN da própria fonte em atualização não interrompe a regravação. A nota permanente permanece; o arquivo LIT no vault não é apagado ([ADR-046](adrs/generated/HARVEST/ADR-046-bibliographic-duplicate-layers.md)).
 
 #### A camada 5 vem desligada (`harvest.semantic_duplicate_enabled: false`)
 
@@ -83,7 +85,7 @@ As flags `--yes`, `--skip-duplicates` e `--force` controlam o comportamento não
 
 Chunking híbrido ([ADR-014](adrs/generated/HARVEST/ADR-014-hybrid-structural-chunking-strategy.md)): primeiro corta pela estrutura (headings H3–H6), fundindo seções menores que `chunking.min_section_chars` com a seguinte; depois aplica o splitter da LangChain com `chunk_size` / `chunk_overlap` (em **caracteres**, não tokens). Um terceiro piso roda depois do splitter: pedaço menor que `chunking.min_chunk_chars` (default `200`) é fundido no anterior (ou no seguinte, se for o primeiro da seção) — elimina caudas de corte e réguas horizontais isoladas (`---`) antes que virem uma chamada de LLM. Fontes já harvestadas só se beneficiam do piso novo depois de `zettel rechunk`.
 
-**Fences são átomos.** Um bloco cercado CommonMark (```` ``` ```` ou `~~~`) nunca é cortado. Headings H1–H6 **dentro** do fence são ilustrativos — não viram capítulo nem entram no `section_path`; só headings fora do fence particionam. O splitter de tamanho age apenas na prosa entre fences. Se o fence for maior que `chunk_size`, sai um **chunk oversized** de propósito: fatiar um template ou um trecho de código em `\n\n` é pior que um chunk grande (isso não altera o `chunk_size` global). Fontes harvestadas antes dessa regra mantêm os chunks antigos até você rodar `zettel rechunk`. Fora do escopo do scanner: código indentado por 4 espaços, tabelas fora de fence e HTML.
+**Fences são átomos.** Um bloco cercado CommonMark (```` ``` ```` ou `~~~`) nunca é cortado. Headings H1–H6 **dentro** do fence são ilustrativos — não viram capítulo nem entram no `section_path`; só headings fora do fence particionam. O splitter de tamanho age apenas na prosa entre fences. Se o fence for maior que `chunk_size`, sai um **chunk oversized** de propósito: fatiar um template ou um trecho de código em `\n\n` é pior que um chunk grande (isso não altera o `chunk_size` global). Fontes harvestadas antes dessa regra mantêm os chunks antigos até você rodar `zettel rechunk`. Uma tabela Markdown fora de fence é o mesmo tipo de átomo: cabe em `chunk_size * fence_section_slack` e sai inteira; acima disso é cortada por linha, e cada parte repete o cabeçalho e o separador. O padding de coluna que o Docling coloca nas células é colapsado na extração, antes do `extraction_checksum` — um re-harvest muda o checksum; `rechunk` sozinho não limpa um texto já gravado. Fora do escopo do scanner: código indentado por 4 espaços e HTML. Linhas `|` dentro de um fence continuam sendo conteúdo do fence.
 
 **Heading no primeiro chunk.** O título ATX da seção (e o H1/H2 do capítulo na primeira peça) é prefixado **só no primeiro chunk** daquela seção, *depois* do split por fences — para um diagrama/template não virar dois chunks. As continuações da mesma seção seguem só com o corpo. O `section_path` continua metadado. Fontes antigas só mudam com `zettel rechunk`.
 
@@ -97,19 +99,20 @@ O número que o leitor vê no livro/revista (`page_in_book`) é o que vai para L
 
 | Tipo de fonte | O que acontece |
 |---|---|
-| Livro com miolo (capa, sumario, prefacio) | Detecta Capitulo 1 / Introduction (pula pagina de sumario). Paginas anteriores ao inicio nao viram chunk. Numero impresso nessa pagina: cabecalho/rodape, senao 1. |
-| Artigo de revista (PDF p.1 = revista p.200) | Sem marcador de capitulo; usa o numero isolado no cabecalho/rodape da p.1, ou o intervalo bibliografico `pages: 200-210`. |
+| Livro com miolo (capa, sumario, prefacio) | Se o PDF tem `/PageLabels` (romanos e depois `1`), o início é a primeira página rotulada `1`. Senão detecta Capitulo 1 / Introduction (pula pagina de sumario). Paginas anteriores ao inicio nao viram chunk. |
+| Artigo de revista (PDF p.1 = revista p.200) | Se os rótulos começam em `200`, esse é o número impresso. Senão, sem marcador de capitulo, usa o intervalo bibliografico `pages: 200-210`. |
 | Apostila, tutorial, artigo que comeca em 1 | arquivo p.1 = impressa p.1 |
 | Markdown (anotacoes de curso, etc.) | Sem pagina. Localizador = `section_path`. Digitos no texto nao viram pagina. |
 
 Como o início é resolvido ([ADR-013](adrs/generated/HARVEST/ADR-013-three-layer-page-inference-strategy.md)):
 
-- Interativo: prompt HITL (sugestão da heurística como default)
+- `/PageLabels` numéricos (pypdfium2): primeira página rotulada `1`, ou o primeiro rótulo arábico quando nenhum é `1`. O padrão `1..N` que o pdfium devolve sem rótulos não conta. Confiança `labels`, sem prompt
+- Interativo: prompt HITL (sugestão como default) e a primeira linha do texto da página sugerida
 - `--content-start-file` / `--content-start-book`: valor explícito (ganha de tudo)
-- `--yes` / web / `run-all` sem flags: aplica a heurística em silêncio
+- `--yes` / web / `run-all` sem flags: aplica rótulos ou, na falta deles, a heurística em silêncio
 - `--skip-paging`: força arquivo p.1 = impressa p.1 (não detecta miolo nem revista)
 
-O mapa de `page_in_file` vem do **Docling** (`export_to_markdown` com `page_break_placeholder`, comentários `<!-- zettel:page-break -->` no texto extraído — o mesmo Markdown dos chunks). O `prov.page_no` do Docling é o índice do arquivo, não o número impresso. Docling é obrigatório — não há fallback para outro extrator ([ADR-012](adrs/generated/HARVEST/ADR-012-docling-pdf-extraction-pymupdf-fallback.md)). Regex no corpo do chunk só roda quando não há mapa e a fonte não é Markdown.
+O mapa de `page_in_file` vem do **Docling**, uma fatia por página do arquivo (`export_to_markdown(page_no=)`, o `prov.page_no`), inclusive páginas sem texto. O texto persistido leva um marcador numerado `<!-- zettel:page N -->` por página. O mapa só é usado quando cobre `1..total_pages_file`; se divergir, o harvest registra o erro e não rotula nenhuma página como exata. A página do chunk é o deslocamento do início do texto nesse mapa (`exact` se a sonda está numa só página, `fuzzy` se o cabeçalho se repete ou só há interseção de palavras, `inferred` por interpolação). `set-paging` preserva o rótulo. O marcador antigo `<!-- zettel:page-break -->` não é mapa — um re-harvest é necessário. O `prov.page_no` é o índice do arquivo, não o número impresso. Docling é obrigatório — não há fallback para outro extrator ([ADR-012](adrs/generated/HARVEST/ADR-012-docling-pdf-extraction-pymupdf-fallback.md), [ADR-013](adrs/generated/HARVEST/ADR-013-three-layer-page-inference-strategy.md)). Regex no corpo do chunk só roda quando não há mapa e a fonte não é Markdown.
 
 Para corrigir uma fonte já harvestada:
 
@@ -117,7 +120,9 @@ Para corrigir uma fonte já harvestada:
 python -m zettel set-paging --source-id @Citekey --content-start-file 35 --content-start-book 10
 ```
 
-Isso recalcula o número impresso sem chamar o LLM. Se `page_in_file` estiver errado ou vazio (harvest antigo, anterior ao mapa Docling), reprocesse o PDF (`zettel harvest`) ou rode `zettel rechunk` se o `extracted_text` já tiver os marcadores de quebra.
+Isso recalcula o número impresso sem chamar o LLM. Se `page_in_file` estiver errado ou vazio (harvest antigo, ou texto ainda com `<!-- zettel:page-break -->`), reprocesse o PDF (`zettel harvest`). `zettel rechunk` só reconstrói o mapa se o `extracted_text` já tiver os marcadores numerados `<!-- zettel:page N -->`.
+
+Um harvest interrompido fica com `processing_status=in_progress`. A passada seguinte retoma: o `chapter_checksum` só vale quando os chunks daquele capítulo foram commitados na mesma transação. O índice Chroma de chunks é refeito a partir do SQLite.
 
 ---
 

@@ -16,6 +16,7 @@ from zettel.bibliography import (
     is_complete,
     missing_required,
     required_fields,
+    required_filled_only_by_llm,
 )
 from zettel.config import AppConfig
 
@@ -40,6 +41,13 @@ def resolve_bibliography(
     complete = is_complete(biblio, threshold)
 
     if not interactive:
+        if complete and required_filled_only_by_llm(biblio):
+            logger.warning(
+                "Biblio de '%s' esta completa, mas os campos obrigatorios "
+                "vieram todos do modelo. Nao aceita sem revisao.",
+                file_path.name,
+            )
+            complete = False
         if complete:
             logger.info(
                 "Biblio completa para '%s' (tipo=%s, confidence=%.2f) — "
@@ -67,13 +75,24 @@ def resolve_bibliography(
     console = Console(stderr=True)
     meta = biblio.model_copy(deep=True)
 
+    def _mark_user(field: str) -> None:
+        provenance = dict(meta.provenance)
+        provenance[field] = "user"
+        meta.provenance = provenance
+
     def _show_preview(m: Any, title: str = "Campos inferidos") -> None:
         console.print(f"\n[bold]Metadados bibliograficos: {file_path.name}[/bold]")
         table = Table(title=title)
         table.add_column("Campo")
         table.add_column("Valor")
-        table.add_row("document_type", m.document_type or "(ausente)")
-        table.add_row("confidence", f"{m.confidence:.2f}")
+        table.add_column("Origem")
+        origins = getattr(m, "provenance", {}) or {}
+        table.add_row(
+            "document_type",
+            m.document_type or "(ausente)",
+            origins.get("document_type", ""),
+        )
+        table.add_row("confidence", f"{m.confidence:.2f}", "")
         preview_fields = (
             required_fields(m.document_type) if m.document_type else ["title", "authors", "year"]
         )
@@ -85,7 +104,7 @@ def resolve_bibliography(
                 display = ", ".join(value) if value else "(vazio)"
             else:
                 display = str(value) if value not in (None, "") else "(vazio)"
-            table.add_row(FIELD_LABELS.get(field, field), display)
+            table.add_row(FIELD_LABELS.get(field, field), display, origins.get(field, ""))
         console.print(table)
         if m.document_type:
             abnt = format_abnt(m)
@@ -135,6 +154,7 @@ def resolve_bibliography(
             )
             meta.document_type = DOCUMENT_TYPES[int(choice) - 1]
             meta.confidence = max(meta.confidence, threshold)
+            _mark_user("document_type")
 
     to_fill = [f for f in missing_required(meta) if f != "document_type"]
     if to_fill:
@@ -171,6 +191,11 @@ def resolve_bibliography(
                 setattr(meta, field, None)
         else:
             setattr(meta, field, answer or None)
+        if not (
+            (isinstance(getattr(meta, field, None), list) and not getattr(meta, field))
+            or getattr(meta, field, None) in (None, "")
+        ):
+            _mark_user(field)
 
     still_missing = missing_required(meta)
     if still_missing:
@@ -205,6 +230,7 @@ def resolve_bibliography(
                 setattr(meta, field, [a.strip() for a in answer.split(",") if a.strip()])
             else:
                 setattr(meta, field, answer)
+            _mark_user(field)
 
     _show_preview(meta, title="Metadados finais")
     if not Confirm.ask("Confirmar e gravar SRC?", default=True, console=console):

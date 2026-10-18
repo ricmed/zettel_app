@@ -8,8 +8,11 @@ than more expensive.
 The two layers differ in kind, not just in confidence, and the pipeline treats
 them differently:
 
-* **DOI / ISBN** is an *identity*. A match is the same work by definition, so the
-  existing ``source_id`` is reused with no prompt.
+* **DOI** is an *identity*. A match is the same work, so the existing
+  ``source_id`` is reused with no prompt. **ISBN** is an edition, and it is
+  also printed on a chapter PDF: it merges without asking only when both
+  records are the same normalized title and neither is a chapter or
+  proceedings paper. Otherwise it asks, like layer 4.
 * **Title + author** is a *heuristic*. It cannot separate a book from a chapter
   of that book, a second edition from the first, or a translation from its
   original — all of which share a title and an author. So it always asks, and
@@ -33,28 +36,67 @@ logger = logging.getLogger(__name__)
 
 # A DOI can legitimately be typed with a URL prefix or a "doi:" scheme.
 _DOI_PREFIX = re.compile(r"^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)", re.IGNORECASE)
+# Crossref's recommended pattern (case-insensitive). Registrant is 4-9 digits.
+_DOI_RE = re.compile(r"^10\.\d{4,9}/[-._;()/:a-z0-9]+$", re.IGNORECASE)
+_DOI_TRAILING = ".;,)"
+# An ISBN on a chapter or proceedings PDF is the book's (or the volume's), not
+# a private identity of that file.
+_ISBN_NOT_IDENTITY = frozenset({"capitulo_livro", "anais_evento"})
 
 
 def normalize_doi(raw: str | None) -> str:
-    """Fold a DOI to its comparable form, or "" when there is nothing usable.
+    """Fold a DOI to its comparable form, or "" when it is not a DOI.
 
-    DOIs are case-insensitive by specification, and the same one is written as a
-    bare ``10.x/y``, as ``doi:10.x/y`` or as a doi.org URL.
+    DOIs are case-insensitive. A ``doi:`` scheme or a doi.org URL is stripped,
+    then trailing sentence punctuation (``.``, ``)``, ``;``, ``,``). What
+    remains must match the Crossref pattern; anything else is not used as an
+    identity.
     """
     if not raw:
         return ""
-    value = _DOI_PREFIX.sub("", str(raw).strip()).strip().lower()
-    # A DOI always starts with a "10." registrant prefix; anything else is junk
-    # the extractor guessed, and matching on it would merge unrelated works.
-    return value if value.startswith("10.") else ""
+    value = _DOI_PREFIX.sub("", str(raw).strip()).strip()
+    value = value.rstrip(_DOI_TRAILING).lower()
+    if not _DOI_RE.fullmatch(value):
+        if value.startswith("10."):
+            logger.info("DOI descartado (formato invalido): %s", value)
+        return ""
+    return value
+
+
+def _isbn13_ok(digits: str) -> bool:
+    total = sum(int(ch) * (1 if i % 2 == 0 else 3) for i, ch in enumerate(digits))
+    return total % 10 == 0
+
+
+def _isbn10_ok(digits: str) -> bool:
+    total = 0
+    for i, ch in enumerate(digits):
+        value = 10 if ch == "X" else int(ch)
+        total += value * (10 - i)
+    return total % 11 == 0
 
 
 def normalize_isbn(raw: str | None) -> str:
-    """Strip hyphens/spaces from an ISBN; keep only a plausible ISBN-10/13."""
+    """Strip hyphens/spaces and require a valid ISBN-10 or ISBN-13 check digit.
+
+    An invalid check digit is "" so layer 3 does not merge on it. ``X`` is the
+    ISBN-10 check character.
+    """
     if not raw:
         return ""
     value = re.sub(r"[^0-9xX]", "", str(raw)).upper()
-    return value if len(value) in (10, 13) else ""
+    if len(value) == 13 and value.isdigit() and _isbn13_ok(value):
+        return value
+    if (
+        len(value) == 10
+        and value[:-1].isdigit()
+        and value[-1] in "0123456789X"
+        and _isbn10_ok(value)
+    ):
+        return value
+    if value:
+        logger.info("ISBN descartado (digito verificador ou tamanho): %s", value)
+    return ""
 
 
 def normalize_title(raw: str | None) -> str:
@@ -92,6 +134,23 @@ def _stored_authors(row: dict[str, Any]) -> list[str]:
     except (json.JSONDecodeError, TypeError):
         return []
     return [str(a) for a in parsed] if isinstance(parsed, list) else []
+
+
+def isbn_requires_confirmation(
+    incoming_type: str | None,
+    existing: dict[str, Any],
+    incoming_title: str | None,
+) -> bool:
+    """True when a shared ISBN is not enough to merge without asking.
+
+    A chapter or proceedings paper often carries the book's ISBN. Differing
+    normalized titles are the same situation: two works, one edition number.
+    """
+    existing_type = str(existing.get("document_type") or "")
+    incoming = str(incoming_type or "")
+    if incoming in _ISBN_NOT_IDENTITY or existing_type in _ISBN_NOT_IDENTITY:
+        return True
+    return normalize_title(incoming_title) != normalize_title(existing.get("title"))
 
 
 def find_exact_bibliographic_match(
@@ -203,3 +262,31 @@ def resolve_title_author_decision(
         console=console,
     )
     return {"pular": "skip", "continuar": "continue", "abortar": "abort"}[choice]
+
+
+def resolve_isbn_decision(
+    file_path: Path,
+    existing: dict[str, Any],
+    interactive: bool,
+) -> str:
+    """Ask before merging on an ISBN that does not identify the work.
+
+    Without a TTY the policy is layer 4's: continue as a new source.
+    """
+    if not interactive:
+        logger.warning(
+            "ISBN de '%s' coincide com %s, mas nao identifica a obra "
+            "(capitulo, anais ou titulo diferente). Seguindo como nova fonte.",
+            file_path.name,
+            existing.get("citekey"),
+        )
+        return "continue"
+    candidate = [
+        {
+            "citekey": existing.get("citekey") or "?",
+            "title": existing.get("title") or "(sem titulo)",
+            "year": existing.get("year"),
+            "same_year": False,
+        }
+    ]
+    return resolve_title_author_decision(file_path, candidate, interactive=True)

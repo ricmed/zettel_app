@@ -73,7 +73,7 @@ Amendment:
 * Headings H1–H6 whose offset falls inside a fenced span do **not** partition chapters (`split_into_chapters`) or sections (`split_chapter_into_sections`). Headings outside fences keep partitioning exactly as before.
 * Fences are located by a line-based scanner (`iter_fenced_spans`): an opening fence is up to 3 spaces of indent followed by 3+ backticks or tildes plus an optional info string; a closing fence must be the same marker family (a backtick fence never closes a tilde fence), at least as long as the opening marker, and carry no info string — so ```` ```json ```` cannot close ```` ```markdown ````. An unclosed fence spans to EOF.
 * In `split_chapter_into_chunks` the fence is an atom: the `RecursiveCharacterTextSplitter` is applied only to the prose between fences, never across a fence.
-* **Size exception:** when a fence is larger than `chunk_size` (1500 in the operational YAML), a single oversized chunk is emitted. Cutting a template or a code block at a `\n\n` boundary is worse than one large chunk, so the size ceiling asserted above is deliberately not enforced for fenced content. `chunk_size` itself is unchanged — the exception is per-fence, not a global relaxation.
+* **Size exception:** when a fence is larger than `chunk_size` (2500 in the operational YAML), a single oversized chunk is emitted. Cutting a template or a code block at a `\n\n` boundary is worse than one large chunk, so the size ceiling asserted above is deliberately not enforced for fenced content. `chunk_size` itself is unchanged — the exception is per-fence, not a global relaxation.
 * Out of scope of the scanner, and therefore still able to affect boundaries: indented code blocks (4 spaces), Markdown tables outside fences, and raw HTML.
 
 Consistent with the migration cost already described in *Consequences*, this changes boundaries only for sources chunked after the amendment: already-harvested sources keep their old chunks until the operator runs `zettel rechunk`. There is no silent re-chunking.
@@ -219,3 +219,30 @@ line ranges, since the line ranges are what rotted.
 * `config/config.yaml` — operational chunking defaults (`chunking.*`)
 * `zettel/paging.py` — `compute_docling_config_hash` (includes `min_chunk_chars`); page-inference helpers consumed by `chunk_and_persist` (see ADR-013) — the heading path itself is built in `zettel/harvester/chunking.py`, not here
 * [ADR-027: Harvest Phase as Python Package](./ADR-027-harvest-phase-as-python-package.md) — the module extraction that moved this code
+
+## Amendment (2026-10-16): chapter persistence is atomic (#237)
+
+`chunk_and_persist` commits each chapter together with the chunks it decided to keep. A checksum match does not skip the chapter unless those chunk ids are already stored. See the ADR-007 amendment for the resume rule. Chunk boundaries are the same function of text and config as before.
+
+## Amendment (2026-10-17): Markdown tables are atoms (#242)
+
+Docling emits tables padded with spaces so the columns line up, and the recursive splitter cut those rows in the middle. Measured on the corpus, 130 chunks started on a table row, 82% of their characters were padding, and all 130 were rejected by extract.
+
+`collapse_table_padding` runs in `extract_text`, after invisible-character sanitization and before the extraction checksum (ADR-007). It collapses runs of spaces on `|` lines that are outside a fence. `iter_table_spans` (in `markdown_fences.py`, so every Markdown reader shares it) marks two or more consecutive pipe lines. A table that fits in `chunk_size * fence_section_slack` is kept whole, including a section whose only reason to stay whole is that table. Above the budget it is split by row; every part starts with the header and the separator. A pipe line inside a fence is not a table. There is no pre-LLM gate on table-heavy chunks (ADR-049). Already-harvested sources keep the padded text until re-harvest; `rechunk` only helps once `extracted_text` is the collapsed form, and chunk ids of table sections change.
+
+## Amendment (2026-10-17): PDF outline sets chapter depth (#246)
+
+Docling exports every PDF `section_header` as `##`, so `split_into_chapters` treats each heading as a chapter and H3–H6 never run. Measured on the inbox (pypdfium2 `get_toc`):
+
+| file | bookmarks | levels |
+|---|---|---|
+| `Kant-s-Machine.pdf` | 22 | 0: 13, 1: 9 |
+| `Kant-and-Artificial-Intelligence.pdf` | 19 | 0: 2 (ISBNs), 1: 17 |
+| `artigo-Analise_series_temporais_em_epidemiologia.pdf` | 10 | 0 only |
+| `artigo-Towards Reasoning in Large Language Models - A Survey.pdf` | 0 | none |
+
+`apply_pdf_outline` runs only when the shallowest level that has at least two real titles also has a deeper level. That level becomes `#` (the chapter). The next level becomes `###`, which `split_chapter_into_sections` puts on `section_path`. A `##` the outline did not name is demoted to `###`. A flat outline, or one whose chapter titles do not occur as headings, leaves the Docling markup alone. An all-digit bookmark (an ISBN above the contents) is not a chapter. Chapter ids change for a PDF that gains this hierarchy; re-harvest, then re-extract and summarize (ADR-047). Markdown is untouched.
+
+## Amendment (2026-10-17): chunk overlap and the size floor stay at the defaults (#250)
+
+`chunk_overlap` stays 400, `min_chunk_chars` stays 200, and `chunk_size` stays 2500. A literature result that overlap does not help question answering is not a measurement of this extract. The comparison is pre-registered in [evals/preregistration/250-chunking-gold.md](../../../../evals/preregistration/250-chunking-gold.md), against the #175 gold set, and it has not been run. The defaults change only if that rule is met.

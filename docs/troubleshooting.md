@@ -52,7 +52,7 @@ uv sync
 ## Páginas erradas nas notas (p.NNN não bate com o livro)
 
 - Confira o início do conteúdo com `python -m zettel set-paging --source-id @Citekey --content-start-file N --content-start-book M` (recalcula sem chamar o LLM e renomeia as LIT quando o token `pNNN` muda)
-- Se `page_in_file` estiver **vazio** (fonte harvestada antes do mapa Docling), o conserto é reprocessar: `zettel harvest` no arquivo original, ou `zettel rechunk` se o `extracted_text` já tiver os marcadores `<!-- zettel:page-break -->`
+- Se `page_in_file` estiver **vazio** ou deslocado (fonte harvestada com o marcador antigo `<!-- zettel:page-break -->`), o conserto é reprocessar: `zettel harvest` no arquivo original. `zettel rechunk` só reconstrói o mapa se o `extracted_text` já tiver `<!-- zettel:page N -->` para cada página do arquivo.
 - Markdown nativo **não tem páginas** — o localizador é o `section_path`. Dígitos soltos no texto não viram página
 - Detalhes do modelo de paginação: [pipeline.md](pipeline.md#paginacao-arquivo-vs-impressa)
 

@@ -10,7 +10,13 @@ from typing import Any
 
 from zettel.config import AppConfig
 from zettel.hashing import dehyphenate_pdf_linebreaks
-from zettel.paging import PAGE_BREAK_MARKER, page_map_from_marked_markdown
+from zettel.markdown_fences import collapse_table_padding
+from zettel.paging import (
+    page_map_from_marked_markdown,
+    page_map_is_complete,
+    read_pdf_page_labels,
+    render_page_marked_markdown,
+)
 from zettel.text_sanitize import sanitize_extracted_text, visible_char_count
 
 logger = logging.getLogger(__name__)
@@ -54,6 +60,9 @@ def extract_text(cfg: AppConfig, file_path: Path, origin_type: str) -> tuple[str
     # Single sanitization point: everything downstream (extraction checksum,
     # chunks, prompts, embeddings, vault) reads the cleaned text.
     text = sanitize_extracted_text(text, file_path.name)
+    # Docling pads Markdown tables with spaces. Collapse that before the
+    # extraction checksum so chunks and dedupe see the cells, not the alignment.
+    text = collapse_table_padding(text)
     if visible_char_count(text) == 0:
         raise EmptyTextLayerError(
             f"Arquivo '{file_path.name}' nao produziu texto visivel apos a "
@@ -78,6 +87,125 @@ class EmptyTextLayerError(PdfExtractionError):
 # layer is probed on the first few pages before the converter is built.
 TEXT_LAYER_PROBE_PAGES = 4
 TEXT_LAYER_MIN_CHARS = 40
+# Rendered glyph height, not the raw Tf operand. A text matrix often leaves
+# Tf at 1 while the glyph is body-sized; the character box is the size on
+# the page. Body text and footnotes sit well above 2 pt.
+_TINY_FONT_PT = 2.0
+_NEAR_WHITE = 250
+
+
+def find_render_hidden_text(file_path: Path) -> list[dict[str, Any]]:
+    """Runs of PDF text a reviewer cannot see: near-white fill, or about 1 pt.
+
+    Signaling only. The characters stay in the extracted Markdown: pdfium's
+    stream and Docling's text are not the same cut, so deleting a matched
+    substring would also delete a visible copy of the same words. The caller
+    logs the finding. ``[]`` when pdfium cannot open the file.
+    """
+    try:
+        import pypdfium2 as pdfium
+        import pypdfium2.raw as pdfium_c
+    except ImportError:
+        logger.debug("pdfium indisponivel; probe de texto oculto ignorado.")
+        return []
+
+    try:
+        document = pdfium.PdfDocument(str(file_path))
+    except Exception as exc:
+        logger.debug("pdfium nao abriu %s para texto oculto (%s).", file_path.name, exc)
+        return []
+
+    try:
+        return _hidden_runs(document, pdfium_c)
+    finally:
+        document.close()
+
+
+def _hidden_runs(document: Any, pdfium_c: Any) -> list[dict[str, Any]]:
+    import ctypes
+
+    hits: list[dict[str, Any]] = []
+    for page_index in range(len(document)):
+        page = document[page_index]
+        text_page = page.get_textpage()
+        try:
+            count = text_page.count_chars()
+            reasons: list[str | None] = []
+            chars: list[str] = []
+            for index in range(count):
+                chars.append(text_page.get_text_range(index, 1) or "")
+                reasons.append(_char_hidden_reason(pdfium_c, ctypes, text_page, index))
+            hits.extend(_collapse_hidden_runs(page_index + 1, chars, reasons))
+        finally:
+            text_page.close()
+            page.close()
+    return hits
+
+
+def _rendered_font_pt(text_page: Any, index: int) -> float:
+    """Font size on the page. ``Tf`` alone is 1 when the text matrix does the scaling."""
+    obj = text_page.get_textobj(index)
+    if obj is None:
+        return 0.0
+    try:
+        matrix = obj.get_matrix()
+        scale = (matrix.c * matrix.c + matrix.d * matrix.d) ** 0.5
+        return float(obj.get_font_size()) * (scale or 1.0)
+    finally:
+        obj.close()
+
+
+def _char_hidden_reason(pdfium_c: Any, ctypes: Any, text_page: Any, index: int) -> str | None:
+    red, green, blue, alpha = (
+        ctypes.c_uint(),
+        ctypes.c_uint(),
+        ctypes.c_uint(),
+        ctypes.c_uint(),
+    )
+    if pdfium_c.FPDFText_GetFillColor(
+        text_page.raw,
+        index,
+        ctypes.byref(red),
+        ctypes.byref(green),
+        ctypes.byref(blue),
+        ctypes.byref(alpha),
+    ):
+        if alpha.value == 0 or min(red.value, green.value, blue.value) >= _NEAR_WHITE:
+            return "white"
+    rendered = _rendered_font_pt(text_page, index)
+    if 0 < rendered <= _TINY_FONT_PT:
+        return "tiny"
+    return None
+
+
+def _collapse_hidden_runs(
+    page: int, chars: list[str], reasons: list[str | None]
+) -> list[dict[str, Any]]:
+    runs: list[dict[str, Any]] = []
+    start: int | None = None
+    reason = ""
+    for index, current in enumerate([*reasons, None]):
+        if start is None:
+            if current:
+                start = index
+                reason = current
+            continue
+        if current == reason:
+            continue
+        sample = "".join(chars[start:index]).strip()
+        # A white page number is a few glyphs. A hidden instruction is a phrase.
+        if len(sample) >= 12:
+            runs.append(
+                {
+                    "page": page,
+                    "reason": reason,
+                    "chars": index - start,
+                    "sample": sample[:80],
+                }
+            )
+        start = index if current else None
+        reason = current or ""
+    return runs
 
 
 def assert_pdf_has_text_layer(file_path: Path) -> None:
@@ -134,7 +262,23 @@ def _pdfium_page_text(document: Any, page_no: int) -> str:
 def extract_pdf(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str, Any]]:
     """Extract text from PDF using Docling (the only supported extractor)."""
     assert_pdf_has_text_layer(file_path)
-    return extract_pdf_docling(cfg, file_path)
+    hidden = find_render_hidden_text(file_path)
+    if hidden:
+        preview = "; ".join(
+            f"p.{hit['page']} {hit['reason']} ({hit['chars']}c) {hit['sample']!r}"
+            for hit in hidden[:6]
+        )
+        logger.warning(
+            "PDF '%s' tem texto invisivel por renderizacao (%d trechos). "
+            "O texto permanece na extracao; o revisor nao o ve no PDF. %s",
+            file_path.name,
+            len(hidden),
+            preview,
+        )
+    text, metadata = extract_pdf_docling(cfg, file_path)
+    if hidden:
+        metadata["_render_hidden"] = hidden
+    return text, metadata
 
 
 def build_pdf_pipeline_options(cfg: AppConfig, device: str) -> Any:
@@ -266,12 +410,24 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
     finally:
         release_docling_pipelines(converter)
 
-    # Page-break comments keep file-page provenance in the same Markdown
-    # dialect as the chunked text. export_to_markdown() without them drops
-    # page boundaries.
-    text = result.document.export_to_markdown(
-        page_break_placeholder=f"\n\n{PAGE_BREAK_MARKER}\n\n",
-    )
+    # One entry per PDF file page, from Docling's per-page export (prov.page_no).
+    # An unnumbered page-break placeholder drops pages that have no exportable
+    # item, and every later chunk then cites a page that is too small.
+    num_pages = docling_num_pages(result.document)
+    page_map = docling_page_map_by_export(result.document, num_pages)
+    exact = page_map_is_complete(page_map, num_pages)
+    if exact:
+        text = render_page_marked_markdown(page_map)
+    else:
+        logger.error(
+            "Mapa de paginas incompleto para %s (%s paginas no arquivo, %s no mapa). "
+            "Nenhuma pagina sera rotulada como exata.",
+            file_path.name,
+            num_pages if num_pages is not None else "?",
+            len(page_map),
+        )
+        text = result.document.export_to_markdown()
+        page_map = []
 
     images: list[dict[str, Any]] = []
     if cfg.images.enabled:
@@ -283,41 +439,73 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
     # LLM prompt, the embedding and the anchor_quote never see "pala-\nvra".
     # normalize_text_for_hash() also runs this (idempotent) for the hashing path.
     text = dehyphenate_pdf_linebreaks(text)
+    if exact:
+        parsed = page_map_from_marked_markdown(text)
+        if page_map_is_complete(parsed, num_pages):
+            page_map = parsed
+        else:
+            logger.error(
+                "Mapa de paginas de %s deixou de cobrir 1..%s apos a limpeza do texto. "
+                "Nenhuma pagina sera rotulada como exata.",
+                file_path.name,
+                num_pages,
+            )
+            page_map = []
+            exact = False
 
     metadata: dict[str, Any] = {
         "title": file_path.stem,
         "authors": [],
         "year": None,
         "_images": images,
+        "_file_fields": [],
     }
     try:
         origin = getattr(result.document, "origin", None)
         if origin:
+            file_fields: list[str] = []
             if getattr(origin, "title", None):
                 metadata["title"] = origin.title
+                file_fields.append("title")
             if getattr(origin, "author", None):
                 metadata["authors"] = [a.strip() for a in origin.author.split(",") if a.strip()]
+                file_fields.append("authors")
             if getattr(origin, "date", None):
                 metadata["year"] = extract_year_from_string(origin.date)
-    except Exception:
-        pass
+                if metadata["year"] is not None:
+                    file_fields.append("year")
+            metadata["_file_fields"] = file_fields
+    except Exception as exc:
+        logger.warning(
+            "Metadados embutidos do PDF %s nao foram lidos: %s",
+            file_path.name,
+            exc,
+        )
 
-    num_pages = docling_num_pages(result.document)
     if num_pages:
         metadata["total_pages_file"] = num_pages
 
-    page_map = page_map_from_marked_markdown(text)
-    if not page_map:
-        page_map = docling_page_map_by_export(result.document, num_pages)
-    if page_map:
+    metadata["_page_labels"] = read_pdf_page_labels(file_path)
+    outline = read_pdf_outline(file_path)
+    if outline:
+        from zettel.harvester.chunking import apply_pdf_outline
+
+        rewritten = apply_pdf_outline(text, outline)
+        if rewritten != text:
+            text = rewritten
+            logger.info(
+                "Outline do PDF aplicado a %s (%d entradas).",
+                file_path.name,
+                len(outline),
+            )
+
+    if exact and page_map:
         metadata["_page_map"] = page_map
-        if "total_pages_file" not in metadata:
-            metadata["total_pages_file"] = len(page_map)
         logger.info("Mapa de paginas (Docling): %d paginas do arquivo", len(page_map))
-    else:
+    elif not exact:
         logger.warning(
-            "Nenhum mapa de paginas Docling disponivel para %s; paging.py cai "
-            "para regex/interpolacao (sem PyMuPDF).",
+            "Nenhum mapa de paginas exato para %s; paging.py nao rotula pagina "
+            "como explicita (sem PyMuPDF).",
             file_path.name,
         )
 
@@ -352,31 +540,89 @@ def docling_num_pages(document: Any) -> int | None:
 
 
 def docling_page_map_by_export(document: Any, num_pages: int | None) -> list[tuple[int, str]]:
-    """Per-page Markdown export when page-break placeholders were not emitted."""
+    """One Markdown slice per PDF file page, including pages with no items.
+
+    ``export_to_markdown(page_no=)`` is filtered by Docling's provenance, so a
+    blank or image-only page is an empty string instead of a missing slot.
+    ``[]`` when the document does not support per-page export — the caller
+    then refuses to label any page as exact.
+    """
     n = num_pages or docling_num_pages(document) or 0
     if n <= 0:
         return []
-    if n == 1:
-        md = document.export_to_markdown()
-        return [(1, md)] if md else []
     page_map: list[tuple[int, str]] = []
     for page_no in range(1, n + 1):
         try:
             md = document.export_to_markdown(page_no=page_no)
         except TypeError:
+            logger.error(
+                "Docling nao exporta por pagina; mapa de %d paginas descartado.",
+                n,
+            )
             return []
-        page_map.append((page_no, md or ""))
+        page_map.append((page_no, (md or "").strip()))
     return page_map
+
+
+def read_pdf_outline(file_path: Path) -> list[tuple[int, str]]:
+    """Bookmark ``(level, title)`` pairs. ``[]`` when the PDF has no outline.
+
+    ``level`` is pdfium's: 0 is the top of the tree. Heading text is what the
+    chunker matches; the destination page is not required.
+    """
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
+        logger.debug("pdfium indisponivel; outline do PDF ignorado.")
+        return []
+    try:
+        document = pdfium.PdfDocument(str(file_path))
+    except Exception as exc:
+        logger.debug("pdfium nao abriu %s para o outline (%s).", file_path.name, exc)
+        return []
+    try:
+        entries: list[tuple[int, str]] = []
+        for bookmark in document.get_toc(max_depth=6):
+            title = str(bookmark.get_title() or "").strip()
+            if title:
+                entries.append((int(bookmark.level), title))
+        return entries
+    finally:
+        document.close()
 
 
 def page_map_for_source(src: dict[str, Any]) -> list[tuple[int, str]]:
     """Rebuild a page map for rechunk / resume from persisted marked text.
 
-    Only the Docling page-break markers in the persisted ``extracted_text``
+    Only numbered ``<!-- zettel:page N -->`` markers in ``extracted_text``
     are used — there is no PyMuPDF fallback to reopen the original PDF.
+    The map is returned only when it covers ``1..total_pages_file`` (or the
+    source has no stored page count and the markers themselves are 1..N
+    with no gaps). A divergent map is dropped so resume cannot label a
+    slid page as exact.
     """
     text = src.get("extracted_text") or ""
-    return page_map_from_marked_markdown(text)
+    page_map = page_map_from_marked_markdown(text)
+    if not page_map:
+        return []
+    total = src.get("total_pages_file")
+    if total:
+        if page_map_is_complete(page_map, int(total)):
+            return page_map
+        logger.error(
+            "Mapa persistido tem %d entradas e a fonte declara %s paginas; "
+            "paginas nao serao rotuladas como exatas.",
+            len(page_map),
+            total,
+        )
+        return []
+    if page_map_is_complete(page_map, page_map[-1][0]):
+        return page_map
+    logger.error(
+        "Mapa persistido nao cobre 1..%s sem buracos; paginas nao serao rotuladas como exatas.",
+        page_map[-1][0],
+    )
+    return []
 
 
 # ── Markdown Extraction ────────────────────────────────────────────────
@@ -433,13 +679,36 @@ def extract_markdown(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str, An
 
     body, images = extract_markdown_images(cfg, body, file_path)
 
+    user_fields: list[str] = []
+    if fm_meta.get("title"):
+        user_fields.append("title")
+    if authors:
+        user_fields.append("authors")
+    if year is not None and (fm_meta.get("year") or fm_meta.get("date")):
+        user_fields.append("year")
+
     meta: dict[str, Any] = {
         "title": title,
         "authors": authors,
         "year": year,
         "_images": images,
+        "_user_fields": user_fields,
     }
     # Pass through known bibliographic frontmatter fields for ABNT inference.
+    _FM_CANONICAL = {
+        "city": "place",
+        "editora": "publisher",
+        "traducao": "translator",
+        "periodico": "journal",
+        "number": "issue",
+        "paginas": "pages",
+        "access_date": "accessed_at",
+        "instituicao": "institution",
+        "curso": "course",
+        "disciplina": "discipline",
+        "orientador": "advisor",
+        "editors": "book_editors",
+    }
     _BIBLIO_KEYS = (
         "document_type",
         "subtitle",
@@ -484,5 +753,6 @@ def extract_markdown(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str, An
     for key in _BIBLIO_KEYS:
         if key in fm_meta and fm_meta[key] not in (None, ""):
             meta[key] = fm_meta[key]
+            user_fields.append(_FM_CANONICAL.get(key, key))
 
     return body, meta

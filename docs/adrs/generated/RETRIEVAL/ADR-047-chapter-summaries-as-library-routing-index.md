@@ -282,3 +282,7 @@ The literature index no longer sits beside an `auto-topic-index`. That block was
   (`refresh_chapter_maps`)
 * `prompts/chapter_summary.md`, `prompts/source_summary.md`
 * `tests/test_summarize.py`, `tests/test_catalog.py`, `tests/test_config.py`
+
+## Amendment (2026-10-17): a PDF chapter follows the outline (#246)
+
+For a PDF whose outline has at least two levels, a chapter is an outline entry at the chapter level, not every Docling `##`. The summary unit is therefore that chapter; a heading the outline nests under it is a section inside the chapter text. A PDF with a flat or missing outline is unchanged: each `##` remains a chapter. Re-harvest changes `chapter_id`, so summaries are regenerated through the existing checksum gate rather than migrated.

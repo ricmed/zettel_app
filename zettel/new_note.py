@@ -61,13 +61,11 @@ def provisional_citekey(
     title: str,
 ) -> str:
     """Derive a citekey from metadata without touching SQLite (sync may refine)."""
-    surname = ""
-    if authors and authors[0]:
-        parts = authors[0].strip().split()
-        if parts:
-            surname = parts[-1]
+    from zettel.harvester.citekey import author_surname, citekey_word
 
-    words = re.sub(r"[^\w\s]", "", title).split()
+    surname = author_surname(authors)
+    words = [citekey_word(w) for w in re.sub(r"[^\w\s]", "", title).split()]
+    words = [w for w in words if w]
 
     if surname and year is not None:
         slug_words = [w.capitalize() for w in words[:2]]

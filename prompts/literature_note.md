@@ -18,8 +18,9 @@ Uma chamada = **um chunk** = uma nota de literatura granular. O resultado não �
 
 - O `summary` vira o slug do arquivo da nota (`LIT - AutorAno - pNNN - topico-NNNN.md`):
   a **primeira frase deve nomear o conceito** do trecho, não descrever o documento.
-- O texto pode conter marcadores `<!-- zettel:page-break -->`: são metadados de
-  paginação. **Ignore-os** — não citá-los em `anchor_quote`, resumo ou localizador.
+- O texto pode conter marcadores `<!-- zettel:page N -->` (ou o legado
+  `<!-- zettel:page-break -->`): são metadados de paginação. **Ignore-os** —
+  não citá-los em `anchor_quote`, resumo ou localizador.
 - Chunks vizinhos se sobrepõem em ~200 caracteres. Extraia apenas o que está
   **completo neste trecho**; uma ideia cortada ao meio será coberta pelo chunk seguinte.
 - O localizador da fonte é a página **impressa** e/ou o caminho de seção. Markdown

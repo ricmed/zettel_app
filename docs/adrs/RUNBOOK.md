@@ -42,7 +42,7 @@ Debug steps:
   - Verify GPU available (soft dependency, CPU fallback ok)
   - Test with `zettel dump-extraction --source-id @citekey` 
     to see extracted text before chunking
-  - Check page-break markers in extracted text (<!-- zettel:page-break -->)
+  - Check numbered page markers in extracted text (<!-- zettel:page N -->, one per file page)
 ```
 
 #### "I want to turn semantic duplicate detection (layer 5) on or off"

@@ -125,4 +125,4 @@ Offline and free: it reads the committed keys. Regenerating a key re-calls the m
 * `evals/gold/extracao-GABARITO-{gpt4omini-atual,gemini-t01-a,gemini-t01-b,gemini-t00}.json` — regenerated keys (ids and verdicts only)
 * `scripts/probe_prompt1_variant.py`, `scripts/compare_gold_runs.py` — the instruments
 * `config/config.yaml` — `llm.extract`
-* Issues #175 (gold set), #177 (discovery of the model mix), #181 (this decision)
+* Issues #175 (gold set), #177 (discovery of the model mix), #181 (this decision). The same 120 items are the population of the chunking comparison pre-registered for #250 (`evals/preregistration/250-chunking-gold.md`); that run has not happened, and it does not reopen the model choice.

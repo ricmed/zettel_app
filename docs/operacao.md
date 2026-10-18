@@ -48,7 +48,7 @@ python -m zettel rechunk --source-id @AutorAnoTitulo
 python -m zettel rechunk --source-id @AutorAnoTitulo --dump-chunks
 ```
 
-Se o texto extraído tiver marcadores `<!-- zettel:page-break -->`, o mapa de páginas é reconstruído a partir deles; senão fica sem mapa de páginas (não há fallback de extrator — [ADR-012](adrs/generated/HARVEST/ADR-012-docling-pdf-extraction-pymupdf-fallback.md)). Com `--dump-chunks`, grava um markdown com todos os chunks (texto + metadados) em `data/cache/chunk-dumps/` (ou `--dump-dir`).
+Se o texto extraído tiver marcadores `<!-- zettel:page N -->` cobrindo `1..total_pages_file`, o mapa de páginas é reconstruído a partir deles; senão fica sem mapa de páginas (não há fallback de extrator — [ADR-012](adrs/generated/HARVEST/ADR-012-docling-pdf-extraction-pymupdf-fallback.md)). O marcador antigo `<!-- zettel:page-break -->` não conta. Com `--dump-chunks`, grava um markdown com todos os chunks (texto + metadados) em `data/cache/chunk-dumps/` (ou `--dump-dir`).
 
 ### `zettel dump-chunks`
 
@@ -61,7 +61,7 @@ python -m zettel dump-chunks --all --dump-dir ./tmp/chunks
 
 ### `zettel dump-extraction`
 
-Reexporta o Markdown extraído (`sources.extracted_text`: saída do Docling em PDF, ou o corpo MD nativo) com headings H1–H6 intactos, sem rerodar o extrator. Em PDF, o texto pode incluir comentários `<!-- zettel:page-break -->` (fronteiras de página do arquivo).
+Reexporta o Markdown extraído (`sources.extracted_text`: saída do Docling em PDF, ou o corpo MD nativo) com headings H1–H6 intactos, sem rerodar o extrator. Em PDF, o texto pode incluir comentários `<!-- zettel:page N -->` (uma entrada por página do arquivo, inclusive vazias).
 
 ```bash
 python -m zettel dump-extraction --source-id @AutorAnoTitulo

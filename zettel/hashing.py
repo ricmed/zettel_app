@@ -12,7 +12,10 @@ import unicodedata
 from difflib import SequenceMatcher
 from pathlib import Path
 
-_HYPHEN_LINEBREAK_RE = re.compile(r"(\w)-[ \t]*\n[ \t]*(\w)")
+# A letter on both sides. Digits stay (`2010-\n2020`, `COVID-\n19`). `\w` would
+# include them and fuse page ranges. The continuation must also be lowercase;
+# that check is in the replacement, so an uppercase tail (`Sao-\nPaulo`) is kept.
+_HYPHEN_LINEBREAK_RE = re.compile(r"([^\W\d_])-[ \t]*\n[ \t]*([^\W\d_])")
 
 
 def dehyphenate_pdf_linebreaks(text: str) -> str:
@@ -22,14 +25,16 @@ def dehyphenate_pdf_linebreaks(text: str) -> str:
     on a legitimate hyphen and must not be touched (callers are responsible
     for only applying this to PDF extraction output).
 
-    The character right after the break is checked: lowercase means this is
-    almost always the tail of a word split by the PDF's line layout, so the
-    hyphen and line break are removed. Uppercase is a weak but cheap signal
-    of a genuine hyphenated compound (a heading, a proper noun) and is left
-    untouched. This does **not** catch a genuine compound whose continuation
-    happens to be lowercase (e.g. ``"bem-\\nvindo"`` still merges into the
-    wrong ``"bemvindo"``) — a known limitation with no fix short of a
-    dictionary lookup, not attempted here.
+    Both sides of the hyphen must be letters. A digit on either side is left
+    alone, so ``"2010-\\n2020"``, ``"COVID-\\n19"`` and ``"pp. 200-\\n210"``
+    keep the hyphen. The character right after the break is then checked:
+    lowercase means this is almost always the tail of a word split by the
+    PDF's line layout, so the hyphen and line break are removed. Uppercase is
+    a weak but cheap signal of a genuine hyphenated compound (a heading, a
+    proper noun) and is left untouched. This does **not** catch a genuine
+    compound whose continuation happens to be lowercase (e.g. ``"bem-\\nvindo"``
+    still merges into the wrong ``"bemvindo"``) — a known limitation with no
+    fix short of a dictionary lookup, not attempted here.
 
     Idempotent: re-running on already-merged text is a no-op.
     """
@@ -114,7 +119,13 @@ def file_sha256(path: str | Path) -> str:
 
 
 def short_hash(text: str, length: int = 8) -> str:
-    """Return a short hash suitable for ID suffixes."""
+    """Hex prefix of SHA-256. 8 chars is 32 bits.
+
+    Safe as a chunk discriminator only because ``chunk_id`` also carries
+    ``source_id::chapter_id``. Do not drop that prefix: within one chapter the
+    collision chance is about n²/2³³, which is negligible at a handful of
+    chunks, and meaningless as a global id.
+    """
     return sha256_hex(text)[:length]
 
 

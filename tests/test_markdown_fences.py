@@ -2,7 +2,12 @@
 
 import re
 
-from zettel.markdown_fences import h2_section, headings_outside_fences
+from zettel.markdown_fences import (
+    collapse_table_padding,
+    h2_section,
+    headings_outside_fences,
+    iter_table_spans,
+)
 
 PY_FENCE = (
     "```python\n"
@@ -43,6 +48,24 @@ def test_h2_section_ignores_a_matching_heading_inside_a_fence():
 
 def test_h2_section_missing_heading_is_empty():
     assert h2_section("## Outra\n\ntexto\n", "Resumo") == ""
+
+
+def test_table_span_stops_at_a_blank_line_and_ignores_fences():
+    table = "| a | b |\n| --- | --- |\n| 1 | 2 |\n"
+    text = f"antes\n\n{table}\ndepois\n"
+    spans = iter_table_spans(text)
+    assert len(spans) == 1
+    assert text[spans[0][0] : spans[0][1]] == table
+    fenced = "```\n| a | b |\n| --- | --- |\n| 1 | 2 |\n```\n"
+    assert iter_table_spans(fenced) == []
+    assert iter_table_spans(text + table.rstrip("\n"))[-1][1] == len(text + table.rstrip("\n"))
+
+
+def test_collapse_table_padding_keeps_cells_and_skips_fences():
+    raw = "| a    | b  |\n| --- | --- |\n| 1     | 2 |\n"
+    assert collapse_table_padding(raw) == "| a | b |\n| --- | --- |\n| 1 | 2 |\n"
+    fenced = "```\n| a    | b |\n| --- | --- |\n```\n"
+    assert collapse_table_padding(fenced) == fenced
 
 
 def test_h2_section_only_h2_closes_the_section():

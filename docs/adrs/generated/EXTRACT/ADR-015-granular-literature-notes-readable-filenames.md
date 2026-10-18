@@ -108,3 +108,7 @@ This ADR only ever justified embedding *late* (after human approval, to keep unv
 Everything this ADR is actually about survives: the granular note, its readable filename, its per-chunk metadata, the `auto-source-excerpt` block and the individual approve/reject gate. The note remains in the vault and in SQLite — which is already the supported access pattern for [ADR-035](../CLI/ADR-035-flat-agent-skill-export.md)'s `zettel skill`. The body was derived from a chunk whose text is indexed anyway, the same double-counting argument [ADR-034](./ADR-034-optional-author-judgement-fields.md) makes about judgement fields.
 
 Trade-off accepted: this forecloses chunk-level evidence retrieval (quoting a source verbatim in `ask`). Nothing planned needs it — the reranking draft (ADR-044) keeps dedupe paths out of the `Retriever` and reranks `permanent_notes` candidates.
+
+## Amendment (2026-10-16): accented author-year labels, and paths stay in the vault (#241)
+
+`author_year_label` matches a Unicode letter run plus four digits, so `Gonçalves2021AnáliseDe` labels as `Gonçalves2021`. The citekey itself keeps only letters and digits (NFC) from the surname, so `/`, `\` and `..` in an author string cannot become a path. `safe_vault_component` is a second check on every vault filename and source directory built from a citekey. Disambiguation past 26 collisions uses `aa`, not `{`.

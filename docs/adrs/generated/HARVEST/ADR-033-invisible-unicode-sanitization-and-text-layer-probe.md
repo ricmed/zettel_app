@@ -43,7 +43,7 @@ Folding it into `normalize_text_for_hash` was rejected: that function is applied
 
 The strip list is deliberately narrow — zero-width and format controls, bidi embedding/override/isolate marks, BOM, and the tag block. NBSP, soft hyphens and every visible character are left to `normalize_text_for_hash`. The two normalizers therefore have disjoint jurisdictions: invisible characters belong to `text_sanitize`, visible ones to `hashing`.
 
-**The scanned-PDF check is a `pypdfium2` probe of the first three pages, run before the Docling converter is built.** pdfium arrives with Docling, so this adds no dependency and does not reintroduce the PyMuPDF fallback ADR-012 removed — it is a *pre-flight read*, not a second extractor: it never produces text that reaches the pipeline. Fewer than 40 visible characters across those pages means there is nothing to extract, and `EmptyTextLayerError` is raised before any GPU/CPU time is spent. When pdfium is unavailable the probe silently returns; the post-extraction emptiness check in `extract_text` catches the same file, only later and more expensively.
+**The scanned-PDF check is a `pypdfium2` probe of the first four pages, run before the Docling converter is built.** pdfium arrives with Docling, so this adds no dependency and does not reintroduce the PyMuPDF fallback ADR-012 removed — it is a *pre-flight read*, not a second extractor: it never produces text that reaches the pipeline. Fewer than 40 visible characters across those pages means there is nothing to extract, and `EmptyTextLayerError` is raised before any GPU/CPU time is spent. When pdfium is unavailable the probe silently returns; the post-extraction emptiness check in `extract_text` catches the same file, only later and more expensively.
 
 `EmptyTextLayerError` subclasses `PdfExtractionError`, so it inherits ADR-012's fail-fast contract, and `run_harvest` catches `PdfExtractionError` **per file**: the failure is recorded as a `HarvestSkip` and the loop continues. `run_harvest` therefore returns a `HarvestOutcome` (`source_ids` + `skipped`) rather than a bare list, which is what lets the CLI exit non-zero while still reporting the sources it did create, and lets the web worker surface the actual reason in `web_job_events` instead of a generic "no source created".
 
@@ -57,7 +57,7 @@ The strip list is deliberately narrow — zero-width and format controls, bidi e
 ### Negative Consequences
 
 * `extraction_checksum` changes for any file whose text contained invisible characters. Sources harvested before this change are **not** migrated: they keep their old checksum until re-harvested. Silently rewriting them would invalidate every downstream chunk and LIT for no operator-visible reason.
-* The 40-character / 3-page threshold is a heuristic. A document whose first three pages are genuinely a full-bleed cover image with a text-bearing body afterwards is rejected and needs `zettel harvest` on an OCR'd copy — accepted as the cheaper error, since the alternative is paying full conversion cost on every scan.
+* The 40-character / 4-page threshold is a heuristic. A document whose first four pages are genuinely a full-bleed cover image with a text-bearing body afterwards is rejected and needs `zettel harvest` on an OCR'd copy — accepted as the cheaper error, since the alternative is paying full conversion cost on every scan. The earlier text of this ADR said three pages; the code (`TEXT_LAYER_PROBE_PAGES`) has been 4, and the documentation now matches it (#245).
 * `run_harvest`'s return type changed, so every caller (CLI `harvest` and `run-all`, the web worker's `harvest` and `run_all` jobs) had to be updated.
 
 ## Pros and Cons of the Options
@@ -98,6 +98,12 @@ Harvest gained a documented refusal: `HarvestOutcome.skipped` carries `empty_tex
 Any future extractor (EPUB, DOCX, HTML) gets sanitization for free by returning through `extract_text`, and should raise `EmptyTextLayerError` for its own equivalent of a scan rather than inventing a new refusal type.
 
 Prompt-injection scanning of *generated* notes is a different problem at a different boundary and is deliberately out of scope here.
+
+## Amendment (2026-10-17): text invisible by rendering is signaled, not stripped (#248)
+
+Zero-width characters are invisible in every rendering of the string, so they are removed before the checksum. White-on-white text and a 1 pt run are invisible only in that drawing. pdfium's character stream and Docling's Markdown are not the same cut, so deleting a matched substring would also delete a visible copy of those words.
+
+`find_render_hidden_text` walks each character with `FPDFText_GetFillColor`. A run is `white` when alpha is 0 or every channel is at least 250. It is `tiny` when the rendered size — font size times the text matrix's vertical scale, because `Tf` is often 1 while the matrix carries the real size — is above 0 and at most 2 pt. A run shorter than 12 characters is ignored: the inbox's epidemiology article draws its page number in white (`145`…`152`), and that is not a hidden sentence. The harvest logs a warning and keeps the text. The web bibliography review shows the same warning when the preparation found a run. On `data/inbox` (4 PDFs, 467 pages) the probe found no run that long, at about 60 ms per page. It does not open Docling.
 
 ## References
 

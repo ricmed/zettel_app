@@ -34,7 +34,7 @@ The chapter-level layer, which the evidence gathered for this decision treated a
 
 ## Decision Outcome
 
-Chosen option: layered SHA-256 checksums over canonically normalized text, because it gives every consumer a cheap, deterministic equality check at the granularity it needs, while the shared normalization step keeps checksums stable across formatting noise and across extraction formats (PDF vs. Markdown) for the same underlying content. [NEEDS INPUT: Why SHA-256 specifically rather than a faster non-cryptographic hash such as xxHash — deduplication and cache-keying here do not require cryptographic collision resistance, only low accidental-collision probability.]
+Chosen option: layered SHA-256 checksums over canonically normalized text, because it gives every consumer a cheap, deterministic equality check at the granularity it needs, while the shared normalization step keeps checksums stable across formatting noise and across extraction formats (PDF vs. Markdown) for the same underlying content. SHA-256 stays (answered 2026-10-16, #245): hashing a file is tens of milliseconds, against half a second to three seconds per page inside Docling, so a faster non-cryptographic hash would not move harvest time, and SHA-256 removes the collision discussion.
 
 Because normalization is shared code (`normalize_text_for_hash`) rather than reimplemented per layer, all six checksum layers stay consistent with each other by construction — a chunk and the extraction it came from will not silently diverge in how whitespace or hyphenation is treated.
 
@@ -75,12 +75,28 @@ Amendment:
 * PDF-only by construction: the call site is inside `extract_pdf_docling`, never on the Markdown extraction path, so a native Markdown file's legitimate end-of-line hyphen is untouched.
 * `extraction_checksum` changes for a PDF re-harvested after this amendment (the persisted text itself is now different, not just the hash normalization of it). Already-harvested sources do not change on their own — the corpus needs an explicit re-harvest, not `rechunk`, since `extracted_text` is the origin data this addendum affects. No silent migration.
 
+## Amendment (2026-10-17): a digit is not a split word (#249)
+
+The pattern used `\w` on both sides of the hyphen, so `2010-\n2020` became `20102020`, `COVID-\n19` became `COVID19` and `pp. 200-\n210` became `pp. 200210`. Those are page ranges and dates, which is what a citation stores. Both sides must now be letters. A lowercase compound (`bem-\nvindo`, `state-\nof-the-art`) is still fused; that limit is unchanged.
+
+The same function still runs in `extract_pdf_docling` and in `normalize_text_for_hash`. A PDF whose persisted text was already fused keeps the fused form until it is extracted again. A text that still contains `digit-\n` hashes differently on the next normalization. There is no migration. Incidence on the current vault cannot be recovered from `extracted_text`, because the old rule already consumed the breaks. The decision rests on the reproduced cases, which corrupt a citation even when rare.
+
 ## References
 
 * `zettel/hashing.py` — `normalize_text_for_hash`, `sha256_hex`, `file_sha256`, `short_hash`, `compute_llm_call_checksum`, `compute_embedding_input_hash`; addendum: `dehyphenate_pdf_linebreaks` (single implementation reused by both the extraction and the hashing path)
 * `zettel/harvester/extract.py` — addendum: `extract_pdf_docling` calls `dehyphenate_pdf_linebreaks` on the assembled text before returning it for persistence
 * `zettel/harvester/pipeline.py` — `_process_file`, file checksum (`file_sha256`) and extraction checksum computation and comparison during harvest
 * `zettel/harvester/chunking.py` — `chunk_and_persist`, chapter and chunk checksums (the chapter checksum is what skips unchanged chapters)
+
+## Amendment (2026-10-16): `chapter_checksum` means the chapter's chunks are committed (#237)
+
+The checksum used to be written, and committed, before any chunk of that chapter. A crash in the chunk loop left every chapter row in place and the chunks missing; the next pass treated the checksum match as "unchanged" and did not rewrite them. `source_chunking_incomplete` only checked that the chapter ids existed, so the source looked finished.
+
+`chunk_and_persist` now commits the chapter row and that chapter's chunks in one transaction. The checksum match skips a chapter only when the stored chunk ids are exactly the ids this pass would write. `processing_status` stays `in_progress` until the pass returns, including the Chroma `chunks` upserts when layer 5 is on. Those embeddings stay recomputable: the next pass calls `existing_ids` and embeds what is missing. SQLite is the source of truth. Chunk ids and boundaries are unchanged.
+
+## Amendment (2026-10-17): table padding is collapsed before the extraction checksum (#242)
+
+`extract_text` collapses runs of spaces inside Markdown table rows (outside fences) before `extraction_checksum` is computed. The persisted text changes, so a source harvested with padded Docling tables keeps its old checksum until it is extracted again. `rechunk` does not rewrite `extracted_text`.
 * `zettel/extractor.py` — `compute_llm_call_checksum` construction for deterministic response caching
 * `zettel/connector/prompt.py` — `compute_llm_call_checksum` usage; `zettel/connector/note.py` — `compute_embedding_input_hash` (embed-skip)
 * `zettel/state/llm_cache.py` — `llm_cache` table storing checksum-keyed cached responses; `get_cached_llm_response` / `cache_llm_response`
