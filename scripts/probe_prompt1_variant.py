@@ -147,6 +147,7 @@ def collect(
     call: Callable[[dict[str, Any]], str],
     parse: Callable[[dict[str, Any], str], Verdict],
     on_record: Callable[[str, str, Verdict, str], None],
+    on_failure: Callable[[str, str, str], None] | None = None,
 ) -> tuple[dict[str, Verdict], dict[str, str]]:
     """Reuse a recording only when its call identity matches; call the model otherwise.
 
@@ -167,6 +168,8 @@ def collect(
             verdict = parse(item, response)
         except ValueError as exc:  # ValidationError subclasses ValueError
             failures[chunk_id] = str(exc)[:160]
+            if on_failure is not None:
+                on_failure(chunk_id, response, str(exc))
             continue
         verdicts[chunk_id] = verdict
         on_record(chunk_id, item["call_id"], verdict, response)
@@ -408,7 +411,20 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8",
         )
 
-    verdicts, failures = collect(items, recorded, call, parse, on_record)
+    fail_path = record_path.with_name(f"{record_path.stem}-failures.json")
+
+    def on_failure(chunk_id: str, response: str, error: str) -> None:
+        blob: dict[str, Any] = {}
+        if fail_path.is_file():
+            blob = json.loads(fail_path.read_text(encoding="utf-8"))
+        blob[chunk_id] = {"error": error, "response": response}
+        fail_path.parent.mkdir(parents=True, exist_ok=True)
+        fail_path.write_text(
+            json.dumps(blob, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+    verdicts, failures = collect(items, recorded, call, parse, on_record, on_failure)
     meta = {
         "label": args.label,
         "extractor": f"{spec.provider}/{spec.model}@{settings['temperature']}",

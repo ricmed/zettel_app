@@ -100,3 +100,7 @@ The checksum used to be written, and committed, before any chunk of that chapter
 * `zettel/extractor.py` — `compute_llm_call_checksum` construction for deterministic response caching
 * `zettel/connector/prompt.py` — `compute_llm_call_checksum` usage; `zettel/connector/note.py` — `compute_embedding_input_hash` (embed-skip)
 * `zettel/state/llm_cache.py` — `llm_cache` table storing checksum-keyed cached responses; `get_cached_llm_response` / `cache_llm_response`
+
+## Addendum (2026-10-18): the vision cache key is a full LLM call checksum (issue #258)
+
+Image description now uses `compute_llm_call_checksum` (provider, temperature, `top_p`, thinking), with the image checksum in the chunk slot and the context snippet in the RAG slot. A provider change with the same model name no longer replays the old description. Existing vision cache rows miss once. `concept_id` (issue #263) puts `chunk_id` in the prefix (`{chunk_id}::concept::{8 hex}`) so the 32-bit suffix is only unique inside one chunk. Ids change; there is no migration.

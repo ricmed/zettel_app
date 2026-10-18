@@ -89,7 +89,7 @@ If a future round adds `attach-image` or a web upload, both should funnel into `
 
 * `zettel/assets.py` — `adopt_vault_images`, `_resolve_vault_image`, `_is_canonical_asset`
 * `zettel/assets.py:38-55` — `asset_id_for` / `_asset_relpath` / `_save_image` (content-addressed naming, reused)
-* `zettel/assets.py` — `describe_pending_assets` (unchanged; still the only LLM path)
+* `zettel/assets.py` — `describe_pending_assets` (still the only LLM path; issue #258: unavailable LLM aborts the batch, and the cache key includes provider, temperature and thinking)
 * `zettel/manual_lit.py` — adoption call inside `adopt_manual_literature`
 * `zettel/sync.py` — `_adopt_note_images` for permanent notes
 * `zettel/state/schema.py` — `assets` schema (`source_id` NOT NULL with FK)

@@ -118,6 +118,42 @@ def test_extract_counts_pending_chunks_and_prompt_overhead(cfg, db):
     assert est.output_tokens == 3 * cfg.extraction.preflight_output_tokens_per_chunk
 
 
+def test_extract_output_uses_the_historical_mean(cfg, db):
+    run_id = db.start_run("extract")
+    db.finish_run(run_id, "completed", {"tokens_completion": 834, "llm_calls": 2})
+    _pending_chunks(db, 1, chars=4)
+    est = estimate_extract(cfg, db)
+    assert est.output_tokens == 417
+    assert any("media" in caveat for caveat in est.caveats)
+    assert any("modelo" in caveat for caveat in est.caveats)
+
+
+def test_extract_overhead_includes_the_filled_system(cfg, db):
+    repo = Path(__file__).resolve().parents[1]
+    cfg.prompts_path = repo / "prompts"
+    _pending_chunks(db, 1, chars=400)
+    from zettel.domain_examples import load_domain_examples, render_for_prompt
+    from zettel.extractor import prompt1_messages
+    from zettel.llm import load_prompt_parts
+
+    parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    examples = render_for_prompt(load_domain_examples(cfg.domain.examples_path), "literature_note")
+    system, _user = prompt1_messages(
+        cfg,
+        db,
+        {"source_id": "@Autor2020", "text": "x" * 400, "section_path": ""},
+        parts,
+        examples,
+        "",
+    )
+    est = estimate_extract(cfg, db)
+    overhead = est.input_tokens - estimate_tokens("x" * 400)
+    system_tokens = estimate_tokens(system)
+    assert system_tokens > 0
+    assert overhead >= int(system_tokens * 0.95)
+    assert any("thinking" in caveat for caveat in est.caveats)
+
+
 def test_extract_output_target_is_configurable(cfg, db):
     _pending_chunks(db, 2)
     cfg.extraction.preflight_output_tokens_per_chunk = 50

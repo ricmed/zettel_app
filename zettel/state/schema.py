@@ -291,6 +291,21 @@ CREATE INDEX IF NOT EXISTS idx_assets_status    ON assets(status);
 CREATE INDEX IF NOT EXISTS idx_sources_doi      ON sources(doi);
 CREATE INDEX IF NOT EXISTS idx_sources_isbn     ON sources(isbn);
 CREATE INDEX IF NOT EXISTS idx_chapters_source  ON chapters(source_id);
+
+-- Raw LLM answers that failed the JSON/Pydantic contract (issue #256).
+-- A new table means `zettel init --reset`; there is no migration.
+CREATE TABLE IF NOT EXISTS llm_failures (
+    failure_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    phase         TEXT NOT NULL,
+    subject_id    TEXT NOT NULL DEFAULT '',
+    call_checksum TEXT NOT NULL DEFAULT '',
+    model         TEXT NOT NULL DEFAULT '',
+    error         TEXT NOT NULL,
+    raw_response  TEXT NOT NULL,
+    attempt       INTEGER NOT NULL DEFAULT 1,
+    created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_llm_failures_phase ON llm_failures(phase);
 """
 
 # FTS5 virtual tables for BM25 lexical search, kept in sync with notes/chunks.

@@ -208,14 +208,14 @@ def test_filter_candidates_verified_quote_too_short_rejected():
     assert len(rejected) == 1
 
 
-def test_filter_candidates_paragraph_sized_quote_still_rejected():
-    """Past the tolerated ceiling (25 * 1.5 = 37) it is a paragraph, not a quote."""
+def test_filter_candidates_paragraph_sized_literal_quote_is_trimmed():
+    """Past the tolerated ceiling a grounded quote is cut to 25 words, not dropped."""
     cfg = _make_config(verify_anchor_quote=True)
     long_quote = " ".join(["palavra"] * 40)
     candidates = [_make_candidate(anchor_quote=long_quote)]
     approved, rejected = _filter_candidates(candidates, cfg, "palavra " * 50)
-    assert len(approved) == 0
-    assert len(rejected) == 1
+    assert not rejected
+    assert len(approved[0].anchor_quote.split()) == 25
 
 
 def test_filter_candidates_quote_slightly_over_the_ceiling_is_kept():
@@ -243,13 +243,14 @@ def test_filter_candidates_over_ceiling_quote_still_must_be_grounded():
     assert "nao encontrada" in rejected[0][1]
 
 
-def test_filter_candidates_tolerance_of_one_restores_the_hard_cut():
+def test_filter_candidates_tolerance_of_one_trims_a_grounded_overshoot():
+    """tolerance 1.0 still marks 26+ words as over the ceiling, but a literal quote is cut."""
     cfg = _make_config(verify_anchor_quote=True, anchor_quote_max_words_tolerance=1.0)
     chunk = "prefixo " + " ".join(f"palavra{i}" for i in range(27)) + " sufixo"
     quote = " ".join(f"palavra{i}" for i in range(27))
     approved, rejected = _filter_candidates([_make_candidate(anchor_quote=quote)], cfg, chunk)
-    assert len(approved) == 0
-    assert len(rejected) == 1
+    assert len(rejected) == 0
+    assert len(approved[0].anchor_quote.split()) == 25
 
 
 def test_filter_candidates_short_quote_reason_names_the_floor():
@@ -304,15 +305,93 @@ def test_anchor_not_in_the_fence_is_not_exempted_by_a_fence_elsewhere():
     assert "< 10" in rejected[0][1]
 
 
-def test_ceiling_still_applies_to_an_anchor_inside_a_fence():
+def test_long_anchor_inside_a_fence_is_trimmed_not_dropped():
+    """A literal fence quote past the ceiling is cut; the floor exemption is unrelated."""
     long_comment = " ".join(f"palavra{i}" for i in range(60))
     chunk = f"```python\n# {long_comment}\nx = 1\n```"
     cfg = _make_config(verify_anchor_quote=True)
     approved, rejected = _filter_candidates(
         [_make_candidate(anchor_quote=long_comment)], cfg, chunk
     )
+    assert not rejected
+    assert len(approved[0].anchor_quote.split()) == 25
+
+
+def test_literal_anchor_over_the_ceiling_is_trimmed_toward_the_thesis():
+    """45 literal words stay, cut to 25, and the window follows the thesis (#253)."""
+    from zettel.extractor import anchor_trim_original
+    from zettel.hashing import quote_is_grounded
+
+    cfg = _make_config(verify_anchor_quote=True)
+    head = [f"filler{i}" for i in range(30)]
+    focus = ["convergencia", "adaptativa", "gradiente"]
+    tail = [f"resto{i}" for i in range(12)]
+    quote = " ".join(head + focus + tail)
+    assert len(quote.split()) == 45
+    chunk = f"Antes. {quote} Depois."
+    thesis = "A convergencia adaptativa do gradiente depende do passo"
+    approved, rejected = _filter_candidates(
+        [_make_candidate(anchor_quote=quote, thesis=thesis)], cfg, chunk
+    )
+    assert not rejected
+    kept = approved[0].anchor_quote
+    assert len(kept.split()) == 25
+    assert "convergencia" in kept
+    assert "filler0" not in kept.split()
+    assert quote_is_grounded(kept, chunk, cfg.extraction.anchor_quote_min_ratio)
+    assert anchor_trim_original(approved[0]) == quote
+
+
+def test_ungrounded_anchor_over_the_ceiling_is_still_dropped():
+    cfg = _make_config(verify_anchor_quote=True)
+    quote = " ".join(f"inventada{i}" for i in range(45))
+    approved, rejected = _filter_candidates([_make_candidate(anchor_quote=quote)], cfg, _CHUNK_TEXT)
     assert not approved
-    assert "teto tolerado" in rejected[0][1]
+    assert "nao encontrada" in rejected[0][1]
+    assert rejected[0][0].anchor_quote == quote
+
+
+def test_forced_long_literal_anchor_becomes_a_draft_candidate():
+    cfg = _make_config(verify_anchor_quote=True)
+    quote = " ".join(f"palavra{i}" for i in range(45))
+    chunk = f"inicio {quote} fim"
+    approved, rejected = _filter_candidates(
+        [_make_candidate(anchor_quote=quote, relevance_score=2)],
+        cfg,
+        chunk,
+        force=True,
+    )
+    assert not rejected
+    assert len(approved[0].anchor_quote.split()) == 25
+
+
+def test_concept_id_is_scoped_to_the_chunk():
+    from zettel.extractor import _compute_concept_id
+
+    cand = _make_candidate()
+    first = _compute_concept_id("@S", "@S::ch000::a", cand)
+    second = _compute_concept_id("@S", "@S::ch000::b", cand)
+    assert first != second
+    assert first.startswith("@S::ch000::a::concept::")
+    assert second.startswith("@S::ch000::b::concept::")
+
+
+def test_trimmed_anchor_page_stays_inside_the_original_span():
+    """A prefix window keeps the start page; it cannot keep both ends of a cross-page quote."""
+    from zettel.extractor import _trim_anchor_quote
+    from zettel.paging import locate_quote_pages, render_page_marked_markdown
+
+    page_a = " ".join(f"alfa{i}" for i in range(30))
+    page_b = " ".join(f"beta{i}" for i in range(15))
+    full = f"{page_a} {page_b}"
+    extracted = render_page_marked_markdown([(10, page_a), (11, page_b)])
+    full_pages = locate_quote_pages(extracted, full, 10)
+    trimmed = _trim_anchor_quote(full, "alfa0 alfa1 alfa2", 25)
+    trim_pages = locate_quote_pages(extracted, trimmed, 10)
+    assert full_pages == (10, 11)
+    assert trim_pages is not None
+    assert full_pages[0] <= trim_pages[0] <= trim_pages[1] <= full_pages[1]
+    assert trim_pages[0] == 10
 
 
 def test_filter_candidates_verify_anchor_quote_false_restores_old_behavior():
@@ -742,7 +821,125 @@ def test_process_chunk_persists_the_discarded_anchor_quote(tmp_path, monkeypatch
 
     persisted = json.loads(db.get_chunk("@Book2024::ch000::abc")["summary_json"])
     assert persisted["rejected_candidates"][0]["anchor_quote"] == quote
+    assert persisted["rejection_category"] == "filtered"
     db.close()
+
+
+def test_process_chunk_records_a_parse_failure_with_the_raw_answer(tmp_path, monkeypatch):
+    from zettel.extractor import _process_chunk
+    from zettel.llm import load_prompt_parts
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        return "isto nao e json"
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+
+    rows = db.llm_failure_counts()
+    assert rows and rows[0]["phase"] == "extract"
+    stored = db.conn.execute("SELECT raw_response, attempt FROM llm_failures").fetchall()
+    assert any(row[0] == "isto nao e json" for row in stored)
+    assert db.get_chunk(chunk_row["chunk_id"])["status"] == "failed"
+    db.close()
+
+
+def test_process_chunk_persists_a_trimmed_literal_anchor(tmp_path, monkeypatch):
+    import json
+
+    from zettel.extractor import _process_chunk
+    from zettel.llm import load_prompt_parts
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+    quote = " ".join(f"palavra{i}" for i in range(45))
+    db.upsert_chunk(
+        chunk_row["chunk_id"],
+        "@Book2024",
+        "@Book2024::ch000",
+        f"Trecho fonte. {quote}",
+        "ck",
+        chunk_index=0,
+        status="pending",
+    )
+    chunk_row = db.get_chunk(chunk_row["chunk_id"])
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        return json.dumps(
+            {
+                "chunk_status": "accepted",
+                "rejection_reason": "",
+                "rejection_category": "",
+                "summary": "Resumo com conteudo suficiente para pontuar no calculo de confianca.",
+                "key_concepts": ["conceito"],
+                "candidates": [
+                    {
+                        "thesis": "Uma tese qualquer com palavras suficientes para o filtro",
+                        "definition": (
+                            "Uma definicao com bastante texto explicativo sobre o tema central"
+                        ),
+                        "anchor_quote": quote,
+                        "relevance_score": 4,
+                    }
+                ],
+            }
+        )
+
+    monkeypatch.setattr("zettel.extractor.call_llm", fake_call_llm)
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
+    _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
+
+    row = db.get_chunk(chunk_row["chunk_id"])
+    persisted = json.loads(row["summary_json"])
+    assert row["status"] == "awaiting_review"
+    kept = persisted["candidates"][0]
+    assert persisted["anchor_trimmed"] is True
+    assert kept["anchor_trimmed"] is True
+    assert kept["anchor_quote_original"] == quote
+    assert len(kept["anchor_quote"].split()) == 25
+    concept_ids = [c["concept_id"] for c in db.get_concepts_by_status("awaiting_review")]
+    assert concept_ids
+    assert concept_ids[0].startswith(f"{chunk_row['chunk_id']}::concept::")
+    db.close()
+
+
+def test_run_extract_defers_chunk_with_pending_neighbor_image(tmp_path, monkeypatch):
+    from zettel.extractor import run_extract
+
+    cfg, db, chunk_row = _process_chunk_test_setup(tmp_path)
+    cfg.images.enabled = True
+    db.upsert_chunk(
+        chunk_row["chunk_id"],
+        "@Book2024",
+        "@Book2024::ch000",
+        chunk_row["text"],
+        "ck",
+        chunk_index=0,
+        status="pending",
+        page_in_file=4,
+    )
+    db.upsert_asset(
+        "@Book2024::img::a",
+        "@Book2024",
+        "90_Assets/a.png",
+        "ckimg",
+        chapter_id="@Book2024::ch000",
+        page_in_file=4,
+    )
+    monkeypatch.setattr("zettel.assets.describe_pending_assets", lambda *a, **k: 0)
+    monkeypatch.setattr("zettel.extractor.get_llm", lambda *a, **k: object())
+
+    def boom(*_a, **_k):
+        raise AssertionError("chunk com imagem pendente nao deve chamar o LLM")
+
+    monkeypatch.setattr("zettel.extractor.call_llm", boom)
+    try:
+        run_extract(cfg, db, None)
+        assert db.get_chunk(chunk_row["chunk_id"])["status"] == "pending"
+        assert db.get_asset("@Book2024::img::a")["status"] == "pending"
+    finally:
+        db.close()
 
 
 # ── No draft file for chunks with nothing to review ──────────────────────
@@ -986,8 +1183,8 @@ def test_process_chunk_validation_error_prompt_includes_error_message(tmp_path, 
     db.close()
 
 
-def test_process_chunk_json_decode_error_uses_generic_repair_prompt(tmp_path, monkeypatch):
-    """Malformed JSON (not a schema violation) keeps the generic repair prompt."""
+def test_process_chunk_json_decode_error_repair_includes_the_schema(tmp_path, monkeypatch):
+    """A malformed answer is repaired with the expected schema, not a bare 'fix this'."""
     import json
 
     from zettel.extractor import _process_chunk
@@ -1016,8 +1213,10 @@ def test_process_chunk_json_decode_error_uses_generic_repair_prompt(tmp_path, mo
     _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
 
     assert len(captured_retry_prompts) == 1
-    assert "malformado" in captured_retry_prompts[0]
-    assert "Erro de validacao" not in captured_retry_prompts[0]
+    retry_prompt = captured_retry_prompts[0]
+    assert "Esquema esperado" in retry_prompt
+    assert "{ isto: nao fecha" in retry_prompt
+    assert "Expecting property name" in retry_prompt
     db.close()
 
 
@@ -1117,6 +1316,16 @@ def _make_output(**overrides) -> LiteratureChunkOutput:
     }
     defaults.update(overrides)
     return LiteratureChunkOutput(**defaults)
+
+
+def test_forced_low_relevance_is_scored_with_the_same_filter():
+    """A reviewer-forced relevance-2 candidate must not collapse to the empty-filter score."""
+    cfg = _make_config()
+    low = _make_candidate(relevance_score=2)
+    output = _make_output(chunk_status="accepted", candidates=[low])
+    assert _score_review_confidence(output, cfg) == 0.2
+    forced = _score_review_confidence(output, cfg, force=True)
+    assert forced > 0.2
 
 
 def test_score_review_confidence_rejected_chunk_is_lowest():

@@ -251,7 +251,7 @@ def run_review(
         "dedupe_pending": 0,
     }
 
-    if auto_approve or not interactive:
+    if auto_approve:
         for chunk in chunks:
             conf = chunk.get("review_confidence") or 0
             if conf >= limiar and approve_chunk(cfg, db, idx, chunk["chunk_id"]):
@@ -260,6 +260,17 @@ def run_review(
                 stats["skipped"] += 1
         if chunks:
             _dedupe_approved_concepts(cfg, db, idx, source_id)
+        stats["dedupe_pending"] = len(pending_dedupe_concepts(db, source_id))
+        stats["pending_review"] = stats["skipped"]
+        finish_pipeline_run(db, run_id)
+        return stats
+
+    if not interactive:
+        # A full pipeline used to treat "no TTY" as approval. The score does not
+        # separate keep from discard, so drafts stay in the queue unless the
+        # caller passed auto_approve (issue #254).
+        stats["skipped"] = len(chunks)
+        stats["pending_review"] = len(chunks)
         stats["dedupe_pending"] = len(pending_dedupe_concepts(db, source_id))
         finish_pipeline_run(db, run_id)
         return stats
@@ -307,6 +318,8 @@ def review_followups(stats: dict[str, int]) -> list[str]:
         )
     if stats.get("discarded"):
         lines.append(f"{stats['discarded']} chunk(s) apagado(s) do banco.")
+    if stats.get("pending_review"):
+        lines.append(f"{stats['pending_review']} draft(s) aguardando revisao.")
     return lines
 
 
@@ -329,7 +342,7 @@ def _review_menu(
         if not chunks and not rejected_by_extract:
             console.print("[green]Nada mais aguardando review.[/green]")
             return
-        _print_queue(cfg, console, chunks, limiar, len(rejected_by_extract))
+        _print_queue(cfg, console, chunks, limiar, rejected_by_extract)
         mode = Prompt.ask(
             "Modo",
             choices=["a", "d", "r", "x", "q"],
@@ -386,7 +399,7 @@ def _review_menu(
 
 
 def _print_queue(
-    cfg: AppConfig, console, chunks: list[dict], limiar: float, n_extract_rejected: int
+    cfg: AppConfig, console, chunks: list[dict], limiar: float, extract_rejected: list[dict]
 ) -> None:
     from rich.table import Table
 
@@ -410,7 +423,11 @@ def _print_queue(
     report = format_confidence_report(confidence_band_counts(chunks, limiar), limiar)
     console.print(f"[cyan]{report}[/cyan]")
     # Not a confidence band: these chunks never produced a draft.
-    console.print(f"[cyan]  Rejeitados pelo extract (sem draft): {n_extract_rejected}[/cyan]")
+    origins = extract_rejection_origin_counts(extract_rejected)
+    console.print(
+        "[cyan]  Rejeitados pelo extract (sem draft): "
+        f"{origins['total']} (modelo: {origins['modelo']}, filtro: {origins['filtro']})[/cyan]"
+    )
     console.print(
         "[cyan]Comandos: a=aprovar >= limiar, d=reprovar (todos ou por faixa), "
         "r=revisar um a um, x=rejeitados pelo extract (um a um), q=sair[/cyan]"
@@ -540,6 +557,29 @@ def requeueable_extract_ids(db: StateDB, chunk_ids: list[str]) -> list[str]:
     return [cid for cid in chunk_ids if cid in allowed]
 
 
+def extract_rejection_origin(chunk: dict) -> str:
+    """``filtro`` when the model accepted and the deterministic filter dropped everyone.
+
+    ``modelo`` when Prompt 1 itself returned ``chunk_status=rejected``.
+    """
+    summary = _load_json(chunk.get("summary_json"))
+    if summary.get("rejection_category") == "filtered":
+        return "filtro"
+    if summary.get("chunk_status") == "accepted" and summary.get("rejected_candidates"):
+        return "filtro"
+    return "modelo"
+
+
+def extract_rejection_origin_counts(chunks: list[dict]) -> dict[str, int]:
+    modelo = filtro = 0
+    for chunk in chunks:
+        if extract_rejection_origin(chunk) == "filtro":
+            filtro += 1
+        else:
+            modelo += 1
+    return {"modelo": modelo, "filtro": filtro, "total": len(chunks)}
+
+
 def format_extract_rejected_item(chunk: dict, *, index: int, total: int) -> str:
     """Card PT-BR de um chunk que o extract rejeitou: motivo e trecho inteiros."""
     page = chunk.get("page_in_book") or chunk.get("page_in_file") or "?"
@@ -548,10 +588,37 @@ def format_extract_rejected_item(chunk: dict, *, index: int, total: int) -> str:
     if section:
         header += f"  {section}"
     summary = _load_json(chunk.get("summary_json"))
+    origin = extract_rejection_origin(chunk)
+    excerpt = (chunk.get("text") or "").strip() or "_Trecho nao disponivel._"
+    if origin == "filtro":
+        blocks = [header, "", "Origem", "filtro", ""]
+        dropped = summary.get("rejected_candidates") or []
+        if not dropped:
+            blocks.extend(["Motivo", "_Sem motivo._", ""])
+        for item in dropped:
+            if not isinstance(item, dict):
+                continue
+            blocks.extend(
+                [
+                    "Tese",
+                    str(item.get("thesis") or "").strip() or "_Sem tese._",
+                    "",
+                    "Ancora",
+                    str(item.get("anchor_quote") or "").strip() or "_Sem ancora._",
+                    "",
+                    "Motivo",
+                    str(item.get("reason") or "").strip() or "_Sem motivo._",
+                    "",
+                ]
+            )
+        blocks.extend(["Trecho", excerpt])
+        return "\n".join(blocks)
     category = str(summary.get("rejection_category") or "-")
     reason = str(summary.get("rejection_reason") or "").strip() or "_Sem motivo._"
-    excerpt = (chunk.get("text") or "").strip() or "_Trecho nao disponivel._"
-    return f"{header}\n\nCategoria\n{category}\n\nMotivo\n{reason}\n\nTrecho\n{excerpt}"
+    return (
+        f"{header}\n\nOrigem\nmodelo\n\nCategoria\n{category}\n\n"
+        f"Motivo\n{reason}\n\nTrecho\n{excerpt}"
+    )
 
 
 def ask_extract_decision(console) -> str:

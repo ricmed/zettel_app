@@ -164,7 +164,10 @@ def preflight_gate(estimate, yes: bool, db=None) -> None:
     console.print(table)
     for caveat in estimate.caveats:
         console.print(f"[dim]{caveat}[/dim]")
-    console.print("[dim]Estimativa: precos mudam e o cache SQLite pode reduzir o total.[/dim]")
+    console.print(
+        "[dim]Estimativa: precos mudam. Caches e thinking nao estao nesta conta, "
+        "entao o numero nao e um limite superior.[/dim]"
+    )
 
     if yes or not sys.stdin.isatty():
         return

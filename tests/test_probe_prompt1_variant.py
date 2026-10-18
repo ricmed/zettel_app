@@ -163,6 +163,27 @@ def test_parse_failure_is_reported_and_not_recorded():
     assert "c1" in failures
 
 
+def test_parse_failure_keeps_the_raw_response():
+    captured = {}
+
+    def bad_parse(_item, _resp):
+        raise ValueError("json quebrado")
+
+    def on_failure(chunk_id, response, error):
+        captured[chunk_id] = (response, error)
+
+    collect(
+        [{"chunk_id": "c1", "call_id": "x"}],
+        {},
+        lambda _item: "RESPOSTA_BRUTA",
+        bad_parse,
+        lambda *_args: None,
+        on_failure,
+    )
+    assert captured["c1"][0] == "RESPOSTA_BRUTA"
+    assert "json quebrado" in captured["c1"][1]
+
+
 # -- regenerated key -----------------------------------------------------
 
 

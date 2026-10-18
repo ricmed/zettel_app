@@ -34,3 +34,7 @@ An outage is visible and cheap to resume. A malformed JSON on one chunk still ma
 
 * `zettel/llm.py` (`LLMUnavailableError`, `is_llm_unavailable`, `call_llm`, `get_llm`)
 * `zettel/extractor.py`, `zettel/connector/run.py`, `zettel/connector/note.py`, `zettel/harvester/pipeline.py`, `zettel/bibliography.py`
+
+## Addendum (2026-10-18): vision is part of the same fail-fast (issue #258)
+
+**Status:** Accepted amendment. `LLMUnavailableError` raised while describing images propagates out of `describe_pending_assets` and out of `run_extract`. Images that were not described stay `pending`. They are not marked `failed`. A rate-limit abort still leaves the rest of the batch `pending`, and a chunk whose neighborhood (same chapter, page ± 1) still has a pending image stays `pending` and is not sent to Prompt 1. Images disabled in config do not hold chunks back.

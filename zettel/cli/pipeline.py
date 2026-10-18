@@ -13,10 +13,11 @@ Two things differ from running the commands by hand, and both are deliberate:
 
 * **One process, one set of handles.** ``StateDB`` and ``VectorIndex`` are opened
   once instead of five times, so an embedding-drift prompt happens at most once.
-* **Review defers to the flags.** With ``--yes`` (or any non-interactive mode) the
-  gate auto-approves everything at or above the confidence threshold; the
-  below-threshold drafts stay ``awaiting_review`` for a later ``zettel review``.
-  A non-interactive full run never silently discards a draft.
+* **Review does not approve by threshold unless asked.** ``--yes`` and a missing
+  TTY used to auto-approve every draft at or above the confidence limiar. That
+  score does not separate keep from discard, so drafts stay ``awaiting_review``
+  unless ``--auto-approve`` is passed. The flag prints the unvalidated-signal
+  warning. A full run never silently discards a draft.
 
 ``--dry-run`` stops after review — before anything is written to the vault as a
 permanent note — and still prints the cost table, which is the point: it answers
@@ -56,6 +57,16 @@ def run_all(
     skip_duplicates: SkipDuplicatesOption = False,
     force: ForceDuplicatesOption = False,
     skip_biblio: SkipBiblioOption = False,
+    auto_approve: Annotated[
+        bool,
+        typer.Option(
+            "--auto-approve",
+            help=(
+                "Aprovar drafts no limiar de confianca ou acima. "
+                "O sinal nao foi validado; sem esta flag os drafts ficam para revisao."
+            ),
+        ),
+    ] = False,
 ):
     """Executar pipeline completo: harvest > extract > review > summarize > connect > garden."""
     cfg = load_deps(config)
@@ -76,13 +87,16 @@ def run_all(
             skip_biblio=skip_biblio,
             yes=yes,
             dry_run=dry_run,
+            auto_approve=auto_approve,
         )
     except LLMUnavailableError as exc:
         exit_llm_unavailable(exc, db)
     db.close()
 
 
-def _run_all_phases(cfg, db, idx, *, interactive, duplicate_action, skip_biblio, yes, dry_run):
+def _run_all_phases(
+    cfg, db, idx, *, interactive, duplicate_action, skip_biblio, yes, dry_run, auto_approve=False
+):
     # Phase 1: Harvest
     console.rule("[bold blue]Fase 1 — Harvest")
     from zettel.harvester import run_harvest
@@ -118,14 +132,16 @@ def _run_all_phases(cfg, db, idx, *, interactive, duplicate_action, skip_biblio,
 
     # Phase 2b: Review
     console.rule("[bold blue]Fase 2b — Review")
-    from zettel.review import run_review
+    from zettel.review import AUTO_APPROVE_UNVALIDATED_WARNING, run_review
 
+    if auto_approve:
+        console.print(f"[yellow]{AUTO_APPROVE_UNVALIDATED_WARNING}[/yellow]")
     rev = run_review(
         cfg,
         db,
         idx,
-        auto_approve=yes or not interactive,
-        interactive=interactive and not yes,
+        auto_approve=auto_approve,
+        interactive=interactive and not yes and not auto_approve,
     )
     console.print(
         f"  Aprovados: {rev['approved']} | Rejeitados: {rev['rejected']} | "

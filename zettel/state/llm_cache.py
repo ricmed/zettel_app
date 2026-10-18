@@ -32,3 +32,41 @@ class LlmCacheMixin(StateBase):
         )
         self.conn.commit()
         return cur.rowcount
+
+    def record_llm_failure(
+        self,
+        phase: str,
+        error: str,
+        raw_response: str,
+        *,
+        subject_id: str = "",
+        call_checksum: str = "",
+        model: str = "",
+        attempt: int = 1,
+    ) -> None:
+        """Keep the answer that failed the contract, including the raw text."""
+        self.conn.execute(
+            """INSERT INTO llm_failures
+               (phase, subject_id, call_checksum, model, error, raw_response, attempt, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                phase,
+                subject_id,
+                call_checksum,
+                model,
+                error,
+                raw_response,
+                attempt,
+                self._now(),
+            ),
+        )
+        self.conn.commit()
+
+    def llm_failure_counts(self) -> list[dict]:
+        """Parse-failure totals grouped by phase, highest first."""
+        return self._fetchall(
+            """SELECT phase, COUNT(*) AS n
+               FROM llm_failures
+               GROUP BY phase
+               ORDER BY n DESC, phase"""
+        )

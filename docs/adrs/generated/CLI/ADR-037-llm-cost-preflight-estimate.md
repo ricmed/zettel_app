@@ -97,3 +97,9 @@ If a hard budget cap is ever wanted, it belongs on top of `PreflightEstimate`, n
 * `zettel/pricing.py` — `estimate_llm_cost` (LiteLLM price map, $0 for unknown/local)
 * `zettel/connector/context.py` — `build_rag_context` (the renderer `RAG_CHARS_PER_NOTE` mirrors)
 * `tests/test_preflight.py` — fixed-number arithmetic, `--yes` / non-TTY pass-through, abort path, "never calls an LLM"
+
+## Addendum (2026-10-18): the overhead is the filled prompt, and output can be the measured mean (issue #257)
+
+**Status:** Accepted amendment. Measured on the largest extract run, input was about 6,688 tokens per call and the old estimator, which counted the template file with empty placeholders, said about 4,150 (−38%). Output was about 417 against a config target of 800.
+
+The per-call overhead is now the prompt after `{domain}`, `{language}` and the domain few-shots are filled (`literature_note` for extract, `permanent_note` for connect). The chunk, the RAG block and the chapter text are still added by the caller, so they are not inside that overhead. Output tokens are the mean `tokens_completion / llm_calls` of previous finished runs of that phase when any exist; the config target is the fallback. `runs` does not store the model, and the panel says so. SQLite response cache, provider prompt cache and thinking tokens are listed as not included. The panel does not call the input an upper bound.

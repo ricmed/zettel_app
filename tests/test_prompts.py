@@ -282,6 +282,18 @@ def test_json_examples_validate_against_schema(name: str):
         schema(**_resolve_unions(json.loads(block)))
 
 
+def test_literature_prompt_describes_the_chunk_the_code_sends():
+    """The prompt must match the chunk the code sends, not an older overlap or page marker."""
+    text = (PROMPTS_DIR / "literature_note.md").read_text(encoding="utf-8")
+    assert "pode conter marcadores" not in text
+    assert "~200 caracteres" not in text
+    assert "mesma seção longa" in text
+    assert "Máximo 3 frases" not in text
+    assert "Uma frase declarativa" in text
+    assert "3-6 frases" not in text
+    assert text.count("3-5 frases") >= 2
+
+
 def test_literature_examples_have_no_ghost_fields():
     """`total_candidates` is ignored by the schema; nested rejection fields lie."""
     text = (PROMPTS_DIR / "literature_note.md").read_text(encoding="utf-8")
