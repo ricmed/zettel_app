@@ -876,3 +876,35 @@ def test_update_does_not_treat_the_sources_own_doi_as_a_duplicate(cfg, db, tmp_p
     again, _stats = _harvest_markdown(cfg, db, path, revised)
     assert again == sid
     assert any("revisado" in row["text"] for row in db.get_chunks_for_source(sid))
+
+
+def test_update_rewrites_bibliography_when_only_frontmatter_changes(cfg, db, tmp_path):
+    cfg.harvest.modified_file_action = "update"
+    path = tmp_path / "inbox" / "obra.md"
+    prose = "Texto estavel do corpo para o chunk. " * 8
+    body = (
+        "---\n"
+        "title: Obra\n"
+        "author: Ana Silva\n"
+        "year: 2020\n"
+        "document_type: livro\n"
+        "place: Sao Paulo\n"
+        "publisher: Editora\n"
+        "doi: 10.1000/xyz123\n"
+        "---\n\n"
+        f"# Cap\n\n{prose}"
+    )
+    sid, _stats = _harvest_markdown(cfg, db, path, body)
+    before = {row["chunk_id"] for row in db.get_chunks_for_source(sid)}
+    citekey = db.get_source(sid)["citekey"]
+    revised = body.replace("author: Ana Silva", "author: Bruno Costa").replace(
+        "doi: 10.1000/xyz123", "doi: 10.1000/abc999"
+    )
+    again, _stats = _harvest_markdown(cfg, db, path, revised)
+    src = db.get_source(sid)
+    assert again == sid
+    assert src["citekey"] == citekey
+    assert "Bruno Costa" in src["authors"]
+    assert "COSTA" in (src["abnt_reference"] or "")
+    assert src["doi"] == "10.1000/abc999"
+    assert {row["chunk_id"] for row in db.get_chunks_for_source(sid)} == before

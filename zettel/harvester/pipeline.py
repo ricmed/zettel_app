@@ -387,7 +387,14 @@ def _process_file(
     extraction_checksum = sha256_hex(normalize_text_for_hash(text))
 
     cross_format_source = db.get_source_by_extraction_checksum(extraction_checksum)
-    if cross_format_source:
+    if cross_format_source and cross_format_source["source_id"] == updating_source_id:
+        logger.info(
+            "Arquivo '%s' mudou no caminho de %s e o corpo extraido e o mesmo. "
+            "Segue como atualizacao da bibliografia, sem tratar como duplicata.",
+            file_path.name,
+            updating_source_id,
+        )
+    elif cross_format_source:
         check_reviewed_source(cross_format_source["source_id"])
         sid = cross_format_source["source_id"]
         logger.info(
