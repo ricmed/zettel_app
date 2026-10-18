@@ -210,3 +210,21 @@ The floor exists because "under it there is no quote to judge": three words of p
 * `zettel/review.py` — `format_extract_rejected_item`, `requeue_extract_rejected`, `force_extract_rejected`, `requeueable_extract_ids` (2026-10-05 addenda, issues #201 and #202)
 * `zettel/extractor.py` — `chunk_forces_extract`, `FORCE_EXTRACT_INSTRUCTION`, `prompt1_call_checksum(force_extract=...)` (issue #202)
 * `zettel/extractor.py` — `_anchor_in_fence`, the fence exemption in `_check_candidate`; `tests/test_extractor.py` (issue #204)
+
+## Addendum (2026-10-18): a grounded quote past the ceiling is cut, not dropped (issue #253)
+
+**Status:** Accepted amendment. The tolerance band from #153 stays. Past that band (`anchor_quote_max_words * tolerance`, 37 by default) a quote that `quote_is_grounded` accepts is cut to a contiguous window of `anchor_quote_max_words` (25). The window is the one with the most content-word overlap with the thesis (`PT_STOPWORDS` removed, `fold_for_match`); ties keep the leftmost window. The cut is checked with `quote_is_grounded` again. An ungrounded quote is still dropped. The floor still drops a short prose quote, including when the chunk was forced. The original quote and `anchor_trimmed` live in `summary_json`, not in the LLM schema. `concept_id` and `anchor_hash` use the cut quote.
+
+A window of 25 words cannot keep both the first and the last five words of a 45-word quote that crosses a page. The page of record is the page of the **cut**. It is a subset of the original span. A cut that is a prefix keeps the start page.
+
+## Addendum (2026-10-18): `run-all` does not approve by the unvalidated score (issue #254)
+
+**Status:** Accepted amendment. `--yes` and a missing TTY no longer imply threshold approval inside `run-all`. Drafts stay `awaiting_review` unless the operator passes `--auto-approve` (CLI) or checks the box on the web form. Both default off. Turning it on prints `AUTO_APPROVE_UNVALIDATED_WARNING` and, on the web, stores the choice on the job payload and on a review event. The job summary reports how many drafts stayed pending. `zettel review --yes` and `zettel extract --auto-approve` are unchanged: those commands are the explicit review.
+
+## Addendum (2026-10-18): the review card names who rejected the chunk (issue #255)
+
+**Status:** Accepted amendment. A chunk the model accepted and the filter emptied is `rejection_category = "filtered"` in `summary_json` only. That value is not in the LLM enum. The CLI card and `GET /review?queue=rejected` show origin `filtro` or `modelo`. Filter cards list each dropped candidate's thesis, anchor and reason. The band report counts the two origins separately. A model rejection still shows the model's category and reason.
+
+## Addendum (2026-10-18): a forced chunk is scored with the same filter (issue #263)
+
+**Status:** Accepted amendment. `_score_review_confidence` receives the same `force` flag as `_filter_candidates`. A relevance-2 candidate the reviewer asked for is no longer stored with confidence 0.2 just because the unforced filter would have dropped it. The early 0.1 for `chunk_status=rejected` also waits, under `force`, until the candidates are scored.

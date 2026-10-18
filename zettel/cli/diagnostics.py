@@ -91,6 +91,24 @@ def status(config: ConfigOption = None):
 
     console.print(table)
 
+    failure_rows = db.llm_failure_counts()
+    if failure_rows:
+        fail_table = Table(title="Falhas de parse do LLM")
+        fail_table.add_column("Fase", style="bold")
+        fail_table.add_column("Quantidade", justify="right")
+        for row in failure_rows:
+            fail_table.add_row(str(row["phase"]), str(row["n"]))
+        console.print(fail_table)
+
+    discards = db.filter_discard_counts()
+    if discards:
+        discard_table = Table(title="Descartes do filtro do extract")
+        discard_table.add_column("Motivo", style="bold")
+        discard_table.add_column("Quantidade", justify="right")
+        for reason, count in discards:
+            discard_table.add_row(reason, str(count))
+        console.print(discard_table)
+
     from zettel.harvester import list_incomplete_sources
 
     incomplete = list_incomplete_sources(db)

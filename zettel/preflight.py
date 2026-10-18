@@ -56,14 +56,73 @@ class PreflightEstimate:
         return self.items > 0
 
 
-def _prompt_tokens(cfg: AppConfig, filename: str) -> int:
-    """Token overhead of a prompt template, read once."""
+_UNCOUNTED = (
+    "Hits do cache SQLite nao estao descontados.",
+    "Cache de prompt do provedor nao esta descontado.",
+    "Tokens de thinking nao entram nesta conta.",
+)
+
+
+def _filled_overhead(cfg: AppConfig, filename: str, extra: dict[str, str] | None = None) -> int:
+    """Tokens of one call's prompt after placeholders and few-shots are filled.
+
+    The per-item payload (chunk text, RAG, chapter text) is counted by the
+    caller. Here the user template is filled with empty leftovers, so a
+    ``{chunk_text}`` slot is not counted twice.
+    """
     path = Path(cfg.prompts_path) / filename
     try:
-        return estimate_tokens(path.read_text(encoding="utf-8"))
+        from zettel.llm import fill_template, load_prompt_parts
+
+        parts = load_prompt_parts(path)
     except OSError:
         logger.debug("Prompt %s indisponivel para o pre-voo; overhead = 0", path)
         return 0
+    mapping: dict[str, str] = {"language": cfg.language, "domain": cfg.domain.name}
+    if extra:
+        mapping.update(extra)
+    system = fill_template(parts.system, mapping) if parts.system else ""
+    user = fill_template(parts.user_template, mapping)
+    text = f"{system}\n{user}" if system else user
+    return estimate_tokens(text)
+
+
+def _example_fields(cfg: AppConfig, prompt_name: str) -> dict[str, str]:
+    from zettel.domain_examples import load_domain_examples, render_for_prompt
+
+    try:
+        return render_for_prompt(load_domain_examples(cfg.domain.examples_path), prompt_name)
+    except OSError:
+        logger.debug("Exemplos de dominio indisponiveis para o pre-voo")
+        return {}
+
+
+def _output_tokens_per_call(db: StateDB, phase: str, fallback: int) -> tuple[int, str]:
+    """Mean completion tokens of past runs of ``phase``, else the config target.
+
+    ``runs`` has no model column, so the mean is every finished run of the phase
+    in this database. The note says so instead of pretending to filter.
+    """
+    from zettel.usage import pipeline_phase_name
+
+    total_out = 0
+    total_calls = 0
+    for row in db.get_recent_runs(limit=200):
+        if pipeline_phase_name(row.get("pipeline_signature")) != phase:
+            continue
+        if row.get("status") not in ("completed", "failed"):
+            continue
+        calls = int(row.get("llm_calls") or 0)
+        if calls <= 0:
+            continue
+        total_out += int(row.get("tokens_completion") or 0)
+        total_calls += calls
+    if not total_calls:
+        return fallback, "Saida: alvo do config (sem execucoes anteriores desta fase)."
+    mean = max(1, total_out // total_calls)
+    return mean, (
+        "Saida: media das execucoes anteriores desta fase. O registro de runs nao guarda o modelo."
+    )
 
 
 def _build(
@@ -101,19 +160,23 @@ def _build(
 def estimate_extract(cfg: AppConfig, db: StateDB) -> PreflightEstimate:
     """One Prompt 1 call per pending chunk."""
     chunks = db.get_chunks_by_status("pending")
-    overhead = _prompt_tokens(cfg, "literature_note.md")
+    overhead = _filled_overhead(cfg, "literature_note.md", _example_fields(cfg, "literature_note"))
     input_tokens = sum(estimate_tokens(c.get("text") or "") for c in chunks)
     input_tokens += overhead * len(chunks)
+    per_call, output_note = _output_tokens_per_call(
+        db, "extract", cfg.extraction.preflight_output_tokens_per_chunk
+    )
     return _build(
         cfg,
         "extract",
         items=len(chunks),
         item_label="chunk(s) pendente(s)",
         input_tokens=input_tokens,
-        output_tokens=len(chunks) * cfg.extraction.preflight_output_tokens_per_chunk,
+        output_tokens=len(chunks) * per_call,
         caveats=[
             "Imagens pendentes (llm.images) nao entram nesta conta.",
-            "Hits do cache SQLite nao estao descontados.",
+            output_note,
+            *_UNCOUNTED,
         ],
     )
 
@@ -142,7 +205,7 @@ def estimate_connect(
     context_notes = cfg.linking.topk + (graph_cfg.max_neighbors if graph_cfg.enabled else 0)
     per_note = RAG_HEADER_CHARS + rag_note_chars(db, cfg.linking.rag_note_chars)
     context_tokens = estimate_tokens("x" * (context_notes * per_note))
-    overhead = _prompt_tokens(cfg, "permanent_note.md")
+    overhead = _filled_overhead(cfg, "permanent_note.md", _example_fields(cfg, "permanent_note"))
 
     input_tokens = 0
     for item in candidates:
@@ -152,16 +215,20 @@ def estimate_connect(
             for attr in ("thesis", "definition", "intuition", "limits")
         )
         input_tokens += estimate_tokens(text) + context_tokens + overhead
+    per_call, output_note = _output_tokens_per_call(
+        db, "connect", cfg.linking.preflight_output_tokens_per_note
+    )
     return _build(
         cfg,
         "connect",
         items=len(candidates),
         item_label="conceito(s) aprovado(s)",
         input_tokens=input_tokens,
-        output_tokens=len(candidates) * cfg.linking.preflight_output_tokens_per_note,
+        output_tokens=len(candidates) * per_call,
         caveats=[
             f"Contexto RAG estimado em {context_notes} nota(s) por conceito.",
-            "Hits do cache SQLite nao estao descontados.",
+            output_note,
+            *_UNCOUNTED,
         ],
     )
 
@@ -177,7 +244,7 @@ def estimate_summarize(
     zero work.
     """
     chapters = db.get_chapters_needing_summary(source_id)
-    overhead = _prompt_tokens(cfg, "chapter_summary.md")
+    overhead = _filled_overhead(cfg, "chapter_summary.md")
     budget = cfg.summarize.max_input_chars
 
     calls = 0
@@ -200,7 +267,7 @@ def estimate_summarize(
 
     source_ids = {c["source_id"] for c in chapters}
     if source_ids:
-        reduce_overhead = _prompt_tokens(cfg, "source_summary.md")
+        reduce_overhead = _filled_overhead(cfg, "source_summary.md")
         per_chapter_summary = cfg.summarize.preflight_output_tokens_per_chapter
         for sid in source_ids:
             n = len(db.get_chapters_for_source(sid))
@@ -209,17 +276,21 @@ def estimate_summarize(
 
     caveats = [
         "Capitulo com resumo atualizado (checksum igual) nao entra na conta.",
-        "Hits do cache SQLite nao estao descontados.",
+        *_UNCOUNTED,
     ]
     if map_reduced:
         caveats.append(f"{map_reduced} capitulo(s) acima do orcamento: vao por map-reduce.")
+    per_call, output_note = _output_tokens_per_call(
+        db, "summarize", cfg.summarize.preflight_output_tokens_per_chapter
+    )
+    caveats.append(output_note)
     return _build(
         cfg,
         "summarize",
         items=calls,
         item_label="chamada(s)",
         input_tokens=input_tokens,
-        output_tokens=calls * cfg.summarize.preflight_output_tokens_per_chapter,
+        output_tokens=calls * per_call,
         caveats=caveats,
     )
 
@@ -248,5 +319,7 @@ def estimate_article(cfg: AppConfig) -> PreflightEstimate:
         caveats=[
             "Piso: revisoes no HITL e ciclos do juiz podem aumentar.",
             "A reescrita de personalidade nao entra (depende do perfil escolhido).",
+            "O piso nao inclui o texto dos prompts de artigo.",
+            *_UNCOUNTED,
         ],
     )

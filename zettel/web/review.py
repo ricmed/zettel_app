@@ -45,11 +45,15 @@ async def review(
             enriched = []
             for chunk in extract_rejected_chunks(db, source_id or None):
                 summary = _summary(chunk)
+                from zettel.review import extract_rejection_origin
+
                 enriched.append(
                     {
                         **chunk,
+                        "rejection_origin": extract_rejection_origin(chunk),
                         "rejection_category": summary.get("rejection_category") or "",
                         "rejection_reason": summary.get("rejection_reason") or "",
+                        "rejected_candidates": summary.get("rejected_candidates") or [],
                     }
                 )
             page_size = _REJECTED_PAGE_SIZE

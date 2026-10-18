@@ -66,3 +66,7 @@ A note without a `citation` key (for example a blank manual ZTL) falls back to i
 ## Amendment (2026-10-16): the page map no longer slides on empty pages (#236)
 
 `locate_quote_pages` reads the same numbered map as harvest (`<!-- zettel:page N -->`, one entry per file page, empty pages included). A quote that sits after a blank page is no longer found under the previous page number. Sources whose `extracted_text` still has the unnumbered break marker have no usable map until re-harvest; their citations keep the shifted page until then. There is no migration.
+
+## Amendment (2026-10-18): the citation quote may be a cut of the model's anchor (issue #253)
+
+When extract cuts an over-long grounded anchor, the quote stored on the candidate — and therefore the quote `resolve_citation` locates — is the cut, not the original. The original stays in `summary_json` for audit. The page is the page of the cut, which is inside the span of the original quote. A prefix cut keeps the start page. A 25-word window cannot preserve both ends of a cross-page quote, so the printed range may shrink to the page the cut actually sits on.

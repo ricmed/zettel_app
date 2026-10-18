@@ -242,7 +242,7 @@ def test_describe_non_rate_limit_error_marks_failed(tmp_path, db, monkeypatch):
 
     class Boom:
         def invoke(self, messages):
-            raise RuntimeError("connection reset by peer")
+            raise RuntimeError("resposta vazia")
 
     monkeypatch.setattr("zettel.assets.get_llm", lambda *a, **k: Boom())
     monkeypatch.setattr("zettel.assets.time.sleep", lambda s: None)
@@ -250,6 +250,23 @@ def test_describe_non_rate_limit_error_marks_failed(tmp_path, db, monkeypatch):
     n = describe_pending_assets(cfg, db)
     assert n == 0
     assert db.get_asset(asset_id)["status"] == "failed"
+
+
+def test_describe_connection_reset_aborts_and_stays_pending(tmp_path, db, monkeypatch):
+    from zettel.llm import LLMUnavailableError
+
+    cfg = _cfg(tmp_path, min_interval_seconds=0)
+    asset_id = _pending_asset(tmp_path, db, cfg)
+
+    class Boom:
+        def invoke(self, messages, **kwargs):
+            raise RuntimeError("connection reset by peer")
+
+    monkeypatch.setattr("zettel.assets.get_llm", lambda *a, **k: Boom())
+    monkeypatch.setattr("zettel.assets.time.sleep", lambda s: None)
+    with pytest.raises(LLMUnavailableError):
+        describe_pending_assets(cfg, db)
+    assert db.get_asset(asset_id)["status"] == "pending"
 
 
 def test_describe_aborts_batch_after_consecutive_rate_limits(tmp_path, db, monkeypatch):
@@ -323,3 +340,42 @@ def test_describe_uses_configured_language(tmp_path, db, monkeypatch):
     assert describe_pending_assets(cfg, db) == 1
     assert "en-US" in captured["system"]
     assert "{language}" not in captured["system"]
+
+
+def test_describe_llm_unavailable_stays_pending(tmp_path, db, monkeypatch):
+    from zettel.llm import LLMUnavailableError
+
+    cfg = _cfg(tmp_path, min_interval_seconds=0)
+    asset_id = _pending_asset(tmp_path, db, cfg)
+
+    class Boom:
+        def invoke(self, messages, **kwargs):
+            raise LLMUnavailableError("sem credencial", phase="images")
+
+    monkeypatch.setattr("zettel.assets.get_llm", lambda *a, **k: Boom())
+    with pytest.raises(LLMUnavailableError):
+        describe_pending_assets(cfg, db)
+    assert db.get_asset(asset_id)["status"] == "pending"
+
+
+def test_image_cache_key_changes_with_provider(tmp_path, db, monkeypatch):
+    cfg = _cfg(tmp_path, min_interval_seconds=0)
+    asset_id = _pending_asset(tmp_path, db, cfg)
+    calls = {"n": 0}
+
+    class FakeLLM:
+        def invoke(self, messages, **kwargs):
+            calls["n"] += 1
+
+            class R:
+                content = "Um grafico."
+
+            return R()
+
+    monkeypatch.setattr("zettel.assets.get_llm", lambda *a, **k: FakeLLM())
+    assert describe_pending_assets(cfg, db) == 1
+    db.conn.execute("UPDATE assets SET status='pending' WHERE asset_id=?", (asset_id,))
+    db.conn.commit()
+    cfg.llm.images.provider = "anthropic"
+    assert describe_pending_assets(cfg, db) == 1
+    assert calls["n"] == 2

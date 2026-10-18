@@ -18,10 +18,11 @@ Uma chamada = **um chunk** = uma nota de literatura granular. O resultado não �
 
 - O `summary` vira o slug do arquivo da nota (`LIT - AutorAno - pNNN - topico-NNNN.md`):
   a **primeira frase deve nomear o conceito** do trecho, não descrever o documento.
-- O texto pode conter marcadores `<!-- zettel:page N -->` (ou o legado
-  `<!-- zettel:page-break -->`): são metadados de paginação. **Ignore-os** —
-  não citá-los em `anchor_quote`, resumo ou localizador.
-- Chunks vizinhos se sobrepõem em ~200 caracteres. Extraia apenas o que está
+- O trecho **não** traz marcadores `<!-- zettel:page N -->` nem
+  `<!-- zettel:page-break -->`: eles são removidos antes do chunk ser gravado.
+  Não invente uma página a partir de dígitos soltos, e não os cite.
+- Partes de uma **mesma seção longa** podem se sobrepor. Uma seção que cabe
+  inteira não se repete no chunk vizinho. Extraia apenas o que está
   **completo neste trecho**; uma ideia cortada ao meio será coberta pelo chunk seguinte.
 - O localizador da fonte é a página **impressa** e/ou o caminho de seção. Markdown
   nativo não tem página: nesse caso use apenas a seção.
@@ -173,14 +174,13 @@ O corte é aplicado depois, pela política do sistema — sua tarefa é pontuar 
 
 ### Tese (Campo Fundamental)
 
-- Uma afirmação completa e específica
-- Máximo 3 frases curtas e diretas
+- Uma frase declarativa, completa e específica
 - Deve capturar a essência conceitual, não apenas nomear o conceito
 {thesis_examples}
 
 ### Definição
 
-- Explicação autossuficiente (3-6 frases)
+- Explicação autossuficiente (3-5 frases)
 - Deve incluir: o quê, por quê, como funciona, quando se aplica
 - Revele o **mecanismo** ou **princípio** subjacente
 - Evite paráfrases superficiais da fonte

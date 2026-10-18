@@ -630,7 +630,22 @@ def test_run_review_auto_approve_respects_threshold(env):
 
     assert stats["approved"] == 1
     assert stats["skipped"] == 1
+    assert stats["pending_review"] == 1
     assert db.get_chunk("@Book2024::ch000::low1")["status"] == "awaiting_review"
+
+
+def test_run_review_without_auto_approve_leaves_drafts(env):
+    cfg, db, idx = env
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+    ):
+        stats = run_review(cfg, db, idx, auto_approve=False, interactive=False)
+
+    assert stats["approved"] == 0
+    assert stats["pending_review"] >= 1
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "awaiting_review"
 
 
 def test_purge_rejected_removes_sqlite_and_chroma(env):
@@ -856,6 +871,42 @@ def test_format_extract_rejected_item_keeps_full_text():
     assert reason.strip() in card
     assert text.strip() in card
     assert "structural" in card
+    assert "modelo" in card
+
+
+def test_format_extract_rejected_item_names_the_filter():
+    from zettel.review import format_extract_rejected_item
+
+    card = format_extract_rejected_item(
+        {
+            "chunk_id": "@Book2024::ch000::long",
+            "page_in_book": 8,
+            "section_path": "Capitulo",
+            "summary_json": json.dumps(
+                {
+                    "chunk_status": "accepted",
+                    "rejection_category": "filtered",
+                    "rejection_reason": "",
+                    "candidates": [],
+                    "rejected_candidates": [
+                        {
+                            "thesis": "TESE_FILTRO",
+                            "anchor_quote": "ANCORA_FILTRO",
+                            "reason": "anchor_quote_words=40 > 37 (teto tolerado)",
+                        }
+                    ],
+                }
+            ),
+            "text": "trecho do filtro",
+        },
+        index=1,
+        total=1,
+    )
+    assert "filtro" in card
+    assert "TESE_FILTRO" in card
+    assert "ANCORA_FILTRO" in card
+    assert "teto tolerado" in card
+    assert "modelo" not in card.split("Origem", 1)[-1].split("Tese", 1)[0]
 
 
 def test_run_review_m_hides_extract_rejection_for_the_session(env):
@@ -1062,3 +1113,58 @@ def test_lit_links_skip_drafts_still_in_review(env):
     before = draft.read_text(encoding="utf-8")
     sync_lit_permanent_links(cfg, db, [chunk_id])
     assert draft.read_text(encoding="utf-8") == before
+
+
+def test_run_all_leaves_drafts_unless_auto_approve(monkeypatch):
+    from zettel.cli.pipeline import _run_all_phases
+
+    seen: dict[str, bool] = {}
+
+    def harvest(*_a, **_k):
+        return type("H", (), {"source_ids": [], "skipped": []})()
+
+    def review(*_a, **kwargs):
+        seen["auto_approve"] = kwargs["auto_approve"]
+        seen["interactive"] = kwargs["interactive"]
+        return {"approved": 0, "rejected": 0, "skipped": 3, "pending_review": 3}
+
+    class Summary:
+        chapters_summarized = 0
+        chapters_skipped = 0
+        sources_summarized = 0
+
+    monkeypatch.setattr("zettel.harvester.run_harvest", harvest)
+    monkeypatch.setattr("zettel.extractor.run_extract", lambda *_a, **_k: [])
+    monkeypatch.setattr("zettel.review.run_review", review)
+    monkeypatch.setattr("zettel.summarize.generate_summaries", lambda *_a, **_k: Summary())
+    monkeypatch.setattr("zettel.connector.load_approved_candidates", lambda _db: [])
+    monkeypatch.setattr("zettel.connector.run_connect", lambda *_a, **_k: [])
+    monkeypatch.setattr("zettel.gardener.run_garden", lambda *_a, **_k: [])
+    monkeypatch.setattr("zettel.cli.pipeline.print_cost_by_phase", lambda *_a, **_k: None)
+
+    db = type("DB", (), {"get_last_run": lambda self: None})()
+    _run_all_phases(
+        object(),
+        db,
+        object(),
+        interactive=False,
+        duplicate_action="skip",
+        skip_biblio=False,
+        yes=True,
+        dry_run=False,
+        auto_approve=False,
+    )
+    assert seen == {"auto_approve": False, "interactive": False}
+
+    _run_all_phases(
+        object(),
+        db,
+        object(),
+        interactive=False,
+        duplicate_action="skip",
+        skip_biblio=False,
+        yes=True,
+        dry_run=False,
+        auto_approve=True,
+    )
+    assert seen == {"auto_approve": True, "interactive": False}

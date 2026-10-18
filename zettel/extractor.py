@@ -22,6 +22,7 @@ from zettel.config import AppConfig, effective_temperature, llm_phase, thinking_
 from zettel.decision.shadow import shadow_dedupe
 from zettel.hashing import (
     compute_llm_call_checksum,
+    fold_for_match,
     normalize_text_for_hash,
     quote_is_grounded,
     sha256_hex,
@@ -46,6 +47,7 @@ from zettel.schemas import (
     LiteratureChunkOutput,
     PermanentNoteCandidate,
 )
+from zettel.search_terms import PT_STOPWORDS
 from zettel.state import StateDB
 from zettel.vault import (
     best_candidate_thesis,
@@ -113,6 +115,7 @@ def run_extract(
         from zettel.progress import report
 
         report(observer, "extract", f"{total} chunk(s) pendente(s).", total_items=total)
+        deferred = 0
 
         with Progress(
             SpinnerColumn(),
@@ -138,6 +141,14 @@ def run_extract(
 
                 page_file = chunk_row.get("page_in_file")
                 page_book = chunk_row.get("page_in_book")
+
+                if cfg.images.enabled and _chunk_has_pending_image(db, chunk_row):
+                    deferred += 1
+                    logger.info(
+                        "Chunk %s adiado: imagem pendente no mesmo capitulo (pagina +/- 1)",
+                        chunk_id,
+                    )
+                    continue
 
                 try:
                     candidates, _output = _process_chunk(
@@ -168,6 +179,15 @@ def run_extract(
                     source_id,
                     last_chunk_processed=chunk_row.get("chunk_index"),
                 )
+
+        if deferred:
+            logger.info("Chunks adiados por imagem pendente: %d", deferred)
+            report(
+                observer,
+                "extract",
+                f"{deferred} chunk(s) adiado(s): imagem ainda pendente.",
+                total_items=total,
+            )
 
         if auto_approve:
             from zettel.review import approve_high_confidence
@@ -382,20 +402,28 @@ def _process_chunk(
 
     try:
         output = _parse_literature_output(response_text)
-    except ValidationError as e:
+    except (ValidationError, ValueError) as e:
+        # json.JSONDecodeError subclasses ValueError; extract_json's own "no JSON
+        # found" error is a plain ValueError. ValidationError is a schema miss.
+        # Both get one repair call that sees the expected schema.
         logger.warning(
             "Contrato invalido no output do chunk %s: %s -- tentando reparo",
             chunk_id,
             e,
         )
+        _record_parse_failure(
+            db,
+            chunk_id=chunk_id,
+            call_checksum=call_checksum,
+            model=spec.model,
+            error=str(e),
+            raw_response=response_text,
+            attempt=1,
+        )
         try:
-            retry_prompt = (
-                "O JSON abaixo nao satisfaz o contrato esperado. Corrija e retorne "
-                f"APENAS o JSON valido.\n\nErro de validacao:\n{e}\n\nJSON:\n{response_text}"
-            )
             response_text = call_llm(
                 llm,
-                retry_prompt,
+                _repair_prompt(response_text, str(e)),
                 label=f"extract-retry:{chunk_id}",
                 step=step,
                 total=total,
@@ -406,34 +434,20 @@ def _process_chunk(
         except LLMUnavailableError:
             clear_progress()
             raise
-        except Exception:
+        except (ValidationError, ValueError) as retry_error:
+            _record_parse_failure(
+                db,
+                chunk_id=chunk_id,
+                call_checksum=call_checksum,
+                model=spec.model,
+                error=str(retry_error),
+                raw_response=response_text,
+                attempt=2,
+            )
             logger.error("Chunk %s enviado para revisao manual (parse falhou)", chunk_id)
             db.update_chunk_status(chunk_id, "failed")
             clear_progress()
             return [], None
-    except ValueError as e:
-        # json.JSONDecodeError subclasses ValueError; extract_json's own "no JSON
-        # found" error is a plain ValueError -- both are "malformed JSON", not a
-        # schema violation.
-        logger.warning("JSON malformado no output do chunk %s: %s -- tentando retry", chunk_id, e)
-        try:
-            retry_prompt = (
-                f"O JSON abaixo esta malformado. Corrija e retorne APENAS o JSON valido:\n\n"
-                f"{response_text}"
-            )
-            response_text = call_llm(
-                llm,
-                retry_prompt,
-                label=f"extract-retry:{chunk_id}",
-                step=step,
-                total=total,
-                provider=spec.provider,
-                prompt_cache=False,
-            )
-            output = _parse_literature_output(response_text)
-        except LLMUnavailableError:
-            clear_progress()
-            raise
         except Exception:
             logger.error("Chunk %s enviado para revisao manual (parse falhou)", chunk_id)
             db.update_chunk_status(chunk_id, "failed")
@@ -446,7 +460,7 @@ def _process_chunk(
         db.cache_llm_response(call_checksum, request_payload_json or "{}", response_text)
 
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
-    confidence = _score_review_confidence(output, cfg, chunk_text)
+    confidence = _score_review_confidence(output, cfg, chunk_text, force=force_extract)
 
     # Structural locator for candidates
     locator = format_source_locator(
@@ -502,7 +516,7 @@ def _process_chunk(
         "chunk_status": output.chunk_status,
         "rejection_reason": output.rejection_reason,
         "rejection_category": output.rejection_category,
-        "candidates": [c.model_dump() for c in approved_cands],
+        "candidates": [_audited_candidate(c) for c in approved_cands],
         # `anchor_quote` travels with the dropped candidate so an audit can see
         # what was thrown away without re-running the model (issue #153). Without
         # it, `scripts/calibrate_review_confidence.py` cannot rebuild the
@@ -512,6 +526,8 @@ def _process_chunk(
             for cand, reason in rejected_cands
         ],
     }
+    if any(anchor_trim_original(c) for c in approved_cands):
+        summary_payload["anchor_trimmed"] = True
     # `has_content=False` means no draft was written (chunk_status=="rejected" or
     # zero approved candidates survived filtering) -- there is nothing for `zettel
     # review` to show, so the chunk goes straight to its terminal `rejected` state
@@ -527,6 +543,14 @@ def _process_chunk(
         db.delete_llm_cache([call_checksum])
     else:
         final_status = "rejected"
+        if output.chunk_status != "rejected":
+            # The model accepted the chunk; every candidate fell in the
+            # deterministic filter. This category is not in the LLM enum.
+            summary_payload["rejection_category"] = "filtered"
+            if not str(summary_payload.get("rejection_reason") or "").strip():
+                summary_payload["rejection_reason"] = "; ".join(
+                    reason for _, reason in rejected_cands
+                )
     db.update_chunk_review(
         chunk_id,
         status=final_status,
@@ -641,6 +665,26 @@ def _write_literature_draft(
     return path
 
 
+def _chunk_has_pending_image(db: StateDB, chunk_row: dict) -> bool:
+    """True when a still-pending image sits in this chunk's neighborhood.
+
+    Same chapter, page +/- 1 — the window Prompt 1 would have described.
+    A described or failed image does not hold the chunk back.
+    """
+    chapter_id = chunk_row.get("chapter_id")
+    page = chunk_row.get("page_in_file")
+    for asset in db.get_assets_for_source(chunk_row["source_id"]):
+        if asset.get("status") != "pending":
+            continue
+        if chapter_id and asset.get("chapter_id") and asset["chapter_id"] != chapter_id:
+            continue
+        if page is not None and asset.get("page_in_file") is not None:
+            if abs(int(asset["page_in_file"]) - int(page)) > 1:
+                continue
+        return True
+    return False
+
+
 def _images_for_chunk(db: StateDB, chunk_row: dict) -> list[dict[str, Any]]:
     """Assets for this chunk: same chapter, optionally same page."""
     assets = db.get_assets_for_source(chunk_row["source_id"])
@@ -691,6 +735,8 @@ def _score_review_confidence(
     output: LiteratureChunkOutput,
     cfg: AppConfig,
     chunk_text: str = "",
+    *,
+    force: bool = False,
 ) -> float:
     """Heuristic confidence in [0, 1] for auto-approve decisions.
 
@@ -728,11 +774,11 @@ def _score_review_confidence(
     something, the model itself scored the concept at the floor, or the
     candidates lack the optional depth fields.
     """
-    if output.chunk_status == "rejected":
+    if output.chunk_status == "rejected" and not force:
         return 0.1
     if not output.candidates:
         return 0.2
-    approved, rejected = _filter_candidates(output.candidates, cfg, chunk_text)
+    approved, rejected = _filter_candidates(output.candidates, cfg, chunk_text, force=force)
     if not approved:
         return 0.2
 
@@ -821,6 +867,53 @@ def _anchor_in_fence(anchor: str, chunk_text: str, min_ratio: float) -> bool:
     )
 
 
+# Original text of an anchor we cut down to the word budget, keyed by the
+# candidate object. The LLM schema stays untouched; the audit copy lives in
+# summary_json (issue #253).
+_ANCHOR_TRIMS: dict[int, str] = {}
+
+
+def anchor_trim_original(cand: PermanentNoteCandidate) -> str | None:
+    """The pre-trim anchor, when this candidate was cut to the word budget."""
+    return _ANCHOR_TRIMS.get(id(cand))
+
+
+def _audited_candidate(cand: PermanentNoteCandidate) -> dict:
+    data = cand.model_dump()
+    original = anchor_trim_original(cand)
+    if original:
+        data["anchor_quote_original"] = original
+        data["anchor_trimmed"] = True
+    return data
+
+
+def _content_terms(text: str) -> set[str]:
+    folded = fold_for_match(text)
+    return {tok for tok in folded.split() if tok and tok not in PT_STOPWORDS}
+
+
+def _trim_anchor_quote(anchor: str, thesis: str, max_words: int) -> str:
+    """Contiguous window of ``max_words`` from ``anchor`` closest to ``thesis``.
+
+    Ties keep the leftmost window. The window is a join of the anchor's own
+    words, so a quote that was a substring of the chunk stays one.
+    """
+    words = anchor.split()
+    if max_words < 1 or len(words) <= max_words:
+        return anchor
+    thesis_terms = _content_terms(thesis)
+    best_score = -1
+    best_start = 0
+    last = len(words) - max_words
+    for start in range(last + 1):
+        window_terms = _content_terms(" ".join(words[start : start + max_words]))
+        score = len(window_terms & thesis_terms)
+        if score > best_score:
+            best_score = score
+            best_start = start
+    return " ".join(words[best_start : best_start + max_words])
+
+
 def _check_candidate(
     cand: PermanentNoteCandidate,
     ext: Any,
@@ -851,10 +944,10 @@ def _check_candidate(
         # differently (issue #153). Under the floor there is no quote to judge:
         # three words ground nothing. Over the ceiling there *is* a quote, just a
         # wordier one than asked for, and the word count is only a proxy for the
-        # property `quote_is_grounded` measures directly. Dropping a whole
-        # candidate — thesis, definition and all — because the model overshot by
-        # two words trades a formatting miss for lost content, so the ceiling
-        # gets a tolerance band and only a paragraph-sized "quote" is refused.
+        # property `quote_is_grounded` measures directly. Inside the tolerance
+        # band the quote is kept whole. Past that band a grounded quote is cut
+        # to `anchor_quote_max_words` (issue #253); only an ungrounded one is
+        # refused.
         #
         # The floor measures a prose sentence. A quote taken from inside a fenced
         # block is a line of that block — a code comment, a string literal — and
@@ -866,8 +959,19 @@ def _check_candidate(
         ):
             return f"anchor_quote_words={anchor_words} < {ext.anchor_quote_min_words}"
         if anchor_words > max_words:
-            return f"anchor_quote_words={anchor_words} > {max_words} (teto tolerado)"
-        if anchor_words > ext.anchor_quote_max_words:
+            # A grounded quote that merely ran long is cut to the word budget
+            # instead of dropping the thesis (issue #253). An ungrounded one
+            # is still a paraphrase and stays rejected.
+            if not quote_is_grounded(cand.anchor_quote, chunk_text, ext.anchor_quote_min_ratio):
+                return "anchor_quote nao encontrada no chunk"
+            original = cand.anchor_quote
+            trimmed = _trim_anchor_quote(original, cand.thesis, ext.anchor_quote_max_words)
+            if not quote_is_grounded(trimmed, chunk_text, ext.anchor_quote_min_ratio):
+                return "anchor_quote recortada nao encontrada no chunk"
+            cand.anchor_quote = trimmed
+            _ANCHOR_TRIMS[id(cand)] = original
+            anchor_words = len(trimmed.split())
+        elif anchor_words > ext.anchor_quote_max_words:
             logger.debug(
                 "anchor_quote com %d palavras, acima de %d mas dentro da tolerancia: %s",
                 anchor_words,
@@ -1138,7 +1242,45 @@ def _compute_concept_id(source_id: str, chunk_id: str, cand: PermanentNoteCandid
     else:
         thesis_hash = sha256_hex(normalize_text_for_hash(cand.thesis))
         concept_key = sha256_hex(f"{source_id}|{chunk_id}|{thesis_hash}")
-    return f"{source_id}::concept::{short_hash(concept_key)}"
+    # The 8-hex suffix is only unique inside one chunk. Scoping the prefix to
+    # the source let two chunks with the same anchor collide (issue #263).
+    return f"{chunk_id}::concept::{short_hash(concept_key)}"
+
+
+def _output_schema_text() -> str:
+    return json.dumps(LiteratureChunkOutput.model_json_schema(), ensure_ascii=False)
+
+
+def _repair_prompt(response_text: str, error: str) -> str:
+    """Ask for a contract-shaped JSON, with the schema the first call did not see."""
+    return (
+        "O JSON abaixo nao satisfaz o contrato esperado. Corrija e retorne "
+        "APENAS o JSON valido.\n\n"
+        f"Esquema esperado:\n{_output_schema_text()}\n\n"
+        f"Erro:\n{error}\n\n"
+        f"JSON:\n{response_text}"
+    )
+
+
+def _record_parse_failure(
+    db: StateDB,
+    *,
+    chunk_id: str,
+    call_checksum: str,
+    model: str,
+    error: str,
+    raw_response: str,
+    attempt: int,
+) -> None:
+    db.record_llm_failure(
+        "extract",
+        error,
+        raw_response,
+        subject_id=chunk_id,
+        call_checksum=call_checksum,
+        model=model,
+        attempt=attempt,
+    )
 
 
 def _parse_literature_output(text: str) -> LiteratureChunkOutput:

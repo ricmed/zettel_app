@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from typing import Any
@@ -11,6 +12,31 @@ from zettel.state.base import StateBase
 from zettel.state.sources import escape_like
 
 logger = logging.getLogger(__name__)
+
+
+def _discard_reason_key(reason: str) -> str:
+    """Collapse word-count variants of the same filter rule into one status row."""
+    text = reason.strip()
+    if "teto" in text:
+        return "teto da ancora"
+    if "recortada nao encontrada" in text:
+        return "recorte nao ancorado"
+    if "nao encontrada" in text:
+        return "ancora nao encontrada"
+    if "anchor_quote_words" in text and "<" in text:
+        return "piso da ancora"
+    if text.startswith("relevance_score"):
+        return "relevancia"
+    if text.startswith("thesis_words"):
+        return "tese curta"
+    if text.startswith("definition_words"):
+        return "definicao curta"
+    if text.startswith("chunk_status"):
+        return "candidato rejeitado pelo modelo"
+    if "vazio" in text:
+        return "ancora vazia"
+    return text[:80] or "(sem motivo)"
+
 
 # Picker columns — never ``chunks.text``.
 _LIT_PICKER_COLS = (
@@ -214,6 +240,25 @@ class ChunksMixin(StateBase):
             self.delete_llm_cache([row.get("llm_call_checksum_prompt1") or ""])
         self.update_chunk_status(chunk_id, "pending")
         return True
+
+    def filter_discard_counts(self) -> list[tuple[str, int]]:
+        """How many candidates the deterministic filter dropped, grouped by rule."""
+        counts: dict[str, int] = {}
+        for row in self._fetchall(
+            "SELECT summary_json FROM chunks WHERE summary_json IS NOT NULL AND summary_json != ''"
+        ):
+            try:
+                summary = json.loads(row["summary_json"] or "{}")
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(summary, dict):
+                continue
+            for item in summary.get("rejected_candidates") or []:
+                if not isinstance(item, dict):
+                    continue
+                key = _discard_reason_key(str(item.get("reason") or ""))
+                counts[key] = counts.get(key, 0) + 1
+        return sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
 
     # ── Deletion ───────────────────────────────────────────────────────
 

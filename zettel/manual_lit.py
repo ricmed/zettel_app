@@ -161,7 +161,7 @@ def build_candidate_from_literature(
 def concept_id_for(source_id: str, chunk_id: str, thesis: str) -> str:
     """Deterministic concept id for a manually authored candidate."""
     digest = sha256_hex(f"{source_id}|{chunk_id}|{normalize_text_for_hash(thesis)}")
-    return f"{source_id}::concept::{short_hash(digest)}"
+    return f"{chunk_id}::concept::{short_hash(digest)}"
 
 
 _WIKILINK_TARGET = re.compile(r"\[\[([^\]|#]+)")

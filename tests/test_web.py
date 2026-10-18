@@ -1361,8 +1361,62 @@ def test_documents_can_queue_full_pipeline(web_client, monkeypatch):
             "duplicate_action": "skip",
             "skip_biblio": False,
             "skip_paging": False,
+            "auto_approve": False,
         },
     }
+    assert "Aprovar automaticamente acima do limiar" in page.text
+    assert "nao foi validado" in page.text
+
+    opted = client.post(
+        "/documents/run-all",
+        data={"csrf": csrf, "auto_approve": "1"},
+        follow_redirects=False,
+    )
+    assert opted.status_code == 303
+    assert captured["payload"]["auto_approve"] is True
+
+
+def test_rejected_queue_shows_filter_origin(web_client):
+    import json
+
+    client, _ = web_client
+    _login(client)
+    db = client.app.state.service.db()
+    try:
+        db.upsert_source("@Book2024", "Book2024", "Livro", ["Autor"], 2024, "h", "/x.md", "md")
+        db.upsert_chapter("@Book2024::ch000", "@Book2024", "Cap", "ch")
+        db.upsert_chunk(
+            "@Book2024::ch000::filt",
+            "@Book2024",
+            "@Book2024::ch000",
+            "TRECHO_DO_FILTRO",
+            "ckf",
+            status="rejected",
+            summary_json=json.dumps(
+                {
+                    "chunk_status": "accepted",
+                    "rejection_category": "filtered",
+                    "candidates": [],
+                    "rejected_candidates": [
+                        {
+                            "thesis": "TESE_DO_FILTRO",
+                            "anchor_quote": "ANCORA_DO_FILTRO",
+                            "reason": "anchor_quote_words=40 > 37 (teto tolerado)",
+                        }
+                    ],
+                }
+            ),
+        )
+    finally:
+        db.close()
+
+    page = client.get("/review?queue=rejected")
+    assert page.status_code == 200
+    assert "filtro" in page.text
+    assert "TESE_DO_FILTRO" in page.text
+    assert "ANCORA_DO_FILTRO" in page.text
+    assert "teto tolerado" in page.text
+    assert "TRECHO_DO_FILTRO" in page.text
 
 
 def _seed_source(client, source_id="@Kahneman2011", citekey="Kahneman2011", title="Thinking Fast"):

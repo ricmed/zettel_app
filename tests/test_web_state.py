@@ -227,7 +227,7 @@ def test_run_all_dispatches_every_phase_in_order(tmp_path: Path, monkeypatch):
     ]
     assert calls[0][1]["interactive"] is False
     assert calls[0][1]["duplicate_action"] == "skip"
-    assert calls[2][1] == {"auto_approve": True, "interactive": False}
+    assert calls[2][1] == {"auto_approve": False, "interactive": False}
     assert progress.phases == [
         "run_all",
         "harvest",
@@ -240,9 +240,50 @@ def test_run_all_dispatches_every_phase_in_order(tmp_path: Path, monkeypatch):
         "sources": ["@source"],
         "drafts": 1,
         "review": {"approved": 1, "rejected": 0, "skipped": 0},
+        "pending_review": 0,
         "notes": ["note"],
         "mocs": ["moc"],
     }
+
+
+def test_run_all_auto_approve_records_the_unvalidated_warning(tmp_path: Path, monkeypatch):
+    from zettel import connector, extractor, gardener, harvester, index, review
+    from zettel.review import AUTO_APPROVE_UNVALIDATED_WARNING
+
+    monkeypatch.setattr(index, "VectorIndex", lambda **kwargs: object())
+    monkeypatch.setattr(
+        harvester,
+        "run_harvest",
+        lambda cfg, db, idx, **kwargs: harvester.HarvestOutcome(source_ids=[]),
+    )
+    monkeypatch.setattr(extractor, "run_extract", lambda cfg, db, idx, **kwargs: [])
+    monkeypatch.setattr(
+        review,
+        "run_review",
+        lambda cfg, db, idx, **kwargs: {"approved": 2, "pending_review": 0, **kwargs},
+    )
+    monkeypatch.setattr(connector, "load_approved_candidates", lambda db: [])
+    monkeypatch.setattr(connector, "run_connect", lambda *a, **k: [])
+    monkeypatch.setattr(gardener, "run_garden", lambda *a, **k: [])
+
+    class Progress:
+        def __init__(self):
+            self.messages = []
+
+        def emit(self, event):
+            self.messages.append(event.message)
+
+    progress = Progress()
+    WebWorker._dispatch(
+        AppConfig(chroma_path=tmp_path / "chroma"),
+        object(),
+        progress,
+        "run_all",
+        {"auto_approve": True},
+    )
+    review_messages = [message for message in progress.messages if "Fase 3/5" in message]
+    assert review_messages
+    assert AUTO_APPROVE_UNVALIDATED_WARNING in review_messages[0]
 
 
 def test_manual_lit_to_ztl_dispatches_specialized_flow(tmp_path: Path, monkeypatch):

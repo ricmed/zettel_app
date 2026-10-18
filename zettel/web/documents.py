@@ -75,6 +75,7 @@ def _documents_page(request: Request, *, status_code: int = 200, error: str | No
         sources=sources,
         inbox=inbox,
         llm_ready=_llm_ready(cfg),
+        auto_approve_warning=_auto_approve_warning(),
         error=error,
         status_code=status_code,
     )
@@ -512,8 +513,18 @@ async def confirm_document_review(request: Request, review_id: str):
     return RedirectResponse(f"/jobs/{harvest_job_id}", status_code=303)
 
 
+def _auto_approve_warning() -> str:
+    from zettel.review import AUTO_APPROVE_UNVALIDATED_WARNING
+
+    return AUTO_APPROVE_UNVALIDATED_WARNING
+
+
 @router.post("/documents/run-all")
-async def documents_run_all(request: Request, csrf: str = Form("")):
+async def documents_run_all(
+    request: Request,
+    csrf: str = Form(""),
+    auto_approve: str = Form(""),
+):
     """Queue a safe, non-interactive execution of every pipeline phase."""
     if not authenticated(request):
         return redirect_login()
@@ -527,6 +538,11 @@ async def documents_run_all(request: Request, csrf: str = Form("")):
     return post_job(
         request,
         "run_all",
-        {"duplicate_action": "skip", "skip_biblio": False, "skip_paging": False},
+        {
+            "duplicate_action": "skip",
+            "skip_biblio": False,
+            "skip_paging": False,
+            "auto_approve": auto_approve == "1",
+        },
         csrf,
     )

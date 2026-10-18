@@ -20,9 +20,14 @@ import time
 from pathlib import Path
 from typing import Any
 
-from zettel.config import AppConfig, llm_phase
-from zettel.hashing import normalize_text_for_hash, sha256_hex, short_hash
-from zettel.llm import get_llm
+from zettel.config import AppConfig, effective_temperature, llm_phase, thinking_checksum_token
+from zettel.hashing import (
+    compute_llm_call_checksum,
+    normalize_text_for_hash,
+    sha256_hex,
+    short_hash,
+)
+from zettel.llm import LLMUnavailableError, _raise_unavailable, get_llm, is_llm_unavailable
 from zettel.state import StateDB
 
 logger = logging.getLogger(__name__)
@@ -541,9 +546,16 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB, *, observer=None) -> in
             continue
 
         context = asset.get("context_snippet", "")
-        call_checksum = sha256_hex(
-            f"{prompt_hash}|{asset['image_checksum']}|"
-            f"{sha256_hex(normalize_text_for_hash(context))}|{model}|{cfg.language}"
+        call_checksum = compute_llm_call_checksum(
+            prompt_hash,
+            asset["image_checksum"],
+            model,
+            effective_temperature(cfg, spec),
+            cfg.language,
+            rag_context_checksum=(sha256_hex(normalize_text_for_hash(context)) if context else ""),
+            provider=spec.provider,
+            top_p=cfg.llm.top_p,
+            thinking=thinking_checksum_token(spec.thinking),
         )
         cached = db.get_cached_llm_response(call_checksum)
         if cached is not None:
@@ -602,7 +614,11 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB, *, observer=None) -> in
             # Cooldown before the next asset so the TPM window can recover.
             time.sleep(min(backoff_max, 5.0))
             last_llm_call_at = time.monotonic()
+        except LLMUnavailableError:
+            raise
         except Exception as e:
+            if is_llm_unavailable(e):
+                _raise_unavailable(e, phase="images")
             logger.error("Falha ao descrever imagem %s: %s", asset["asset_id"], e)
             db.update_asset_description(asset["asset_id"], "", call_checksum, status="failed")
             consecutive_exhausted = 0

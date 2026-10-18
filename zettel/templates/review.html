@@ -58,9 +58,25 @@
             <code>{{ chunk.source_id }}</code>
             <span>p. {{ chunk.page_in_book or chunk.page_in_file or '?' }}</span>
             {% if chunk.section_path %}<span>{{ chunk.section_path }}</span>{% endif %}
+            <span>{{ chunk.rejection_origin or 'modelo' }}</span>
+            {% if chunk.rejection_origin != 'filtro' %}
             <span>{{ chunk.rejection_category or 'sem categoria' }}</span>
+            {% endif %}
           </div>
+          {% if chunk.rejection_origin == 'filtro' %}
+          <h2>Rejeitado pelo filtro</h2>
+          {% for item in chunk.rejected_candidates %}
+          <div class="candidate">
+            <b>{{ item.thesis }}</b>
+            <p>{{ item.anchor_quote }}</p>
+            <p>{{ item.reason }}</p>
+          </div>
+          {% else %}
+          <p>Nenhum candidato descartado foi registrado.</p>
+          {% endfor %}
+          {% else %}
           <h2>{{ chunk.rejection_reason or 'Sem motivo registrado' }}</h2>
+          {% endif %}
           <pre class="chunk-text">{{ chunk.text }}</pre>
         </div>
       </article>

@@ -168,7 +168,7 @@ python -m zettel extract --auto-approve   # aprova drafts com confianca >= limia
 | `--auto-approve` | Promove automaticamente drafts com `review_confidence >= literature_review.auto_approve_min_confidence`. |
 | `--yes` / `-y` | Confirma o pré-voo de custo e o reprocessamento se o embedding mudou. |
 
-> **Pré-voo de custo.** Antes de gastar LLM, o comando mostra um painel (modelo da fase, itens, tokens estimados, custo USD) e pede confirmação. `--yes` ou stdin sem TTY seguem direto; recusar aborta com código 1 **antes** de qualquer chamada. Estimativa, não teto: o cache de respostas do SQLite não é descontado ([ADR-037](adrs/generated/CLI/ADR-037-llm-cost-preflight-estimate.md)).
+> **Pré-voo de custo.** Antes de gastar LLM, o comando mostra um painel (modelo da fase, itens, tokens estimados, custo USD) e pede confirmação. `--yes` ou stdin sem TTY seguem direto; recusar aborta com código 1 **antes** de qualquer chamada. A entrada usa o prompt preenchido (few-shots inclusos). A saída usa a média das execuções anteriores da fase, quando houver. Cache SQLite, cache do provedor e thinking não entram, então o número não é um teto ([ADR-037](adrs/generated/CLI/ADR-037-llm-cost-preflight-estimate.md)).
 
 ---
 
@@ -607,7 +607,7 @@ python -m zettel run-all --yes --skip-biblio   # flags de harvest valem aqui
 python -m zettel run-all --dry-run             # simula sem escrever notas
 ```
 
-Aceita as mesmas flags de duplicidade/bibliografia do `harvest` (`--yes`, `--skip-duplicates`, `--force`, `--skip-biblio`) e um `--dry-run`. A paginação é resolvida pela heurística (não há `--content-start-*` aqui).
+Aceita as mesmas flags de duplicidade/bibliografia do `harvest` (`--yes`, `--skip-duplicates`, `--force`, `--skip-biblio`) e um `--dry-run`. `--yes` não aprova drafts: isso exige `--auto-approve`, que avisa que o limiar não foi validado. Sem a flag, os drafts ficam em `awaiting_review`. A paginação é resolvida pela heurística (não há `--content-start-*` aqui).
 
 ---
 

@@ -135,7 +135,7 @@ Módulo: [`extractor.py`](../zettel/extractor.py).
 2. Escreve um **draft** em `00_Inbox/Review/{Citekey}/LIT - AuthorYear - pNNN - topico-NNNN.md` (resumo, conceitos, candidatos, **trecho integral da fonte**, imagens; mesmo basename da nota aprovada)
 3. Checkpoint no SQLite após **cada** chunk: `status=awaiting_review`, `summary_json`, `review_confidence`, `literature_note_path`
 4. Concepts ficam em `awaiting_review` (não elegíveis ao `connect` ainda)
-5. Filtragem estrutural de qualidade (`extraction.min_relevance_score`, `min_thesis_words`, `min_definition_words`, `require_anchor_quote`, `verify_anchor_quote` — checa faixa de 10-25 palavras e se a citação de fato existe no chunk, tolerando elipse editorial)
+5. Filtragem estrutural de qualidade (`extraction.min_relevance_score`, `min_thesis_words`, `min_definition_words`, `require_anchor_quote`, `verify_anchor_quote` — piso de 10 palavras; acima do teto tolerado, uma citação literal é recortada para 25 palavras em vez de descartar o candidato; citação que não está no chunk continua descartada)
 6. `--auto-approve` pode promover drafts com confiança ≥ `literature_review.auto_approve_min_confidence`
 7. **Julgamento do autor** (opcional): quando o trecho *enuncia* a regra, o candidato traz `decision_rules`, `anti_patterns` e `named_frameworks`. São opcionais por construção — default `[]`, não entram na filtragem de qualidade, e o validador trunca em 3 itens em vez de falhar o chunk. O draft ganha o bloco `auto-decision` sob `## Julgamento do autor` (só quando houver conteúdo) e a ZTL carrega as listas no frontmatter ([ADR-034](adrs/generated/EXTRACT/ADR-034-optional-author-judgement-fields.md))
 

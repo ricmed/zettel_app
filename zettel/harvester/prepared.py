@@ -55,16 +55,16 @@ def discard_orphan_preparations(cfg: AppConfig, db: Any) -> None:
             else None
         )
         if (
-            not job or job["state"] != "succeeded" or not review
+            not job
+            or job["state"] != "succeeded"
+            or not review
             or review["state"] == "cancelled"
             or (confirmed and confirmed["state"] == "succeeded")
         ):
             remove_preparation(cfg, review_id)
     for staged in directory.glob("*-assets"):
         review_id = staged.name.removesuffix("-assets")
-        if re.fullmatch(r"[a-f0-9]{32}", review_id) and not snapshot_path(
-            cfg, review_id
-        ).exists():
+        if re.fullmatch(r"[a-f0-9]{32}", review_id) and not snapshot_path(cfg, review_id).exists():
             shutil.rmtree(staged, ignore_errors=True)
 
 
@@ -98,9 +98,7 @@ def save_snapshot(
     temporary = path.with_name(f".{review_id}-{uuid4().hex}.tmp")
     try:
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "wb") as output, gzip.GzipFile(
-            fileobj=output, mode="wb"
-        ) as compressed:
+        with os.fdopen(fd, "wb") as output, gzip.GzipFile(fileobj=output, mode="wb") as compressed:
             compressed.write(
                 json.dumps(
                     {

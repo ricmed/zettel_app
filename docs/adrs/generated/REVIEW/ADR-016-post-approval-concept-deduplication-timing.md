@@ -138,3 +138,7 @@ Measured before switching (`evals/preregistration/209-dedupe-texto-completo.md`,
 - **Known residual errors in round 2:** the new prompt never answers "repeats" (the human's 7 repeats become 2 "new" and 5 "develops"), and 7 of the human's 15 "develops" become "new".
 
 Results: `evals/results/dedupe-prompt-218-r1.json`, `dedupe-prompt-218-r2.json`.
+
+## Addendum (2026-10-18): dedupe stays in `extractor.py` (issue #263)
+
+**Status:** Accepted — do not move the module. `deduplicate_candidates`, `_intra_batch_dedupe`, `existing_note_contents` and `format_existing_notes` are review-phase behaviour that still lives in `extractor.py`. Moving them would not change a decision. Tests and the ADR-055 shadow monkeypatch `zettel.extractor`. The functions stay where those seams already point.

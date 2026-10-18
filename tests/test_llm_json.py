@@ -12,7 +12,7 @@ must stay a newline.
 import json
 
 import pytest
-from zettel.llm import parse_llm_json, repair_latex_escapes
+from zettel.llm import extract_json, parse_llm_json, repair_latex_escapes
 
 
 def _field(raw_json: str) -> str:
@@ -71,6 +71,20 @@ def test_already_escaped_latex_is_idempotent():
     raw = r'{"d": "\\frac{a}{b} e \\top e \\mathbf{x}"}'
     assert repair_latex_escapes(raw) == raw
     assert _field(raw) == r"\frac{a}{b} e \top e \mathbf{x}"
+
+
+def test_json_with_an_inner_code_fence_is_the_object():
+    """A fence inside a string must not be extracted in place of the object (#256)."""
+    raw = '{"definition": "Use ```python\\nprint(1)\\n``` aqui", "x": 1}'
+    assert extract_json(raw) == raw
+    parsed = parse_llm_json(raw)
+    assert parsed["x"] == 1
+    assert "print(1)" in parsed["definition"]
+
+
+def test_a_json_fence_is_preferred_over_an_earlier_code_fence():
+    raw = 'nota\n```python\nprint(1)\n```\n```json\n{"x": 1}\n```'
+    assert json.loads(extract_json(raw)) == {"x": 1}
 
 
 def test_valid_json_without_backslashes_is_unchanged():

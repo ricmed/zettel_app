@@ -52,6 +52,7 @@ PUBLIC_METHODS = {
     "update_chunk_pages",
     "reset_chunks_to_pending",
     "reset_chunk_to_pending",
+    "filter_discard_counts",
     "delete_chunks",
     "delete_chunks_for_chapter",
     "delete_chapter",
@@ -116,6 +117,8 @@ PUBLIC_METHODS = {
     "get_cached_llm_response",
     "cache_llm_response",
     "delete_llm_cache",
+    "record_llm_failure",
+    "llm_failure_counts",
     # runs
     "start_run",
     "finish_run",

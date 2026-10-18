@@ -790,12 +790,29 @@ class WebWorker:
             progress.emit(ProgressEvent("extract", "Fase 2/5 — iniciando extract."))
             drafts = run_extract(cfg, db, idx, auto_approve=False, observer=progress)
 
-            progress.emit(ProgressEvent("review", "Fase 3/5 — aprovando drafts elegíveis."))
+            auto_approve = bool(payload.get("auto_approve"))
+            if auto_approve:
+                from zettel.review import AUTO_APPROVE_UNVALIDATED_WARNING
+
+                progress.emit(
+                    ProgressEvent(
+                        "review",
+                        "Fase 3/5 — aprovando drafts elegíveis. "
+                        + AUTO_APPROVE_UNVALIDATED_WARNING,
+                    )
+                )
+            else:
+                progress.emit(
+                    ProgressEvent(
+                        "review",
+                        "Fase 3/5 — drafts ficam aguardando revisão.",
+                    )
+                )
             review_stats = run_review(
                 cfg,
                 db,
                 idx,
-                auto_approve=True,
+                auto_approve=auto_approve,
                 interactive=False,
             )
 
@@ -815,6 +832,7 @@ class WebWorker:
                 "sources": sources,
                 "drafts": len(drafts),
                 "review": review_stats,
+                "pending_review": int(review_stats.get("pending_review") or 0),
                 "notes": note_ids,
                 "mocs": moc_ids,
             }

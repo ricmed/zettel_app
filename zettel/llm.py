@@ -777,18 +777,34 @@ def fill_template(text: str, mapping: dict[str, Any]) -> str:
     return result
 
 
+_FENCE_RE = re.compile(r"```([A-Za-z0-9_-]*)[^\n]*\n?(.*?)```", re.DOTALL)
+
+
 def extract_json(text: str) -> str:
-    """Extract a JSON object or array from text that may include markdown code blocks."""
-    match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-    text = text.strip()
-    if text.startswith(("{", "[")):
-        return text
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1:
-        return text[start : end + 1]
+    """Extract a JSON object or array from an LLM answer.
+
+    A answer that already starts with ``{`` or ``[`` is the JSON, even when a
+    string inside it contains a fenced code block. Searching for the first
+    fence first used to return that inner block and drop the object (issue #256).
+    """
+    stripped = text.strip()
+    if stripped.startswith(("{", "[")):
+        return stripped
+    for match in _FENCE_RE.finditer(text):
+        if match.group(1).lower() == "json":
+            return match.group(2).strip()
+    start = text.find("```")
+    end = text.rfind("```")
+    if start != -1 and end > start + 3:
+        inner = text[start + 3 : end]
+        lang, sep, rest = inner.partition("\n")
+        if sep and lang.strip().isalpha():
+            inner = rest
+        return inner.strip()
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return stripped[start : end + 1]
     raise ValueError("Nenhum JSON encontrado na resposta do LLM")
 
 
