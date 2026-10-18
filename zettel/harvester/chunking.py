@@ -784,10 +784,17 @@ def chunk_and_persist(
 
     # The Chroma `chunks` collection has exactly one reader: harvest dedupe
     # layer 5. With it off there is no target index to maintain, so the
-    # embeddings are skipped entirely. SQLite is the source of truth; a failed
+    # embeddings are skipped entirely. SQLite is the source of truth. A failed
     # embed is retried on the next pass because the chapter checksum already
-    # matches and ``existing_ids`` skips what landed.
+    # matches and ``existing_ids`` skips what landed. A failed delete is
+    # retried the same way: ids present here but absent from SQLite are
+    # removed even when the chapter itself is skipped.
     embed_enabled = cfg.harvest.semantic_duplicate_enabled
+    if embed_enabled:
+        live = {row["chunk_id"] for row in db.get_chunks_for_source(source_id)}
+        stale = sorted(idx.chunk_ids_for_source(source_id) - live)
+        if stale:
+            idx.delete_chunks(stale)
     already: set[str] = set()
     pending_embed: list[dict[str, Any]] = []
     if embed_enabled and to_embed:

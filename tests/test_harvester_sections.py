@@ -35,6 +35,9 @@ class _FakeIdx:
         for cid in chunk_ids:
             self.chunks_store.discard(cid)
 
+    def chunk_ids_for_source(self, source_id):
+        return set(self.chunks_store)
+
     def existing_ids(self, collection_name, ids):
         return {cid for cid in ids if cid in self.chunks_store}
 

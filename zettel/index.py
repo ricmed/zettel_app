@@ -710,6 +710,16 @@ class VectorIndex:
             self.chunks.delete(ids=chunk_ids)
             logger.debug("Index: %d chunks removidos", len(chunk_ids))
 
+    def chunk_ids_for_source(self, source_id: str) -> set[str]:
+        """Chunk ids indexed for this source.
+
+        Resume compares this set with SQLite. A delete that failed after the
+        chapter commit would otherwise stay in the collection: the next pass
+        sees a matching checksum and skips the chapter.
+        """
+        got = self.chunks.get(where={"source_id": source_id})
+        return set(got.get("ids") or [])
+
     def existing_ids(self, collection_name: str, ids: list[str]) -> set[str]:
         """Return the subset of `ids` already present in the given collection.
 

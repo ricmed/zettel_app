@@ -12,6 +12,7 @@ class _Idx:
     def __init__(self):
         self.chunks: set[str] = set()
         self.fail_on: int | None = None
+        self.fail_delete = False
         self.calls = 0
 
     def upsert_source(self, source_id, summary, metadata):
@@ -27,8 +28,13 @@ class _Idx:
         self.chunks.add(chunk_id)
 
     def delete_chunks(self, chunk_ids):
+        if self.fail_delete:
+            raise RuntimeError("queda no chroma")
         for cid in chunk_ids:
             self.chunks.discard(cid)
+
+    def chunk_ids_for_source(self, source_id):
+        return set(self.chunks)
 
     def existing_ids(self, collection_name, ids):
         return {cid for cid in ids if cid in self.chunks}
@@ -165,4 +171,34 @@ def test_rechunk_resumes_after_upsert_chunk_failure(tmp_path, monkeypatch):
     texts = " ".join(row["text"] for row in db.get_chunks_for_source(sid))
     assert "revisado" in texts
     _assert_no_chapter_without_chunks(db, sid)
+    db.close()
+
+
+def test_second_pass_drops_embedding_left_after_a_failed_delete(tmp_path):
+    """A chapter that already matches still deletes Chroma ids SQLite dropped."""
+    from zettel.harvester.chunking import chunk_and_persist
+
+    cfg = _cfg(tmp_path, embed=True)
+    db = StateDB(tmp_path / "state.db")
+    db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
+    idx = _Idx()
+    body = "Conteudo longo deste capitulo para formar um chunk. " * 8
+    first = [{"title": "Cap", "text": body, "locator": "Cap"}]
+    chunk_and_persist(cfg, db, idx, "@S", first, origin_type="md")
+    old = set(idx.chunks)
+    assert old
+
+    idx.fail_delete = True
+    revised = body.replace("longo", "revisado")
+    second = [{"title": "Cap", "text": revised, "locator": "Cap"}]
+    with pytest.raises(RuntimeError, match="queda no chroma"):
+        chunk_and_persist(cfg, db, idx, "@S", second, origin_type="md")
+    assert old <= idx.chunks
+
+    idx.fail_delete = False
+    chunk_and_persist(cfg, db, idx, "@S", second, origin_type="md")
+    live = {row["chunk_id"] for row in db.get_chunks_for_source("@S")}
+    assert live
+    assert old.isdisjoint(live)
+    assert idx.chunks == live
     db.close()
