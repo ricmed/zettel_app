@@ -209,6 +209,12 @@ def test_llm_phase_thinking_accepts_bool_level_budget():
     assert LLMPhaseConfig().thinking is None
 
 
+def test_llm_phase_thinking_none_is_off():
+    spec = LLMPhaseConfig(thinking="none")
+    assert spec.thinking is False
+    assert thinking_checksum_token(spec.thinking) == "false"
+
+
 def test_thinking_client_kwargs_null_omits():
     assert _thinking_client_kwargs("gemini", None) == {}
     assert _thinking_client_kwargs("openai", None) == {}
@@ -277,6 +283,25 @@ def test_get_llm_openai_thinking_false(monkeypatch):
     cfg.llm.extract = LLMPhaseConfig(provider="openai", model="gpt-4o-mini", thinking=False)
     get_llm(cfg, "extract")
     assert captured["reasoning_effort"] == "none"
+
+
+def test_get_llm_openai_thinking_none_keeps_sampling(monkeypatch):
+    langchain_openai = pytest.importorskip("langchain_openai")
+    captured: dict = {}
+
+    class FakeChat:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(langchain_openai, "ChatOpenAI", FakeChat)
+    cfg = AppConfig()
+    cfg.llm.temperature = 0.2
+    cfg.llm.top_p = 0.5
+    cfg.llm.harvest = LLMPhaseConfig(provider="openai", model="gpt-6-luna", thinking="none")
+    get_llm(cfg, "harvest")
+    assert captured["reasoning_effort"] == "none"
+    assert captured["temperature"] == 0.2
+    assert captured["top_p"] == 0.5
 
 
 def test_get_llm_gemini_thinking_false(monkeypatch):

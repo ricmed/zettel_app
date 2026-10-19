@@ -119,7 +119,7 @@ class LLMPhaseConfig(BaseModel):
     model: str = "gpt-4o-mini"
     base_url: str | None = None  # gateways OpenAI-compatible / Ollama; None = default do provider
     temperature: float | None = None  # None = herda llm.temperature; override so desta fase
-    thinking: ThinkingValue = None  # None = default do vendor; false/0 = off; nivel ou budget
+    thinking: ThinkingValue = None  # None = default do vendor; false/0/none = off; nivel ou budget
 
     @field_validator("thinking", mode="before")
     @classmethod
@@ -130,10 +130,13 @@ class LLMPhaseConfig(BaseModel):
             if int(v) < 0:
                 raise ValueError("llm.<fase>.thinking inteiro deve ser >= 0 (ou null)")
             return int(v)
+        # "none" e o vocabulario da API; o desligamento no resto do codigo e False.
+        if isinstance(v, str) and v == "none":
+            return False
         if isinstance(v, str) and v in THINKING_LEVELS:
             return v
         raise ValueError(
-            "llm.<fase>.thinking deve ser null, true, false, "
+            "llm.<fase>.thinking deve ser null, true, false, none, "
             "minimal|low|medium|high, ou um inteiro >= 0"
         )
 
@@ -199,6 +202,10 @@ class ChunkingConfig(BaseModel):
 
 class LinkingConfig(BaseModel):
     topk: int = 5
+    # Cosseno real nas duas passadas da dedupe (ADR-058). O 0.85 ja era o corte
+    # declarado; antes da correcao o filtro efetivo era cos >= 0.70 contra notas
+    # e cos >= 0.955 no intra-lote. A auditoria de 2026-10-18 (781 notas) mediu
+    # que 87% tem vizinho da mesma fonte a cos >= 0.85 — o numero nao foi trocado.
     dedupe_threshold: float = 0.85
     # Teto de caracteres por nota existente no prompt de dedupe (#209). Acima de
     # qualquer nota real (~4,3 mil hoje): o LLM ve o conteudo inteiro. Nao e um
@@ -213,15 +220,16 @@ class LinkingConfig(BaseModel):
     # Busca secundaria do connect: analogias fora do bucket taxonomico.
     # Piso LOCAL — nao altera retrieval.relevance_floor (compartilhado com ask).
     distant_analogy_topk: int = 5
-    distant_analogy_min_similarity: float = 0.40
+    # Cosseno. Era 0.40 na escala (1+cos)/2; convertido por 2*s-1 (ADR-058), sem remedir.
+    distant_analogy_min_similarity: float = -0.20
     # Corroboracao entre fontes: duas ZTL de source_id diferentes que dizem a
     # mesma coisa viram duas notas ligadas por `corroborates`, nao uma so.
     # Derivado por codigo a partir dos hits que o Retriever ja trouxe no connect
-    # (zero embedding e zero chamada de LLM adicionais). 0,88 medido contra
-    # rotulos cegos (#208, #226): a 0,85 o erro era so aresta indevida (pares do
-    # mesmo tema); nenhum par "mesma ideia" ficou abaixo de 0,85. Vale para
-    # ollama/qwen3-embedding@1024d: outro embedding exige medir de novo.
-    corroborates_min_similarity: float = 0.88
+    # (zero embedding e zero chamada de LLM adicionais). Medido em 0.88 na escala
+    # (1+cos)/2 contra rotulos cegos (#208, #226): a 0.85 nessa escala o erro era
+    # so aresta indevida; nenhum par "mesma ideia" ficou abaixo. Convertido para
+    # cosseno por 2*s-1 (ADR-058), sem remedir. Outro embedding exige medir de novo.
+    corroborates_min_similarity: float = 0.76
     corroborates_max_edges: int = 3
 
 
@@ -243,7 +251,9 @@ class HarvestConfig(BaseModel):
     # justamente porque consultar um indice incompleto produz falso negativo
     # silencioso, e nao um erro.
     semantic_duplicate_enabled: bool = False
-    duplicate_chunk_threshold: float = 0.88
+    # Cosseno. Era 0.88 na escala (1+cos)/2; convertido por 2*s-1 (ADR-058).
+    # A camada 5 esta desligada: o numero e inerte ate `semantic_duplicate_enabled`.
+    duplicate_chunk_threshold: float = 0.76
     duplicate_sample_size: int = 5
     non_interactive_duplicate_action: Literal["skip", "continue", "abort"] = "skip"
     # Same inbox path, different bytes. ``skip`` leaves the stored source
@@ -451,10 +461,13 @@ class RelevanceFloorConfig(BaseModel):
     """Piso absoluto alem do RRF (que so ranqueia). Catalogo: config.yaml -> retrieval."""
 
     enabled: bool = True
-    min_vector_similarity: float = 0.70
+    # Cosseno. A medicao de 2026-09-06 (0.70 na escala (1+cos)/2, fora-dominio
+    # ~0.67, dentro ~0.80) foi convertida por 2*s-1 (ADR-058), sem remedir.
+    min_vector_similarity: float = 0.40
     bm25_hit_bypasses_floor: bool = True
     bm25_bypass_max_rank: int = 5
-    absolute_min_similarity: float = 0.15
+    # Cosseno. Era 0.15 na escala (1+cos)/2; convertido por 2*s-1 (ADR-058).
+    absolute_min_similarity: float = -0.70
     # Fracao dos termos da pergunta que a nota precisa conter para o bypass
     # lexical valer. `bm25_bypass_max_rank` sozinho e um criterio RELATIVO:
     # num pool de 4 notas que casam, "top 5" quer dizer "todas". Cobertura e
@@ -507,18 +520,18 @@ class RetrievalConfig(BaseModel):
     relevance_floor: RelevanceFloorConfig = Field(default_factory=RelevanceFloorConfig)
     # Piso PROPRIO para resumos de capitulo (ADR-047). Objeto separado de
     # `relevance_floor` porque mede outra distribuicao de texto: um resumo de
-    # capitulo e mais longo e difuso que uma nota. Os dois valem 0.70 hoje por
+    # capitulo e mais longo e difuso que uma nota. Os dois valem 0.40 hoje por
     # coincidencia de duas medicoes independentes, nao por heranca -- mexer em
     # um nao deve mexer no outro.
     #
     # Medido em 2026-09-07 sobre 71 capitulos resumidos
-    # (ollama/qwen3-embedding@1024d): consultas fora do dominio marcam no maximo
-    # 0.693, self-match no minimo 0.745. O 0.60 anterior deixava as seis
-    # consultas fora do dominio passarem. Re-medir com
-    # `scripts/probe_relevance_floor.py --collection chapter_summaries` apos
-    # qualquer troca de embedding -- o numero nao transfere entre modelos.
+    # (ollama/qwen3-embedding@1024d), na escala (1+cos)/2: fora do dominio no
+    # maximo 0.693 (cosseno 0.386), self-match no minimo 0.745 (cosseno 0.490).
+    # O piso 0.70 dessa escala virou 0.40 por 2*s-1 (ADR-058), sem remedir.
+    # Re-medir com `scripts/probe_relevance_floor.py --collection chapter_summaries`
+    # apos qualquer troca de embedding -- o numero nao transfere entre modelos.
     chapter_floor: RelevanceFloorConfig = Field(
-        default_factory=lambda: RelevanceFloorConfig(min_vector_similarity=0.70)
+        default_factory=lambda: RelevanceFloorConfig(min_vector_similarity=0.40)
     )
     ask: AskConfig = Field(default_factory=AskConfig)
     article: ArticleConfig = Field(default_factory=ArticleConfig)
@@ -572,7 +585,8 @@ class DecisionConfig(BaseModel):
     # Pares de fontes diferentes julgados no site `corroborates`: a partir deste
     # cosseno, abaixo E acima de `linking.corroborates_min_similarity`, para que
     # a mesma ideia escrita com outras palavras (falso negativo) apareca (#208).
-    corroborates_band_min: float = 0.75
+    # Cosseno. Era 0.75 na escala (1+cos)/2; convertido por 2*s-1 (ADR-058).
+    corroborates_band_min: float = 0.50
     sites: DecisionSitesConfig = Field(default_factory=DecisionSitesConfig)
 
 
