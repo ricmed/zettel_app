@@ -876,7 +876,7 @@ class WebWorker:
                 surface="web",
             )
 
-            approved = load_approved_candidates(db)
+            approved = load_approved_candidates(db, source_ids=list(sources))
             progress.emit(
                 ProgressEvent(
                     "connect",
@@ -884,7 +884,8 @@ class WebWorker:
                     total_items=len(approved),
                 )
             )
-            note_ids = run_connect(cfg, db, idx, approved, observer=progress)
+            outcome = run_connect(cfg, db, idx, approved, observer=progress)
+            note_ids = outcome.note_ids
 
             progress.emit(ProgressEvent("garden", "Fase 5/5 — atualizando mapas de conteúdo."))
             moc_ids = run_garden(cfg, db, idx, observer=progress)
@@ -1119,7 +1120,7 @@ class WebWorker:
                     total_items=len(candidates),
                 )
             )
-            return {"notes": run_connect(cfg, db, idx, candidates, observer=progress)}
+            return {"notes": run_connect(cfg, db, idx, candidates, observer=progress).note_ids}
         if operation == "garden":
             if payload.get("hubs"):
                 from zettel.gardener_hub import run_garden_hubs

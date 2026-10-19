@@ -35,14 +35,34 @@ async def review(
 ):
     if not authenticated(request):
         return redirect_login()
-    queue = queue if queue in {"rejected", "duplicates"} else "drafts"
+    queue = queue if queue in {"rejected", "duplicates", "links"} else "drafts"
     db = service(request).db()
     try:
         from zettel.review import format_dedupe_item, pending_dedupe_concepts
 
         sources = db.list_sources()
         duplicate_count = len(pending_dedupe_concepts(db, source_id or None))
-        if queue == "duplicates":
+        link_count = len(db.list_proposed_connections())
+        if queue == "links":
+            from zettel.note_content import note_sections
+
+            enriched = []
+            for edge in db.list_proposed_connections():
+                source = db.get_note(edge["source_note_id"]) or {}
+                target = db.get_note(edge["target_note_id"]) or {}
+                enriched.append(
+                    {
+                        **edge,
+                        "source_thesis": note_sections(
+                            source.get("title") or "", source.get("body") or ""
+                        )["thesis"],
+                        "target_thesis": note_sections(
+                            target.get("title") or "", target.get("body") or ""
+                        )["thesis"],
+                    }
+                )
+            page_size = _DRAFT_PAGE_SIZE
+        elif queue == "duplicates":
             enriched = [
                 {
                     "concept_id": concept["concept_id"],
@@ -128,6 +148,7 @@ async def review(
         has_next=page * page_size < total,
         queue=queue,
         duplicate_count=duplicate_count,
+        link_count=link_count,
     )
 
 
@@ -155,3 +176,40 @@ async def review_action(
         {"action": action, "chunk_ids": chunk_ids, "concept_ids": concept_ids},
         csrf,
     )
+
+
+@router.post("/review/links")
+async def review_links(
+    request: Request,
+    source_note_id: str = Form(...),
+    target_note_id: str = Form(...),
+    relation_type: str = Form(...),
+    action: str = Form(...),
+    new_type: str = Form(""),
+    csrf: str = Form(""),
+):
+    from fastapi.responses import RedirectResponse
+
+    from zettel.web.security import csrf_ok
+
+    if not authenticated(request):
+        return redirect_login()
+    if action not in {"accept", "reject", "retype"} or not csrf_ok(request, csrf):
+        return HTMLResponse("Ação inválida", status_code=400)
+    from zettel.connector.links import decide_link
+
+    db = service(request).db()
+    try:
+        decide_link(
+            service(request).cfg,
+            db,
+            source_note_id,
+            target_note_id,
+            relation_type,
+            action,
+            new_type=new_type or None,
+            surface="web",
+        )
+    finally:
+        db.close()
+    return RedirectResponse("/review?queue=links", status_code=303)

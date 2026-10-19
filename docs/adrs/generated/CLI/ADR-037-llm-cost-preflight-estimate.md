@@ -103,3 +103,7 @@ If a hard budget cap is ever wanted, it belongs on top of `PreflightEstimate`, n
 **Status:** Accepted amendment. Measured on the largest extract run, input was about 6,688 tokens per call and the old estimator, which counted the template file with empty placeholders, said about 4,150 (−38%). Output was about 417 against a config target of 800.
 
 The per-call overhead is now the prompt after `{domain}`, `{language}` and the domain few-shots are filled (`literature_note` for extract, `permanent_note` for connect). The chunk, the RAG block and the chapter text are still added by the caller, so they are not inside that overhead. Output tokens are the mean `tokens_completion / llm_calls` of previous finished runs of that phase when any exist; the config target is the fallback. `runs` does not store the model, and the panel says so. SQLite response cache, provider prompt cache and thinking tokens are listed as not included. The panel does not call the input an upper bound.
+
+## Addendum (2026-10-19): distant analogies and CLI `run-all` (issue #289)
+
+**Status:** Accepted amendment. `estimate_connect` sizes the RAG block as `linking.topk` plus graph neighbours plus `linking.distant_analogy_topk`. The PT-BR guard is named as uncounted. CLI `run-all` calls `preflight_gate` before connect, with the same `--yes` / non-TTY pass-through as `zettel connect`. The web worker still does not ask: it has no stdin, which is the original reason the gate lives in the CLI.

@@ -67,6 +67,8 @@ def status(config: ConfigOption = None):
         "concepts": "Conceitos",
         "concepts_dedupe_pending": "Conceitos aguardando decisao de duplicata",
         "concepts_extracted": "Conceitos presos em extracted (dedupe nao terminou)",
+        "concepts_connect_rejected": "Conceitos recusados pelo connect",
+        "links_proposed": "Arestas de LLM aguardando revisao",
         "notes": "Notas Permanentes",
         "mocs": "MOCs",
         "assets": "Assets",
@@ -83,6 +85,8 @@ def status(config: ConfigOption = None):
                 "chunks_failed",
                 "concepts_dedupe_pending",
                 "concepts_extracted",
+                "concepts_connect_rejected",
+                "links_proposed",
             )
             and val > 0
         ):

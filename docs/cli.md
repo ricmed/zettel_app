@@ -38,6 +38,7 @@ O `run-all` encadeia `harvest → extract → review → summarize → connect �
 | [`summarize`](#summarize) | Resume cada capítulo e o material como um todo |
 | [`purge-rejected`](#purge-rejected) | Apaga definitivamente os chunks rejeitados |
 | [`connect`](#connect) | Prompt 2: gera notas permanentes (ZTL) |
+| [`reconnect`](#reconnect) | Refaz as arestas de LLM de notas ja escritas |
 | [`garden`](#garden) | Clusteriza notas e gera/atualiza MOCs |
 | [`ask`](#ask) | QA sobre o vault com recuperação híbrida |
 | [`catalog`](#catalog) | Quais fontes tratam de um assunto, e em que capítulos |
@@ -222,14 +223,50 @@ Gera as notas permanentes (ZTL) a partir dos conceitos aprovados no review.
 ```bash
 python -m zettel connect
 python -m zettel connect --topk 10               # top-k de notas similares no RAG
-python -m zettel connect --dedupe-threshold 0.90 # limiar de deduplicacao
 ```
 
-Se não houver candidato aprovado, o comando falha pedindo `extract` + `review` primeiro.
+Se não houver candidato aprovado, o comando falha pedindo `extract` + `review` primeiro. Um conceito que o Prompt 2 recusa sai da fila (`connect_rejected`), com motivo gravado, e aparece no `zettel status`. `--requeue-rejected` devolve esses conceitos para `approved`. `--force-rejected` faz o mesmo e pede a nota mesmo assim. Uma resposta que não parseia fica em `llm_failures` e sai do cache. Uma conexão com tipo inválido, alvo repetido, alvo fora do contexto ou além de 4 não derruba a nota. O resumo lista arestas por tipo, intra × entre fontes, `corroborates`, sugestões, recusas e custo. A fila é por fonte, capítulo e `chunk_index`. A dedupe não tem flag aqui: ela roda no `review`.
+
+## `links`
+
+Fila das arestas que o LLM propôs e que ainda não entram no grafo. `derived` e `manual` não passam por aqui.
+
+```bash
+python -m zettel links
+python -m zettel links --accept SRC:ALVO:supports
+python -m zettel links --reject SRC:ALVO:contradicts
+python -m zettel links --retype SRC:ALVO:supports:extends
+python -m zettel links --mark-proposed
+```
+
+Aceitar grava a aresta como percorrível e atualiza `auto-backlinks`. Trocar o tipo grava `origin=review`. A mesma fila está em `/review?queue=links`. `linking.llm_edges: propose` é o padrão; `accept` volta a escrever direto.
 
 O RAG do `connect` tem três grupos: similares por embedding, vizinhas no grafo e **analogias distantes** (notas fora do bucket taxonômico, piso local `linking.distant_analogy_min_similarity`). Essas analogias vão para o bloco `auto-connections`, não para `note_connections` — só viram aresta quando o autor move o wikilink para a prosa.
 
 > **Pré-voo de custo.** Igual ao `extract`: painel com modelo, conceitos, tokens e USD antes de qualquer chamada. O contexto RAG entra na conta como `linking.topk + graph_expansion.max_neighbors` notas ([ADR-037](adrs/generated/CLI/ADR-037-llm-cost-preflight-estimate.md)).
+
+Se o embedding cair, o comando para com código 1. O conceito fica `connecting` e o mesmo comando retoma a nota no mesmo arquivo. O `ask` segue podendo responder só com o índice lexical.
+
+Arestas `corroborates` já gravadas não acompanham um corte novo sozinhas. `scripts/rebuild_corroborates.py` lista o diff (padrão) e `--apply` grava: uma consulta de embedding por nota permanente com tese ou definição, sem chamada de LLM.
+
+```bash
+.venv/Scripts/python.exe scripts/rebuild_corroborates.py
+.venv/Scripts/python.exe scripts/rebuild_corroborates.py --apply
+```
+
+## `reconnect`
+
+Refaz as arestas `origin='llm'` de notas permanentes que ja existem. Nao reescreve tese, definicao nem o resto do corpo. Arestas `manual` e `derived` ficam. Cada aresta nova guarda o hash do prompt, o modelo e o `run_id`.
+
+A busca ve o acervo inteiro, em ordem de `note_id`, entao uma nota antiga pode apontar para uma nota mais nova. O menu de relacoes continua o do Prompt 2 atual (#231); a direcao e da nota religada para a outra, e o inverso aparece no `auto-backlinks`.
+
+```bash
+python -m zettel reconnect --dry-run
+python -m zettel reconnect --note-id 01ARZ3NDEKTSV4RRFFQ69G5FAV --yes
+python -m zettel reconnect --source-id @Kahneman2011 --relations-only --yes
+```
+
+`--dry-run` chama o modelo e nao grava. O pre-voo de custo e o mesmo do `connect`. Com `linking.prompt2_mode: combined` (o padrao) o reconnect usa o Prompt 2 atual. `split` usaria so o prompt de ligacao, e essa troca espera `evals/preregistration/288-escrita-ligacao.md`. Mudanca de esquema: `zettel init --reset`.
 
 ---
 
@@ -609,7 +646,7 @@ python -m zettel run-all --yes --skip-biblio   # flags de harvest valem aqui
 python -m zettel run-all --dry-run             # simula sem escrever notas
 ```
 
-Aceita as mesmas flags de duplicidade/bibliografia do `harvest` (`--yes`, `--skip-duplicates`, `--force`, `--skip-biblio`) e um `--dry-run`. `--yes` não aprova drafts: isso exige `--auto-approve`, que avisa que o limiar não foi validado e só promove drafts das fontes que o harvest desta execução escreveu. O resumo separa o total aprovado da contagem por limiar. Sem a flag, os drafts ficam em `awaiting_review`. A paginação é resolvida pela heurística (não há `--content-start-*` aqui).
+Aceita as mesmas flags de duplicidade/bibliografia do `harvest` (`--yes`, `--skip-duplicates`, `--force`, `--skip-biblio`) e um `--dry-run`. `--yes` não aprova drafts: isso exige `--auto-approve`, que avisa que o limiar não foi validado e só promove drafts das fontes que o harvest desta execução escreveu. O resumo separa o total aprovado da contagem por limiar. Sem a flag, os drafts ficam em `awaiting_review`. O connect desta execução usa as mesmas fontes e pergunta o pré-voo ( `--yes` e stdin sem TTY passam). Conceitos aprovados de outras fontes ficam para `zettel connect`. A paginação é resolvida pela heurística (não há `--content-start-*` aqui).
 
 ---
 
@@ -624,9 +661,6 @@ python -m zettel run-all --yes --skip-biblio
 
 # Ajustar top-k de notas similares
 python -m zettel connect --topk 10
-
-# Ajustar limiar de deduplicação
-python -m zettel connect --dedupe-threshold 0.90
 
 # Ajustar tamanho mínimo de cluster para MOCs
 python -m zettel garden --min-cluster-size 3

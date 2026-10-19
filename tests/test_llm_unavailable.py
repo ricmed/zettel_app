@@ -256,3 +256,34 @@ def test_harvest_aborts_without_writing_src(tmp_path, monkeypatch):
         assert db.get_last_run()["status"] == "failed"
     finally:
         db.close()
+
+
+def test_ptbr_guard_does_not_swallow_an_outage(tmp_path, monkeypatch):
+    from zettel.connector.prompt import apply_ptbr_guard
+    from zettel.schemas import PermanentNoteLLMOutput
+
+    cfg = AppConfig(
+        vault_path=tmp_path / "vault",
+        prompts_path=Path(__file__).resolve().parents[1] / "prompts",
+    )
+    output = PermanentNoteLLMOutput(
+        status="accepted",
+        thesis="The model learns from data that it sees",
+        definition="This definition is in English and should be translated",
+        intuition="Like a student",
+    )
+
+    def _boom(*_a, **_k):
+        raise LLMUnavailableError("connection refused", phase="connect")
+
+    monkeypatch.setattr("zettel.connector.prompt.call_llm", _boom)
+
+    class _Cache:
+        def get_cached_llm_response(self, _checksum):
+            return None
+
+        def cache_llm_response(self, *_a, **_k):
+            return None
+
+    with pytest.raises(LLMUnavailableError, match="connection refused"):
+        apply_ptbr_guard(cfg, _Cache(), object(), output)

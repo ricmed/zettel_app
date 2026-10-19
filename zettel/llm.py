@@ -86,6 +86,9 @@ _UNAVAILABLE_MSG_MARKERS = (
     "nodename nor servname",
     "rate limit",
     "rate_limit",
+    "resource exhausted",
+    "resource_exhausted",
+    "quota",
     "timed out",
     "timeout",
     "unauthorized",
@@ -98,6 +101,7 @@ _REASON_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     ),
     (("timed out", "timeout", "connecttimeout"), "timeout"),
     (("429", "ratelimit", "rate limit", "rate_limit"), "rate limit esgotado"),
+    (("quota", "resource exhausted", "resource_exhausted"), "cota esgotada"),
     (
         ("401", "unauthorized", "authentication", "invalid api key", "incorrect api key"),
         "autenticação recusada",
@@ -634,6 +638,7 @@ def cached_call_llm(
     label: str | None = None,
     step: int | None = None,
     total: int | None = None,
+    cache_slot: dict[str, str] | None = None,
 ) -> tuple[str, bool]:
     """Run one prompt through the SQLite response cache. Returns ``(text, cache_hit)``.
 
@@ -665,6 +670,9 @@ def cached_call_llm(
         thinking=thinking_checksum_token(spec.thinking),
     )
     cached = db.get_cached_llm_response(checksum)
+    if cache_slot is not None:
+        cache_slot["checksum"] = checksum
+        cache_slot["model"] = spec.model
     if cached is not None:
         logger.debug("LLM cache hit (%s) %s", phase, label or "")
         record_cache_hit(label=label or phase, model=spec.model)
@@ -736,6 +744,8 @@ def split_prompt_text(text: str) -> PromptParts:
 REQUIRED_PROMPTS: tuple[str, ...] = (
     "literature_note.md",
     "permanent_note.md",
+    "note_write.md",
+    "note_link.md",
     "dedupe_decision.md",
     "moc_generation.md",
     "moc_incremental.md",

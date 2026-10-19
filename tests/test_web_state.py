@@ -187,13 +187,14 @@ def test_run_all_dispatches_every_phase_in_order(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
         connector,
         "load_approved_candidates",
-        lambda db: [{"candidate": "approved"}],
+        lambda db, source_ids=None: [{"candidate": "approved"}],
     )
     monkeypatch.setattr(
         connector,
         "run_connect",
         lambda cfg, db, idx, candidates, **kwargs: (
-            calls.append(("connect", {"candidates": candidates, **kwargs})) or ["note"]
+            calls.append(("connect", {"candidates": candidates, **kwargs}))
+            or type("O", (), {"note_ids": ["note"]})()
         ),
     )
     monkeypatch.setattr(
@@ -267,8 +268,8 @@ def test_run_all_auto_approve_records_the_unvalidated_warning(tmp_path: Path, mo
         "run_review",
         lambda cfg, db, idx, **kwargs: {"approved": 2, "pending_review": 0, **kwargs},
     )
-    monkeypatch.setattr(connector, "load_approved_candidates", lambda db: [])
-    monkeypatch.setattr(connector, "run_connect", lambda *a, **k: [])
+    monkeypatch.setattr(connector, "load_approved_candidates", lambda db, source_ids=None: [])
+    monkeypatch.setattr(connector, "run_connect", lambda *a, **k: type("O", (), {"note_ids": []})())
     monkeypatch.setattr(gardener, "run_garden", lambda *a, **k: [])
 
     class Progress:

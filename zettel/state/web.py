@@ -310,6 +310,12 @@ class WebMixin(StateBase):
         stats["concepts_extracted"] = self._count(
             "SELECT COUNT(*) FROM concepts WHERE status='extracted'"
         )
+        stats["concepts_connect_rejected"] = self._count(
+            "SELECT COUNT(*) FROM concepts WHERE status='connect_rejected'"
+        )
+        stats["links_proposed"] = self._count(
+            "SELECT COUNT(*) FROM note_connections WHERE origin='llm' AND status='proposed'"
+        )
         return stats
 
     def get_web_dashboard(

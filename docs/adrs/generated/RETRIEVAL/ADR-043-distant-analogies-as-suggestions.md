@@ -33,7 +33,7 @@ A wrong analogy stays a suggestion. Graph expansion and hub ranking only see end
 
 The rule here — *connect writes edges without a human gate, therefore speculative links stay suggestions* — gates **LLM judgement**. [ADR-045](../REVIEW/ADR-045-cross-source-overlap-is-corroboration.md) writes `corroborates` straight to `note_connections`, and that is consistent rather than an exception: the edge is derived by code from `source_id` plus a similarity threshold, never proposed by a model. `corroborates` is deliberately absent from `permanent_note.md`'s relation menu (a test pins the absence), and a model that emits it anyway is downgraded to `supports` before the code's own edges are injected.
 
-The distinction to preserve: a distant analogy is a guess about mechanism and can be wrong; corroboration is a fact about authorship and cannot.
+The distinction to preserve: a distant analogy is a guess about mechanism and stays a suggestion. Two different `source_id` values are a fact about authorship. "Same idea" is a deterministic similarity judgement — #226 measured its error — so the edge may be written directly only while it is recalculated when the cut changes.
 
 ## Amendment (2026-10-08) — preferred type for a distant analogy (#231)
 
@@ -42,3 +42,21 @@ scheme in another field"). Under the ordered definitions of #231, `exemplifies` 
 a concrete case that adds no mechanism, and "the same mechanism in another domain"
 is `related`, so the analogy group now prefers `related` or `contradicts`
 (incompatible theses). Distant analogies remain suggestions, never edges.
+
+## Addendum (2026-10-19): authorship is the fact, same-idea is the judgement (#280)
+
+The 2026-09-07 carve-out used to say corroboration "cannot be wrong". That
+sentence now says what #226 measured: authorship is the fact, and "same idea"
+is a reproducible similarity judgement. Direct write stays licensed when
+`scripts/rebuild_corroborates.py` reapplies the cut.
+
+## Addendum (2026-10-19): LLM edges wait for a human (#287)
+
+The premise of this ADR — connect writes edges without a human gate — now stops
+at the LLM's own relations. `linking.llm_edges` defaults to `propose`: those
+edges are stored as `status='proposed'`, rendered as `auto-connections`, and
+left out of graph traversal until `/review?queue=links` or `zettel links`
+accepts them. `corroborates` and the dedupe `extends` stay derived and enter
+the graph immediately. A retyped edge is stored with `origin='review'`.
+`accept` restores the previous direct write. There is no auto-accept threshold;
+that would need its own pre-registered measurement.

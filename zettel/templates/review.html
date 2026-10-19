@@ -8,6 +8,8 @@
     <p class="muted">Chunks que o extract recusou e que nunca viraram draft LIT. O trecho abaixo é o texto fonte.</p>
     {% elif queue == 'duplicates' %}
     <p class="muted">Conceitos que a dedupe marcou como possível repetição da mesma fonte. Manter aprova o conceito para o connect. Descartar registra a duplicata. Nada disso acontece sozinho.</p>
+    {% elif queue == 'links' %}
+    <p class="muted">Conexões que o modelo propôs. Aceitar coloca a aresta no grafo. Rejeitar tira da fila. Trocar o tipo grava a aresta com origem review.</p>
     {% else %}
     <p class="muted">Nesta página nada é aprovado pelo limiar. A aprovação automática fica no pipeline completo e, quando marcada, vale só para as fontes daquela execução.</p>
     {% endif %}
@@ -16,6 +18,7 @@
 <nav class="queue-tabs">
   <a class="button{% if queue == 'drafts' %} primary{% endif %}" href="/review?source_id={{ selected_source }}">Drafts</a>
   <a class="button{% if queue == 'duplicates' %} primary{% endif %}" href="/review?queue=duplicates&amp;source_id={{ selected_source }}">Duplicatas ({{ duplicate_count }})</a>
+  <a class="button{% if queue == 'links' %} primary{% endif %}" href="/review?queue=links&amp;source_id={{ selected_source }}">Arestas ({{ link_count }})</a>
   <a class="button{% if queue == 'rejected' %} primary{% endif %}" href="/review?queue=rejected&amp;source_id={{ selected_source }}">Rejeitados pelo extract</a>
 </nav>
 <form class="filters" method="get">
@@ -36,6 +39,37 @@
   {% endif %}
   <button class="button">Filtrar</button>
 </form>
+{% if queue == 'links' %}
+<section class="stack">
+  {% for edge in chunks %}
+  <article class="panel">
+    <p><b>{{ edge.source_note_id }}</b> {{ edge.relation_type }} <b>{{ edge.target_note_id }}</b></p>
+    <p>{{ edge.description }}</p>
+    <p>{{ edge.source_thesis }}</p>
+    <p>{{ edge.target_thesis }}</p>
+    <form method="post" action="/review/links">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="source_note_id" value="{{ edge.source_note_id }}">
+      <input type="hidden" name="target_note_id" value="{{ edge.target_note_id }}">
+      <input type="hidden" name="relation_type" value="{{ edge.relation_type }}">
+      <button class="button" name="action" value="accept">Aceitar</button>
+      <button class="button" name="action" value="reject">Rejeitar</button>
+      <select name="new_type">
+        <option value="supports">supports</option>
+        <option value="contradicts">contradicts</option>
+        <option value="extends">extends</option>
+        <option value="depends_on">depends_on</option>
+        <option value="exemplifies">exemplifies</option>
+        <option value="related">related</option>
+      </select>
+      <button class="button" name="action" value="retype">Trocar o tipo</button>
+    </form>
+  </article>
+  {% else %}
+  <div class="empty panel">Nenhuma aresta de LLM pendente.</div>
+  {% endfor %}
+</section>
+{% else %}
 <form method="post" action="/review/action" data-confirm="{% if queue == 'rejected' %}Confirma reenfileirar os chunks selecionados para o extract?{% elif queue == 'duplicates' %}Confirma a decisão nas duplicatas selecionadas?{% else %}Confirma a ação nos drafts selecionados?{% endif %}">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <div class="review-actions">
@@ -146,6 +180,7 @@
   <div class="empty panel">Nenhum draft corresponde aos filtros.</div>
   {% endif %}
 </form>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>

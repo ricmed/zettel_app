@@ -340,3 +340,24 @@ class PermanentNoteLLMOutput(BaseModel):
         description="Conexões tipadas com notas existentes",
     )
     tags: list[str] = Field(default_factory=list)
+    ptbr_guard: bool = Field(
+        default=False,
+        description="True when the PT-BR guard rewrote the body. Not an LLM field.",
+    )
+
+
+class NoteWriteOutput(BaseModel):
+    """Body of a ZTL written from the approved candidate and the source excerpt."""
+
+    title: str = ""
+    thesis: str = ""
+    definition: str = ""
+    intuition: str = ""
+    example: str = ""
+    limits: str = ""
+
+
+class NoteLinkOutput(BaseModel):
+    """Edges only. The note body is already written."""
+
+    connections: list[RelationshipResult] = Field(default_factory=list)

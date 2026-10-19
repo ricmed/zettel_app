@@ -197,6 +197,10 @@ CREATE TABLE IF NOT EXISTS note_connections (
     relation_type  TEXT NOT NULL,
     description    TEXT DEFAULT '',
     origin         TEXT NOT NULL DEFAULT 'llm',
+    prompt_checksum TEXT NOT NULL DEFAULT '',
+    model           TEXT NOT NULL DEFAULT '',
+    run_id          INTEGER,
+    status          TEXT NOT NULL DEFAULT 'accepted',
     created_at     TEXT NOT NULL,
     PRIMARY KEY (source_note_id, target_note_id, relation_type)
 );

@@ -9,7 +9,7 @@ This is a convenience wrapper, not a separate implementation — it calls the sa
 the chapter text, and because ``connect`` refreshes the chapter map it wrote —
 so the per-chapter note counts are current by the time the run ends.
 
-Two things differ from running the commands by hand, and both are deliberate:
+Three things differ from running the commands by hand, and they are deliberate:
 
 * **One process, one set of handles.** ``StateDB`` and ``VectorIndex`` are opened
   once instead of five times, so an embedding-drift prompt happens at most once.
@@ -18,6 +18,10 @@ Two things differ from running the commands by hand, and both are deliberate:
   score does not separate keep from discard, so drafts stay ``awaiting_review``
   unless ``--auto-approve`` is passed. The flag prints the unvalidated-signal
   warning. A full run never silently discards a draft.
+* **Connect is scoped to the harvest of this run.** The same ``source_ids`` that
+  ``run_review`` received. Leftover approved concepts from other sources wait
+  for ``zettel connect``. The CLI asks the connect pre-flight (``--yes`` and a
+  non-TTY pass through); the web worker does not, because it has no stdin.
 
 ``--dry-run`` stops after review — before anything is written to the vault as a
 permanent note — and still prints the cost table, which is the point: it answers
@@ -31,7 +35,13 @@ from typing import Annotated
 import typer
 
 from zettel.cli.app import app, console
-from zettel.cli.deps import exit_llm_unavailable, get_db, get_idx, load_deps
+from zettel.cli.deps import (
+    exit_llm_unavailable,
+    get_db,
+    get_idx,
+    load_deps,
+    preflight_gate,
+)
 from zettel.cli.formatting import print_cost_by_phase
 from zettel.cli.options import (
     ConfigOption,
@@ -171,13 +181,19 @@ def _run_all_phases(
         f"resumos gerais: {summary_outcome.sources_summarized}"
     )
 
-    # Phase 3: Connect (from DB approved concepts)
+    # Phase 3: Connect — same harvest sources as review (#274 / #289).
     console.rule("[bold blue]Fase 3 — Connect")
+    from zettel.cli.formatting import print_connect_summary
     from zettel.connector import load_approved_candidates, run_connect
+    from zettel.preflight import estimate_connect
 
-    connect_cands = load_approved_candidates(db)
-    note_ids = run_connect(cfg, db, idx, connect_cands)
-    console.print(f"  Notas permanentes: {len(note_ids)}")
+    connect_cands = load_approved_candidates(db, source_ids=list(harvest_outcome.source_ids))
+    if connect_cands:
+        preflight_gate(estimate_connect(cfg, db, connect_cands), yes, db)
+        outcome = run_connect(cfg, db, idx, connect_cands)
+        print_connect_summary(outcome)
+    else:
+        console.print("  Nenhum conceito aprovado das fontes deste run.")
 
     # Phase 4: Garden
     console.rule("[bold blue]Fase 4 — Garden")

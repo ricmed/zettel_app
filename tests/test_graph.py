@@ -93,3 +93,9 @@ def test_via_records_path(db):
 def test_empty_seeds(db):
     assert expand_notes(db, [], max_hops=1) == {}
     assert expand_notes(db, ["x"], max_hops=0) == {}
+
+
+def test_skip_ids_frees_the_neighbour_slot(db):
+    _edges(db, [("a", "hub", "contradicts"), ("a", "other", "supports")])
+    result = expand_notes(db, ["a"], max_hops=1, max_neighbors=1, skip_ids={"hub"})
+    assert set(result) == {"other"}

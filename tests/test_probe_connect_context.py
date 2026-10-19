@@ -8,8 +8,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from probe_connect_context import (
     NO_EDGE,
+    aggregate_edges,
     build_pairs,
     labelled_conditions,
+    mean_position_rates,
+    order_keys,
     parse_answer,
     pick_concepts,
     rag_context_for,
@@ -206,3 +209,39 @@ def test_strata_follow_the_compared_runs():
         B: "new_only",
     }
     assert pairs[0]["answers"] == {"current:trunc-a": "extends", "new:trunc-a": NO_EDGE}
+
+
+def test_shuffle_order_is_deterministic_for_the_same_concept():
+    from zettel.connector.context import order_group
+    from zettel.retrieval import RetrievedNote
+
+    notes = [RetrievedNote(note_id=note_id, score=1.0) for note_id in ("a", "b", "c", "d")]
+    first = [note.note_id for note in order_group(notes, "01CONCEPT:embedding")]
+    second = [note.note_id for note in order_group(notes, "01CONCEPT:embedding")]
+    assert first == second
+    assert set(first) == {"a", "b", "c", "d"}
+    assert order_group(notes, None)[0].note_id == "a"
+    moved = any(
+        [note.note_id for note in order_group(notes, f"other-{i}:embedding")] != first
+        for i in range(30)
+    )
+    assert moved
+
+
+def test_permutation_aggregate_keeps_a_majority_edge_and_its_majority_type():
+    answers = [
+        {"status": "accepted", "edges": {"B": "supports", "C": "related"}},
+        {"status": "accepted", "edges": {"B": "supports"}},
+        {"status": "accepted", "edges": {"B": "extends", "D": "related"}},
+    ]
+    assert aggregate_edges(answers) == {
+        "status": "accepted",
+        "edges": {"B": "supports"},
+    }
+    assert order_keys("c1", shuffle_seed=None, permutations=1) == [None]
+    assert order_keys("c1", shuffle_seed=7, permutations=1) == ["7:c1"]
+    assert order_keys("c1", shuffle_seed=7, permutations=3) == ["7:0:c1", "7:1:c1", "7:2:c1"]
+
+
+def test_position_rates_average_only_the_positions_that_exist():
+    assert mean_position_rates([[1.0, 0.0, 0.0], [1.0, 1.0]]) == [1.0, 0.5, 0.0]

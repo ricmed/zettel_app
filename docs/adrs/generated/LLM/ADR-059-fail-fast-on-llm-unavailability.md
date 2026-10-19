@@ -47,3 +47,24 @@ An outage is visible and cheap to resume. A malformed JSON on one chunk still ma
 ## Addendum (2026-10-18): a raw vision transport error is classified too
 
 **Status:** Accepted amendment. Image description calls `llm.invoke` directly, so a dead provider arrives as `ConnectionError`, a timeout, or a provider exception, not as `LLMUnavailableError`. `describe_pending_assets` runs that exception through `is_llm_unavailable` / `_raise_unavailable(phase="images")` before the per-asset `failed` mark — the same boundary `call_llm` already uses. The asset stays `pending` and the extract run stops. A 429 still becomes `RateLimitExhausted` and keeps the existing retry-and-abort-the-batch path. A content error (empty answer, unreadable file) still marks that one image `failed`.
+
+## Addendum (2026-10-19): a Prompt 2 rejection is per concept (issue #284)
+
+**Status:** Accepted amendment. `ConnectRejected` and a Prompt 2 response that
+does not parse do not fail the connect run and do not mark the concept `failed`.
+A rejection stores `connect_rejected` plus the reason and category, and the next
+`connect` does not call the model for it. `connect --requeue-rejected` returns
+those concepts to `approved`; `--force-rejected` also asks the model to write
+the note. A parse error is recorded in `llm_failures` (`phase='connect'`) and
+the cached response is deleted, so the same broken JSON is not replayed. One
+invalid connection (unknown type, duplicate, outside the RAG block, or past the
+cap of 4) is dropped. The note is still written. `LLMUnavailableError` remains
+the failure that stops the phase.
+
+## Addendum (2026-10-19): embedding outages fail the connect run (issue #282)
+
+**Status:** Accepted amendment. A dead embedding service is the same class of fault as a dead chat model. `Retriever(strict_embedding=True)` — what `run_connect` builds — turns a transport, auth or quota error in the vector search into `LLMUnavailableError` (`phase="embedding"`) instead of returning an empty hit list. The same classification wraps `upsert_permanent_note`. Prompt 2 is not called when the search already failed. The concept is marked `connecting` once its `note_id` is chosen and becomes `noted` only after the vector and the edges are stored, so the next `connect` reuses the file and the SQLite prompt cache. `ask` does not set `strict_embedding`: a vector failure there still falls through to BM25. Any exception that leaves `run_connect`, not only `LLMUnavailableError`, stores the run as `failed`.
+
+## Addendum (2026-10-19): the PT-BR guard is on the same fail-fast (issue #289)
+
+**Status:** Accepted amendment. `apply_ptbr_guard` goes through `cached_call_llm`. A replay of Prompt 2 does not pay the guard again. `LLMUnavailableError` and any exception `is_llm_unavailable` classifies are re-raised, so a dead provider during the translation does not leave an English body as if the guard had merely "failed". A parse error on the guard still keeps the original text.

@@ -447,3 +447,42 @@ def test_coverage_is_only_computed_for_bypass_eligible_hits(db):
     assert len(hits) == 8
     assert all(h["coverage"] is not None for h in hits[:3])
     assert all(h["coverage"] is None for h in hits[3:])
+
+
+def _seed(note_id: str, source_id: str) -> RetrievedNote:
+    note = RetrievedNote(note_id=note_id, score=1.0, passed_floor=True)
+    note.metadata["source_id"] = source_id
+    return note
+
+
+def test_source_quota_caps_the_candidate_source_when_others_cleared_the_floor():
+    from zettel.retrieval import apply_source_quota
+
+    eligible = [
+        _seed("s1", "@A"),
+        _seed("s2", "@A"),
+        _seed("s3", "@A"),
+        _seed("o1", "@B"),
+        _seed("o2", "@C"),
+    ]
+    picked = apply_source_quota(eligible, 5, source_id="@A", same_source_max=2)
+    sources = [hit.metadata["source_id"] for hit in picked]
+    assert sources.count("@A") == 2
+    assert "@B" in sources and "@C" in sources
+    assert [hit.note_id for hit in picked[:2]] == ["s1", "s2"]
+
+
+def test_source_quota_does_not_punch_a_hole_in_a_single_source_corpus():
+    from zettel.retrieval import apply_source_quota
+
+    eligible = [_seed(f"s{i}", "@A") for i in range(4)]
+    picked = apply_source_quota(eligible, 3, source_id="@A", same_source_max=1)
+    assert [hit.note_id for hit in picked] == ["s0", "s1", "s2"]
+
+
+def test_source_quota_off_keeps_the_ranked_prefix():
+    from zettel.retrieval import apply_source_quota
+
+    eligible = [_seed("s1", "@A"), _seed("o1", "@B")]
+    picked = apply_source_quota(eligible, 1, source_id="@A", same_source_max=0)
+    assert [hit.note_id for hit in picked] == ["s1"]

@@ -71,7 +71,9 @@ O rascunho na #226 comparava `cos88` com `edge85` no desfecho 2. Aqui a compara�
 
 - **Falhas de API:** no máximo 5% das linhas do site. Acima disso, o resultado é inconclusivo.
 - **Pares sem as duas ordens:** saem da conta. Se forem mais de 10%, o resultado é inconclusivo.
-- **Escopo do corte:** 0,88 vale só para `ollama/qwen3-embedding@1024d`. Trocar o modelo de embedding invalida o corte.
+- **Escopo do corte:** 0,88 na escala `(1+cos)/2` (cosseno 0,76 depois do ADR-058) vale para `gemini-embedding-2@1536`, lado consulta `RETRIEVAL_QUERY`. As linhas do shadow desta rodada foram gravadas em 2026-10-06/07, depois da troca de embedding (`6566919`, 2026-09-21). Outro modelo exige nova medição.
+
+Correção 2026-10-19 (#280): o texto original atribuía o corte a `ollama/qwen3-embedding@1024d`. Esse modelo já não indexava o acervo quando a rodada 2 rodou.
 
 ## Comandos
 

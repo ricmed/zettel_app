@@ -107,4 +107,8 @@ The client is built through a `get_client` factory, so a cache hit never constru
 * `zettel/connector/context.py` — `build_rag_context`, `load_connect_taxonomy`, `search_distant_analogies`
 * `zettel/connector/links.py` — `assemble_connections`, `persist_and_backlink`, `rebuild_auto_backlinks`
 * `zettel/gardener_assign.py` — `category_pairs`
+
+## Addendum (2026-10-19): write and link stay behind one flag
+
+`prompts/note_write.md` and `prompts/note_link.md` exist, with `note_write_messages` and `note_link_messages`. `linking.prompt2_mode` defaults to `combined`, so `generate_permanent_note` is still the call `connect` and `reconnect` make. `split` writes from the approved candidate, the clipped chunk text and the anchor quote, then links the written thesis. `corroborates` is absent from both templates. `thesis_drift_min_similarity` stays 0: a rewritten thesis is stored and not flagged. Whether `split` becomes the default is the rule in `evals/preregistration/288-escrita-ligacao.md`, which has not been executed.
 * `tests/test_connector_package.py`, `tests/test_connector.py`, `tests/test_prompts.py`

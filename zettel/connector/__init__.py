@@ -2,14 +2,16 @@
 
 Takes approved candidates from review, generates full permanent notes with
 Prompt 2, and creates/updates vault files with managed backlink blocks.
-Connections are typed (supports, contradicts, extends, ...) and backlinks show
-the inverse relation in PT-BR. Package layout: ADR-053.
+The queue is ordered by source, chapter and chunk_index. Connections are typed
+(supports, contradicts, extends, ...) and backlinks show the inverse relation
+in PT-BR. Package layout: ADR-053.
 
 - ``run``      entry gate (``load_approved_candidates``) and the run loop
 - ``note``     one candidate -> one ZTL (vault + SQLite + Chroma)
-- ``prompt``   Prompt 2 payload, cached call, parsing, PT-BR guard
+- ``prompt``   Prompt 2 payload, cached call, parsing, cached PT-BR guard
 - ``context``  RAG context, distant analogies, images
 - ``links``    typed connections, corroboration, backlinks
+- ``reconnect`` relink notes that already exist
 
 Submodules never import from this ``__init__``; monkeypatch a dependency on the
 submodule that uses it (e.g. ``zettel.connector.prompt.call_llm``).

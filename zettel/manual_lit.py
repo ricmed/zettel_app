@@ -463,7 +463,7 @@ def create_permanent_from_literature(
                     }
                 ],
                 origin="manual",
-            )
+            ).note_ids
         except ConnectRejected as exc:
             raise ConnectRejected(
                 _ztl_llm_rejected_message(exc.reason),

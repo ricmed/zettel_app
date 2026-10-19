@@ -183,6 +183,18 @@ def test_pydantic_defaults_match_operational_yaml_for_chunking_and_linking():
     assert defaults.chunking.min_chunk_chars == operational.chunking.min_chunk_chars
     assert defaults.linking.dedupe_threshold == operational.linking.dedupe_threshold
     assert defaults.linking.rag_note_chars == operational.linking.rag_note_chars
+    assert defaults.linking.seed_same_source_max == operational.linking.seed_same_source_max
+    assert defaults.linking.seed_same_source_max == 0
+    assert defaults.linking.graph_hub_repeat_limit == operational.linking.graph_hub_repeat_limit
+    assert defaults.linking.graph_hub_repeat_limit == 0
+    assert defaults.linking.llm_edges == operational.linking.llm_edges == "propose"
+    assert defaults.linking.prompt2_mode == operational.linking.prompt2_mode == "combined"
+    assert defaults.linking.thesis_drift_min_similarity == 0.0
+    assert defaults.linking.graph_expansion.max_hops == operational.linking.graph_expansion.max_hops
+    assert (
+        defaults.linking.graph_expansion.max_neighbors
+        == operational.linking.graph_expansion.max_neighbors
+    )
 
 
 def test_load_config_paths_ignore_process_cwd(monkeypatch, tmp_path: Path):

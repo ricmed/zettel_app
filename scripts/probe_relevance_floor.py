@@ -75,6 +75,106 @@ OFF_DOMAIN_QUERIES = [
 # Below this the bands are noise, not a distribution.
 MIN_NOTES_FOR_SUGGESTION = 30
 
+# Frozen for #281. The pre-registration forbids swapping this list after the
+# bands are known. One-term jargon stays: that is the query a real user types.
+IN_DOMAIN_QUERIES = [
+    "o que e chain of thought prompting",
+    "few-shot e zero-shot na escolha de prompts",
+    "modelos ARIMA e series temporais nao estacionarias",
+    "raciocinio de senso comum em LLMs",
+    "componentes de uma serie historica: tendencia e sazonalidade",
+    "anti-padroes na escrita de prompts",
+    "regressao polinomial",
+    "estacionaridade de uma serie",
+    "sazonalidade",
+    "ARIMA",
+    "benchmarks",
+    "prompt injection",
+]
+
+# The run this pre-registration allows. Anything else is `invalid_setup`.
+RULE_281_PROVIDER = "gemini"
+RULE_281_MODEL = "gemini-embedding-2"
+RULE_281_DIMENSIONS = 1536
+RULE_281_QUERY_SIDE = "embed_query"
+
+
+def percentile_low(values: list[float], fraction: float) -> float:
+    """Value at ``ceil(fraction * n) - 1`` in sorted order. The #281 p10."""
+    if not values:
+        raise ValueError("percentil sem valores")
+    ordered = sorted(values)
+    index = max(0, math.ceil(fraction * len(ordered)) - 1)
+    return ordered[index]
+
+
+def next_hundredth_above(value: float) -> float:
+    """Smallest 0.01 step strictly above ``value``.
+
+    0.693 -> 0.70, the placement the 2026-09-07 chapter probe used. 0.70 -> 0.71,
+    so a max that already sits on a hundredth does not become the floor.
+    """
+    stepped = math.floor(value * 100 + 1e-9) / 100
+    if stepped <= value:
+        stepped = stepped + 0.01
+    return round(stepped, 2)
+
+
+def preregistered_rule_281(bands: dict[str, Any]) -> dict[str, Any]:
+    """#281 floor placement. See ``evals/preregistration/281-piso-relevancia-gemini.md``.
+
+    ``bands`` carries the top-1 cosine summary for one collection. The function
+    does not read the index. A negative margin keeps the current floor.
+    """
+    embedding = bands.get("embedding") or {}
+    setup_ok = (
+        embedding.get("provider") == RULE_281_PROVIDER
+        and embedding.get("model") == RULE_281_MODEL
+        and embedding.get("dimensions") == RULE_281_DIMENSIONS
+        and embedding.get("query_side") == RULE_281_QUERY_SIDE
+        and bands.get("normalisation_ok") is True
+        and bands.get("distance_space") == "cosine"
+        and bands.get("off_n") == len(OFF_DOMAIN_QUERIES)
+        and bands.get("in_n") == len(IN_DOMAIN_QUERIES)
+        and int(bands.get("self_n") or 0) >= 12
+    )
+    current = float(bands["current"])
+    if not setup_ok or int(bands.get("corpus_n") or 0) < MIN_NOTES_FOR_SUGGESTION:
+        return {"outcome": "invalid_setup", "floor": current, "margin": None}
+    off_hi = float(bands["off_hi"])
+    in_lo = float(bands["in_lo"])
+    self_lo = float(bands["self_lo"])
+    margin = in_lo - off_hi
+    if margin <= 0:
+        return {"outcome": "keep_floor_negative_margin", "floor": current, "margin": margin}
+    candidate = next_hundredth_above(off_hi)
+    ceiling = min(in_lo, self_lo)
+    if candidate >= ceiling:
+        return {"outcome": "keep_floor_gap_below_resolution", "floor": current, "margin": margin}
+    if abs(candidate - current) < 0.005:
+        return {"outcome": "keep_floor", "floor": current, "margin": margin}
+    return {"outcome": "set_floor", "floor": candidate, "margin": margin}
+
+
+def preregistered_rule_281_analogy(stats: dict[str, Any]) -> dict[str, Any]:
+    """#281 distant-analogy floor. Rank wins when the outside bucket is not weaker.
+
+    ``out_p10`` / ``out_p90`` summarise the top outside-bucket hits the connect
+    search would see. ``in_p10`` is the same summary inside the bucket.
+    """
+    current = float(stats["current"])
+    if int(stats.get("notes") or 0) < MIN_NOTES_FOR_SUGGESTION:
+        return {"outcome": "keep_analogy_floor", "floor": current}
+    out_p10 = float(stats["out_p10"])
+    out_p90 = float(stats["out_p90"])
+    in_p10 = float(stats["in_p10"])
+    if out_p10 <= current:
+        return {"outcome": "keep_analogy_floor", "floor": current}
+    raised = round(math.floor(out_p10 * 100 + 0.5) / 100, 2)
+    if out_p90 < in_p10 and raised < in_p10:
+        return {"outcome": "raise_analogy_floor", "floor": raised}
+    return {"outcome": "rank_only", "floor": -0.70}
+
 
 def _cosine(idx: VectorIndex, distance: float, collection: Any) -> float:
     """Same conversion the Retriever uses (``zettel.similarity``)."""
@@ -228,6 +328,9 @@ def build_report(
             "provider": cfg.embedding.provider,
             "model": cfg.embedding.model,
             "dimensions": cfg.embedding.dimensions,
+            # collection.query goes through embed_query. For Gemini that is
+            # RETRIEVAL_QUERY. #281 refuses a report that does not say so.
+            "query_side": RULE_281_QUERY_SIDE,
         },
         "collection": collection,
         "floor_key": (

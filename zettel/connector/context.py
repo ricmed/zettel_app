@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+import random
 
 import numpy as np
 
 from zettel.config import AppConfig
+from zettel.hashing import sha256_hex
 from zettel.index import VectorIndex
 from zettel.retrieval import RetrievedNote, Retriever
 from zettel.state import StateDB
@@ -43,12 +45,27 @@ def _rag_note_line(db: StateDB, n: RetrievedNote, note_chars: int, extra: str = 
     return header + "\n" + "\n".join(f"  {line}" if line else "" for line in content.splitlines())
 
 
+def order_group(notes: list[RetrievedNote], key: str | None) -> list[RetrievedNote]:
+    """Return ``notes`` in score order, or shuffled with a seed derived from ``key``.
+
+    The same key always yields the same order. ``None`` keeps the order the
+    retriever produced. Connect does not pass a key until the #286 rule says so.
+    """
+    if not key or len(notes) < 2:
+        return list(notes)
+    ordered = list(notes)
+    # Deterministic order for a measurement, not a secret.
+    random.Random(sha256_hex(key)).shuffle(ordered)  # noqa: S311
+    return ordered
+
+
 def build_rag_context(
     db: StateDB,
     similar_notes: list[RetrievedNote],
     distant_notes: list[RetrievedNote] | None = None,
     *,
     note_chars: int,
+    order_key: str | None = None,
 ) -> str:
     """Build RAG context from retrieved notes, split by provenance.
 
@@ -60,8 +77,14 @@ def build_rag_context(
     if not similar_notes and not distant_notes:
         return _NO_NOTES
 
-    embedding_hits = [n for n in similar_notes if n.hop == 0]
-    graph_hits = [n for n in similar_notes if n.hop >= 1]
+    embedding_hits = order_group(
+        [n for n in similar_notes if n.hop == 0],
+        f"{order_key}:embedding" if order_key else None,
+    )
+    graph_hits = order_group(
+        [n for n in similar_notes if n.hop >= 1],
+        f"{order_key}:graph" if order_key else None,
+    )
     parts: list[str] = []
 
     if embedding_hits:
@@ -81,9 +104,10 @@ def build_rag_context(
         if parts:
             parts.append("")
         parts.append("### Analogias distantes (outro dominio)")
+        ordered_distant = order_group(distant_notes, f"{order_key}:distant" if order_key else None)
         parts.extend(
             _rag_note_line(db, n, note_chars, extra=" (analogia: outro bucket taxonomico)")
-            for n in distant_notes
+            for n in ordered_distant
         )
 
     return "\n".join(parts)
@@ -109,6 +133,10 @@ def load_connect_taxonomy(cfg: AppConfig, idx: VectorIndex) -> Taxonomy:
             idx, pairs, cfg.domain.name, cfg.gardener.category_label_template
         )
     except Exception as e:
+        from zettel.llm import _raise_unavailable, is_llm_unavailable
+
+        if is_llm_unavailable(e):
+            _raise_unavailable(e, phase="embedding")
         logger.warning("Rotulos de categoria indisponiveis para analogias distantes: %s", e)
         return {}, {}
     ids, embeddings = idx.get_all_permanent_embeddings()
@@ -137,6 +165,10 @@ def search_distant_analogies(
     try:
         query_vec = idx.embed_texts([query_text])[0]
     except Exception as e:
+        from zettel.llm import _raise_unavailable, is_llm_unavailable
+
+        if is_llm_unavailable(e):
+            _raise_unavailable(e, phase="embedding")
         logger.warning("Nao foi possivel embeddar o candidato para analogia distante: %s", e)
         return []
     from zettel.gardener_assign import assign_vector_to_category
