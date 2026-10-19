@@ -105,3 +105,9 @@ measurement behind it for the question "do these two notes state the same idea?"
   embedding model needs a new measurement.
 * **Not rebuilt.** Existing edges are not rebuilt; notes connected from now on use
   0.88.
+
+## Addendum (2026-10-18): the cut is cosine 0.76 (ADR-058)
+
+The 0.88 measured in this ADR was `(1+cos)/2`. ADR-058 stores the same cut as
+cosine **0.76** (`2·0.88 − 1`) and does not re-measure. Numbers "0.85" and
+"0.88" earlier in this file are on the scale the October 2026 probe printed.

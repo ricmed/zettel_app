@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 import typer
@@ -148,6 +149,29 @@ def test_harvest_no_longer_offers_move_processed():
     it only created `data/processed/` and told the user to move them by hand."""
     result = CliRunner().invoke(app, ["harvest", "--help"])
     assert "--move-processed" not in result.output
+
+
+def test_review_exits_when_the_dedupe_llm_is_down(monkeypatch):
+    from zettel.llm import LLMUnavailableError
+
+    monkeypatch.setattr("zettel.cli.curation.load_deps", lambda *_a, **_k: object())
+    monkeypatch.setattr("zettel.cli.curation.get_db", lambda *_a, **_k: MagicMock())
+    monkeypatch.setattr("zettel.cli.curation.get_idx", lambda *_a, **_k: object())
+
+    def down(*_a, **_k):
+        raise LLMUnavailableError("provider fora", phase="review")
+
+    monkeypatch.setattr("zettel.review.run_review", down)
+    result = CliRunner().invoke(app, ["review", "--yes"])
+    assert result.exit_code == 1
+    assert "indispon" in result.output.lower()
+
+
+def test_review_low_confidence_only_with_yes_is_refused():
+    result = CliRunner().invoke(app, ["review", "--low-confidence-only", "--yes"])
+    assert result.exit_code == 1
+    assert "--low-confidence-only" in result.output
+    assert "nao aprova nada" in result.output
 
 
 def test_retry_failed_rejected_requires_source_id():

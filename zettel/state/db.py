@@ -17,6 +17,7 @@ from zettel.state.fts import FtsMixin
 from zettel.state.llm_cache import LlmCacheMixin
 from zettel.state.mocs import MocsMixin
 from zettel.state.notes import NotesMixin
+from zettel.state.reviews import ReviewsMixin
 from zettel.state.runs import RunsMixin
 from zettel.state.schema import FTS_SQL, SCHEMA_SQL
 from zettel.state.sources import SourcesMixin
@@ -37,6 +38,7 @@ MIXINS = (
     AssetsMixin,
     LlmCacheMixin,
     DecisionsMixin,
+    ReviewsMixin,
     RunsMixin,
     FtsMixin,
     WebMixin,

@@ -142,6 +142,56 @@ def test_summarize_two_prompts_applies_the_218_rule():
     assert "preregistered_rule_209" not in result
 
 
+def test_model_comparison_rule_adopts_luna_only_when_it_wins_and_is_valid():
+    from probe_dedupe_context import model_comparison_rule
+
+    def pack(correct: int, rights: dict[str, bool], invalid: float = 0.0, recall: float = 0.0):
+        return {
+            "conditions": {"full-a": {"correct": correct}},
+            "validity": {
+                "full-a": {"invalid_share": invalid},
+                "full-b": {"invalid_share": invalid},
+            },
+            "ignore_recall": {"full-a": {"recall": recall}},
+            "answers_right": {"full-a": rights},
+        }
+
+    mini = pack(0, {f"i{n}": False for n in range(6)})
+    luna = pack(6, {f"i{n}": True for n in range(6)}, recall=0.5)
+    rule = model_comparison_rule(mini, luna)
+    assert rule["adopt_luna"] is True
+    assert rule["only_luna_right"] == 6
+    assert rule["mcnemar_p"] < 0.05
+    assert rule["luna_ignore_recall"] == 0.5
+
+    one_pair = pack(1, {"a": True})
+    other = pack(0, {"a": False})
+    assert model_comparison_rule(other, one_pair)["adopt_luna"] is False
+
+
+def test_llm_extends_pairs_reads_only_llm_origin(tmp_path):
+    import sqlite3
+
+    from rebuild_extends_edges import llm_extends_pairs
+
+    db = tmp_path / "state.db"
+    conn = sqlite3.connect(db)
+    conn.execute(
+        """CREATE TABLE note_connections (
+            source_note_id TEXT, target_note_id TEXT, relation_type TEXT,
+            description TEXT, origin TEXT, created_at TEXT,
+            PRIMARY KEY (source_note_id, target_note_id, relation_type))"""
+    )
+    conn.executemany(
+        "INSERT INTO note_connections VALUES (?, ?, 'extends', '', ?, 't')",
+        [("A", "B", "llm"), ("C", "D", "derived")],
+    )
+    conn.commit()
+    conn.close()
+    assert llm_extends_pairs(db) == [("A", "B")]
+    assert llm_extends_pairs(tmp_path / "missing.db") == []
+
+
 def test_recordings_are_keyed_by_decision_not_by_sheet_item_id():
     """Item ids restart at D001 every round: two rounds must never share an answer."""
     from probe_dedupe_context import decision_id

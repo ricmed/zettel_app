@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import time
 from pathlib import Path
 from typing import Any
@@ -35,6 +34,7 @@ from zettel.llm import (
     call_llm,
     fill_template,
     get_llm,
+    is_llm_unavailable,
     load_prompt_parts,
     parse_llm_json,
 )
@@ -48,6 +48,7 @@ from zettel.schemas import (
     PermanentNoteCandidate,
 )
 from zettel.search_terms import PT_STOPWORDS
+from zettel.similarity import cosine_from_distance, cosine_similarity
 from zettel.state import StateDB
 from zettel.vault import (
     best_candidate_thesis,
@@ -988,10 +989,41 @@ def _check_candidate(
 _INTRA_BATCH_PAIRWISE_MAX = 60
 
 
+def _approved_without_notes(db: StateDB, candidates: list[dict]) -> list[dict]:
+    """Approved concepts of these sources that connect has not written yet.
+
+    They are comparison targets only. A later approval of the same thesis
+    becomes ``dedupe_pending`` against them instead of a second note (#271).
+    """
+    source_ids = {c.get("source_id") for c in candidates}
+    batch_ids = {c["concept_id"] for c in candidates}
+    anchors: list[dict] = []
+    for row in db.get_concepts_by_status("approved", without_notes=True):
+        if row["concept_id"] in batch_ids or row.get("source_id") not in source_ids:
+            continue
+        raw = row.get("candidate_json")
+        if not raw:
+            continue
+        try:
+            cand = PermanentNoteCandidate(**json.loads(raw))
+        except (json.JSONDecodeError, ValidationError):
+            continue
+        anchors.append(
+            {
+                "concept_id": row["concept_id"],
+                "source_id": row["source_id"],
+                "chunk_id": row["chunk_id"],
+                "candidate": cand,
+            }
+        )
+    return anchors
+
+
 def _intra_batch_dedupe(
     cfg: AppConfig,
     idx: VectorIndex,
     candidates: list[dict],
+    anchors: list[dict] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Reconcile duplicate candidates within the same approval batch.
 
@@ -1006,14 +1038,37 @@ def _intra_batch_dedupe(
     Returns (kept, duplicates) -- `duplicates` entries carry `duplicate_of`
     (the concept_id of the candidate that won) and `dedupe_reason`.
     """
-    if len(candidates) < 2:
+    anchors = [
+        anchor
+        for anchor in (anchors or [])
+        if anchor["concept_id"] not in {c["concept_id"] for c in candidates}
+    ]
+    if len(candidates) < 2 and not anchors:
         return candidates, []
 
     duplicates: list[dict] = []
 
+    def _thesis_hash(cd: dict) -> str:
+        return sha256_hex(normalize_text_for_hash(cd["candidate"].thesis))
+
+    # An approved concept that has not become a note yet is a target, never a
+    # loser: two approvals of the same thesis before connect must meet here.
+    anchor_by_hash: dict[str, dict] = {}
+    for anchor in anchors:
+        anchor_by_hash.setdefault(_thesis_hash(anchor), anchor)
+
     # Cheap pass: identical thesis is an exact duplicate regardless of batch size.
     by_hash: dict[str, list[dict]] = {}
+    pending_candidates: list[dict] = []
     for cd in candidates:
+        anchor = anchor_by_hash.get(_thesis_hash(cd))
+        if anchor and anchor.get("source_id") == cd.get("source_id"):
+            cd["duplicate_of"] = anchor["concept_id"]
+            cd["dedupe_reason"] = "Tese identica a um conceito aprovado ainda sem nota"
+            duplicates.append(cd)
+            continue
+        pending_candidates.append(cd)
+    for cd in pending_candidates:
         h = sha256_hex(normalize_text_for_hash(cd["candidate"].thesis))
         by_hash.setdefault(h, []).append(cd)
 
@@ -1035,16 +1090,42 @@ def _intra_batch_dedupe(
             duplicates.append(loser)
 
     # Above the pairwise cap, skip the quadratic embedding comparison --
-    # the hash pass above still caught exact duplicates.
-    if len(survivors) < 2 or len(survivors) > _INTRA_BATCH_PAIRWISE_MAX:
+    # the hash pass above still caught exact duplicates. Anchors (approved
+    # concepts with no note yet) stay in the comparison so a later approval
+    # of the same idea is not invisible (#271).
+    if not survivors or len(survivors) + len(anchors) > _INTRA_BATCH_PAIRWISE_MAX:
+        return survivors, duplicates
+    if len(survivors) < 2 and not anchors:
         return survivors, duplicates
 
     texts = [f"{cd['candidate'].thesis} {cd['candidate'].definition}" for cd in survivors]
-    vectors = idx.embed_texts(texts)
+    anchor_texts = [f"{cd['candidate'].thesis} {cd['candidate'].definition}" for cd in anchors]
+    vectors = idx.embed_texts(texts + anchor_texts)
     for t in texts:
         idx._record_embed_usage(t, label="dedupe-intra-lote")
 
-    threshold_distance = 2 * (1 - cfg.linking.dedupe_threshold)
+    threshold = cfg.linking.dedupe_threshold
+    anchor_vectors = vectors[len(survivors) :]
+    survivor_vectors = vectors[: len(survivors)]
+    still: list[tuple[dict, list[float]]] = []
+    for survivor, vector in zip(survivors, survivor_vectors, strict=True):
+        absorbed_anchor = False
+        for anchor, anchor_vector in zip(anchors, anchor_vectors, strict=True):
+            if anchor.get("source_id") != survivor.get("source_id"):
+                continue
+            if cosine_similarity(vector, anchor_vector) < threshold:
+                continue
+            survivor["duplicate_of"] = anchor["concept_id"]
+            survivor["dedupe_reason"] = "Semanticamente igual a um conceito aprovado ainda sem nota"
+            duplicates.append(survivor)
+            absorbed_anchor = True
+            break
+        if not absorbed_anchor:
+            still.append((survivor, vector))
+    if len(still) < 2:
+        return [item[0] for item in still], duplicates
+    survivors = [item[0] for item in still]
+    vectors = [item[1] for item in still]
     order = sorted(
         range(len(survivors)),
         key=lambda i: survivors[i]["candidate"].relevance_score,
@@ -1059,7 +1140,7 @@ def _intra_batch_dedupe(
         for j in order:
             if j == i or j in absorbed:
                 continue
-            if math.dist(vectors[i], vectors[j]) <= threshold_distance:
+            if cosine_similarity(vectors[i], vectors[j]) >= threshold:
                 absorbed.add(j)
                 survivors[j]["duplicate_of"] = survivors[i]["concept_id"]
                 survivors[j]["dedupe_reason"] = "Semanticamente igual a outro candidato do lote"
@@ -1113,7 +1194,9 @@ def deduplicate_candidates(
     pending: list[dict] = []
     to_check = [c for c in candidates if not c.get("dedupe_override")]
 
-    survivors, intra_batch_duplicates = _intra_batch_dedupe(cfg, idx, to_check)
+    survivors, intra_batch_duplicates = _intra_batch_dedupe(
+        cfg, idx, to_check, _approved_without_notes(db, to_check)
+    )
     pending.extend(intra_batch_duplicates)
     if intra_batch_duplicates:
         logger.info(
@@ -1123,6 +1206,7 @@ def deduplicate_candidates(
         )
 
     spec = llm_phase(cfg, "review")
+    parse_failures = 0
     dedupe_parts = load_prompt_parts(cfg.prompts_path / "dedupe_decision.md")
     total = len(survivors)
 
@@ -1139,8 +1223,12 @@ def deduplicate_candidates(
             progress.update(task, description=f"candidato {i}/{total}", advance=1)
             logger.info("Deduplicando candidato %d/%d: %s", i, total, cand.thesis[:50])
             query_text = f"{cand.thesis} {cand.definition}"
+            source_id = cand_dict.get("source_id") or ""
             similar = idx.query_similar_notes(
-                query_text, n_results=cfg.linking.topk, purpose="dedupe"
+                query_text,
+                n_results=cfg.linking.topk,
+                purpose="dedupe",
+                where={"source_id": source_id} if source_id else None,
             )
             # Only notes from this same source can make the candidate redundant.
             # A hit from another source is corroboration, resolved by `connect`.
@@ -1151,8 +1239,11 @@ def deduplicate_candidates(
                 continue
 
             closest_distance = same_source[0].get("distance", 999)
-            similarity_threshold_distance = 2 * (1 - cfg.linking.dedupe_threshold)
-            if closest_distance > similarity_threshold_distance:
+            space = getattr(idx, "distance_space", "cosine")
+            if not isinstance(space, str):
+                space = "cosine"
+            closest_cosine = cosine_from_distance(float(closest_distance), space)
+            if closest_cosine < cfg.linking.dedupe_threshold:
                 approved.append(cand_dict)
                 continue
 
@@ -1167,6 +1258,8 @@ def deduplicate_candidates(
             user = fill_template(dedupe_parts.user_template, mapping)
 
             try:
+                if llm is None:
+                    llm = get_llm(cfg, "review")
                 response = call_llm(
                     llm,
                     user,
@@ -1175,9 +1268,17 @@ def deduplicate_candidates(
                     prompt_cache=cfg.llm.prompt_cache,
                 )
                 result = _parse_dedupe_result(response)
+            except LLMUnavailableError:
+                raise
             except Exception as e:
-                logger.warning("Erro na deduplicacao, aprovando candidato: %s", e)
-                approved.append(cand_dict)
+                if is_llm_unavailable(e):
+                    raise LLMUnavailableError(str(e), phase="review") from e
+                logger.warning(
+                    "Erro de parse na deduplicacao; conceito %s permanece extracted: %s",
+                    cand_dict["concept_id"],
+                    e,
+                )
+                parse_failures += 1
                 continue
 
             shadow_dedupe(
@@ -1232,6 +1333,11 @@ def deduplicate_candidates(
             },
         )
 
+    if parse_failures:
+        logger.warning(
+            "Dedupe: %d conceito(s) permaneceram extracted por erro de parse",
+            parse_failures,
+        )
     return approved
 
 

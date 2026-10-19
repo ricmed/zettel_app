@@ -445,7 +445,7 @@ Note:
 #### "LLM is down / connection refused / extract marked every chunk failed"
 ```
 Read ADRs:
-  1. ADR-045 (Fail-fast on LLM unavailability)
+  1. ADR-059 (Fail-fast on LLM unavailability)
      → Transport/auth errors abort harvest/extract/connect on the first item
      → That item stays pending (not failed); re-run the same command
   2. ADR-024 (Multi-provider strategy)

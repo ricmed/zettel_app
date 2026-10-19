@@ -42,7 +42,7 @@ llm:
     thinking: null          # default do vendor: e a condicao medida no ADR-050
   review:
     provider: openai
-    model: gpt-4o-mini     # dedupe; #273: gpt-6-luna recusa temperature 0.2 (so o default). Medido: gpt-4o-mini
+    model: gpt-4o-mini     # dedupe; #273: luna 24/42 vs mini 25/42 (p=1). Contrato 23/42. Mini fica.
     base_url: null
     temperature: null       # null = herda llm.temperature
     thinking: null

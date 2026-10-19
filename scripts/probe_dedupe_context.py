@@ -64,11 +64,20 @@ def condition_of(run: str) -> str:
     return run.rsplit(":", 1)[-1].split("-", 1)[0]
 
 
-def run_ids(prompts: list[str]) -> list[str]:
+def run_ids(prompts: list[str], runs: tuple[str, ...] = RUNS) -> list[str]:
     """Result names: the bare run for one prompt (as #209 recorded it), else ``prompt:run``."""
     if len(prompts) == 1:
-        return list(RUNS)
-    return [f"{p}:{r}" for p in prompts for r in RUNS]
+        return list(runs)
+    return [f"{p}:{r}" for p in prompts for r in runs]
+
+
+def runs_for_context(context: str) -> tuple[str, ...]:
+    """``full`` is the production context (#273). ``both`` keeps trunc and full (#209)."""
+    if context == "full":
+        return ("full-a", "full-b")
+    if context == "both":
+        return RUNS
+    raise ValueError(f"contexto desconhecido: {context}")
 
 
 def parse_prompt_args(values: list[str]) -> list[tuple[str, Path]]:
@@ -108,15 +117,19 @@ def existing_notes_for(
     return full(hits)
 
 
-def parse_answer(text: str) -> dict[str, Any]:
+def parse_answer(text: str, compared_ids: set[str] | None = None) -> dict[str, Any]:
     """LLM text -> ``{decision, target}`` in the scorer's vocabulary, or ``{error}``."""
     from pydantic import ValidationError
     from zettel.decision.sites import dedupe_baseline_decision
     from zettel.llm import parse_llm_json
-    from zettel.schemas import DedupeResult
+    from zettel.schemas import DedupeResult, checked_dedupe_result
 
     try:
-        result = DedupeResult(**parse_llm_json(text))
+        data = parse_llm_json(text)
+        if compared_ids is None:
+            result = DedupeResult(**data)
+        else:
+            result = checked_dedupe_result(data, compared_ids)
     except (ValueError, ValidationError, TypeError) as exc:
         return {"error": f"{type(exc).__name__}: {str(exc)[:120]}"}
     return {
@@ -161,7 +174,7 @@ def collect(
     return answers
 
 
-def _pairs(prompts: list[str]) -> list[tuple[str, str]]:
+def _pairs(prompts: list[str], present: set[str] | None = None) -> list[tuple[str, str]]:
     """Every comparison a rule reads: context within a prompt, prompt within a
     context, noise within a run, and the recorded shadow against each full run."""
 
@@ -180,7 +193,108 @@ def _pairs(prompts: list[str]) -> list[tuple[str, str]]:
     for a, b in combinations(prompts, 2):
         pairs += [(rid(a, "trunc-a"), rid(b, "trunc-a")), (rid(a, "full-a"), rid(b, "full-a"))]
         pairs.append((rid(a, "trunc-a"), rid(b, "full-a")))
-    return pairs
+    if present is None:
+        return pairs
+    return [(a, b) for a, b in pairs if a in present and b in present]
+
+
+def ignore_recall(
+    labels: list[dict[str, Any]], answers: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    """Share of human ``ignore`` items the model also called ``ignore``. Reported, not a gate."""
+    gold = [lab["item_id"] for lab in labels if lab.get("human_decision") == "ignore"]
+    recalled = sum(
+        1 for item_id in gold if answers.get(item_id, {}).get("llm_decision") == "ignore"
+    )
+    return {
+        "n_ignore": len(gold),
+        "recalled": recalled,
+        "recall": round(recalled / len(gold), 4) if gold else None,
+    }
+
+
+def model_comparison_rule(
+    mini: dict[str, Any],
+    luna: dict[str, Any],
+    *,
+    contract: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The two gates in ``evals/preregistration/273-modelo-dedupe.md``.
+
+    ``mini`` and ``luna`` are probe result dicts for the current prompt.
+    ``contract`` is the luna run of the new prompt, or None when that
+    condition was not executed.
+    """
+    from compare_gold_runs import paired_exact_p
+
+    def correct(result: dict[str, Any]) -> int:
+        return int(result["conditions"]["full-a"]["correct"])
+
+    def recall_of(result: dict[str, Any]) -> Any:
+        return result.get("ignore_recall", {}).get("full-a", {}).get("recall")
+
+    def invalid(result: dict[str, Any], which: str) -> float:
+        return float(result["validity"][which]["invalid_share"])
+
+    only_mini, only_luna = _discordant(mini, luna, "full-a")
+    p_value = paired_exact_p(only_mini, only_luna)
+    luna_correct = correct(luna)
+    mini_correct = correct(mini)
+    valid = invalid(luna, "full-a") <= MAX_INVALID_SHARE and invalid(luna, "full-b") <= 0.05
+    beats = luna_correct > mini_correct and p_value < 0.05
+    out: dict[str, Any] = {
+        "adopt_luna": bool(beats and valid),
+        "luna_correct": luna_correct,
+        "mini_correct": mini_correct,
+        "only_luna_right": only_luna,
+        "only_mini_right": only_mini,
+        "mcnemar_p": round(p_value, 4),
+        "valid": valid,
+        "mini_ignore_recall": recall_of(mini),
+        "luna_ignore_recall": recall_of(luna),
+        "adopt_contract": False,
+    }
+    if contract is None:
+        return out
+    _only_current, only_contract = _discordant(luna, contract, "full-a")
+    contract_p = paired_exact_p(_only_current, only_contract)
+    contract_correct = correct(contract)
+    contract_valid = (
+        invalid(contract, "full-a") <= MAX_INVALID_SHARE
+        and invalid(contract, "full-b") <= MAX_INVALID_SHARE
+    )
+    out["adopt_contract"] = bool(
+        contract_correct > luna_correct and contract_p < 0.05 and contract_valid
+    )
+    out["contract_correct"] = contract_correct
+    out["contract_mcnemar_p"] = round(contract_p, 4)
+    out["contract_valid"] = contract_valid
+    out["contract_ignore_recall"] = recall_of(contract)
+    return out
+
+
+def _answers_right(
+    labels: list[dict[str, Any]], runs: dict[str, dict[str, dict[str, Any]]]
+) -> dict[str, dict[str, bool]]:
+    human = {lab["item_id"]: lab["human_decision"] for lab in labels if lab.get("human_decision")}
+    return {
+        run: {
+            item_id: answer.get("decision") == human[item_id]
+            for item_id, answer in answers.items()
+            if "error" not in answer and item_id in human
+        }
+        for run, answers in runs.items()
+    }
+
+
+def _discordant(left: dict[str, Any], right: dict[str, Any], run: str) -> tuple[int, int]:
+    """Items only the left run gets right, then only the right run."""
+    left_right = left.get("answers_right", {}).get(run, {})
+    right_right = right.get("answers_right", {}).get(run, {})
+    common = set(left_right) & set(right_right)
+    only_left = sum(left_right[i] and not right_right[i] for i in common)
+    only_right = sum(right_right[i] and not left_right[i] for i in common)
+    return only_left, only_right
 
 
 def summarize_runs(
@@ -194,7 +308,8 @@ def summarize_runs(
         run: {i: a for i, a in answers.items() if "error" not in a} for run, answers in runs.items()
     }
     conditions = {**key_conditions(key), **valid}
-    result = score_conditions(labels, conditions, key["population"], _pairs(prompts))
+    present = set(conditions)
+    result = score_conditions(labels, conditions, key["population"], _pairs(prompts, present))
     n = len(labels)
     result["validity"] = {
         run: {
@@ -204,12 +319,17 @@ def summarize_runs(
         for run in runs
     }
     prefix = "" if len(prompts) == 1 else "{p}:"
-    result["stability"] = {
-        prefix.format(p=p) + cond: _agreement(
-            valid[prefix.format(p=p) + f"{cond}-a"], valid[prefix.format(p=p) + f"{cond}-b"]
-        )
-        for p in prompts
-        for cond in ("trunc", "full")
+    result["stability"] = {}
+    for p in prompts:
+        for cond in ("trunc", "full"):
+            left = prefix.format(p=p) + f"{cond}-a"
+            right = prefix.format(p=p) + f"{cond}-b"
+            if left in valid and right in valid:
+                result["stability"][prefix.format(p=p) + cond] = _agreement(
+                    valid[left], valid[right]
+                )
+    result["ignore_recall"] = {
+        run: ignore_recall(labels, answers) for run, answers in valid.items()
     }
     result["decision_distribution"] = {
         run: dict(sorted(Counter(a["decision"] for a in valid[run].values()).items()))
@@ -219,7 +339,7 @@ def summarize_runs(
         sorted(Counter(lab["human_decision"] for lab in labels if lab["human_decision"]).items())
     )
     all_valid = all(v["invalid_share"] <= MAX_INVALID_SHARE for v in result["validity"].values())
-    if len(prompts) == 1:
+    if len(prompts) == 1 and {"trunc-a", "full-a"} <= set(result["conditions"]):
         a, b = result["conditions"]["trunc-a"], result["conditions"]["full-a"]
         result["preregistered_rule_209"] = {
             "full_a_correct": b["correct"],
@@ -308,6 +428,28 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--yes", action="store_true", help="Autoriza as chamadas nao gravadas")
     parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="provider/model no lugar de llm.review (ex.: openai/gpt-4o-mini)",
+    )
+    parser.add_argument(
+        "--context",
+        choices=("both", "full"),
+        default="both",
+        help="both = trunc e full (#209); full = so o contexto de producao (#273)",
+    )
+    parser.add_argument(
+        "--strict-target",
+        action="store_true",
+        help="Alvo obrigatorio e dentre as notas comparadas (contrato #273)",
+    )
+    parser.add_argument(
+        "--thinking",
+        choices=("none",),
+        default=None,
+        help="reasoning_effort none. O gpt-6-luna exige isso na temperature 0.2",
+    )
     args = parser.parse_args(argv)
 
     if hasattr(sys.stdout, "reconfigure"):
@@ -323,6 +465,14 @@ def main(argv: list[str] | None = None) -> int:
     from zettel.state import StateDB
 
     cfg = load_config()
+    if args.model:
+        provider, sep, model_name = args.model.partition("/")
+        if not sep or not provider or not model_name:
+            parser.error("--model espera provider/model")
+        cfg.llm.review.provider = provider
+        cfg.llm.review.model = model_name
+    if args.thinking == "none":
+        cfg.llm.review.thinking = False
     spec = llm_phase(cfg, "review")
     temperature = effective_temperature(cfg, spec)
     try:
@@ -339,7 +489,8 @@ def main(argv: list[str] | None = None) -> int:
     states = load_states(args.state_db, key)
     item_ids = sorted(i for i in states if any(lab["item_id"] == i for lab in labels))
     recording_key = {item["item_id"]: decision_id(item) for item in key["items"]}
-    print(f"modelo: {spec.provider}/{spec.model} @ {temperature}")
+    thinking_key = "|thinking=none" if args.thinking == "none" else ""
+    print(f"modelo: {spec.provider}/{spec.model} @ {temperature} thinking={spec.thinking}")
     print(f"prompts: {', '.join(f'{n}={p}' for n, p in prompt_args)}")
     print(f"itens com estado: {len(item_ids)}/{len(labels)}")
 
@@ -368,15 +519,15 @@ def main(argv: list[str] | None = None) -> int:
 
         llm = get_llm(cfg, "review")
 
+    active_runs = runs_for_context(args.context)
     runs: dict[str, dict[str, dict[str, Any]]] = {}
     for name in names:
-        for run in RUNS:
+        for run in active_runs:
             result_id = run if len(names) == 1 else f"{name}:{run}"
             # The prompt text is in the key, so a prompt saved elsewhere replays
             # what was recorded under its production path.
-            run_key = sha256_hex(
-                f"{run}|{prompts[name].full_template}|{spec.provider}/{spec.model}@{temperature}"
-            )[:12]
+            identity = f"{spec.provider}/{spec.model}@{temperature}{thinking_key}"
+            run_key = sha256_hex(f"{run}|{prompts[name].full_template}|{identity}")[:12]
             record_path = args.record_dir / f"{run}-{run_key}.json"
             recorded = (
                 json.loads(record_path.read_text(encoding="utf-8"))["answers"]
@@ -404,7 +555,12 @@ def main(argv: list[str] | None = None) -> int:
                     prompt_cache=cfg.llm.prompt_cache,
                     label=f"probe-dedupe:{name}:{run}",
                 )
-                return parse_answer(text)
+                compared = None
+                if args.strict_target:
+                    state = states[item_id]
+                    notes = existing_notes_for(condition_of(run), state, full)
+                    compared = {note["id"] for note in notes}
+                return parse_answer(text, compared)
 
             def on_record(
                 key: str, entry: dict[str, Any], path=record_path, rec=recorded, run=run
@@ -429,7 +585,7 @@ def main(argv: list[str] | None = None) -> int:
             runs[result_id] = collect(item_ids, recorded, ask, on_record, recording_key.__getitem__)
     db.close()
 
-    if len(runs) < len(run_ids(names)):
+    if len(runs) < len(run_ids(names, active_runs)):
         print("Sem --yes: rodadas incompletas, nada pontuado.")
         return 1
 
@@ -444,6 +600,8 @@ def main(argv: list[str] | None = None) -> int:
         for name, path in prompt_args
     }
     result["temperature"] = temperature
+    result["thinking"] = args.thinking
+    result["answers_right"] = _answers_right(labelled, runs)
     text = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     print(text, end="")
     if args.out:

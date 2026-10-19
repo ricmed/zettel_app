@@ -9,7 +9,7 @@
 
 | Module | Count | ADRs |
 |--------|-------|------|
-| **INFRA** | 12 | [001–008, 041–042, 052, 054](#infra-core-infrastructure) |
+| **INFRA** | 13 | [001–008, 041–042, 052, 054, 058](#infra-core-infrastructure) |
 | **RETRIEVAL** | 4 | [009–010, 036, 043](#retrieval-hybrid-search--graph) |
 | **HARVEST** | 6 | [011–014, 027, 033](#harvest-ingestion--paging) |
 | **EXTRACT** | 2 | [015, 034](#extract-literature-notes) |
@@ -118,6 +118,13 @@
 - **Date**: 2026-09-28
 - **Summary**: `zettel/state.py` (~2,780 lines) becomes the package `zettel/state/`. `StateDB` is composed from one mixin per domain over a shared `StateBase`, and the DDL sits in `schema.py` with no migration layer (a schema change means `zettel init --reset`). Query-term facts (stopwords, `fold`, FTS terms and MATCH builder) move to the leaf `zettel/search_terms.py`. `tests/test_state_package.py` pins the public method set, forbids mixins from shadowing each other and forbids imports from the package `__init__`. Dead API, the legacy migrations and FTS backfill, and two never-written columns are removed.
 - **Link**: [`ADR-054-statedb-as-python-package.md`](./generated/INFRA/ADR-054-statedb-as-python-package.md)
+
+### ADR-058: Chroma distance is cosine, and every threshold means cosine
+
+- **Status**: Accepted
+- **Date**: 2026-10-18
+- **Summary**: Collections declare `hnsw.space: cosine`. `zettel/similarity.py` is the only distance conversion. Floors measured on `(1+cos)/2` are converted by `2s−1`. `dedupe_threshold` 0.85 stays, and now means cosine in both passes.
+- **Link**: [`ADR-058-chroma-distance-is-cosine.md`](./generated/INFRA/ADR-058-chroma-distance-is-cosine.md)
 
 ---
 
@@ -425,12 +432,12 @@
 
 ---
 
-### ADR-045: Fail-Fast on LLM Unavailability
+### ADR-059: Fail-Fast on LLM Unavailability
 
 - **Status**: Accepted
-- **Date**: 2026-09-09
+- **Date**: 2026-09-09 (numbered 059 on 2026-10-19; it was first filed as ADR-045)
 - **Summary**: Transport/auth/missing-package errors become `LLMUnavailableError` in the LLM gateway. Harvest, extract and connect abort on the first occurrence; the in-flight item stays pending (not `failed`). `llm.max_retries` is the per-call budget only. No provider fallback (ADR-024).
-- **Link**: [`ADR-045-fail-fast-on-llm-unavailability.md`](./generated/LLM/ADR-045-fail-fast-on-llm-unavailability.md)
+- **Link**: [`ADR-059-fail-fast-on-llm-unavailability.md`](./generated/LLM/ADR-059-fail-fast-on-llm-unavailability.md)
 
 ---
 
@@ -562,6 +569,12 @@
 
 ---
 
+## Status Update (2026-10-19)
+
+✅ **ADR-059**: the fail-fast decision filed on 2026-09-09 as a second ADR-045 is renumbered. ADR-045 is only cross-source corroboration. ADR-018: the confidence limiar gates automatic approval, not a manual web selection (`mode=web_batch`). ADR-016 answers its two open questions. ADR-017 records 0.75 as the default and the reachability of the very-low band.
+
+---
+
 ## Status Update (2026-10-07)
 
 ✅ **ADR-056 added**: the web Acervo exposes ask, catalog, summarize, article and skill. Addenda in ADR-023 (parked jobs do not hold the slot; the worker claims the oldest queued row) and ADR-028 (the article graph is no longer CLI-only; the checkpoint stays in-process).
@@ -570,7 +583,7 @@
 
 ## Status Update (2026-10-06)
 
-✅ **ADR-055 added**: typed decision layer (TypeSafe Jev) in shadow mode, beside dedupe, cluster category and the article judge. Addenda in ADR-016, ADR-019, ADR-024, ADR-028, ADR-038, ADR-045 (REVIEW) and ADR-049; the `corroborates` site (#208) followed the same day. Totals recounted from `docs/adrs/generated/` (55 files; ADR-045 is used twice, ADR-044 does not exist).
+✅ **ADR-055 added**: typed decision layer (TypeSafe Jev) in shadow mode, beside dedupe, cluster category and the article judge. Addenda in ADR-016, ADR-019, ADR-024, ADR-028, ADR-038, ADR-045 (REVIEW; the fail-fast decision is ADR-059) and ADR-049; the `corroborates` site (#208) followed the same day. Totals recounted from `docs/adrs/generated/` (55 files that day; ADR-045 was used twice, ADR-044 does not exist).
 
 ---
 
@@ -620,7 +633,7 @@
 
 ## Status Update (2026-09-09)
 
-✅ **ADR-045 added** — fail-fast when the configured LLM is unreachable. Extract/connect/harvest stop on the first availability error; pending items are not marked `failed`.
+✅ **ADR-045 added** — fail-fast when the configured LLM is unreachable (this entry used 045 on the day; the decision is [ADR-059](./generated/LLM/ADR-059-fail-fast-on-llm-unavailability.md) since 2026-10-19). Extract/connect/harvest stop on the first availability error; pending items are not marked `failed`.
 
 ---
 

@@ -735,6 +735,54 @@ def render_decision_block(candidates: list[dict[str, Any]]) -> str:
     return "\n\n".join(body_parts)
 
 
+def render_literature_candidates_section(candidates: list[dict[str, Any]]) -> str:
+    """The ``## Candidatos a Nota Permanente`` section, including anchor quotes.
+
+    Review reuses this when a chunk is approved in part, so the permanent LIT
+    lists only the candidates the reviewer kept (#269).
+    """
+    if not candidates:
+        return "## Candidatos a Nota Permanente\n\n_Nenhum candidato._\n\n"
+    lines = ["## Candidatos a Nota Permanente\n"]
+    for cand in candidates:
+        thesis = cand.get("thesis") or cand.get("definition") or "?"
+        relevance = cand.get("relevance_score")
+        locator = str(cand.get("source_locator") or "").strip()
+        meta_bits = []
+        if relevance is not None:
+            meta_bits.append(f"relevancia {relevance}/5")
+        if locator:
+            meta_bits.append(locator)
+        suffix = f" <sub>{' · '.join(meta_bits)}</sub>" if meta_bits else ""
+        lines.append(f"- [ ] **{thesis}**{suffix}")
+    section = "\n".join(lines) + "\n\n"
+    quotes = "\n".join(
+        f"{i}. > {str(cand.get('anchor_quote') or '').strip() or '_(sem citação-âncora)_'}"
+        for i, cand in enumerate(candidates, start=1)
+    )
+    section = upsert_managed_block(
+        section,
+        "auto-candidate-quotes",
+        f"**Citações-âncora** (conferência humana — não entram na busca semântica):\n\n{quotes}",
+    )
+    if not section.endswith("\n"):
+        section += "\n"
+    return section + "\n"
+
+
+def replace_literature_candidates(body: str, candidates: list[dict[str, Any]]) -> str:
+    """Rewrite the candidates section, leaving the rest of the note alone."""
+    heading = "## Candidatos a Nota Permanente"
+    start = body.find(heading)
+    if start < 0:
+        return body.rstrip() + "\n\n" + render_literature_candidates_section(candidates)
+    rest = body[start + len(heading) :]
+    next_h2 = rest.find("\n## ")
+    end = len(body) if next_h2 < 0 else start + len(heading) + next_h2
+    section = render_literature_candidates_section(candidates).rstrip()
+    return body[:start] + section + "\n" + body[end:]
+
+
 def build_literature_chunk_note(
     *,
     source_id: str,
@@ -802,33 +850,7 @@ def build_literature_chunk_note(
         )
     else:
         body += "_Nenhum._\n\n"
-    body += "## Candidatos a Nota Permanente\n\n"
-    if candidates:
-        for cand in candidates:
-            thesis = cand.get("thesis") or cand.get("definition") or "?"
-            relevance = cand.get("relevance_score")
-            locator = str(cand.get("source_locator") or "").strip()
-            meta_bits = []
-            if relevance is not None:
-                meta_bits.append(f"relevancia {relevance}/5")
-            if locator:
-                meta_bits.append(locator)
-            suffix = f" <sub>{' · '.join(meta_bits)}</sub>" if meta_bits else ""
-            body += f"- [ ] **{thesis}**{suffix}\n"
-        body += "\n"
-        quotes = "\n".join(
-            f"{i}. > {str(cand.get('anchor_quote') or '').strip() or '_(sem citação-âncora)_'}"
-            for i, cand in enumerate(candidates, start=1)
-        )
-        body = upsert_managed_block(
-            body,
-            "auto-candidate-quotes",
-            "**Citações-âncora** (conferência humana — não entram na busca "
-            f"semântica):\n\n{quotes}",
-        )
-        body += "\n"
-    else:
-        body += "_Nenhum candidato._\n\n"
+    body += render_literature_candidates_section(candidates)
     decision_inner = render_decision_block(candidates)
     if decision_inner:
         body += "## Julgamento do autor\n"

@@ -179,9 +179,11 @@ Portão humano de aprovação seletiva. Obrigatório antes do `connect`, salvo a
 ```bash
 python -m zettel review
 # Interativo: relatorio por faixa de confianca; toda acao volta ao menu.
-# a=aprovar >= limiar, d=reprovar (t=todos / b=baixissima / m=media / h=alta,
-# com confirmacao), r=um a um (atalhos a/r/p/q), x=rejeitados pelo extract
-# (re-extrair), q=sair. Possiveis duplicatas da mesma fonte: m=manter/d=descartar/p=pular
+# Enter no menu e `r` (um a um); Enter no cartao e `p` (pular). `a` pede
+# confirmacao com a contagem. d=reprovar (t=todos / b=baixissima / m=media /
+# h=alta, com confirmacao), r=um a um (atalhos a/r/p/q), x=rejeitados pelo
+# extract (re-extrair), q=sair. A tabela mostra os de menor confianca (e os
+# com defeito) primeiro. Possiveis duplicatas: m=manter/d=descartar/p=pular
 # Limiar = literature_review.auto_approve_min_confidence (heuristica, ADR-017)
 python -m zettel review --yes                      # aprova todos >= limiar (nao-interativo)
 python -m zettel review --auto-approve             # idem, mantendo o restante pendente
@@ -194,7 +196,7 @@ python -m zettel review --source-id @Citekey       # revisa apenas uma fonte
 | `--source-id` | Filtra os drafts por fonte. |
 | `--yes` / `-y` | Não-interativo: aprova todos com confiança ≥ limiar. |
 | `--auto-approve` | Aprova automaticamente os drafts ≥ limiar (também desliga o modo interativo). |
-| `--low-confidence-only` | Lista apenas os drafts abaixo do limiar. |
+| `--low-confidence-only` | Lista apenas os drafts abaixo do limiar. Recusado junto com `--yes` ou `--auto-approve`. |
 
 Fluxo detalhado em [pipeline.md](pipeline.md#fase-2b--review-aprovacao-seletiva).
 
@@ -607,7 +609,7 @@ python -m zettel run-all --yes --skip-biblio   # flags de harvest valem aqui
 python -m zettel run-all --dry-run             # simula sem escrever notas
 ```
 
-Aceita as mesmas flags de duplicidade/bibliografia do `harvest` (`--yes`, `--skip-duplicates`, `--force`, `--skip-biblio`) e um `--dry-run`. `--yes` não aprova drafts: isso exige `--auto-approve`, que avisa que o limiar não foi validado. Sem a flag, os drafts ficam em `awaiting_review`. A paginação é resolvida pela heurística (não há `--content-start-*` aqui).
+Aceita as mesmas flags de duplicidade/bibliografia do `harvest` (`--yes`, `--skip-duplicates`, `--force`, `--skip-biblio`) e um `--dry-run`. `--yes` não aprova drafts: isso exige `--auto-approve`, que avisa que o limiar não foi validado e só promove drafts das fontes que o harvest desta execução escreveu. O resumo separa o total aprovado da contagem por limiar. Sem a flag, os drafts ficam em `awaiting_review`. A paginação é resolvida pela heurística (não há `--content-start-*` aqui).
 
 ---
 

@@ -18,6 +18,7 @@ from typing import Any
 
 from zettel.config import AppConfig
 from zettel.index import VectorIndex
+from zettel.similarity import cosine_from_distance
 from zettel.state import StateDB
 
 logger = logging.getLogger(__name__)
@@ -83,7 +84,10 @@ def find_semantic_duplicate_candidates(
         distance = m.get("distance")
         if distance is None:
             continue
-        similarity = 1 - (distance / 2)
+        space = getattr(idx, "distance_space", "cosine")
+        if not isinstance(space, str):
+            space = "cosine"
+        similarity = cosine_from_distance(float(distance), space)
         meta = m.get("metadata") or {}
         source_id = meta.get("source_id")
         if not source_id or similarity < threshold:

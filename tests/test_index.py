@@ -57,6 +57,50 @@ def test_existing_ids_dedupes_duplicate_query_ids(tmp_path, monkeypatch):
     assert found == {"cid-a"}
 
 
+def test_chroma_cosine_space_distance_is_one_minus_cosine():
+    """A real ephemeral collection in the declared space: d = 1 - cos (#267)."""
+    import chromadb
+    from zettel.similarity import HNSW_SPACE, cosine_from_distance
+
+    client = chromadb.EphemeralClient()
+    col = client.create_collection(
+        "probe_cosine",
+        configuration={"hnsw": {"space": HNSW_SPACE}},
+    )
+    left = [1.0, 0.0, 0.0]
+    right = [0.6, 0.8, 0.0]
+    col.add(ids=["left", "right"], embeddings=[left, right])
+    result = col.query(query_embeddings=[left], n_results=2)
+    by_id = dict(zip(result["ids"][0], result["distances"][0], strict=True))
+    assert by_id["left"] == pytest.approx(0.0, abs=1e-5)
+    assert by_id["right"] == pytest.approx(0.4, abs=1e-5)
+    assert cosine_from_distance(by_id["right"], "cosine") == pytest.approx(0.6, abs=1e-5)
+
+
+def test_query_similar_notes_filters_by_source_id(tmp_path, monkeypatch):
+    """#271: a where filter keeps a nearer other-source note out of the dedupe pool."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
+    idx = VectorIndex(tmp_path / "chroma", "provider-invalido", "m", allow_fallback=True)
+    idx.upsert_permanent_note("near", "grafos de conhecimento e ligacoes", {"source_id": "@Other"})
+    idx.upsert_permanent_note("same", "grafos de conhecimento e ligacoes", {"source_id": "@S"})
+    hits = idx.query_similar_notes(
+        "grafos de conhecimento e ligacoes",
+        n_results=5,
+        where={"source_id": "@S"},
+    )
+    assert [hit["id"] for hit in hits] == ["same"]
+
+
+def test_vector_index_declares_cosine_space(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
+    idx = VectorIndex(tmp_path / "chroma", "provider-invalido", "m", allow_fallback=True)
+    assert idx.distance_space == "cosine"
+    assert idx.permanent.configuration["hnsw"]["space"] == "cosine"
+    assert idx.to_cosine(0.4) == pytest.approx(0.6)
+
+
 def test_collection_metadata_marks_provider(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
@@ -198,11 +242,12 @@ def test_ollama_dimensions_forwarded_via_langchain(tmp_path):
             base_url="http://localhost:11434/v1",
             dimensions=1024,
         )
-        ctor.assert_called_once()
-        kwargs = ctor.call_args.kwargs
-        assert kwargs["model"] == "qwen3-embedding"
-        assert kwargs["dimensions"] == 1024
-        assert kwargs["base_url"] == "http://localhost:11434"
+        # Chroma re-instantiates the function when the collection declares hnsw.space.
+        assert ctor.call_count >= 1
+        for call in ctor.call_args_list:
+            assert call.kwargs["model"] == "qwen3-embedding"
+            assert call.kwargs["dimensions"] == 1024
+            assert call.kwargs["base_url"] == "http://localhost:11434"
 
     out = idx.embedding_fn(["texto de teste"])
     fake_emb.embed_documents.assert_called_with(["texto de teste"])

@@ -22,9 +22,24 @@ from zettel.config import AppConfig, DecisionSite
 from zettel.decision import client as decision_client
 from zettel.decision import permute, sites
 from zettel.hashing import extract_embeddable_text, sha256_hex
+from zettel.similarity import cosine_from_distance
 from zettel.state import StateDB
 
 logger = logging.getLogger(__name__)
+
+
+def _hit_cosine(hit: Any) -> float | None:
+    """Cosine of a search hit. ``RetrievedNote.similarity`` already converted it."""
+    if getattr(hit, "vector_distance", None) is None:
+        return None
+    similarity = getattr(hit, "similarity", None)
+    if isinstance(similarity, (int, float)):
+        return float(similarity)
+    space = getattr(hit, "distance_space", "cosine")
+    if not isinstance(space, str):
+        space = "cosine"
+    return cosine_from_distance(float(hit.vector_distance), space)
+
 
 # The model reads at most 32k tokens of state plus its longest question. Leave
 # headroom for the chars/4 estimate being rough on accented PT-BR.
@@ -281,8 +296,8 @@ def shadow_corroborates(
     for hit in similar:
         if hit.hop != 0 or hit.vector_distance is None or hit.note_id == note_id:
             continue
-        similarity = 1.0 - hit.vector_distance / 2.0
-        if similarity < band_min:
+        similarity = _hit_cosine(hit)
+        if similarity is None or similarity < band_min:
             continue
         row = db.get_note(hit.note_id) or {}
         other_source = row.get("source_id") or ""

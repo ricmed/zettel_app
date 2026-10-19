@@ -373,7 +373,8 @@ def test_shadow_article_judge_writes_one_row_per_dimension(tmp_path, db, fake):
 
 
 def _hit(note_id, similarity, hop=0):
-    return SimpleNamespace(note_id=note_id, hop=hop, vector_distance=(1 - similarity) * 2)
+    # ``similarity`` is cosine; Chroma's cosine space stores ``1 - cos``.
+    return SimpleNamespace(note_id=note_id, hop=hop, vector_distance=1 - similarity)
 
 
 def _ztl_body(thesis, definition):
@@ -410,9 +411,9 @@ def test_shadow_corroborates_judges_the_band_in_both_orders(tmp_path, db, fake):
     db.upsert_note("01LOW", "@B", None, title="Longe", body=_ztl_body("x", "y"))
     cfg = _cfg(tmp_path, corroborates="shadow")
     similar = [
-        _hit("01OTHER", 0.80),  # other source, inside the band, below the threshold
+        _hit("01OTHER", 0.60),  # other source, inside the 0.50 band, below 0.76
         _hit("01SAME", 0.95),  # same source: dedupe's business, not this one
-        _hit("01LOW", 0.60),  # below the band
+        _hit("01LOW", 0.40),  # below the band
         _hit("01GRAPH", 0.99, hop=1),  # graph neighbour: no real similarity
     ]
     _shadow_corroborates(cfg, db, similar)
@@ -420,7 +421,7 @@ def test_shadow_corroborates_judges_the_band_in_both_orders(tmp_path, db, fake):
     assert sorted(r["subject_id"] for r in rows) == ["01NEW|01OTHER:ab", "01NEW|01OTHER:ba"]
     ab = next(r for r in rows if r["subject_id"].endswith(":ab"))
     assert ab["baseline"] == {
-        "similarity": 0.8,
+        "similarity": 0.6,
         "threshold": cfg.linking.corroborates_min_similarity,
         "edge": False,
         "new_note": "01NEW",

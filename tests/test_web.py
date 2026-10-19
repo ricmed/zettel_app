@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import time
 from pathlib import Path
@@ -2406,5 +2407,215 @@ def test_review_discard_deletes_only_extract_rejections(web_client, monkeypatch)
     try:
         assert db.get_chunk(extract_id) is None
         assert db.get_chunk(reviewer_id)["status"] == "rejected"
+    finally:
+        db.close()
+
+
+def test_review_page_shows_candidates_and_approves_one(web_client, monkeypatch):
+    monkeypatch.setattr("zettel.review.finalize_approved_concepts", lambda *a, **k: None)
+    monkeypatch.setattr("zettel.index.VectorIndex", lambda **kwargs: object())
+    import json
+
+    client, _ = web_client
+    csrf = _login(client)
+    chunk_id = "@Book2024::ch000::abc"
+    source = "O modelo usa atencao para ligar tokens distantes neste paragrafo longo."
+    db = client.app.state.service.db()
+    try:
+        db.upsert_source("@Book2024", "Book2024", "Livro", ["Autor"], 2024, "h", "/x.md", "md")
+        db.upsert_chapter("@Book2024::ch000", "@Book2024", "Cap", "ch")
+        db.upsert_chunk(
+            chunk_id,
+            "@Book2024",
+            "@Book2024::ch000",
+            source,
+            "ck",
+            status="awaiting_review",
+            chunk_index=0,
+            summary_json=json.dumps(
+                {
+                    "summary": "RESUMO_DO_CANDIDATO",
+                    "candidates": [
+                        {"thesis": "Atencao liga tokens"},
+                        {"thesis": "Outra tese do mesmo chunk"},
+                    ],
+                    "rejected_candidates": [
+                        {"thesis": "Termo periferico", "reason": "so define o termo"}
+                    ],
+                }
+            ),
+        )
+        db.upsert_concept(
+            "c-keep",
+            "@Book2024",
+            chunk_id,
+            candidate_json=json.dumps(
+                {
+                    "thesis": "Atencao liga tokens",
+                    "definition": "Pesa outras posicoes da sequencia.",
+                    "intuition": "Como consultar o resto da frase.",
+                    "limits": "Nao cria informacao nova.",
+                    "relevance_score": 4,
+                    "anchor_quote": "atencao para ligar tokens distantes",
+                }
+            ),
+            status="awaiting_review",
+        )
+        db.upsert_concept(
+            "c-drop",
+            "@Book2024",
+            chunk_id,
+            candidate_json=json.dumps(
+                {
+                    "thesis": "Outra tese do mesmo chunk",
+                    "definition": "Uma segunda ideia que o revisor pode recusar.",
+                    "relevance_score": 3,
+                    "anchor_quote": "paragrafo longo",
+                }
+            ),
+            status="awaiting_review",
+        )
+    finally:
+        db.close()
+
+    page = client.get("/review")
+    assert page.status_code == 200
+    assert "Como consultar o resto da frase." in page.text
+    assert "Nao cria informacao nova." in page.text
+    assert "so define o termo" in page.text
+    assert "<mark>atencao para ligar tokens distantes</mark>" in page.text
+    assert "O modelo usa " in page.text
+    assert "<mark>paragrafo longo</mark>" in page.text
+    assert 'name="concept_ids"' in page.text
+
+    response = client.post(
+        "/review/action",
+        data={"csrf": csrf, "action": "approve", "concept_ids": ["c-keep"]},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    job_id = response.headers["location"].rsplit("/", 1)[-1]
+    payload = {}
+    for _ in range(50):
+        payload = client.get(f"/api/jobs/{job_id}").json()
+        if payload["job"]["state"] not in {"queued", "running"}:
+            break
+        time.sleep(0.05)
+    assert payload["job"]["state"] == "succeeded"
+    assert payload["job"]["result"]["concepts_approved"] == 1
+
+    db = client.app.state.service.db()
+    try:
+        assert db.get_concept("c-keep")["status"] in {"extracted", "approved", "dedupe_pending"}
+        assert db.get_concept("c-drop")["status"] == "awaiting_review"
+        assert db.get_chunk(chunk_id)["status"] == "awaiting_review"
+        events = db.list_review_events(chunk_id)
+        assert [(event["decision"], event["mode"], event["surface"]) for event in events] == [
+            ("approve", "web_batch", "web")
+        ]
+    finally:
+        db.close()
+
+
+def _wait_job(client, job_id: str) -> dict:
+    payload = {}
+    for _ in range(50):
+        payload = client.get(f"/api/jobs/{job_id}").json()
+        if payload["job"]["state"] not in {"queued", "running"}:
+            break
+        time.sleep(0.05)
+    return payload
+
+
+def test_duplicate_queue_keeps_and_discards_with_a_shadow_label(web_client):
+    client, _ = web_client
+    csrf = _login(client)
+    db = client.app.state.service.db()
+    try:
+        db.upsert_source("@Book2024", "Book2024", "Livro", ["Autor"], 2024, "h", "/x.md", "md")
+        db.upsert_chapter("@Book2024::ch000", "@Book2024", "Cap", "ch")
+        db.upsert_chunk(
+            "@Book2024::ch000::abc",
+            "@Book2024",
+            "@Book2024::ch000",
+            "texto do chunk",
+            "ck",
+            status="awaiting_review",
+            chunk_index=0,
+        )
+        for concept_id, thesis in (
+            ("dup-keep", "Tese para manter"),
+            ("dup-drop", "Tese para descartar"),
+        ):
+            db.upsert_concept(
+                concept_id,
+                "@Book2024",
+                "@Book2024::ch000::abc",
+                candidate_json=json.dumps(
+                    {"thesis": thesis, "definition": "Definicao do conceito"}
+                ),
+                status="extracted",
+            )
+            db.set_concept_dedupe(
+                concept_id, "dedupe_pending", {"reason": "repete a nota", "duplicate_of": ""}
+            )
+            db.record_decision_shadow(
+                site="dedupe",
+                subject_id=concept_id,
+                state_checksum=concept_id,
+                model="test",
+                state={"candidate": {"thesis": thesis}},
+                baseline={"decision": "link"},
+                jev=None,
+                latency_ms=1,
+                input_tokens=1,
+            )
+    finally:
+        db.close()
+
+    page = client.get("/review?queue=duplicates")
+    assert page.status_code == 200
+    assert "Tese para manter" in page.text
+    assert "repete a nota" in page.text
+    assert "Duplicatas (2)" in page.text
+    home = client.get("/")
+    assert "Duplicatas pendentes" in home.text
+
+    refused = client.post(
+        "/review/action",
+        data={"csrf": "wrong", "action": "keep_duplicate", "concept_ids": ["dup-keep"]},
+    )
+    assert refused.status_code == 403
+
+    response = client.post(
+        "/review/action",
+        data={"csrf": csrf, "action": "keep_duplicate", "concept_ids": ["dup-keep", "missing"]},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    payload = _wait_job(client, response.headers["location"].rsplit("/", 1)[-1])
+    assert payload["job"]["state"] == "succeeded"
+    assert payload["job"]["result"]["kept"] == 1
+    assert payload["job"]["result"]["skipped"] == 1
+
+    response = client.post(
+        "/review/action",
+        data={"csrf": csrf, "action": "discard_duplicate", "concept_ids": ["dup-drop"]},
+        follow_redirects=False,
+    )
+    payload = _wait_job(client, response.headers["location"].rsplit("/", 1)[-1])
+    assert payload["job"]["state"] == "succeeded"
+    assert payload["job"]["result"]["discarded"] == 1
+
+    db = client.app.state.service.db()
+    try:
+        kept = db.get_concept("dup-keep")
+        assert kept["status"] == "approved"
+        assert json.loads(kept["dedupe_json"])["override"] is True
+        assert db.get_concept("dup-drop")["status"] == "duplicate"
+        labels = {
+            row["subject_id"]: row["human"]["verdict"] for row in db.list_decision_shadow("dedupe")
+        }
+        assert labels == {"dup-keep": "not_ignore", "dup-drop": "ignore"}
     finally:
         db.close()

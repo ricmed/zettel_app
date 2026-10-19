@@ -31,6 +31,7 @@ from calibrate_review_confidence import (
     pass_rate,
     reachability,
     reconstruct_output,
+    summarize_manual_review_events,
 )
 from zettel.config import AppConfig
 
@@ -108,6 +109,22 @@ def test_reconstruct_output_does_not_mutate_the_input():
 
 
 # ── reachability (the #152 guardrail) ─────────────────────────────────
+
+
+def test_manual_review_events_are_summarized_apart_from_the_gold_set():
+    summary = summarize_manual_review_events(
+        [
+            {"mode": "manual", "decision": "approve", "review_confidence": 0.9},
+            {"mode": "manual", "decision": "reject", "review_confidence": 0.8},
+            {"mode": "threshold", "decision": "approve", "review_confidence": 0.95},
+        ],
+        0.75,
+    )
+    assert summary["manual"] == 2
+    assert summary["approved"] == 1
+    assert summary["rejected"] == 1
+    assert summary["reject_above_threshold"] == 1
+    assert summary["decided_above_threshold"] == 2
 
 
 def test_every_relevance_level_is_reachable_at_the_configured_threshold():

@@ -146,7 +146,54 @@ def _force_extract_review(
                     total_items=total,
                 )
             )
-        stats["forced"] = force_extract_rejected(db, eligible)
+        stats["forced"] = force_extract_rejected(
+            db, eligible, mode="web_batch", surface="web", run_id=review_run_id
+        )
+        stats["dedupe_pending"] = len(pending_dedupe_concepts(db))
+    except Exception:
+        finish_pipeline_run(db, review_run_id, status="failed")
+        raise
+    finish_pipeline_run(db, review_run_id)
+    return stats
+
+
+def _decide_web_duplicates(
+    db: StateDB, progress: JobProgress, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Keep or discard concepts the dedupe flagged. SQLite only: no vector index."""
+    from zettel.review import discard_duplicate, keep_duplicate, pending_dedupe_concepts
+    from zettel.usage import begin_run, finish_pipeline_run
+
+    action = payload.get("action")
+    decide = keep_duplicate if action == "keep_duplicate" else discard_duplicate
+    requested = list(payload.get("concept_ids") or [])
+    stats = {"kept": 0, "discarded": 0, "skipped": 0}
+    review_run_id = db.start_run("review")
+    begin_run(review_run_id)
+    try:
+        total = len(requested)
+        for number, concept_id in enumerate(requested, 1):
+            progress.emit(
+                ProgressEvent(
+                    "review",
+                    f"Duplicata {number}/{total}.",
+                    current_item=str(concept_id)[-18:],
+                    current_index=number,
+                    total_items=total,
+                )
+            )
+            concept = db.get_concept(concept_id)
+            if not concept or concept.get("status") != "dedupe_pending":
+                stats["skipped"] += 1
+                continue
+            decide(
+                db,
+                concept_id,
+                mode="web_batch",
+                surface="web",
+                run_id=review_run_id,
+            )
+            stats["kept" if action == "keep_duplicate" else "discarded"] += 1
         stats["dedupe_pending"] = len(pending_dedupe_concepts(db))
     except Exception:
         finish_pipeline_run(db, review_run_id, status="failed")
@@ -188,7 +235,9 @@ def _requeue_extract_review(
                     total_items=total,
                 )
             )
-        stats["requeued"] = requeue_extract_rejected(db, eligible)
+        stats["requeued"] = requeue_extract_rejected(
+            db, eligible, mode="web_batch", surface="web", run_id=review_run_id
+        )
         stats["dedupe_pending"] = len(pending_dedupe_concepts(db))
     except Exception:
         finish_pipeline_run(db, review_run_id, status="failed")
@@ -234,7 +283,9 @@ def _discard_extract_review(
                         total_items=total,
                     )
                 )
-            stats["discarded"] = discard_extract_rejected(db, idx, eligible)
+            stats["discarded"] = discard_extract_rejected(
+                db, idx, eligible, mode="web_batch", surface="web", run_id=review_run_id
+            )
         stats["dedupe_pending"] = len(pending_dedupe_concepts(db))
     except Exception:
         finish_pipeline_run(db, review_run_id, status="failed")
@@ -744,6 +795,12 @@ class WebWorker:
                 "render_hidden": metadata.get("_render_hidden") or [],
             }
 
+        if operation == "review" and payload.get("action") in {
+            "keep_duplicate",
+            "discard_duplicate",
+        }:
+            return _decide_web_duplicates(db, progress, payload)
+
         if operation == "review" and payload.get("action") == "requeue":
             # Status flip only: opening the vector index would fail the job when
             # the embedding credential is absent, and this action never reads it.
@@ -812,8 +869,11 @@ class WebWorker:
                 cfg,
                 db,
                 idx,
+                source_ids=list(sources),
                 auto_approve=auto_approve,
                 interactive=False,
+                event_mode="run_all" if auto_approve else None,
+                surface="web",
             )
 
             approved = load_approved_candidates(db)
@@ -833,6 +893,7 @@ class WebWorker:
                 "drafts": len(drafts),
                 "review": review_stats,
                 "pending_review": int(review_stats.get("pending_review") or 0),
+                "approved_threshold": int(review_stats.get("approved_threshold") or 0),
                 "notes": note_ids,
                 "mocs": moc_ids,
             }
@@ -950,22 +1011,56 @@ class WebWorker:
                 approve_chunk,
                 finalize_approved_concepts,
                 pending_dedupe_concepts,
+                refresh_approved_literature,
                 reject_chunk,
             )
             from zettel.usage import begin_run, finish_pipeline_run
 
             action = payload.get("action")
             chunk_ids = list(payload.get("chunk_ids") or [])
+            concept_ids = list(payload.get("concept_ids") or [])
+            if action in {"approve", "reject"} and concept_ids:
+                from zettel.review import decide_concepts
+
+                review_run_id = db.start_run("review")
+                begin_run(review_run_id)
+                try:
+                    outcome = decide_concepts(
+                        cfg,
+                        db,
+                        idx,
+                        dict.fromkeys(concept_ids, action),
+                        mode="web_batch",
+                        surface="web",
+                        run_id=review_run_id,
+                    )
+                    if outcome["approved"]:
+                        finalize_approved_concepts(cfg, db, idx)
+                    stats = {
+                        "approved": len(outcome["persisted"]),
+                        "concepts_approved": len(outcome["approved"]),
+                        "rejected": len(outcome["rejected_chunks"]),
+                        "concepts_rejected": len(outcome["rejected"]),
+                        "refused": outcome["refused"],
+                        "skipped": 0,
+                        "draft_delete_failures": len(outcome.get("draft_delete_failures") or []),
+                    }
+                except Exception:
+                    finish_pipeline_run(db, review_run_id, status="failed")
+                    raise
+                finish_pipeline_run(db, review_run_id)
+                return stats
             if not chunk_ids and payload.get("confidence_below") is not None:
                 chunks = db.get_chunks_by_status("awaiting_review")
                 threshold = float(payload["confidence_below"])
                 chunk_ids = [
                     c["chunk_id"] for c in chunks if (c.get("review_confidence") or 0) < threshold
                 ]
-            stats = {"approved": 0, "rejected": 0, "skipped": 0}
+            stats = {"approved": 0, "rejected": 0, "skipped": 0, "draft_delete_failures": 0}
             total = len(chunk_ids)
             review_run_id = db.start_run("review")
             begin_run(review_run_id)
+            persisted: list[str] = []
             try:
                 for number, chunk_id in enumerate(chunk_ids, 1):
                     progress.emit(
@@ -977,16 +1072,36 @@ class WebWorker:
                             total_items=total,
                         )
                     )
-                    ok = (
-                        approve_chunk(cfg, db, idx, chunk_id)
-                        if action == "approve"
-                        else reject_chunk(cfg, db, idx, chunk_id)
-                    )
+                    if action == "approve":
+                        ok = approve_chunk(
+                            cfg,
+                            db,
+                            idx,
+                            chunk_id,
+                            mode="web_batch",
+                            surface="web",
+                            run_id=review_run_id,
+                            refresh_source=False,
+                        )
+                        if ok:
+                            persisted.append(chunk_id)
+                    else:
+                        ok = reject_chunk(
+                            cfg,
+                            db,
+                            idx,
+                            chunk_id,
+                            mode="web_batch",
+                            surface="web",
+                            run_id=review_run_id,
+                            stats=stats,
+                        )
                     stats["approved" if action == "approve" else "rejected"] += int(ok)
                     stats["skipped"] += int(not ok)
-                if action == "approve" and stats["approved"]:
-                    finalize_approved_concepts(cfg, db, idx)
-                # Possible duplicates are never dropped here: they wait for `zettel review`.
+                if action == "approve":
+                    refresh_approved_literature(cfg, db, persisted)
+                    if stats["approved"]:
+                        finalize_approved_concepts(cfg, db, idx)
                 stats["dedupe_pending"] = len(pending_dedupe_concepts(db))
             except Exception:
                 finish_pipeline_run(db, review_run_id, status="failed")

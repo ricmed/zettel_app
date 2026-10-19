@@ -66,6 +66,7 @@ def status(config: ConfigOption = None):
         "chunks_failed": "Chunks falhos",
         "concepts": "Conceitos",
         "concepts_dedupe_pending": "Conceitos aguardando decisao de duplicata",
+        "concepts_extracted": "Conceitos presos em extracted (dedupe nao terminou)",
         "notes": "Notas Permanentes",
         "mocs": "MOCs",
         "assets": "Assets",
@@ -81,6 +82,7 @@ def status(config: ConfigOption = None):
                 "chunks_awaiting_review",
                 "chunks_failed",
                 "concepts_dedupe_pending",
+                "concepts_extracted",
             )
             and val > 0
         ):
@@ -90,6 +92,32 @@ def status(config: ConfigOption = None):
     table.add_row("Conexoes (grafo)", str(db.count_note_connections()))
 
     console.print(table)
+
+    limiar = cfg.literature_review.auto_approve_min_confidence
+    labels_by_source = db.review_label_summary(limiar)
+    if labels_by_source:
+        review_table = Table(title="Review — decisoes humanas")
+        review_table.add_column("Fonte", style="bold")
+        review_table.add_column("Manuais", justify="right")
+        review_table.add_column("Por limiar", justify="right")
+        review_table.add_column("Rejeicao acima do limiar", justify="right")
+        for row in labels_by_source:
+            review_table.add_row(
+                str(row["source_id"]),
+                str(row["manual_approve"]),
+                str(row["threshold_approve"]),
+                f"{row['reject_above']} ({row['reject_above_rate']:.0%})",
+            )
+        console.print(review_table)
+
+    from zettel.review import rejected_drafts_on_disk
+
+    orphans = rejected_drafts_on_disk(db)
+    if orphans:
+        console.print(
+            f"[yellow]{len(orphans)} draft(s) rejeitado(s) ainda no disco "
+            "(a rejeicao foi gravada; o arquivo nao saiu).[/yellow]"
+        )
 
     failure_rows = db.llm_failure_counts()
     if failure_rows:

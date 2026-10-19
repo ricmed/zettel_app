@@ -227,7 +227,11 @@ def test_run_all_dispatches_every_phase_in_order(tmp_path: Path, monkeypatch):
     ]
     assert calls[0][1]["interactive"] is False
     assert calls[0][1]["duplicate_action"] == "skip"
-    assert calls[2][1] == {"auto_approve": False, "interactive": False}
+    assert calls[2][1]["auto_approve"] is False
+    assert calls[2][1]["interactive"] is False
+    assert calls[2][1]["source_ids"] == ["@source"]
+    assert calls[2][1]["surface"] == "web"
+    assert calls[2][1]["event_mode"] is None
     assert progress.phases == [
         "run_all",
         "harvest",
@@ -241,6 +245,7 @@ def test_run_all_dispatches_every_phase_in_order(tmp_path: Path, monkeypatch):
         "drafts": 1,
         "review": {"approved": 1, "rejected": 0, "skipped": 0},
         "pending_review": 0,
+        "approved_threshold": 0,
         "notes": ["note"],
         "mocs": ["moc"],
     }

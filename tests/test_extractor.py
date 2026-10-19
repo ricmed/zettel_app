@@ -2,6 +2,7 @@
 
 import json
 
+import pytest
 from zettel.config import AppConfig, ExtractionConfig
 from zettel.extractor import _filter_candidates, _score_review_confidence
 from zettel.schemas import LiteratureChunkOutput, PermanentNoteCandidate
@@ -1532,7 +1533,8 @@ def test_intra_batch_dedupe_semantic_match_within_threshold():
     b = _cand_dict("c2", thesis="Segunda formulacao da mesma ideia central", relevance_score=5)
     text_a = f"{a['candidate'].thesis} {a['candidate'].definition}"
     text_b = f"{b['candidate'].thesis} {b['candidate'].definition}"
-    idx = _FakeDedupeIndex({text_a: [0.0, 0.0], text_b: [0.05, 0.05]})  # dist ~0.07
+    # Unit vectors, cosine 0.99 — above dedupe_threshold 0.85.
+    idx = _FakeDedupeIndex({text_a: [1.0, 0.0], text_b: [0.99, 0.1410673598]})
 
     kept, duplicates = _intra_batch_dedupe(cfg, idx, [a, b])
 
@@ -1549,7 +1551,7 @@ def test_intra_batch_dedupe_distinct_candidates_both_survive():
     b = _cand_dict("c2", thesis="Uma ideia completamente diferente sobre grafos de conhecimento")
     text_a = f"{a['candidate'].thesis} {a['candidate'].definition}"
     text_b = f"{b['candidate'].thesis} {b['candidate'].definition}"
-    idx = _FakeDedupeIndex({text_a: [0.0, 0.0], text_b: [10.0, 10.0]})  # far apart
+    idx = _FakeDedupeIndex({text_a: [1.0, 0.0], text_b: [0.0, 1.0]})  # cosine 0
 
     kept, duplicates = _intra_batch_dedupe(cfg, idx, [a, b])
 
@@ -1654,6 +1656,144 @@ def _dedupe_env(tmp_path, note_source_id: str):
     db.upsert_chunk("@S::ch000::a", "@S", "@S::ch000", "txt", "ck")
     db.upsert_note("N1", note_source_id, "/n1.md", title="Nota existente", body="corpo")
     return cfg, db
+
+
+def test_intra_batch_dedupe_cosine_threshold_marks_086_and_not_084():
+    """#267: tau 0.85 is cosine. 0.86 is a duplicate; 0.84 is not."""
+    import math
+
+    cfg = _make_config()
+
+    def _pair(cosine: float):
+        a = _cand_dict("c1", thesis=f"Tese A com cosseno {cosine}", relevance_score=4)
+        b = _cand_dict("c2", thesis=f"Tese B com cosseno {cosine}", relevance_score=5)
+        text_a = f"{a['candidate'].thesis} {a['candidate'].definition}"
+        text_b = f"{b['candidate'].thesis} {b['candidate'].definition}"
+        ortho = math.sqrt(1.0 - cosine * cosine)
+        idx = _FakeDedupeIndex({text_a: [1.0, 0.0], text_b: [cosine, ortho]})
+        return _intra_batch_dedupe(cfg, idx, [a, b])
+
+    _kept, duplicates = _pair(0.86)
+    assert [c["concept_id"] for c in duplicates] == ["c1"]
+    kept, duplicates = _pair(0.84)
+    assert duplicates == []
+    assert {c["concept_id"] for c in kept} == {"c1", "c2"}
+
+
+def test_dedupe_same_source_note_at_cosine_080_does_not_reach_the_llm(tmp_path, monkeypatch):
+    """#267: cosine 0.80 is below tau 0.85, so the candidate is approved without an LLM call.
+
+    Chroma cosine distance of 0.80 is ``1 - 0.80 = 0.20``.
+    """
+    cfg, db = _dedupe_env(tmp_path, note_source_id="@S")
+    cand = _cand_dict("c1", thesis="Redes profundas generalizam por vies implicito")
+    db.upsert_concept("c1", "@S", "@S::ch000::a", status="extracted")
+
+    class _Index(_FakeNeighbourIndex):
+        def query_similar_notes(self, query_text, n_results=5, exclude_id=None, **_kw):
+            return [{"id": self._note_id, "distance": 0.20, "document": "doc", "metadata": {}}]
+
+    monkeypatch.setattr(
+        "zettel.extractor.call_llm",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("LLM should not be called")),
+    )
+    approved = deduplicate_candidates(cfg, db, _Index("N1"), object(), [cand])
+    assert [c["concept_id"] for c in approved] == ["c1"]
+    assert db.get_concept("c1")["status"] == "approved"
+    db.close()
+
+
+def test_second_dedupe_call_flags_a_repeat_of_an_approved_concept_without_a_note(
+    tmp_path, monkeypatch
+):
+    """#271: an approved concept that is not a note yet is visible to the next call."""
+    from zettel.review import format_dedupe_item
+
+    cfg, db = _dedupe_env(tmp_path, note_source_id="@S")
+    thesis = "A mesma tese aprovada antes do connect ainda nao virou nota"
+    first = _cand_dict("c1", thesis=thesis)
+    second = _cand_dict("c2", thesis=thesis)
+    for cand in (first, second):
+        db.upsert_concept(
+            cand["concept_id"],
+            "@S",
+            "@S::ch000::a",
+            candidate_json=cand["candidate"].model_dump_json(),
+            status="extracted",
+        )
+    monkeypatch.setattr(
+        "zettel.extractor.call_llm",
+        lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("LLM should not be called")),
+    )
+    idx = _FakeDedupeIndex()
+    approved = deduplicate_candidates(cfg, db, idx, object(), [first])
+    assert [c["concept_id"] for c in approved] == ["c1"]
+    approved_again = deduplicate_candidates(cfg, db, idx, object(), [second])
+    assert approved_again == []
+    row = db.get_concept("c2")
+    assert row["status"] == "dedupe_pending"
+    assert json.loads(row["dedupe_json"])["duplicate_of"] == "c1"
+    card = format_dedupe_item(db, row)
+    assert "Conceito aprovado ainda sem nota" in card
+    assert thesis in card
+    db.close()
+
+
+def test_dedupe_unavailable_llm_leaves_the_concept_extracted(tmp_path, monkeypatch):
+    """#272: a down provider stops the call; nothing in it becomes approved."""
+    from zettel.llm import LLMUnavailableError
+
+    cfg, db = _dedupe_env(tmp_path, note_source_id="@S")
+    cand = _cand_dict("c1", thesis="Redes profundas generalizam por vies implicito")
+    db.upsert_concept("c1", "@S", "@S::ch000::a", status="extracted")
+
+    def down(*_a, **_k):
+        raise LLMUnavailableError("provider fora", phase="review")
+
+    monkeypatch.setattr("zettel.extractor.call_llm", down)
+    with pytest.raises(LLMUnavailableError):
+        deduplicate_candidates(cfg, db, _FakeNeighbourIndex("N1"), object(), [cand])
+    assert db.get_concept("c1")["status"] == "extracted"
+    db.close()
+
+
+def test_dedupe_parse_error_keeps_that_item_extracted(tmp_path, monkeypatch):
+    """A bad answer on one candidate does not approve it and does not stop the next."""
+    cfg, db = _dedupe_env(tmp_path, note_source_id="@S")
+    first = _cand_dict("c1", thesis="Primeira tese sobre generalizacao implicita")
+    second = _cand_dict("c2", thesis="Segunda tese sobre regularizacao explicita")
+    for cand in (first, second):
+        db.upsert_concept(cand["concept_id"], "@S", "@S::ch000::a", status="extracted")
+    answers = iter(
+        [
+            "nao e json",
+            '{"decision": "create_new", "target_note_id": null, "reason": "nova"}',
+        ]
+    )
+    monkeypatch.setattr("zettel.extractor.call_llm", lambda *_a, **_k: next(answers))
+    idx = _FakeNeighbourIndex("N1")
+    idx._vectors_by_text = {
+        f"{first['candidate'].thesis} {first['candidate'].definition}": [1.0, 0.0],
+        f"{second['candidate'].thesis} {second['candidate'].definition}": [0.0, 1.0],
+    }
+    approved = deduplicate_candidates(cfg, db, idx, object(), [first, second])
+    assert [c["concept_id"] for c in approved] == ["c2"]
+    assert db.get_concept("c1")["status"] == "extracted"
+    assert db.get_concept("c2")["status"] == "approved"
+    db.close()
+
+
+def test_dedupe_does_not_build_the_llm_when_nothing_needs_it(tmp_path, monkeypatch):
+    cfg, db = _dedupe_env(tmp_path, note_source_id="@Other")
+    cand = _cand_dict("c1", thesis="Redes profundas generalizam por vies implicito")
+    db.upsert_concept("c1", "@S", "@S::ch000::a", status="extracted")
+    monkeypatch.setattr(
+        "zettel.extractor.get_llm",
+        lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("get_llm")),
+    )
+    approved = deduplicate_candidates(cfg, db, _FakeNeighbourIndex("N1"), None, [cand])
+    assert [c["concept_id"] for c in approved] == ["c1"]
+    db.close()
 
 
 def test_dedupe_skips_llm_when_nearest_note_is_from_another_source(tmp_path, monkeypatch):

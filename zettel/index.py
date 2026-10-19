@@ -13,6 +13,7 @@ import chromadb
 from chromadb.config import Settings
 
 from zettel.config import AppConfig
+from zettel.similarity import HNSW_SPACE, cosine_from_distance
 
 logger = logging.getLogger(__name__)
 
@@ -619,25 +620,65 @@ class VectorIndex:
                 ) from e
             raise
 
-    def _ensure_collections(self) -> None:
-        kwargs: dict[str, Any] = {"metadata": self._collection_metadata()}
+    def _collection_kwargs(self) -> dict[str, Any]:
+        """Metadata plus an explicit HNSW space.
+
+        The embedding adapter's ``default_space`` is cosine, but a collection
+        created without ``configuration`` follows Chroma's own default (``l2``)
+        when no adapter is attached. Declaring the space here is what makes
+        ``distance_space`` and the config thresholds the same number.
+        """
+        kwargs: dict[str, Any] = {
+            "metadata": self._collection_metadata(),
+            "configuration": {"hnsw": {"space": HNSW_SPACE}},
+        }
         if self.embedding_fn:
             kwargs["embedding_function"] = self.embedding_fn
+        return kwargs
+
+    @property
+    def distance_space(self) -> str:
+        """HNSW space of ``permanent_notes`` (every collection is created alike)."""
+        config = getattr(self.permanent, "configuration", None) or {}
+        hnsw = config.get("hnsw") or {}
+        space = hnsw.get("space")
+        if space not in ("cosine", "l2"):
+            raise RuntimeError(
+                f"Colecao permanent_notes sem espaco hnsw conhecido (obtido: {space!r})."
+            )
+        return str(space)
+
+    def to_cosine(self, distance: float) -> float:
+        """Cosine similarity for a distance this index just returned."""
+        return cosine_from_distance(distance, self.distance_space)
+
+    def _warn_if_distance_space_drifted(self) -> None:
+        space = self.distance_space
+        if space == HNSW_SPACE:
+            return
+        logger.warning(
+            "Colecoes Chroma estao no espaco %s; os limiares de similaridade significam "
+            "cosseno. Rode `zettel reindex --force` para recria-las em %s.",
+            space,
+            HNSW_SPACE,
+        )
+
+    def _ensure_collections(self) -> None:
+        kwargs = self._collection_kwargs()
 
         self.sources = self._get_or_create(COL_SOURCES, **kwargs)
         self.chunks = self._get_or_create(COL_CHUNKS, **kwargs)
         self.permanent = self._get_or_create(COL_PERMANENT, **kwargs)
         self.mocs_col = self._get_or_create(COL_MOCS, **kwargs)
         self.chapter_summaries = self._get_or_create(COL_CHAPTER_SUMMARIES, **kwargs)
+        self._warn_if_distance_space_drifted()
         logger.debug("Coleções ChromaDB prontas")
 
     def reset_collection(self, name: str) -> Any:
         """Delete and recreate a collection (used by `reindex --force`)."""
         with contextlib.suppress(Exception):
             self.client.delete_collection(name)
-        kwargs: dict[str, Any] = {"metadata": self._collection_metadata()}
-        if self.embedding_fn:
-            kwargs["embedding_function"] = self.embedding_fn
+        kwargs = self._collection_kwargs()
         col = self.client.get_or_create_collection(name, **kwargs)
         # Refresh the cached handle so subsequent upserts hit the new collection.
         attr = {
@@ -784,8 +825,14 @@ class VectorIndex:
         exclude_id: str | None = None,
         *,
         purpose: str = "densa",
+        where: dict[str, Any] | None = None,
     ) -> list[dict]:
-        """Find the most similar permanent notes to the given text."""
+        """Find the most similar permanent notes to the given text.
+
+        ``where`` is a Chroma metadata filter (dedupe passes ``source_id`` so a
+        nearer note from another work cannot push the same-source neighbour
+        out of the top-k).
+        """
         from zettel.llm import clip_text
 
         self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
@@ -795,10 +842,13 @@ class VectorIndex:
             n_results,
             clip_text(query_text),
         )
-        results = self.permanent.query(
-            query_texts=[query_text],
-            n_results=min(n_results + (1 if exclude_id else 0), self.permanent.count() or 1),
-        )
+        query_kwargs: dict[str, Any] = {
+            "query_texts": [query_text],
+            "n_results": min(n_results + (1 if exclude_id else 0), self.permanent.count() or 1),
+        }
+        if where:
+            query_kwargs["where"] = where
+        results = self.permanent.query(**query_kwargs)
         self._record_embed_usage(query_text, label="query_notes", purpose=purpose, count=n_results)
         output: list[dict] = []
         if not results or not results["ids"] or not results["ids"][0]:

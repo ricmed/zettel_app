@@ -18,11 +18,10 @@ It measures three bands:
     threshold separates relevant from irrelevant, which is an argument for a
     reranking stage rather than for more threshold tuning (see ADR-044 draft).
 
-It also verifies that stored and query vectors are unit-normalised, because the
-floor's `1 - distance / 2` conversion is a valid cosine similarity ONLY under
-that assumption (collections are created without an explicit `hnsw:space`, so
-Chroma's default squared-L2 applies). A provider that does not normalise would
-make every similarity in the system — and this threshold — meaningless.
+It also verifies that stored and query vectors are unit-normalised. Collections
+declare ``hnsw.space = cosine`` (ADR-058); ``cosine_from_distance`` reads that
+space. A provider that does not normalise would make every similarity in the
+system — and this threshold — meaningless.
 
 Cost: **no LLM calls.** It does embed each probe query (local Ollama by default),
 which is the only way to obtain a real distance.
@@ -77,13 +76,11 @@ OFF_DOMAIN_QUERIES = [
 MIN_NOTES_FOR_SUGGESTION = 30
 
 
-def cosine_from_distance(distance: float) -> float:
-    """Chroma default space is squared-L2; on unit vectors that is 2 - 2*cos.
+def _cosine(idx: VectorIndex, distance: float) -> float:
+    """Same conversion the Retriever uses (``zettel.similarity``)."""
+    from zettel.similarity import cosine_from_distance
 
-    Mirrors `retrieval._apply_relevance_floor` exactly. Valid only when the
-    vectors are normalised, which `check_normalisation` is what verifies.
-    """
-    return 1.0 - distance / 2.0
+    return cosine_from_distance(distance, idx.distance_space)
 
 
 def l2_norm(vector: list[float]) -> float:
@@ -170,7 +167,7 @@ def top1_similarity(idx: VectorIndex, query: str, collection: str) -> float | No
     distances = res.get("distances") or [[]]
     if not distances[0]:
         return None
-    return cosine_from_distance(distances[0][0])
+    return _cosine(idx, distances[0][0])
 
 
 def load_note_titles(db: StateDB, limit: int) -> list[str]:
@@ -270,7 +267,7 @@ def render(report: dict[str, Any], off: Band, self_match: Band) -> str:
 
     norm = report["normalisation"]
     verdict = "OK" if norm["ok"] else "FALHA"
-    out.append(f"[{verdict}] normalizacao (1 - d/2 e cosseno valido apenas se norma == 1)")
+    out.append(f"[{verdict}] normalizacao (cosseno vale para vetores de norma 1)")
     out.append(f"  query ({norm['query_dim']}d): {norm['query_norm']}")
     for name, value in sorted(norm["stored"].items()):
         out.append(f"  {name}: {value}")

@@ -23,10 +23,10 @@ No papel, o desenho é bom: o LLM propõe e o humano decide, toda decisão é gr
 | 3 | **O revisor julga o objeto errado.** O cartão do CLI mostra o resumo e o trecho, mas **não** a tese, a definição nem a citação que vão virar a nota permanente. A aprovação é por chunk (15% dos drafts têm 2+ candidatos), e editar o rascunho no Obsidian **não muda** o que o `connect` vai escrever. | **Alta** | Código (`format_review_item`, `sync.py`) |
 | 4 | **"A dedupe propõe, você decide" quase nunca propõe.** Em 190 decisões, o LLM sinalizou duplicata 4 vezes, e o humano reverteu as 4. Nos gold sets, as 10 duplicatas reais nunca receberam `ignore` do prompt atual. Em produção, 76% das chamadas viraram aresta `extends`, com precisão medida de ~43%. | **Média–Alta** | `decision_shadow` + `evals/results` |
 | 5 | **A dedupe não enxerga conceitos aprovados e ainda não conectados.** Duas sessões de review antes do `connect`, ou `a` e depois `r` na mesma sessão, deixam passar duplicatas da mesma fonte. | Média | Leitura de código |
-| 6 | **Falha de LLM na dedupe aprova o conceito sem dedupe** (*fail-open*), enquanto credencial ausente derruba o comando com traceback. Os dois contrariam o ADR-045 (*fail-fast*). | Média | Leitura de código |
+| 6 | **Falha de LLM na dedupe aprova o conceito sem dedupe** (*fail-open*), enquanto credencial ausente derruba o comando com traceback. Os dois contrariam o ADR-059 (*fail-fast*). | Média | Leitura de código |
 | 7 | **As decisões humanas não viram dado.** Não há registro de quem aprovou o quê, quando e por qual modo. `purge-rejected` apaga os únicos rótulos negativos, e `retry-failed --rejected` desfaz rejeições do revisor. | Média | Esquema do SQLite |
 | 8 | **O modelo da dedupe foi trocado sem medição** (`gpt-4o-mini` → `gpt-6-luna`, commit `4f3e80a`), contra a disciplina que o próprio projeto estabeleceu no ADR-050 e nos #209/#218. | Média | `git show` |
-| 9 | **Web e ADRs fora de sincronia.** A web não resolve duplicatas pendentes. O ADR-018 manda aplicar o limiar no servidor e o código não aplica (e, a meu ver, o código está certo). O `run-all` aprova drafts de **todas** as fontes enquanto a página diz "nada é autoaprovado aqui". Há dois ADR-045. | Baixa–Média | Código + ADRs |
+| 9 | **Web e ADRs fora de sincronia.** A web não resolve duplicatas pendentes. O ADR-018 manda aplicar o limiar no servidor e o código não aplica (e, a meu ver, o código está certo). O `run-all` aprova drafts de **todas** as fontes enquanto a página diz "nada é autoaprovado aqui". Há dois ADR-045 (o de fail-fast passou a ser o ADR-059 em 2026-10-19, #275). | Baixa–Média | Código + ADRs |
 
 O que está **muito bem feito**: a decisão de que a dedupe nunca apaga nada sozinha (vira `dedupe_pending`), o escopo da dedupe restrito à própria fonte (ADR-045), que transforma sobreposição entre autores em corroboração e não em perda, a fila de rejeições do `extract` revisável com o texto inteiro, a gravação imediata de cada decisão, e principalmente **a medição do próprio índice de confiança contra rótulos humanos**, que teve a honestidade de concluir "não separa" (ADR-017, AUC 0,49).
 
@@ -401,11 +401,11 @@ flowchart TD
     LOOP -- candidate_json inválido --> STUCK[ignorado<br/>preso em extracted]
 ```
 
-**O que está bem resolvido:** a recuperação natural. Como a dedupe processa "todos os `extracted`", o próximo `review` retoma conceitos presos por uma falha anterior. É o "resume" que o ADR-016 pergunta se existe ([NEEDS INPUT]): existe, implicitamente.
+**O que está bem resolvido:** a recuperação natural. Como a dedupe processa "todos os `extracted`", o próximo `review` retoma conceitos presos por uma falha anterior. É o "resume" que o ADR-016 perguntava: existe, implicitamente, e a resposta está no adendo de 2026-10-19.
 
 **Lacunas:**
 
-1. **Fail-open contraria o ADR-045 de LLM** (*fail-fast on LLM unavailability*). Com o provedor fora do ar, cada candidato consome o orçamento de *retries*, falha, e é aprovado sem dedupe; o operador vê só *warnings*. O ADR manda parar e manter o item no estado anterior (`extracted`), que é exatamente o que tornaria a retomada correta. Hoje o comportamento depende do tipo de falha: credencial ausente derruba, rede fora aprova.
+1. **Fail-open contraria o ADR-059** (*fail-fast on LLM unavailability*). Com o provedor fora do ar, cada candidato consome o orçamento de *retries*, falha, e é aprovado sem dedupe; o operador vê só *warnings*. O ADR manda parar e manter o item no estado anterior (`extracted`), que é exatamente o que tornaria a retomada correta. Hoje o comportamento depende do tipo de falha: credencial ausente derruba, rede fora aprova.
 2. **Conceito com `candidate_json` inválido fica preso sem aviso.** Nunca vira `approved`, nunca aparece em `status`.
 3. **A chamada de dedupe não usa o cache determinístico** (`llm_cache`) que o extract e o connect usam. Não é desperdício hoje (a dedupe não se repete para o mesmo conceito), mas significa que um replay offline das decisões de produção só é possível porque o *shadow* da camada de decisão gravou o veredito.
 
@@ -500,10 +500,10 @@ O argumento do ADR-045 vale ser repetido porque é contraintuitivo: num acervo d
 | **P0** | Cartão de review com os candidatos (tese, definição, citação destacada no trecho) e aprovação **por candidato** | Teste de `format_review_item`; template web |
 | **P1** | Tabela de eventos de review (chunk/conceito, decisão, modo, confiança, data); `purge-rejected` preserva os eventos; `retry-failed --rejected` usa `requeueable_extract_ids` | Teste de cada caminho de aprovação gravando o modo |
 | **P1** | Dedupe incluindo `approved` sem nota; filtro `where={"source_id"}` na consulta | Teste: dois lotes com a mesma tese antes do `connect` → `dedupe_pending` |
-| **P1** | Dedupe *fail-fast* (ADR-045 de LLM): parar e manter `extracted`; `candidate_json` inválido reportado no `status` | Teste com `call_llm` levantando `LLMUnavailableError` |
+| **P1** | Dedupe *fail-fast* (ADR-059): parar e manter `extracted`; `candidate_json` inválido reportado no `status` | Teste com `call_llm` levantando `LLMUnavailableError` |
 | **P1** | Medir `gpt-6-luna` com `probe_dedupe_context.py` nas duas rodadas antes de mantê-lo; reconstruir as 144 arestas `extends` da configuração antiga | Regra do #218 |
 | **P2** | Web: resolver `dedupe_pending`; `run-all` restrito às fontes do próprio run e sem aprovação automática (ou com confirmação explícita no formulário) | Testes do job |
-| **P2** | Revisar o ADR-018 (limiar só para aprovação automática); renumerar um dos dois ADR-045; corrigir no `CLAUDE.md` a afirmação sobre L2 ao quadrado | Revisão de documentação |
+| **P2** | Revisar o ADR-018 (limiar só para aprovação automática); renumerar um dos dois ADR-045 (feito: fail-fast é o ADR-059); corrigir no `CLAUDE.md` a afirmação sobre L2 ao quadrado | Revisão de documentação |
 | **P3** | Amostra de auditoria e itens de controle; ordenar a fila por incerteza; recusar `--low-confidence-only` + `--yes`; refazer o índice LIT uma vez por lote | Taxa de acerto em itens de controle |
 
 ---

@@ -6,8 +6,8 @@ that dense ranking with the BM25 lexical ranking from the SQLite FTS5 index
 (Reciprocal Rank Fusion), then optionally expands the top results 1..N hops over
 the typed note-connection graph. Every consumer that wants richer recall
 (``ask``, ``connect``, ``sync``) goes through :class:`Retriever`; the
-threshold-calibrated consumers (extractor dedupe, harvester layer-3) deliberately
-stay on the raw vector distance and do not use this.
+threshold-calibrated consumers (extractor dedupe, harvester layer 5) deliberately
+do not use this fusion; they compare cosine via ``zettel.similarity``.
 
 RRF is used instead of score normalisation because it only needs the *rank* of an
 id in each list, so the incompatible scales of L2 distance and bm25 rank never
@@ -21,6 +21,8 @@ import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
+
+from zettel.similarity import cosine_from_distance
 
 from . import graph
 from .note_content import note_content
@@ -64,11 +66,20 @@ class RetrievedNote:
     # lexical bypass reads it; None when the hit never matched BM25.
     bm25_coverage: float | None = None
     vector_distance: float | None = None
+    # Space of the collection that produced ``vector_distance`` (ADR-058).
+    distance_space: str = "cosine"
     hop: int = 0  # 0 = search seed; >=1 = graph neighbour
     via: list[dict] = field(default_factory=list)  # graph path (see graph.py)
     passed_floor: bool = True  # absolute relevance floor (see _apply_relevance_floor)
     floor_reason: str = ""  # human-readable explanation of the floor verdict
     origin: str = "search"  # "search" | "topic_index" | "distant_analogy"
+
+    @property
+    def similarity(self) -> float | None:
+        """Cosine similarity, or None when the hit came only from BM25."""
+        if self.vector_distance is None:
+            return None
+        return cosine_from_distance(self.vector_distance, self.distance_space)
 
 
 @dataclass
@@ -90,6 +101,7 @@ class RetrievedChapter:
     bm25_rank: int | None = None
     bm25_coverage: float | None = None
     vector_distance: float | None = None
+    distance_space: str = "cosine"
     passed_floor: bool = True
     floor_reason: str = ""
 
@@ -98,7 +110,7 @@ class RetrievedChapter:
         """Cosine similarity, or None when the hit came only from BM25."""
         if self.vector_distance is None:
             return None
-        return 1.0 - self.vector_distance / 2.0
+        return cosine_from_distance(self.vector_distance, self.distance_space)
 
 
 @dataclass
@@ -132,6 +144,15 @@ class Retriever:
         self.db = db
         self.idx = idx
         self._warned_no_fts = False
+
+    def _distance_space(self) -> str:
+        """Space of the index that produced the distances being fused.
+
+        A stub index used in tests has no space; production collections are
+        cosine (ADR-058). A non-string attribute (a mock) is ignored.
+        """
+        raw = getattr(self.idx, "distance_space", "cosine")
+        return raw if isinstance(raw, str) else "cosine"
 
     # ── Public API ─────────────────────────────────────────────────────
 
@@ -257,6 +278,7 @@ class Retriever:
             rc = merged.setdefault(cid, RetrievedChapter(chapter_id=cid, score=0.0))
             rc.vector_rank = rank
             rc.vector_distance = hit.get("distance")
+            rc.distance_space = self._distance_space()
             if hit.get("document"):
                 rc.document = hit["document"]
             if hit.get("metadata"):
@@ -505,9 +527,7 @@ class Retriever:
         min_cov = floor_cfg.bm25_bypass_min_coverage
 
         for hit in fused:
-            similarity = (
-                1.0 - hit.vector_distance / 2.0 if hit.vector_distance is not None else None
-            )
+            similarity = hit.similarity
 
             if similarity is not None and similarity < abs_min:
                 hit.passed_floor = False
@@ -584,6 +604,7 @@ class Retriever:
             rn = merged.setdefault(nid, RetrievedNote(note_id=nid, score=0.0))
             rn.vector_rank = rank
             rn.vector_distance = hit.get("distance")
+            rn.distance_space = self._distance_space()
             if hit.get("document"):
                 rn.document = hit["document"]
             if hit.get("metadata"):

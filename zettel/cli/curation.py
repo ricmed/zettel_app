@@ -94,27 +94,39 @@ def review(
     ] = False,
 ):
     """Aprovar/rejeitar Notas de Literatura granulares antes do connect."""
+    if low_confidence_only and (yes or auto_approve):
+        console.print(
+            "[red]--low-confidence-only com --yes ou --auto-approve nao aprova nada: "
+            "o filtro fica abaixo do limiar e a aprovacao so pega o que esta acima.[/red]"
+        )
+        raise typer.Exit(1)
     cfg = load_deps(config)
     db = get_db(cfg)
     idx = get_idx(cfg, db=db, yes=yes)
 
+    from zettel.llm import LLMUnavailableError
     from zettel.review import AUTO_APPROVE_UNVALIDATED_WARNING, review_followups, run_review
 
     # Either flag means "decide without me", so the interactive report is skipped.
     interactive = not (yes or auto_approve)
     if not interactive:
         console.print(f"[yellow]{AUTO_APPROVE_UNVALIDATED_WARNING}[/yellow]")
-    stats = run_review(
-        cfg,
-        db,
-        idx,
-        source_id=source_id,
-        auto_approve=auto_approve or yes,
-        interactive=interactive,
-        low_confidence_only=low_confidence_only,
-    )
+    try:
+        stats = run_review(
+            cfg,
+            db,
+            idx,
+            source_id=source_id,
+            auto_approve=auto_approve or yes,
+            interactive=interactive,
+            low_confidence_only=low_confidence_only,
+        )
+    except LLMUnavailableError as exc:
+        exit_llm_unavailable(exc, db)
     console.print(
-        f"[green]Aprovados: {stats['approved']}[/green] | "
+        f"[green]Aprovados: {stats['approved']}[/green] "
+        f"(manuais: {stats.get('approved_manual', 0)}, "
+        f"por limiar: {stats.get('approved_threshold', 0)}) | "
         f"[red]Rejeitados: {stats['rejected']}[/red] | "
         f"[yellow]Pulados: {stats['skipped']}[/yellow]"
     )
@@ -175,12 +187,14 @@ def retry_failed(
         db.close()
         return
 
-    status = "rejected" if rejected else "failed"
-    count = db.reset_chunks_to_pending(
-        status,
-        source_id=source_id,
-        drop_llm_cache=rejected,
-    )
+    if rejected:
+        from zettel.review import requeue_extract_rejected, requeueable_extract_ids
+
+        rows = db.get_chunks_by_status("rejected", source_id=source_id)
+        eligible = requeueable_extract_ids(db, [row["chunk_id"] for row in rows])
+        count = requeue_extract_rejected(db, eligible, mode="manual", surface="cli")
+    else:
+        count = db.reset_chunks_to_pending("failed", source_id=source_id)
 
     if count == 0:
         label = "rejeitado" if rejected else "com falha"

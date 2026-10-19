@@ -129,7 +129,7 @@ Se `images.enabled`, o extract começa descrevendo com um modelo de visão toda 
 Dois problemas de fronteira:
 
 1. **Ordem e cache conspiram contra a imagem atrasada.** A descrição da imagem entra no Prompt 1 do chunk (`images_context`) e na chave do cache. Se o lote de imagens aborta, os chunks são extraídos **sem** o contexto visual, vão para `awaiting_review`, e nada os reprocessa quando a imagem é descrita depois. O prompt tem uma regra específica para isso ("não rejeite como `fragmented` se houver figura conceitual no contexto") — que simplesmente não dispara. Correção: pular (deixar `pending`) os chunks cuja vizinhança tem imagem ainda não descrita, ou reenfileirá-los quando a imagem for descrita.
-2. **Credencial de visão ausente vira "todas as imagens falharam".** O `except Exception` final de `describe_pending_assets` captura também `LLMUnavailableError`, e cada imagem é marcada `failed`. O resto do projeto adota *fail-fast* para indisponibilidade de LLM (ADR-045). Aqui, o extract segue em frente sem imagens — e o operador precisa saber que existe `retry-failed --assets`.
+2. **Credencial de visão ausente vira "todas as imagens falharam".** O `except Exception` final de `describe_pending_assets` captura também `LLMUnavailableError`, e cada imagem é marcada `failed`. O resto do projeto adota *fail-fast* para indisponibilidade de LLM (ADR-059). Aqui, o extract segue em frente sem imagens — e o operador precisa saber que existe `retry-failed --assets`.
 
 Um detalhe menor: a chave de cache da visão (`prompt|imagem|contexto|modelo|idioma`) não inclui provider, temperatura nem *thinking*, ao contrário da chave do Prompt 1. Trocar de provedor mantendo o nome do modelo reutilizaria descrições antigas.
 
@@ -316,7 +316,7 @@ E uma instrução que cria trabalho para o parser: "para conceitos sempre inclua
 | filtro descarta todos os candidatos | `_check_candidate` | `rejected`, sem draft, **sem motivo visível** (achado #1) | sim |
 | `force` sem candidato utilizável | `_process_chunk` | `failed` + flag mantida + cache apagado | sim |
 | imagem: 429 esgotado | `describe_pending_assets` | imagem fica `pending`; aborta após N seguidos | sim (sem imagens) |
-| imagem: credencial ausente | idem | **todas** as imagens `failed` | sim (contra ADR-045) |
+| imagem: credencial ausente | idem | **todas** as imagens `failed` | sim (contra ADR-059) |
 
 ```mermaid
 flowchart TD
@@ -425,7 +425,7 @@ Isso é o que separa uma decisão de engenharia de um palpite: o critério, o li
 | **P0** | Tirar a auto-aprovação do `run-all` da web (ou exigir confirmação explícita) até haver sinal validado | Teste do job; documentação no ADR-017 |
 | **P1** | Gravar respostas que falharam no parse (texto + erro) e corrigir `extract_json` para não capturar cercas internas | Teste com bloco de código dentro de string; diretório de falhas populado |
 | **P1** | Pré-voo com o prompt **preenchido** (few-shots) e saída calibrada pelo histórico de `runs` | Estimativa vs `runs` com erro < 10% |
-| **P1** | Imagens: não extrair chunk cuja imagem vizinha está pendente; `LLMUnavailableError` na visão interrompe (ADR-045) | Teste com lote de imagens abortado; teste sem credencial |
+| **P1** | Imagens: não extrair chunk cuja imagem vizinha está pendente; `LLMUnavailableError` na visão interrompe (ADR-059) | Teste com lote de imagens abortado; teste sem credencial |
 | **P2** | Medir `responseSchema` no gold set (pré-registrado) | Regra do ADR-050 |
 | **P2** | Cache explícito do prefixo e/ou modo batch para reprocessamentos; workers paralelos | Custo e tempo por chunk antes/depois |
 | **P2** | Sinal de suporte citação→tese por NLI, medido contra o gold set | AUC com IC (procedimento do ADR-017) |

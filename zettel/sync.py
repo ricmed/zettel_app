@@ -384,8 +384,10 @@ def _sync_pipeline_granular_literature(
     """Keep a pipeline granular LIT's SQLite path in sync without re-adopting it.
 
     The vault frontmatter uses ``status: approved`` after review; the chunk row
-    is ``persisted``. Never copy the YAML status back onto the row. Skip when
-    path and literature_id already match so a no-op run is not counted updated.
+    is ``persisted``. Never copy the YAML status back onto the row, and never
+    copy an edited draft body onto ``candidate_json``: that copy happens only
+    at approval (#269). Skip when path and literature_id already match so a
+    no-op run is not counted updated.
     """
     chunk = db.get_chunk(chunk_id)
     if not chunk:

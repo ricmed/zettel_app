@@ -98,8 +98,8 @@ def corroborating_note_ids(
     for hit in similar:
         if hit.hop != 0 or hit.vector_distance is None or hit.note_id == note_id:
             continue
-        similarity = 1.0 - hit.vector_distance / 2.0
-        if similarity < threshold:
+        similarity = hit.similarity
+        if similarity is None or similarity < threshold:
             continue
         other = (db.get_note(hit.note_id) or {}).get("source_id") or ""
         if not other or other == source_id:

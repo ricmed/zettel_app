@@ -63,6 +63,9 @@ class FakeVectorIndex:
     def existing_ids(self, collection_name, ids):
         return {cid for cid in ids if cid in self.upserted_chunks}
 
+    def chunk_ids_for_source(self, source_id):
+        return set(self.upserted_chunks)
+
 
 @pytest.fixture
 def db(tmp_path):
