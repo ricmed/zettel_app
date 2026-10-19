@@ -607,6 +607,75 @@ def test_edited_draft_thesis_reaches_candidate_json_and_bad_anchor_is_refused(en
     assert json.loads(db.get_concept("c1")["candidate_json"])["thesis"].startswith("Tese reescrita")
 
 
+def test_partial_approval_keeps_the_edited_candidate_line(env):
+    from zettel.review import decide_concepts
+    from zettel.vault import build_literature_chunk_note, safe_write_note
+
+    cfg, db, idx = env
+    chunk_id = "@Book2024::ch000::abc"
+    first = {
+        "thesis": "Primeira tese permanece no rascunho",
+        "definition": "Definicao autonoma com palavras suficientes para o schema.",
+        "anchor_quote": "texto",
+        "relevance_score": 4,
+    }
+    second = {
+        "thesis": "Segunda tese original do candidato",
+        "definition": "Outra definicao autonoma com palavras suficientes para o schema.",
+        "anchor_quote": "texto do chunk",
+        "relevance_score": 3,
+    }
+    db.update_chunk_review(
+        chunk_id,
+        summary_json=json.dumps({"summary": "Um resumo", "candidates": [first, second]}),
+    )
+    for concept_id, candidate in (("c1", first), ("c2", second)):
+        db.upsert_concept(
+            concept_id,
+            "@Book2024",
+            chunk_id,
+            candidate_json=json.dumps(candidate),
+            status="awaiting_review",
+        )
+    chunk = db.get_chunk(chunk_id)
+    meta, body = build_literature_chunk_note(
+        source_id="@Book2024",
+        citekey="Book2024",
+        title="Livro Teste",
+        chunk_id=chunk_id,
+        chunk_index=3,
+        literature_id="lit123",
+        summary="Um resumo",
+        key_concepts=["conceito"],
+        candidates=[first, second],
+        section_path="Ch1 > Intro",
+        source_text=chunk["text"],
+        page_in_file=20,
+        page_in_book=10,
+        status="awaiting_review",
+        review_confidence=0.9,
+    )
+    body = body.replace(second["thesis"], "Tese reescrita do segundo candidato")
+    body = body.replace(second["anchor_quote"], "uma frase que o chunk nao contem")
+    safe_write_note(Path(chunk["literature_note_path"]), meta, body)
+
+    outcome = decide_concepts(cfg, db, idx, {"c1": "reject", "c2": "approve"})
+    assert outcome["refused"] == ["c2"]
+    assert db.get_concept("c1")["status"] == "rejected"
+    assert db.get_concept("c2")["status"] == "awaiting_review"
+    stored = json.loads(db.get_concept("c2")["candidate_json"])
+    assert stored["thesis"] == "Tese reescrita do segundo candidato"
+    assert stored["anchor_quote"] == second["anchor_quote"]
+
+    body = body.replace("uma frase que o chunk nao contem", second["anchor_quote"])
+    safe_write_note(Path(chunk["literature_note_path"]), meta, body)
+    outcome = decide_concepts(cfg, db, idx, {"c2": "approve"})
+    assert outcome["persisted"] == [chunk_id]
+    assert json.loads(db.get_concept("c2")["candidate_json"])["thesis"].startswith("Tese reescrita")
+    approved = Path(db.get_chunk(chunk_id)["literature_note_path"]).read_text(encoding="utf-8")
+    assert "Tese reescrita do segundo candidato" in approved
+
+
 def test_format_review_item_includes_summary_and_chunk_text():
     chunk = {
         "chunk_id": "@Duan2026::ch002::7c9b6704",

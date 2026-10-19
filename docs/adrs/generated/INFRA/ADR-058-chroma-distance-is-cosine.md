@@ -49,7 +49,7 @@ The last one is inert while layer 5 is off. It is converted so turning the flag 
 
 ## Reindex
 
-Not required for a vault whose collections were built with the embedding adapter: they are already cosine (the audit measured that), and `get_or_create` does not change the space of an existing collection. Required when a collection reports a space other than `cosine` (the startup warning names `zettel reindex --force`). Creating the collections with an explicit space does not rewrite stored vectors.
+Not required for a vault whose collections were built with the embedding adapter: they are already cosine (the audit measured that), and `get_or_create` does not change the space of an existing collection. Required when a collection reports a space other than `cosine`. `zettel reindex --force --collection <nome>` recreates one collection, so the others can stay on the old space. Each query result carries `distance_space` from the collection that produced the distance; the startup warning lists every collection that is not cosine. Creating the collections with an explicit space does not rewrite stored vectors.
 
 ## Consequences
 

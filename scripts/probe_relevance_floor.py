@@ -76,11 +76,11 @@ OFF_DOMAIN_QUERIES = [
 MIN_NOTES_FOR_SUGGESTION = 30
 
 
-def _cosine(idx: VectorIndex, distance: float) -> float:
+def _cosine(idx: VectorIndex, distance: float, collection: Any) -> float:
     """Same conversion the Retriever uses (``zettel.similarity``)."""
     from zettel.similarity import cosine_from_distance
 
-    return cosine_from_distance(distance, idx.distance_space)
+    return cosine_from_distance(distance, idx.collection_space(collection))
 
 
 def l2_norm(vector: list[float]) -> float:
@@ -163,11 +163,12 @@ def target_collection(idx: VectorIndex, name: str) -> Any:
 
 def top1_similarity(idx: VectorIndex, query: str, collection: str) -> float | None:
     """Top-1 cosine similarity of ``query`` against the probed collection."""
-    res = target_collection(idx, collection).query(query_texts=[query], n_results=1)
+    col = target_collection(idx, collection)
+    res = col.query(query_texts=[query], n_results=1)
     distances = res.get("distances") or [[]]
     if not distances[0]:
         return None
-    return _cosine(idx, distances[0][0])
+    return _cosine(idx, distances[0][0], col)
 
 
 def load_note_titles(db: StateDB, limit: int) -> list[str]:

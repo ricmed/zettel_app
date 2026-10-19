@@ -1239,7 +1239,9 @@ def deduplicate_candidates(
                 continue
 
             closest_distance = same_source[0].get("distance", 999)
-            space = getattr(idx, "distance_space", "cosine")
+            space = same_source[0].get("distance_space")
+            if not isinstance(space, str):
+                space = getattr(idx, "distance_space", "cosine")
             if not isinstance(space, str):
                 space = "cosine"
             closest_cosine = cosine_from_distance(float(closest_distance), space)

@@ -84,7 +84,9 @@ def find_semantic_duplicate_candidates(
         distance = m.get("distance")
         if distance is None:
             continue
-        space = getattr(idx, "distance_space", "cosine")
+        space = m.get("distance_space")
+        if not isinstance(space, str):
+            space = getattr(idx, "distance_space", "cosine")
         if not isinstance(space, str):
             space = "cosine"
         similarity = cosine_from_distance(float(distance), space)

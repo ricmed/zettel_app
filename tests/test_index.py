@@ -92,6 +92,25 @@ def test_query_similar_notes_filters_by_source_id(tmp_path, monkeypatch):
     assert [hit["id"] for hit in hits] == ["same"]
 
 
+def test_chapter_summary_distance_uses_that_collections_space(tmp_path, monkeypatch):
+    """A reindex of one collection must not convert its distances as another."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
+    idx = VectorIndex(tmp_path / "chroma", "provider-invalido", "m", allow_fallback=True)
+    idx.client.delete_collection("chapter_summaries")
+    kwargs = idx._collection_kwargs()
+    kwargs["configuration"] = {"hnsw": {"space": "l2"}}
+    idx.chapter_summaries = idx.client.get_or_create_collection("chapter_summaries", **kwargs)
+    assert idx.distance_space == "cosine"
+    assert idx.collection_space(idx.chapter_summaries) == "l2"
+    idx.upsert_chapter_summary("ch1", "resumo do capitulo sobre grafos", {"source_id": "@S"})
+    hits = idx.query_chapter_summaries("resumo do capitulo sobre grafos", n_results=1)
+    assert hits[0]["distance_space"] == "l2"
+    idx.upsert_permanent_note("n1", "grafos de conhecimento", {"source_id": "@S"})
+    notes = idx.query_similar_notes("grafos de conhecimento", n_results=1)
+    assert notes[0]["distance_space"] == "cosine"
+
+
 def test_vector_index_declares_cosine_space(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)

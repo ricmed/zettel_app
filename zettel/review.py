@@ -1289,11 +1289,54 @@ def _draft_candidate_lines(body: str) -> tuple[list[str], list[str]]:
     return theses, quotes
 
 
+def _draft_line_indexes(db: StateDB, chunk: dict, theses: list[str]) -> dict[str, int]:
+    """Checklist line of each concept. The draft lists every candidate.
+
+    Order is ``summary_json.candidates``. A concept keeps that line when the
+    caller approves only some of them. The thesis still stored on the concept
+    is the line's original text. A thesis already copied from the draft matches
+    the edited line instead.
+    """
+    catalog = [
+        str(item.get("thesis") or "")
+        for item in (_load_json(chunk.get("summary_json")).get("candidates") or [])
+        if isinstance(item, dict)
+    ]
+    used: set[str] = set()
+    indexes: dict[str, int] = {}
+    rows = db.get_concepts_for_chunk(chunk["chunk_id"])
+    for index, thesis in enumerate(catalog):
+        for concept in rows:
+            concept_id = concept["concept_id"]
+            if concept_id in used:
+                continue
+            stored = str(_load_json(concept.get("candidate_json")).get("thesis") or "")
+            if stored == thesis:
+                indexes[concept_id] = index
+                used.add(concept_id)
+                break
+    taken = set(indexes.values())
+    for concept in rows:
+        concept_id = concept["concept_id"]
+        if concept_id in indexes:
+            continue
+        stored = str(_load_json(concept.get("candidate_json")).get("thesis") or "")
+        matches = [
+            index for index, line in enumerate(theses) if line == stored and index not in taken
+        ]
+        if len(matches) == 1:
+            indexes[concept_id] = matches[0]
+            taken.add(matches[0])
+    return indexes
+
+
 def _apply_draft_edits(cfg: AppConfig, db: StateDB, chunk: dict, concepts: list[dict]) -> set[str]:
     """Copy thesis and anchor edits from the draft into ``candidate_json``.
 
     An anchor that is no longer in the chunk text is refused: that concept
     stays ``awaiting_review`` and is not approved (#269, option a).
+    Each concept reads its own checklist line. Approving one of several
+    candidates still sees the line the draft wrote for it.
     """
     draft_path_str = chunk.get("literature_note_path")
     if not draft_path_str or not concepts:
@@ -1303,19 +1346,32 @@ def _apply_draft_edits(cfg: AppConfig, db: StateDB, chunk: dict, concepts: list[
         return set()
     _meta, body = parse_frontmatter(draft_path.read_text(encoding="utf-8"))
     theses, quotes = _draft_candidate_lines(body)
-    if len(theses) != len(concepts):
+    indexes = _draft_line_indexes(db, chunk, theses)
+    catalog_len = len(_load_json(chunk.get("summary_json")).get("candidates") or [])
+    if catalog_len and len(theses) != catalog_len:
         logger.warning(
-            "Chunk %s: o draft tem %d teses e %d conceitos; edicoes nao foram copiadas",
+            "Chunk %s: o draft tem %d teses e o resumo tem %d candidatos",
             chunk["chunk_id"],
             len(theses),
-            len(concepts),
+            catalog_len,
         )
-        return set()
     refused: set[str] = set()
     chunk_text = chunk.get("text") or ""
     ratio = cfg.extraction.anchor_quote_min_ratio
-    aligned_quotes = quotes if len(quotes) == len(concepts) else [""] * len(concepts)
-    for concept, thesis, quote in zip(concepts, theses, aligned_quotes, strict=True):
+    same_length = len(theses) == len(concepts)
+    for position, concept in enumerate(concepts):
+        index = indexes.get(concept["concept_id"])
+        if index is None and same_length:
+            index = position
+        if index is None or index >= len(theses):
+            logger.warning(
+                "Chunk %s: conceito %s sem linha correspondente no draft",
+                chunk["chunk_id"],
+                concept["concept_id"],
+            )
+            continue
+        thesis = theses[index]
+        quote = quotes[index] if index < len(quotes) else ""
         try:
             cand = PermanentNoteCandidate(**_load_json(concept.get("candidate_json")))
         except Exception:

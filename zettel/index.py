@@ -638,29 +638,51 @@ class VectorIndex:
 
     @property
     def distance_space(self) -> str:
-        """HNSW space of ``permanent_notes`` (every collection is created alike)."""
-        config = getattr(self.permanent, "configuration", None) or {}
+        """HNSW space of ``permanent_notes``.
+
+        Other collections can differ after ``reindex --force --collection``.
+        Query results carry ``distance_space`` for the collection that produced
+        the distance; use that value to convert.
+        """
+        return self.collection_space(self.permanent)
+
+    def collection_space(self, collection: Any) -> str:
+        """HNSW space reported by one Chroma collection (``cosine`` or ``l2``)."""
+        config = getattr(collection, "configuration", None) or {}
         hnsw = config.get("hnsw") or {}
         space = hnsw.get("space")
+        name = getattr(collection, "name", None) or "chroma"
         if space not in ("cosine", "l2"):
-            raise RuntimeError(
-                f"Colecao permanent_notes sem espaco hnsw conhecido (obtido: {space!r})."
-            )
+            raise RuntimeError(f"Colecao {name} sem espaco hnsw conhecido (obtido: {space!r}).")
         return str(space)
 
+    def _stamp_distance(self, entry: dict[str, Any], collection: Any, distance: float) -> None:
+        entry["distance"] = distance
+        entry["distance_space"] = self.collection_space(collection)
+
     def to_cosine(self, distance: float) -> float:
-        """Cosine similarity for a distance this index just returned."""
+        """Cosine similarity for a ``permanent_notes`` distance."""
         return cosine_from_distance(distance, self.distance_space)
 
     def _warn_if_distance_space_drifted(self) -> None:
-        space = self.distance_space
-        if space == HNSW_SPACE:
+        drifted: list[str] = []
+        for name, collection in (
+            (COL_SOURCES, self.sources),
+            (COL_CHUNKS, self.chunks),
+            (COL_PERMANENT, self.permanent),
+            (COL_MOCS, self.mocs_col),
+            (COL_CHAPTER_SUMMARIES, self.chapter_summaries),
+        ):
+            if self.collection_space(collection) != HNSW_SPACE:
+                drifted.append(f"{name}={self.collection_space(collection)}")
+        if not drifted:
             return
         logger.warning(
-            "Colecoes Chroma estao no espaco %s; os limiares de similaridade significam "
-            "cosseno. Rode `zettel reindex --force` para recria-las em %s.",
-            space,
+            "Colecoes Chroma fora do espaco %s: %s. Os limiares de similaridade "
+            "significam cosseno. Rode `zettel reindex --force --collection <nome>` "
+            "em cada uma.",
             HNSW_SPACE,
+            ", ".join(drifted),
         )
 
     def _ensure_collections(self) -> None:
@@ -862,7 +884,7 @@ class VectorIndex:
             if results["metadatas"] and results["metadatas"][0]:
                 entry["metadata"] = results["metadatas"][0][i]
             if results["distances"] and results["distances"][0]:
-                entry["distance"] = results["distances"][0][i]
+                self._stamp_distance(entry, self.permanent, results["distances"][0][i])
             output.append(entry)
         return output[:n_results]
 
@@ -912,7 +934,7 @@ class VectorIndex:
             if results["metadatas"] and results["metadatas"][0]:
                 entry["metadata"] = results["metadatas"][0][i]
             if results["distances"] and results["distances"][0]:
-                entry["distance"] = results["distances"][0][i]
+                self._stamp_distance(entry, self.permanent, results["distances"][0][i])
             output.append(entry)
         return output
 
@@ -941,8 +963,9 @@ class VectorIndex:
         """Nearest chapter summaries to ``query_text``.
 
         Same result shape as :meth:`query_similar_notes` (``id`` / ``document``
-        / ``metadata`` / ``distance``) so the Retriever can fuse both pools with
-        one code path.
+        / ``metadata`` / ``distance`` / ``distance_space``) so the Retriever can
+        fuse both pools with one code path. ``distance_space`` is this
+        collection's HNSW space, which can differ from ``permanent_notes``.
         """
         from zettel.llm import clip_text
 
@@ -975,7 +998,7 @@ class VectorIndex:
             if results["metadatas"] and results["metadatas"][0]:
                 entry["metadata"] = results["metadatas"][0][i]
             if results["distances"] and results["distances"][0]:
-                entry["distance"] = results["distances"][0][i]
+                self._stamp_distance(entry, self.chapter_summaries, results["distances"][0][i])
             output.append(entry)
         return output
 
@@ -1026,7 +1049,7 @@ class VectorIndex:
                 if raw.get("metadatas") and raw["metadatas"][qi]:
                     entry["metadata"] = raw["metadatas"][qi][i]
                 if raw.get("distances") and raw["distances"][qi]:
-                    entry["distance"] = raw["distances"][qi][i]
+                    self._stamp_distance(entry, self.chunks, raw["distances"][qi][i])
                 results.append(entry)
         return results
 

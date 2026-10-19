@@ -136,6 +136,12 @@ class NoteSearchResult:
     candidates: list[RetrievedNote] = field(default_factory=list)
 
 
+def _hit_distance_space(hit: dict, fallback: str) -> str:
+    """Space of the collection that produced this hit, else the notes collection."""
+    space = hit.get("distance_space")
+    return space if isinstance(space, str) else fallback
+
+
 class Retriever:
     """Compose vector search, BM25 search and graph expansion behind one API."""
 
@@ -146,7 +152,7 @@ class Retriever:
         self._warned_no_fts = False
 
     def _distance_space(self) -> str:
-        """Space of the index that produced the distances being fused.
+        """Space of ``permanent_notes`` when a hit does not name its own.
 
         A stub index used in tests has no space; production collections are
         cosine (ADR-058). A non-string attribute (a mock) is ignored.
@@ -278,7 +284,7 @@ class Retriever:
             rc = merged.setdefault(cid, RetrievedChapter(chapter_id=cid, score=0.0))
             rc.vector_rank = rank
             rc.vector_distance = hit.get("distance")
-            rc.distance_space = self._distance_space()
+            rc.distance_space = _hit_distance_space(hit, self._distance_space())
             if hit.get("document"):
                 rc.document = hit["document"]
             if hit.get("metadata"):
@@ -604,7 +610,7 @@ class Retriever:
             rn = merged.setdefault(nid, RetrievedNote(note_id=nid, score=0.0))
             rn.vector_rank = rank
             rn.vector_distance = hit.get("distance")
-            rn.distance_space = self._distance_space()
+            rn.distance_space = _hit_distance_space(hit, self._distance_space())
             if hit.get("document"):
                 rn.document = hit["document"]
             if hit.get("metadata"):
