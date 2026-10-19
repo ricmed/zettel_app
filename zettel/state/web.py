@@ -307,6 +307,9 @@ class WebMixin(StateBase):
         stats["concepts_dedupe_pending"] = self._count(
             "SELECT COUNT(*) FROM concepts WHERE status='dedupe_pending'"
         )
+        stats["concepts_extracted"] = self._count(
+            "SELECT COUNT(*) FROM concepts WHERE status='extracted'"
+        )
         return stats
 
     def get_web_dashboard(

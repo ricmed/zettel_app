@@ -35,11 +35,23 @@ async def review(
 ):
     if not authenticated(request):
         return redirect_login()
-    queue = "rejected" if queue == "rejected" else "drafts"
+    queue = queue if queue in {"rejected", "duplicates"} else "drafts"
     db = service(request).db()
     try:
+        from zettel.review import format_dedupe_item, pending_dedupe_concepts
+
         sources = db.list_sources()
-        if queue == "rejected":
+        duplicate_count = len(pending_dedupe_concepts(db, source_id or None))
+        if queue == "duplicates":
+            enriched = [
+                {
+                    "concept_id": concept["concept_id"],
+                    "card": format_dedupe_item(db, concept),
+                }
+                for concept in pending_dedupe_concepts(db, source_id or None)
+            ]
+            page_size = _DRAFT_PAGE_SIZE
+        elif queue == "rejected":
             from zettel.review import extract_rejected_chunks
 
             enriched = []
@@ -58,15 +70,36 @@ async def review(
                 )
             page_size = _REJECTED_PAGE_SIZE
         else:
+            from zettel.review import highlight_spans, ordered_review_concepts
+
             chunks = db.get_chunks_by_status("awaiting_review", source_id or None)
             enriched = []
             for chunk in chunks:
                 summary = _summary(chunk)
+                concepts = []
+                for concept in ordered_review_concepts(db, chunk):
+                    cand = _summary({"summary_json": concept.get("candidate_json")})
+                    concepts.append(
+                        {
+                            "concept_id": concept["concept_id"],
+                            "thesis": cand.get("thesis") or "",
+                            "definition": cand.get("definition") or "",
+                            "intuition": cand.get("intuition") or "",
+                            "limits": cand.get("limits") or "",
+                            "relevance_score": cand.get("relevance_score"),
+                            "anchor_quote": cand.get("anchor_quote") or "",
+                        }
+                    )
+                text = chunk.get("text") or ""
                 enriched.append(
                     {
                         **chunk,
                         "summary": summary.get("summary", ""),
-                        "candidates": summary.get("candidates", []),
+                        "concepts": concepts,
+                        "rejected_candidates": summary.get("rejected_candidates") or [],
+                        "excerpt_parts": highlight_spans(
+                            text, [item["anchor_quote"] for item in concepts]
+                        ),
                     }
                 )
             from zettel.review import BAND_HIGH, BAND_MEDIUM, BAND_VERY_LOW, filter_chunks_by_band
@@ -94,6 +127,7 @@ async def review(
         page_count=page_count,
         has_next=page * page_size < total,
         queue=queue,
+        duplicate_count=duplicate_count,
     )
 
 
@@ -103,7 +137,21 @@ async def review_action(
     action: str = Form(...),
     csrf: str = Form(""),
     chunk_ids: list[str] = Form(default=[]),
+    concept_ids: list[str] = Form(default=[]),
 ):
-    if action not in {"approve", "reject", "requeue", "discard", "force"}:
+    if action not in {
+        "approve",
+        "reject",
+        "requeue",
+        "discard",
+        "force",
+        "keep_duplicate",
+        "discard_duplicate",
+    }:
         return HTMLResponse("Ação inválida", status_code=400)
-    return post_job(request, "review", {"action": action, "chunk_ids": chunk_ids}, csrf)
+    return post_job(
+        request,
+        "review",
+        {"action": action, "chunk_ids": chunk_ids, "concept_ids": concept_ids},
+        csrf,
+    )

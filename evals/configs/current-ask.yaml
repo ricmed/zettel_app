@@ -28,8 +28,8 @@ retrieval_params:
   topk: 8
   rrf_k: 60
   relevance_floor_enabled: true
-  min_vector_similarity: 0.70
-  absolute_min_similarity: 0.15
+  min_vector_similarity: 0.40
+  absolute_min_similarity: -0.70
   bm25_hit_bypasses_floor: true
   bm25_bypass_max_rank: 5
   topic_index_boost: true

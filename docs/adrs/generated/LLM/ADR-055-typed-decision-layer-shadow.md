@@ -2,7 +2,7 @@
 
 **Status**: Accepted (2026-10-06)  
 **Depends on**: [ADR-024](./ADR-024-multi-provider-llm-strategy.md), [ADR-054](../INFRA/ADR-054-statedb-as-python-package.md)  
-**Relates to**: [ADR-016](../REVIEW/ADR-016-post-approval-concept-deduplication-timing.md), [ADR-019](../GARDEN/ADR-019-taxonomy-first-moc-clustering.md), [ADR-028](../QA-WRITING/ADR-028-langgraph-stategraph-article-orchestration.md), [ADR-038](../QA-WRITING/ADR-038-ask-trajectory-evals-offline-replay.md), [ADR-045](./ADR-045-fail-fast-on-llm-unavailability.md), [ADR-049](../EXTRACT/ADR-049-no-pre-llm-gate-on-extract.md), [ADR-050](../EXTRACT/ADR-050-extract-model-chosen-against-gold-set.md)
+**Relates to**: [ADR-016](../REVIEW/ADR-016-post-approval-concept-deduplication-timing.md), [ADR-019](../GARDEN/ADR-019-taxonomy-first-moc-clustering.md), [ADR-028](../QA-WRITING/ADR-028-langgraph-stategraph-article-orchestration.md), [ADR-038](../QA-WRITING/ADR-038-ask-trajectory-evals-offline-replay.md), [ADR-059](./ADR-059-fail-fast-on-llm-unavailability.md), [ADR-049](../EXTRACT/ADR-049-no-pre-llm-gate-on-extract.md), [ADR-050](../EXTRACT/ADR-050-extract-model-chosen-against-gold-set.md)
 
 ## Context
 
@@ -52,7 +52,7 @@ zettel/decision/
 ### Rules
 
 1. **Not an LLM phase.** The client does not go through `get_llm`/`call_llm`, and `decision` is not in `LLM_PHASES`. The SDK (`typesafe-sdk`) is imported lazily, so `zettel --help` does not load it.
-2. **Fail-open, the opposite of ADR-045.** A missing package, a missing `TYPESAFE_API_KEY` or an API error becomes `DecisionResult(error=...)` and is written to the row. ADR-045 fails fast because a pipeline without its LLM produces nothing. A shadow without its model only loses an observation. Unavailability is decided once per process and warned once.
+2. **Fail-open, the opposite of ADR-059.** A missing package, a missing `TYPESAFE_API_KEY` or an API error becomes `DecisionResult(error=...)` and is written to the row. ADR-059 fails fast because a pipeline without its LLM produces nothing. A shadow without its model only loses an observation. Unavailability is decided once per process and warned once.
 3. **Pinned model.** `decision.model` is `jev-1.13.0`, never `jev-latest`, so the report never mixes two distributions.
 4. **Order permutations in one request.** Every `choice` is asked `decision.order_permutations` times (default 3), with its options rotated so a different one leads each copy.
    - The copies cost no latency, since they are parallel questions on the same state.

@@ -29,7 +29,7 @@ Gemini also differs from the three existing providers in two ways that matter fo
 * Good, because switching to Gemini is a config change (`provider: gemini`, `model: gemini-embedding-001`, `dimensions: 768|1536|3072`) followed by the existing drift flow (`reindex --force`).
 * Good, because the unit-norm assumption behind every similarity threshold is now enforced by the adapter instead of hoped for.
 * Neutral, because the vector-space identity is still `provider/model/dimensions`; `task_type` and normalization are fixed per provider, so they need no marker of their own.
-* Bad, because thresholds do not transfer between models: `retrieval.relevance_floor`, `retrieval.chapter_floor`, `linking.dedupe_threshold` and `linking.corroborates_min_similarity` must be re-measured with `scripts/probe_relevance_floor.py` after a switch. The probe already measures through `collection.query`, i.e. the production query side.
+* Bad, because thresholds do not transfer between models: `retrieval.relevance_floor`, `retrieval.chapter_floor`, `linking.dedupe_threshold` and `linking.corroborates_min_similarity` must be re-measured with `scripts/probe_relevance_floor.py` after a switch. The probe already measures through `collection.query`, i.e. the production query side. Those thresholds are cosine (ADR-058), not `1 − d/2`.
 * Bad, because with an asymmetric model every `collection.query` embeds its text as a question — including connect's RAG search, where the "question" is a candidate note. `corroborates_min_similarity` (0.85) and the dedupe thresholds were measured on a symmetric model and are likely too strict under Gemini until re-measured.
 
 ## References

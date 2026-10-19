@@ -216,7 +216,7 @@ O código já documenta o caso `bem-\nvindo`; os de **dígito** e de composto co
 `build_bibliographic_metadata` roda três estágios:
 
 1. **Heurística** (`infer_from_file_metadata`): metadados do arquivo + palavras-chave na amostra e no nome do arquivo escolhem um `document_type` (livro, artigo, tese, capítulo, material de curso…) com confiança inicial de 0,30–0,55.
-2. **LLM** (`enrich_with_llm`): amostra de `biblio_text_sample_chars` = 5.000 caracteres + o seed em JSON. Chamada com **cache determinístico** (`compute_llm_call_checksum` sobre prompt, amostra, seed, modelo, temperatura, idioma, provider, `top_p`, *thinking*). Falhas de parse viram "devolve o seed" — exceto `LLMUnavailableError`, que propaga (política *fail-fast* do ADR-045).
+2. **LLM** (`enrich_with_llm`): amostra de `biblio_text_sample_chars` = 5.000 caracteres + o seed em JSON. Chamada com **cache determinístico** (`compute_llm_call_checksum` sobre prompt, amostra, seed, modelo, temperatura, idioma, provider, `top_p`, *thinking*). Falhas de parse viram "devolve o seed" — exceto `LLMUnavailableError`, que propaga (política *fail-fast* do ADR-059).
 3. **Humano** (`resolve_bibliography`): em modo interativo, **sempre** mostra o preview ABNT e pede confirmação, mesmo se completo; em modo não interativo, completo passa, incompleto pula o arquivo (a menos que `--skip-biblio`).
 
 **Onde isso é frágil:**
@@ -528,7 +528,7 @@ flowchart TD
 **Por que isso é bem projetado.** Há três classes de falha com tratamentos distintos, e a distinção é a parte inteligente:
 
 1. **Falha do arquivo** (scan, Docling quebrou): isolada, reportada, o lote segue. O operador perde um arquivo, não a noite.
-2. **Falha sistêmica** (LLM inacessível): *todo* arquivo falharia do mesmo jeito e gastaria tempo de GPU antes de descobrir, então o lote para e **nada do arquivo corrente foi gravado** (a chamada de LLM precede qualquer escrita). É a política *fail-fast* do ADR-045 aplicada corretamente.
+2. **Falha sistêmica** (LLM inacessível): *todo* arquivo falharia do mesmo jeito e gastaria tempo de GPU antes de descobrir, então o lote para e **nada do arquivo corrente foi gravado** (a chamada de LLM precede qualquer escrita). É a política *fail-fast* do ADR-059 aplicada corretamente.
 3. **Decisão humana** (abort): estado parcial legítimo e documentado.
 
 **Lacunas**: (a) nenhuma *transação* envolve o par SQLite + vault + Chroma; a recuperação é por idempotência (re-rodar), não por *rollback*. Aceitável para um vault de desenvolvimento ("pode ser reiniciado à vontade", diz o CLAUDE.md) mas é a razão do achado #2. (b) `except Exception: pass` em torno dos metadados de origem do Docling engole qualquer erro de leitura de título/autor — perda silenciosa de metadado, sem log. (c) Não encontrei *timeout* por arquivo na conversão: um PDF patológico pode travar o lote.

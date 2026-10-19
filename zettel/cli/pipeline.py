@@ -140,12 +140,15 @@ def _run_all_phases(
         cfg,
         db,
         idx,
+        source_ids=list(harvest_outcome.source_ids),
         auto_approve=auto_approve,
         interactive=interactive and not yes and not auto_approve,
+        event_mode="run_all" if auto_approve else None,
+        surface="cli",
     )
     console.print(
-        f"  Aprovados: {rev['approved']} | Rejeitados: {rev['rejected']} | "
-        f"Pulados: {rev['skipped']}"
+        f"  Aprovados: {rev['approved']} (por limiar: {rev.get('approved_threshold', 0)}) | "
+        f"Rejeitados: {rev['rejected']} | Pulados: {rev['skipped']}"
     )
     from zettel.review import review_followups
 

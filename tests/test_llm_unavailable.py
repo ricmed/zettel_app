@@ -1,4 +1,4 @@
-"""Fail-fast when the configured LLM is unreachable (ADR-045)."""
+"""Fail-fast when the configured LLM is unreachable (ADR-059)."""
 
 from __future__ import annotations
 

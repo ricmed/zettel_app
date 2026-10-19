@@ -40,6 +40,28 @@ def test_parse_dedupe_result_create_new():
     assert result.target_note_id is None
 
 
+def test_checked_dedupe_result_repairs_a_wrapped_id_and_refuses_a_stranger():
+    from zettel.schemas import checked_dedupe_result, resolve_dedupe_result
+
+    compared = {"01NOTE"}
+    kept = checked_dedupe_result(
+        {
+            "decision": "ignore",
+            "target_note_id": "veja [[01NOTE]]",
+            "reason": "repete",
+        },
+        compared,
+    )
+    assert kept.target_note_id == "01NOTE"
+    replaced, fell_back = resolve_dedupe_result(
+        {"decision": "ignore", "target_note_id": None, "reason": "repete"},
+        compared,
+    )
+    assert fell_back is True
+    assert replaced.decision.value == "create_new"
+    assert replaced.target_note_id is None
+
+
 def test_parse_dedupe_result_from_json():
     raw = '{"decision": "ignore", "target_note_id": null, "reason": "Duplicata exata"}'
     data = json.loads(raw)

@@ -6,7 +6,7 @@ import logging
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +165,50 @@ class DedupeResult(BaseModel):
     decision: DedupeDecision
     target_note_id: str | None = None
     reason: str = ""
+
+
+_DEDUPE_NEEDS_TARGET = {
+    DedupeDecision.IGNORE,
+    DedupeDecision.REFINE_EXISTING,
+    DedupeDecision.MERGE,
+}
+
+
+def checked_dedupe_result(data: dict, compared_ids: set[str]) -> DedupeResult:
+    """Parse a dedupe answer and require a target that was actually compared.
+
+    One repair: if the model wrapped the id, keep the compared id that appears
+    inside the string. Still missing or foreign, raise. Production keeps the
+    loose ``DedupeResult`` until the #273 contract rule adopts this check.
+    """
+    result = DedupeResult.model_validate(data)
+    if result.decision == DedupeDecision.CREATE_NEW:
+        return result.model_copy(update={"target_note_id": None})
+    target = (result.target_note_id or "").strip()
+    if target not in compared_ids:
+        target = next((note_id for note_id in compared_ids if note_id and note_id in target), "")
+    if not target:
+        raise ValueError("alvo ausente ou fora das notas comparadas")
+    return result.model_copy(update={"target_note_id": target})
+
+
+def resolve_dedupe_result(data: dict, compared_ids: set[str]) -> tuple[DedupeResult, bool]:
+    """Strict check, then one fallback: ``create_new`` with a warning flag.
+
+    The bool is true when the answer was replaced. Not the production parser
+    until the #273 contract rule says so.
+    """
+    try:
+        return checked_dedupe_result(data, compared_ids), False
+    except (ValueError, ValidationError):
+        return (
+            DedupeResult(
+                decision=DedupeDecision.CREATE_NEW,
+                target_note_id=None,
+                reason="alvo invalido",
+            ),
+            True,
+        )
 
 
 class RelationshipResult(BaseModel):

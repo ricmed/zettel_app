@@ -42,9 +42,9 @@ from typing import Any
 # Run from a clone without installing the package (mirrors scripts/ precedent).
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from zettel.config import AppConfig, load_config  # noqa: E402
-from zettel.extractor import _score_review_confidence  # noqa: E402
-from zettel.schemas import LiteratureChunkOutput  # noqa: E402
+from zettel.config import AppConfig, load_config
+from zettel.extractor import _score_review_confidence
+from zettel.schemas import LiteratureChunkOutput
 
 # Chunks the scorer short-circuits before any term is computed. Keeping them out
 # of the distribution stats is the point: they are policy constants (0.1 / 0.2),
@@ -232,7 +232,7 @@ def build_report(scores: list[ChunkScore], cfg: AppConfig, threshold: float) -> 
     current = [s.current for s in scored]
     return {
         "corpus": {
-            "sources": len(({s.source_id for s in scores})),
+            "sources": len({s.source_id for s in scores}),
             "chunks_with_output": len(scores),
             "chunks_scored": len(scored),
             "chunks_short_circuited": len(scores) - len(scored),
@@ -502,6 +502,58 @@ def render(report: dict[str, Any], scores: list[ChunkScore]) -> str:
     return "\n".join(out)
 
 
+def load_review_events(state_db: Path) -> list[dict[str, Any]]:
+    """Rows of ``review_events``. Manual labels only are summarized separately."""
+    conn = sqlite3.connect(str(state_db))
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute("SELECT * FROM review_events ORDER BY event_id").fetchall()
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        conn.close()
+    return [dict(row) for row in rows]
+
+
+def summarize_manual_review_events(
+    events: list[dict[str, Any]], threshold: float
+) -> dict[str, Any]:
+    """Human labels from the review gate. Not mixed into the gold-set AUC."""
+    manual = [
+        event
+        for event in events
+        if event.get("mode") == "manual" and event.get("decision") in {"approve", "reject"}
+    ]
+    approved = [event for event in manual if event["decision"] == "approve"]
+    rejected = [event for event in manual if event["decision"] == "reject"]
+    above = [
+        event
+        for event in manual
+        if event.get("review_confidence") is not None and event["review_confidence"] >= threshold
+    ]
+    rejected_above = [event for event in above if event["decision"] == "reject"]
+    return {
+        "manual": len(manual),
+        "approved": len(approved),
+        "rejected": len(rejected),
+        "reject_above_threshold": len(rejected_above),
+        "decided_above_threshold": len(above),
+        "note": "Rotulos do review, so mode=manual. Nao substituem o gold set.",
+    }
+
+
+def render_manual_review_events(summary: dict[str, Any]) -> str:
+    decided = summary["decided_above_threshold"]
+    rate = (summary["reject_above_threshold"] / decided) if decided else 0.0
+    return (
+        "\nreview_events (so decisoes manuais, separado do gold set)\n"
+        f"  manuais: {summary['manual']}  aprovados: {summary['approved']}  "
+        f"rejeitados: {summary['rejected']}\n"
+        f"  rejeicao acima do limiar: {summary['reject_above_threshold']}/{decided} ({rate:.0%})\n"
+        f"  {summary['note']}"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state-db", type=Path, default=Path("data/state.db"))
@@ -523,6 +575,11 @@ def main() -> int:
         type=Path,
         default=None,
         help="Gabarito da exportacao (#175), ex.: evals/gold/extracao-GABARITO-NAO-ABRIR.json",
+    )
+    parser.add_argument(
+        "--review-events",
+        action="store_true",
+        help="Tambem le rotulos manuais de review_events, separados do gold set",
     )
     args = parser.parse_args()
     if (args.gold_labels is None) != (args.gold_key is None):
@@ -551,6 +608,11 @@ def main() -> int:
     if args.gold_labels:
         report["gold"] = build_gold_report(scores, load_gold(args.gold_labels, args.gold_key))
         print(render_gold(report["gold"]))
+    if args.review_events:
+        report["review_events"] = summarize_manual_review_events(
+            load_review_events(args.state_db), threshold
+        )
+        print(render_manual_review_events(report["review_events"]))
     if args.json:
         args.json.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
         print(f"\nrelatorio JSON: {args.json}")

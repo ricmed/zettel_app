@@ -256,3 +256,11 @@ historical 150-character excerpt was pre-registered in
 * **What would move the number is the prompt, not the budget.** The candidates
   are how many connections Prompt 2 may keep, and how `extends` and `related`
   are defined. That is a separate change with its own measurement, as in #218.
+
+## Addendum (2026-10-18): the floor numbers are cosine (ADR-058)
+
+The 2026-09 measurements (note floor 0.70, chapter floor 0.70, absolute backstop
+0.15) were read with `1 − d/2` on a collection whose distance is `1 − cos`, so
+the printed "similarity" was `(1+cos)/2`. ADR-058 converts them by `2s − 1`
+(0.40, 0.40, −0.70) and does not re-measure. The cuts are the same physical
+pairs. `zettel.similarity.cosine_from_distance` is the only conversion.

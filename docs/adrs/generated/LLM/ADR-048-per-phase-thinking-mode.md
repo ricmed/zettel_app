@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-09-10
 **Depends on:** [ADR-024: Pluggable Multi-Provider LLM Strategy](./ADR-024-multi-provider-llm-strategy.md), [ADR-004: YAML-First Configuration](../INFRA/ADR-004-yaml-first-configuration.md), [ADR-007: Layered Hashing](../INFRA/ADR-007-layered-hashing-strategy.md)
-**Related to:** [ADR-045: Fail-Fast on LLM Unavailability](./ADR-045-fail-fast-on-llm-unavailability.md)
+**Related to:** [ADR-059: Fail-Fast on LLM Unavailability](./ADR-059-fail-fast-on-llm-unavailability.md)
 
 ## Context and Problem Statement
 

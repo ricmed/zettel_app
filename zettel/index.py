@@ -13,6 +13,7 @@ import chromadb
 from chromadb.config import Settings
 
 from zettel.config import AppConfig
+from zettel.similarity import HNSW_SPACE, cosine_from_distance
 
 logger = logging.getLogger(__name__)
 
@@ -619,25 +620,87 @@ class VectorIndex:
                 ) from e
             raise
 
-    def _ensure_collections(self) -> None:
-        kwargs: dict[str, Any] = {"metadata": self._collection_metadata()}
+    def _collection_kwargs(self) -> dict[str, Any]:
+        """Metadata plus an explicit HNSW space.
+
+        The embedding adapter's ``default_space`` is cosine, but a collection
+        created without ``configuration`` follows Chroma's own default (``l2``)
+        when no adapter is attached. Declaring the space here is what makes
+        ``distance_space`` and the config thresholds the same number.
+        """
+        kwargs: dict[str, Any] = {
+            "metadata": self._collection_metadata(),
+            "configuration": {"hnsw": {"space": HNSW_SPACE}},
+        }
         if self.embedding_fn:
             kwargs["embedding_function"] = self.embedding_fn
+        return kwargs
+
+    @property
+    def distance_space(self) -> str:
+        """HNSW space of ``permanent_notes``.
+
+        Other collections can differ after ``reindex --force --collection``.
+        Query results carry ``distance_space`` for the collection that produced
+        the distance; use that value to convert.
+        """
+        return self.collection_space(self.permanent)
+
+    def collection_space(self, collection: Any) -> str:
+        """HNSW space reported by one Chroma collection (``cosine`` or ``l2``)."""
+        config = getattr(collection, "configuration", None) or {}
+        hnsw = config.get("hnsw") or {}
+        space = hnsw.get("space")
+        name = getattr(collection, "name", None) or "chroma"
+        if space not in ("cosine", "l2"):
+            raise RuntimeError(f"Colecao {name} sem espaco hnsw conhecido (obtido: {space!r}).")
+        return str(space)
+
+    def _stamp_distance(self, entry: dict[str, Any], collection: Any, distance: float) -> None:
+        entry["distance"] = distance
+        entry["distance_space"] = self.collection_space(collection)
+
+    def to_cosine(self, distance: float) -> float:
+        """Cosine similarity for a ``permanent_notes`` distance."""
+        return cosine_from_distance(distance, self.distance_space)
+
+    def _warn_if_distance_space_drifted(self) -> None:
+        drifted: list[str] = []
+        for name, collection in (
+            (COL_SOURCES, self.sources),
+            (COL_CHUNKS, self.chunks),
+            (COL_PERMANENT, self.permanent),
+            (COL_MOCS, self.mocs_col),
+            (COL_CHAPTER_SUMMARIES, self.chapter_summaries),
+        ):
+            if self.collection_space(collection) != HNSW_SPACE:
+                drifted.append(f"{name}={self.collection_space(collection)}")
+        if not drifted:
+            return
+        logger.warning(
+            "Colecoes Chroma fora do espaco %s: %s. Os limiares de similaridade "
+            "significam cosseno. Rode `zettel reindex --force --collection <nome>` "
+            "em cada uma.",
+            HNSW_SPACE,
+            ", ".join(drifted),
+        )
+
+    def _ensure_collections(self) -> None:
+        kwargs = self._collection_kwargs()
 
         self.sources = self._get_or_create(COL_SOURCES, **kwargs)
         self.chunks = self._get_or_create(COL_CHUNKS, **kwargs)
         self.permanent = self._get_or_create(COL_PERMANENT, **kwargs)
         self.mocs_col = self._get_or_create(COL_MOCS, **kwargs)
         self.chapter_summaries = self._get_or_create(COL_CHAPTER_SUMMARIES, **kwargs)
+        self._warn_if_distance_space_drifted()
         logger.debug("Coleções ChromaDB prontas")
 
     def reset_collection(self, name: str) -> Any:
         """Delete and recreate a collection (used by `reindex --force`)."""
         with contextlib.suppress(Exception):
             self.client.delete_collection(name)
-        kwargs: dict[str, Any] = {"metadata": self._collection_metadata()}
-        if self.embedding_fn:
-            kwargs["embedding_function"] = self.embedding_fn
+        kwargs = self._collection_kwargs()
         col = self.client.get_or_create_collection(name, **kwargs)
         # Refresh the cached handle so subsequent upserts hit the new collection.
         attr = {
@@ -784,8 +847,14 @@ class VectorIndex:
         exclude_id: str | None = None,
         *,
         purpose: str = "densa",
+        where: dict[str, Any] | None = None,
     ) -> list[dict]:
-        """Find the most similar permanent notes to the given text."""
+        """Find the most similar permanent notes to the given text.
+
+        ``where`` is a Chroma metadata filter (dedupe passes ``source_id`` so a
+        nearer note from another work cannot push the same-source neighbour
+        out of the top-k).
+        """
         from zettel.llm import clip_text
 
         self._embed_call_count = getattr(self, "_embed_call_count", 0) + 1
@@ -795,10 +864,13 @@ class VectorIndex:
             n_results,
             clip_text(query_text),
         )
-        results = self.permanent.query(
-            query_texts=[query_text],
-            n_results=min(n_results + (1 if exclude_id else 0), self.permanent.count() or 1),
-        )
+        query_kwargs: dict[str, Any] = {
+            "query_texts": [query_text],
+            "n_results": min(n_results + (1 if exclude_id else 0), self.permanent.count() or 1),
+        }
+        if where:
+            query_kwargs["where"] = where
+        results = self.permanent.query(**query_kwargs)
         self._record_embed_usage(query_text, label="query_notes", purpose=purpose, count=n_results)
         output: list[dict] = []
         if not results or not results["ids"] or not results["ids"][0]:
@@ -812,7 +884,7 @@ class VectorIndex:
             if results["metadatas"] and results["metadatas"][0]:
                 entry["metadata"] = results["metadatas"][0][i]
             if results["distances"] and results["distances"][0]:
-                entry["distance"] = results["distances"][0][i]
+                self._stamp_distance(entry, self.permanent, results["distances"][0][i])
             output.append(entry)
         return output[:n_results]
 
@@ -862,7 +934,7 @@ class VectorIndex:
             if results["metadatas"] and results["metadatas"][0]:
                 entry["metadata"] = results["metadatas"][0][i]
             if results["distances"] and results["distances"][0]:
-                entry["distance"] = results["distances"][0][i]
+                self._stamp_distance(entry, self.permanent, results["distances"][0][i])
             output.append(entry)
         return output
 
@@ -891,8 +963,9 @@ class VectorIndex:
         """Nearest chapter summaries to ``query_text``.
 
         Same result shape as :meth:`query_similar_notes` (``id`` / ``document``
-        / ``metadata`` / ``distance``) so the Retriever can fuse both pools with
-        one code path.
+        / ``metadata`` / ``distance`` / ``distance_space``) so the Retriever can
+        fuse both pools with one code path. ``distance_space`` is this
+        collection's HNSW space, which can differ from ``permanent_notes``.
         """
         from zettel.llm import clip_text
 
@@ -925,7 +998,7 @@ class VectorIndex:
             if results["metadatas"] and results["metadatas"][0]:
                 entry["metadata"] = results["metadatas"][0][i]
             if results["distances"] and results["distances"][0]:
-                entry["distance"] = results["distances"][0][i]
+                self._stamp_distance(entry, self.chapter_summaries, results["distances"][0][i])
             output.append(entry)
         return output
 
@@ -976,7 +1049,7 @@ class VectorIndex:
                 if raw.get("metadatas") and raw["metadatas"][qi]:
                     entry["metadata"] = raw["metadatas"][qi][i]
                 if raw.get("distances") and raw["distances"][qi]:
-                    entry["distance"] = raw["distances"][qi][i]
+                    self._stamp_distance(entry, self.chunks, raw["distances"][qi][i])
                 results.append(entry)
         return results
 

@@ -1,0 +1,293 @@
+{
+  "answers_right": {
+    "full-a": {
+      "D001": true,
+      "D002": false,
+      "D003": true,
+      "D004": true,
+      "D005": true,
+      "D006": false,
+      "D007": true,
+      "D008": true,
+      "D009": true,
+      "D010": true,
+      "D011": true,
+      "D012": false,
+      "D013": true,
+      "D014": true,
+      "D015": true,
+      "D016": true,
+      "D017": false,
+      "D018": false,
+      "D019": false,
+      "D020": true,
+      "D021": false,
+      "D022": false,
+      "D023": true,
+      "D024": false,
+      "D025": false,
+      "D026": false,
+      "D027": true,
+      "D028": true,
+      "D029": true,
+      "D030": false,
+      "D031": true,
+      "D032": false,
+      "D033": true,
+      "D034": false,
+      "D035": true,
+      "D036": false,
+      "D037": true,
+      "D038": false,
+      "D039": true,
+      "D040": false,
+      "D041": true,
+      "D042": true
+    },
+    "full-b": {
+      "D001": true,
+      "D002": false,
+      "D003": true,
+      "D004": true,
+      "D005": true,
+      "D006": false,
+      "D007": true,
+      "D008": true,
+      "D009": true,
+      "D010": true,
+      "D011": true,
+      "D012": false,
+      "D013": true,
+      "D014": true,
+      "D015": true,
+      "D016": true,
+      "D017": false,
+      "D018": false,
+      "D019": false,
+      "D020": true,
+      "D021": false,
+      "D022": false,
+      "D023": true,
+      "D024": false,
+      "D025": false,
+      "D026": false,
+      "D027": true,
+      "D028": true,
+      "D029": true,
+      "D030": false,
+      "D031": true,
+      "D032": false,
+      "D033": true,
+      "D034": false,
+      "D035": true,
+      "D036": false,
+      "D037": true,
+      "D038": false,
+      "D039": true,
+      "D040": false,
+      "D041": true,
+      "D042": true
+    }
+  },
+  "conditions": {
+    "full-a": {
+      "accuracy": 0.5952,
+      "accuracy_weighted": 0.554,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.75,
+          "n": 12
+        },
+        "link": {
+          "accuracy": 0.5333,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 17,
+        "create_new->link": 3,
+        "ignore->create_new": 2,
+        "ignore->link": 5,
+        "link->create_new": 7,
+        "link->link": 8
+      },
+      "correct": 25,
+      "n": 42,
+      "target": {
+        "accuracy": 0.8462,
+        "n": 13
+      }
+    },
+    "full-b": {
+      "accuracy": 0.5952,
+      "accuracy_weighted": 0.554,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.75,
+          "n": 12
+        },
+        "link": {
+          "accuracy": 0.5333,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 17,
+        "create_new->link": 3,
+        "ignore->create_new": 2,
+        "ignore->link": 5,
+        "link->create_new": 7,
+        "link->link": 8
+      },
+      "correct": 25,
+      "n": 42,
+      "target": {
+        "accuracy": 0.8462,
+        "n": 13
+      }
+    },
+    "jev": {
+      "accuracy": 0.5,
+      "accuracy_weighted": 0.4778,
+      "by_confidence_band": {
+        "high": {
+          "accuracy": 0.6667,
+          "n": 3
+        },
+        "low": {
+          "accuracy": 0.4545,
+          "n": 22
+        },
+        "mid": {
+          "accuracy": 0.5294,
+          "n": 17
+        }
+      },
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.5833,
+          "n": 12
+        },
+        "link": {
+          "accuracy": 0.4667,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 11,
+        "create_new->link": 9,
+        "ignore->create_new": 1,
+        "ignore->link": 6,
+        "link->create_new": 5,
+        "link->link": 10
+      },
+      "correct": 21,
+      "n": 42,
+      "target": {
+        "accuracy": 0.625,
+        "n": 16
+      }
+    },
+    "llm": {
+      "accuracy": 0.5,
+      "accuracy_weighted": 0.4333,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.75,
+          "n": 12
+        },
+        "link": {
+          "accuracy": 0.4,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 9,
+        "create_new->link": 11,
+        "ignore->link": 7,
+        "link->create_new": 3,
+        "link->link": 12
+      },
+      "correct": 21,
+      "n": 42,
+      "target": {
+        "accuracy": 0.5789,
+        "n": 19
+      }
+    }
+  },
+  "decision_distribution": {
+    "full-a": {
+      "create_new": 26,
+      "link": 16
+    },
+    "full-b": {
+      "create_new": 26,
+      "link": 16
+    }
+  },
+  "human_distribution": {
+    "create_new": 20,
+    "ignore": 7,
+    "link": 15
+  },
+  "ignore_recall": {
+    "full-a": {
+      "n_ignore": 7,
+      "recall": 0.0,
+      "recalled": 0
+    },
+    "full-b": {
+      "n_ignore": 7,
+      "recall": 0.0,
+      "recalled": 0
+    }
+  },
+  "key": "evals\\gold\\dedupe-r2-GABARITO-NAO-ABRIR.json",
+  "labels": "evals\\gold\\dedupe-r2-rotulos.json",
+  "labels_method": "manual_blind",
+  "model": "openai/gpt-4o-mini",
+  "pairs": {
+    "full-a:full-b": {
+      "mcnemar_p": 1.0,
+      "n": 42,
+      "only_a_right": 0,
+      "only_b_right": 0
+    },
+    "jev:full-a": {
+      "mcnemar_p": 0.4545,
+      "n": 42,
+      "only_a_right": 6,
+      "only_b_right": 10
+    },
+    "llm:full-a": {
+      "mcnemar_p": 0.3877,
+      "n": 42,
+      "only_a_right": 4,
+      "only_b_right": 8
+    }
+  },
+  "prompts": {
+    "current": {
+      "path": "D:\\projetos\\zettel_app\\prompts\\dedupe_decision.md",
+      "sha": "4d974195c510"
+    }
+  },
+  "stability": {
+    "full": {
+      "n": 42,
+      "same_decision": 1.0
+    }
+  },
+  "temperature": 0.2,
+  "validity": {
+    "full-a": {
+      "invalid": 0,
+      "invalid_share": 0.0
+    },
+    "full-b": {
+      "invalid": 0,
+      "invalid_share": 0.0
+    }
+  }
+}

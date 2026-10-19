@@ -60,13 +60,17 @@ def test_load_config_yaml_smoke():
     assert cfg.retrieval.mode == "hybrid"
     # O YAML tem que concordar com o default do schema: em 0.65 consultas fora
     # do dominio passavam no piso (medido em scripts/probe_relevance_floor.py).
-    assert cfg.retrieval.relevance_floor.min_vector_similarity == 0.70
+    assert cfg.retrieval.relevance_floor.min_vector_similarity == 0.40
     assert (
         cfg.retrieval.relevance_floor.min_vector_similarity
         == RelevanceFloorConfig().min_vector_similarity
     )
     assert cfg.hub_mocs.selection_mode in ("percentile", "absolute")
     assert "contradicts" in cfg.retrieval.graph_expansion.relation_weights
+    # gpt-6-luna so aceita temperature/top_p com reasoning_effort none.
+    # O YAML escreve "none"; o schema guarda o desligamento como False.
+    for phase in ("harvest", "garden", "images", "summarize"):
+        assert getattr(cfg.llm, phase).thinking is False
 
 
 def test_chapter_floor_is_pinned_and_separate_from_the_note_floor():
@@ -76,19 +80,19 @@ def test_chapter_floor_is_pinned_and_separate_from_the_note_floor():
     against the same question; inheriting the note floor would be a category
     error even when the two numbers agree.
 
-    0.70 was measured on 2026-09-07 over 71 summarized chapters
-    (ollama/qwen3-embedding@1024d): off-domain queries topped out at 0.693,
-    self-match bottomed at 0.745. Re-measure with
+    0.40 cosine was converted (ADR-058, ``2*s - 1``) from the 0.70 measured on
+    2026-09-07 over 71 summarized chapters on the ``(1+cos)/2`` scale
+    (off-domain max 0.693, self-match min 0.745). Re-measure with
     `scripts/probe_relevance_floor.py --collection chapter_summaries` after any
     embedding change; YAML and schema must not drift apart meanwhile.
 
-    Deliberately NOT asserted: that the two values differ. They coincide at 0.70
+    Deliberately NOT asserted: that the two values differ. They coincide at 0.40
     today, and that is two independent measurements agreeing, not inheritance —
     pinning them apart would fail the moment a probe legitimately landed on the
     same number. What must hold is that they are separate objects.
     """
     cfg = load_config(_CONFIG_YAML)
-    assert cfg.retrieval.chapter_floor.min_vector_similarity == 0.70
+    assert cfg.retrieval.chapter_floor.min_vector_similarity == 0.40
     assert (
         cfg.retrieval.chapter_floor.min_vector_similarity
         == AppConfig().retrieval.chapter_floor.min_vector_similarity

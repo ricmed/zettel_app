@@ -119,6 +119,10 @@ PUBLIC_METHODS = {
     "delete_llm_cache",
     "record_llm_failure",
     "llm_failure_counts",
+    # review events
+    "record_review_event",
+    "list_review_events",
+    "review_label_summary",
     # runs
     "start_run",
     "finish_run",

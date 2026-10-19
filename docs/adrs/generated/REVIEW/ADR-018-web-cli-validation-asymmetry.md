@@ -67,7 +67,7 @@ The web UI's looser validation was likely an oversight, not a deliberate overrid
 * Good, because `literature_review.auto_approve_min_confidence` becomes a uniform gate across CLI and web.
 * Good, because the check can be added once, in the shared `approve_chunk` call path or the web review job handler.
 * Bad, because it eliminates the web UI's current implicit flexibility to approve any selected chunk during manual review.
-* [NEEDS INPUT: Whether this should apply to all web approvals or only to a future "auto-approve" web action, as distinct from a human explicitly selecting individual chunk_ids in the review UI, has not been decided.]
+* Answered 2026-10-19 (issue #275): the limiar applies only to automatic approval. A human selecting chunk or concept ids on `/review` is approved as submitted and recorded as `mode=web_batch`. See the addendum below. The 2026-08-31 choice to enforce the limiar on that selection is superseded.
 
 ### Document the asymmetry explicitly
 
@@ -92,3 +92,13 @@ With server-side threshold enforcement now chosen:
 * `zettel/web/review.py` — `review` (GET `/review`, threshold used for display filtering only)
 * `zettel/web/review.py` — `review_action` (`POST /review/action`, no confidence validation before enqueue)
 * `zettel/web_app.py` — web job handler for the `review` operation, approves submitted chunk_ids without a threshold check
+
+## Addendum (2026-10-19): duplicate queue and run-all source scope (issue #274)
+
+**Status:** Accepted. Pending same-source duplicates (`dedupe_pending`) are decided on `GET /review?queue=duplicates`. Keep and discard call `keep_duplicate` / `discard_duplicate`, which write the human label onto `decision_shadow`. The page itself never approves by the confidence limiar.
+
+`run-all` passes `source_ids` from that harvest into `run_review`. An empty harvest approves nothing. With `--auto-approve` (CLI) or the web checkbox, only drafts of those sources at or above the limiar are approved, and the result reports `approved_threshold`. Drafts from any other source stay `awaiting_review`.
+
+## Addendum (2026-10-19): the limiar gates automatic approval only (issue #275)
+
+**Status:** Accepted. Supersedes the 2026-08-31 decision to re-check `auto_approve_min_confidence` on a web operator's manual selection. The score does not separate keep from discard (AUC 0.49, ADR-017), so it must not block a human who read a draft and chose it. The limiar applies to automatic approval: `zettel review --yes` / `--auto-approve`, `zettel extract --auto-approve`, and `run-all --auto-approve` (the web checkbox). A selection on `/review` is approved as submitted and recorded in `review_events` with `mode=web_batch` and `surface=web` (#270). `mode=manual` is the CLI one-by-one path. Neither mode is a threshold bypass to close; both are the human decision the gate exists to collect.

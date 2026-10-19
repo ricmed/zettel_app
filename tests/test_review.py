@@ -423,12 +423,257 @@ def test_ask_review_decision_accepts_shortcut():
     assert ask.call_args.kwargs["show_choices"] is False
 
 
-def test_ask_review_decision_default_approve_when_high_conf():
+def test_ask_review_decision_enter_skips_even_when_confidence_is_high():
     console = MagicMock()
-    with patch("rich.prompt.Prompt.ask", return_value="a") as ask:
+    with patch("rich.prompt.Prompt.ask", return_value="p") as ask:
         choice = ask_review_decision(console, conf=0.9, limiar=0.85)
-    assert choice == "aprovar"
-    assert ask.call_args.kwargs["default"] == "a"
+    assert choice == "pular"
+    assert ask.call_args.kwargs["default"] == "p"
+
+
+def test_invalid_candidate_json_stays_extracted(env, caplog):
+    import logging
+
+    from zettel.review import _dedupe_approved_concepts
+
+    cfg, db, idx = env
+    db.upsert_concept(
+        "c-bad",
+        "@Book2024",
+        "@Book2024::ch000::abc",
+        candidate_json="{",
+        status="extracted",
+    )
+    with caplog.at_level(logging.WARNING):
+        _dedupe_approved_concepts(cfg, db, idx, "@Book2024")
+    assert db.get_concept("c-bad")["status"] == "extracted"
+    assert "c-bad" in caplog.text
+
+
+def test_review_queue_puts_defects_before_low_confidence():
+    from zettel.review import review_queue_key
+
+    chunks = [
+        {"chunk_id": "high", "review_confidence": 0.9, "summary_json": "{}"},
+        {"chunk_id": "low", "review_confidence": 0.2, "summary_json": "{}"},
+        {
+            "chunk_id": "defect",
+            "review_confidence": 0.95,
+            "summary_json": json.dumps({"rejected_candidates": [{"thesis": "x"}]}),
+        },
+    ]
+    ordered = sorted(chunks, key=review_queue_key)
+    assert [c["chunk_id"] for c in ordered] == ["defect", "low", "high"]
+
+
+def test_run_review_batch_approve_requires_confirmation(env):
+    cfg, db, idx = env
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("zettel.review._dedupe_approved_concepts"),
+        patch("rich.prompt.Prompt.ask", side_effect=["a", "n", "q"]),
+    ):
+        stats = run_review(cfg, db, idx, interactive=True)
+    assert stats["approved"] == 0
+    assert stats["approved_threshold"] == 0
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "awaiting_review"
+
+
+def test_format_review_item_shows_the_candidate_and_marks_the_anchor():
+    chunk = {
+        "chunk_id": "@Duan2026::ch002::7c9b6704",
+        "review_confidence": 0.8,
+        "page_in_book": 3,
+        "text": "O modelo usa atencao para ligar tokens distantes no mesmo paragrafo.",
+        "summary_json": json.dumps(
+            {
+                "summary": "Resumo do trecho.",
+                "rejected_candidates": [
+                    {"thesis": "Definicao de periferia", "reason": "so define o termo"}
+                ],
+            }
+        ),
+    }
+    concept = {
+        "concept_id": "c-atencao",
+        "candidate_json": json.dumps(
+            {
+                "thesis": "Atencao liga tokens distantes",
+                "definition": "Um mecanismo que pesa outras posicoes da sequencia.",
+                "intuition": "Como consultar o resto da frase.",
+                "limits": "Nao cria informacao nova.",
+                "relevance_score": 4,
+                "anchor_quote": "atencao para ligar tokens distantes",
+            }
+        ),
+    }
+    card = format_review_item(chunk, [concept])
+    assert "Atencao liga tokens distantes" in card
+    assert "Um mecanismo que pesa outras posicoes" in card
+    assert "Como consultar o resto da frase." in card
+    assert "Nao cria informacao nova." in card
+    assert "relevancia 4/5" in card
+    assert ">>>atencao para ligar tokens distantes<<<" in card
+    assert "so define o termo" in card
+
+
+def test_one_of_two_candidates_can_be_approved(env):
+    cfg, db, idx = env
+    from zettel.review import decide_concepts
+
+    db.upsert_concept(
+        "c2",
+        "@Book2024",
+        "@Book2024::ch000::abc",
+        candidate_json=json.dumps(
+            {
+                "thesis": "Segunda tese que nao deve ir para o connect",
+                "definition": "Definicao da segunda ideia com palavras suficientes.",
+                "anchor_quote": "texto do chunk",
+                "relevance_score": 3,
+            }
+        ),
+        status="awaiting_review",
+    )
+    outcome = decide_concepts(cfg, db, idx, {"c1": "approve", "c2": "reject"})
+    assert outcome["persisted"] == ["@Book2024::ch000::abc"]
+    assert db.get_concept("c1")["status"] == "extracted"
+    assert db.get_concept("c2")["status"] == "rejected"
+    text = Path(db.get_chunk("@Book2024::ch000::abc")["literature_note_path"]).read_text(
+        encoding="utf-8"
+    )
+    assert "**t**" in text
+    assert "Segunda tese que nao deve ir para o connect" not in text
+
+
+def test_edited_draft_thesis_reaches_candidate_json_and_bad_anchor_is_refused(env):
+    from zettel.review import decide_concepts
+    from zettel.vault import build_literature_chunk_note, safe_write_note
+
+    cfg, db, idx = env
+    chunk_id = "@Book2024::ch000::abc"
+    thesis = "Tese original sobre o trecho fonte"
+    quote = "texto do chunk"
+    candidate = {
+        "thesis": thesis,
+        "definition": "Definicao autonoma com palavras suficientes para o schema.",
+        "anchor_quote": quote,
+        "relevance_score": 4,
+    }
+    db.upsert_concept(
+        "c1",
+        "@Book2024",
+        chunk_id,
+        candidate_json=json.dumps(candidate),
+        status="awaiting_review",
+    )
+    chunk = db.get_chunk(chunk_id)
+    meta, body = build_literature_chunk_note(
+        source_id="@Book2024",
+        citekey="Book2024",
+        title="Livro Teste",
+        chunk_id=chunk_id,
+        chunk_index=3,
+        literature_id="lit123",
+        summary="Um resumo",
+        key_concepts=["conceito"],
+        candidates=[candidate],
+        section_path="Ch1 > Intro",
+        source_text=chunk["text"],
+        page_in_file=20,
+        page_in_book=10,
+        status="awaiting_review",
+        review_confidence=0.9,
+    )
+    body = body.replace(thesis, "Tese reescrita pelo revisor no rascunho")
+    body = body.replace(quote, "uma frase que o chunk nao contem de modo algum")
+    safe_write_note(Path(chunk["literature_note_path"]), meta, body)
+
+    outcome = decide_concepts(cfg, db, idx, {"c1": "approve"})
+    assert outcome["refused"] == ["c1"]
+    assert db.get_concept("c1")["status"] == "awaiting_review"
+    stored = json.loads(db.get_concept("c1")["candidate_json"])
+    assert stored["thesis"] == "Tese reescrita pelo revisor no rascunho"
+    assert stored["anchor_quote"] == quote
+
+    body = body.replace(
+        "uma frase que o chunk nao contem de modo algum",
+        quote,
+    )
+    safe_write_note(Path(chunk["literature_note_path"]), meta, body)
+    outcome = decide_concepts(cfg, db, idx, {"c1": "approve"})
+    assert outcome["persisted"] == [chunk_id]
+    assert json.loads(db.get_concept("c1")["candidate_json"])["thesis"].startswith("Tese reescrita")
+
+
+def test_partial_approval_keeps_the_edited_candidate_line(env):
+    from zettel.review import decide_concepts
+    from zettel.vault import build_literature_chunk_note, safe_write_note
+
+    cfg, db, idx = env
+    chunk_id = "@Book2024::ch000::abc"
+    first = {
+        "thesis": "Primeira tese permanece no rascunho",
+        "definition": "Definicao autonoma com palavras suficientes para o schema.",
+        "anchor_quote": "texto",
+        "relevance_score": 4,
+    }
+    second = {
+        "thesis": "Segunda tese original do candidato",
+        "definition": "Outra definicao autonoma com palavras suficientes para o schema.",
+        "anchor_quote": "texto do chunk",
+        "relevance_score": 3,
+    }
+    db.update_chunk_review(
+        chunk_id,
+        summary_json=json.dumps({"summary": "Um resumo", "candidates": [first, second]}),
+    )
+    for concept_id, candidate in (("c1", first), ("c2", second)):
+        db.upsert_concept(
+            concept_id,
+            "@Book2024",
+            chunk_id,
+            candidate_json=json.dumps(candidate),
+            status="awaiting_review",
+        )
+    chunk = db.get_chunk(chunk_id)
+    meta, body = build_literature_chunk_note(
+        source_id="@Book2024",
+        citekey="Book2024",
+        title="Livro Teste",
+        chunk_id=chunk_id,
+        chunk_index=3,
+        literature_id="lit123",
+        summary="Um resumo",
+        key_concepts=["conceito"],
+        candidates=[first, second],
+        section_path="Ch1 > Intro",
+        source_text=chunk["text"],
+        page_in_file=20,
+        page_in_book=10,
+        status="awaiting_review",
+        review_confidence=0.9,
+    )
+    body = body.replace(second["thesis"], "Tese reescrita do segundo candidato")
+    body = body.replace(second["anchor_quote"], "uma frase que o chunk nao contem")
+    safe_write_note(Path(chunk["literature_note_path"]), meta, body)
+
+    outcome = decide_concepts(cfg, db, idx, {"c1": "reject", "c2": "approve"})
+    assert outcome["refused"] == ["c2"]
+    assert db.get_concept("c1")["status"] == "rejected"
+    assert db.get_concept("c2")["status"] == "awaiting_review"
+    stored = json.loads(db.get_concept("c2")["candidate_json"])
+    assert stored["thesis"] == "Tese reescrita do segundo candidato"
+    assert stored["anchor_quote"] == second["anchor_quote"]
+
+    body = body.replace("uma frase que o chunk nao contem", second["anchor_quote"])
+    safe_write_note(Path(chunk["literature_note_path"]), meta, body)
+    outcome = decide_concepts(cfg, db, idx, {"c2": "approve"})
+    assert outcome["persisted"] == [chunk_id]
+    assert json.loads(db.get_concept("c2")["candidate_json"])["thesis"].startswith("Tese reescrita")
+    approved = Path(db.get_chunk(chunk_id)["literature_note_path"]).read_text(encoding="utf-8")
+    assert "Tese reescrita do segundo candidato" in approved
 
 
 def test_format_review_item_includes_summary_and_chunk_text():
@@ -524,12 +769,15 @@ def test_run_review_mode_a_respects_threshold(env):
         patch("zettel.usage.begin_run"),
         patch("zettel.usage.finish_pipeline_run"),
         patch("zettel.review._dedupe_approved_concepts"),
-        patch("rich.prompt.Prompt.ask", side_effect=["a", "q"]) as ask,
+        patch("rich.prompt.Prompt.ask", side_effect=["a", "s", "q"]) as ask,
     ):
         stats = run_review(cfg, db, idx, interactive=True)
 
-    # `a` returns to the menu with the below-threshold drafts still listed.
-    assert ask.call_count == 2
+    # Menu, then the explicit confirm, then quit. Enter on the menu is `r`.
+    assert ask.call_count == 3
+    assert ask.call_args_list[0].kwargs["default"] == "r"
+    assert "sem ler" in ask.call_args_list[1].args[0]
+    assert ask.call_args_list[1].kwargs["default"] == "n"
     assert stats["approved"] == 1
     assert stats["skipped"] == 0
     assert stats["rejected"] == 0
@@ -662,6 +910,101 @@ def test_purge_rejected_removes_sqlite_and_chroma(env):
     assert db.get_concepts_for_chunk("@Book2024::ch000::abc") == []
     assert db.get_chunk("@Book2024::ch000::keep") is not None
     assert idx.chunk_deletes == ["@Book2024::ch000::abc"]
+
+
+def test_purge_keeps_the_review_event_and_its_snapshot(env):
+    from zettel.review import purge_rejected
+
+    cfg, db, idx = env
+    reject_chunk(cfg, db, idx, "@Book2024::ch000::abc", mode="manual")
+    purge_rejected(cfg, db, idx, compact=False)
+    events = db.list_review_events()
+    assert len(events) == 1
+    assert events[0]["decision"] == "reject"
+    assert events[0]["snapshot"]["text"] == "texto do chunk"
+    assert db.get_chunk("@Book2024::ch000::abc") is None
+
+
+def test_auto_approve_records_a_threshold_event_per_concept(env):
+    cfg, db, idx = env
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("zettel.review._dedupe_approved_concepts"),
+    ):
+        run_review(cfg, db, idx, auto_approve=True, interactive=False)
+    events = db.list_review_events()
+    assert [(event["decision"], event["mode"], event["concept_id"]) for event in events] == [
+        ("approve", "threshold", "c1")
+    ]
+
+
+def test_manual_candidate_decision_records_one_event(env):
+    from zettel.review import decide_concepts
+
+    cfg, db, idx = env
+    decide_concepts(cfg, db, idx, {"c1": "approve"}, mode="manual", surface="cli", run_id=7)
+    events = db.list_review_events()
+    assert len(events) == 1
+    assert events[0]["mode"] == "manual"
+    assert events[0]["surface"] == "cli"
+    assert events[0]["concept_id"] == "c1"
+    assert events[0]["run_id"] == 7
+
+
+def test_band_reject_and_keep_duplicate_record_their_modes(env):
+    cfg, db, idx = env
+    reject_chunk(cfg, db, idx, "@Book2024::ch000::abc", mode="band")
+    db.upsert_concept(
+        "dup-kept",
+        "@Book2024",
+        "@Book2024::ch000::abc",
+        candidate_json=json.dumps({"thesis": "repetida", "definition": "d"}),
+        status="dedupe_pending",
+    )
+    from zettel.review import keep_duplicate
+
+    keep_duplicate(db, "dup-kept")
+    events = db.list_review_events()
+    assert [event["decision"] for event in events] == ["reject", "keep_duplicate"]
+    assert events[0]["mode"] == "band"
+    assert events[1]["concept_id"] == "dup-kept"
+    summary = db.review_label_summary(0.75)
+    assert summary[0]["source_id"] == "@Book2024"
+    assert summary[0]["reject_above"] == 1
+
+
+def test_retry_rejected_requeues_only_extract_rejections(env):
+    from zettel.review import requeue_extract_rejected, requeueable_extract_ids
+
+    cfg, db, idx = env
+    reject_chunk(cfg, db, idx, "@Book2024::ch000::abc")
+    extract_id = "@Book2024::ch000::scan"
+    db.upsert_chunk(
+        extract_id,
+        "@Book2024",
+        "@Book2024::ch000",
+        "sumario",
+        "ck2",
+        status="rejected",
+        chunk_index=9,
+        summary_json=json.dumps({"candidates": [], "rejection_reason": "sumario"}),
+    )
+    rows = db.get_chunks_by_status("rejected", source_id="@Book2024")
+    eligible = requeueable_extract_ids(db, [row["chunk_id"] for row in rows])
+    assert requeue_extract_rejected(db, eligible) == 1
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "rejected"
+    assert db.get_chunk(extract_id)["status"] == "pending"
+    assert [event["decision"] for event in db.list_review_events(extract_id)] == ["requeue"]
+
+
+def test_delete_source_keeps_review_events(env):
+    cfg, db, idx = env
+    reject_chunk(cfg, db, idx, "@Book2024::ch000::abc")
+    db.delete_source_cascade("@Book2024")
+    events = db.list_review_events()
+    assert len(events) == 1
+    assert events[0]["snapshot"]["text"] == "texto do chunk"
 
 
 def test_purge_rejected_empty(env):
@@ -1124,8 +1467,8 @@ def test_run_all_leaves_drafts_unless_auto_approve(monkeypatch):
         return type("H", (), {"source_ids": [], "skipped": []})()
 
     def review(*_a, **kwargs):
-        seen["auto_approve"] = kwargs["auto_approve"]
-        seen["interactive"] = kwargs["interactive"]
+        seen.clear()
+        seen.update(kwargs)
         return {"approved": 0, "rejected": 0, "skipped": 3, "pending_review": 3}
 
     class Summary:
@@ -1154,7 +1497,11 @@ def test_run_all_leaves_drafts_unless_auto_approve(monkeypatch):
         dry_run=False,
         auto_approve=False,
     )
-    assert seen == {"auto_approve": False, "interactive": False}
+    assert seen["auto_approve"] is False
+    assert seen["interactive"] is False
+    assert seen["source_ids"] == []
+    assert seen["surface"] == "cli"
+    assert seen["event_mode"] is None
 
     _run_all_phases(
         object(),
@@ -1167,4 +1514,166 @@ def test_run_all_leaves_drafts_unless_auto_approve(monkeypatch):
         dry_run=False,
         auto_approve=True,
     )
-    assert seen == {"auto_approve": True, "interactive": False}
+    assert seen["auto_approve"] is True
+    assert seen["interactive"] is False
+    assert seen["source_ids"] == []
+    assert seen["event_mode"] == "run_all"
+
+
+def test_run_review_source_ids_does_not_approve_another_source(env):
+    cfg, db, idx = env
+    db.upsert_source("@Old2020", "Old2020", "Antigo", ["Autor"], 2020, "h", "/y.pdf", "pdf")
+    db.upsert_chapter("@Old2020::ch000", "@Old2020", "Ch", "ch")
+    db.upsert_chunk(
+        "@Old2020::ch000::abc",
+        "@Old2020",
+        "@Old2020::ch000",
+        "texto antigo",
+        "ck2",
+        chunk_index=0,
+        status="awaiting_review",
+        review_confidence=0.95,
+    )
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("zettel.review._dedupe_approved_concepts") as dedupe,
+    ):
+        stats = run_review(
+            cfg,
+            db,
+            idx,
+            source_ids=["@Book2024"],
+            auto_approve=True,
+            interactive=False,
+        )
+
+    assert stats["approved_threshold"] == 1
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "persisted"
+    assert db.get_chunk("@Old2020::ch000::abc")["status"] == "awaiting_review"
+    assert [item.args[3] for item in dedupe.call_args_list] == ["@Book2024"]
+
+
+def test_run_review_empty_source_ids_approves_nothing(env):
+    cfg, db, idx = env
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("zettel.review._dedupe_approved_concepts") as dedupe,
+    ):
+        stats = run_review(cfg, db, idx, source_ids=[], auto_approve=True, interactive=False)
+
+    assert stats["approved"] == 0
+    assert stats["approved_threshold"] == 0
+    assert db.get_chunk("@Book2024::ch000::abc")["status"] == "awaiting_review"
+    dedupe.assert_not_called()
+
+
+def test_auto_approve_refreshes_the_literature_index_once_per_source(env, monkeypatch):
+    cfg, db, idx = env
+    db.upsert_chunk(
+        "@Book2024::ch000::second",
+        "@Book2024",
+        "@Book2024::ch000",
+        "outro trecho do mesmo livro",
+        "ck2",
+        chunk_index=4,
+        status="awaiting_review",
+        review_confidence=0.95,
+        summary_json="{}",
+    )
+    db.upsert_source("@Old2020", "Old2020", "Antigo", ["Autor"], 2020, "h", "/y.pdf", "pdf")
+    db.upsert_chapter("@Old2020::ch000", "@Old2020", "Ch", "ch")
+    db.upsert_chunk(
+        "@Old2020::ch000::abc",
+        "@Old2020",
+        "@Old2020::ch000",
+        "texto antigo",
+        "ck3",
+        chunk_index=0,
+        status="awaiting_review",
+        review_confidence=0.95,
+        summary_json="{}",
+    )
+    refreshed: list[str] = []
+    monkeypatch.setattr(
+        "zettel.review._refresh_literature_index",
+        lambda _cfg, _db, source_id: refreshed.append(source_id),
+    )
+    monkeypatch.setattr("zettel.review.sync_lit_permanent_links", lambda *_a, **_k: None)
+
+    with (
+        patch("zettel.usage.begin_run"),
+        patch("zettel.usage.finish_pipeline_run"),
+        patch("zettel.review._dedupe_approved_concepts"),
+    ):
+        stats = run_review(cfg, db, idx, auto_approve=True, interactive=False)
+
+    assert stats["approved"] == 3
+    assert sorted(refreshed) == ["@Book2024", "@Old2020"]
+    assert len(refreshed) == 2
+
+
+def test_approve_chunk_keeps_the_draft_when_sqlite_update_fails(env, monkeypatch):
+    cfg, db, idx = env
+    chunk_id = "@Book2024::ch000::abc"
+    draft = Path(db.get_chunk(chunk_id)["literature_note_path"])
+
+    def fail(*_a, **_k):
+        raise RuntimeError("sqlite")
+
+    monkeypatch.setattr(db, "update_chunk_review", fail)
+    with pytest.raises(RuntimeError, match="sqlite"):
+        approve_chunk(cfg, db, idx, chunk_id, approved_candidates=[])
+
+    assert draft.is_file()
+    assert db.get_chunk(chunk_id)["status"] == "awaiting_review"
+
+
+def test_approve_chunk_deletes_the_draft_after_sqlite(env, monkeypatch):
+    cfg, db, idx = env
+    chunk_id = "@Book2024::ch000::abc"
+    draft = Path(db.get_chunk(chunk_id)["literature_note_path"])
+    order: list[str] = []
+    real_update = db.update_chunk_review
+
+    def tracked_update(*args, **kwargs):
+        order.append("sqlite")
+        return real_update(*args, **kwargs)
+
+    real_unlink = Path.unlink
+
+    def tracked_unlink(self, *args, **kwargs):
+        order.append("unlink")
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(db, "update_chunk_review", tracked_update)
+    monkeypatch.setattr(Path, "unlink", tracked_unlink)
+    monkeypatch.setattr("zettel.review.refresh_approved_literature", lambda *_a, **_k: None)
+
+    assert approve_chunk(cfg, db, idx, chunk_id, approved_candidates=[])
+    assert order.index("sqlite") < order.index("unlink")
+    assert not draft.is_file()
+    assert db.get_chunk(chunk_id)["status"] == "persisted"
+
+
+def test_reject_chunk_counts_a_draft_left_on_disk(env, monkeypatch):
+    from zettel.review import rejected_drafts_on_disk, review_followups
+
+    cfg, db, idx = env
+    chunk_id = "@Book2024::ch000::abc"
+    draft = Path(db.get_chunk(chunk_id)["literature_note_path"])
+
+    def refuse(self, *args, **kwargs):
+        raise OSError("locked")
+
+    monkeypatch.setattr(Path, "unlink", refuse)
+    stats: dict[str, int] = {}
+    assert reject_chunk(cfg, db, idx, chunk_id, stats=stats)
+    assert stats["draft_delete_failures"] == 1
+    assert draft.is_file()
+    assert db.get_chunk(chunk_id)["status"] == "rejected"
+    assert [row["chunk_id"] for row in rejected_drafts_on_disk(db)] == [chunk_id]
+    assert "continuam no disco" in review_followups(stats)[0]

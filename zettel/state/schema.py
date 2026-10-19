@@ -306,6 +306,24 @@ CREATE TABLE IF NOT EXISTS llm_failures (
     created_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_llm_failures_phase ON llm_failures(phase);
+
+-- Human review decisions (issue #270). No foreign key: purge and delete-source
+-- remove the chunk, and the snapshot on the row is the label that remains.
+CREATE TABLE IF NOT EXISTS review_events (
+    event_id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id          TEXT NOT NULL DEFAULT '',
+    chunk_id           TEXT NOT NULL,
+    concept_id         TEXT,
+    decision           TEXT NOT NULL,
+    mode               TEXT NOT NULL,
+    review_confidence  REAL,
+    surface            TEXT NOT NULL,
+    run_id             INTEGER,
+    snapshot_json      TEXT NOT NULL,
+    created_at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_review_events_source ON review_events(source_id);
+CREATE INDEX IF NOT EXISTS idx_review_events_chunk ON review_events(chunk_id);
 """
 
 # FTS5 virtual tables for BM25 lexical search, kept in sync with notes/chunks.

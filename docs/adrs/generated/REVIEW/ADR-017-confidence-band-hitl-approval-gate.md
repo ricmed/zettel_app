@@ -13,11 +13,11 @@
 
 The REVIEW phase sits between literature-note extraction and connection into the permanent-note graph: every draft produced by the extractor carries an LLM-generated `review_confidence` score, and a human must decide whether each draft is trustworthy enough to persist. Neither fully automatic approval (no human check on LLM output) nor fully manual review (a human reads every single draft) fit the pipeline's throughput needs, since draft volume scales with how much literature is harvested.
 
-The system instead partitions drafts into three confidence bands (very low `<= 0.4`, medium, and high `>= auto_approve_min_confidence`, default 0.7) and offers three review modes on top of that partition: batch-approve everything at or above threshold, batch-reject a chosen band with confirmation, and one-by-one review with per-draft shortcuts. Both the CLI and the web UI expose this same threshold semantics, and every decision — approve, reject, or skip — is persisted to SQLite immediately rather than staged in memory, so a review run can be interrupted and resumed. This pattern was introduced on 2026-08-29 (commit `5d9b504`, web interface implementation) and refined the same day to add purge-rejected and VACUUM support.
+The system instead partitions drafts into three confidence bands (very low `<= 0.4`, medium, and high `>= auto_approve_min_confidence`; the 2026-08-29 default was 0.7, and the operational default is 0.75 since #152 — see the 2026-10-19 addendum) and offers three review modes on top of that partition: batch-approve everything at or above threshold, batch-reject a chosen band with confirmation, and one-by-one review with per-draft shortcuts. Both the CLI and the web UI expose this same threshold semantics, and every decision — approve, reject, or skip — is persisted to SQLite immediately rather than staged in memory, so a review run can be interrupted and resumed. This pattern was introduced on 2026-08-29 (commit `5d9b504`, web interface implementation) and refined the same day to add purge-rejected and VACUUM support.
 
 This coupling reaches beyond REVIEW itself: the extractor must keep producing a `review_confidence` value calibrated to these bands, and CONNECT downstream expects concepts to already be deduplicated and `approved` before it runs. Changing the approval strategy would require reworking the confidence-generation, CLI/web UX, and CONNECT's status expectations together.
 
-**Threshold Calibration (Resolved 2026-08-31)**: The thresholds 0.4 (very-low cutoff) and 0.7 (default auto-approve) were established as initial heuristic values, not derived from an empirical analysis of the extractor's confidence distribution. They are treated as tunable, and operators should monitor actual operator workload and false-positive/false-negative rates to propose adjustments. A future phase could include a calibration analysis if confidence distribution shifts significantly with model updates.
+**Threshold Calibration (Resolved 2026-08-31, default updated #152)**: The thresholds 0.4 (very-low cutoff) and 0.7 (the auto-approve default on that date) were established as initial heuristic values, not derived from an empirical analysis of the extractor's confidence distribution. The auto-approve default is 0.75 since #152. They are treated as tunable, and operators should monitor actual operator workload and false-positive/false-negative rates to propose adjustments. A future phase could include a calibration analysis if confidence distribution shifts significantly with model updates.
 
 ## Decision Drivers
 
@@ -38,7 +38,7 @@ This coupling reaches beyond REVIEW itself: the extractor must keep producing a 
 
 Chosen option: "Confidence-band gate with three review modes," because it balances operator throughput against oversight quality — drafts the extractor is already confident about move through in bulk, while the medium- and very-low-confidence bands get the operator's individual attention where it is most needed. Reusing the extractor's existing `review_confidence` avoided building a second scoring mechanism, and immediate SQLite persistence (rather than in-memory staging) means a review session can be safely interrupted and resumed without losing already-made decisions.
 
-**Threshold Calibration (Resolved 2026-08-31)**: The values 0.4 and 0.7 are initial estimates, not empirically calibrated. As of 2026-08-31, they remain the defaults, but operators are encouraged to monitor real-world impact and propose adjustments. A formal calibration pass (analyzing extractor confidence distribution) may be warranted in a future phase if this becomes a bottleneck or if upstream model changes shift the distribution significantly.
+**Threshold Calibration (Resolved 2026-08-31, default updated #152)**: The values 0.4 and 0.7 were the estimates on that date, not empirically calibrated. The auto-approve default has since been 0.75 in both `config/config.yaml` and the Pydantic schema. The very-low cut stays 0.4; how often a draft can land there is recorded in the 2026-10-19 addendum.
 
 ## Pros and Cons of the Options
 
@@ -225,6 +225,24 @@ A window of 25 words cannot keep both the first and the last five words of a 45-
 
 **Status:** Accepted amendment. A chunk the model accepted and the filter emptied is `rejection_category = "filtered"` in `summary_json` only. That value is not in the LLM enum. The CLI card and `GET /review?queue=rejected` show origin `filtro` or `modelo`. Filter cards list each dropped candidate's thesis, anchor and reason. The band report counts the two origins separately. A model rejection still shows the model's category and reason.
 
+## Addendum (2026-10-18): review decisions are stored as labels (issue #270)
+
+**Status:** Accepted amendment. Each review decision writes one `review_events` row: chunk, concept when the decision is per candidate, decision, mode (`manual`, `threshold`, `band`, `run_all`, `web_batch`), confidence, surface and a snapshot of the chunk text and candidates. Purge and delete-source do not delete the rows. `retry-failed --rejected` only requeues extract rejections. `zettel status` shows, per source, manual approvals, threshold approvals and the rejection rate above the limiar. `scripts/calibrate_review_confidence.py --review-events` reports `mode=manual` labels apart from the gold set. These labels do not move the threshold.
+
+## Addendum (2026-10-18): the review decides candidates, not chunks (issue #269)
+
+**Status:** Accepted amendment. The one-by-one card and `/review` show each candidate's thesis, definition, intuition, limits, relevance and the anchor highlighted in the full source text. Filter drops stay on the card with their reason. Approving one concept and rejecting another persists the chunk and leaves only the approved candidate in the LIT and on the path to `connect`; the rejected concept stays `rejected`. Option (a): on approve, the checklist under `## Candidatos a Nota Permanente` and the `auto-candidate-quotes` block are read back into `candidate_json`. An edited anchor that `quote_is_grounded` rejects is not approved. `sync` still does not copy a pipeline LIT body onto the concept.
+
+## Addendum (2026-10-18): the easy path is reading, not approving (issue #268)
+
+**Status:** Accepted amendment. Enter on the review menu is `r` (one draft at a time). Enter on a card is `p` (skip), at every confidence. `a` asks `s/N` with the count of drafts that would be approved unread and prints `AUTO_APPROVE_UNVALIDATED_WARNING`. The queue is ordered by detected defect (a candidate the filter dropped, or a survivor missing intuition or limits), then by ascending `review_confidence`; `batch_sample_size` is the head of that order. `--low-confidence-only` together with `--yes` or `--auto-approve` exits 1. The session summary counts manual approvals apart from threshold approvals.
+
 ## Addendum (2026-10-18): a forced chunk is scored with the same filter (issue #263)
 
 **Status:** Accepted amendment. `_score_review_confidence` receives the same `force` flag as `_filter_candidates`. A relevance-2 candidate the reviewer asked for is no longer stored with confidence 0.2 just because the unforced filter would have dropped it. The early 0.1 for `chunk_status=rejected` also waits, under `force`, until the candidates are scored.
+
+## Addendum (2026-10-19): the default is 0.75, and the very-low band is almost unreachable (issue #275)
+
+**Status:** Accepted. `literature_review.auto_approve_min_confidence` is **0.75** in `config/config.yaml` and in the Pydantic default. The 0.7 cited in the 2026-08-31 text above was the heuristic on that date. #152 moved the default to 0.75, just under the 0.80 a flawless chunk earns at the relevance floor.
+
+The very-low cut stays 0.4 and is still an untuned heuristic. Under the current weights (0.50 relevance, 0.30 integrity, 0.20 completeness) a draft at the relevance floor earns 0.30 from relevance (`_RELEVANCE_FLOOR_CREDIT` 0.6). Integrity is 0.30 times the fraction of candidates the filter kept. With every candidate kept and both depth fields missing, the floor of the score is 0.60. The score is at most 0.4 only when relevance is at the floor, completeness is 0, and at most one candidate of three or more survives (`0.30 + 0.30/n`, which is ≤ 0.4 for `n ≥ 3`). A normal draft does not land in that band. `scripts/calibrate_review_confidence.py` prints the reachability table; this note does not move the cut.

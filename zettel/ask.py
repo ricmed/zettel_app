@@ -210,9 +210,7 @@ def _to_ask_source(db: StateDB, hit: RetrievedNote) -> AskSource:
         if row:
             source_id = source_id or row.get("source_id")
             path = path or row.get("path")
-    similarity = (
-        round(1.0 - hit.vector_distance / 2.0, 4) if hit.vector_distance is not None else None
-    )
+    similarity = round(hit.similarity, 4) if hit.similarity is not None else None
     return AskSource(
         note_id=hit.note_id,
         title=hit.title,

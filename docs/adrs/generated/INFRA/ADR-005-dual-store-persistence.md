@@ -86,3 +86,7 @@ The single-writer job queue in the web UI (rejecting a second mutating job with 
 * `zettel/state/chunks.py` — SQLite-side `upsert_chunk`
 * `zettel/index.py` — ChromaDB-side `upsert_chunk`
 * `CLAUDE.md` — documents the dual-store architecture and the absence of a cross-store transaction guarantee
+
+## Addendum (2026-10-19): approval writes the file, then SQLite, then deletes the draft (issue #276)
+
+**Status:** Accepted. `approve_chunk` used to delete the review draft before `update_chunk_review`. A crash in that window left the chunk `awaiting_review` with the draft already gone, and the next approval rebuilt the note from `summary_json`, dropping edits made on the draft. The order is now: write the approved file, update SQLite, delete the draft. A failure before the SQLite update leaves the draft in place. A failure of the delete leaves a persisted chunk and a leftover draft. A batch (`a`, the web review job, `run_review(auto_approve=True)`, `approve_high_confidence`) rewrites each source's literature index once after the batch, not once per draft. Measured on 300 persisted chunks of one source: 300 rewrites took 2.08s and one rewrite took 0.006s. `reject_chunk` counts a draft that stays on disk; `zettel status` lists those files. The optional audit sample (`audit_sample_rate`, control items) is not part of this change.

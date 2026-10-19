@@ -1,0 +1,296 @@
+{
+  "answers_right": {
+    "full-a": {
+      "D001": false,
+      "D002": true,
+      "D003": false,
+      "D004": false,
+      "D005": true,
+      "D006": false,
+      "D007": true,
+      "D008": false,
+      "D009": true,
+      "D010": true,
+      "D011": true,
+      "D012": true,
+      "D013": true,
+      "D014": false,
+      "D015": true,
+      "D016": true,
+      "D017": false,
+      "D018": false,
+      "D019": false,
+      "D020": true,
+      "D021": true,
+      "D022": false,
+      "D023": true,
+      "D024": false,
+      "D025": true,
+      "D026": false,
+      "D027": true,
+      "D028": true,
+      "D029": true,
+      "D030": false,
+      "D031": true,
+      "D032": false,
+      "D033": true,
+      "D034": false,
+      "D035": true,
+      "D036": true,
+      "D037": false,
+      "D038": false,
+      "D039": true,
+      "D040": true,
+      "D041": false,
+      "D042": true
+    },
+    "full-b": {
+      "D001": false,
+      "D002": true,
+      "D003": false,
+      "D004": false,
+      "D005": true,
+      "D006": false,
+      "D007": true,
+      "D008": false,
+      "D009": true,
+      "D010": true,
+      "D011": true,
+      "D012": false,
+      "D013": true,
+      "D014": false,
+      "D015": true,
+      "D016": true,
+      "D017": false,
+      "D018": false,
+      "D019": false,
+      "D020": true,
+      "D021": true,
+      "D022": false,
+      "D023": true,
+      "D024": false,
+      "D025": true,
+      "D026": false,
+      "D027": true,
+      "D028": true,
+      "D029": true,
+      "D030": false,
+      "D031": true,
+      "D032": false,
+      "D033": true,
+      "D034": false,
+      "D035": true,
+      "D036": true,
+      "D037": false,
+      "D038": false,
+      "D039": true,
+      "D040": true,
+      "D041": false,
+      "D042": true
+    }
+  },
+  "conditions": {
+    "full-a": {
+      "accuracy": 0.5714,
+      "accuracy_weighted": 0.5238,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.75,
+          "n": 12
+        },
+        "link": {
+          "accuracy": 0.5,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 20,
+        "ignore->create_new": 2,
+        "ignore->ignore": 3,
+        "ignore->link": 2,
+        "link->create_new": 14,
+        "link->link": 1
+      },
+      "correct": 24,
+      "n": 42,
+      "target": {
+        "accuracy": 1.0,
+        "n": 6
+      }
+    },
+    "full-b": {
+      "accuracy": 0.5476,
+      "accuracy_weighted": 0.4937,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.75,
+          "n": 12
+        },
+        "link": {
+          "accuracy": 0.4667,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 20,
+        "ignore->create_new": 2,
+        "ignore->ignore": 2,
+        "ignore->link": 3,
+        "link->create_new": 14,
+        "link->link": 1
+      },
+      "correct": 23,
+      "n": 42,
+      "target": {
+        "accuracy": 1.0,
+        "n": 6
+      }
+    },
+    "jev": {
+      "accuracy": 0.5,
+      "accuracy_weighted": 0.4778,
+      "by_confidence_band": {
+        "high": {
+          "accuracy": 0.6667,
+          "n": 3
+        },
+        "low": {
+          "accuracy": 0.4545,
+          "n": 22
+        },
+        "mid": {
+          "accuracy": 0.5294,
+          "n": 17
+        }
+      },
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.5833,
+          "n": 12
+        },
+        "link": {
+          "accuracy": 0.4667,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 11,
+        "create_new->link": 9,
+        "ignore->create_new": 1,
+        "ignore->link": 6,
+        "link->create_new": 5,
+        "link->link": 10
+      },
+      "correct": 21,
+      "n": 42,
+      "target": {
+        "accuracy": 0.625,
+        "n": 16
+      }
+    },
+    "llm": {
+      "accuracy": 0.5,
+      "accuracy_weighted": 0.4333,
+      "by_stratum": {
+        "create_new": {
+          "accuracy": 0.75,
+          "n": 12
+        },
+        "link": {
+          "accuracy": 0.4,
+          "n": 30
+        }
+      },
+      "confusion_human_to_model": {
+        "create_new->create_new": 9,
+        "create_new->link": 11,
+        "ignore->link": 7,
+        "link->create_new": 3,
+        "link->link": 12
+      },
+      "correct": 21,
+      "n": 42,
+      "target": {
+        "accuracy": 0.5789,
+        "n": 19
+      }
+    }
+  },
+  "decision_distribution": {
+    "full-a": {
+      "create_new": 36,
+      "ignore": 3,
+      "link": 3
+    },
+    "full-b": {
+      "create_new": 36,
+      "ignore": 2,
+      "link": 4
+    }
+  },
+  "human_distribution": {
+    "create_new": 20,
+    "ignore": 7,
+    "link": 15
+  },
+  "ignore_recall": {
+    "full-a": {
+      "n_ignore": 7,
+      "recall": 0.4286,
+      "recalled": 3
+    },
+    "full-b": {
+      "n_ignore": 7,
+      "recall": 0.2857,
+      "recalled": 2
+    }
+  },
+  "key": "evals\\gold\\dedupe-r2-GABARITO-NAO-ABRIR.json",
+  "labels": "evals\\gold\\dedupe-r2-rotulos.json",
+  "labels_method": "manual_blind",
+  "model": "openai/gpt-6-luna",
+  "pairs": {
+    "full-a:full-b": {
+      "mcnemar_p": 1.0,
+      "n": 42,
+      "only_a_right": 1,
+      "only_b_right": 0
+    },
+    "jev:full-a": {
+      "mcnemar_p": 0.6636,
+      "n": 42,
+      "only_a_right": 9,
+      "only_b_right": 12
+    },
+    "llm:full-a": {
+      "mcnemar_p": 0.69,
+      "n": 42,
+      "only_a_right": 11,
+      "only_b_right": 14
+    }
+  },
+  "prompts": {
+    "current": {
+      "path": "D:\\projetos\\zettel_app\\prompts\\dedupe_decision.md",
+      "sha": "4d974195c510"
+    }
+  },
+  "stability": {
+    "full": {
+      "n": 42,
+      "same_decision": 0.9762
+    }
+  },
+  "temperature": 0.2,
+  "thinking": "none",
+  "validity": {
+    "full-a": {
+      "invalid": 0,
+      "invalid_share": 0.0
+    },
+    "full-b": {
+      "invalid": 0,
+      "invalid_share": 0.0
+    }
+  }
+}

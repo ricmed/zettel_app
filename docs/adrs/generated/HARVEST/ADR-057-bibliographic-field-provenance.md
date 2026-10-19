@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-10-17
-**Related to:** [ADR-046](./ADR-046-bibliographic-duplicate-layers.md) — layers 3 and 4 read these fields; [ADR-045](../LLM/ADR-045-fail-fast-on-llm-unavailability.md) — `LLMUnavailableError` still aborts
+**Related to:** [ADR-046](./ADR-046-bibliographic-duplicate-layers.md) — layers 3 and 4 read these fields; [ADR-059](../LLM/ADR-059-fail-fast-on-llm-unavailability.md) — `LLMUnavailableError` still aborts
 
 ## Context
 

@@ -381,10 +381,10 @@ def test_low_coverage_hit_still_passes_on_its_own_similarity():
     cfg = _cfg()
     hit = RetrievedNote(
         note_id="n1", score=0.01, vector_distance=0.2, bm25_rank=1, bm25_coverage=0.1
-    )  # sim=0.90, well above the floor
+    )  # cosine 0.80, well above the 0.40 floor
     _floor(cfg, hit)
     assert hit.passed_floor is True
-    assert "similaridade 0.90" in hit.floor_reason
+    assert "similaridade 0.80" in hit.floor_reason
 
 
 def test_coverage_zero_disables_the_gate():

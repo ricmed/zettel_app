@@ -1,7 +1,8 @@
-# ADR-045: Fail-Fast on LLM Unavailability
+# ADR-059: Fail-Fast on LLM Unavailability
 
 **Status:** Accepted
 **Date:** 2026-09-09
+**Number:** Written on 2026-09-09 as ADR-045. Renumbered **059** on 2026-10-19 (issue #275): that number already belonged to the corroboration decision of 2026-09-07 ([ADR-045](../REVIEW/ADR-045-cross-source-overlap-is-corroboration.md)). The decision text is unchanged.
 **Depends on:** [ADR-024: Pluggable Multi-Provider LLM Strategy](./ADR-024-multi-provider-llm-strategy.md)
 **Related to:** [ADR-033: Invisible Unicode Sanitization and Text-Layer Probe](../HARVEST/ADR-033-invisible-unicode-sanitization-and-text-layer-probe.md), [ADR-023: SQLite-Backed Job Queue](../WEB/ADR-023-sqlite-backed-job-queue-single-worker.md)
 
@@ -34,6 +35,10 @@ An outage is visible and cheap to resume. A malformed JSON on one chunk still ma
 
 * `zettel/llm.py` (`LLMUnavailableError`, `is_llm_unavailable`, `call_llm`, `get_llm`)
 * `zettel/extractor.py`, `zettel/connector/run.py`, `zettel/connector/note.py`, `zettel/harvester/pipeline.py`, `zettel/bibliography.py`
+
+## Addendum (2026-10-18): review dedupe fails fast (issue #272)
+
+**Status:** Accepted amendment. `deduplicate_candidates` propagates `LLMUnavailableError` (and any exception `is_llm_unavailable` classifies). Concepts in that call stay `extracted`; the review run is recorded `failed` and the CLI exits 1 with the same message as extract. A parse error on one candidate leaves that concept `extracted` and lets the others continue. `get_llm` runs only when a candidate actually reaches the model. A concept whose `candidate_json` does not parse is logged with its id and counted by `zettel status` as `concepts_extracted`.
 
 ## Addendum (2026-10-18): vision is part of the same fail-fast (issue #258)
 

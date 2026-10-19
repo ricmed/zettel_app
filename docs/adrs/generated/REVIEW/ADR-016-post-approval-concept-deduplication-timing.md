@@ -58,9 +58,9 @@ The status chain `awaiting_review` → `extracted` → `approved` (or eliminated
 
 Because CONNECT depends entirely on the `approved` status being reachable only through this dedup step, any future change to REVIEW's approval flow (batch approve, reject submenu, one-by-one review) must continue to call `_dedupe_approved_concepts()` on every path that promotes concepts out of `extracted`, or CONNECT will silently receive no concepts for that source. The three approval code paths in `review.py` already share this call, but the coupling is implicit rather than enforced by a type or contract.
 
-The dedup step's reliability directly determines corpus quality: an LLM merge that is too aggressive collapses genuinely distinct concepts, while one that is too conservative lets duplicate permanent notes reach CONNECT. [NEEDS INPUT: What is the observed false-positive/false-negative rate of `deduplicate_candidates()` in production, and has it been evaluated separately from extraction-time dedup's calibration?]
+The dedup step's reliability directly determines corpus quality: an LLM merge that is too aggressive collapses genuinely distinct concepts, while one that is too conservative lets duplicate permanent notes reach CONNECT. **Answered 2026-10-19 (issue #275).** The rate was measured on blind labels, separately from harvest dedupe. Against the manual round-2 sheet (`evals/gold/dedupe-r2-rotulos.json`, 42 items), the production prompt with full notes scores 25/42 (`evals/results/dedupe-model-273-r2-mini.json`, the #218 replay). It never calls `ignore` on a human repeat: 0 of 7 in that round, and 0 of 10 real duplicates across both rounds (`docs/artigo/03-review.md` §4). In the vault the same prompt flagged 4 of 190 decisions as duplicates and the reviewer kept all 4. About half of the human "develops" items become "new". Those numbers are in the #218 addendum below; they are not a new gate.
 
-If dedup fails partway through a batch (LLM error, timeout), the current code returns early without persisting partial progress beyond what `deduplicate_candidates()` itself commits, leaving affected concepts in `extracted` until REVIEW is re-run for that source. [NEEDS INPUT: Is there a defined retry or resume procedure for a failed post-approval dedup batch, or does it require manually re-invoking review for the source?]
+If dedup fails partway through a batch (LLM error, timeout), concepts that were not decided stay `extracted`. **Answered 2026-10-19 (issue #275).** There is no separate resume command. The next `zettel review` (or the approval path that calls `_dedupe_approved_concepts`) loads every `extracted` concept again. Since #272 an unavailable model does not approve them on the way out: the run stops and they stay `extracted` ([ADR-059](../LLM/ADR-059-fail-fast-on-llm-unavailability.md)). A concept whose `candidate_json` does not parse stays `extracted` and is counted by `zettel status`.
 
 ## References
 
@@ -142,3 +142,41 @@ Results: `evals/results/dedupe-prompt-218-r1.json`, `dedupe-prompt-218-r2.json`.
 ## Addendum (2026-10-18): dedupe stays in `extractor.py` (issue #263)
 
 **Status:** Accepted — do not move the module. `deduplicate_candidates`, `_intra_batch_dedupe`, `existing_note_contents` and `format_existing_notes` are review-phase behaviour that still lives in `extractor.py`. Moving them would not change a decision. Tests and the ADR-055 shadow monkeypatch `zettel.extractor`. The functions stay where those seams already point.
+
+## Addendum (2026-10-18): `dedupe_threshold` is cosine (ADR-058, #267)
+
+Both passes compare cosine to `linking.dedupe_threshold` (0.85). Before the fix
+the pass against existing notes effectively required cosine ≥ 0.70 and the
+intra-batch pass cosine ≥ 0.955, because cosine distance was treated as squared
+L2. The value 0.85 is kept: it is the cut the configuration already declared.
+The audit (781 notes) found 87% with a same-source neighbour at cosine ≥ 0.85;
+that measurement is recorded in ADR-058 and was not used to invent a new number.
+
+## Addendum (2026-10-19): `llm.review` stays `gpt-4o-mini` (issue #273)
+
+**Status:** Accepted. `gpt-6-luna` was set in `4f3e80a` without the #209/#218 ruler.
+The pre-registered comparison (`evals/preregistration/273-modelo-dedupe.md`)
+is round 2 only, full context, temperature 0.2. `gpt-6-luna` rejects that
+temperature and `top_p` unless `reasoning_effort` is `none`; the scored calls
+used `--thinking none` (same switch harvest already uses for this model).
+`model_comparison_rule` on the three result files:
+
+| condition | full-a | invalid | ignore recall | McNemar vs the row above |
+|---|---|---|---|---|
+| `gpt-4o-mini`, production prompt | 25/42 | 0 | 0/7 | — |
+| `gpt-6-luna`, production prompt | 24/42 | 0 | 3/7 | p = 1.0 (7 vs 6) |
+| `gpt-6-luna`, contract prompt | 23/42 | 0 | 2/7 | p = 1.0 |
+
+Neither gate passes (`adopt_luna` false, `adopt_contract` false). `llm.review.model`
+stays `gpt-4o-mini`. The production prompt and `DedupeResult` stay loose.
+`scripts/rebuild_extends_edges.py` only lists `extends` edges of `origin=llm`.
+
+## Addendum (2026-10-18): approved concepts without a note are visible (issue #271)
+
+**Status:** Accepted amendment. The intra-batch pass also compares against concepts
+already `approved` that `connect` has not written (`without_notes`). Those rows
+are targets only. A later candidate with the same thesis becomes `dedupe_pending`
+with `duplicate_of` pointing at the approved concept, and the review card names
+its thesis. `query_similar_notes` takes `where={"source_id": ...}` and dedupe
+uses it, so a nearer note from another work cannot hide the same-source neighbour.
+`_same_source_notes` stays as a check on the rows that come back.

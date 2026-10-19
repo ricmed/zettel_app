@@ -22,7 +22,7 @@ prompts_path: ./prompts             # templates .md dos prompts
 # Knobs de amostragem sao globais. Cada fase declara provider + model + base_url
 # e thinking (sem heranca de um modelo unico). Embedding continua no bloco `embedding:`.
 # Providers: openai | anthropic | ollama | gemini | openrouter | opencode | deepseek
-# thinking: null = default do vendor; false/0 = off; true | minimal|low|medium|high | budget (tokens)
+# thinking: null = default do vendor; false/0/none = off; true | minimal|low|medium|high | budget (tokens)
 llm:
   temperature: 0.20         # 0 = mais deterministico; >0 aumenta variacao
   top_p: 0.5                # nucleus sampling encaminhado a get_llm (LangChain)
@@ -33,7 +33,7 @@ llm:
     model: gpt-6-luna      # bibliografia ABNT no harvest
     base_url: null
     temperature: null       # null = herda llm.temperature
-    thinking: null
+    thinking: none
   extract:
     provider: gemini
     model: gemini-3.5-flash-lite  # notas de literatura (Prompt 1); escolhido contra o gold set humano (ADR-050)
@@ -42,7 +42,7 @@ llm:
     thinking: null          # default do vendor: e a condicao medida no ADR-050
   review:
     provider: openai
-    model: gpt-6-luna      # dedupe de conceitos pos-aprovacao
+    model: gpt-4o-mini     # dedupe; #273: luna 24/42 vs mini 25/42 (p=1). Contrato 23/42. Mini fica.
     base_url: null
     temperature: null       # null = herda llm.temperature
     thinking: null
@@ -57,7 +57,7 @@ llm:
     model: gpt-6-luna      # MOCs taxonomicos e hub
     base_url: null
     temperature: null       # null = herda llm.temperature
-    thinking: null
+    thinking: none
   ask:
     provider: deepseek
     model: deepseek-v4-flash      # zettel ask
@@ -75,13 +75,13 @@ llm:
     model: gpt-6-luna      # descricao multimodal (precisa ser vision)
     base_url: null
     temperature: null       # null = herda llm.temperature
-    thinking: null
+    thinking: none
   summarize:
     provider: openai
     model: gpt-6-luna      # resumo de capitulo e de fonte (zettel summarize)
     base_url: null
     temperature: 0.0        # saida estruturada: contrato fechado, cache determinístico
-    thinking: null
+    thinking: none
 
 # ── Embeddings ──────────────────────────────────────────────────────────
 # Providers: openai | sentence-transformers | ollama
@@ -123,16 +123,16 @@ chunking:
 # ── Linkagem / Deduplicação ─────────────────────────────────────────────
 linking:
   topk: 5                    # default do Retriever e RAG de connect/sync (CLI pode sobrescrever)
-  dedupe_threshold: 0.85     # similaridade; distancia L2 = 2 * (1 - threshold) no extract
+  dedupe_threshold: 0.85     # cosseno (ADR-058). Valor declarado mantido; medicao em docs/artigo/03-review.md §4.7
   dedupe_note_chars: 6000    # teto por nota existente no prompt de dedupe (#209); acima de qualquer nota
   rag_note_chars: 150        # por nota vizinha no Prompt 2 do connect; recorte historico ate a medicao de #212
   preflight_output_tokens_per_note: 1200  # alvo de saida por nota no pre-voo de custo (nao e teto)
   distant_analogy_topk: 5    # busca secundaria do connect (fora do bucket taxonomico)
-  distant_analogy_min_similarity: 0.40  # piso LOCAL desta busca; nao altera relevance_floor
+  distant_analogy_min_similarity: -0.20  # cosseno; era 0.40 na escala (1+cos)/2 (ADR-058). Piso LOCAL
   # Corroboracao entre fontes: mesma ideia em source_id diferentes vira duas ZTL
   # ligadas por `corroborates`, em vez de uma nota so. Derivada dos hits que o
   # Retriever ja trouxe no connect — nao custa embedding nem chamada de LLM.
-  corroborates_min_similarity: 0.88  # medido em #208/#226 (rotulos cegos); remedir se trocar o embedding
+  corroborates_min_similarity: 0.76  # cosseno; 0.88 na escala (1+cos)/2 (#208/#226), convertido sem remedir (ADR-058)
   corroborates_max_edges: 3  # teto de arestas de corroboracao por nota
 
 # ── Harvest (Deduplicação de Arquivos + ABNT) ──────────────────────────
@@ -143,7 +143,7 @@ harvest:
   # leitura juntas — consultar um indice incompleto daria falso negativo mudo.
   # Ligar exige repovoar: `zettel reindex --collection chunks`.
   semantic_duplicate_enabled: false
-  duplicate_chunk_threshold: 0.88     # similaridade minima p/ suspeita semantica (camada 5)
+  duplicate_chunk_threshold: 0.76     # cosseno; era 0.88 na escala (1+cos)/2 (ADR-058). Camada 5 desligada.
   duplicate_sample_size: 5            # chunks amostrados do arquivo p/ checagem semantica
   # Sem interacao (--yes / --skip-duplicates / --force / scripts):
   #   skip     -> pula o arquivo suspeito e loga aviso (mais seguro)
@@ -289,11 +289,10 @@ retrieval:
   topic_index_max_seeds: 5         # teto de notas trazidas pelo indice de topicos
   relevance_floor:
     enabled: true
-    # Similaridade coseno minima (sem match lexical forte). 0.70 medido em
-    # 2026-09-06 com ollama/qwen3-embedding@1024d: consulta fora do dominio
-    # marca ~0.67, dentro do dominio ~0.80. Em 0.65 o ruido passava.
+    # Cosseno (ADR-058). Medido em 2026-09-06 na escala (1+cos)/2 como 0.70
+    # (fora do dominio ~0.67, dentro ~0.80) e convertido por 2*s-1, sem remedir.
     # Re-medir com scripts/probe_relevance_floor.py ao trocar o embedding.
-    min_vector_similarity: 0.70
+    min_vector_similarity: 0.40
     bm25_hit_bypasses_floor: true  # match BM25 forte pode dispensar a similaridade vetorial
     bm25_bypass_max_rank: 5        # bypass so se o hit BM25 estiver no top-N do pool
     # Rank e criterio RELATIVO ("foi bem entre os que casaram"); num pool de 4
@@ -303,27 +302,27 @@ retrieval:
     # consulta de uma palavra so (sigla) marca 1.00 -- o caso de uso do bypass
     # continua intacto. 0.0 restaura o comportamento antigo (so rank).
     bm25_bypass_min_coverage: 0.5
-    absolute_min_similarity: 0.15  # piso rigido; nem o bypass BM25 fura (quase-ortogonal)
+    absolute_min_similarity: -0.70  # cosseno; era 0.15 na escala (1+cos)/2 (ADR-058)
   # Piso PROPRIO dos resumos de capitulo (ADR-047). E um objeto separado do de
   # cima porque mede outra distribuicao de texto: um resumo de capitulo e mais
-  # longo e difuso que uma nota. Que os dois numeros hoje coincidam em 0.70 e
+  # longo e difuso que uma nota. Que os dois numeros hoje coincidam em 0.40 e
   # coincidencia de duas medicoes independentes, nao heranca.
   #
   # Medido em 2026-09-07 com scripts/probe_relevance_floor.py
   # --collection chapter_summaries, sobre 71 capitulos resumidos
   # (ollama/qwen3-embedding@1024d):
-  #   fora-do-dominio (6 consultas): min 0.676 | mediana 0.685 | max 0.693
-  #   self-match      (20 titulos):  min 0.745 | mediana 0.821 | max 0.883
-  #   margem 0.052 -- o piso pertence a (0.693, 0.72], perto do limite inferior
-  # O 0.60 anterior deixava passar as 6 consultas fora do dominio.
+  # Medicao na escala (1+cos)/2, convertida para cosseno por 2*s-1 (ADR-058):
+  #   fora-do-dominio max 0.693 -> cosseno 0.386
+  #   self-match min 0.745 -> cosseno 0.490
+  #   o piso 0.70 dessa escala virou 0.40, dentro de (0.386, 0.44]
   # Re-medir ao trocar o modelo de embedding: o numero nao transfere.
   chapter_floor:
     enabled: true
-    min_vector_similarity: 0.70    # medido 2026-09-07; acima do max fora-dominio (0.693)
+    min_vector_similarity: 0.40    # cosseno; medido 2026-09-07 na escala antiga como 0.70
     bm25_hit_bypasses_floor: true
     bm25_bypass_max_rank: 5
     bm25_bypass_min_coverage: 0.5  # mesma razao do piso de notas (ADR-003 addendum)
-    absolute_min_similarity: 0.15
+    absolute_min_similarity: -0.70  # cosseno; era 0.15 na escala (1+cos)/2 (ADR-058)
   graph_expansion:
     enabled: true                  # apos o piso, expande sementes pelas arestas tipadas
     max_hops: 5                    # saltos no grafo do ask/RAG (1 ja traz o GraphRAG leve)
@@ -392,7 +391,7 @@ decision:
   order_permutations: 3            # copias de cada choice com ordem rotacionada
   instructions_language: en        # en | pt -- decidido pela sonda de #206
   input_price_per_mtok: 0.042      # US$ por milhao de tokens de entrada
-  corroborates_band_min: 0.75      # pares de outra fonte julgados a partir deste cosseno (#208)
+  corroborates_band_min: 0.50      # cosseno; era 0.75 na escala (1+cos)/2 (#208, ADR-058)
   sites:                           # off | shadow
     dedupe: shadow                 # dedupe da mesma fonte (review)
     moc_category: shadow           # categoria do cluster (garden)
