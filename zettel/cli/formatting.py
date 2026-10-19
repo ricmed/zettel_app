@@ -161,3 +161,23 @@ def print_cost_by_phase(db, *, title: str = "Custo por fase") -> None:
         "(Anthropic/OpenAI/Gemini) numa chamada que ainda assim foi feita -- reduz custo "
         "por token, nao elimina a chamada. As duas camadas sao independentes.[/dim]"
     )
+
+
+def print_connect_summary(outcome) -> None:
+    """What one connect run wrote: notes, edges by type, source mix, cost."""
+    console.print(f"[green]Notas permanentes criadas: {len(outcome.note_ids)}[/green]")
+    for nid in outcome.note_ids:
+        console.print(f"  - {nid}")
+    if outcome.rejected:
+        console.print(f"  [yellow]Recusados pelo Prompt 2: {outcome.rejected}[/yellow]")
+    if outcome.failed:
+        console.print(f"  [yellow]Sem nota (coberto ou falha de parse): {outcome.failed}[/yellow]")
+    if outcome.edges_by_type:
+        parts = [f"{kind} {count}" for kind, count in sorted(outcome.edges_by_type.items())]
+        console.print(f"  Arestas: {', '.join(parts)}")
+        console.print(
+            f"  Intra-fonte: {outcome.intra_source} | Entre fontes: {outcome.inter_source} | "
+            f"corroborates: {outcome.corroborates} | sugestoes: {outcome.suggestions}"
+        )
+    if outcome.cost_usd:
+        console.print(f"  Custo LLM desta execucao: ${outcome.cost_usd:.4f}")

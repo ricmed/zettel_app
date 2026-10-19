@@ -132,8 +132,32 @@ linking:
   # Corroboracao entre fontes: mesma ideia em source_id diferentes vira duas ZTL
   # ligadas por `corroborates`, em vez de uma nota so. Derivada dos hits que o
   # Retriever ja trouxe no connect — nao custa embedding nem chamada de LLM.
-  corroborates_min_similarity: 0.76  # cosseno; 0.88 na escala (1+cos)/2 (#208/#226), convertido sem remedir (ADR-058)
+  corroborates_min_similarity: 0.76  # cosseno; corte #226 em gemini-embedding-2@1536 (lado consulta). 0.88 na escala (1+cos)/2, convertido por ADR-058. Outro modelo exige nova medicao.
   corroborates_max_edges: 3  # teto de arestas de corroboracao por nota
+  llm_edges: propose  # accept | propose. LLM nao entra no grafo ate a fila.
+  prompt2_mode: combined  # combined | split. split espera a regra #288.
+  write_source_chars: 4000
+  thesis_drift_min_similarity: 0.0
+  # Cota de sementes da mesma fonte no connect. 0 = desligada. O ask nao usa.
+  # Ligar espera a regra em evals/preregistration/285-connect-rag-diversidade.md.
+  seed_same_source_max: 0
+  graph_hub_repeat_limit: 0  # vizinha repetida em N contextos recentes sai; 0 = desligado
+  # Bloco do connect (linking.graph_expansion). O ask le retrieval.graph_expansion.
+  # Os numeros copiam o ask ate evals/preregistration/285-connect-rag-diversidade.md.
+  graph_expansion:
+    enabled: true
+    max_hops: 5
+    decay: 0.2
+    max_neighbors: 16
+    relation_weights:
+      contradicts: 1.0
+      extends: 0.9
+      depends_on: 0.9
+      supports: 0.8
+      exemplifies: 0.7
+      related: 0.5
+      corroborates: 0.45
+      manual: 0.95
 
 # ── Harvest (Deduplicação de Arquivos + ABNT) ──────────────────────────
 harvest:

@@ -46,6 +46,7 @@ def expand_notes(
     relation_weights: dict[str, float] | None = None,
     max_neighbors: int = 10,
     seed_weights: dict[str, float] | None = None,
+    skip_ids: set[str] | None = None,
 ) -> dict[str, GraphNeighbor]:
     """BFS over note_connections from ``seed_ids``.
 
@@ -108,5 +109,8 @@ def expand_notes(
         visited.update(next_frontier.keys())
         frontier = next_frontier
 
+    if skip_ids:
+        for note_id in skip_ids:
+            best.pop(note_id, None)
     ranked = sorted(best.values(), key=lambda n: n.weight, reverse=True)[:max_neighbors]
     return {n.note_id: n for n in ranked}

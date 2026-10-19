@@ -129,5 +129,51 @@ labeller applies the same rules.
 * **Residual errors.** `extends` is still read as `depends_on` (5 of 69 pairs).
   Many human relations go unproposed, because the model keeps the strongest of
   about 20 neighbours.
-* **Existing edges are not rebuilt.** Only notes connected from now on, or
-  reprocessed, use the new definitions.
+* **Existing edges are not rebuilt** by `connect`. `zettel reconnect` is the
+  command that applies a later prompt to edges already in the graph.
+
+## Addendum (2026-10-19): reconnect versions LLM edges (#283)
+
+`connect` only walks concepts that are still `approved` without a note, so a
+prompt change never reached the edges already stored. `zettel reconnect`
+selects pipeline permanent notes (optionally one `--source-id` or `--note-id`),
+in `note_id` order, and asks the current Prompt 2 for edges only. The answer's
+title and body fields are discarded. Outgoing `origin='llm'` edges are replaced.
+`manual` and `derived` edges stay. `## Conexões` is rewritten from the outgoing
+graph and `auto-backlinks` is rebuilt for the old and new targets.
+
+The search is the whole `permanent_notes` collection, so an older note can link
+to a newer one. The relation menu does not gain inverse types: direction stays
+"this note ___ the other", which is the menu #231 already fixed, and the inverse
+remains the backlink label.
+
+Each LLM edge stores `prompt_checksum` (SHA-256 of the prompt template),
+`model` (`provider/model`) and `run_id`. A new column set means `zettel init
+--reset`; there is no migration. The command is CLI-only. `--dry-run` calls the
+model and writes nothing. `--yes` confirms the cost preflight.
+
+## Addendum (2026-10-19): connect no longer shares the ask graph block (#285)
+
+The question above — whether ask/article and connect/sync should share one
+expansion — is answered for connect: it reads `linking.graph_expansion`. Ask
+and article keep `retrieval.graph_expansion`. The two blocks hold the same
+numbers (5 hops, 16 neighbours, decay 0.2) until
+`evals/preregistration/285-connect-rag-diversidade.md` is scored. That copy is
+the `atual` condition, not a conclusion that they should stay equal.
+
+`linking.seed_same_source_max` (default 0) caps how many connect seeds may come
+from the candidate's own source when another source cleared the floor. The ask
+search does not pass `source_id`, so the cap cannot apply there.
+`linking.graph_hub_repeat_limit` (default 0) can drop a graph neighbour that
+already appeared in that many recent connect contexts. Both stay off until the
+pre-registered rule says otherwise.
+
+## Addendum (2026-10-19): context order stays the retriever's (#286)
+
+Position in the Prompt 2 context is confounded with score: the first embedding
+neighbour was chosen far more often than the fifth, and 727 of 776 cached
+answers sat on the old cap of 3 connections. Whether that is position or
+relevance is the question in
+`evals/preregistration/286-ordem-contexto-prompt2.md`. Until that rule is
+scored, `build_rag_context` keeps the retriever's order. A caller may pass
+`order_key` to shuffle each group deterministically; connect does not.

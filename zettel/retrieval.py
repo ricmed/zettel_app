@@ -142,14 +142,67 @@ def _hit_distance_space(hit: dict, fallback: str) -> str:
     return space if isinstance(space, str) else fallback
 
 
+def apply_source_quota(
+    eligible: list[RetrievedNote],
+    topk: int,
+    *,
+    source_id: str,
+    same_source_max: int,
+) -> list[RetrievedNote]:
+    """Keep at most ``same_source_max`` seeds from ``source_id`` when others exist.
+
+    ``eligible`` is already past the relevance floor, best first. ``same_source_max``
+    <= 0 leaves the prefix unchanged. If no other source cleared the floor, the
+    cap does not punch a hole: the remaining slots stay with the candidate's source.
+    """
+    if same_source_max <= 0 or topk <= 0 or not source_id:
+        return eligible[:topk]
+    picked: list[RetrievedNote] = []
+    same_count = 0
+    saw_other = False
+    for hit in eligible:
+        src = str((hit.metadata or {}).get("source_id") or "")
+        if src == source_id:
+            if same_count >= same_source_max:
+                continue
+            same_count += 1
+        else:
+            saw_other = True
+        picked.append(hit)
+        if len(picked) >= topk:
+            break
+    if not saw_other:
+        return eligible[:topk]
+    return picked
+
+
 class Retriever:
     """Compose vector search, BM25 search and graph expansion behind one API."""
 
-    def __init__(self, cfg: AppConfig, db: StateDB, idx: VectorIndex):
+    def __init__(
+        self, cfg: AppConfig, db: StateDB, idx: VectorIndex, *, strict_embedding: bool = False
+    ):
         self.cfg = cfg
         self.db = db
         self.idx = idx
+        self.strict_embedding = strict_embedding
         self._warned_no_fts = False
+        self._neighbour_windows: list[set[str]] = []
+
+    def _raise_if_strict(self, exc: BaseException) -> None:
+        """Connect refuses a silent empty vector result. Ask keeps the BM25 fall-through.
+
+        ``ask`` may still answer from lexical hits when the embedding service is
+        down. Connect pays for Prompt 2 with that context, so a transport, auth
+        or quota failure stops the phase instead.
+        """
+        if not self.strict_embedding:
+            return
+        from zettel.llm import _raise_unavailable, is_llm_unavailable
+
+        if is_llm_unavailable(exc):
+            _raise_unavailable(exc, phase="embedding")
+        raise exc
 
     def _distance_space(self) -> str:
         """Space of ``permanent_notes`` when a hit does not name its own.
@@ -172,6 +225,9 @@ class Retriever:
         relevance_floor: bool | None = None,
         min_vector_similarity: float | None = None,
         purpose: str = "densa",
+        source_id: str | None = None,
+        graph: object | None = None,
+        record_neighbours: bool = False,
     ) -> NoteSearchResult:
         """Retrieve permanent notes for ``query``.
 
@@ -193,8 +249,9 @@ class Retriever:
         """
         topk = topk if topk is not None else self.cfg.linking.topk
         mode = mode or self.cfg.retrieval.mode
+        gcfg = graph if graph is not None else self.cfg.retrieval.graph_expansion
         if expand_graph is None:
-            expand_graph = self.cfg.retrieval.graph_expansion.enabled
+            expand_graph = gcfg.enabled
 
         pool = max(topk * 3, 20)
         vector_hits = self._vector_notes(query, pool, exclude_id, purpose=purpose)
@@ -208,14 +265,21 @@ class Retriever:
         self._apply_relevance_floor(fused, relevance_floor, min_vector_similarity)
         candidates = fused[: max(topk, 10)]
 
-        seeds = [f for f in fused if f.passed_floor][:topk]
+        eligible = [hit for hit in fused if hit.passed_floor]
+        seeds = apply_source_quota(
+            eligible,
+            topk,
+            source_id=source_id or "",
+            same_source_max=self.cfg.linking.seed_same_source_max,
+        )
         if not seeds:
             return NoteSearchResult(hits=[], candidates=candidates)
         if not expand_graph:
             return NoteSearchResult(hits=seeds, candidates=candidates)
-        return NoteSearchResult(
-            hits=self._expand_with_graph(seeds, exclude_id), candidates=candidates
-        )
+        hits = self._expand_with_graph(seeds, exclude_id, gcfg)
+        if record_neighbours:
+            self._remember_neighbours(hits)
+        return NoteSearchResult(hits=hits, candidates=candidates)
 
     def search_chapter_summaries(
         self,
@@ -369,7 +433,8 @@ class Retriever:
             )
         except TypeError:
             return self.idx.query_similar_notes(query, n_results=pool, exclude_id=exclude_id)
-        except Exception as e:  # pragma: no cover - defensive around Chroma
+        except Exception as e:
+            self._raise_if_strict(e)
             logger.warning("Busca vetorial de notas falhou: %s", e)
             return []
 
@@ -406,7 +471,8 @@ class Retriever:
 
         try:
             extra = self.idx.query_notes_by_ids(query, wanted)
-        except Exception as e:  # pragma: no cover - defensive around Chroma
+        except Exception as e:
+            self._raise_if_strict(e)
             logger.warning("Boost por topic index falhou: %s", e)
             return vector_hits, set()
 
@@ -654,10 +720,27 @@ class Retriever:
 
     # ── Graph expansion ────────────────────────────────────────────────
 
+    def _hub_skip_ids(self) -> set[str]:
+        """Graph neighbours already shown in ``graph_hub_repeat_limit`` recent contexts."""
+        limit = self.cfg.linking.graph_hub_repeat_limit
+        if limit <= 0 or len(self._neighbour_windows) < limit:
+            return set()
+        counts: dict[str, int] = {}
+        for window in self._neighbour_windows:
+            for note_id in window:
+                counts[note_id] = counts.get(note_id, 0) + 1
+        return {note_id for note_id, count in counts.items() if count >= limit}
+
+    def _remember_neighbours(self, hits: list[RetrievedNote]) -> None:
+        limit = self.cfg.linking.graph_hub_repeat_limit
+        if limit <= 0:
+            return
+        self._neighbour_windows.append({hit.note_id for hit in hits if hit.hop >= 1})
+        del self._neighbour_windows[:-limit]
+
     def _expand_with_graph(
-        self, seeds: list[RetrievedNote], exclude_id: str | None
+        self, seeds: list[RetrievedNote], exclude_id: str | None, gcfg
     ) -> list[RetrievedNote]:
-        gcfg = self.cfg.retrieval.graph_expansion
         by_id = {s.note_id: s for s in seeds}
         neighbors = graph.expand_notes(
             self.db,
@@ -667,6 +750,7 @@ class Retriever:
             relation_weights=gcfg.relation_weights,
             max_neighbors=gcfg.max_neighbors,
             seed_weights={s.note_id: s.score for s in seeds},
+            skip_ids=self._hub_skip_ids(),
         )
 
         for nid, neigh in neighbors.items():

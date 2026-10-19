@@ -2619,3 +2619,46 @@ def test_duplicate_queue_keeps_and_discards_with_a_shadow_label(web_client):
         assert labels == {"dup-keep": "not_ignore", "dup-drop": "ignore"}
     finally:
         db.close()
+
+
+def test_review_links_queue_accepts_a_proposed_edge(web_client):
+    client, _tmp_path = web_client
+    csrf = _login(client)
+    cfg = client.app.state.service.cfg
+    db = client.app.state.service.db()
+    try:
+        root = cfg.vault_path
+        for note_id in ("A", "B"):
+            path = root / "30_Permanent" / f"ZTL - {note_id} - nota.md"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"> **Tese**: tese {note_id}\n", encoding="utf-8")
+            db.upsert_note(
+                note_id, "@S", str(path), title=note_id, body=f"> **Tese**: tese {note_id}\n"
+            )
+        db.upsert_note_connection("A", "B", "supports", "proposta", origin="llm", status="proposed")
+    finally:
+        db.close()
+
+    page = client.get("/review?queue=links")
+    assert page.status_code == 200
+    assert "Aceitar" in page.text
+    assert "tese A" in page.text and "tese B" in page.text
+    response = client.post(
+        "/review/links",
+        data={
+            "csrf": csrf,
+            "source_note_id": "A",
+            "target_note_id": "B",
+            "relation_type": "supports",
+            "action": "accept",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    db = client.app.state.service.db()
+    try:
+        row = db.list_outgoing_connections("A")[0]
+        assert row["status"] == "accepted"
+        assert db.list_review_events()[-1]["surface"] == "web"
+    finally:
+        db.close()

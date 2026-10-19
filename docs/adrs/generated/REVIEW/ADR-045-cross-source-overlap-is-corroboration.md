@@ -111,3 +111,25 @@ measurement behind it for the question "do these two notes state the same idea?"
 The 0.88 measured in this ADR was `(1+cos)/2`. ADR-058 stores the same cut as
 cosine **0.76** (`2·0.88 − 1`) and does not re-measure. Numbers "0.85" and
 "0.88" earlier in this file are on the scale the October 2026 probe printed.
+
+## Addendum (2026-10-19): the cut was measured on Gemini, and old edges are rebuilt (#280)
+
+The 2026-10-08 amendment says the number holds for `ollama/qwen3-embedding@1024d`
+and that existing edges are not rebuilt. Both sentences are wrong.
+
+* The shadow rows scored in #208 and #226 were written on 2026-10-06/07. The
+  vault's `notes.embedding_model` had already been `gemini-embedding-2` since
+  2026-09-21 (`6566919`, 1536 dimensions). The cut holds for
+  **`gemini-embedding-2@1536` on the query side** (`RETRIEVAL_QUERY`). A
+  different embedding model still needs a new measurement. The ADR-058
+  conversion changed the scale, not the model.
+* `scripts/rebuild_corroborates.py` recomputes every permanent note's outgoing
+  `corroborates` with `connector.links.corroborating_note_ids` (and the pure
+  rule `select_corroborating_ids` under it). The similarity is a fresh
+  `Retriever.search_notes` of the note's thesis and definition — the same hit
+  list connect uses — not `decision_shadow`. Those rows are on the old scale,
+  rounded, and only cover pairs that were seeds in that run. The default is a
+  dry run; `--apply` deletes derived edges the rule no longer selects, inserts
+  the ones it does, and rebuilds `auto-backlinks` plus the `(corroborates)`
+  lines in `## Conexões`. A note with neither thesis nor definition is left
+  alone.

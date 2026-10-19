@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import Counter
+from dataclasses import dataclass, field
+from pathlib import Path
 
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
-from zettel.config import AppConfig
+from zettel.config import AppConfig, llm_phase
 from zettel.connector import context
 from zettel.connector.note import ConnectSession, process_candidate
 from zettel.connector.prompt import ConnectRejected
 from zettel.domain_examples import load_domain_examples, render_for_prompt
+from zettel.hashing import sha256_hex
 from zettel.index import VectorIndex
-from zettel.llm import LLMUnavailableError, get_llm, load_prompt_parts
+from zettel.llm import get_llm, load_prompt_parts
 from zettel.logfmt import log_step
 from zettel.progress import report
 from zettel.retrieval import Retriever
@@ -25,44 +29,60 @@ from zettel.vault import sync_source_costs_to_vault
 logger = logging.getLogger(__name__)
 
 
-def load_approved_candidates(db: StateDB) -> list[dict]:
+@dataclass(frozen=True)
+class ConnectOutcome:
+    """What one ``run_connect`` wrote, for the CLI summary and the web job."""
+
+    note_ids: list[str]
+    rejected: int = 0
+    failed: int = 0
+    edges_by_type: dict[str, int] = field(default_factory=dict)
+    intra_source: int = 0
+    inter_source: int = 0
+    corroborates: int = 0
+    suggestions: int = 0
+    cost_usd: float = 0.0
+
+
+def load_approved_candidates(db: StateDB, source_ids: list[str] | None = None) -> list[dict]:
     """Load the concepts eligible for ``connect`` straight from SQLite.
 
-    This is the entry gate of Phase 3, and the only definition of what "eligible"
-    means: a concept whose ``status`` is ``approved`` (the reviewer let it through)
-    **and** whose ``note_id`` is still NULL (no permanent note was written for it
-    yet). Nothing else crosses the review/connect boundary — the phases talk to
-    each other through StateDB, never through in-memory handoff. That includes
-    the dedupe verdict ``refine_existing`` / ``merge``: its target note travels in
-    ``concepts.dedupe_json`` and becomes an ``extends`` edge here.
-
-    Rows without a ``candidate_json`` payload are skipped rather than raising: a
-    concept row can exist before the extractor has serialized its candidate, and
-    an unfinished row must not abort a batch of good ones.
-
-    Returns:
-        One dict per candidate with ``concept_id``, ``source_id``, ``chunk_id``, a
-        parsed ``candidate`` (``PermanentNoteCandidate``) and, when dedupe judged it
-        a refinement, ``refines_note_id`` / ``refine_reason`` — shaped exactly as
-        ``run_connect`` expects its ``candidates`` argument.
+    Eligible means ``approved`` with no note yet, or ``connecting``: a note was
+    started (file, row, ``note_id``) and the run stopped before ``noted``.
+    The second set is how a failed embedding is resumed on the same note.
+    ``source_ids`` limits the queue to those sources (``run-all``); ``None``
+    is the whole vault, which is what ``zettel connect`` wants.
     """
+    rows = list(db.get_concepts_by_status("approved", without_notes=True))
+    rows.extend(db.get_concepts_by_status("connecting"))
+    if source_ids is not None:
+        allowed = set(source_ids)
+        rows = [row for row in rows if row["source_id"] in allowed]
     candidates: list[dict] = []
-    for concept in db.get_concepts_by_status("approved", without_notes=True):
-        raw = concept.get("candidate_json")
-        if not raw:
-            continue
-        cand_dict = {
-            "concept_id": concept["concept_id"],
-            "source_id": concept["source_id"],
-            "chunk_id": concept["chunk_id"],
-            "candidate": PermanentNoteCandidate.model_validate_json(raw),
-        }
-        dedupe = json.loads(concept.get("dedupe_json") or "{}")
-        if dedupe.get("refines_note_id"):
-            cand_dict["refines_note_id"] = dedupe["refines_note_id"]
-            cand_dict["refine_reason"] = dedupe.get("reason") or ""
-        candidates.append(cand_dict)
+    for concept in rows:
+        cand_dict = _candidate_from_row(concept)
+        if cand_dict is not None:
+            candidates.append(cand_dict)
     return candidates
+
+
+def _candidate_from_row(concept: dict) -> dict | None:
+    raw = concept.get("candidate_json")
+    if not raw:
+        return None
+    cand_dict = {
+        "concept_id": concept["concept_id"],
+        "source_id": concept["source_id"],
+        "chunk_id": concept["chunk_id"],
+        "candidate": PermanentNoteCandidate.model_validate_json(raw),
+    }
+    dedupe = json.loads(concept.get("dedupe_json") or "{}")
+    if dedupe.get("refines_note_id"):
+        cand_dict["refines_note_id"] = dedupe["refines_note_id"]
+        cand_dict["refine_reason"] = dedupe.get("reason") or ""
+    if dedupe.get("force_connect"):
+        cand_dict["force_connect"] = True
+    return cand_dict
 
 
 def run_connect(
@@ -73,8 +93,8 @@ def run_connect(
     *,
     observer=None,
     origin: str = "pipeline",
-) -> list[str]:
-    """Generate permanent notes from approved candidates. Returns created note_ids.
+) -> ConnectOutcome:
+    """Generate permanent notes from approved candidates.
 
     ``origin`` is stamped on every note produced: the manual LIT-to-ZTL path reuses
     this same machinery but must stay distinguishable from pipeline output, and it
@@ -85,21 +105,28 @@ def run_connect(
     begin_run(run_id)
     run_status = "completed"
     created_ids: list[str] = []
+    rejected = 0
+    failed = 0
     rejection: ConnectRejected | None = None
 
     try:
+        prompt_parts = load_prompt_parts(cfg.prompts_path / "permanent_note.md")
+        spec = llm_phase(cfg, "connect")
         session = ConnectSession(
             cfg=cfg,
             db=db,
             idx=idx,
             llm=get_llm(cfg, "connect"),
-            prompt_parts=load_prompt_parts(cfg.prompts_path / "permanent_note.md"),
-            retriever=Retriever(cfg, db, idx),
+            prompt_parts=prompt_parts,
+            retriever=Retriever(cfg, db, idx, strict_embedding=True),
             example_fields=render_for_prompt(
                 load_domain_examples(cfg.domain.examples_path), "permanent_note"
             ),
             taxonomy=context.load_connect_taxonomy(cfg, idx),
             origin=origin,
+            run_id=run_id,
+            prompt_checksum=sha256_hex(prompt_parts.full_template),
+            model=f"{spec.provider}/{spec.model}",
         )
 
         total = len(candidates)
@@ -133,18 +160,31 @@ def run_connect(
                     if origin == "manual":
                         rejection = exc
                         break
+                    mark_connect_rejected(db, cand_dict, exc)
+                    rejected += 1
                     continue
                 if note_id:
                     created_ids.append(note_id)
                     log_step(logger, "ok", f"ZTL {note_id}")
+                else:
+                    failed += 1
 
         logger.info("Notas permanentes criadas/atualizadas: %d", len(created_ids))
         refresh_chapter_maps(cfg, db, created_ids)
         refresh_lit_permanent_links(cfg, db, candidates, created_ids)
         if rejection:
             raise rejection
-        return created_ids
-    except LLMUnavailableError:
+        tally = tally_connect_notes(db, created_ids)
+        tracker = get_tracker()
+        cost = float((tracker.summary().as_dict() if tracker else {}).get("cost_usd_llm") or 0)
+        return ConnectOutcome(
+            note_ids=created_ids,
+            rejected=rejected,
+            failed=failed,
+            cost_usd=cost,
+            **tally,
+        )
+    except Exception:
         run_status = "failed"
         raise
     finally:
@@ -198,3 +238,74 @@ def refresh_lit_permanent_links(
         sync_lit_permanent_links(cfg, db, [c["chunk_id"] for c in candidates if c.get("chunk_id")])
     except OSError as e:
         logger.warning("Falha ao atualizar os links LIT -> ZTL: %s", e)
+
+
+def tally_connect_notes(db: StateDB, note_ids: list[str]) -> dict:
+    """Outgoing edges and vault suggestions for the notes this run wrote."""
+    from zettel.vault import read_managed_block
+
+    types: Counter[str] = Counter()
+    intra = inter = corroborates = suggestions = 0
+    for nid in note_ids:
+        row = db.get_note(nid) or {}
+        src = row.get("source_id") or ""
+        for edge in db.list_outgoing_connections(nid):
+            rel = str(edge.get("relation_type") or "")
+            types[rel] += 1
+            if rel == "corroborates":
+                corroborates += 1
+            target = db.get_note(edge["target_note_id"]) or {}
+            tgt = target.get("source_id") or ""
+            if src and tgt and src == tgt:
+                intra += 1
+            elif src and tgt:
+                inter += 1
+        path = row.get("path")
+        if not path:
+            continue
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        block = read_managed_block(text, "auto-connections") or ""
+        suggestions += sum(1 for line in block.splitlines() if line.lstrip().startswith("-"))
+    return {
+        "edges_by_type": dict(types),
+        "intra_source": intra,
+        "inter_source": inter,
+        "corroborates": corroborates,
+        "suggestions": suggestions,
+    }
+
+
+def mark_connect_rejected(db: StateDB, cand_dict: dict, exc: ConnectRejected) -> None:
+    """Take an approved concept out of the connect queue and keep the model's reason.
+
+    ``dedupe_json`` keeps any refine payload already stored. The rejection sits
+    beside it, so a later requeue can drop only that key.
+    """
+    concept_id = cand_dict["concept_id"]
+    row = db.get_concept(concept_id) or {}
+    payload = json.loads(row.get("dedupe_json") or "{}")
+    payload["connect_rejection"] = {"reason": exc.reason, "category": exc.category}
+    payload.pop("force_connect", None)
+    db.set_concept_dedupe(concept_id, "connect_rejected", payload)
+
+
+def requeue_connect_rejected(db: StateDB, *, force: bool = False) -> int:
+    """Return ``connect_rejected`` concepts to ``approved``.
+
+    ``force`` asks the next Prompt 2 call not to decline the concept. The stored
+    rejection reason is cleared either way. A refine payload in the same JSON stays.
+    """
+    restored = 0
+    for row in db.get_concepts_by_status("connect_rejected"):
+        payload = json.loads(row.get("dedupe_json") or "{}")
+        payload.pop("connect_rejection", None)
+        if force:
+            payload["force_connect"] = True
+        else:
+            payload.pop("force_connect", None)
+        db.set_concept_dedupe(row["concept_id"], "approved", payload)
+        restored += 1
+    return restored

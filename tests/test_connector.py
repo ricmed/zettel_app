@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from zettel.config import AppConfig
 from zettel.connector.context import build_rag_context, fallback_image_ids, resolve_images
 from zettel.connector.links import (
@@ -18,6 +19,19 @@ from zettel.retrieval import RetrievedNote
 from zettel.schemas import RelationshipResult, RelationType
 from zettel.state import StateDB
 from zettel.vault import build_permanent_note_body, read_managed_block
+
+
+class _CacheDB:
+    """SQLite cache surface that ``cached_call_llm`` needs, and nothing else."""
+
+    def __init__(self) -> None:
+        self.store: dict[str, str] = {}
+
+    def get_cached_llm_response(self, checksum: str) -> str | None:
+        return self.store.get(checksum)
+
+    def cache_llm_response(self, checksum: str, _request: str, response: str) -> None:
+        self.store[checksum] = response
 
 
 class _FakeDB:
@@ -583,8 +597,10 @@ def test_persist_and_backlink_writes_inverse_on_target(tmp_path):
         _write_note(tgt)
         db.upsert_note("NEW", "@S", str(src), "Nova")
         db.upsert_note("OLD", "@S", str(tgt), "Velha")
+        cfg = AppConfig(vault_path=tmp_path)
+        cfg.linking.llm_edges = "accept"
         persist_and_backlink(
-            AppConfig(vault_path=tmp_path),
+            cfg,
             db,
             "NEW",
             [
@@ -670,12 +686,45 @@ def test_ptbr_guard_roundtrips_the_json_object(monkeypatch, tmp_path):
         return json.dumps({k: f"[ptbr] {v}" for k, v in payload.items()})
 
     monkeypatch.setattr("zettel.connector.prompt.call_llm", fake_call_llm)
-    fixed = apply_ptbr_guard(cfg, object(), output)
+    fixed = apply_ptbr_guard(cfg, _CacheDB(), object(), output)
 
     assert fixed.thesis == "[ptbr] The model learns from data"
     assert fixed.definition.startswith("[ptbr] ")
     assert fixed.example == "[ptbr] An example"
     assert "{text}" not in sent["user"]
+    assert fixed.ptbr_guard is True
+
+
+def test_ptbr_guard_reuses_the_sqlite_cache(monkeypatch, tmp_path):
+    from zettel.connector.prompt import apply_ptbr_guard
+    from zettel.schemas import PermanentNoteLLMOutput
+
+    cfg = AppConfig(
+        vault_path=tmp_path / "vault",
+        prompts_path=Path(__file__).resolve().parents[1] / "prompts",
+    )
+    output = PermanentNoteLLMOutput(
+        status="accepted",
+        thesis="The model learns from data that it sees",
+        definition="This definition is in English and should be translated",
+        intuition="Like a student",
+        example="An example",
+        limits="Some limits",
+    )
+    calls = {"n": 0}
+
+    def fake_call_llm(llm, user, system=None, **kwargs):
+        calls["n"] += 1
+        return (
+            '{"thesis": "O modelo aprende", "definition": "d",'
+            ' "intuition": "i", "example": "e", "limits": "l"}'
+        )
+
+    monkeypatch.setattr("zettel.connector.prompt.call_llm", fake_call_llm)
+    db = _CacheDB()
+    apply_ptbr_guard(cfg, db, object(), output.model_copy())
+    apply_ptbr_guard(cfg, db, object(), output.model_copy())
+    assert calls["n"] == 1
 
 
 # ── Refinement edge, distant suggestions, PT-BR heuristic ─────────────
@@ -775,7 +824,7 @@ def test_run_connect_links_refinement_and_writes_suggestions_once(tmp_path, monk
 
         candidates = run.load_approved_candidates(db)
         assert candidates[0]["refines_note_id"] == "OLD"
-        [note_id] = run.run_connect(cfg, db, _Index(), candidates)
+        [note_id] = run.run_connect(cfg, db, _Index(), candidates).note_ids
 
         edges = {
             e["target_note_id"]: e["relation_type"]
@@ -792,3 +841,143 @@ def test_run_connect_links_refinement_and_writes_suggestions_once(tmp_path, monk
         )
     finally:
         db.close()
+
+
+def _approved_connect_db(tmp_path, monkeypatch):
+    """One approved concept and the patches a connect test needs to stay offline."""
+    from zettel.connector import context, prompt, run
+    from zettel.schemas import PermanentNoteCandidate, PermanentNoteLLMOutput
+
+    cfg = AppConfig(
+        vault_path=tmp_path / "vault",
+        prompts_path=Path(__file__).resolve().parents[1] / "prompts",
+    )
+    db = StateDB(tmp_path / "state.db")
+    db.upsert_source("@S", "S2024", "Livro", ["Autor"], 2024, "h", "/x.pdf", "pdf")
+    db.upsert_chapter("@S::ch000", "@S", "Cap", "ck")
+    db.upsert_chunk("@S::ch000::a", "@S", "@S::ch000", "texto", "h1", status="persisted")
+    cand = PermanentNoteCandidate(
+        thesis="Tese declarativa sobre um conceito atomico retomavel",
+        definition="Definicao autonoma com palavras suficientes para o schema.",
+    )
+    db.upsert_concept(
+        "c1", "@S", "@S::ch000::a", candidate_json=cand.model_dump_json(), status="approved"
+    )
+    response = PermanentNoteLLMOutput(
+        status="ok",
+        reason="",
+        category="",
+        title="Conceito retomavel",
+        thesis=cand.thesis,
+        definition=cand.definition,
+        connections=[],
+    ).model_dump_json()
+    calls = {"n": 0}
+
+    def _call(*_a, **_k):
+        calls["n"] += 1
+        return response
+
+    monkeypatch.setattr(run, "get_llm", lambda *_a, **_k: object())
+    monkeypatch.setattr(prompt, "call_llm", _call)
+    monkeypatch.setattr(context, "load_connect_taxonomy", lambda *_a, **_k: ({}, {}))
+    return cfg, db, run, calls
+
+
+def test_embedding_upsert_failure_is_resumed_on_the_same_note(tmp_path, monkeypatch):
+    """A dead embedding leaves the concept eligible and the run failed.
+
+    The second connect reuses the note_id, writes no second file, and does not
+    call Prompt 2 again.
+    """
+    from zettel.llm import LLMUnavailableError
+    from zettel.retrieval import NoteSearchResult, Retriever
+
+    cfg, db, run, calls = _approved_connect_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        Retriever, "search_notes", lambda *_a, **_k: NoteSearchResult(hits=[], candidates=[])
+    )
+
+    class _Index:
+        def __init__(self):
+            self.n = 0
+
+        def upsert_permanent_note(self, *_a, **_k):
+            self.n += 1
+            if self.n == 1:
+                raise ConnectionError("connection refused")
+
+    index = _Index()
+    try:
+        with pytest.raises(LLMUnavailableError, match="embedding"):
+            run.run_connect(cfg, db, index, run.load_approved_candidates(db))
+        concept = db.get_concept("c1")
+        assert concept["status"] == "connecting"
+        note_id = concept["note_id"]
+        assert note_id
+        assert db.get_last_run()["status"] == "failed"
+        again = run.load_approved_candidates(db)
+        assert [row["concept_id"] for row in again] == ["c1"]
+        files = list((cfg.vault_path / "30_Permanent").glob("*.md"))
+        assert len(files) == 1
+
+        [resumed] = run.run_connect(cfg, db, index, again).note_ids
+        assert resumed == note_id
+        assert calls["n"] == 1
+        assert db.get_concept("c1")["status"] == "noted"
+        assert len(list((cfg.vault_path / "30_Permanent").glob("*.md"))) == 1
+        runs = db.get_recent_runs(limit=2)
+        assert [row["status"] for row in runs] == ["completed", "failed"]
+    finally:
+        db.close()
+
+
+def test_embedding_search_failure_stops_before_prompt_2(tmp_path, monkeypatch):
+    from zettel.llm import LLMUnavailableError
+
+    cfg, db, run, calls = _approved_connect_db(tmp_path, monkeypatch)
+
+    class _Down:
+        def query_similar_notes(self, *_a, **_k):
+            raise ConnectionError("connection refused")
+
+    try:
+        with pytest.raises(LLMUnavailableError, match="embedding"):
+            run.run_connect(cfg, db, _Down(), run.load_approved_candidates(db))
+        assert calls["n"] == 0
+        concept = db.get_concept("c1")
+        assert concept["status"] == "approved"
+        assert not concept["note_id"]
+        assert db.get_last_run()["status"] == "failed"
+    finally:
+        db.close()
+
+
+def test_connect_cli_exits_1_when_the_embedding_is_down(monkeypatch):
+    from typer.testing import CliRunner
+    from zettel.cli import synthesis
+    from zettel.cli.app import app
+    from zettel.llm import LLMUnavailableError
+
+    class _DB:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(synthesis, "load_deps", lambda *_a, **_k: AppConfig())
+    monkeypatch.setattr(synthesis, "get_db", lambda *_a, **_k: _DB())
+    monkeypatch.setattr(synthesis, "get_idx", lambda *_a, **_k: object())
+    monkeypatch.setattr(synthesis, "preflight_gate", lambda *_a, **_k: None)
+    monkeypatch.setattr("zettel.preflight.estimate_connect", lambda *_a, **_k: object())
+
+    def _boom(*_a, **_k):
+        raise LLMUnavailableError("connection refused", phase="embedding")
+
+    monkeypatch.setattr(
+        "zettel.connector.load_approved_candidates", lambda _db: [{"concept_id": "c1"}]
+    )
+    monkeypatch.setattr("zettel.connector.run_connect", _boom)
+
+    result = CliRunner().invoke(app, ["connect", "--yes"])
+    assert result.exit_code == 1
+    assert "embedding" in result.output
+    assert "connection refused" in result.output

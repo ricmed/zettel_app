@@ -21,6 +21,7 @@ from zettel.connector.prompt import (
     ConnectRejected,
     Prompt2Payload,
     generate_permanent_note,
+    generate_split_note,
 )
 from zettel.decision.shadow import shadow_corroborates
 from zettel.hashing import (
@@ -64,6 +65,9 @@ class ConnectSession:
     example_fields: dict[str, str]
     taxonomy: context.Taxonomy
     origin: str = "pipeline"
+    run_id: int | None = None
+    prompt_checksum: str = ""
+    model: str = ""
 
 
 def literature_ref_for_chunk(citekey: str, title_src: str, chunk: dict[str, Any] | None) -> str:
@@ -88,8 +92,9 @@ def process_candidate(
 
     ``None`` means nothing was written: the concept is already covered by another
     note, or Prompt 2 failed with a recoverable error (logged; the concept stays
-    ``approved`` for the next run). ``ConnectRejected`` and ``LLMUnavailableError``
-    propagate to ``run_connect``.
+    ``approved`` for the next run). ``ConnectRejected``, ``LLMUnavailableError``
+    and an embedding outage propagate to ``run_connect``. A concept left
+    ``connecting`` is resumed on the same ``note_id``.
     """
     if step is not None:
         set_progress(step, total, "nota")
@@ -107,6 +112,9 @@ def _process(
     source_id = cand_dict["source_id"]
     concept_id = cand_dict["concept_id"]
     chunk_id = cand_dict.get("chunk_id") or ""
+    if (db.get_concept(concept_id) or {}).get("status") == "connect_rejected":
+        logger.info("Conceito %s ja recusado pelo connect; nao sera perguntado de novo", concept_id)
+        return None
 
     note_id = _target_note_id(db, cand_dict)
     if note_id is None:
@@ -129,7 +137,12 @@ def _process(
 
     query_text = f"{cand.thesis} {cand.definition}"
     similar = session.retriever.search_notes(
-        query_text, topk=cfg.linking.topk, exclude_id=note_id
+        query_text,
+        topk=cfg.linking.topk,
+        exclude_id=note_id,
+        source_id=source_id,
+        graph=cfg.linking.graph_expansion,
+        record_neighbours=True,
     ).hits
     distant = context.search_distant_analogies(
         cfg, session.idx, session.retriever, query_text, note_id, similar, session.taxonomy
@@ -146,18 +159,35 @@ def _process(
 
     tracker = get_tracker()
     usage_before = tracker.summary().as_dict() if tracker else {}
+    thesis_similarity: float | None = None
     try:
-        note_output, cache_hit = generate_permanent_note(
-            cfg,
-            db,
-            session.llm,
-            session.prompt_parts,
-            cand,
-            payload,
-            label=f"connect:{concept_id}",
-            step=step,
-            total=total,
-        )
+        if cfg.linking.prompt2_mode == "split":
+            note_output, cache_hit, thesis_similarity = generate_split_note(
+                cfg,
+                db,
+                session.llm,
+                cand,
+                payload,
+                source_text=(chunk_row or {}).get("text") or "",
+                anchor_quote=cand.anchor_quote or "",
+                step=step,
+                total=total,
+                subject_id=concept_id,
+            )
+        else:
+            note_output, cache_hit = generate_permanent_note(
+                cfg,
+                db,
+                session.llm,
+                session.prompt_parts,
+                cand,
+                payload,
+                label=f"connect:{concept_id}",
+                step=step,
+                total=total,
+                force=bool(cand_dict.get("force_connect")),
+                subject_id=concept_id,
+            )
     except (ConnectRejected, LLMUnavailableError):
         raise
     except Exception as e:
@@ -189,35 +219,61 @@ def _process(
     )
     # Distant analogies are suggestions (auto-connections), never graph edges (ADR-043).
     distant_ids = {n.note_id for n in distant}
-    resolved = links.resolve_connections(db, connections)
+    context_ids = {hit.note_id for hit in similar} | {hit.note_id for hit in distant}
+    if cand_dict.get("refines_note_id"):
+        context_ids.add(cand_dict["refines_note_id"])
+    resolved = links.resolve_connections(db, connections, allowed_ids=context_ids)
     edges = [c for c in resolved if c["related_note_id"] not in distant_ids]
     suggestions = [c for c in resolved if c["related_note_id"] in distant_ids]
+    hard, proposed = links.split_for_review(
+        cfg, edges, refines_note_id=cand_dict.get("refines_note_id")
+    )
 
     _write_note(
         session,
         cand_dict,
         note_id=note_id,
         note_output=note_output,
-        edges=edges,
-        suggestions=suggestions,
+        edges=hard,
+        suggestions=suggestions + proposed,
         literature_ref=literature_ref,
         citation=citation,
         provenance_extra={
             **_usage_delta(usage_before, usage_after),
             "llm_cache_hit": cache_hit,
+            **_thesis_review(cfg, thesis_similarity),
+            **({"ptbr_guard": True} if note_output.ptbr_guard else {}),
         },
     )
-    links.persist_and_backlink(cfg, db, note_id, edges)
+    links.persist_and_backlink(
+        cfg,
+        db,
+        note_id,
+        hard + proposed,
+        provenance={
+            "prompt_checksum": session.prompt_checksum,
+            "model": session.model,
+            "run_id": session.run_id,
+        },
+    )
+    db.upsert_concept(
+        concept_id,
+        source_id,
+        chunk_id,
+        note_id=note_id,
+        status="noted",
+    )
     return note_id
 
 
 def _target_note_id(db: StateDB, cand_dict: dict) -> str | None:
     """The note this concept writes to, or None when another note already covers it.
 
-    A concept that already has a note is rewritten in place — unless that note is
-    manual, which the pipeline never overwrites. A concept without one first checks
-    whether a note written from the same chunk/thesis already covers it
-    (``find_covering_note_id``); either covered case marks the concept ``noted``.
+    A concept that already has a note is rewritten in place — this is how a
+    ``connecting`` resume (#282) reuses the same file. A manual note is never
+    overwritten. A concept without one first checks whether a note written from
+    the same chunk/thesis already covers it (``find_covering_note_id``, ADR-030);
+    either covered case marks the concept ``noted``.
     """
     concept_id = cand_dict["concept_id"]
     existing_note_id = (db.get_concept(concept_id) or {}).get("note_id")
@@ -262,6 +318,19 @@ def _usage_delta(before: dict, after: dict) -> dict[str, Any]:
         "llm_tokens_prompt": int(diff("tokens_prompt")),
         "llm_tokens_completion": int(diff("tokens_completion")),
     }
+
+
+def _thesis_review(cfg: AppConfig, similarity: float | None) -> dict[str, Any]:
+    """Record the written thesis against the approved one. Never drops the note.
+
+    The floor stays 0 until #288 measures it, so the default records nothing.
+    """
+    if similarity is None or cfg.linking.thesis_drift_min_similarity <= 0:
+        return {}
+    record: dict[str, Any] = {"thesis_similarity": round(similarity, 4)}
+    if similarity < cfg.linking.thesis_drift_min_similarity:
+        record["needs_thesis_review"] = True
+    return record
 
 
 def _write_note(
@@ -319,6 +388,15 @@ def _write_note(
     meta.update(judgement_frontmatter(cand))
 
     note_path = cfg.vault_path / "30_Permanent" / note_filename("ZTL", note_id, title)
+    # The concept becomes resumable before the file exists, so a crash after the
+    # write reuses this note_id instead of minting another ULID.
+    db.upsert_concept(
+        cand_dict["concept_id"],
+        source_id,
+        cand_dict["chunk_id"],
+        note_id=note_id,
+        status="connecting",
+    )
     safe_write_note(note_path, meta, body)
     if suggestions:
         write_auto_connections(
@@ -364,27 +442,28 @@ def _write_note(
             ensure_ascii=False,
         ),
     )
-    db.upsert_concept(
-        cand_dict["concept_id"],
-        source_id,
-        cand_dict["chunk_id"],
-        note_id=note_id,
-        status="noted",
-    )
 
     # Skip re-embedding when the note's semantic content and embedding model are unchanged.
+    # ``noted`` is set only after the vector and the edges land (see ``_process``).
     emb_hash = compute_embedding_input_hash(
         semantic_checksum, cfg.embedding.provider, cfg.embedding.model
     )
     if (db.get_note(note_id) or {}).get("embedding_input_hash") != emb_hash:
-        session.idx.upsert_permanent_note(
-            note_id,
-            embeddable,
-            {
-                "title": title,
-                "source_id": source_id,
-                "tags": ", ".join(tags),
-                "note_semantic_checksum": semantic_checksum,
-            },
-        )
+        try:
+            session.idx.upsert_permanent_note(
+                note_id,
+                embeddable,
+                {
+                    "title": title,
+                    "source_id": source_id,
+                    "tags": ", ".join(tags),
+                    "note_semantic_checksum": semantic_checksum,
+                },
+            )
+        except Exception as exc:
+            from zettel.llm import _raise_unavailable, is_llm_unavailable
+
+            if is_llm_unavailable(exc):
+                _raise_unavailable(exc, phase="embedding")
+            raise
         db.update_note_embedding(note_id, emb_hash, cfg.embedding.model)

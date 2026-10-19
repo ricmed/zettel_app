@@ -363,7 +363,7 @@ class _SnapshotDB:
         return {"path": note["path"], "title": note["title"]} if note else None
 
 
-def rag_context_for(item: dict[str, Any], note_chars: int) -> str:
+def rag_context_for(item: dict[str, Any], note_chars: int, *, order_key: str | None = None) -> str:
     from zettel.connector.context import build_rag_context
     from zettel.retrieval import RetrievedNote
 
@@ -382,8 +382,61 @@ def rag_context_for(item: dict[str, Any], note_chars: int) -> str:
         ]
 
     return build_rag_context(
-        _SnapshotDB(item), hits("similar"), hits("distant"), note_chars=note_chars
+        _SnapshotDB(item),
+        hits("similar"),
+        hits("distant"),
+        note_chars=note_chars,
+        order_key=order_key,
     )
+
+
+def order_keys(concept_id: str, *, shuffle_seed: int | None, permutations: int) -> list[str | None]:
+    """One key per Prompt 2 call. ``None`` keeps the retriever's order."""
+    if permutations > 1:
+        base = 0 if shuffle_seed is None else shuffle_seed
+        return [f"{base}:{index}:{concept_id}" for index in range(permutations)]
+    if shuffle_seed is None:
+        return [None]
+    return [f"{shuffle_seed}:{concept_id}"]
+
+
+def aggregate_edges(answers: list[dict[str, Any]]) -> dict[str, Any]:
+    """Keep an edge that appears in at least half the answers, rounded up.
+
+    The relation is the majority type among the answers that named that target.
+    Ties break on the type name so the result does not depend on dict order.
+    """
+    import math
+
+    need = math.ceil(len(answers) / 2) if answers else 1
+    counts: dict[str, dict[str, int]] = {}
+    accepted = 0
+    for answer in answers:
+        if answer.get("status") != "accepted":
+            continue
+        accepted += 1
+        for note_id, relation in (answer.get("edges") or {}).items():
+            bucket = counts.setdefault(note_id, {})
+            bucket[relation] = bucket.get(relation, 0) + 1
+    edges: dict[str, str] = {}
+    for note_id, relations in counts.items():
+        if sum(relations.values()) < need:
+            continue
+        edges[note_id] = max(relations.items(), key=lambda item: (item[1], item[0]))[0]
+    status = "accepted" if accepted else "rejected"
+    return {"status": status, "edges": edges}
+
+
+def mean_position_rates(rows: list[list[float]]) -> list[float]:
+    """Mean choice rate at each within-group position. Short rows do not pad."""
+    if not rows:
+        return []
+    width = max(len(row) for row in rows)
+    means: list[float] = []
+    for index in range(width):
+        values = [row[index] for row in rows if index < len(row)]
+        means.append(round(sum(values) / len(values), 4) if values else 0.0)
+    return means
 
 
 # -- Export --------------------------------------------------------------
@@ -592,6 +645,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sample", type=int, default=40)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
+        "--shuffle-context",
+        type=int,
+        default=None,
+        help="Embaralha cada grupo do contexto com esta seed e o concept_id",
+    )
+    parser.add_argument(
+        "--permutations",
+        type=int,
+        default=1,
+        help="K ordens; a aresta fica se aparecer em pelo menos ceil(K/2) respostas",
+    )
+    parser.add_argument(
         "--exclude-snapshot",
         type=Path,
         action="append",
@@ -691,11 +756,15 @@ def main(argv: list[str] | None = None) -> int:
     prompts = {name: load_prompt_parts(path) for name, path in prompt_args}
     examples = render_for_prompt(load_domain_examples(cfg.domain.examples_path), "permanent_note")
 
-    def build(run: str, item: dict[str, Any], parts: Any) -> tuple[str, str]:
+    def build(
+        run: str, item: dict[str, Any], parts: Any, *, order_key: str | None = None
+    ) -> tuple[str, str]:
         payload = Prompt2Payload(
             source_id=item["source_id"],
             literature_ref=item["literature_ref"],
-            rag_context=rag_context_for(item, CONTEXT_CHARS[condition_of(run)]),
+            rag_context=rag_context_for(
+                item, CONTEXT_CHARS[condition_of(run)], order_key=order_key
+            ),
             images_context=item["images_context"],
             examples=examples,
         )
@@ -715,7 +784,8 @@ def main(argv: list[str] | None = None) -> int:
         parts = prompts[name or next(iter(prompts))]
         run_key = sha256_hex(
             f"{run}|{CONTEXT_CHARS[condition_of(run)]}|{parts.full_template}|"
-            f"{spec.provider}/{spec.model}@{temperature}"
+            f"{spec.provider}/{spec.model}@{temperature}|"
+            f"shuffle={args.shuffle_context}|perm={args.permutations}"
         )[:12]
         record_path = args.record_dir / f"{run}-{run_key}.json"
         recorded = (
@@ -737,22 +807,35 @@ def main(argv: list[str] | None = None) -> int:
             from zettel.llm import call_llm
 
             for item in missing:
-                system, user = build(run, item, parts)
-                text = call_llm(
-                    llm,
-                    user,
-                    system=system or None,
-                    provider=spec.provider,
-                    prompt_cache=cfg.llm.prompt_cache,
-                    label=f"probe-connect:{result_id}",
+                keys = order_keys(
+                    item["concept_id"],
+                    shuffle_seed=args.shuffle_context,
+                    permutations=args.permutations,
                 )
-                entry = parse_answer(
-                    text, {n["note_id"] for n in item["similar"] + item["distant"]}
-                )
-                if "error" in entry:
-                    print(f"  {item['item_key']}: {entry['error']}")
+                answers = []
+                for key in keys:
+                    system, user = build(run, item, parts, order_key=key)
+                    text = call_llm(
+                        llm,
+                        user,
+                        system=system or None,
+                        provider=spec.provider,
+                        prompt_cache=cfg.llm.prompt_cache,
+                        label=f"probe-connect:{result_id}",
+                    )
+                    entry = parse_answer(
+                        text, {n["note_id"] for n in item["similar"] + item["distant"]}
+                    )
+                    if "error" in entry:
+                        print(f"  {item['item_key']}: {entry['error']}")
+                        answers = []
+                        break
+                    answers.append(entry)
+                if not answers:
                     continue
-                recorded[item["item_key"]] = entry
+                recorded[item["item_key"]] = (
+                    answers[0] if len(answers) == 1 else aggregate_edges(answers)
+                )
                 record_path.parent.mkdir(parents=True, exist_ok=True)
                 record_path.write_text(
                     json.dumps(

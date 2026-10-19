@@ -201,6 +201,14 @@ class ChunkingConfig(BaseModel):
 
 
 class LinkingConfig(BaseModel):
+    """Knobs do connect (e da dedupe do review). Catalogo: config.yaml -> linking.
+
+    `graph_expansion` aqui e o bloco do connect, nao o do ask
+    (``retrieval.graph_expansion``). Os numeros copiam o ask ate a regra #285.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
     topk: int = 5
     # Cosseno real nas duas passadas da dedupe (ADR-058). O 0.85 ja era o corte
     # declarado; antes da correcao o filtro efetivo era cos >= 0.70 contra notas
@@ -228,9 +236,35 @@ class LinkingConfig(BaseModel):
     # (zero embedding e zero chamada de LLM adicionais). Medido em 0.88 na escala
     # (1+cos)/2 contra rotulos cegos (#208, #226): a 0.85 nessa escala o erro era
     # so aresta indevida; nenhum par "mesma ideia" ficou abaixo. Convertido para
-    # cosseno por 2*s-1 (ADR-058), sem remedir. Outro embedding exige medir de novo.
+    # cosseno por 2*s-1 (ADR-058), sem remedir a escala. A rodada em si usou
+    # gemini-embedding-2@1536 no lado consulta (shadow de 2026-10-06/07, depois
+    # da troca em 6566919); o texto que citava qwen3 estava errado (#280).
+    # Outro embedding exige medir de novo. Arestas ja gravadas: scripts/rebuild_corroborates.py.
     corroborates_min_similarity: float = 0.76
     corroborates_max_edges: int = 3
+    # accept: aresta de LLM entra no grafo. propose: fica na fila ate um humano.
+    # O padrao e propose porque a precisao medida (#212, #231) nao justifica
+    # escrita direta. derived e manual nao passam por esta chave.
+    llm_edges: Literal["accept", "propose"] = "propose"
+    # combined: o Prompt 2 atual (escreve e liga). split: escrita com a fonte,
+    # depois ligacao. O padrao fica combined ate a regra #288.
+    prompt2_mode: Literal["combined", "split"] = "combined"
+    write_source_chars: int = 4000
+    # 0 nao marca nada. Acima disso, tese reescrita menos parecida que o limiar
+    # ganha needs_thesis_review na proveniencia. O numero espera a medicao #288.
+    thesis_drift_min_similarity: float = 0.0
+    # Cota de sementes da mesma fonte no RAG do connect. 0 = sem cota (o
+    # comportamento medido ate #285). So vale quando a busca recebe source_id;
+    # o ask nao recebe, entao o piso do ask nao muda.
+    seed_same_source_max: int = 0
+    # Vizinha de grafo que ja entrou em N contextos recentes do connect sai do
+    # proximo. 0 = desligado. Nao afeta o ask.
+    graph_hub_repeat_limit: int = 0
+    # Expansao do connect, separada da do ask (`retrieval.graph_expansion`).
+    # Os numeros copiam o ask ate a regra em evals/preregistration/285-*.md.
+    graph_expansion: GraphExpansionConfig = Field(
+        default_factory=lambda: GraphExpansionConfig(max_hops=5, decay=0.2, max_neighbors=16)
+    )
 
 
 class HarvestConfig(BaseModel):

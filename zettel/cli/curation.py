@@ -240,3 +240,78 @@ def summarize(
         console.print(f"[yellow]{msg}[/yellow]")
 
     db.close()
+
+
+@app.command()
+def links(
+    config: ConfigOption = None,
+    accept: Annotated[
+        str | None,
+        typer.Option("--accept", help="Aceitar SRC:ALVO:TIPO"),
+    ] = None,
+    reject: Annotated[
+        str | None,
+        typer.Option("--reject", help="Rejeitar SRC:ALVO:TIPO"),
+    ] = None,
+    retype: Annotated[
+        str | None,
+        typer.Option("--retype", help="Trocar o tipo SRC:ALVO:TIPO:NOVO"),
+    ] = None,
+    mark_proposed: Annotated[
+        bool,
+        typer.Option("--mark-proposed", help="Marcar arestas de LLM ja aceitas como propostas"),
+    ] = False,
+):
+    """Revisar arestas que o LLM propos e que ainda nao entram no grafo."""
+    cfg = load_deps(config)
+    db = get_db(cfg)
+    from zettel.connector.links import decide_link
+
+    try:
+        if mark_proposed:
+            console.print(f"[green]{db.mark_llm_edges_proposed()} aresta(s) marcada(s).[/green]")
+        decided = False
+        for flag, action in ((accept, "accept"), (reject, "reject")):
+            if not flag:
+                continue
+            parts = flag.split(":")
+            if len(parts) != 3:
+                console.print("[red]Use SRC:ALVO:TIPO.[/red]")
+                raise typer.Exit(1)
+            if not decide_link(cfg, db, parts[0], parts[1], parts[2], action, surface="cli"):
+                console.print("[red]Aresta nao encontrada.[/red]")
+                raise typer.Exit(1)
+            decided = True
+        if retype:
+            parts = retype.split(":")
+            if len(parts) != 4:
+                console.print("[red]Use SRC:ALVO:TIPO:NOVO.[/red]")
+                raise typer.Exit(1)
+            if not decide_link(
+                cfg,
+                db,
+                parts[0],
+                parts[1],
+                parts[2],
+                "retype",
+                new_type=parts[3],
+                surface="cli",
+            ):
+                console.print("[red]Aresta nao encontrada.[/red]")
+                raise typer.Exit(1)
+            decided = True
+        if decided:
+            console.print("[green]Decisao gravada.[/green]")
+            return
+        rows = db.list_proposed_connections()
+        if not rows:
+            console.print("Nenhuma aresta de LLM pendente.")
+            return
+        for row in rows:
+            console.print(
+                f"{row['source_note_id']} -> {row['target_note_id']} "
+                f"({row['relation_type']}) {row.get('description') or ''}"
+            )
+        console.print(f"{len(rows)} pendente(s).")
+    finally:
+        db.close()

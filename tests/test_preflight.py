@@ -179,8 +179,9 @@ def test_extract_flags_what_it_does_not_count(cfg, db):
 
 def test_connect_counts_candidates_and_rag_context(cfg, db):
     cfg.linking.topk = 5
-    cfg.retrieval.graph_expansion.enabled = True
-    cfg.retrieval.graph_expansion.max_neighbors = 10
+    cfg.linking.graph_expansion.enabled = True
+    cfg.linking.graph_expansion.max_neighbors = 10
+    cfg.linking.distant_analogy_topk = 0
     est = estimate_connect(cfg, db, _candidates(2))
     assert est.items == 2
     # Empty vault: 15 notes x (120 header + the 150 cap) chars / 4 = 1012 tokens.
@@ -200,10 +201,20 @@ def test_connect_context_follows_the_real_note_length_up_to_the_cap(cfg, db):
     assert estimate_connect(cfg, db, _candidates(1)).input_tokens > short
 
 
+def test_connect_preflight_includes_distant_analogies(cfg, db):
+    cfg.linking.topk = 5
+    cfg.linking.graph_expansion.enabled = True
+    cfg.linking.graph_expansion.max_neighbors = 10
+    cfg.linking.distant_analogy_topk = 5
+    est = estimate_connect(cfg, db, _candidates(1))
+    assert "20 nota(s)" in " ".join(est.caveats)
+    assert "guard PT-BR" in " ".join(est.caveats)
+
+
 def test_connect_context_shrinks_without_graph_expansion(cfg, db):
-    cfg.retrieval.graph_expansion.enabled = True
+    cfg.linking.graph_expansion.enabled = True
     with_graph = estimate_connect(cfg, db, _candidates(1)).input_tokens
-    cfg.retrieval.graph_expansion.enabled = False
+    cfg.linking.graph_expansion.enabled = False
     without_graph = estimate_connect(cfg, db, _candidates(1)).input_tokens
     assert without_graph < with_graph
 

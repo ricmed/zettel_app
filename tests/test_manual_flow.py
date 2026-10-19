@@ -542,7 +542,7 @@ def test_connect_skips_generation_when_manual_ztl_already_covers(cfg, db, monkey
     monkeypatch.setattr(prompt, "call_llm", _boom)
 
     created = run_connect(cfg, db, idx, load_approved_candidates(db))
-    assert created == []
+    assert created.note_ids == []
     assert list((cfg.vault_path / "30_Permanent").glob("*.md")) == [path]
     row = db.get_concept(leftover_id)
     assert row["status"] == "noted"

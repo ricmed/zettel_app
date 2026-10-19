@@ -59,8 +59,10 @@ EXPECTED_COMMANDS = [
     "review",
     "retry-failed",
     "summarize",
+    "links",
     # synthesis.py — phases 3 and 4
     "connect",
+    "reconnect",
     "garden",
     # purge.py — irreversible deletions
     "purge-rejected",
@@ -142,6 +144,20 @@ def test_root_help_lists_every_command():
     assert result.exit_code == 0
     for command in EXPECTED_COMMANDS:
         assert command in result.output
+
+
+def test_connect_does_not_offer_dedupe_threshold():
+    """Dedupe runs in review. The flag wrote a config key connect never read."""
+    result = CliRunner().invoke(app, ["connect", "--help"])
+    assert result.exit_code == 0
+    assert "--dedupe-threshold" not in result.output
+    assert "--topk" in result.output
+
+
+def test_run_all_connects_only_the_harvest_sources_and_asks_before():
+    text = (CLI_PKG / "pipeline.py").read_text(encoding="utf-8")
+    assert "preflight_gate(estimate_connect" in text
+    assert "source_ids=list(harvest_outcome.source_ids)" in text
 
 
 def test_harvest_no_longer_offers_move_processed():

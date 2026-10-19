@@ -87,6 +87,12 @@ PUBLIC_METHODS = {
     "search_catalog",
     # connections
     "upsert_note_connection",
+    "delete_note_connection",
+    "list_outgoing_connections",
+    "delete_outgoing_connections",
+    "list_proposed_connections",
+    "mark_llm_edges_proposed",
+    "list_connections",
     "get_note_connections",
     "get_connections_for_notes",
     "count_note_connections",

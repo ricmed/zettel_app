@@ -15,8 +15,8 @@ Module map:
 ``options.py``       shared ``Annotated`` options + flag resolvers
 ``maintenance.py``   init, reindex, rebuild
 ``ingest.py``        harvest, rechunk, dump-chunks, dump-extraction, set-paging
-``curation.py``      extract, review, retry-failed
-``synthesis.py``     connect, garden
+``curation.py``      extract, review, retry-failed, summarize, links
+``synthesis.py``     connect, reconnect, garden
 ``purge.py``         purge-rejected, delete-source
 ``manual.py``        new-note, sync-manual, suggest-links
 ``pipeline.py``      run-all
@@ -51,8 +51,8 @@ from zettel.cli.app import app, console
 # do not let an import sorter touch this block.
 from zettel.cli import maintenance  # init, reindex, rebuild
 from zettel.cli import ingest  # harvest, rechunk, dumps, set-paging
-from zettel.cli import curation  # extract, review, retry-failed
-from zettel.cli import synthesis  # connect, garden
+from zettel.cli import curation  # extract, review, retry-failed, summarize, links
+from zettel.cli import synthesis  # connect, reconnect, garden
 from zettel.cli import purge  # purge-rejected, delete-source
 from zettel.cli import manual  # new-note, sync-manual, suggest-links
 from zettel.cli import pipeline  # run-all

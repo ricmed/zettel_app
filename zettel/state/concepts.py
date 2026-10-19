@@ -69,9 +69,17 @@ class ConceptsMixin(StateBase):
         The `approved` + `without_notes` combination is how `connect` loads
         pending candidates from the DB (source of truth after review).
         """
-        sql = "SELECT * FROM concepts WHERE status=?"
+        sql = (
+            "SELECT concepts.* FROM concepts "
+            "LEFT JOIN chunks ON chunks.chunk_id = concepts.chunk_id "
+            "WHERE concepts.status=?"
+        )
         if without_notes:
-            sql += " AND note_id IS NULL"
+            sql += " AND concepts.note_id IS NULL"
+        sql += (
+            " ORDER BY concepts.source_id, COALESCE(chunks.chapter_id, ''), "
+            "COALESCE(chunks.chunk_index, 2147483647), concepts.rowid"
+        )
         return self._fetchall(sql, (status,))
 
     def get_concepts_for_notes(self, note_ids: list[str]) -> dict[str, dict]:

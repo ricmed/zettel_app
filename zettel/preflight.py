@@ -16,7 +16,7 @@ the estimate is an upper bound rather than a promise.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from zettel.config import AppConfig, llm_phase
@@ -195,17 +195,42 @@ def rag_note_chars(db: StateDB, cap: int) -> int:
     return sum(lengths) // len(lengths)
 
 
+def estimate_reconnect(cfg: AppConfig, db: StateDB, notes: list[dict]) -> PreflightEstimate:
+    """One Prompt 2 call per permanent note whose thesis or definition can be linked."""
+    from zettel.connector.reconnect import candidate_from_note
+
+    candidates = [
+        {"candidate": cand} for note in notes if (cand := candidate_from_note(note)) is not None
+    ]
+    estimate = estimate_connect(cfg, db, candidates)
+    return replace(
+        estimate,
+        phase="reconnect",
+        item_label="nota(s) permanente(s)",
+    )
+
+
 def estimate_connect(
     cfg: AppConfig,
     db: StateDB,
     candidates: list[dict],
 ) -> PreflightEstimate:
-    """One Prompt 2 call per approved candidate, plus its RAG context."""
-    graph_cfg = cfg.retrieval.graph_expansion
-    context_notes = cfg.linking.topk + (graph_cfg.max_neighbors if graph_cfg.enabled else 0)
+    """One Prompt 2 call per approved candidate, or two when ``prompt2_mode`` is split."""
+    graph_cfg = cfg.linking.graph_expansion
+    context_notes = cfg.linking.topk
+    if graph_cfg.enabled:
+        context_notes += graph_cfg.max_neighbors
+    if cfg.linking.distant_analogy_topk > 0:
+        context_notes += cfg.linking.distant_analogy_topk
     per_note = RAG_HEADER_CHARS + rag_note_chars(db, cfg.linking.rag_note_chars)
     context_tokens = estimate_tokens("x" * (context_notes * per_note))
-    overhead = _filled_overhead(cfg, "permanent_note.md", _example_fields(cfg, "permanent_note"))
+    calls = 2 if cfg.linking.prompt2_mode == "split" else 1
+    if calls == 2:
+        overhead = _filled_overhead(cfg, "note_write.md") + _filled_overhead(cfg, "note_link.md")
+    else:
+        overhead = _filled_overhead(
+            cfg, "permanent_note.md", _example_fields(cfg, "permanent_note")
+        )
 
     input_tokens = 0
     for item in candidates:
@@ -218,18 +243,25 @@ def estimate_connect(
     per_call, output_note = _output_tokens_per_call(
         db, "connect", cfg.linking.preflight_output_tokens_per_note
     )
+    caveats = [
+        (
+            f"Contexto RAG estimado em {context_notes} nota(s) por conceito "
+            f"(topk + grafo + analogias distantes)."
+        ),
+        "O guard PT-BR nao entra nesta conta.",
+        output_note,
+        *_UNCOUNTED,
+    ]
+    if calls == 2:
+        caveats.insert(0, "Modo split: uma chamada de escrita e uma de ligacao por conceito.")
     return _build(
         cfg,
         "connect",
         items=len(candidates),
         item_label="conceito(s) aprovado(s)",
         input_tokens=input_tokens,
-        output_tokens=len(candidates) * per_call,
-        caveats=[
-            f"Contexto RAG estimado em {context_notes} nota(s) por conceito.",
-            output_note,
-            *_UNCOUNTED,
-        ],
+        output_tokens=len(candidates) * per_call * calls,
+        caveats=caveats,
     )
 
 

@@ -1480,8 +1480,13 @@ def test_run_all_leaves_drafts_unless_auto_approve(monkeypatch):
     monkeypatch.setattr("zettel.extractor.run_extract", lambda *_a, **_k: [])
     monkeypatch.setattr("zettel.review.run_review", review)
     monkeypatch.setattr("zettel.summarize.generate_summaries", lambda *_a, **_k: Summary())
-    monkeypatch.setattr("zettel.connector.load_approved_candidates", lambda _db: [])
-    monkeypatch.setattr("zettel.connector.run_connect", lambda *_a, **_k: [])
+    monkeypatch.setattr(
+        "zettel.connector.load_approved_candidates", lambda _db, source_ids=None: []
+    )
+    monkeypatch.setattr(
+        "zettel.connector.run_connect",
+        lambda *_a, **_k: type("O", (), {"note_ids": []})(),
+    )
     monkeypatch.setattr("zettel.gardener.run_garden", lambda *_a, **_k: [])
     monkeypatch.setattr("zettel.cli.pipeline.print_cost_by_phase", lambda *_a, **_k: None)
 
