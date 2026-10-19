@@ -201,6 +201,14 @@ class ChunkingConfig(BaseModel):
 
 
 class LinkingConfig(BaseModel):
+    """Knobs do connect (e da dedupe do review). Catalogo: config.yaml -> linking.
+
+    `graph_expansion` aqui e o bloco do connect, nao o do ask
+    (``retrieval.graph_expansion``). Os numeros copiam o ask ate a regra #285.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
     topk: int = 5
     # Cosseno real nas duas passadas da dedupe (ADR-058). O 0.85 ja era o corte
     # declarado; antes da correcao o filtro efetivo era cos >= 0.70 contra notas

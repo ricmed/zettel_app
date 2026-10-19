@@ -142,7 +142,8 @@ linking:
   # Ligar espera a regra em evals/preregistration/285-connect-rag-diversidade.md.
   seed_same_source_max: 0
   graph_hub_repeat_limit: 0  # vizinha repetida em N contextos recentes sai; 0 = desligado
-  # Copia de retrieval.graph_expansion ate a medicao #285. O ask nao le este bloco.
+  # Bloco do connect (linking.graph_expansion). O ask le retrieval.graph_expansion.
+  # Os numeros copiam o ask ate evals/preregistration/285-connect-rag-diversidade.md.
   graph_expansion:
     enabled: true
     max_hops: 5
