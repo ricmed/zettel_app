@@ -407,6 +407,16 @@ class GardenerConfig(BaseModel):
     # Semente do UMAP (e do KMeans de fallback). Fixa = particao reprodutivel;
     # None = paralelo e nao deterministico (ADR-019, #294).
     random_state: int | None = 42
+    # MOCs e hubs sao portas de entrada, nao indices completos (ADR-060, #297).
+    # Sinal que escolhe as notas de entrada de cada cluster; o padrao e provisorio
+    # ate a medicao pre-registrada (evals/preregistration/297-portas-de-entrada.md).
+    entry_selection: Literal[
+        "internal_degree", "medoid", "first_in_source", "relevance", "corroboration"
+    ] = "internal_degree"
+    max_entries_per_moc: int = Field(default=10, ge=1)
+    max_entries_per_subsection: int = Field(default=5, ge=1)
+    # Reescreve o resumo quando as entradas crescem esta fracao desde a ultima escrita.
+    summary_refresh_growth: float = Field(default=0.5, gt=0)
 
     @field_validator("topics_path", mode="before")
     @classmethod

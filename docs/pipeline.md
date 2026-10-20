@@ -209,24 +209,27 @@ Quando uma nota permanente entra ou sai de um MOC, o pipeline atualiza o bloco *
 
 Módulos: [`gardener.py`](../zettel/gardener.py), [`gardener_assign.py`](../zettel/gardener_assign.py), [`moc_backrefs.py`](../zettel/moc_backrefs.py).
 
-Pipeline **híbrido** (taxonomia → cluster por categoria → grafo → roteamento LLM) — [ADR-019](adrs/generated/GARDEN/ADR-019-taxonomy-first-moc-clustering.md) e [ADR-021](adrs/generated/GARDEN/ADR-021-single-llm-call-per-cluster-routing.md):
+Pipeline **híbrido** (taxonomia → cluster por categoria → grafo → roteamento LLM) — [ADR-019](adrs/generated/GARDEN/ADR-019-taxonomy-first-moc-clustering.md) e [ADR-021](adrs/generated/GARDEN/ADR-021-single-llm-call-per-cluster-routing.md).
+
+**MOCs e hubs são portas de entrada, não índices completos** ([ADR-060](adrs/generated/GARDEN/ADR-060-mocs-and-hubs-are-entry-points.md)): cada MOC lista poucas notas, as melhores para começar, com uma linha de orientação para cada uma, e o leitor chega às demais pelo grafo. Notas fora de qualquer MOC são esperadas; o que indica problema é um assunto sem porta ou uma alcançabilidade baixa (relatório da execução).
 
 1. Carrega embeddings de todas as notas permanentes
 2. **Atribuição taxonomia-first** (`gardener_assign.py`): embedda labels `{pilar}: {categoria}` de `config/moc_topics.yaml` e agrupa cada nota no bucket de maior similaridade. Nomes de categoria precisam ser **globalmente únicos**.
 3. **Clusterização por bucket**: UMAP + HDBSCAN (ou KMeans como fallback) **dentro de cada categoria**, alinhando clusters ao guarda-chuva da taxonomia. A semente `random_state` torna a partição reprodutível, e o HDBSCAN usa `max(min_cluster_size, min_notes_for_moc)` como tamanho mínimo, para não aceitar um cluster que não poderia virar MOC. O log informa o backend usado (`umap+hdbscan`, `kmeans` ou `single`), o ruído e os buckets pequenos
-4. Extrai termos representativos via **TF-IDF**
-5. **Roteamento inteligente** (`_process_cluster`) — no máximo **1 chamada LLM por cluster**:
+4. **Seleção das notas de entrada** (`garden_entries.select_entry_notes`): de cada cluster, as `max_entries_per_moc` (10) notas mais bem colocadas pelo sinal `entry_selection` (`internal_degree`, padrão provisório; ou `medoid`, `first_in_source`, `relevance`, `corroboration`). O roteamento usa o cluster inteiro; o MOC recebe só as entradas
+5. Extrai termos representativos via **TF-IDF**
+6. **Roteamento inteligente** (`_process_cluster`) — no máximo **1 chamada LLM por cluster**:
    - Assinatura idêntica → skip (sem LLM)
    - Overlap de notas com MOC existente ≥ `overlap_threshold` → `moc_incremental` apenas
    - Categoria do bucket já tem MOC **do pipeline** (nome igual, sem diferenciar caixa e acento; nunca um MOC manual ou hub) → `moc_incremental` apenas
    - Coesão de grafo abaixo de `graph_cohesion_min_ratio` (se > 0) → cluster rejeitado, sem MOC novo
    - Caso contrário → `moc_generation` uma vez, com **categoria sugerida** pelo pipeline no prompt
-6. **Validação de tópico** pós-geração:
+7. **Validação de tópico** pós-geração:
    - Substring match bidirecional contra os nomes das **categorias** do YAML
    - Se `strict_topics: true` e sem match: MOC rejeitado (com warning no log)
    - Se `strict_topics: false` e sem match: MOC aprovado (com info no log)
-7. **Atualização incremental**: classifica notas novas nas subseções existentes (`moc_incremental.md`); pode criar subseções
-8. Notas fora de MOC (ruído do HDBSCAN) permanecem no vault e são navegáveis via grafo/conexões — não existe fila de órfãs
+8. **Atualização incremental**: oferece ao MOC só as entradas que cabem no teto (um MOC cheio não recebe nada e não gasta chamada); o LLM encaixa cada uma numa subseção existente ou nova, com a orientação, ou responde `ignorar`. Uma entrada que o LLM não posiciona fica registrada como omitida, não é listada (não existe mais a seção "Outras notas do cluster"). Cada subseção tem no máximo `max_entries_per_subsection` (5) entradas. Quando as entradas crescem `summary_refresh_growth` (50%), o resumo é reescrito (`moc_summary_refresh.md`)
+9. Notas fora de MOC (ruído do HDBSCAN ou fora da seleção) permanecem no vault e são navegáveis via grafo/conexões — não existe fila de órfãs
 
 Parâmetros híbridos em `config.yaml` (`gardener.*`):
 
@@ -239,6 +242,9 @@ Parâmetros híbridos em `config.yaml` (`gardener.*`):
 | `graph_cohesion_min_ratio` | `0` = so log; `>0` rejeita cluster fraco antes de criar MOC novo |
 | `umap_n_neighbors` | `null` = auto |
 | `hdbscan_min_samples` | Opcional; ajuste fino do HDBSCAN |
+| `entry_selection` | Sinal que escolhe as notas de entrada (`internal_degree` provisório; medição pré-registrada em `evals/preregistration/297-portas-de-entrada.md`) |
+| `max_entries_per_moc` / `max_entries_per_subsection` | Teto de entradas por MOC (10, contando o hub nos MOCs hub) e por subseção (5) |
+| `summary_refresh_growth` | Fração de crescimento das entradas que dispara a reescrita do resumo (0,5) |
 | `random_state` | Semente do UMAP (e do KMeans de fallback). Fixa (`42`) = mesma partição para os mesmos vetores, o que permite reaproveitar MOCs por assinatura; `null` = mais rápido e não determinístico |
 
 `zettel garden --recreate` apaga os MOCs gerados pelo pipeline (`origin='pipeline'`) e regenera do zero, preservando MOCs manuais. Um arquivo cujo frontmatter diga outra origem nunca é apagado. A taxonomia, o cliente de LLM e o embedding dos rótulos são conferidos **antes** da purga: se o provedor estiver fora, o comando para com código 1 sem apagar nada (ADR-059). É **obrigatório** depois de mudar o template de rótulo ou a taxonomia — os MOCs existentes ficam desalinhados. Antes de apagar cada MOC, **`clear_moc_backrefs`** remove os links dele dos blocos `auto-moc-backrefs` das notas permanentes. Ao criar ou atualizar um MOC, **`sync_moc_backrefs`** adiciona/remove wikilinks do MOC nas ZTL listadas no corpo do mapa.

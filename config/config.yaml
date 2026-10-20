@@ -285,6 +285,11 @@ gardener:
   umap_n_neighbors: null               # null = auto min(15, n-1); cluster UMAP+HDBSCAN
   hdbscan_min_samples: null            # null = default da lib HDBSCAN
   random_state: 42                     # semente do UMAP: particao reprodutivel; null = nao deterministico
+  # MOCs e hubs sao portas de entrada (ADR-060): poucas notas, o resto pelo grafo.
+  entry_selection: internal_degree     # internal_degree | medoid | first_in_source | relevance | corroboration (provisorio)
+  max_entries_per_moc: 10              # teto de notas de entrada por MOC (e por MOC hub, contando o hub)
+  max_entries_per_subsection: 5        # teto por subsecao
+  summary_refresh_growth: 0.5          # reescreve o resumo quando as entradas crescem 50%
 
 # ── MOCs Hub (zettel garden --hubs) ────────────────────────────────────
 # Porta de entrada tematica: ranqueia notas permanentes por grau ponderado

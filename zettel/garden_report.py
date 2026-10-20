@@ -48,6 +48,8 @@ class GardenReport:
     actions: list[ClusterAction] = field(default_factory=list)
     discarded: dict[str, int] = field(default_factory=dict)  # moc_id -> notes answered "ignorar"
     llm_failures: int = 0
+    omitted: int = 0  # selected entries the LLM did not place
+    cap_reached: int = 0  # entry candidates refused because the MOC was full
     entries: int = 0
     reach: dict[str, float] = field(default_factory=dict)  # "r1", "r2"
     reach_by_source: dict[str, dict[str, float]] = field(default_factory=dict)

@@ -74,3 +74,7 @@ Edge-weight and decay configuration is shared with the retrieval layer's graph e
 ## Addendum (2026-10-19): hub MOCs are never a taxonomy target (issues #292, #293)
 
 **Status:** Accepted amendment. The taxonomy pipeline only routes into `origin='pipeline'` MOCs, by folded topic equality (ADR-021 addendum), so a hub MOC whose free topic names a category is no longer rewritten and relabeled by it. `_update_hub_moc` checks ownership the same way (`gardener.owns_moc`: row and frontmatter must say `hub_pipeline`), and `--hubs --recreate` goes through the shared `purge_mocs_by_origin`, which keeps a file whose frontmatter names another origin. `run_garden_hubs` follows the garden fail-fast (ADR-059 addendum): the LLM client is built before `--recreate` purges anything, and any escaping exception records the run `failed`.
+
+## Addendum (2026-10-19): the hub MOC lists the hub and its best neighbours (issue #297)
+
+**Status:** Accepted amendment. The BFS neighbourhood still decides routing and deduplication, but the MOC lists the hub plus `gardener.max_entries_per_moc - 1` neighbours ranked by the entry signal (ADR-060), each with an orientation line. The prompt no longer asks for every neighbour, the reconciliation section is gone, and the incremental update goes through the shared `gardener._update_existing_moc` with `moc_hub_incremental.md` (which no longer takes `{hub_note_title}`: the hub is visible in the "Porta de entrada" section).

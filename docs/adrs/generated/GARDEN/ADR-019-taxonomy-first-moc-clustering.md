@@ -89,3 +89,7 @@ The baseline is the argmax, not the LLM's `topic`: `_create_new_moc` overwrites 
 - **Effective minimum.** `config.yaml` sets `min_cluster_size: 5` and `min_notes_for_moc: 10`, so HDBSCAN accepted clusters of 5–9 notes that were then dropped. The density step now uses `effective_min_cluster_size = max(min_cluster_size, min_notes_for_moc)`; `min_cluster_size` keeps its role as the minimum vault size to try clustering. Consequence measured on the same vault: partitions are coarser (4 global clusters instead of 16; several MOC-sized buckets stay whole), which suits the entry-point design tracked in #297.
 - **Backend reported.** Answering the open question above: `gardener_assign.ClusterReport` records which backends produced clusters (`umap+hdbscan`, `kmeans`, `single` for a group kept whole), the cluster count, notes left as noise and buckets too small for a MOC. The garden logs it and warns when KMeans ran (no noise, every note forced into a cluster); persisting it in the run report is #298.
 - A bucket note without a vector no longer shifts the id/vector pairing in `cluster_notes_within_buckets`.
+
+## Addendum (2026-10-19): clusters feed entry points, not lists (issue #297)
+
+**Status:** Accepted amendment. A cluster is still the routing unit, but its MOC lists only the entry notes chosen by `garden_entries.select_entry_notes` (ADR-060). The drivers' claim that ambiguous notes "stay out of MOCs" now holds by design for every note outside the selection, not only for HDBSCAN noise; reachability from the entries (#298) is the measure.

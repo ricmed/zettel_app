@@ -246,7 +246,7 @@ Leitura dos campos:
 
 | Arquivo | Onde | Gerado por |
 |---|---|---|
-| `MOC - ULID - topico.md` | `40_MOCs/` | `garden` / `garden --hubs` (frontmatter carrega `origin` e, nos hubs, `hub_note_id`) |
+| `MOC - ULID - topico.md` | `40_MOCs/` | `garden` / `garden --hubs` (frontmatter carrega `origin`, `summary_entries` e, nos hubs, `hub_note_id`). É uma porta de entrada: até 10 notas, cada linha `- [[ZTL - …]] — por que começar por aqui` ([ADR-060](adrs/generated/GARDEN/ADR-060-mocs-and-hubs-are-entry-points.md)) |
 | Resposta de pergunta | `00_Inbox/` | `zettel ask --save` (com seção **Fontes consultadas**) |
 | `ART - ....md` | `00_Inbox/` | `zettel article --save` (não é indexado no Chroma) |
 | Imagens | `90_Assets/` | `harvest` (Docling/Markdown) e `sync-manual` (adoção de imagens coladas) |

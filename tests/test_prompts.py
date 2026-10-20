@@ -32,6 +32,7 @@ from zettel.schemas import (
     MOCGenerationOutput,
     MOCHubGenerationOutput,
     MOCIncrementalOutput,
+    MOCSummaryOutput,
     NoteLinkOutput,
     NoteWriteOutput,
     PermanentNoteLLMOutput,
@@ -57,7 +58,8 @@ CONSUMERS: dict[str, tuple[str, str]] = {
     "moc_generation.md": ("gardener.py", "_create_new_moc"),
     "moc_incremental.md": ("gardener.py", "_update_existing_moc"),
     "moc_hub_generation.md": ("gardener_hub.py", "_create_new_hub_moc"),
-    "moc_hub_incremental.md": ("gardener_hub.py", "_update_hub_moc"),
+    "moc_hub_incremental.md": ("gardener.py", "_update_existing_moc"),
+    "moc_summary_refresh.md": ("gardener.py", "_refresh_summary"),
     "bibliographic_metadata.md": ("bibliography.py", "enrich_with_llm"),
     "image_description.md": ("assets.py", "_describe_one"),
     "ask.md": ("ask.py", "run_ask"),
@@ -113,6 +115,7 @@ EXAMPLE_SCHEMAS: dict[str, type[BaseModel]] = {
     "moc_incremental.md": MOCIncrementalOutput,
     "moc_hub_generation.md": MOCHubGenerationOutput,
     "moc_hub_incremental.md": MOCIncrementalOutput,
+    "moc_summary_refresh.md": MOCSummaryOutput,
     "article_outline.md": ArticleOutline,
 }
 

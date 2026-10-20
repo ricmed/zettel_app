@@ -35,6 +35,7 @@ class ClusterReport:
     small_buckets: int = 0
     notes_total: int = 0
     buckets: dict[str, list[str]] = field(default_factory=dict)
+    vectors: dict[str, np.ndarray] = field(default_factory=dict, repr=False)
 
 
 NOTE_ID_RE = re.compile(r"\[\[ZTL\s*-\s*(\S+)\s*-\s*[^\]]*\]\]")

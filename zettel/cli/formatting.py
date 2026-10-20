@@ -210,6 +210,10 @@ def print_garden_report(report: Mapping, *, title: str = "Garden") -> None:
         table.add_row(_ACTION_LABELS.get(action, action), str(count))
     if rep.discarded:
         table.add_row("Notas deixadas de fora pelo LLM", str(sum(rep.discarded.values())))
+    if rep.omitted:
+        table.add_row("Entradas omitidas (nao posicionadas)", str(rep.omitted))
+    if rep.cap_reached:
+        table.add_row("Candidatas recusadas (MOC cheio)", str(rep.cap_reached))
     if rep.llm_failures:
         table.add_row("Respostas invalidas (llm_failures)", str(rep.llm_failures))
     table.add_row("Notas de entrada (portas)", str(rep.entries))

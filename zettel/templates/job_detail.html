@@ -125,6 +125,8 @@
       <tr><th>Alcançável a 2 saltos</th><td>{{ '%.1f'|format((gr.reach.r2 or 0) * 100) }}%</td></tr>
       <tr><th>Arestas percorríveis</th><td>{{ gr.traversable_edges }}/{{ gr.total_edges }}</td></tr>
       {% if gr.llm_failures %}<tr><th>Respostas inválidas</th><td>{{ gr.llm_failures }}</td></tr>{% endif %}
+      {% if gr.omitted %}<tr><th>Entradas omitidas</th><td>{{ gr.omitted }}</td></tr>{% endif %}
+      {% if gr.cap_reached %}<tr><th>Candidatas recusadas (MOC cheio)</th><td>{{ gr.cap_reached }}</td></tr>{% endif %}
     </tbody>
   </table>
   {% if gr.subjects_without_door %}

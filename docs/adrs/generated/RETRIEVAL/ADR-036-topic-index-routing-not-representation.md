@@ -128,3 +128,7 @@ The "only permanent-note targets are routable" rule is unchanged. The source sco
 * `zettel/moc_backrefs.py` — `_sync_moc_topic_index`, scope cleanup in `clear_moc_backrefs`
 * `zettel/rebuild.py` — `rebuild_topic_index` (MOC backfill during `zettel reindex`)
 * `tests/test_topic_index.py` — lookup rows, non-routable rows without `note_id`, no vault section on the MOC, floor still rejects a routed note, boost off is a regression guard
+
+## Addendum (2026-10-19): the MOC scope covers only entry notes (ADR-060)
+
+**Status:** Accepted amendment. MOCs now list only their entry notes (at most `gardener.max_entries_per_moc`, ADR-060), so `sync_moc_backrefs` writes `topic_index_terms` rows for those notes only and the `ask` topic-index boost routes to entry notes. Every other note is still reached by the hybrid retriever and the graph expansion; the boost was always a seed that faces the relevance floor, never a bypass.

@@ -7,21 +7,22 @@ from unittest.mock import MagicMock
 import pytest
 from zettel.config import AppConfig, GardenerConfig
 from zettel.gardener import (
-    _MOC_FALLBACK_SUBSECTION,
     _allowed_note_ids,
-    _apply_incremental_placements,
-    _build_moc_body,
     _build_note_alias_map,
+    _merge_incremental,
     _note_wikilink,
     _parse_incremental_output,
     _parse_moc_structure,
     _resolve_note_ref,
+    _subsections_from_output,
     _update_existing_moc,
     _validate_moc_topic,
     purge_pipeline_mocs,
+    render_moc_body,
 )
 from zettel.gardener_assign import ClusterReport
 from zettel.schemas import (
+    MOCEntry,
     MOCGenerationOutput,
     MOCIncrementalOutput,
     MOCNotePlacement,
@@ -295,12 +296,12 @@ def test_parse_moc_structure(tmp_path):
 
     sub1 = structure["subsections"][0]
     assert sub1["title"] == "Algoritmos Supervisionados"
-    assert sub1["note_ids"] == ["NOTE001", "NOTE002"]
+    assert [nid for nid, _ in sub1["entries"]] == ["NOTE001", "NOTE002"]
     assert "rotulados" in sub1["description"]
 
     sub2 = structure["subsections"][1]
     assert sub2["title"] == "Algoritmos Nao Supervisionados"
-    assert sub2["note_ids"] == ["NOTE003"]
+    assert [nid for nid, _ in sub2["entries"]] == ["NOTE003"]
 
     assert structure["all_note_ids"] == {"NOTE001", "NOTE002", "NOTE003"}
 
@@ -483,7 +484,7 @@ def test_parse_incremental_output_with_new_subsection():
             "new_subsections": [
                 {
                     "title": "Nova Subsecao",
-                    "note_ids": ["NOTE004"],
+                    "entries": [{"note_id": "NOTE004", "orientation": "Abre o subtema"}],
                     "description": "Algo novo",
                 },
             ],
@@ -492,7 +493,9 @@ def test_parse_incremental_output_with_new_subsection():
     result = _parse_incremental_output(llm_response)
     assert len(result.new_subsections) == 1
     assert result.new_subsections[0].title == "Nova Subsecao"
-    assert result.new_subsections[0].note_ids == ["NOTE004"]
+    assert result.new_subsections[0].entries == [
+        MOCEntry(note_id="NOTE004", orientation="Abre o subtema")
+    ]
 
 
 def test_parse_incremental_output_markdown_wrapped():
@@ -633,6 +636,7 @@ def test_update_existing_moc_with_placements(tmp_path):
     # Verify the file was updated with NOTE004
     content = moc_file.read_text(encoding="utf-8")
     assert "NOTE004" in content
+    assert "— SVM e supervisionado" in content
     assert "Algoritmos Supervisionados" in content
     # Existing notes should still be present
     assert "NOTE001" in content
@@ -727,7 +731,10 @@ def test_update_existing_moc_with_new_subsection(tmp_path):
         "new_subsections": [
             {
                 "title": "Metodos Ensemble",
-                "note_ids": ["NOTE004", "NOTE005"],
+                "entries": [
+                    {"note_id": "NOTE004", "orientation": "Combina modelos"},
+                    {"note_id": "NOTE005", "orientation": "Ensemble classico"},
+                ],
                 "description": "Metodos que combinam multiplos modelos.",
             },
         ],
@@ -898,31 +905,60 @@ def test_resolve_note_ref_fuzzy_typo():
     assert _resolve_note_ref("NOTO001", allowed, alias_to_id) == "NOTE001"
 
 
-def test_build_moc_body_filters_ghost_and_reconciles_missing(tmp_path):
+def test_body_lists_only_placed_entries_with_orientation(tmp_path):
+    """No reconciliation: an entry the LLM did not place is not listed (ADR-060)."""
     db = StateDB(tmp_path / "test.db")
     for nid, title in [("NOTE001", "A"), ("NOTE002", "B"), ("NOTE003", "C")]:
         db.upsert_note(nid, "SRC001", None, title)
 
     alias_to_id = _build_note_alias_map(["NOTE001", "NOTE002", "NOTE003"])
     allowed = _allowed_note_ids(db, ["NOTE001", "NOTE002", "NOTE003"])
-    subsections = [
-        MOCSubsection(
-            title="Grupo",
-            note_ids=["N1", "GHOST", "N2"],
-            description="Descricao",
-        ),
-    ]
-    body = _build_moc_body(db, "Topico", "Resumo", subsections, allowed, alias_to_id)
+    placed: set[str] = set()
+    subsections = _subsections_from_output(
+        [
+            MOCSubsection(
+                title="Grupo",
+                description="Descricao",
+                entries=[
+                    MOCEntry(note_id="N1", orientation="Comece aqui"),
+                    MOCEntry(note_id="GHOST"),
+                    MOCEntry(note_id="N2", orientation="Depois esta"),
+                ],
+            )
+        ],
+        allowed,
+        alias_to_id,
+        placed,
+    )
+    body, truncated = render_moc_body(db, "Topico", "Resumo", subsections, 5)
 
     assert "GHOST" not in body
-    assert "NOTE001" in body
+    assert "NOTE001" in body and "— Comece aqui" in body
     assert "NOTE002" in body
-    assert _MOC_FALLBACK_SUBSECTION in body
-    assert "NOTE003" in body
+    assert "NOTE003" not in body
+    assert "Outras notas do cluster" not in body
+    assert allowed - placed == {"NOTE003"}
+    assert truncated == 0
     db.close()
 
 
-def test_apply_incremental_reconciles_unplaced(tmp_path):
+def test_render_caps_entries_per_subsection(tmp_path):
+    db = StateDB(tmp_path / "test.db")
+    ids = [f"NOTE00{i}" for i in range(1, 5)]
+    for nid in ids:
+        db.upsert_note(nid, "SRC001", None, nid)
+
+    body, truncated = render_moc_body(
+        db, "T", "R", [{"title": "G", "description": "", "entries": [(n, "") for n in ids]}], 2
+    )
+
+    assert truncated == 2
+    assert "NOTE001" in body and "NOTE002" in body
+    assert "NOTE003" not in body
+    db.close()
+
+
+def test_merge_incremental_counts_unplaced_as_omitted(tmp_path):
     db, moc_file = _setup_moc_file(tmp_path)
     structure = _parse_moc_structure(moc_file)
     alias_to_id = _build_note_alias_map(["NOTE004", "NOTE005"])
@@ -930,39 +966,134 @@ def test_apply_incremental_reconciles_unplaced(tmp_path):
 
     output = MOCIncrementalOutput(
         placements=[
-            MOCNotePlacement(note_id="N1", subsection="Algoritmos Supervisionados", reason="ok"),
+            MOCNotePlacement(note_id="N1", subsection="algoritmos supervisionados", reason="ok"),
+            MOCNotePlacement(note_id="GHOST", subsection="Algoritmos Supervisionados"),
         ],
         new_subsections=[],
     )
-    _apply_incremental_placements(db, moc_file, structure, output, allowed, alias_to_id)
+    merged, ignored, omitted = _merge_incremental(
+        structure["subsections"], output, allowed, alias_to_id
+    )
 
-    content = moc_file.read_text(encoding="utf-8")
-    assert "NOTE004" in content
-    assert "NOTE005" in content
-    assert _MOC_FALLBACK_SUBSECTION in content
-    assert "GHOST" not in content
+    supervised = merged[0]["entries"]
+    assert ("NOTE004", "ok") in supervised
+    assert all(nid != "NOTE005" for sub in merged for nid, _ in sub["entries"])
+    assert (ignored, omitted) == (0, 1)
     db.close()
 
 
-def test_apply_incremental_ghost_id_ignored(tmp_path):
-    db, moc_file = _setup_moc_file(tmp_path)
-    structure = _parse_moc_structure(moc_file)
-    alias_to_id = _build_note_alias_map(["NOTE004"])
-    allowed = _allowed_note_ids(db, ["NOTE004"])
-
-    output = MOCIncrementalOutput(
-        placements=[
-            MOCNotePlacement(
-                note_id="GHOST", subsection="Algoritmos Supervisionados", reason="bad"
-            ),
-        ],
-        new_subsections=[],
+def test_orientation_round_trips_through_the_file(tmp_path):
+    db = StateDB(tmp_path / "test.db")
+    db.upsert_note("NOTE001", "SRC001", None, "A")
+    moc_file = tmp_path / "MOC - M1 - t.md"
+    body, _ = render_moc_body(
+        db,
+        "T",
+        "Resumo",
+        [{"title": "G", "description": "D", "entries": [("NOTE001", "Por aqui")]}],
+        5,
     )
-    _apply_incremental_placements(db, moc_file, structure, output, allowed, alias_to_id)
+    safe_write_note(moc_file, {"moc_id": "M1", "topic": "T"}, body)
+
+    structure = _parse_moc_structure(moc_file)
+
+    assert structure["subsections"][0]["entries"] == [("NOTE001", "Por aqui")]
+    db.close()
+
+
+def _incremental_env(tmp_path, max_entries: int):
+    db, moc_file = _setup_moc_file(tmp_path)
+    cfg = _make_config()
+    cfg.gardener.max_entries_per_moc = max_entries
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir(exist_ok=True)
+    (prompts_dir / "moc_incremental.md").write_text(
+        "Prompt: {moc_topic} {moc_summary} {existing_subsections} {new_notes_list}",
+        encoding="utf-8",
+    )
+    (prompts_dir / "moc_summary_refresh.md").write_text(
+        "Resumo: {moc_topic} {existing_subsections}", encoding="utf-8"
+    )
+    cfg.prompts_path = prompts_dir
+    return db, moc_file, cfg
+
+
+def test_full_moc_takes_no_entry_and_calls_no_llm(tmp_path):
+    from zettel.gardener import _GardenStats
+
+    db, moc_file, cfg = _incremental_env(tmp_path, max_entries=3)
+    llm = MagicMock()
+    stats = _GardenStats()
+    existing = db.find_moc_by_topic("Machine Learning Classico", origins=("pipeline",))
+
+    result = _update_existing_moc(
+        cfg, db, MagicMock(), llm, existing, ["NOTE004", "NOTE005"], "sig2", stats=stats
+    )
+
+    assert result == "MOC001"
+    llm.invoke.assert_not_called()
+    assert stats.cap_reached == 2
+    assert "NOTE004" not in moc_file.read_text(encoding="utf-8")
+    db.close()
+
+
+def test_capacity_limits_the_candidates_sent(tmp_path):
+    from zettel.gardener import _GardenStats
+
+    db, _moc_file, cfg = _incremental_env(tmp_path, max_entries=4)
+    response = MagicMock()
+    response.content = json.dumps(
+        {
+            "placements": [
+                {"note_id": "N1", "subsection": "Algoritmos Supervisionados", "reason": "ok"}
+            ],
+            "new_subsections": [],
+        }
+    )
+    llm = MagicMock()
+    llm.invoke.return_value = response
+    stats = _GardenStats()
+    existing = db.find_moc_by_topic("Machine Learning Classico", origins=("pipeline",))
+
+    _update_existing_moc(
+        cfg, db, MagicMock(), llm, existing, ["NOTE004", "NOTE005"], "sig2", stats=stats
+    )
+
+    sent = str(llm.invoke.call_args[0][0][-1].content)
+    assert "SVM" in sent and "Random Forest" not in sent
+    assert stats.cap_reached == 1
+    db.close()
+
+
+def test_summary_is_rewritten_when_entries_grow(tmp_path):
+    db, moc_file, cfg = _incremental_env(tmp_path, max_entries=10)
+    meta, body = __import__("zettel.vault", fromlist=["parse_frontmatter"]).parse_frontmatter(
+        moc_file.read_text(encoding="utf-8")
+    )
+    meta["summary_entries"] = 2
+    safe_write_note(moc_file, meta, body)
+
+    placement = MagicMock()
+    placement.content = json.dumps(
+        {
+            "placements": [
+                {"note_id": "N1", "subsection": "Algoritmos Supervisionados", "reason": "a"},
+                {"note_id": "N2", "subsection": "Algoritmos Supervisionados", "reason": "b"},
+            ],
+            "new_subsections": [],
+        }
+    )
+    summary = MagicMock()
+    summary.content = json.dumps({"summary": "Resumo novo do MOC."})
+    llm = MagicMock()
+    llm.invoke.side_effect = [placement, summary]
+    existing = db.find_moc_by_topic("Machine Learning Classico", origins=("pipeline",))
+
+    _update_existing_moc(cfg, db, MagicMock(), llm, existing, ["NOTE004", "NOTE005"], "sig2")
 
     content = moc_file.read_text(encoding="utf-8")
-    assert "GHOST" not in content
-    assert "NOTE004" in content
+    assert "Resumo novo do MOC." in content
+    assert "summary_entries: 5" in content
     db.close()
 
 

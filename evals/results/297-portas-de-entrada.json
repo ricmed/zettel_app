@@ -1,0 +1,467 @@
+[
+  {
+    "signal": "internal_degree",
+    "cap": 5,
+    "entries": 55,
+    "all": {
+      "r1": 0.4725,
+      "r2": 0.8771
+    },
+    "all_by_source": {
+      "@Huang2021TowardsReasoning": 0.9333,
+      "@Hui2026KantMachine": 0.6226,
+      "@IniciandoComPromptEngineering": 0.5333,
+      "@Kim2022KantAnd": 0.4396,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.2338
+    },
+    "walkable": {
+      "r1": 0.4725,
+      "r2": 0.8771
+    },
+    "walkable_by_source": {
+      "@Huang2021TowardsReasoning": 0.9333,
+      "@Hui2026KantMachine": 0.6226,
+      "@IniciandoComPromptEngineering": 0.5333,
+      "@Kim2022KantAnd": 0.4396,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.2338
+    }
+  },
+  {
+    "signal": "internal_degree",
+    "cap": 10,
+    "entries": 108,
+    "all": {
+      "r1": 0.621,
+      "r2": 0.9321
+    },
+    "all_by_source": {
+      "@Huang2021TowardsReasoning": 0.9667,
+      "@Hui2026KantMachine": 0.8428,
+      "@IniciandoComPromptEngineering": 0.7,
+      "@Kim2022KantAnd": 0.6015,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.3117
+    },
+    "walkable": {
+      "r1": 0.621,
+      "r2": 0.9321
+    },
+    "walkable_by_source": {
+      "@Huang2021TowardsReasoning": 0.9667,
+      "@Hui2026KantMachine": 0.8428,
+      "@IniciandoComPromptEngineering": 0.7,
+      "@Kim2022KantAnd": 0.6015,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.3117
+    }
+  },
+  {
+    "signal": "internal_degree",
+    "cap": 15,
+    "entries": 153,
+    "all": {
+      "r1": 0.7004,
+      "r2": 0.9667
+    },
+    "all_by_source": {
+      "@Huang2021TowardsReasoning": 1.0,
+      "@Hui2026KantMachine": 0.8805,
+      "@IniciandoComPromptEngineering": 0.7667,
+      "@Kim2022KantAnd": 0.6838,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.4481
+    },
+    "walkable": {
+      "r1": 0.7004,
+      "r2": 0.9667
+    },
+    "walkable_by_source": {
+      "@Huang2021TowardsReasoning": 1.0,
+      "@Hui2026KantMachine": 0.8805,
+      "@IniciandoComPromptEngineering": 0.7667,
+      "@Kim2022KantAnd": 0.6838,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.4481
+    }
+  },
+  {
+    "signal": "medoid",
+    "cap": 5,
+    "entries": 55,
+    "all": {
+      "r1": 0.3867,
+      "r2": 0.8399
+    },
+    "all_by_source": {
+      "@Huang2021TowardsReasoning": 0.7333,
+      "@Hui2026KantMachine": 0.4717,
+      "@IniciandoComPromptEngineering": 0.6,
+      "@Kim2022KantAnd": 0.3316,
+      "@Latorre2021AnáliseDe": 0.8889,
+      "@Mueller_2020": 0.0,
+      "@PromptEngineering": 0.2727
+    },
+    "walkable": {
+      "r1": 0.3867,
+      "r2": 0.8399
+    },
+    "walkable_by_source": {
+      "@Huang2021TowardsReasoning": 0.7333,
+      "@Hui2026KantMachine": 0.4717,
+      "@IniciandoComPromptEngineering": 0.6,
+      "@Kim2022KantAnd": 0.3316,
+      "@Latorre2021AnáliseDe": 0.8889,
+      "@Mueller_2020": 0.0,
+      "@PromptEngineering": 0.2727
+    }
+  },
+  {
+    "signal": "medoid",
+    "cap": 10,
+    "entries": 107,
+    "all": {
+      "r1": 0.5275,
+      "r2": 0.9052
+    },
+    "all_by_source": {
+      "@Huang2021TowardsReasoning": 0.9333,
+      "@Hui2026KantMachine": 0.6667,
+      "@IniciandoComPromptEngineering": 0.6333,
+      "@Kim2022KantAnd": 0.4961,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 0.0,
+      "@PromptEngineering": 0.3117
+    },
+    "walkable": {
+      "r1": 0.5275,
+      "r2": 0.9052
+    },
+    "walkable_by_source": {
+      "@Huang2021TowardsReasoning": 0.9333,
+      "@Hui2026KantMachine": 0.6667,
+      "@IniciandoComPromptEngineering": 0.6333,
+      "@Kim2022KantAnd": 0.4961,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 0.0,
+      "@PromptEngineering": 0.3117
+    }
+  },
+  {
+    "signal": "medoid",
+    "cap": 15,
+    "entries": 152,
+    "all": {
+      "r1": 0.621,
+      "r2": 0.9462
+    },
+    "all_by_source": {
+      "@Huang2021TowardsReasoning": 1.0,
+      "@Hui2026KantMachine": 0.717,
+      "@IniciandoComPromptEngineering": 0.7667,
+      "@Kim2022KantAnd": 0.5861,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.461
+    },
+    "walkable": {
+      "r1": 0.621,
+      "r2": 0.9462
+    },
+    "walkable_by_source": {
+      "@Huang2021TowardsReasoning": 1.0,
+      "@Hui2026KantMachine": 0.717,
+      "@IniciandoComPromptEngineering": 0.7667,
+      "@Kim2022KantAnd": 0.5861,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.461
+    }
+  },
+  {
+    "signal": "first_in_source",
+    "cap": 5,
+    "entries": 53,
+    "all": {
+      "r1": 0.4008,
+      "r2": 0.8425
+    },
+    "all_by_source": {
+      "@Huang2021TowardsReasoning": 0.9333,
+      "@Hui2026KantMachine": 0.6478,
+      "@IniciandoComPromptEngineering": 0.3,
+      "@Kim2022KantAnd": 0.3239,
+      "@Latorre2021AnáliseDe": 0.7222,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.2143
+    },
+    "walkable": {
+      "r1": 0.4008,
+      "r2": 0.8425
+    },
+    "walkable_by_source": {
+      "@Huang2021TowardsReasoning": 0.9333,
+      "@Hui2026KantMachine": 0.6478,
+      "@IniciandoComPromptEngineering": 0.3,
+      "@Kim2022KantAnd": 0.3239,
+      "@Latorre2021AnáliseDe": 0.7222,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.2143
+    }
+  },
+  {
+    "signal": "first_in_source",
+    "cap": 10,
+    "entries": 106,
+    "all": {
+      "r1": 0.5275,
+      "r2": 0.9027
+    },
+    "all_by_source": {
+      "@Huang2021TowardsReasoning": 1.0,
+      "@Hui2026KantMachine": 0.7673,
+      "@IniciandoComPromptEngineering": 0.6,
+      "@Kim2022KantAnd": 0.4242,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.3766
+    },
+    "walkable": {
+      "r1": 0.5275,
+      "r2": 0.9027
+    },
+    "walkable_by_source": {
+      "@Huang2021TowardsReasoning": 1.0,
+      "@Hui2026KantMachine": 0.7673,
+      "@IniciandoComPromptEngineering": 0.6,
+      "@Kim2022KantAnd": 0.4242,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.3766
+    }
+  },
+  {
+    "signal": "first_in_source",
+    "cap": 15,
+    "entries": 150,
+    "all": {
+      "r1": 0.589,
+      "r2": 0.9142
+    },
+    "all_by_source": {
+      "@Huang2021TowardsReasoning": 1.0,
+      "@Hui2026KantMachine": 0.8428,
+      "@IniciandoComPromptEngineering": 0.7667,
+      "@Kim2022KantAnd": 0.473,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.4545
+    },
+    "walkable": {
+      "r1": 0.589,
+      "r2": 0.9142
+    },
+    "walkable_by_source": {
+      "@Huang2021TowardsReasoning": 1.0,
+      "@Hui2026KantMachine": 0.8428,
+      "@IniciandoComPromptEngineering": 0.7667,
+      "@Kim2022KantAnd": 0.473,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.4545
+    }
+  },
+  {
+    "signal": "relevance",
+    "cap": 5,
+    "entries": 53,
+    "all": {
+      "r1": 0.443,
+      "r2": 0.863
+    },
+    "all_by_source": {
+      "@Huang2021TowardsReasoning": 0.9,
+      "@Hui2026KantMachine": 0.566,
+      "@IniciandoComPromptEngineering": 0.4667,
+      "@Kim2022KantAnd": 0.4267,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.1948
+    },
+    "walkable": {
+      "r1": 0.443,
+      "r2": 0.863
+    },
+    "walkable_by_source": {
+      "@Huang2021TowardsReasoning": 0.9,
+      "@Hui2026KantMachine": 0.566,
+      "@IniciandoComPromptEngineering": 0.4667,
+      "@Kim2022KantAnd": 0.4267,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.1948
+    }
+  },
+  {
+    "signal": "relevance",
+    "cap": 10,
+    "entries": 107,
+    "all": {
+      "r1": 0.5915,
+      "r2": 0.9334
+    },
+    "all_by_source": {
+      "@Huang2021TowardsReasoning": 0.9667,
+      "@Hui2026KantMachine": 0.7296,
+      "@IniciandoComPromptEngineering": 0.7,
+      "@Kim2022KantAnd": 0.581,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.3312
+    },
+    "walkable": {
+      "r1": 0.5915,
+      "r2": 0.9334
+    },
+    "walkable_by_source": {
+      "@Huang2021TowardsReasoning": 0.9667,
+      "@Hui2026KantMachine": 0.7296,
+      "@IniciandoComPromptEngineering": 0.7,
+      "@Kim2022KantAnd": 0.581,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.3312
+    }
+  },
+  {
+    "signal": "relevance",
+    "cap": 15,
+    "entries": 153,
+    "all": {
+      "r1": 0.6863,
+      "r2": 0.9654
+    },
+    "all_by_source": {
+      "@Huang2021TowardsReasoning": 1.0,
+      "@Hui2026KantMachine": 0.8616,
+      "@IniciandoComPromptEngineering": 0.7667,
+      "@Kim2022KantAnd": 0.6684,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.4351
+    },
+    "walkable": {
+      "r1": 0.6863,
+      "r2": 0.9654
+    },
+    "walkable_by_source": {
+      "@Huang2021TowardsReasoning": 1.0,
+      "@Hui2026KantMachine": 0.8616,
+      "@IniciandoComPromptEngineering": 0.7667,
+      "@Kim2022KantAnd": 0.6684,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.4351
+    }
+  },
+  {
+    "signal": "corroboration",
+    "cap": 5,
+    "entries": 55,
+    "all": {
+      "r1": 0.4225,
+      "r2": 0.8374
+    },
+    "all_by_source": {
+      "@Huang2021TowardsReasoning": 0.5,
+      "@Hui2026KantMachine": 0.6226,
+      "@IniciandoComPromptEngineering": 0.5667,
+      "@Kim2022KantAnd": 0.3445,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 0.0,
+      "@PromptEngineering": 0.3052
+    },
+    "walkable": {
+      "r1": 0.4225,
+      "r2": 0.8374
+    },
+    "walkable_by_source": {
+      "@Huang2021TowardsReasoning": 0.5,
+      "@Hui2026KantMachine": 0.6226,
+      "@IniciandoComPromptEngineering": 0.5667,
+      "@Kim2022KantAnd": 0.3445,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 0.0,
+      "@PromptEngineering": 0.3052
+    }
+  },
+  {
+    "signal": "corroboration",
+    "cap": 10,
+    "entries": 108,
+    "all": {
+      "r1": 0.5736,
+      "r2": 0.9117
+    },
+    "all_by_source": {
+      "@Huang2021TowardsReasoning": 0.9333,
+      "@Hui2026KantMachine": 0.7736,
+      "@IniciandoComPromptEngineering": 0.6667,
+      "@Kim2022KantAnd": 0.5141,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.3766
+    },
+    "walkable": {
+      "r1": 0.5736,
+      "r2": 0.9117
+    },
+    "walkable_by_source": {
+      "@Huang2021TowardsReasoning": 0.9333,
+      "@Hui2026KantMachine": 0.7736,
+      "@IniciandoComPromptEngineering": 0.6667,
+      "@Kim2022KantAnd": 0.5141,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.3766
+    }
+  },
+  {
+    "signal": "corroboration",
+    "cap": 15,
+    "entries": 153,
+    "all": {
+      "r1": 0.662,
+      "r2": 0.9603
+    },
+    "all_by_source": {
+      "@Huang2021TowardsReasoning": 1.0,
+      "@Hui2026KantMachine": 0.8553,
+      "@IniciandoComPromptEngineering": 0.7333,
+      "@Kim2022KantAnd": 0.6144,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.461
+    },
+    "walkable": {
+      "r1": 0.662,
+      "r2": 0.9603
+    },
+    "walkable_by_source": {
+      "@Huang2021TowardsReasoning": 1.0,
+      "@Hui2026KantMachine": 0.8553,
+      "@IniciandoComPromptEngineering": 0.7333,
+      "@Kim2022KantAnd": 0.6144,
+      "@Latorre2021AnáliseDe": 1.0,
+      "@Mueller_2020": 1.0,
+      "@PromptEngineering": 0.461
+    }
+  }
+]

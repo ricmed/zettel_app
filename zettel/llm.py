@@ -751,6 +751,7 @@ REQUIRED_PROMPTS: tuple[str, ...] = (
     "moc_incremental.md",
     "moc_hub_generation.md",
     "moc_hub_incremental.md",
+    "moc_summary_refresh.md",
     "ptbr_guard.md",
     "image_description.md",
     "ask.md",

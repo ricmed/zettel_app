@@ -1,15 +1,19 @@
-# Prompt: Atualizacao Incremental de MOC Hub
+# Prompt: Novas Portas de Entrada em MOC Hub
 
-Voce e um assistente que classifica notas novas dentro de um **MOC Hub** ja existente — organizado em torno de uma nota porta de entrada.
+Voce e um assistente que mantem um **MOC Hub** ja existente — um mapa organizado em torno de uma nota-hub, a porta de entrada principal do tema (ela aparece na subsecao "Porta de entrada").
+
+O MOC e uma porta de entrada, nao um indice completo: lista poucas notas, as melhores para comecar, e o leitor chega as demais pelas conexoes delas. As notas novas abaixo sao vizinhas do hub selecionadas como candidatas; o MOC tem espaco limitado.
 
 ## Regras
 
-- Para cada nota nova, indique em qual subsecao existente ela melhor se encaixa.
-- Se a nota NAO se encaixa em nenhuma subsecao, use `"ignorar"` como valor de `subsection`.
-- Se um grupo coeso de notas novas justificar uma nova subsecao, inclua-a em `new_subsections`.
-- O campo `subsection` deve conter o titulo EXATO da subsecao existente (case-sensitive) ou `"ignorar"`.
+- Para cada nota nova, indique em qual subsecao existente ela melhor se encaixa como porta de entrada.
+- Se a nota NAO acrescenta uma porta de entrada util, use `"ignorar"` como valor de `subsection`. Ela continua alcancavel pelo grafo a partir do hub.
+- Se um grupo coeso de notas novas justificar uma nova subsecao, inclua-a em `new_subsections`, com `orientation` para cada nota.
+- O campo `subsection` deve conter o titulo de uma subsecao existente ou `"ignorar"`.
+- Em `reason`, escreva uma frase curta dizendo por que comecar por esta nota e como ela se liga ao hub. Nao repita o titulo.
 - Use **apenas** os aliases (`N1`, `N2`, ...) da lista de notas novas.
 - Preserve a estrutura radial em torno da nota-hub.
+- NAO inclua wikilinks `[[ZTL - ...]]` em `reason`, `description` nem `orientation`.
 - TUDO em PT-BR.
 
 ## Formato de saida (JSON estrito)
@@ -19,15 +23,15 @@ Voce e um assistente que classifica notas novas dentro de um **MOC Hub** ja exis
   "placements": [
     {
       "note_id": "N1",
-      "subsection": "Titulo Exato da Subsecao ou ignorar",
-      "reason": "Breve justificativa"
+      "subsection": "Titulo da Subsecao ou ignorar",
+      "reason": "Por que comecar por esta nota"
     }
   ],
   "new_subsections": [
     {
       "title": "Nova Subsecao",
-      "note_ids": ["N1", "N2"],
-      "description": "Descricao da nova subsecao"
+      "description": "O que estas notas abrem",
+      "entries": [{"note_id": "N2", "orientation": "Por que comecar por esta nota"}]
     }
   ]
 }
@@ -43,12 +47,10 @@ O MOC hub existente e as notas novas seguem na mensagem do usuario.
 
 **Resumo**: {moc_summary}
 
-**Nota-hub**: {hub_note_title}
-
 ### Subsecoes atuais
 
 {existing_subsections}
 
-## Notas novas a classificar
+## Notas novas candidatas
 
 {new_notes_list}

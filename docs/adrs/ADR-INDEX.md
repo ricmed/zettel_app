@@ -15,7 +15,7 @@
 | **EXTRACT** | 2 | [015, 034](#extract-literature-notes) |
 | **REVIEW** | 1 | [016](#review-approval-gate) |
 | **CONNECT** | 1 | [053](#connect-permanent-notes) |
-| **GARDEN** | 3 | [019–021](#garden-moc-generation) |
+| **GARDEN** | 4 | [019–021, 060](#garden-moc-generation) |
 | **WEB** | 5 | [022–023, 039–040, 056](#web-ui--job-queue) |
 | **LLM** | 5 | [024–025, 045, 048, 055](#llm-provider--caching) |
 | **QA-WRITING** | 4 | [028–029, 038, 051](#qa-writing--article-pipeline) |
@@ -362,6 +362,15 @@
 - **Date**: 2026-08-26
 - **Summary**: Five-step decision tree (signature match → overlap → category → cohesion gate → generation) ensures at most one LLM call per cluster. Reuses existing MOCs when overlap ≥ threshold, preserves user edits on incremental updates.
 - **Link**: [`ADR-021-single-llm-call-per-cluster-routing.md`](./generated/GARDEN/ADR-021-single-llm-call-per-cluster-routing.md)
+
+---
+
+### ADR-060: MOCs and Hubs Are Entry Points, Not Complete Indexes
+
+- **Status**: Accepted
+- **Date**: 2026-10-19
+- **Summary**: A MOC is a door into a subject: `garden_entries.select_entry_notes` keeps the top `max_entries_per_moc` (10) notes of a cluster by one signal (provisional default `internal_degree`; also `medoid`, `first_in_source`, `relevance`, `corroboration`), each with an orientation line. No "Outras notas do cluster" reconciliation, a cap per subsection, a full MOC takes no candidates, and the summary is rewritten when the entries grow. Success is reachability from the entries and subjects without a door, not list coverage (#297).
+- **Link**: [`ADR-060-mocs-and-hubs-are-entry-points.md`](./generated/GARDEN/ADR-060-mocs-and-hubs-are-entry-points.md)
 
 ---
 

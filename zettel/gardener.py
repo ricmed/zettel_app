@@ -19,8 +19,10 @@ from ulid import ULID
 
 from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, llm_phase
 from zettel.decision import shadow as decision_shadow
+from zettel.garden_entries import select_entry_notes
 from zettel.garden_report import ClusterAction, GardenReport, entry_note_ids, fill_reachability
 from zettel.gardener_assign import (
+    NOTE_ID_RE,
     ClusterReport,
     assign_notes_to_categories,
     build_embeddings_by_id,
@@ -43,7 +45,14 @@ from zettel.llm import (
     load_prompt_parts,
     parse_llm_json,
 )
-from zettel.schemas import MOCGenerationOutput, MOCIncrementalOutput
+from zettel.schemas import (
+    MOCEntry,
+    MOCGenerationOutput,
+    MOCIncrementalOutput,
+    MOCSubsection,
+    MOCSummaryOutput,
+)
+from zettel.search_terms import fold
 from zettel.state import StateDB
 from zettel.taxonomy import TaxonomyLoadError, resolve_allowed_topics
 from zettel.time import now_vault_iso
@@ -56,7 +65,6 @@ from zettel.vault import (
 
 logger = logging.getLogger(__name__)
 
-_MOC_FALLBACK_SUBSECTION = "Outras notas do cluster"
 PIPELINE_ORIGIN = "pipeline"
 
 
@@ -68,6 +76,8 @@ class _GardenStats:
     rejected_cohesion: int = 0
     actions: list[ClusterAction] = field(default_factory=list)
     discarded: dict[str, int] = field(default_factory=dict)
+    omitted: int = 0  # selected entries the LLM did not place (or past a subsection cap)
+    cap_reached: int = 0  # entry candidates refused because the MOC was full
 
 
 # ── Public API ─────────────────────────────────────────────────────────
@@ -122,7 +132,9 @@ def plan_garden(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> GardenReport:
         moc_id = route.moc["moc_id"] if route.moc else None
         stats.actions.append(ClusterAction(category, len(note_ids), route.action, moc_id))
         if route.action in ("created", "incremental"):
-            planned_entries.update(note_ids)
+            planned_entries.update(
+                select_entry_notes(db, note_ids, cfg.gardener, cluster_report.vectors)
+            )
     report = _garden_report(cfg, cluster_report, stats, planned=True)
     return fill_reachability(
         report,
@@ -183,7 +195,8 @@ def _garden(
                 note_ids=cluster_ids,
                 terms=_extract_cluster_terms(db, cluster_ids),
             )
-        moc_id = _process_cluster(cfg, db, idx, llm, category, cluster_ids, stats)
+        entries = select_entry_notes(db, cluster_ids, cfg.gardener, cluster_report.vectors)
+        moc_id = _process_cluster(cfg, db, idx, llm, category, cluster_ids, stats, entries)
         if moc_id:
             moc_ids.append(moc_id)
 
@@ -219,6 +232,8 @@ def _garden_report(
         bucket_sizes={k: len(v) for k, v in sorted(cluster_report.buckets.items())},
         actions=list(stats.actions),
         discarded=dict(stats.discarded),
+        omitted=stats.omitted,
+        cap_reached=stats.cap_reached,
     )
 
 
@@ -246,6 +261,7 @@ def _cluster_pairs(
         return [], cluster_report
     embeddings_by_id = build_embeddings_by_id(ids, embeddings)
     cluster_report.notes_total = len(ids)
+    cluster_report.vectors = embeddings_by_id
 
     categories = category_pairs(gcfg)
     cat_vectors = _category_vectors(cfg, idx, categories) if categories else None
@@ -453,8 +469,14 @@ def _process_cluster(
     category: str,
     note_ids: list[str],
     stats: _GardenStats,
+    entries: list[str] | None = None,
 ) -> str | None:
-    """Route a cluster to incremental update or new MOC creation (at most one LLM call)."""
+    """Route a cluster to incremental update or new MOC creation (at most one LLM call).
+
+    Routing uses the whole cluster; the MOC receives only ``entries``, the
+    cluster's selected entry notes (ADR-060). ``None`` means the whole cluster.
+    """
+    entries = list(note_ids) if entries is None else entries
     route = route_cluster(cfg, db, category, note_ids)
     moc_id: str | None
     if route.action == "signature_skip":
@@ -465,13 +487,13 @@ def _process_cluster(
         logger.info("Cluster roteado para MOC %s", route.moc["moc_id"])
         stats.incremental += 1
         moc_id = _update_existing_moc(
-            cfg, db, idx, llm, route.moc, note_ids, route.signature, stats=stats
+            cfg, db, idx, llm, route.moc, entries, route.signature, stats=stats
         )
     elif route.action == "rejected_cohesion":
         stats.rejected_cohesion += 1
         moc_id = None
     else:
-        moc_id = _create_new_moc(cfg, db, idx, llm, category, note_ids, route.signature)
+        moc_id = _create_new_moc(cfg, db, idx, llm, category, entries, route.signature, stats=stats)
         if moc_id:
             stats.created += 1
     action = route.action if moc_id or route.action == "rejected_cohesion" else "failed"
@@ -487,8 +509,11 @@ def _create_new_moc(
     category: str,
     note_ids: list[str],
     cluster_signature: str,
+    *,
+    stats: _GardenStats | None = None,
 ) -> str | None:
-    """Generate a new MOC via LLM (single call)."""
+    """Generate a new MOC via LLM (single call) from the cluster's entry notes."""
+    stats = stats if stats is not None else _GardenStats()
     notes_list_text = _build_notes_list(db, note_ids, _build_note_alias_map(note_ids))
     cluster_terms = _extract_cluster_terms(db, note_ids)
 
@@ -535,9 +560,18 @@ def _create_new_moc(
     if not _validate_moc_topic(cfg, moc_output):
         return None
 
+    allowed = _allowed_note_ids(db, note_ids)
+    placed: set[str] = set()
+    subsections = _subsections_from_output(
+        moc_output.subsections, allowed, _build_note_alias_map(note_ids), placed
+    )
+    if not subsections:
+        logger.error("MOC nao criado: o LLM nao posicionou nenhuma entrada (%s)", category)
+        return None
+    stats.omitted += len(allowed - placed)
+
     moc_id = str(ULID())
     topic = moc_output.topic
-
     now = now_vault_iso(cfg.vault_timezone)
     meta = {
         "type": "moc",
@@ -545,46 +579,29 @@ def _create_new_moc(
         "topic": topic,
         "cluster_signature": cluster_signature,
         "origin": PIPELINE_ORIGIN,
+        "summary_entries": len(placed),
         "created_at": now,
         "updated_at": now,
     }
-
-    body = _build_moc_body(
+    moc_path = cfg.vault_path / "40_MOCs" / note_filename("MOC", moc_id, topic)
+    _write_moc(
+        cfg,
         db,
+        moc_path,
+        meta,
         topic,
         moc_output.summary,
-        moc_output.subsections,
-        _allowed_note_ids(db, note_ids),
-        _build_note_alias_map(note_ids),
+        subsections,
+        previous_body=None,
+        stats=stats,
     )
-
-    filename = note_filename("MOC", moc_id, topic)
-    moc_path = cfg.vault_path / "40_MOCs" / filename
-    safe_write_note(moc_path, meta, body)
-
-    from zettel.moc_backrefs import sync_moc_backrefs
-
-    sync_moc_backrefs(db, moc_id, topic, moc_path, vault_timezone=cfg.vault_timezone)
-
-    db.upsert_moc(
-        moc_id,
-        topic,
-        str(moc_path),
-        cluster_signature,
-        body=body,
-        frontmatter_json=json.dumps(meta, ensure_ascii=False),
-        origin=PIPELINE_ORIGIN,
-    )
+    _store_moc_row(db, moc_id, topic, moc_path, cluster_signature)
     idx.upsert_moc(
         moc_id,
         _moc_embeddable(topic, moc_output.summary),
-        {
-            "topic": topic,
-            "note_count": len(note_ids),
-        },
+        {"topic": topic, "note_count": len(placed)},
     )
-
-    logger.info("MOC criado: %s — %s (%d notas)", moc_id, topic, len(note_ids))
+    logger.info("MOC criado: %s — %s (%d entradas)", moc_id, topic, len(placed))
     return moc_id
 
 
@@ -657,69 +674,56 @@ def _validate_moc_topic(cfg: AppConfig, moc_output: MOCGenerationOutput) -> bool
 
 # ── Incremental MOC Update ────────────────────────────────────────
 
+# One entry line: "- [[ZTL - id - slug]] — why to start here" (ADR-060).
+_ENTRY_LINE_RE = re.compile(r"^\s*-\s*(\[\[ZTL[^\]]*\]\])\s*(?:—\s*(.*\S))?\s*$")
+
 
 def _parse_moc_structure(moc_path: Path) -> dict | None:
-    """Parse an existing MOC file and extract its structure."""
+    """Parse an existing MOC file into topic, summary, frontmatter and subsections.
+
+    Each subsection carries ``entries``: ``(note_id, orientation)`` pairs read
+    back from the entry lines the pipeline writes.
+    """
     if not moc_path.exists():
         logger.warning("MOC file not found: %s", moc_path)
         return None
 
-    content = moc_path.read_text(encoding="utf-8")
-    meta, body = parse_frontmatter(content)
-
-    topic = meta.get("topic", "")
-    note_id_re = re.compile(r"\[\[ZTL\s*-\s*(\S+)\s*-\s*[^\]]*\]\]")
-
-    lines = body.split("\n")
+    meta, body = parse_frontmatter(moc_path.read_text(encoding="utf-8"))
     summary_lines: list[str] = []
     subsections: list[dict] = []
     current_sub: dict | None = None
     in_summary = False
 
-    for line in lines:
+    for line in body.split("\n"):
         if line.startswith("# ") and not line.startswith("## "):
             in_summary = True
             continue
-
         if line.startswith("## "):
             in_summary = False
-            if current_sub is not None:
-                subsections.append(current_sub)
-            current_sub = {
-                "title": line[3:].strip(),
-                "description": "",
-                "note_ids": [],
-            }
+            current_sub = {"title": line[3:].strip(), "description": "", "entries": []}
+            subsections.append(current_sub)
             continue
-
         if in_summary:
             summary_lines.append(line)
             continue
+        if current_sub is None:
+            continue
+        entry = _ENTRY_LINE_RE.match(line)
+        ids = NOTE_ID_RE.findall(entry.group(1)) if entry else []
+        if ids:
+            current_sub["entries"].append((ids[0], (entry.group(2) or "").strip()))
+        elif line.strip() and not line.strip().startswith("-"):
+            sep = " " if current_sub["description"] else ""
+            current_sub["description"] += sep + line.strip()
 
-        if current_sub is not None:
-            match = note_id_re.search(line)
-            if match:
-                current_sub["note_ids"].append(match.group(1))
-            elif line.strip() and not line.strip().startswith("-"):
-                if current_sub["description"]:
-                    current_sub["description"] += " " + line.strip()
-                else:
-                    current_sub["description"] = line.strip()
-
-    if current_sub is not None:
-        subsections.append(current_sub)
-
-    all_note_ids: set[str] = set()
-    for sub in subsections:
-        all_note_ids.update(sub["note_ids"])
-
-    summary = "\n".join(summary_lines).strip()
-
+    all_note_ids = {nid for sub in subsections for nid, _ in sub["entries"]}
     return {
-        "topic": topic,
-        "summary": summary,
+        "topic": meta.get("topic", ""),
+        "summary": "\n".join(summary_lines).strip(),
         "subsections": subsections,
         "all_note_ids": all_note_ids,
+        "meta": meta,
+        "body": body,
     }
 
 
@@ -733,15 +737,23 @@ def _update_existing_moc(
     cluster_signature: str,
     *,
     stats: _GardenStats | None = None,
+    origin: str = PIPELINE_ORIGIN,
+    prompt_name: str = "moc_incremental.md",
 ) -> str | None:
-    """Incrementally update an existing MOC with new notes."""
+    """Offer a cluster's entry candidates to an existing MOC, within its capacity.
+
+    ``note_ids`` are the cluster's selected entry notes (ADR-060). A MOC already
+    at ``max_entries_per_moc`` takes none and costs no LLM call: those notes are
+    still reachable through the graph from the MOC's entries.
+    """
+    stats = stats if stats is not None else _GardenStats()
     moc_id = existing_moc["moc_id"]
     moc_path = Path(existing_moc["path"]) if existing_moc.get("path") else None
 
     if not moc_path or not moc_path.exists():
         logger.warning("MOC file not found for %s, skipping incremental update", moc_id)
         return None
-    if not owns_moc(existing_moc, moc_path, PIPELINE_ORIGIN):
+    if not owns_moc(existing_moc, moc_path, origin):
         return None
 
     structure = _parse_moc_structure(moc_path)
@@ -749,47 +761,25 @@ def _update_existing_moc(
         return None
 
     existing_ids = structure["all_note_ids"]
-    truly_new = [nid for nid in note_ids if nid not in existing_ids]
+    candidates = [nid for nid in note_ids if nid not in existing_ids]
+    capacity = max(0, cfg.gardener.max_entries_per_moc - len(existing_ids))
+    if len(candidates) > capacity:
+        stats.cap_reached += len(candidates) - capacity
+        candidates = candidates[:capacity]
 
-    if not truly_new:
-        logger.info("MOC %s: nenhuma nota nova, atualizando apenas assinatura", moc_id)
-        body_snap, fm_snap = _snapshot_moc_file(moc_path)
-        db.upsert_moc(
-            moc_id,
-            existing_moc["topic"],
-            str(moc_path),
-            cluster_signature,
-            body=body_snap,
-            frontmatter_json=fm_snap,
-            origin=PIPELINE_ORIGIN,
-        )
+    if not candidates:
+        logger.info("MOC %s: nenhuma entrada nova (cheio ou ja presente)", moc_id)
+        _store_moc_row(db, moc_id, existing_moc["topic"], moc_path, cluster_signature, origin)
         return moc_id
 
-    logger.info("MOC %s: %d notas novas a classificar", moc_id, len(truly_new))
-
-    prompt_parts = load_prompt_parts(cfg.prompts_path / "moc_incremental.md")
-
-    alias_to_id = _build_note_alias_map(truly_new)
-
-    sub_parts: list[str] = []
-    for sub in structure["subsections"]:
-        sub_parts.append(f"#### {sub['title']}")
-        if sub["description"]:
-            sub_parts.append(sub["description"])
-        for nid in sub["note_ids"]:
-            link = _note_wikilink(db, nid)
-            if link:
-                sub_parts.append(link.rstrip())
-        sub_parts.append("")
-    existing_subsections_text = "\n".join(sub_parts) if sub_parts else "_(Nenhuma subsecao)_"
-
-    new_notes_text = _build_notes_list(db, truly_new, alias_to_id)
-
+    logger.info("MOC %s: %d entrada(s) candidata(s)", moc_id, len(candidates))
+    prompt_parts = load_prompt_parts(cfg.prompts_path / prompt_name)
+    alias_to_id = _build_note_alias_map(candidates)
     mapping = {
         "moc_topic": structure["topic"],
         "moc_summary": structure["summary"],
-        "existing_subsections": existing_subsections_text,
-        "new_notes_list": new_notes_text,
+        "existing_subsections": _describe_subsections(db, structure["subsections"]),
+        "new_notes_list": _build_notes_list(db, candidates, alias_to_id),
     }
     system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
     user = fill_template(prompt_parts.user_template, mapping)
@@ -800,47 +790,47 @@ def _update_existing_moc(
     if incremental_output is None:
         return None
 
-    ignored = _apply_incremental_placements(
+    subsections, ignored, omitted = _merge_incremental(
+        structure["subsections"],
+        incremental_output,
+        _allowed_note_ids(db, candidates),
+        alias_to_id,
+    )
+    if ignored:
+        stats.discarded[moc_id] = stats.discarded.get(moc_id, 0) + ignored
+    stats.omitted += omitted
+
+    summary = structure["summary"]
+    meta = structure["meta"]
+    entries_now = sum(len(sub["entries"]) for sub in subsections)
+    if _summary_is_stale(cfg, meta, entries_now):
+        refreshed = _refresh_summary(cfg, db, llm, structure["topic"], subsections, moc_id)
+        if refreshed:
+            summary = refreshed
+            meta["summary_entries"] = entries_now
+
+    _write_moc(
+        cfg,
         db,
         moc_path,
-        structure,
-        incremental_output,
-        _allowed_note_ids(db, truly_new),
-        alias_to_id,
-        vault_timezone=cfg.vault_timezone,
+        meta,
+        structure["topic"],
+        summary,
+        subsections,
+        previous_body=structure["body"],
+        stats=stats,
     )
-    if stats is not None and ignored:
-        stats.discarded[moc_id] = stats.discarded.get(moc_id, 0) + ignored
-
-    body_snap, fm_snap = _snapshot_moc_file(moc_path)
-    db.upsert_moc(
-        moc_id,
-        existing_moc["topic"],
-        str(moc_path),
-        cluster_signature,
-        body=body_snap,
-        frontmatter_json=fm_snap,
-        origin=PIPELINE_ORIGIN,
-    )
-    idx.upsert_moc(
-        moc_id,
-        _moc_embeddable(structure["topic"], structure["summary"]),
-        {
-            "topic": existing_moc["topic"],
-            "note_count": len(existing_ids) + len(truly_new),
-        },
-    )
-
-    placed_count = sum(
-        1 for p in incremental_output.placements if p.subsection.lower() != "ignorar"
-    )
-    new_sub_count = len(incremental_output.new_subsections)
+    _store_moc_row(db, moc_id, existing_moc["topic"], moc_path, cluster_signature, origin)
+    metadata = {"topic": existing_moc["topic"], "note_count": entries_now}
+    if structure["meta"].get("hub_note_id"):
+        metadata["hub_note_id"] = structure["meta"]["hub_note_id"]
+    idx.upsert_moc(moc_id, _moc_embeddable(structure["topic"], summary), metadata)
     logger.info(
-        "MOC %s atualizado: %d notas classificadas, %d ignoradas, %d novas subsecoes",
+        "MOC %s atualizado: %d entradas, %d deixadas de fora pelo LLM, %d omitidas",
         moc_id,
-        placed_count,
-        len(truly_new) - placed_count,
-        new_sub_count,
+        entries_now,
+        ignored,
+        omitted,
     )
     return moc_id
 
@@ -851,105 +841,167 @@ def _parse_incremental_output(text: str) -> MOCIncrementalOutput:
     return MOCIncrementalOutput(**data)
 
 
-def _apply_incremental_placements(
-    db: StateDB,
-    moc_path: Path,
-    structure: dict,
+def _merge_incremental(
+    subsections: list[dict],
     incremental_output: MOCIncrementalOutput,
     allowed_ids: set[str],
     alias_to_id: dict[str, str],
-    *,
-    vault_timezone: str = "America/Sao_Paulo",
-) -> int:
-    """Reconstruct and write the MOC file with new notes placed into subsections.
+) -> tuple[list[dict], int, int]:
+    """Existing subsections plus the LLM's placements and new subsections.
 
-    Returns how many notes the LLM answered ``"ignorar"`` (left out by design).
+    Returns ``(subsections, ignored, omitted)``: ``ignored`` notes the LLM left
+    out on purpose (``"ignorar"``); ``omitted`` candidates it neither placed nor
+    ignored. Neither is listed: a MOC is a door, not an inventory (ADR-060).
+    A subsection title is matched case- and accent-insensitively.
     """
-    content = moc_path.read_text(encoding="utf-8")
-    meta, previous_body = parse_frontmatter(content)
-
-    meta["updated_at"] = now_vault_iso(vault_timezone)
-
-    placement_map: dict[str, list[str]] = {}
+    merged = [
+        {"title": s["title"], "description": s["description"], "entries": list(s["entries"])}
+        for s in subsections
+    ]
+    by_title = {fold(s["title"]): s for s in merged}
     placed: set[str] = set()
     ignored = 0
-    existing_titles = {sub["title"] for sub in structure["subsections"]}
 
-    for p in incremental_output.placements:
-        nid = _resolve_note_ref(p.note_id, allowed_ids, alias_to_id)
+    for placement in incremental_output.placements:
+        nid = _resolve_note_ref(placement.note_id, allowed_ids, alias_to_id)
         if not nid or nid in placed:
             continue
-        if p.subsection.lower() == "ignorar":
+        if fold(placement.subsection) == "ignorar":
             placed.add(nid)
             ignored += 1
             continue
-        if p.subsection not in existing_titles:
+        target = by_title.get(fold(placement.subsection))
+        if target is None:
             continue
-        placement_map.setdefault(p.subsection, []).append(nid)
+        target["entries"].append((nid, placement.reason.strip()))
         placed.add(nid)
 
-    new_subsections: list[tuple[str, str, list[str]]] = []
     for new_sub in incremental_output.new_subsections:
-        resolved: list[str] = []
-        for ref in new_sub.note_ids:
-            nid = _resolve_note_ref(ref, allowed_ids, alias_to_id)
-            if not nid or nid in placed:
-                continue
-            resolved.append(nid)
-            placed.add(nid)
-        if resolved:
-            new_subsections.append((new_sub.title, new_sub.description, resolved))
+        entries = _resolve_entries(new_sub.entries, allowed_ids, alias_to_id, placed)
+        if entries:
+            merged.append(
+                {"title": new_sub.title, "description": new_sub.description, "entries": entries}
+            )
 
-    missing = allowed_ids - placed
-    if missing:
-        logger.info(
-            "MOC incremental: %d nota(s) reconciliada(s) em '%s'",
-            len(missing),
-            _MOC_FALLBACK_SUBSECTION,
-        )
+    omitted = len(allowed_ids - placed)
+    if omitted:
+        logger.info("MOC incremental: %d entrada(s) omitida(s) pelo LLM", omitted)
+    return merged, ignored, omitted
 
-    body = f"# {structure['topic']}\n\n{structure['summary']}\n\n"
 
-    for sub in structure["subsections"]:
-        title = sub["title"]
-        body += f"## {title}\n\n"
+def _resolve_entries(
+    entries: list[MOCEntry],
+    allowed_ids: set[str],
+    alias_to_id: dict[str, str],
+    placed: set[str],
+) -> list[tuple[str, str]]:
+    """LLM entries resolved to known note ids, each placed at most once."""
+    resolved: list[tuple[str, str]] = []
+    for entry in entries:
+        nid = _resolve_note_ref(entry.note_id, allowed_ids, alias_to_id)
+        if not nid or nid in placed:
+            continue
+        placed.add(nid)
+        resolved.append((nid, entry.orientation.strip()))
+    return resolved
+
+
+def _summary_is_stale(cfg: AppConfig, meta: dict, entries_now: int) -> bool:
+    try:
+        base = int(meta.get("summary_entries") or 0)
+    except (TypeError, ValueError):
+        base = 0
+    if base <= 0:
+        return False
+    return (entries_now - base) / base >= cfg.gardener.summary_refresh_growth
+
+
+def _refresh_summary(
+    cfg: AppConfig, db: StateDB, llm: Any, topic: str, subsections: list[dict], moc_id: str
+) -> str | None:
+    """Rewrite a MOC summary from its current entries (one short call)."""
+    prompt_parts = load_prompt_parts(cfg.prompts_path / "moc_summary_refresh.md")
+    mapping = {
+        "moc_topic": topic,
+        "existing_subsections": _describe_subsections(db, subsections),
+    }
+    system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
+    user = fill_template(prompt_parts.user_template, mapping)
+    output = call_garden_llm(
+        cfg, db, llm, system, user, _parse_summary_output, subject_id=f"{moc_id}:summary"
+    )
+    return output.summary.strip() if output and output.summary.strip() else None
+
+
+def _parse_summary_output(text: str) -> MOCSummaryOutput:
+    return MOCSummaryOutput(**parse_llm_json(text))
+
+
+def _describe_subsections(db: StateDB, subsections: list[dict]) -> str:
+    """Subsections as the incremental and summary prompts read them."""
+    parts: list[str] = []
+    for sub in subsections:
+        parts.append(f"#### {sub['title']}")
         if sub["description"]:
-            body += f"{sub['description']}\n\n"
-        subsection_ids = list(sub["note_ids"])
-        subsection_ids.extend(placement_map.get(title, []))
-        if title == _MOC_FALLBACK_SUBSECTION:
-            subsection_ids.extend(sorted(missing))
-            missing = set()
-        body += _format_note_links(db, subsection_ids)
-        body += "\n"
+            parts.append(sub["description"])
+        for nid, orientation in sub["entries"]:
+            link = _note_wikilink(db, nid)
+            if link:
+                parts.append(f"{link} — {orientation}" if orientation else link)
+        parts.append("")
+    return "\n".join(parts) if parts else "_(Nenhuma subsecao)_"
 
-    for title, description, note_ids in new_subsections:
-        body += f"## {title}\n\n"
-        if description:
-            body += f"{description}\n\n"
-        body += _format_note_links(db, note_ids)
-        body += "\n"
 
-    if missing:
-        body += f"## {_MOC_FALLBACK_SUBSECTION}\n\n"
-        body += _format_note_links(db, sorted(missing))
-        body += "\n"
+def _write_moc(
+    cfg: AppConfig,
+    db: StateDB,
+    moc_path: Path,
+    meta: dict,
+    topic: str,
+    summary: str,
+    subsections: list[dict],
+    *,
+    previous_body: str | None,
+    stats: _GardenStats,
+) -> str:
+    """Render, write and back-link one MOC file. Returns the body written."""
+    from zettel.moc_backrefs import sync_moc_backrefs
 
+    meta["updated_at"] = now_vault_iso(cfg.vault_timezone)
+    body, truncated = render_moc_body(
+        db, topic, summary, subsections, cfg.gardener.max_entries_per_subsection
+    )
+    stats.omitted += truncated
     safe_write_note(moc_path, meta, body)
+    sync_moc_backrefs(
+        db,
+        meta.get("moc_id", ""),
+        topic,
+        moc_path,
+        vault_timezone=cfg.vault_timezone,
+        previous_body=previous_body,
+    )
+    return body
 
-    moc_id = meta.get("moc_id", "")
-    if moc_id:
-        from zettel.moc_backrefs import sync_moc_backrefs
 
-        sync_moc_backrefs(
-            db,
-            moc_id,
-            meta.get("topic", ""),
-            moc_path,
-            vault_timezone=vault_timezone,
-            previous_body=previous_body,
-        )
-    return ignored
+def _store_moc_row(
+    db: StateDB,
+    moc_id: str,
+    topic: str,
+    moc_path: Path,
+    signature: str,
+    origin: str = PIPELINE_ORIGIN,
+) -> None:
+    body_snap, fm_snap = _snapshot_moc_file(moc_path)
+    db.upsert_moc(
+        moc_id,
+        topic,
+        str(moc_path),
+        signature,
+        body=body_snap,
+        frontmatter_json=fm_snap,
+        origin=origin,
+    )
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -1106,59 +1158,60 @@ def _note_wikilink(db: StateDB, note_id: str) -> str | None:
     return f"- {link}"
 
 
-def _format_note_links(db: StateDB, note_ids: list[str]) -> str:
-    lines: list[str] = []
-    seen: set[str] = set()
-    for nid in note_ids:
-        if nid in seen:
-            continue
-        seen.add(nid)
-        link = _note_wikilink(db, nid)
-        if link:
-            lines.append(link)
-    if not lines:
-        return ""
-    return "\n".join(lines) + "\n"
-
-
-def _build_moc_body(
+def render_moc_body(
     db: StateDB,
     topic: str,
     summary: str,
-    subsections: list,
+    subsections: list[dict],
+    max_per_subsection: int,
+) -> tuple[str, int]:
+    """Markdown body of a MOC. Returns ``(body, entries cut by the per-subsection cap)``.
+
+    Each entry renders as ``- [[ZTL - …]] — orientation``; a subsection left
+    with no linkable entry is dropped. Shared by the taxonomy and hub pipelines.
+    """
+    body = f"# {topic}\n\n{summary}\n\n"
+    truncated = 0
+    seen: set[str] = set()
+    for sub in subsections:
+        lines: list[str] = []
+        for nid, orientation in sub["entries"]:
+            if nid in seen:
+                continue
+            if len(lines) >= max_per_subsection:
+                truncated += 1
+                continue
+            link = _note_wikilink(db, nid)
+            if not link:
+                continue
+            seen.add(nid)
+            lines.append(f"{link} — {orientation}" if orientation else link)
+        if not lines:
+            continue
+        body += f"## {sub['title']}\n\n"
+        if sub.get("description"):
+            body += f"{sub['description']}\n\n"
+        body += "\n".join(lines) + "\n\n"
+    if truncated:
+        logger.info("MOC: %d entrada(s) acima do teto por subsecao", truncated)
+    return body, truncated
+
+
+def _subsections_from_output(
+    subsections: list[MOCSubsection],
     allowed_ids: set[str],
     alias_to_id: dict[str, str],
-) -> str:
-    """Build a MOC body, filtering ghost IDs and reconciling omitted notes."""
-    placed: set[str] = set()
-    body = f"# {topic}\n\n{summary}\n\n"
-
+    placed: set[str],
+) -> list[dict]:
+    """LLM subsections resolved to ``{title, description, entries}`` dicts."""
+    resolved: list[dict] = []
     for sub in subsections:
-        body += f"## {sub.title}\n\n"
-        if sub.description:
-            body += f"{sub.description}\n\n"
-        subsection_ids: list[str] = []
-        for ref in sub.note_ids:
-            nid = _resolve_note_ref(ref, allowed_ids, alias_to_id)
-            if not nid or nid in placed:
-                continue
-            subsection_ids.append(nid)
-            placed.add(nid)
-        body += _format_note_links(db, subsection_ids)
-        body += "\n"
-
-    missing = allowed_ids - placed
-    if missing:
-        logger.info(
-            "MOC: %d nota(s) reconciliada(s) em '%s'",
-            len(missing),
-            _MOC_FALLBACK_SUBSECTION,
-        )
-        body += f"## {_MOC_FALLBACK_SUBSECTION}\n\n"
-        body += _format_note_links(db, sorted(missing))
-        body += "\n"
-
-    return body
+        entries = _resolve_entries(sub.entries, allowed_ids, alias_to_id, placed)
+        if entries:
+            resolved.append(
+                {"title": sub.title, "description": sub.description, "entries": entries}
+            )
+    return resolved
 
 
 def _parse_moc_output(text: str) -> MOCGenerationOutput:

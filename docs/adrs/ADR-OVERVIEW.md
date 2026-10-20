@@ -53,7 +53,7 @@ REVIEW (1 ADR + 2 needs-input)
 CONNECT (1 ADR)
 └─ ADR-053 (connector.py → connector/ package)
 
-GARDEN (3 ADRs)
+GARDEN (4 ADRs)
 ├─ ADR-019 (Taxonomy-first clustering)
 ├─ ADR-020 (Hub-anchored MOCs)
 └─ ADR-021 (Single-LLM-call routing)
@@ -251,7 +251,7 @@ See [RESOLUTION-LOG-2026-08-31.md](./RESOLUTION-LOG-2026-08-31.md) for full deta
          └─────────────────┬──────────────────────┘
                            │
          ┌─────────────────▼──────────────────────┐
-         │ PHASE 4: GARDEN                         │  ← ADR-019,020,021
+         │ PHASE 4: GARDEN                         │  ← ADR-019,020,021,060
          │ • Taxonomy-first clustering (default)   │    (MOC routing)
          │ • Hub-anchored clustering (opt-in)      │
          │ • Generate MOCs, sync backrefs           │
@@ -300,7 +300,7 @@ RETRIEVAL   ████████     (3 ADRs, high usage)
 HARVEST     ██████████   (6 ADRs, foundational)
 EXTRACT     █████        (2 ADRs, focused)
 REVIEW      ██████       (3 ADRs, mid-priority)
-GARDEN      ███████      (3 ADRs, interconnected)
+GARDEN      ████████     (4 ADRs, interconnected)
 WEB         ████         (2 ADRs, narrow scope)
 LLM         ███████      (2 ADRs, cross-cutting)
 CLI         ███████      (4 ADRs, orchestration)
