@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.datastructures import FormData
 
-from zettel.web.enqueue import post_job
+from zettel.web.enqueue import operation_lock, post_job
 from zettel.web.forms import read_form
 from zettel.web.health import llm_phase_ready as _llm_phase_ready
 from zettel.web.manual_form import (
@@ -324,6 +324,8 @@ def create_note(request: Request, form: FormData = Depends(read_form)):
         return redirect_login()
     if not csrf_ok(request, str(form.get("csrf") or "")):
         return HTMLResponse("CSRF inválido", status_code=403)
+    from zettel.oplock import LockBusy
+
     svc = service(request)
     db = svc.db()
     try:
@@ -372,38 +374,43 @@ def create_note(request: Request, form: FormData = Depends(read_form)):
             "LIT_GRANULAR": "LIT",
             "ZTL_BLANK": "ZTL",
         }[parsed["mode"]]
-        result = scaffold_manual_note(
-            svc.cfg,
-            note_type=note_type,
-            title=parsed["title"],
-            citekey=parsed["citekey"] if parsed["mode"] == "SRC" else None,
-            authors=parsed["authors"] or None if parsed["mode"] == "SRC" else None,
-            year=parsed["year"] if parsed["mode"] == "SRC" else None,
-            document_type=parsed["document_type"] if parsed["mode"] == "SRC" else None,
-            abnt_reference=parsed["abnt_reference"] if parsed["mode"] == "SRC" else None,
-            publisher=parsed["publisher"] if parsed["mode"] == "SRC" else None,
-            place=parsed["place"] if parsed["mode"] == "SRC" else None,
-            doi=parsed["doi"] if parsed["mode"] == "SRC" else None,
-            url=parsed["url"] if parsed["mode"] == "SRC" else None,
-            journal=parsed["journal"] if parsed["mode"] == "SRC" else None,
-            edition=parsed["edition"] if parsed["mode"] == "SRC" else None,
-            institution=parsed["institution"] if parsed["mode"] == "SRC" else None,
-            pages=parsed["pages"] if parsed["mode"] == "SRC" else None,
-            thesis=parsed["title"] if parsed["mode"] == "ZTL_BLANK" else None,
-            source_id=None if parsed["mode"] == "SRC" else selected["source_id"],
-            granular=parsed["granular"],
-            chunk_index=parsed["chunk_index"],
-            page=parsed["page"],
-            summary=parsed.get("lit_summary") if parsed["mode"] == "LIT_GRANULAR" else None,
-            source_text=parsed.get("lit_excerpt") if parsed["mode"] == "LIT_GRANULAR" else None,
-            key_concepts=(parsed.get("lit_concepts") if parsed["mode"] == "LIT_GRANULAR" else None),
-            candidates=(
-                [{"thesis": parsed["lit_candidate"]}]
-                if parsed["mode"] == "LIT_GRANULAR" and parsed.get("lit_candidate")
-                else None
-            ),
-            force=parsed["force"],
-        )
+        # Writes the vault in the request: it takes the operation lock, like a
+        # job, so it never lands while sync or garden walk the same folders (#308).
+        with operation_lock(request, "new-note"):
+            result = scaffold_manual_note(
+                svc.cfg,
+                note_type=note_type,
+                title=parsed["title"],
+                citekey=parsed["citekey"] if parsed["mode"] == "SRC" else None,
+                authors=parsed["authors"] or None if parsed["mode"] == "SRC" else None,
+                year=parsed["year"] if parsed["mode"] == "SRC" else None,
+                document_type=parsed["document_type"] if parsed["mode"] == "SRC" else None,
+                abnt_reference=parsed["abnt_reference"] if parsed["mode"] == "SRC" else None,
+                publisher=parsed["publisher"] if parsed["mode"] == "SRC" else None,
+                place=parsed["place"] if parsed["mode"] == "SRC" else None,
+                doi=parsed["doi"] if parsed["mode"] == "SRC" else None,
+                url=parsed["url"] if parsed["mode"] == "SRC" else None,
+                journal=parsed["journal"] if parsed["mode"] == "SRC" else None,
+                edition=parsed["edition"] if parsed["mode"] == "SRC" else None,
+                institution=parsed["institution"] if parsed["mode"] == "SRC" else None,
+                pages=parsed["pages"] if parsed["mode"] == "SRC" else None,
+                thesis=parsed["title"] if parsed["mode"] == "ZTL_BLANK" else None,
+                source_id=None if parsed["mode"] == "SRC" else selected["source_id"],
+                granular=parsed["granular"],
+                chunk_index=parsed["chunk_index"],
+                page=parsed["page"],
+                summary=parsed.get("lit_summary") if parsed["mode"] == "LIT_GRANULAR" else None,
+                source_text=parsed.get("lit_excerpt") if parsed["mode"] == "LIT_GRANULAR" else None,
+                key_concepts=(
+                    parsed.get("lit_concepts") if parsed["mode"] == "LIT_GRANULAR" else None
+                ),
+                candidates=(
+                    [{"thesis": parsed["lit_candidate"]}]
+                    if parsed["mode"] == "LIT_GRANULAR" and parsed.get("lit_candidate")
+                    else None
+                ),
+                force=parsed["force"],
+            )
         return _form_page(
             request,
             db,
@@ -412,6 +419,8 @@ def create_note(request: Request, form: FormData = Depends(read_form)):
             next_step=_next_step(svc.cfg, db, result),
             selected=selected,
         )
+    except LockBusy as busy:
+        return HTMLResponse(str(busy), status_code=409)
     except PreflightConflict as exc:
         body = str(exc)
         if exc.href:

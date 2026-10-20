@@ -3030,3 +3030,71 @@ def test_pipeline_page_survives_an_estimate_that_cannot_be_built(web_client, mon
     page = client.get("/pipeline")
     assert page.status_code == 200
     assert "Pré-voo indisponível" in page.text
+
+
+def test_enqueue_refuses_while_the_cli_holds_the_lock(web_client):
+    """The web and the CLI used to write the same stores at once (#308)."""
+    from zettel.oplock import OperationLock
+
+    client, tmp_path = web_client
+    csrf = _login(client)
+    held = OperationLock(tmp_path / "zettel.lock")
+    held.acquire("connect", "cli")
+    try:
+        response = client.post("/pipeline/retry_assets", data={"csrf": csrf})
+    finally:
+        held.release()
+    assert response.status_code == 409
+    assert "connect" in response.text and "CLI" in response.text
+
+
+def test_single_edge_decision_respects_the_lock(web_client):
+    from zettel.oplock import OperationLock
+
+    client, tmp_path = web_client
+    csrf = _login(client)
+    _seed_proposed_edges(client, 1)
+    held = OperationLock(tmp_path / "zettel.lock")
+    held.acquire("garden", "cli")
+    try:
+        response = client.post(
+            "/review/links",
+            data={
+                "csrf": csrf,
+                "source_note_id": "s000",
+                "target_note_id": "t000",
+                "relation_type": "contradicts",
+                "action": "accept",
+            },
+            follow_redirects=False,
+        )
+    finally:
+        held.release()
+    assert response.status_code == 409
+    db = client.app.state.service.db()
+    try:
+        assert len(db.list_proposed_connections()) == 1
+    finally:
+        db.close()
+
+
+def test_worker_waits_for_the_cli_instead_of_failing(web_client):
+    from zettel.oplock import OperationLock
+
+    client, tmp_path = web_client
+    _login(client)
+    held = OperationLock(tmp_path / "zettel.lock")
+    held.acquire("connect", "cli")
+    try:
+        job_id = client.app.state.service.submit("retry_assets", {})
+        time.sleep(1.5)
+        job = client.app.state.service.job(job_id)
+        assert job["state"] == "queued"
+        assert "connect" in job["message"]
+    finally:
+        held.release()
+    client.app.state.service.worker._wake.set()
+    deadline = time.monotonic() + 10
+    while client.app.state.service.job(job_id)["state"] != "succeeded":
+        assert time.monotonic() < deadline
+        time.sleep(0.05)

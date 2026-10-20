@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
-from zettel.web.enqueue import post_job
+from zettel.web.enqueue import lock_busy_message, operation_lock, post_job
 from zettel.web.rendering import render, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login
 
@@ -98,7 +98,7 @@ def _page(request: Request, *, status_code: int = 200, error: str | None = None,
             for row in db.list_mocs()
         ]
         summarize_estimate = estimate_summarize(cfg, db, None)
-        index_busy = db.has_active_web_job()
+        index_busy = db.has_active_web_job() or lock_busy_message(request) is not None
     finally:
         db.close()
     return render(
@@ -199,20 +199,27 @@ def _catalog(request: Request, subject: str, show_context: bool):
             catalog_subject=subject,
             catalog_show_context=show_context,
         )
+    from zettel.oplock import LockBusy
+
+    # Chroma is not process-safe: hold the operation lock for the read, so
+    # neither a job nor a CLI command writes the index meanwhile (#308).
+    try:
+        lock = operation_lock(request, "catalog")
+    except LockBusy as busy:
+        return _page(
+            request,
+            status_code=409,
+            error=f"O índice está em uso. {busy} Tente de novo quando ela terminar.",
+            catalog_subject=subject,
+            catalog_show_context=show_context,
+        )
     db = service(request).db()
     try:
-        if db.has_active_web_job():
-            return _page(
-                request,
-                status_code=409,
-                error="O índice está em uso por outra execução. Tente de novo quando ela terminar.",
-                catalog_subject=subject,
-                catalog_show_context=show_context,
-            )
         idx = VectorIndex(**index_kwargs(cfg))
         result = run_catalog(cfg, db, idx, subject)
     finally:
         db.close()
+        lock.release()
     return _page(
         request,
         catalog=result,

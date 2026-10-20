@@ -95,6 +95,7 @@ A CLI permanece compatível e continua usando a apresentação Rich normalmente.
 
 - A implantação é de **instância única** e executa no máximo um trabalho mutante por vez (`queued`/`running`); um segundo submit recebe **409**. Um artigo em `awaiting_input` não ocupa essa vaga. Não use múltiplos processos/workers Uvicorn.
 - As rotas rodam no *threadpool* do FastAPI, não no *event loop* ([ADR-062](adrs/generated/WEB/ADR-062-web-handlers-run-in-threadpool.md)): uma página lenta não atrasa as outras.
+- A web e a CLI não escrevem ao mesmo tempo: os comandos da CLI que alteram dados e cada job da web tomam a mesma trava, o arquivo `data/zettel.lock`. Enquanto um comando da CLI roda, um job da web fica na fila com a mensagem "Aguardando: ..." e um novo envio recebe **409** dizendo qual operação está em andamento. Se o processo que segura a trava morrer, o sistema a libera sozinho.
 - A fila vive no SQLite (`web_jobs`, `web_job_events` em [`state/web.py`](../zettel/state/web.py)) e é servida por uma thread daemon.
 - Preserve `data/` e `vault/` em armazenamento persistente. `data/state.db` contém a fila e os eventos; `data/chroma/` contém vetores; `vault/` contém as notas.
 - Recarregar ou fechar a página não interrompe o trabalho. Ao reiniciar o servidor, jobs que estavam `running` ou `awaiting_input` viram `interrupted`; jobs ainda `queued` são retomados. A pausa de um artigo não sobrevive ao reinício.

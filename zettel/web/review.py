@@ -8,7 +8,7 @@ import json
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
-from zettel.web.enqueue import post_job
+from zettel.web.enqueue import operation_lock, post_job
 from zettel.web.rendering import render, service
 from zettel.web.security import authenticated, redirect_login
 
@@ -269,10 +269,19 @@ def review_links(
 
     if not authenticated(request):
         return redirect_login()
-    if action not in {"accept", "reject", "retype"} or not csrf_ok(request, csrf):
+    if not csrf_ok(request, csrf):
+        return HTMLResponse("CSRF inválido", status_code=403)
+    if action not in {"accept", "reject", "retype"}:
         return HTMLResponse("Ação inválida", status_code=400)
     from zettel.connector.links import decide_link
+    from zettel.oplock import LockBusy
 
+    # One edge is fast enough for the request, but it changes the graph that
+    # connect and garden walk: it takes the operation lock like a job (#308).
+    try:
+        lock = operation_lock(request, "review_links")
+    except LockBusy as busy:
+        return HTMLResponse(str(busy), status_code=409)
     db = service(request).db()
     try:
         decide_link(
@@ -287,4 +296,5 @@ def review_links(
         )
     finally:
         db.close()
+        lock.release()
     return RedirectResponse("/review?queue=links", status_code=303)

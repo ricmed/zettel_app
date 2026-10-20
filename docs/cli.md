@@ -6,6 +6,8 @@ Todos os comandos do `zettel`, com as flags reais do pacote [`zettel/cli/`](../z
 
 Os exemplos usam `python -m zettel ...`; prefixe com `uv run` se o ambiente não estiver ativado.
 
+Um comando que altera dados (harvest, extract, review, connect, garden, sync-manual, reindex e afins) toma a trava `data/zettel.lock`, a mesma da interface web. Se outro comando ou um job da web estiver rodando, ele sai com código 1 e diz quem está com a trava. Os comandos de leitura (`status`, `doctor`, `ask`, `catalog`, `article`, `skill`, os dumps) não precisam dela.
+
 ---
 
 ## Fluxo básico

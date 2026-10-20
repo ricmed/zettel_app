@@ -61,3 +61,7 @@ Saved ask notes and articles go to `00_Inbox/`. Skills go to `<vault>/.claude/sk
 * `zettel/web_app.py` — `_dispatch_ask`, `_dispatch_summarize`, `_dispatch_skill`, `_dispatch_article`, `JobParked`
 * `zettel/article_graph/graph.py` — `ArticleDrive`
 * `zettel/state/web.py` — `awaiting_input` recovery, `next_queued_web_job`, `requeue_parked_job`
+
+## Addendum (2026-10-20): the catalog takes the operation lock (#308)
+
+The catalog no longer checks for a `queued`/`running` web job. It takes the cross-process operation lock (ADR-023 addendum) for its read of Chroma and answers 409 naming the holder, so it also waits out a CLI command. A job that is only queued no longer blocks it; the worker takes the lock once the catalog releases it.

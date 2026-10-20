@@ -596,6 +596,8 @@ class ConfigCache:
 # The worker sleeps until a submit wakes it. The timeout only covers a row
 # queued without that signal (none today); it is not a polling interval.
 _IDLE_WAKE_SECONDS = 30.0
+# How often a queued job checks again whether the CLI released the lock.
+_LOCK_RETRY_SECONDS = 2.0
 
 
 class WebWorker:
@@ -672,18 +674,37 @@ class WebWorker:
         return job_id
 
     def _run(self) -> None:
+        from zettel.oplock import LockBusy, OperationLock, lock_path
+
         while not self._stop.is_set():
             # Clear before looking: a submit after the lookup still wakes the wait.
             self._wake.clear()
             db = self._db()
             try:
                 job = db.next_queued_web_job()
+                if not job:
+                    lock = None
+                else:
+                    # The same lock the CLI takes (#308): while a terminal command
+                    # writes the stores, the job waits queued instead of failing.
+                    lock = OperationLock(lock_path(self.config.get()))
+                    try:
+                        lock.acquire(job["operation"], "web")
+                    except LockBusy as busy:
+                        db.update_web_job(job["job_id"], message=f"Aguardando: {busy}")
+                        lock = None
             finally:
                 db.close()
             if not job:
                 self._wake.wait(timeout=_IDLE_WAKE_SECONDS)
                 continue
-            self._execute(job["job_id"])
+            if lock is None:
+                self._wake.wait(timeout=_LOCK_RETRY_SECONDS)
+                continue
+            try:
+                self._execute(job["job_id"])
+            finally:
+                lock.release()
 
     def _execute(self, job_id: str) -> None:
         # A private copy: a long job never sees a config edited halfway through.

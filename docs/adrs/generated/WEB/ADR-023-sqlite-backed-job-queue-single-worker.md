@@ -69,3 +69,14 @@ Because job execution reads and writes the same StateDB used by CLI commands, co
 An article review sets the job to `awaiting_input`. That state is neither `queued` nor `running`, so another job may be submitted. The compiled graph stays in the worker process. `POST /jobs/{id}/resume` moves the same row back to `queued`.
 
 The worker claims `WHERE state='queued' ORDER BY created_at ASC, rowid ASC`. Taking the newest row overall would hide a resumed article behind a job that had already finished. On restart, `awaiting_input` becomes `interrupted` together with `running`. See [ADR-056](./ADR-056-web-acervo-consult-and-produce.md).
+
+## Addendum (2026-10-20): the CLI is arbitrated too (#308)
+
+**Status:** Accepted. The consequence above ("concurrent CLI and web usage is not arbitrated") no longer holds. `zettel/oplock.py` holds an exclusive OS lock on `data/zettel.lock` (`msvcrt.locking` on Windows, `flock` elsewhere); the OS drops it when its holder dies, so a crash never leaves it behind. Who holds it is written to `zettel.lock.info`.
+
+* Every CLI command in `cli.deps.MUTATING_COMMANDS` takes it in `load_deps` and exits with code 1, naming the holder, when it is taken. Read-only commands (status, doctor, ask, catalog, article, skill, dumps) do not.
+* The worker takes it around each job. When a CLI command holds it, the job stays `queued` with "Aguardando: ..." as its message and retries every 2 s.
+* `post_job` answers 409 with the operation and the surface that hold the lock.
+* The writes the web does in the request take it as well: a single edge decision on `/review?queue=links`, the scaffolds of `/notes/new`, and the catalog's read of Chroma. An upload only adds a new file to the inbox and does not.
+
+Two handles exclude each other inside one process too, which is what keeps a request thread out while the worker runs a job. This is not a broker: it serialises one machine's writers, the deployment ADR-023 assumes.

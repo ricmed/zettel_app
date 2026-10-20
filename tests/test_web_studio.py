@@ -145,12 +145,18 @@ def test_catalog_renders_on_the_page_and_refuses_a_busy_index(web_client, monkey
     assert "Capítulo 1" in page.text
     assert "3" in page.text
 
-    monkeypatch.setattr(
-        "zettel.state.web.WebMixin.has_active_web_job",
-        lambda self: True,
-    )
-    busy = client.get("/studio", params={"subject": "rag"})
+    # A running job or a CLI command holds the operation lock (#308).
+    from zettel.oplock import OperationLock
+
+    _, tmp_path = web_client
+    held = OperationLock(tmp_path / "zettel.lock")
+    held.acquire("connect", "cli")
+    try:
+        busy = client.get("/studio", params={"subject": "rag"})
+    finally:
+        held.release()
     assert busy.status_code == 409
+    assert "connect" in busy.text
     assert "índice está em uso" in busy.text
 
 
