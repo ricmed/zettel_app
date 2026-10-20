@@ -14,7 +14,7 @@ router = APIRouter()
 
 
 @router.get("/settings", response_class=HTMLResponse)
-async def settings(request: Request):
+def settings(request: Request):
     if not authenticated(request):
         return redirect_login()
     svc = service(request)

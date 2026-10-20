@@ -18,12 +18,12 @@ _FAVICON = Path(__file__).resolve().parent.parent / "static" / "favicon.svg"
 
 
 @router.get("/favicon.ico", include_in_schema=False)
-async def favicon():
+def favicon():
     return FileResponse(_FAVICON, media_type="image/svg+xml")
 
 
 @router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
+def login_page(request: Request):
     if not secret():
         return render(
             request,
@@ -37,7 +37,7 @@ async def login_page(request: Request):
 
 
 @router.post("/login", response_class=HTMLResponse)
-async def login(request: Request, instance_secret: str = Form(...), login_csrf: str = Form("")):
+def login(request: Request, instance_secret: str = Form(...), login_csrf: str = Form("")):
     valid_login_csrf = bool(
         secret() and login_csrf and hmac.compare_digest(login_csrf, sign("login"))
     )
@@ -65,7 +65,7 @@ async def login(request: Request, instance_secret: str = Form(...), login_csrf: 
 
 
 @router.post("/logout")
-async def logout(request: Request, csrf: str = Form("")):
+def logout(request: Request, csrf: str = Form("")):
     if not csrf_ok(request, csrf):
         return HTMLResponse("CSRF inválido", status_code=403)
     response = RedirectResponse("/login", status_code=303)

@@ -7,11 +7,13 @@ import re
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.datastructures import FormData
 
 from zettel.hashing import file_sha256
 from zettel.web.enqueue import post_job
+from zettel.web.forms import read_form
 from zettel.web.health import llm_ready as _llm_ready
 from zettel.web.rendering import render, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login, session
@@ -82,14 +84,14 @@ def _documents_page(request: Request, *, status_code: int = 200, error: str | No
 
 
 @router.get("/documents", response_class=HTMLResponse)
-async def documents(request: Request):
+def documents(request: Request):
     if not authenticated(request):
         return redirect_login()
     return _documents_page(request)
 
 
 @router.post("/documents/upload", response_class=HTMLResponse)
-async def upload(request: Request, file: UploadFile = File(...), csrf: str = Form("")):
+def upload(request: Request, file: UploadFile = File(...), csrf: str = Form("")):
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, csrf):
@@ -110,7 +112,7 @@ async def upload(request: Request, file: UploadFile = File(...), csrf: str = For
         return _documents_page(
             request, error="Use um arquivo PDF, Markdown ou TXT com nome válido.", status_code=400
         )
-    data = await file.read(MAX_UPLOAD_BYTES + 1)
+    data = file.file.read(MAX_UPLOAD_BYTES + 1)
     if not data:
         return _documents_page(request, error="O arquivo está vazio.", status_code=400)
     if len(data) > MAX_UPLOAD_BYTES:
@@ -133,7 +135,7 @@ async def upload(request: Request, file: UploadFile = File(...), csrf: str = For
 
 
 @router.post("/documents/harvest")
-async def harvest(
+def harvest(
     request: Request,
     selected_file: str = Form(""),
     duplicate_action: str = Form("skip"),
@@ -384,7 +386,7 @@ def _parsed_biblio(form: Any, original: dict):
 
 
 @router.get("/documents/review/{review_id}", response_class=HTMLResponse)
-async def document_review(request: Request, review_id: str):
+def document_review(request: Request, review_id: str):
     if not authenticated(request):
         return redirect_login()
     found = _review_data(request, review_id)
@@ -398,10 +400,9 @@ async def document_review(request: Request, review_id: str):
 
 
 @router.post("/documents/review/{review_id}/preview")
-async def document_review_preview(request: Request, review_id: str):
+def document_review_preview(request: Request, review_id: str, form: FormData = Depends(read_form)):
     if not authenticated(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    form = await request.form()
     if not csrf_ok(request, str(form.get("csrf") or "")):
         return JSONResponse({"error": "csrf"}, status_code=403)
     found = _review_data(request, review_id)
@@ -424,10 +425,9 @@ async def document_review_preview(request: Request, review_id: str):
 
 
 @router.post("/documents/review/{review_id}")
-async def confirm_document_review(request: Request, review_id: str):
+def confirm_document_review(request: Request, review_id: str, form: FormData = Depends(read_form)):
     if not authenticated(request):
         return redirect_login()
-    form = await request.form()
     if not csrf_ok(request, str(form.get("csrf") or "")):
         return HTMLResponse("CSRF inválido", status_code=403)
     found = _review_data(request, review_id)
@@ -520,7 +520,7 @@ def _auto_approve_warning() -> str:
 
 
 @router.post("/documents/run-all")
-async def documents_run_all(
+def documents_run_all(
     request: Request,
     csrf: str = Form(""),
     auto_approve: str = Form(""),

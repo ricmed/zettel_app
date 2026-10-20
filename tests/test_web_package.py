@@ -170,6 +170,33 @@ def test_domain_modules_are_imported_lazily():
     )
 
 
+def _is_route_decorator(node: ast.expr) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "router"
+    )
+
+
+def test_route_handlers_run_in_the_threadpool():
+    """Every handler does blocking I/O: SQLite, YAML, Chroma, a provider call.
+
+    FastAPI runs an ``async def`` handler on the event loop, so one slow page
+    stalls every other request on the single Uvicorn worker (#304). A plain
+    ``def`` runs in the threadpool. Form bodies come from the async
+    ``read_form`` dependency, never from an ``await`` in the handler.
+    """
+    offenders = [
+        f"{path.name}:{node.name}"
+        for path in WEB_PKG.glob("*.py")
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.AsyncFunctionDef)
+        and any(_is_route_decorator(d) for d in node.decorator_list)
+    ]
+    assert not offenders, f"handlers async def: {offenders}"
+
+
 def test_route_modules_tuple_covers_the_package():
     from zettel.web import ROUTE_MODULES
 

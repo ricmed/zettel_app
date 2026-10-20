@@ -95,7 +95,7 @@ def _lit_item(row: dict) -> dict:
 
 
 @router.get("/api/pickers/sources")
-async def picker_sources(request: Request, q: str = "", limit: int = _DEFAULT_LIMIT):
+def picker_sources(request: Request, q: str = "", limit: int = _DEFAULT_LIMIT):
     if not authenticated(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     q = (q or "")[:_MAX_Q]
@@ -113,7 +113,7 @@ async def picker_sources(request: Request, q: str = "", limit: int = _DEFAULT_LI
 
 
 @router.get("/api/pickers/literature")
-async def picker_literature(
+def picker_literature(
     request: Request,
     q: str = "",
     source_id: str = "",

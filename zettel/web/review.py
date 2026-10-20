@@ -26,7 +26,7 @@ def _summary(chunk: dict) -> dict:
 
 
 @router.get("/review", response_class=HTMLResponse)
-async def review(
+def review(
     request: Request,
     source_id: str = "",
     confidence: str = "",
@@ -153,7 +153,7 @@ async def review(
 
 
 @router.post("/review/action")
-async def review_action(
+def review_action(
     request: Request,
     action: str = Form(...),
     csrf: str = Form(""),
@@ -179,7 +179,7 @@ async def review_action(
 
 
 @router.post("/review/links")
-async def review_links(
+def review_links(
     request: Request,
     source_note_id: str = Form(...),
     target_note_id: str = Form(...),

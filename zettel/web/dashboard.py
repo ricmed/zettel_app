@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 @router.get("/", response_class=HTMLResponse)
-async def overview(request: Request):
+def overview(request: Request):
     if not authenticated(request):
         return redirect_login()
     svc = service(request)

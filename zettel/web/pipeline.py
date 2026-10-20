@@ -32,7 +32,7 @@ def _safe_next(raw: str) -> str | None:
 
 
 @router.get("/pipeline", response_class=HTMLResponse)
-async def pipeline(request: Request):
+def pipeline(request: Request):
     if not authenticated(request):
         return redirect_login()
     db = service(request).db()
@@ -50,7 +50,7 @@ async def pipeline(request: Request):
 
 
 @router.post("/pipeline/{operation}")
-async def pipeline_action(
+def pipeline_action(
     request: Request,
     operation: str,
     csrf: str = Form(""),

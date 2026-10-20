@@ -15,7 +15,7 @@ router = APIRouter()
 
 
 @router.get("/notes", response_class=HTMLResponse)
-async def notes(
+def notes(
     request: Request,
     q: str = "",
     kind: str = "",

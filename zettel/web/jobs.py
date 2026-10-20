@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -153,14 +154,14 @@ def _presentation(job: dict) -> dict:
 
 
 @router.get("/runs", response_class=HTMLResponse)
-async def runs(request: Request):
+def runs(request: Request):
     if not authenticated(request):
         return redirect_login()
     return render(request, "jobs.html", page="runs", jobs=service(request).jobs())
 
 
 @router.get("/jobs/{job_id}", response_class=HTMLResponse)
-async def job_detail(request: Request, job_id: str):
+def job_detail(request: Request, job_id: str):
     if not authenticated(request):
         return redirect_login()
     job = service(request).job(job_id)
@@ -180,7 +181,7 @@ async def job_detail(request: Request, job_id: str):
 
 
 @router.post("/jobs/{job_id}/resume")
-async def job_resume(
+def job_resume(
     request: Request,
     job_id: str,
     csrf: str = Form(""),
@@ -210,7 +211,7 @@ async def job_resume(
 
 
 @router.get("/api/jobs/{job_id}")
-async def job_api(request: Request, job_id: str, after: int = 0):
+def job_api(request: Request, job_id: str, after: int = 0):
     if not authenticated(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     job = service(request).job(job_id)
@@ -224,11 +225,13 @@ async def job_api(request: Request, job_id: str, after: int = 0):
 
 
 @router.get("/api/jobs/{job_id}/events")
-async def job_events(request: Request, job_id: str):
+def job_events(request: Request, job_id: str):
     if not authenticated(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
-    async def stream():
+    # A sync generator: Starlette iterates it in the threadpool, so the database
+    # reads and the sleep never block the event loop (#304).
+    def stream():
         last = 0
         for _ in range(20):
             events = service(request).events(job_id, last)
@@ -238,8 +241,6 @@ async def job_events(request: Request, job_id: str):
             job = service(request).job(job_id)
             if job and job["state"] in {"succeeded", "failed", "interrupted"}:
                 break
-            import asyncio
-
-            await asyncio.sleep(0.5)
+            time.sleep(0.5)
 
     return StreamingResponse(stream(), media_type="text/event-stream")

@@ -223,7 +223,7 @@ def _catalog(request: Request, subject: str, show_context: bool):
 
 
 @router.get("/studio", response_class=HTMLResponse)
-async def studio(request: Request, subject: str = "", show_context: str = ""):
+def studio(request: Request, subject: str = "", show_context: str = ""):
     if not authenticated(request):
         return redirect_login()
     text = subject.strip()
@@ -241,7 +241,7 @@ async def studio(request: Request, subject: str = "", show_context: str = ""):
 
 
 @router.post("/studio/ask")
-async def studio_ask(
+def studio_ask(
     request: Request,
     csrf: str = Form(""),
     question: str = Form(""),
@@ -283,7 +283,7 @@ async def studio_ask(
 
 
 @router.post("/studio/summarize")
-async def studio_summarize(
+def studio_summarize(
     request: Request,
     csrf: str = Form(""),
     source_id: str = Form(""),
@@ -304,7 +304,7 @@ async def studio_summarize(
 
 
 @router.post("/studio/skill")
-async def studio_skill(
+def studio_skill(
     request: Request,
     csrf: str = Form(""),
     source_id: str = Form(""),
@@ -336,7 +336,7 @@ async def studio_skill(
 
 
 @router.post("/studio/article")
-async def studio_article(
+def studio_article(
     request: Request,
     csrf: str = Form(""),
     topic: str = Form(""),

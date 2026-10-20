@@ -77,7 +77,7 @@ def _decorate_connections(db: Any, note_id: str) -> list[dict]:
 
 
 @router.get("/notes/{note_id}/markdown")
-async def note_markdown(request: Request, note_id: str, download: bool = False):
+def note_markdown(request: Request, note_id: str, download: bool = False):
     if not authenticated(request):
         return redirect_login()
     db = service(request).db()
@@ -89,7 +89,7 @@ async def note_markdown(request: Request, note_id: str, download: bool = False):
 
 
 @router.get("/mocs/{moc_id}/markdown")
-async def moc_markdown(request: Request, moc_id: str, download: bool = False):
+def moc_markdown(request: Request, moc_id: str, download: bool = False):
     if not authenticated(request):
         return redirect_login()
     db = service(request).db()
@@ -101,13 +101,13 @@ async def moc_markdown(request: Request, moc_id: str, download: bool = False):
 
 
 @router.post("/mocs/{moc_id}/adopt")
-async def moc_adopt(request: Request, moc_id: str, csrf: str = Form("")):
+def moc_adopt(request: Request, moc_id: str, csrf: str = Form("")):
     """Hand a generated MOC to the user (#300); runs as a job so no garden overlaps it."""
     return post_job(request, "adopt_moc", {"moc_id": moc_id}, csrf)
 
 
 @router.get("/sources/{source_id}", response_class=HTMLResponse)
-async def source_detail(request: Request, source_id: str):
+def source_detail(request: Request, source_id: str):
     if not authenticated(request):
         return redirect_login()
     db = service(request).db()
@@ -122,7 +122,7 @@ async def source_detail(request: Request, source_id: str):
 
 
 @router.get("/notes/{note_id}", response_class=HTMLResponse)
-async def note_detail(request: Request, note_id: str):
+def note_detail(request: Request, note_id: str):
     if not authenticated(request):
         return redirect_login()
     db = service(request).db()
@@ -144,7 +144,7 @@ async def note_detail(request: Request, note_id: str):
 
 
 @router.get("/mocs/{moc_id}", response_class=HTMLResponse)
-async def moc_detail(request: Request, moc_id: str):
+def moc_detail(request: Request, moc_id: str):
     if not authenticated(request):
         return redirect_login()
     db = service(request).db()

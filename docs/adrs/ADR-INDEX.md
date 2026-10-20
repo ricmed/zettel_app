@@ -16,7 +16,7 @@
 | **REVIEW** | 1 | [016](#review-approval-gate) |
 | **CONNECT** | 1 | [053](#connect-permanent-notes) |
 | **GARDEN** | 5 | [019–021, 060–061](#garden-moc-generation) |
-| **WEB** | 5 | [022–023, 039–040, 056](#web-ui--job-queue) |
+| **WEB** | 6 | [022–023, 039–040, 056, 062](#web-ui--job-queue) |
 | **LLM** | 5 | [024–025, 045, 048, 055](#llm-provider--caching) |
 | **QA-WRITING** | 4 | [028–029, 038, 051](#qa-writing--article-pipeline) |
 | **MANUAL** | 1 | [030](#manual-hand-written-notes) |
@@ -427,6 +427,15 @@
 - **Date**: 2026-10-07
 - **Summary**: One Acervo page groups ask, catalog, summarize, article and skill. Catalog is synchronous and returns 409 while a job holds the index. The article parks an in-process `ArticleDrive` at `awaiting_input` for the two human reviews. Saved files stay under the vault.
 - **Link**: [`ADR-056-web-acervo-consult-and-produce.md`](./generated/WEB/ADR-056-web-acervo-consult-and-produce.md)
+
+---
+
+### ADR-062: Web Handlers Run in the Threadpool
+
+- **Status**: Accepted
+- **Date**: 2026-10-20
+- **Summary**: Every route handler is a plain `def`, so FastAPI runs it in the threadpool and blocking SQLite, YAML, Chroma or provider calls never stall the event loop of the single Uvicorn worker. The only `async` step is the `read_form` dependency. Pinned by an AST test.
+- **Link**: [`ADR-062-web-handlers-run-in-threadpool.md`](./generated/WEB/ADR-062-web-handlers-run-in-threadpool.md)
 
 ---
 

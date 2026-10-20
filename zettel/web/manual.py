@@ -5,10 +5,12 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.datastructures import FormData
 
 from zettel.web.enqueue import post_job
+from zettel.web.forms import read_form
 from zettel.web.health import llm_phase_ready as _llm_phase_ready
 from zettel.web.manual_form import (
     PreflightConflict,
@@ -204,7 +206,7 @@ def _next_step(cfg: Any, db: Any, result: Any) -> dict | None:
 
 
 @router.get("/notes/new", response_class=HTMLResponse)
-async def new_note(
+def new_note(
     request: Request,
     type: str = "SRC",
     source_id: str = "",
@@ -255,11 +257,10 @@ async def new_note(
 
 
 @router.post("/notes/new/biblio-preview")
-async def biblio_preview(request: Request):
+def biblio_preview(request: Request, form: FormData = Depends(read_form)):
     """Fill SRC bibliography fields. Never writes the vault or enqueues a job."""
     if not authenticated(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    form = await request.form()
     if not csrf_ok(request, str(form.get("csrf") or "")):
         return JSONResponse({"error": "csrf"}, status_code=403)
     svc = service(request)
@@ -318,10 +319,9 @@ async def biblio_preview(request: Request):
 
 
 @router.post("/notes/new", response_class=HTMLResponse)
-async def create_note(request: Request):
+def create_note(request: Request, form: FormData = Depends(read_form)):
     if not authenticated(request):
         return redirect_login()
-    form = await request.form()
     if not csrf_ok(request, str(form.get("csrf") or "")):
         return HTMLResponse("CSRF inválido", status_code=403)
     svc = service(request)

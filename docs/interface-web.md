@@ -4,7 +4,7 @@
 
 A UI FastAPI é server-rendered (Jinja2) e não exige Node, bundler ou acesso direto do navegador ao SQLite/ChromaDB. Não existe subcomando `zettel web`: é um app separado.
 
-Módulos: [`zettel/web/`](../zettel/web/) (rotas, auth, templates; ADR-039), [`web_app.py`](../zettel/web_app.py) (fila de jobs e dispatch), [`progress.py`](../zettel/progress.py) (progresso compartilhado com a CLI), [`markdown.py`](../zettel/markdown.py) (render seguro de Markdown). Decisões: [ADR-022](adrs/generated/WEB/ADR-022-fastapi-server-rendered-jinja2.md), [ADR-023](adrs/generated/WEB/ADR-023-sqlite-backed-job-queue-single-worker.md), [ADR-039](adrs/generated/WEB/ADR-039-web-as-python-package.md), [ADR-040](adrs/generated/WEB/ADR-040-json-pickers-progressive-enhancement.md).
+Módulos: [`zettel/web/`](../zettel/web/) (rotas, auth, templates; ADR-039), [`web_app.py`](../zettel/web_app.py) (fila de jobs e dispatch), [`progress.py`](../zettel/progress.py) (progresso compartilhado com a CLI), [`markdown.py`](../zettel/markdown.py) (render seguro de Markdown). Decisões: [ADR-022](adrs/generated/WEB/ADR-022-fastapi-server-rendered-jinja2.md), [ADR-023](adrs/generated/WEB/ADR-023-sqlite-backed-job-queue-single-worker.md), [ADR-039](adrs/generated/WEB/ADR-039-web-as-python-package.md), [ADR-040](adrs/generated/WEB/ADR-040-json-pickers-progressive-enhancement.md), [ADR-062](adrs/generated/WEB/ADR-062-web-handlers-run-in-threadpool.md).
 
 ---
 
@@ -89,6 +89,7 @@ A CLI permanece compatível e continua usando a apresentação Rich normalmente.
 ## Persistência, concorrência e recuperação
 
 - A implantação é de **instância única** e executa no máximo um trabalho mutante por vez (`queued`/`running`); um segundo submit recebe **409**. Um artigo em `awaiting_input` não ocupa essa vaga. Não use múltiplos processos/workers Uvicorn.
+- As rotas rodam no *threadpool* do FastAPI, não no *event loop* ([ADR-062](adrs/generated/WEB/ADR-062-web-handlers-run-in-threadpool.md)): uma página lenta não atrasa as outras.
 - A fila vive no SQLite (`web_jobs`, `web_job_events` em [`state/web.py`](../zettel/state/web.py)) e é servida por uma thread daemon.
 - Preserve `data/` e `vault/` em armazenamento persistente. `data/state.db` contém a fila e os eventos; `data/chroma/` contém vetores; `vault/` contém as notas.
 - Recarregar ou fechar a página não interrompe o trabalho. Ao reiniciar o servidor, jobs que estavam `running` ou `awaiting_input` viram `interrupted`; jobs ainda `queued` são retomados. A pausa de um artigo não sobrevive ao reinício.
