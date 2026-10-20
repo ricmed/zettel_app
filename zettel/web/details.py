@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from zettel.markdown import render_markdown
 from zettel.web.enqueue import post_job
-from zettel.web.rendering import render, service
+from zettel.web.rendering import error_page, render, service
 from zettel.web.security import authenticated, redirect_login
 
 router = APIRouter()
@@ -39,17 +39,17 @@ def _markdown_path(vault_path: Path, raw: str | None, folder: str) -> Path | Non
 
 def _markdown_response(request: Request, row: dict | None, folder: str, download: bool):
     if not row:
-        return HTMLResponse("Nota não encontrada", status_code=404)
+        return error_page(request, 404, "Nota não encontrada")
     path = _markdown_path(service(request).cfg.vault_path, row.get("path"), folder)
     if path is None:
-        return HTMLResponse("Arquivo Markdown não encontrado no vault", status_code=404)
+        return error_page(request, 404, "Arquivo Markdown não encontrado no vault")
     headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
     if download:
         return FileResponse(path, media_type="text/markdown", filename=path.name, headers=headers)
     try:
         content = path.read_bytes()
     except OSError:
-        return HTMLResponse("Arquivo Markdown indisponível", status_code=404)
+        return error_page(request, 404, "Arquivo Markdown indisponível")
     return Response(content=content, media_type="text/markdown; charset=utf-8", headers=headers)
 
 
@@ -117,7 +117,7 @@ def source_detail(request: Request, source_id: str):
     finally:
         db.close()
     if not source:
-        return HTMLResponse("Fonte não encontrada", status_code=404)
+        return error_page(request, 404, "Fonte não encontrada")
     return render(request, "source_detail.html", page="documents", source=source, chunks=chunks)
 
 
@@ -132,7 +132,7 @@ def note_detail(request: Request, note_id: str):
     finally:
         db.close()
     if not note:
-        return HTMLResponse("Nota não encontrada", status_code=404)
+        return error_page(request, 404, "Nota não encontrada")
     return render(
         request,
         "note_detail.html",
@@ -153,7 +153,7 @@ def moc_detail(request: Request, moc_id: str):
     finally:
         db.close()
     if not moc:
-        return HTMLResponse("MOC não encontrado", status_code=404)
+        return error_page(request, 404, "MOC não encontrado")
     return render(
         request,
         "moc_detail.html",

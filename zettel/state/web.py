@@ -206,16 +206,16 @@ class WebMixin(StateBase):
             self.conn.rollback()
             raise
 
-    def has_active_web_job(self) -> bool:
-        """True when a job is ``queued`` or ``running``.
+    def active_web_job(self) -> dict | None:
+        """The ``queued`` or ``running`` job holding the slot (oldest first), or None.
 
         ``awaiting_input`` does not count: the worker is free while an article
-        waits for a human decision.
+        waits for a human decision. Returned so a 409 can name and link it (#316).
         """
-        row = self._fetchone(
-            "SELECT 1 AS present FROM web_jobs WHERE state IN ('queued','running') LIMIT 1"
+        return self._fetchone(
+            "SELECT job_id, operation, state FROM web_jobs WHERE state IN ('queued','running') "
+            "ORDER BY created_at, rowid LIMIT 1"
         )
-        return row is not None
 
     def next_queued_web_job(self) -> dict | None:
         """The oldest ``queued`` job. A newer finished row must not hide it."""
@@ -367,6 +367,11 @@ class WebMixin(StateBase):
             "SELECT COUNT(*) FROM concepts WHERE status='connect_rejected'"
         )
         stats["assets_failed"] = self._count("SELECT COUNT(*) FROM assets WHERE status='failed'")
+        # Notes the taxonomy garden has not seen yet: the "next action" banner (#316).
+        stats["notes_since_garden"] = self._count(
+            "SELECT COUNT(*) FROM notes WHERE created_at > COALESCE("
+            "(SELECT MAX(created_at) FROM garden_reports WHERE pipeline='garden'), '')"
+        )
         stats["links_proposed"] = self._count(
             "SELECT COUNT(*) FROM note_connections WHERE origin='llm' AND status='proposed'"
         )

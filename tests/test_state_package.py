@@ -153,7 +153,7 @@ PUBLIC_METHODS = {
     "recover_web_jobs",
     "purge_web_jobs",
     "create_web_job",
-    "has_active_web_job",
+    "active_web_job",
     "next_queued_web_job",
     "requeue_parked_job",
     "claim_web_job",

@@ -59,11 +59,14 @@ def llm_phases(cfg: Any, operation: str) -> tuple[str, ...]:
     return phases
 
 
-def pipeline_state(db: Any) -> dict[str, int]:
-    """The counts ``blocker`` reads, in one place for the page and the handler."""
+def pipeline_state(db: Any, stats: Mapping[str, int] | None = None) -> dict[str, int]:
+    """The counts ``blocker`` reads, in one place for the page and the handler.
+
+    ``stats`` is ``db.get_stats()`` when the caller already has it.
+    """
     from zettel.connector import load_approved_candidates
 
-    stats = db.get_stats()
+    stats = stats if stats is not None else db.get_stats()
     return {
         "chunks_pending": stats["chunks_pending"],
         "chunks_failed": stats["chunks_failed"],

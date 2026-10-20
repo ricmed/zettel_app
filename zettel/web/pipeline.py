@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse
 from zettel.web.enqueue import post_job
 from zettel.web.health import embedding_ready, llm_phase_ready
 from zettel.web.preconditions import PIPELINE_OPERATIONS, blocker, pipeline_state
-from zettel.web.rendering import render, service
+from zettel.web.rendering import error_page, render, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login
 
 logger = logging.getLogger(__name__)
@@ -83,18 +83,18 @@ def pipeline_action(
     next: str = Form(""),
 ):
     if operation not in PIPELINE_OPERATIONS:
-        return HTMLResponse("Operação indisponível", status_code=404)
+        return error_page(request, 404, "Operação indisponível")
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, csrf):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
     db = service(request).db()
     try:
         reason = blocker(service(request).cfg, operation, pipeline_state(db))
     finally:
         db.close()
     if reason:
-        return HTMLResponse(reason, status_code=409)
+        return error_page(request, 409, reason)
     payload: dict = {"hubs": operation == "garden_hubs"}
     nxt = _safe_next(next)
     if nxt:

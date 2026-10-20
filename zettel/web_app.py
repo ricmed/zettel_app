@@ -992,7 +992,7 @@ class WebWorker:
                 # so a refused file must show up here, with its reason (#310).
                 "harvest_skipped": [
                     {"file": skip.path.name, "reason": skip.reason, "message": skip.message}
-                    for skip in harvest.skipped
+                    for skip in [*harvest.skipped, *harvest.declined]
                 ],
             }
         if operation == "harvest":
@@ -1060,16 +1060,17 @@ class WebWorker:
             if harvest.skipped:
                 raise UserFacingError(harvest.skipped[0].message)
             if not sources:
-                existing = db.get_file(str(file_path))
-                if existing and existing.get("source_id"):
-                    return {
-                        "sources": [existing["source_id"]],
-                        "skipped": "Documento já ingerido; nenhuma alteração necessária.",
-                    }
+                # The harvester says why, naming the duplicate layer (#316).
+                from zettel.harvester.pipeline import REUSED_REASONS
+
+                declined = harvest.declined[0] if harvest.declined else None
+                if declined and declined.reason in REUSED_REASONS:
+                    return {"sources": [declined.source_id], "skipped": declined.message}
+                if declined:
+                    raise UserFacingError(declined.message)
                 raise UserFacingError(
-                    "Nenhuma fonte foi criada. Verifique se o documento contém texto "
-                    "extraível, se não é uma duplicata e se as opções bibliográficas "
-                    "estão corretas."
+                    "Nenhuma fonte foi criada e o harvest não registrou o motivo. "
+                    "Consulte os logs do servidor."
                 )
             return {
                 "sources": sources,

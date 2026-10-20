@@ -9,7 +9,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
 from zettel.web.enqueue import operation_lock, post_job
-from zettel.web.rendering import render, service
+from zettel.web.rendering import error_page, render, service
 from zettel.web.security import authenticated, redirect_login
 
 router = APIRouter()
@@ -220,7 +220,7 @@ def review_action(
         "keep_duplicate",
         "discard_duplicate",
     }:
-        return HTMLResponse("Ação inválida", status_code=400)
+        return error_page(request, 400, "Ação inválida")
     return post_job(
         request,
         "review",
@@ -242,14 +242,14 @@ def review_links_batch(
     an edge that is no longer proposed is skipped by the job.
     """
     if action not in {"accept", "reject"}:
-        return HTMLResponse("Ação inválida", status_code=400)
+        return error_page(request, 400, "Ação inválida")
     parsed = []
     for raw in edges[:500]:
         parts = raw.split("|")
         if len(parts) == 3 and all(parts):
             parsed.append(parts)
     if not parsed:
-        return HTMLResponse("Selecione ao menos uma aresta.", status_code=400)
+        return error_page(request, 400, "Selecione ao menos uma aresta.")
     return post_job(request, "review_links", {"action": action, "edges": parsed}, csrf)
 
 
@@ -270,9 +270,9 @@ def review_links(
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, csrf):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
     if action not in {"accept", "reject", "retype"}:
-        return HTMLResponse("Ação inválida", status_code=400)
+        return error_page(request, 400, "Ação inválida")
     from zettel.connector.links import decide_link
     from zettel.oplock import LockBusy
 
@@ -281,7 +281,7 @@ def review_links(
     try:
         lock = operation_lock(request, "review_links")
     except LockBusy as busy:
-        return HTMLResponse(str(busy), status_code=409)
+        return error_page(request, 409, str(busy))
     db = service(request).db()
     try:
         decide_link(

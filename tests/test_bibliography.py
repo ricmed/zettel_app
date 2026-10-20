@@ -24,7 +24,7 @@ from zettel.bibliography import (
 )
 from zettel.config import AppConfig, HarvestConfig
 from zettel.harvester import resolve_bibliography as _resolve_bibliography
-from zettel.harvester.pipeline import _process_file
+from zettel.harvester.pipeline import HarvestDeclined, _process_file
 from zettel.state import StateDB
 from zettel.vault import build_source_note, compose_note, parse_frontmatter
 
@@ -478,17 +478,18 @@ def test_process_file_skips_incomplete_biblio_noninteractive(db, cfg, tmp_path):
         encoding="utf-8",
     )
     idx = FakeVectorIndex()
-    sid, stats = _process_file(
-        cfg,
-        db,
-        idx,
-        path,
-        run_id=db.start_run("sig"),
-        interactive=False,
-        skip_biblio=False,
-    )
-    assert sid is None
-    assert stats == {}
+    with pytest.raises(HarvestDeclined) as declined:
+        _process_file(
+            cfg,
+            db,
+            idx,
+            path,
+            run_id=db.start_run("sig"),
+            interactive=False,
+            skip_biblio=False,
+        )
+    assert declined.value.reason == "biblio_incomplete"
+    assert "incompletos" in declined.value.message
 
 
 def test_process_file_persists_biblio_with_complete_frontmatter(db, cfg, tmp_path):

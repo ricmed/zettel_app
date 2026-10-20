@@ -329,6 +329,9 @@ CREATE INDEX IF NOT EXISTS idx_chunks_source_id ON chunks(source_id);
 -- whole table, text included (#307).
 CREATE INDEX IF NOT EXISTS idx_chunks_chapter   ON chunks(chapter_id, chunk_index);
 CREATE INDEX IF NOT EXISTS idx_concepts_note_id ON concepts(note_id);
+-- Notes created since the last garden, for the next-action banner (#316): without
+-- it the count reads every note body.
+CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at);
 -- The job page reads its events after the last one it saw (#313).
 CREATE INDEX IF NOT EXISTS idx_web_job_events_job ON web_job_events(job_id, event_id);
 CREATE INDEX IF NOT EXISTS idx_concepts_status  ON concepts(status);

@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from zettel.web.rendering import render, service
+from zettel.web.rendering import error_page, render, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login
 from zettel.web_app import UserFacingError
 
@@ -168,7 +168,7 @@ def job_detail(request: Request, job_id: str):
         return redirect_login()
     job = service(request).job(job_id)
     if not job:
-        return HTMLResponse("Trabalho não encontrado", status_code=404)
+        return error_page(request, 404, "Trabalho não encontrado")
     view = _presentation(job)
     return render(
         request,
@@ -194,21 +194,18 @@ def job_resume(
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, csrf):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
     job = service(request).job(job_id)
     if not job:
-        return HTMLResponse("Trabalho não encontrado", status_code=404)
+        return error_page(request, 404, "Trabalho não encontrado")
     interrupt = ((job.get("result") or {}).get("interrupt_type")) or "context_review"
     try:
         choice = _resume_decision(interrupt, decision, extra_queries, outline_feedback)
         resumed = service(request).resume_article(job_id, choice)
     except UserFacingError as exc:
-        return HTMLResponse(str(exc), status_code=409)
+        return error_page(request, 409, str(exc))
     if resumed is None:
-        return HTMLResponse(
-            "Outra operação mutante já está em andamento.",
-            status_code=409,
-        )
+        return error_page(request, 409, "Outra operação mutante já está em andamento.")
     return RedirectResponse(f"/jobs/{job_id}", status_code=303)
 
 

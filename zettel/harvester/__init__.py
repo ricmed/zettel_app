@@ -41,6 +41,7 @@ from .extract import (
     page_map_for_source,
 )
 from .pipeline import (
+    HarvestDeclined,
     HarvestOutcome,
     HarvestSkip,
     list_incomplete_sources,
@@ -54,6 +55,7 @@ __all__ = [
     "EmptyTextLayerError",
     # Exceptions
     "HarvestAborted",
+    "HarvestDeclined",
     # Result objects
     "HarvestOutcome",
     "HarvestSkip",

@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
-from zettel.web.rendering import render, service
+from zettel.web.rendering import error_page, render, service
 from zettel.web.security import (
     LOGIN_COOKIE,
     LOGIN_TOKEN_MAX_AGE,
@@ -71,16 +71,14 @@ def login_page(request: Request):
 @router.post("/login", response_class=HTMLResponse)
 def login(request: Request, instance_secret: str = Form(...), login_csrf: str = Form("")):
     if not secret() or not login_token_ok(request, login_csrf):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
     client = request.client.host if request.client else ""
     throttle = login_throttle(request)
     wait = throttle.retry_after(client)
     if wait:
-        return HTMLResponse(
-            f"Muitas tentativas. Tente de novo em {wait} s.",
-            status_code=429,
-            headers={"Retry-After": str(wait)},
-        )
+        page = error_page(request, 429, f"Muitas tentativas. Tente de novo em {wait} s.")
+        page.headers["Retry-After"] = str(wait)
+        return page
     if not password_ok(instance_secret):
         throttle.failure(client)
         logger.warning("Web: login recusado para %s", client or "cliente desconhecido")
@@ -102,7 +100,7 @@ def login(request: Request, instance_secret: str = Form(...), login_csrf: str = 
 @router.post("/logout")
 def logout(request: Request, csrf: str = Form("")):
     if not csrf_ok(request, csrf):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
     # A new signing key ends every session, including a cookie copied elsewhere.
     service(request).rotate_session_key()
     response = RedirectResponse("/login", status_code=303)

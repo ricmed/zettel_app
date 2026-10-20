@@ -20,7 +20,7 @@ from zettel.web.manual_form import (
     preflight_from_lit,
     resolve_from_lit,
 )
-from zettel.web.rendering import render, service
+from zettel.web.rendering import error_page, render, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login
 
 router = APIRouter()
@@ -323,7 +323,7 @@ def create_note(request: Request, form: FormData = Depends(read_form)):
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, str(form.get("csrf") or "")):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
     from zettel.oplock import LockBusy
 
     svc = service(request)
@@ -420,12 +420,12 @@ def create_note(request: Request, form: FormData = Depends(read_form)):
             selected=selected,
         )
     except LockBusy as busy:
-        return HTMLResponse(str(busy), status_code=409)
+        return error_page(request, 409, str(busy))
     except PreflightConflict as exc:
         body = str(exc)
         if exc.href:
             body = f'{body} <a href="{exc.href}">Abrir o Pipeline</a>.'
-        return HTMLResponse(body, status_code=409)
+        return error_page(request, 409, body)
     except (ValueError, FileExistsError) as exc:
         note_type = str(form.get("note_type") or "SRC").upper()
         posted_granular = str(form.get("granular") or "")

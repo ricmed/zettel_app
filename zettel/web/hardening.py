@@ -22,7 +22,7 @@ CONTENT_SECURITY_POLICY = (
     "frame-ancestors 'none'"
 )
 
-_HEADERS = [
+SECURITY_HEADERS = [
     (b"content-security-policy", CONTENT_SECURITY_POLICY.encode()),
     (b"x-content-type-options", b"nosniff"),
     (b"referrer-policy", b"same-origin"),
@@ -41,7 +41,7 @@ class SecurityHeaders:
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
                 names = {name.lower() for name, _ in message.get("headers", [])}
-                extra = [(name, value) for name, value in _HEADERS if name not in names]
+                extra = [(name, value) for name, value in SECURITY_HEADERS if name not in names]
                 message = {**message, "headers": [*message.get("headers", []), *extra]}
             await send(message)
 

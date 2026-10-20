@@ -52,7 +52,7 @@ def test_parked_article_does_not_block_and_requeues(tmp_path: Path):
     try:
         assert db.create_web_job("parked", "article", {"topic": "t"})
         db.update_web_job("parked", state="awaiting_input", phase="context_review")
-        assert not db.has_active_web_job()
+        assert db.active_web_job() is None
         assert db.requeue_parked_job("parked", {"resume": {"context_decision": "approve"}}) == "ok"
         job = db.get_web_job("parked")
         assert job is not None
@@ -641,3 +641,51 @@ def test_every_known_error_name_is_a_real_exception():
         module, _, attr = name.rpartition(".")
         cls = getattr(importlib.import_module(module), attr)
         assert issubclass(cls, BaseException), name
+
+
+@pytest.mark.parametrize(
+    ("declined", "outcome"),
+    [
+        (("duplicate_content", "mesmo texto da fonte @A (camada 2, conteúdo)", "@A"), "reused"),
+        (("biblio_incomplete", "metadados bibliográficos incompletos", None), "refused"),
+        ((None, None, None), "unexplained"),
+    ],
+)
+def test_a_harvest_without_a_source_says_why(tmp_path: Path, monkeypatch, declined, outcome):
+    """One message per cause, not three guesses (#316)."""
+    from zettel import harvester, index
+    from zettel.harvester.pipeline import HarvestSkip
+
+    reason, message, source_id = declined
+    path = tmp_path / "inbox" / "obra.md"
+    result = harvester.HarvestOutcome(
+        declined=[HarvestSkip(path, reason, message, source_id)] if reason else []
+    )
+    monkeypatch.setattr(index, "VectorIndex", lambda **kwargs: object())
+    monkeypatch.setattr(harvester, "run_harvest", lambda cfg, db, idx, **kwargs: result)
+
+    class Progress:
+        job_id = "job"
+
+        def emit(self, event):
+            pass
+
+    db = StateDB(tmp_path / "state.db")
+    try:
+        run = lambda: WebWorker._dispatch(  # noqa: E731
+            AppConfig(chroma_path=tmp_path / "chroma"),
+            db,
+            Progress(),
+            "harvest",
+            {"selected_file": str(path)},
+        )
+        if outcome == "reused":
+            assert run() == {"sources": ["@A"], "skipped": message}
+        elif outcome == "refused":
+            with pytest.raises(UserFacingError, match="incompletos"):
+                run()
+        else:
+            with pytest.raises(UserFacingError, match="não registrou o motivo"):
+                run()
+    finally:
+        db.close()

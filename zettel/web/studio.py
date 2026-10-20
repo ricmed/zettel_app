@@ -6,7 +6,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
 from zettel.web.enqueue import lock_busy_message, operation_lock, post_job
-from zettel.web.rendering import render, service
+from zettel.web.rendering import error_page, render, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login
 
 router = APIRouter()
@@ -98,7 +98,7 @@ def _page(request: Request, *, status_code: int = 200, error: str | None = None,
             for row in db.list_mocs()
         ]
         summarize_estimate = estimate_summarize(cfg, db, None)
-        index_busy = db.has_active_web_job() or lock_busy_message(request) is not None
+        index_busy = db.active_web_job() is not None or lock_busy_message(request) is not None
     finally:
         db.close()
     return render(
@@ -246,7 +246,7 @@ def studio_catalog(
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, csrf):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
     text = subject.strip()
     if not text:
         return _page(
@@ -277,7 +277,7 @@ def studio_ask(
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, csrf):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
     try:
         text = question.strip()
         if not text:
@@ -311,7 +311,7 @@ def studio_summarize(
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, csrf):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
     from zettel.web.preconditions import blocker
 
     reason = blocker(service(request).cfg, "summarize")
@@ -334,7 +334,7 @@ def studio_skill(
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, csrf):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
     try:
         chosen = [value.strip() for value in (source_id, moc_id, topic) if value.strip()]
         if len(chosen) != 1:
@@ -373,7 +373,7 @@ def studio_article(
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, csrf):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
     try:
         text = topic.strip()
         if not text:
