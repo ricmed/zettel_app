@@ -63,7 +63,7 @@ zettel_app/
 │   ├── new_note.py          # Scaffold de notas manuais (zettel new-note)
 │   ├── purge_source.py      # Remocao completa de fonte (zettel delete-source)
 │   ├── progress.py          # Protocolo ProgressObserver (CLI + web)
-│   ├── markdown.py          # Render Markdown seguro (bleach) para a interface web
+│   ├── markdown.py          # Render Markdown seguro (nh3) para a interface web
 │   ├── web/                 # Interface web FastAPI (pacote, ADR-039)
 │   ├── web_app.py           # Fila de jobs web e dispatch do pipeline
 │   ├── templates/           # Jinja2 server-rendered (paginas + base.html e partials)

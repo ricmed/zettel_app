@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -16,7 +16,7 @@ from zettel.web.enqueue import post_job
 from zettel.web.forms import read_form
 from zettel.web.preconditions import blocker
 from zettel.web.rendering import render, service
-from zettel.web.security import authenticated, csrf_ok, redirect_login, session
+from zettel.web.security import authenticated, csrf_ok, redirect_login
 
 router = APIRouter()
 
@@ -130,7 +130,19 @@ def upload(request: Request, file: UploadFile = File(...), csrf: str = Form(""))
             request, error="Já existe um arquivo com esse nome no inbox.", status_code=409
         )
     cfg.inbox_path.mkdir(parents=True, exist_ok=True)
-    destination.write_bytes(data)
+    # Written beside, then linked in: a crash never leaves half a file under its
+    # final name, and a name taken meanwhile is refused, never overwritten (#315).
+    # The inbox lists only .pdf/.md/.txt, so the .part is never offered.
+    part = destination.with_name(f".{name}.part")
+    try:
+        part.write_bytes(data)
+        os.link(part, destination)
+    except FileExistsError:
+        return _documents_page(
+            request, error="Já existe um arquivo com esse nome no inbox.", status_code=409
+        )
+    finally:
+        part.unlink(missing_ok=True)
     return RedirectResponse("/documents", status_code=303)
 
 
@@ -212,7 +224,6 @@ def harvest(
         {
             "selected_file": str(selected),
             "checksum": file_sha256(selected),
-            "session_hash": _session_hash(request),
             "duplicate_action": duplicate_action,
             "skip_biblio": bool(skip_biblio),
             "skip_paging": paging_mode == "first",
@@ -225,18 +236,12 @@ def harvest(
     )
 
 
-def _session_hash(request: Request) -> str:
-    """Bind a review to the signed browser session without persisting its CSRF token."""
-    current = session(request)
-    return hashlib.sha256(current["csrf"].encode()).hexdigest()
-
-
 def _review_data(request: Request, review_id: str):
     svc = service(request)
     db = svc.db()
     try:
         job = db.get_web_job(review_id)
-        review = db.get_web_harvest_review(review_id, _session_hash(request))
+        review = db.get_web_harvest_review(review_id)
         if review and review["state"] == "submitted":
             review["retry_job"] = db.get_web_job(review["harvest_job_id"])
     finally:
@@ -391,7 +396,7 @@ def document_review(request: Request, review_id: str):
         return redirect_login()
     found = _review_data(request, review_id)
     if not found:
-        return HTMLResponse("Revisão não encontrada para esta sessão.", status_code=404)
+        return HTMLResponse("Revisão não encontrada.", status_code=404)
     job, review = found
     error = _review_error(request, job, review)
     if error:
@@ -432,12 +437,12 @@ def confirm_document_review(request: Request, review_id: str, form: FormData = D
         return HTMLResponse("CSRF inválido", status_code=403)
     found = _review_data(request, review_id)
     if not found:
-        return HTMLResponse("Revisão não encontrada para esta sessão.", status_code=404)
+        return HTMLResponse("Revisão não encontrada.", status_code=404)
     job, review = found
     if form.get("decision") == "cancel":
         db = service(request).db()
         try:
-            if not db.cancel_web_harvest_review(review_id, _session_hash(request)):
+            if not db.cancel_web_harvest_review(review_id):
                 return HTMLResponse("A revisão já foi concluída.", status_code=409)
         finally:
             db.close()
@@ -494,13 +499,12 @@ def confirm_document_review(request: Request, review_id: str, form: FormData = D
     except ValueError as exc:
         return _review_page(request, review_id, job, error=str(exc), values=values, status_code=400)
     payload = {
-        **{k: v for k, v in job["payload"].items() if k not in {"checksum", "session_hash"}},
+        **{k: v for k, v in job["payload"].items() if k != "checksum"},
         "review_id": review_id,
-        "session_hash": _session_hash(request),
         "biblio": biblio.model_dump(),
         "abnt_reference": reference,
     }
-    harvest_job_id = service(request).submit_review(review_id, _session_hash(request), payload)
+    harvest_job_id = service(request).submit_review(review_id, payload)
     if not harvest_job_id:
         return _review_page(
             request,

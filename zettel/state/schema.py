@@ -313,9 +313,10 @@ CREATE TABLE IF NOT EXISTS web_auth (
 
 -- Bibliographic review of a web upload: the preparation job snapshots the
 -- file, the reviewer confirms once, and that confirmation enqueues the harvest.
+-- It belongs to the instance, not to a browser session: a new login or an
+-- expired cookie must not strand minutes of Docling work (#315).
 CREATE TABLE IF NOT EXISTS web_harvest_reviews (
     job_id           TEXT PRIMARY KEY,
-    session_hash     TEXT NOT NULL,
     file_checksum    TEXT NOT NULL,
     state            TEXT NOT NULL DEFAULT 'ready',
     harvest_job_id   TEXT,

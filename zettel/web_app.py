@@ -8,6 +8,8 @@ normal StateDB/VectorIndex dependencies.
 from __future__ import annotations
 
 import logging
+import re
+import secrets
 import threading
 import traceback
 from dataclasses import dataclass
@@ -37,26 +39,46 @@ class JobParked(Exception):
         self.result = result
 
 
-def safe_error(exc: BaseException) -> str:
-    """Return a useful, non-sensitive message for a browser response."""
-    text = str(exc).replace("\n", " ").strip()
-    if isinstance(exc, (UserFacingError, LLMUnavailableError)):
-        return text[:300]
-    if not text:
-        return "A operação falhou. Consulte os logs do servidor."
-    # Never echo host paths, API keys or provider response bodies to the UI.
-    sensitive = (
-        "api_key",
-        "api key",
-        "secret",
-        "password",
-        "token",
-        "/home/",
-        "\\users\\",
-    )
-    if any(word in text.lower() for word in sensitive):
-        return "A operação falhou. Verifique a configuração e os logs do servidor."
-    return text[:300]
+# A Windows drive path, or a POSIX path with two or more segments.
+_ABSOLUTE_PATH = re.compile(r"[A-Za-z]:[\\/][^\s'\"()]*|(?<![\w:/.])/(?:[^\s/'\"()]+/)+[^\s'\"()]*")
+
+
+# Exceptions whose message this codebase writes for a person to read, by
+# qualified name: matching names, not importing the classes, keeps an import
+# failure in the job from failing again here (and chromadb out of this path).
+KNOWN_ERRORS = frozenset(
+    {
+        "zettel.web_app.UserFacingError",
+        "zettel.llm.LLMUnavailableError",
+        "zettel.oplock.LockBusy",
+        "zettel.harvester.duplicates.HarvestAborted",
+        "zettel.harvester.extract.PdfExtractionError",
+        "zettel.gardener.MocAdoptError",
+        "zettel.skill_export.SkillExportError",
+        "zettel.connector.prompt.ConnectRejected",
+        "zettel.index.EmbeddingSpaceMismatch",
+    }
+)
+
+
+def _is_known(exc: BaseException) -> bool:
+    return any(f"{cls.__module__}.{cls.__qualname__}" in KNOWN_ERRORS for cls in type(exc).__mro__)
+
+
+def safe_error(exc: BaseException, *, ref: str | None = None) -> str:
+    """The message a browser may see for ``exc`` (#315).
+
+    An allowlist: only the exceptions in ``KNOWN_ERRORS`` (and their subclasses)
+    show their text, and even then without absolute paths, since some
+    interpolate a file or a library error. Anything else becomes a generic
+    message naming ``ref``, the correlation id the caller also writes to the log.
+    """
+    if _is_known(exc):
+        text = _ABSOLUTE_PATH.sub("<caminho>", str(exc).replace("\n", " ").strip())
+        if text:
+            return text[:300]
+    suffix = f" (ref. {ref})" if ref else ""
+    return f"A operação falhou{suffix}. Consulte os logs do servidor."
 
 
 @dataclass(frozen=True)
@@ -636,13 +658,11 @@ class WebWorker:
         self._wake.set()
         return job_id
 
-    def submit_review(
-        self, review_id: str, session_hash: str, payload: dict[str, Any]
-    ) -> str | None:
+    def submit_review(self, review_id: str, payload: dict[str, Any]) -> str | None:
         job_id = uuid4().hex
         db = self._db()
         try:
-            queued = db.queue_web_harvest_review(review_id, session_hash, job_id, payload)
+            queued = db.queue_web_harvest_review(review_id, job_id, payload)
         finally:
             db.close()
         if not queued:
@@ -738,8 +758,15 @@ class WebWorker:
             )
             db.add_web_job_event(job_id, "failed", message=message)
         except Exception as exc:  # worker must survive a failed job
-            logger.error("Trabalho web %s falhou: %s\n%s", job_id, exc, traceback.format_exc())
-            message = safe_error(exc)
+            ref = secrets.token_hex(4)
+            logger.error(
+                "Trabalho web %s falhou [ref %s]: %s\n%s",
+                job_id,
+                ref,
+                exc,
+                traceback.format_exc(),
+            )
+            message = safe_error(exc, ref=ref)
             db.update_web_job(
                 job_id,
                 state="failed",
@@ -839,9 +866,7 @@ class WebWorker:
             save_snapshot(
                 cfg, progress.job_id, checksum=payload["checksum"], text=text, metadata=metadata
             )
-            db.create_web_harvest_review(
-                progress.job_id, payload["session_hash"], payload["checksum"]
-            )
+            db.create_web_harvest_review(progress.job_id, payload["checksum"])
             return {
                 "selected_file": str(file_path),
                 "checksum": payload["checksum"],
@@ -979,7 +1004,7 @@ class WebWorker:
             prepared = None
             review_id = payload.get("review_id")
             if review_id:
-                review = db.get_web_harvest_review(review_id, payload["session_hash"])
+                review = db.get_web_harvest_review(review_id)
                 preparation = db.get_web_job(review_id)
                 if (
                     not review
@@ -1266,10 +1291,8 @@ class WebApplication:
     def submit(self, operation: str, payload: dict[str, Any]) -> str | None:
         return self.worker.submit(operation, payload)
 
-    def submit_review(
-        self, review_id: str, session_hash: str, payload: dict[str, Any]
-    ) -> str | None:
-        return self.worker.submit_review(review_id, session_hash, payload)
+    def submit_review(self, review_id: str, payload: dict[str, Any]) -> str | None:
+        return self.worker.submit_review(review_id, payload)
 
     def resume_article(self, job_id: str, decision: dict[str, Any]) -> str | None:
         """Re-queue a parked article. ``None`` means another job holds the slot.

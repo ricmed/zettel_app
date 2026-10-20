@@ -133,28 +133,24 @@ class WebMixin(StateBase):
 
     # ── Harvest reviews (web upload -> bibliographic review -> harvest) ──
 
-    def create_web_harvest_review(self, job_id: str, session_hash: str, checksum: str) -> None:
+    def create_web_harvest_review(self, job_id: str, checksum: str) -> None:
         self.conn.execute(
-            "INSERT INTO web_harvest_reviews (job_id, session_hash, file_checksum) "
-            "VALUES (?, ?, ?)",
-            (job_id, session_hash, checksum),
+            "INSERT INTO web_harvest_reviews (job_id, file_checksum) VALUES (?, ?)",
+            (job_id, checksum),
         )
         self.conn.commit()
 
-    def get_web_harvest_review(self, job_id: str, session_hash: str) -> dict | None:
-        return self._fetchone(
-            "SELECT * FROM web_harvest_reviews WHERE job_id=? AND session_hash=?",
-            (job_id, session_hash),
-        )
+    def get_web_harvest_review(self, job_id: str) -> dict | None:
+        return self._fetchone("SELECT * FROM web_harvest_reviews WHERE job_id=?", (job_id,))
 
-    def cancel_web_harvest_review(self, job_id: str, session_hash: str) -> bool:
+    def cancel_web_harvest_review(self, job_id: str) -> bool:
         cur = self.conn.execute(
             "UPDATE web_harvest_reviews SET state='cancelled' "
-            "WHERE job_id=? AND session_hash=? AND (state='ready' OR "
+            "WHERE job_id=? AND (state='ready' OR "
             "(state='submitted' AND EXISTS (SELECT 1 FROM web_jobs "
             "WHERE job_id=web_harvest_reviews.harvest_job_id "
             "AND state IN ('failed','interrupted'))))",
-            (job_id, session_hash),
+            (job_id,),
         )
         self.conn.commit()
         return cur.rowcount == 1
@@ -177,19 +173,17 @@ class WebMixin(StateBase):
             self.conn.commit()
         return ids
 
-    def queue_web_harvest_review(
-        self, job_id: str, session_hash: str, harvest_job_id: str, payload: dict
-    ) -> bool:
+    def queue_web_harvest_review(self, job_id: str, harvest_job_id: str, payload: dict) -> bool:
         """Consume a review exactly once, atomically with enqueuing its harvest."""
         try:
             self.conn.execute("BEGIN IMMEDIATE")
             ready = self.conn.execute(
                 "SELECT 1 FROM web_harvest_reviews r JOIN web_jobs j ON j.job_id=r.job_id "
                 "LEFT JOIN web_jobs prior ON prior.job_id=r.harvest_job_id "
-                "WHERE r.job_id=? AND r.session_hash=? AND j.state='succeeded' "
+                "WHERE r.job_id=? AND j.state='succeeded' "
                 "AND (r.state='ready' OR (r.state='submitted' "
                 "AND prior.state IN ('failed','interrupted')))",
-                (job_id, session_hash),
+                (job_id,),
             ).fetchone()
             busy = self.conn.execute(
                 "SELECT 1 FROM web_jobs WHERE state IN ('queued','running') LIMIT 1"

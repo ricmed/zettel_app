@@ -47,4 +47,10 @@ def create_app(config_path: str | Path | None = None, routers=None) -> FastAPI:
         routers = ROUTERS
     for router in routers:
         application.include_router(router)
+    from zettel.web.hardening import BodyLimit, SecurityHeaders
+
+    # The last added runs first: the body limit answers before anything reads,
+    # and its 413 still gets the headers.
+    application.add_middleware(BodyLimit)
+    application.add_middleware(SecurityHeaders)
     return application

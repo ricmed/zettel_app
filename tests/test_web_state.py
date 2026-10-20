@@ -548,7 +548,7 @@ def test_purge_web_jobs_drops_finished_jobs_past_the_retention(tmp_path: Path):
             current_web_job.reset(token)
         _finished_job(db, "old-failed", state="failed")
         _finished_job(db, "old-prep", operation="prepare_harvest")
-        db.create_web_harvest_review("old-prep", "sessao", "checksum")
+        db.create_web_harvest_review("old-prep", "checksum")
         _finished_job(db, "recent", finished_at=now_utc_iso())
         assert db.create_web_job("queued-old", "extract", {})
         db.conn.execute("UPDATE web_jobs SET created_at=? WHERE job_id='queued-old'", (_LONG_AGO,))
@@ -560,7 +560,7 @@ def test_purge_web_jobs_drops_finished_jobs_past_the_retention(tmp_path: Path):
         assert {job["job_id"] for job in db.list_web_jobs()} == {"recent", "queued-old"}
         assert db.list_web_job_events("old-ok") == []
         assert db.list_web_job_runs("old-ok") == []
-        assert db.get_web_harvest_review("old-prep", "sessao") is None
+        assert db.get_web_harvest_review("old-prep") is None
         assert db.get_run(run_id) is not None
     finally:
         db.close()
@@ -604,3 +604,40 @@ def test_worker_start_applies_the_job_retention(tmp_path: Path):
         assert db.get_web_job("old-ok") is None
     finally:
         db.close()
+
+
+def test_safe_error_hides_any_message_it_does_not_know(tmp_path: Path):
+    """An allowlist, not a blocklist: a Windows path has no "secret" in it (#315)."""
+    leak = RuntimeError(r"no such table em D:\projetos\zettel_app\data\state.db")
+    message = safe_error(leak, ref="ab12cd34")
+    assert "D:\\" not in message and "state.db" not in message
+    assert "ab12cd34" in message
+    assert "projetos" not in safe_error(ValueError("D:/projetos/x"), ref="r1")
+
+
+def test_safe_error_keeps_known_messages_without_their_paths():
+    from zettel.harvester.extract import PdfExtractionError
+    from zettel.oplock import LockBusy
+
+    assert safe_error(UserFacingError("Nenhuma fonte foi criada.")) == "Nenhuma fonte foi criada."
+    busy = safe_error(LockBusy({"operation": "connect", "surface": "cli", "pid": 7}))
+    assert busy.startswith("Outra operação mutante está em andamento: connect (CLI, pid 7")
+    pdf = safe_error(
+        PdfExtractionError(r"Extracao falhou: erro em C:\Users\ana\AppData\docling\x.bin")
+    )
+    assert pdf.startswith("Extracao falhou")
+    assert "Users" not in pdf and "C:\\" not in pdf
+    posix = safe_error(UserFacingError("Arquivo /home/ana/vault/nota.md sumiu"))
+    assert "/home/" not in posix and "sumiu" in posix
+
+
+def test_every_known_error_name_is_a_real_exception():
+    """A rename must not silently drop a class from the allowlist."""
+    import importlib
+
+    from zettel.web_app import KNOWN_ERRORS
+
+    for name in KNOWN_ERRORS:
+        module, _, attr = name.rpartition(".")
+        cls = getattr(importlib.import_module(module), attr)
+        assert issubclass(cls, BaseException), name

@@ -77,3 +77,12 @@ If the web UI is expected to become the primary interface to the system, or if r
 * The poll reads only the events after the last one it saw, through the index `web_job_events(job_id, event_id)`.
 
 A batch job reports item k only once item k is done; a batch that is one call (deleting extract rejections from SQLite and Chroma) reports that it started, with no count. Before, the bar reached 100% before the work began.
+
+## Addendum (2026-10-20): security headers and a CSP without inline code (#315)
+
+**Status:** Accepted. Every response carries `Content-Security-Policy` (`default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`), `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`, added by plain ASGI middleware in `zettel/web/hardening.py`. `frame-ancestors 'none'` replaces `X-Frame-Options`.
+
+* No `'unsafe-inline'`: the six inline `<script>` blocks moved to `zettel/static/` (`theme-init.js`, `theme-toggle.js`, `job-detail.js`, `manual-notes.js`, `review.js`, `studio.js`). A value a script needs travels in a `data-*` attribute, a confirmation in `data-confirm` / `data-review-confirm`, and the progress bar width is set by script. `tests/test_web_hardening.py` fails on any template with an inline script, an `on*=` handler, a `style=` attribute or a `<style>` block.
+* The same middleware module refuses a body over 26 MB by its `Content-Length` (413) before the multipart parser reads a byte, and a chunked body (411), which no browser sends for a form. The 25 MB check in the upload handler stays, for the file itself. An upload is written to `.<name>.part` and hard-linked into the inbox, so half a file never sits under its final name and a name taken meanwhile is refused, never overwritten.
+* The second sanitizing pass of `zettel/markdown.py` is `nh3` (ammonia), with the same tags, attributes and URL schemes; `bleach` is deprecated since 2023 and was removed from the dependencies.
+* An error reaches the browser only if its class is in `web_app.KNOWN_ERRORS` (domain errors this codebase words for a reader), with absolute paths removed. Anything else shows a generic message with a correlation id that the log line also carries. The previous blocklist let a `D:\...` path through.

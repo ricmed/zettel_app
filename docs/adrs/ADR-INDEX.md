@@ -425,7 +425,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-10-07
-- **Summary**: One Acervo page groups ask, catalog, summarize, article and skill. Catalog is synchronous and returns 409 while a job holds the index. The article parks an in-process `ArticleDrive` at `awaiting_input` for the two human reviews. Saved files stay under the vault.
+- **Summary**: One Acervo page groups ask, catalog, summarize, article and skill. Catalog is synchronous (`POST /studio/catalog` with CSRF, never a GET, #315) and returns 409 while a job holds the index. The article parks an in-process `ArticleDrive` at `awaiting_input` for the two human reviews. Saved files stay under the vault.
 - **Link**: [`ADR-056-web-acervo-consult-and-produce.md`](./generated/WEB/ADR-056-web-acervo-consult-and-produce.md)
 
 ---

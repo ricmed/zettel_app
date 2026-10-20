@@ -65,3 +65,7 @@ Saved ask notes and articles go to `00_Inbox/`. Skills go to `<vault>/.claude/sk
 ## Addendum (2026-10-20): the catalog takes the operation lock (#308)
 
 The catalog no longer checks for a `queued`/`running` web job. It takes the cross-process operation lock (ADR-023 addendum) for its read of Chroma and answers 409 naming the holder, so it also waits out a CLI command. A job that is only queued no longer blocks it; the worker takes the lock once the catalog releases it.
+
+## Addendum (2026-10-20): the catalog runs on a POST (#315)
+
+`GET /studio?subject=` called the embedding, which is paid, from a GET that a browser may prefetch and that an outside link can fire (the session cookie is `SameSite=Lax`). `GET /studio` now only shows the forms; the catalog is `POST /studio/catalog` with the CSRF token, still synchronous, still answering 409 while the operation lock is held.

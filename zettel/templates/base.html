@@ -4,14 +4,7 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{% block title %}Zettelkasten{% endblock %}</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <script>
-    (() => {
-      const saved = localStorage.getItem('zettel-theme');
-      const theme = saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-      document.documentElement.dataset.theme = theme;
-      document.documentElement.style.colorScheme = theme;
-    })();
-  </script>
+  <script src="/static/theme-init.js"></script>
   <link rel="stylesheet" href="/static/app.css">
   <link rel="stylesheet" href="/static/mobile.css">
   <link rel="stylesheet" href="/static/markdown.css">
@@ -31,22 +24,5 @@
 <main class="shell">{% if error %}<div class="alert error" role="alert">{{ error }}</div>{% endif %}{% if message %}<div class="alert">{{ message }}</div>{% endif %}
 {% block content %}{% endblock %}</main>
 {% block scripts %}{% endblock %}
-<script>
-  (() => {
-    const button = document.getElementById('theme-toggle');
-    const label = button.querySelector('.theme-label');
-    const apply = theme => {
-      document.documentElement.dataset.theme = theme;
-      document.documentElement.style.colorScheme = theme;
-      localStorage.setItem('zettel-theme', theme);
-      const dark = theme === 'dark';
-      label.textContent = dark ? 'Claro' : 'Escuro';
-      button.setAttribute('aria-label', dark ? 'Ativar modo claro' : 'Ativar modo escuro');
-    };
-    apply(document.documentElement.dataset.theme || 'light');
-    button.addEventListener('click', () => {
-      apply(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
-    });
-  })();
-</script>
+<script src="/static/theme-toggle.js"></script>
 </body></html>

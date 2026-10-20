@@ -45,7 +45,7 @@ def discard_orphan_preparations(cfg: AppConfig, db: Any) -> None:
             continue
         job = db.get_web_job(review_id)
         review = (
-            db.get_web_harvest_review(review_id, job["payload"].get("session_hash", ""))
+            db.get_web_harvest_review(review_id)
             if job and job["operation"] == "prepare_harvest"
             else None
         )

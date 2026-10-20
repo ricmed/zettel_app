@@ -103,9 +103,11 @@ def test_studio_rejects_invalid_forms(web_client, monkeypatch):
 
 def test_catalog_renders_on_the_page_and_refuses_a_busy_index(web_client, monkeypatch):
     client, _ = web_client
-    _login(client)
+    csrf = _login(client)
     monkeypatch.setattr("zettel.web.preconditions.embedding_ready", lambda cfg: False)
-    missing = client.get("/studio", params={"subject": "rag", "show_context": "1"})
+    missing = client.post(
+        "/studio/catalog", data={"csrf": csrf, "subject": "rag", "show_context": "1"}
+    )
     assert missing.status_code == 409
     assert "embedding" in missing.text
 
@@ -137,7 +139,14 @@ def test_catalog_renders_on_the_page_and_refuses_a_busy_index(web_client, monkey
 
     monkeypatch.setattr("zettel.catalog.run_catalog", fake_catalog)
     monkeypatch.setattr("zettel.index.VectorIndex", lambda **kwargs: object())
-    page = client.get("/studio", params={"subject": "rag", "show_context": "1"})
+    # The embedding is paid: a GET (a prefetch, an outside link) never runs it (#315).
+    shown = client.get("/studio", params={"subject": "rag"})
+    assert shown.status_code == 200 and "Livro de RAG" not in shown.text
+    forged = client.post("/studio/catalog", data={"csrf": "wrong", "subject": "rag"})
+    assert forged.status_code == 403
+    page = client.post(
+        "/studio/catalog", data={"csrf": csrf, "subject": "rag", "show_context": "1"}
+    )
     assert page.status_code == 200
     assert "Livro de RAG" in page.text
     assert "## Livro de RAG" in page.text
@@ -152,7 +161,7 @@ def test_catalog_renders_on_the_page_and_refuses_a_busy_index(web_client, monkey
     held = OperationLock(tmp_path / "zettel.lock")
     held.acquire("connect", "cli")
     try:
-        busy = client.get("/studio", params={"subject": "rag"})
+        busy = client.post("/studio/catalog", data={"csrf": csrf, "subject": "rag"})
     finally:
         held.release()
     assert busy.status_code == 409

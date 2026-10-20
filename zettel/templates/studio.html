@@ -46,7 +46,8 @@
       <span class="eyebrow">catalog</span>
       <h2>Catálogo</h2>
       <p>Quais fontes e capítulos tratam de um assunto, e quantas notas cada capítulo gerou. Não chama LLM. Os resumos de capítulo vêm de Resumir.</p>
-      <form class="studio-form" method="get" action="/studio">
+      <form class="studio-form" method="post" action="/studio/catalog">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
         <label>Assunto
           <input name="subject" value="{{ catalog_subject or '' }}" required maxlength="500">
         </label>
@@ -201,18 +202,6 @@
           {% if blockers.article %}<small>{{ blockers.article }}</small>{% endif %}
         </div>
       </form>
-      <script>
-        (function () {
-          var outline = document.querySelector('input[name="outline_only"]');
-          if (!outline) return;
-          var reviews = document.querySelectorAll("[data-review]");
-          function sync() {
-            reviews.forEach(function (label) { label.hidden = outline.checked; });
-          }
-          outline.addEventListener("change", sync);
-          sync();
-        })();
-      </script>
     </article>
 
     <article class="panel">
@@ -256,4 +245,4 @@
   </div>
 </section>
 {% endblock %}
-{% block scripts %}<script src="/static/copy-text.js" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/copy-text.js" defer></script><script src="/static/studio.js" defer></script>{% endblock %}

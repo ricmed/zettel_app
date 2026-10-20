@@ -58,8 +58,8 @@
 <form id="links-batch" class="review-actions" method="post" action="/review/links/batch" data-confirm="Confirma a decisão nas arestas selecionadas?">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <span class="muted">Marque as arestas e decida todas de uma vez.</span>
-  <button class="button" name="action" value="accept" onclick="return confirmReviewAction(this)">Aceitar selecionadas</button>
-  <button class="button" name="action" value="reject" onclick="return confirmReviewAction(this)">Rejeitar selecionadas</button>
+  <button class="button" name="action" value="accept" data-review-confirm>Aceitar selecionadas</button>
+  <button class="button" name="action" value="reject" data-review-confirm>Rejeitar selecionadas</button>
 </form>
 {% endif %}
 <section class="stack">
@@ -117,7 +117,7 @@
       <option value="reject">Rejeitar selecionados</option>
       {% endif %}
     </select>
-    <button class="primary" onclick="return confirmReviewAction(this)">Aplicar lote</button>
+    <button class="primary" data-review-confirm>Aplicar lote</button>
   </div>
   {% if chunks %}
     {% if queue == 'rejected' %}
@@ -214,19 +214,5 @@
 {% endif %}
 {% endblock %}
 {% block scripts %}
-<script>
-function confirmReviewAction(button) {
-  var action = button.form.querySelector("[name=action]").value;
-  var message = action === "discard"
-    ? "Apagar os chunks selecionados do banco? Isso não pode ser desfeito."
-    : action === "force"
-    ? "O próximo extract vai gerar a nota destes trechos, sem a trava de rejeição. Confirma?"
-    : action === "keep_duplicate"
-    ? "Manter os conceitos selecionados? Eles seguem para o connect."
-    : action === "discard_duplicate"
-    ? "Registrar os conceitos selecionados como duplicata?"
-    : button.form.dataset.confirm;
-  return window.confirm(message);
-}
-</script>
+<script src="/static/review.js" defer></script>
 {% endblock %}

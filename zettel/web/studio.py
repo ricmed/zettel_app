@@ -228,12 +228,30 @@ def _catalog(request: Request, subject: str, show_context: bool):
 
 
 @router.get("/studio", response_class=HTMLResponse)
-def studio(request: Request, subject: str = "", show_context: str = ""):
+def studio(request: Request):
+    """The forms only. The catalog pays for an embedding, so it runs on a POST
+    with CSRF, never on a GET a prefetch or an outside link can fire (#315)."""
     if not authenticated(request):
         return redirect_login()
+    return _page(request, catalog_show_context=True)
+
+
+@router.post("/studio/catalog", response_class=HTMLResponse)
+def studio_catalog(
+    request: Request,
+    csrf: str = Form(""),
+    subject: str = Form(""),
+    show_context: str = Form(""),
+):
+    if not authenticated(request):
+        return redirect_login()
+    if not csrf_ok(request, csrf):
+        return HTMLResponse("CSRF inválido", status_code=403)
     text = subject.strip()
     if not text:
-        return _page(request, catalog_show_context=True)
+        return _page(
+            request, status_code=400, error="Informe o assunto.", catalog_show_context=True
+        )
     if len(text) > 500:
         return _page(
             request,
