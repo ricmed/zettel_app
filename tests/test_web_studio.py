@@ -87,7 +87,7 @@ def test_studio_page_groups_the_five_operations(web_client):
 def test_studio_rejects_invalid_forms(web_client, monkeypatch):
     client, _ = web_client
     csrf = _login(client)
-    monkeypatch.setattr("zettel.web.health.llm_phase_ready", lambda cfg, phase: False)
+    monkeypatch.setattr("zettel.web.preconditions.llm_phase_ready", lambda cfg, phase: False)
     assert client.post("/studio/ask", data={"csrf": "wrong", "question": "x"}).status_code == 403
     empty = client.post("/studio/ask", data={"csrf": csrf, "question": "  "})
     assert empty.status_code == 400
@@ -104,12 +104,12 @@ def test_studio_rejects_invalid_forms(web_client, monkeypatch):
 def test_catalog_renders_on_the_page_and_refuses_a_busy_index(web_client, monkeypatch):
     client, _ = web_client
     _login(client)
-    monkeypatch.setattr("zettel.web.health.embedding_ready", lambda cfg: False)
+    monkeypatch.setattr("zettel.web.preconditions.embedding_ready", lambda cfg: False)
     missing = client.get("/studio", params={"subject": "rag", "show_context": "1"})
     assert missing.status_code == 409
     assert "embedding" in missing.text
 
-    monkeypatch.setattr("zettel.web.health.embedding_ready", lambda cfg: True)
+    monkeypatch.setattr("zettel.web.preconditions.embedding_ready", lambda cfg: True)
 
     def fake_catalog(cfg, db, idx, subject):
         return CatalogResult(
@@ -163,7 +163,7 @@ def test_catalog_renders_on_the_page_and_refuses_a_busy_index(web_client, monkey
 def test_ask_summarize_and_skill_show_a_readable_result(web_client, monkeypatch, tmp_path):
     client, vault_root = web_client
     csrf = _login(client)
-    monkeypatch.setattr("zettel.web.health.llm_phase_ready", lambda cfg, phase: True)
+    monkeypatch.setattr("zettel.web.preconditions.llm_phase_ready", lambda cfg, phase: True)
     monkeypatch.setattr("zettel.index.VectorIndex", lambda **kwargs: object())
 
     def fake_ask(cfg, db, idx, question, **kwargs):
@@ -253,7 +253,7 @@ def test_ask_summarize_and_skill_show_a_readable_result(web_client, monkeypatch,
 def test_article_pauses_for_context_and_resumes(web_client, monkeypatch):
     client, _ = web_client
     csrf = _login(client)
-    monkeypatch.setattr("zettel.web.health.llm_phase_ready", lambda cfg, phase: True)
+    monkeypatch.setattr("zettel.web.preconditions.llm_phase_ready", lambda cfg, phase: True)
     monkeypatch.setattr("zettel.index.VectorIndex", lambda **kwargs: object())
 
     class FakeDrive:

@@ -14,7 +14,7 @@ from starlette.datastructures import FormData
 from zettel.hashing import file_sha256
 from zettel.web.enqueue import post_job
 from zettel.web.forms import read_form
-from zettel.web.health import llm_ready as _llm_ready
+from zettel.web.preconditions import blocker
 from zettel.web.rendering import render, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login, session
 
@@ -76,7 +76,7 @@ def _documents_page(request: Request, *, status_code: int = 200, error: str | No
         page="documents",
         sources=sources,
         inbox=inbox,
-        llm_ready=_llm_ready(cfg),
+        run_all_blocker=blocker(cfg, "run_all"),
         auto_approve_warning=_auto_approve_warning(),
         error=error,
         status_code=status_code,
@@ -530,11 +530,9 @@ def documents_run_all(
         return redirect_login()
     if not csrf_ok(request, csrf):
         return HTMLResponse("CSRF inválido", status_code=403)
-    if not _llm_ready(service(request).cfg):
-        return HTMLResponse(
-            "O provedor LLM não possui credencial configurada. Verifique Configuração / saúde.",
-            status_code=409,
-        )
+    reason = blocker(service(request).cfg, "run_all")
+    if reason:
+        return HTMLResponse(reason, status_code=409)
     return post_job(
         request,
         "run_all",

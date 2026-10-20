@@ -36,8 +36,8 @@
         <label class="studio-check"><input type="checkbox" name="show_context" value="1"> Mostrar parâmetros de recuperação</label>
         <label class="studio-check"><input type="checkbox" name="save" value="1"> Salvar em 00_Inbox</label>
         <div class="studio-actions">
-          <button class="button" {% if not ask_ready %}disabled title="Credencial da fase ask ausente"{% endif %}>Perguntar</button>
-          {% if not ask_ready %}<small>Credencial da fase ask ausente</small>{% endif %}
+          <button class="button"{% if blockers.ask %} disabled title="{{ blockers.ask }}"{% endif %}>Perguntar</button>
+          {% if blockers.ask %}<small>{{ blockers.ask }}</small>{% endif %}
         </div>
       </form>
     </article>
@@ -52,8 +52,8 @@
         </label>
         <label class="studio-check"><input type="checkbox" name="show_context" value="1" {% if catalog_show_context is not defined or catalog_show_context %}checked{% endif %}> Mostrar pool e parâmetros</label>
         <div class="studio-actions">
-          <button class="button" {% if not embedding_ready or index_busy %}disabled{% endif %}>Consultar</button>
-          {% if not embedding_ready %}<small>Credencial de embedding ausente</small>{% endif %}
+          <button class="button" {% if blockers.catalog or index_busy %}disabled{% endif %}>Consultar</button>
+          {% if blockers.catalog %}<small>{{ blockers.catalog }}</small>{% endif %}
           {% if index_busy %}<small>O índice está em uso</small>{% endif %}
         </div>
       </form>
@@ -139,8 +139,8 @@
           </select>
         </label>
         <div class="studio-actions">
-          <button class="button" {% if not summarize_ready %}disabled{% endif %}>Resumir</button>
-          {% if not summarize_ready %}<small>Credencial da fase summarize ausente</small>{% endif %}
+          <button class="button" {% if blockers.summarize %}disabled{% endif %}>Resumir</button>
+          {% if blockers.summarize %}<small>{{ blockers.summarize }}</small>{% endif %}
         </div>
       </form>
     </article>
@@ -197,8 +197,8 @@
         </label>
         <label class="studio-check"><input type="checkbox" name="save" value="1" checked> Salvar em 00_Inbox</label>
         <div class="studio-actions">
-          <button class="button" {% if not article_ready %}disabled{% endif %}>Gerar artigo</button>
-          {% if not article_ready %}<small>Credencial da fase article ausente</small>{% endif %}
+          <button class="button" {% if blockers.article %}disabled{% endif %}>Gerar artigo</button>
+          {% if blockers.article %}<small>{{ blockers.article }}</small>{% endif %}
         </div>
       </form>
       <script>

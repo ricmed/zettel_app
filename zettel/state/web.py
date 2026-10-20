@@ -372,6 +372,7 @@ class WebMixin(StateBase):
         stats["concepts_connect_rejected"] = self._count(
             "SELECT COUNT(*) FROM concepts WHERE status='connect_rejected'"
         )
+        stats["assets_failed"] = self._count("SELECT COUNT(*) FROM assets WHERE status='failed'")
         stats["links_proposed"] = self._count(
             "SELECT COUNT(*) FROM note_connections WHERE origin='llm' AND status='proposed'"
         )

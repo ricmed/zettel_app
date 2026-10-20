@@ -8,23 +8,14 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
 from zettel.web.enqueue import post_job
-from zettel.web.health import llm_ready as _llm_ready
+from zettel.web.health import embedding_ready, llm_phase_ready
+from zettel.web.preconditions import PIPELINE_OPERATIONS, blocker, pipeline_state
 from zettel.web.rendering import render, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-_OPERATIONS = {
-    "extract",
-    "connect",
-    "garden",
-    "garden_hubs",
-    "sync",
-    "retry_chunks",
-    "retry_assets",
-}
 
 
 def _safe_next(raw: str) -> str | None:
@@ -47,6 +38,7 @@ def pipeline(request: Request):
     db = service(request).db()
     try:
         stats = db.get_stats()
+        state = pipeline_state(db)
         # The CLI asks before paying for these two; here submitting the form is
         # the confirmation, so the estimate sits next to the button (#310).
         candidates = load_approved_candidates(db)
@@ -72,7 +64,14 @@ def pipeline(request: Request):
         stats=stats,
         estimates=estimates,
         estimate_errors=estimate_errors,
-        llm_ready=_llm_ready(cfg),
+        state=state,
+        blockers={op: blocker(cfg, op, state) for op in PIPELINE_OPERATIONS},
+        missing_phases=[
+            phase
+            for phase in ("extract", "images", "review", "connect", "garden")
+            if (phase != "images" or cfg.images.enabled) and not llm_phase_ready(cfg, phase)
+        ],
+        embedding_ready=embedding_ready(cfg),
     )
 
 
@@ -83,7 +82,7 @@ def pipeline_action(
     csrf: str = Form(""),
     next: str = Form(""),
 ):
-    if operation not in _OPERATIONS:
+    if operation not in PIPELINE_OPERATIONS:
         return HTMLResponse("Operação indisponível", status_code=404)
     if not authenticated(request):
         return redirect_login()
@@ -91,33 +90,11 @@ def pipeline_action(
         return HTMLResponse("CSRF inválido", status_code=403)
     db = service(request).db()
     try:
-        stats = db.get_stats()
-        if operation == "extract" and not stats.get("chunks_pending"):
-            return HTMLResponse(
-                "Não há chunks pendentes. Execute um harvest válido primeiro.",
-                status_code=409,
-            )
-        if operation == "connect":
-            if not db.get_concepts_by_status("approved", without_notes=True):
-                return HTMLResponse(
-                    "Nenhum candidato aprovado aguardando connect.", status_code=409
-                )
-        if operation in {"garden", "garden_hubs"} and not stats.get("notes"):
-            return HTMLResponse("Não há notas permanentes para jardinagem.", status_code=409)
-        if operation == "retry_chunks" and not stats.get("chunks_failed"):
-            return HTMLResponse("Não há chunks com falha para reprocessar.", status_code=409)
-        if operation in {
-            "extract",
-            "connect",
-            "garden",
-            "garden_hubs",
-        } and not _llm_ready(service(request).cfg):
-            return HTMLResponse(
-                "O provedor LLM não possui credencial configurada. Verifique Configuração / saúde.",
-                status_code=409,
-            )
+        reason = blocker(service(request).cfg, operation, pipeline_state(db))
     finally:
         db.close()
+    if reason:
+        return HTMLResponse(reason, status_code=409)
     payload: dict = {"hubs": operation == "garden_hubs"}
     nxt = _safe_next(next)
     if nxt:

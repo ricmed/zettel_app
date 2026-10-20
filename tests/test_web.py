@@ -53,6 +53,16 @@ def _login(client: TestClient) -> str:
     return match.group(1)
 
 
+def _seed_failed_asset(client) -> None:
+    """``retry_assets`` is the cheapest job, and it refuses with nothing to retry (#314)."""
+    db = client.app.state.service.db()
+    try:
+        db.upsert_source("@Asset2024", "Asset2024", "Fonte", ["A"], 2024, "h", "/a.md", "md")
+        db.upsert_asset("asset-1", "@Asset2024", "90_Assets/a.png", "img", status="failed")
+    finally:
+        db.close()
+
+
 def _ready_biblio_review(client, tmp_path, csrf, *, allow_incomplete=False):
     """Create a completed preparation without racing the background worker."""
     import hashlib
@@ -548,6 +558,7 @@ def test_authentication_and_csrf_protect_mutations(web_client):
         == 403
     )
     csrf = _login(client)
+    _seed_failed_asset(client)
     assert client.post("/pipeline/retry_assets", data={"csrf": "wrong"}).status_code == 403
     assert (
         client.post(
@@ -875,6 +886,7 @@ def test_upload_keeps_pending_list_on_errors_and_rejects_invalid_files(web_clien
 def test_navigation_and_retry_job_flow(web_client):
     client, _ = web_client
     csrf = _login(client)
+    _seed_failed_asset(client)
     home = client.get("/")
     assert 'id="theme-toggle"' in home.text
     assert "zettel-theme" in home.text
@@ -905,7 +917,7 @@ def test_navigation_and_retry_job_flow(web_client):
             break
         time.sleep(0.05)
     assert payload["job"]["state"] == "succeeded"
-    assert payload["job"]["result"] == {"assets_reset": 0}
+    assert payload["job"]["result"] == {"assets_reset": 1}
     assert payload["events"]
     detail = client.get(f"/jobs/{job_id}")
     assert 'id="job-state"' in detail.text
@@ -1500,7 +1512,7 @@ def test_documents_can_queue_full_pipeline(web_client, monkeypatch):
     captured = {}
     service = client.app.state.service
 
-    monkeypatch.setattr("zettel.web.documents._llm_ready", lambda cfg: True)
+    monkeypatch.setattr("zettel.web.documents.blocker", lambda cfg, operation: None)
 
     def fake_submit(operation, payload):
         captured.update(operation=operation, payload=payload)
@@ -2854,6 +2866,7 @@ def test_idle_worker_does_not_poll_the_database(web_client, monkeypatch):
 
     client, _ = web_client
     csrf = _login(client)
+    _seed_failed_asset(client)
     time.sleep(0.6)  # let the worker settle into its wait
     opened = []
     real = web_app_module.StateDB
@@ -2877,6 +2890,7 @@ def test_job_detail_lists_every_run_and_its_cost(web_client, monkeypatch):
 
     client, _ = web_client
     csrf = _login(client)
+    _seed_failed_asset(client)
 
     def fake_dispatch(cfg, db, progress, operation, payload, **_kwargs):
         for phase in ("harvest", "extract"):
@@ -3121,6 +3135,7 @@ def test_enqueue_refuses_while_the_cli_holds_the_lock(web_client):
 
     client, tmp_path = web_client
     csrf = _login(client)
+    _seed_failed_asset(client)
     held = OperationLock(tmp_path / "zettel.lock")
     held.acquire("connect", "cli")
     try:

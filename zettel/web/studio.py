@@ -81,7 +81,7 @@ def _personalities(cfg) -> list[dict[str, str]]:
 
 def _page(request: Request, *, status_code: int = 200, error: str | None = None, **extra):
     from zettel.preflight import estimate_article, estimate_summarize
-    from zettel.web.health import embedding_ready, llm_phase_ready
+    from zettel.web.preconditions import blocker
 
     cfg = service(request).cfg
     db = service(request).db()
@@ -111,10 +111,7 @@ def _page(request: Request, *, status_code: int = 200, error: str | None = None,
         mocs=mocs,
         categories=_categories(cfg),
         personalities=_personalities(cfg),
-        ask_ready=llm_phase_ready(cfg, "ask"),
-        article_ready=llm_phase_ready(cfg, "article"),
-        summarize_ready=llm_phase_ready(cfg, "summarize"),
-        embedding_ready=embedding_ready(cfg),
+        blockers={op: blocker(cfg, op) for op in ("ask", "catalog", "summarize", "article")},
         summarize_estimate=summarize_estimate,
         article_estimate=estimate_article(cfg),
         index_busy=index_busy,
@@ -188,14 +185,15 @@ def catalog_copy_text(result, *, show_context: bool) -> str:
 def _catalog(request: Request, subject: str, show_context: bool):
     from zettel.catalog import run_catalog
     from zettel.index import VectorIndex, index_kwargs
-    from zettel.web.health import embedding_ready
+    from zettel.web.preconditions import blocker
 
     cfg = service(request).cfg
-    if not embedding_ready(cfg):
+    reason = blocker(cfg, "catalog")
+    if reason:
         return _page(
             request,
             status_code=409,
-            error="A credencial de embedding não está configurada.",
+            error=reason,
             catalog_subject=subject,
             catalog_show_context=show_context,
         )
@@ -278,14 +276,11 @@ def studio_ask(
         }
     except StudioFormError as exc:
         return _page(request, status_code=400, error=exc.message)
-    from zettel.web.health import llm_phase_ready
+    from zettel.web.preconditions import blocker
 
-    if not llm_phase_ready(service(request).cfg, "ask"):
-        return _page(
-            request,
-            status_code=409,
-            error="O provedor da fase ask não possui credencial configurada.",
-        )
+    reason = blocker(service(request).cfg, "ask")
+    if reason:
+        return _page(request, status_code=409, error=reason)
     return post_job(request, "ask", payload, csrf)
 
 
@@ -299,14 +294,11 @@ def studio_summarize(
         return redirect_login()
     if not csrf_ok(request, csrf):
         return HTMLResponse("CSRF inválido", status_code=403)
-    from zettel.web.health import llm_phase_ready
+    from zettel.web.preconditions import blocker
 
-    if not llm_phase_ready(service(request).cfg, "summarize"):
-        return _page(
-            request,
-            status_code=409,
-            error="O provedor da fase summarize não possui credencial configurada.",
-        )
+    reason = blocker(service(request).cfg, "summarize")
+    if reason:
+        return _page(request, status_code=409, error=reason)
     return post_job(request, "summarize", {"source_id": source_id.strip() or None}, csrf)
 
 
@@ -400,12 +392,9 @@ def studio_article(
         }
     except StudioFormError as exc:
         return _page(request, status_code=400, error=exc.message)
-    from zettel.web.health import llm_phase_ready
+    from zettel.web.preconditions import blocker
 
-    if not llm_phase_ready(service(request).cfg, "article"):
-        return _page(
-            request,
-            status_code=409,
-            error="O provedor da fase article não possui credencial configurada.",
-        )
+    reason = blocker(service(request).cfg, "article")
+    if reason:
+        return _page(request, status_code=409, error=reason)
     return post_job(request, "article", payload, csrf)
