@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -16,6 +17,23 @@ if TYPE_CHECKING:
     from zettel.state import StateDB
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ClusterReport:
+    """What the clustering step actually did, for the run summary.
+
+    ``backends`` names every algorithm that produced clusters in this run
+    (``umap+hdbscan``, ``kmeans`` or ``single`` for a group kept whole);
+    KMeans has no noise and forces every note into a cluster, so a run that
+    fell back to it is not comparable to one that did not (ADR-019).
+    """
+
+    backends: set[str] = field(default_factory=set)
+    clusters: int = 0
+    noise_notes: int = 0
+    small_buckets: int = 0
+
 
 NOTE_ID_RE = re.compile(r"\[\[ZTL\s*-\s*(\S+)\s*-\s*[^\]]*\]\]")
 
@@ -87,34 +105,42 @@ def assign_vector_to_category(
     return cat_names[int(np.argmax(sims))]
 
 
+def effective_min_cluster_size(cfg: GardenerConfig) -> int:
+    """Smallest cluster the density step may accept.
+
+    A cluster smaller than ``min_notes_for_moc`` can never become a MOC, so the
+    clusterer is not allowed to produce one only for it to be dropped later.
+    """
+    return max(cfg.min_cluster_size, cfg.min_notes_for_moc)
+
+
 def cluster_notes_within_buckets(
     buckets: dict[str, list[str]],
     embeddings_by_id: dict[str, np.ndarray],
     cfg: GardenerConfig,
+    report: ClusterReport | None = None,
 ) -> list[tuple[str, list[str]]]:
     """Run UMAP+HDBSCAN (or KMeans) inside each category bucket."""
     results: list[tuple[str, list[str]]] = []
-    min_cluster = cfg.min_cluster_size
+    min_cluster = effective_min_cluster_size(cfg)
 
     for category, note_ids in buckets.items():
-        if category == "_unassigned" or not note_ids:
+        if category == "_unassigned":
             continue
-        if len(note_ids) < cfg.min_notes_for_moc:
-            continue
-
-        ids_arr = note_ids
-        emb = np.stack([embeddings_by_id[nid] for nid in ids_arr if nid in embeddings_by_id])
-        if len(emb) < cfg.min_notes_for_moc:
+        ids_arr = [nid for nid in note_ids if nid in embeddings_by_id]
+        if len(ids_arr) < cfg.min_notes_for_moc:
+            if report is not None and ids_arr:
+                report.small_buckets += 1
             continue
 
-        if len(emb) < min_cluster:
+        if len(ids_arr) < min_cluster:
+            # Big enough for a MOC, too small for density clustering.
+            _note_backend(report, "single")
             results.append((category, ids_arr))
             continue
 
-        subclusters = _cluster_embeddings(emb, ids_arr, cfg)
-        for cluster_ids in subclusters:
-            if len(cluster_ids) >= cfg.min_notes_for_moc:
-                results.append((category, cluster_ids))
+        emb = np.stack([embeddings_by_id[nid] for nid in ids_arr])
+        results.extend((category, ids) for ids in _cluster_embeddings(emb, ids_arr, cfg, report))
 
     return results
 
@@ -123,9 +149,10 @@ def cluster_notes_global(
     note_ids: list[str],
     embeddings: np.ndarray,
     cfg: GardenerConfig,
+    report: ClusterReport | None = None,
 ) -> list[list[str]]:
     """Cluster all notes globally (legacy path when cluster_within_category is false)."""
-    return _cluster_embeddings(embeddings, note_ids, cfg)
+    return _cluster_embeddings(embeddings, note_ids, cfg, report)
 
 
 def dominant_category_for_cluster(
@@ -190,9 +217,7 @@ def find_moc_by_note_overlap(
     best_moc: dict | None = None
     best_score = 0.0
 
-    for moc in db.list_mocs():
-        if moc.get("origin", "pipeline") != "pipeline":
-            continue
+    for moc in db.list_mocs(origin="pipeline"):
         body = moc.get("body") or ""
         moc_ids = extract_note_ids_from_moc_body(body)
         if not moc_ids:
@@ -222,14 +247,15 @@ def _cluster_embeddings(
     embeddings: np.ndarray,
     ids: list[str],
     cfg: GardenerConfig,
+    report: ClusterReport | None = None,
 ) -> list[list[str]]:
-    min_cluster_size = cfg.min_cluster_size
+    min_cluster_size = effective_min_cluster_size(cfg)
     try:
         import hdbscan
         import umap
     except ImportError:
         logger.warning("umap-learn ou hdbscan nao instalados. Usando KMeans.")
-        return _cluster_kmeans(embeddings, ids, min_cluster_size)
+        return _cluster_kmeans(embeddings, ids, min_cluster_size, cfg.random_state, report)
 
     n_samples = embeddings.shape[0]
     if cfg.umap_n_neighbors is not None:
@@ -237,24 +263,28 @@ def _cluster_embeddings(
     else:
         n_neighbors = min(15, n_samples - 1)
     if n_neighbors < 2:
+        _note_backend(report, "single")
         return [ids]
 
     n_components = min(5, n_samples - 2)
     if n_components < 2:
-        return _cluster_kmeans(embeddings, ids, min_cluster_size)
+        return _cluster_kmeans(embeddings, ids, min_cluster_size, cfg.random_state, report)
 
     init_method = "spectral" if n_samples > n_components + 2 else "random"
     try:
+        # A fixed seed makes the partition reproducible (umap-learn trades some
+        # parallelism for it); None keeps the faster nondeterministic path.
         reducer = umap.UMAP(
             n_neighbors=n_neighbors,
             n_components=n_components,
             metric="cosine",
             init=init_method,
+            random_state=cfg.random_state,
         )
         reduced = reducer.fit_transform(embeddings)
     except Exception as e:
         logger.warning("UMAP falhou (%s). Usando KMeans.", e)
-        return _cluster_kmeans(embeddings, ids, min_cluster_size)
+        return _cluster_kmeans(embeddings, ids, min_cluster_size, cfg.random_state, report)
 
     hdbscan_kwargs: dict = {"min_cluster_size": min_cluster_size, "metric": "euclidean"}
     if cfg.hdbscan_min_samples is not None:
@@ -270,8 +300,17 @@ def _cluster_embeddings(
         clusters.setdefault(label, []).append(ids[i])
 
     if not clusters:
-        return [ids] if len(ids) >= min_cluster_size else []
+        if len(ids) >= min_cluster_size:
+            _note_backend(report, "single")
+            return [ids]
+        if report is not None:
+            report.noise_notes += len(ids)
+        return []
 
+    _note_backend(report, "umap+hdbscan")
+    if report is not None:
+        report.clusters += len(clusters)
+        report.noise_notes += int(sum(1 for label in labels if label == -1))
     return list(clusters.values())
 
 
@@ -279,24 +318,39 @@ def _cluster_kmeans(
     embeddings: np.ndarray,
     ids: list[str],
     min_cluster_size: int,
+    random_state: int | None = 42,
+    report: ClusterReport | None = None,
 ) -> list[list[str]]:
     try:
         from sklearn.cluster import KMeans
     except ImportError:
         logger.error("scikit-learn nao instalado.")
+        _note_backend(report, "single")
         return [ids] if len(ids) >= min_cluster_size else []
 
     n = len(ids)
     k = max(2, n // min_cluster_size)
     k = min(k, n)
-    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+    kmeans = KMeans(n_clusters=k, random_state=random_state, n_init=10)
     labels = kmeans.fit_predict(embeddings)
 
     clusters: dict[int, list[str]] = {}
     for i, label in enumerate(labels):
         clusters.setdefault(label, []).append(ids[i])
 
-    return [c for c in clusters.values() if len(c) >= min_cluster_size]
+    kept = [c for c in clusters.values() if len(c) >= min_cluster_size]
+    _note_backend(report, "kmeans")
+    if report is not None:
+        report.clusters += len(kept)
+        report.noise_notes += n - sum(len(c) for c in kept)
+    return kept
+
+
+def _note_backend(report: ClusterReport | None, backend: str) -> None:
+    if report is not None:
+        report.backends.add(backend)
+        if backend == "single":
+            report.clusters += 1
 
 
 def category_pairs(gcfg: GardenerConfig) -> list[tuple[str, str]]:

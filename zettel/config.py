@@ -404,6 +404,9 @@ class GardenerConfig(BaseModel):
     graph_cohesion_min_ratio: float = 0.0  # 0 = metrica apenas; >0 rejeita MOC novo
     umap_n_neighbors: int | None = None  # None = auto (min(15, n-1))
     hdbscan_min_samples: int | None = None  # None = default HDBSCAN
+    # Semente do UMAP (e do KMeans de fallback). Fixa = particao reprodutivel;
+    # None = paralelo e nao deterministico (ADR-019, #294).
+    random_state: int | None = 42
 
     @field_validator("topics_path", mode="before")
     @classmethod

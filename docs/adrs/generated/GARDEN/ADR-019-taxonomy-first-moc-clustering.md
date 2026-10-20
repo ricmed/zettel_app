@@ -80,3 +80,12 @@ Category labels default to `"{pilar}: {categoria}"`. A shared `domain` prefix on
 Before each cluster is routed, `run_garden` calls `decision.shadow.shadow_moc_category`. The call asks the typed decision layer for a `choice` over the taxonomy categories, plus `none`, given at most 20 of the cluster's notes and its frequent terms. The verdict is recorded next to the embedding argmax and changes nothing ([ADR-055](../LLM/ADR-055-typed-decision-layer-shadow.md)).
 
 The baseline is the argmax, not the LLM's `topic`: `_create_new_moc` overwrites the LLM's topic with the embedding category whenever that category is allowed, so the LLM's topic is not an independent judgement. The `none` option also measures something the argmax cannot express, because the argmax has no threshold and always picks a category.
+
+## Addendum (2026-10-19): reproducible partition, effective minimum and reported backend (issue #294)
+
+**Status:** Accepted amendment.
+
+- **Seed.** UMAP ran without `random_state`. Re-running the garden's own `_cluster_embeddings` five times on the same vectors gave a mean pairwise ARI of 0.36–0.69 and 0–38% identical clusters, so the signature branch of ADR-021 almost never fired (0 of 22 clusters on 2026-10-07). `gardener.random_state` (default `42`, also seeds the KMeans fallback) fixes the partition; `null` restores the faster nondeterministic path. `scripts/probe_garden_stability.py` (no LLM, no embedding) measures it: with the seed, ARI 1.0 and 100% identical clusters on every scope of the measured vault.
+- **Effective minimum.** `config.yaml` sets `min_cluster_size: 5` and `min_notes_for_moc: 10`, so HDBSCAN accepted clusters of 5–9 notes that were then dropped. The density step now uses `effective_min_cluster_size = max(min_cluster_size, min_notes_for_moc)`; `min_cluster_size` keeps its role as the minimum vault size to try clustering. Consequence measured on the same vault: partitions are coarser (4 global clusters instead of 16; several MOC-sized buckets stay whole), which suits the entry-point design tracked in #297.
+- **Backend reported.** Answering the open question above: `gardener_assign.ClusterReport` records which backends produced clusters (`umap+hdbscan`, `kmeans`, `single` for a group kept whole), the cluster count, notes left as noise and buckets too small for a MOC. The garden logs it and warns when KMeans ran (no noise, every note forced into a cluster); persisting it in the run report is #298.
+- A bucket note without a vector no longer shifts the id/vector pairing in `cluster_notes_within_buckets`.

@@ -216,20 +216,24 @@ def garden(
     db = get_db(cfg)
     idx = get_idx(cfg, db=db, yes=yes)
 
-    if hubs:
-        from zettel.gardener_hub import run_garden_hubs
+    from zettel.llm import LLMUnavailableError
 
-        with console.status("[bold blue]Cultivando MOCs hub...", spinner="dots"):
-            moc_ids = run_garden_hubs(cfg, db, idx, recreate=recreate)
-        if recreate:
-            console.print("[dim]MOCs hub do pipeline foram removidos antes da geracao.[/dim]")
-    else:
-        from zettel.gardener import run_garden
+    try:
+        if hubs:
+            from zettel.gardener_hub import run_garden_hubs
 
-        with console.status("[bold blue]Cultivando o jardim de notas...", spinner="dots"):
-            moc_ids = run_garden(cfg, db, idx, recreate=recreate)
-        if recreate:
-            console.print("[dim]MOCs do pipeline foram removidos antes da geracao.[/dim]")
+            with console.status("[bold blue]Cultivando MOCs hub...", spinner="dots"):
+                moc_ids = run_garden_hubs(cfg, db, idx, recreate=recreate)
+        else:
+            from zettel.gardener import run_garden
+
+            with console.status("[bold blue]Cultivando o jardim de notas...", spinner="dots"):
+                moc_ids = run_garden(cfg, db, idx, recreate=recreate)
+    except LLMUnavailableError as exc:
+        exit_llm_unavailable(exc, db)
+    if recreate:
+        target = "hub " if hubs else ""
+        console.print(f"[dim]MOCs {target}do pipeline foram removidos antes da geracao.[/dim]")
 
     if moc_ids:
         console.print(f"[green]MOCs gerados/atualizados: {len(moc_ids)}[/green]")

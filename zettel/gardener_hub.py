@@ -10,11 +10,11 @@ from typing import TYPE_CHECKING, Any
 
 from ulid import ULID
 
-from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, HubMocsConfig, llm_phase
+from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, HubMocsConfig
 from zettel.graph import expand_notes
 from zettel.hashing import sha256_hex
 from zettel.index import VectorIndex
-from zettel.llm import call_llm, fill_template, get_llm, load_prompt_parts, parse_llm_json
+from zettel.llm import fill_template, get_llm, load_prompt_parts, parse_llm_json
 from zettel.schemas import MOCHubGenerationOutput
 from zettel.taxonomy import resolve_allowed_topics
 from zettel.time import now_vault_iso
@@ -188,12 +188,30 @@ def run_garden_hubs(
     recreate: bool = False,
     observer=None,
 ) -> list[str]:
-    """Generate/update hub-anchored MOCs. Returns moc_ids."""
+    """Generate/update hub-anchored MOCs. Returns moc_ids.
+
+    Same fail-fast contract as ``run_garden`` (ADR-059): any escaping
+    exception records the run ``failed``; the LLM client is built before
+    ``--recreate`` purges anything.
+    """
     from zettel.usage import begin_run, finish_pipeline_run
 
     run_id = db.start_run("garden_hubs")
     begin_run(run_id)
+    status = "completed"
+    try:
+        return _garden_hubs(cfg, db, idx, recreate=recreate, observer=observer)
+    except Exception:
+        status = "failed"
+        raise
+    finally:
+        finish_pipeline_run(db, run_id, status)
 
+
+def _garden_hubs(
+    cfg: AppConfig, db: StateDB, idx: VectorIndex, *, recreate: bool, observer
+) -> list[str]:
+    llm = get_llm(cfg, "garden")
     if recreate:
         removed = purge_hub_pipeline_mocs(cfg, db, idx)
         logger.info("Recriacao hub: %d MOC(s) removidos", removed)
@@ -212,7 +230,6 @@ def run_garden_hubs(
     )
     if not ranked:
         logger.info("Nenhum hub encontrado no grafo")
-        finish_pipeline_run(db, run_id)
         return []
 
     logger.info("Hubs candidatos: %d", len(ranked))
@@ -231,7 +248,6 @@ def run_garden_hubs(
 
     if not cluster_pairs:
         logger.info("Nenhuma vizinhanca hub apos deduplicacao")
-        finish_pipeline_run(db, run_id)
         return []
 
     logger.info(
@@ -240,7 +256,6 @@ def run_garden_hubs(
         stats.skipped_dedup,
     )
 
-    llm = get_llm(cfg, "garden")
     moc_ids: list[str] = []
     degree_by_hub = dict(ranked)
 
@@ -276,32 +291,14 @@ def run_garden_hubs(
         stats.skipped_small,
         stats.skipped_dedup,
     )
-
-    finish_pipeline_run(db, run_id)
     return moc_ids
 
 
 def purge_hub_pipeline_mocs(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
     """Delete hub_pipeline MOCs from SQLite, ChromaDB and the vault."""
-    from zettel.gardener import _moc_vault_path
-    from zettel.moc_backrefs import clear_moc_backrefs
+    from zettel.gardener import purge_mocs_by_origin
 
-    removed = db.delete_hub_pipeline_mocs()
-    if not removed:
-        return 0
-
-    for moc in removed:
-        clear_moc_backrefs(db, moc, vault_timezone=cfg.vault_timezone)
-
-    idx.delete_mocs([m["moc_id"] for m in removed])
-
-    for moc in removed:
-        path = _moc_vault_path(cfg, moc)
-        if path.is_file():
-            path.unlink()
-            logger.debug("Arquivo MOC hub removido: %s", path)
-
-    return len(removed)
+    return purge_mocs_by_origin(cfg, db, idx, _HUB_ORIGIN)
 
 
 # ── Hub cluster processing ────────────────────────────────────────────
@@ -369,6 +366,7 @@ def _create_new_hub_moc(
         _allowed_note_ids,
         _build_note_alias_map,
         _moc_embeddable,
+        call_garden_llm,
     )
 
     alias_to_id = _build_note_alias_map(note_ids)
@@ -396,18 +394,10 @@ def _create_new_hub_moc(
     system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
     user = fill_template(prompt_parts.user_template, mapping)
 
-    try:
-        spec = llm_phase(cfg, "garden")
-        response = call_llm(
-            llm,
-            user,
-            system=system or None,
-            provider=spec.provider,
-            prompt_cache=cfg.llm.prompt_cache,
-        )
-        moc_output = _parse_hub_moc_output(response)
-    except Exception as e:
-        logger.error("Erro ao gerar MOC hub: %s", e)
+    moc_output = call_garden_llm(
+        cfg, db, llm, system, user, _parse_hub_moc_output, subject_id=cluster_signature
+    )
+    if moc_output is None:
         return None
 
     moc_id = str(ULID())
@@ -493,12 +483,16 @@ def _update_hub_moc(
         _parse_incremental_output,
         _parse_moc_structure,
         _snapshot_moc_file,
+        call_garden_llm,
+        owns_moc,
     )
 
     moc_id = existing_moc["moc_id"]
     moc_path = Path(existing_moc["path"]) if existing_moc.get("path") else None
     if not moc_path or not moc_path.exists():
         logger.warning("MOC hub file not found for %s", moc_id)
+        return None
+    if not owns_moc(existing_moc, moc_path, _HUB_ORIGIN):
         return None
 
     structure = _parse_moc_structure(moc_path)
@@ -549,18 +543,10 @@ def _update_hub_moc(
     system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
     user = fill_template(prompt_parts.user_template, mapping)
 
-    try:
-        spec = llm_phase(cfg, "garden")
-        response = call_llm(
-            llm,
-            user,
-            system=system or None,
-            provider=spec.provider,
-            prompt_cache=cfg.llm.prompt_cache,
-        )
-        incremental_output = _parse_incremental_output(response)
-    except Exception as e:
-        logger.error("Erro ao classificar notas hub incrementais: %s", e)
+    incremental_output = call_garden_llm(
+        cfg, db, llm, system, user, _parse_incremental_output, subject_id=moc_id
+    )
+    if incremental_output is None:
         return None
 
     _apply_incremental_placements(

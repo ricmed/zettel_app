@@ -273,7 +273,7 @@ domain:
 
 # ── Gardener (MOCs taxonomicos; zettel garden) ─────────────────────────
 gardener:
-  min_cluster_size: 5                  # notas minimas para tentar clusterizar
+  min_cluster_size: 5                  # notas minimas para tentar clusterizar; o HDBSCAN usa max(este, min_notes_for_moc)
   min_notes_for_moc: 10                 # cluster menor que isso nao vira MOC
   strict_topics: true                  # rejeitar topic fora das categorias de moc_topics.yaml
   topics_path: ./config/moc_topics.yaml  # pilar > categoria > topicos; categorias = whitelist
@@ -284,6 +284,7 @@ gardener:
   graph_cohesion_min_ratio: 0.0        # 0 = so log; >0 exige coesao minima p/ MOC novo
   umap_n_neighbors: null               # null = auto min(15, n-1); cluster UMAP+HDBSCAN
   hdbscan_min_samples: null            # null = default da lib HDBSCAN
+  random_state: 42                     # semente do UMAP: particao reprodutivel; null = nao deterministico
 
 # ── MOCs Hub (zettel garden --hubs) ────────────────────────────────────
 # Porta de entrada tematica: ranqueia notas permanentes por grau ponderado

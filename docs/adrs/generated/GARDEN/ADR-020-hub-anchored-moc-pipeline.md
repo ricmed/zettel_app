@@ -70,3 +70,7 @@ Edge-weight and decay configuration is shared with the retrieval layer's graph e
 * `zettel/gardener.py:60-62` — CLI dispatch to the hub pipeline via the `--hubs` flag
 * `zettel/config.py` — `HubMocsConfig` (selection mode, percentile/threshold, hop and neighbor limits, decay)
 * `zettel/graph.py` — shared weighted BFS traversal reused from the retrieval layer
+
+## Addendum (2026-10-19): hub MOCs are never a taxonomy target (issues #292, #293)
+
+**Status:** Accepted amendment. The taxonomy pipeline only routes into `origin='pipeline'` MOCs, by folded topic equality (ADR-021 addendum), so a hub MOC whose free topic names a category is no longer rewritten and relabeled by it. `_update_hub_moc` checks ownership the same way (`gardener.owns_moc`: row and frontmatter must say `hub_pipeline`), and `--hubs --recreate` goes through the shared `purge_mocs_by_origin`, which keeps a file whose frontmatter names another origin. `run_garden_hubs` follows the garden fail-fast (ADR-059 addendum): the LLM client is built before `--recreate` purges anything, and any escaping exception records the run `failed`.

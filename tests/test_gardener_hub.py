@@ -284,7 +284,7 @@ def test_hub_incremental_lists_notes_already_in_the_moc(tmp_path):
         db,
         MagicMock(),
         llm,
-        {"moc_id": "MOC002", "topic": "Tema Hub", "path": str(moc_file)},
+        {"moc_id": "MOC002", "topic": "Tema Hub", "path": str(moc_file), "origin": "hub_pipeline"},
         "HUB",
         ["B", "C"],
         "new_sig",

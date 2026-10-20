@@ -379,3 +379,16 @@ def test_watched_node_reports_the_phase_only_when_a_hook_is_set():
         on_phase = None
 
     assert wrapped({"topic": "rag"}, {"configurable": {"runtime": Quiet()}}) == {"kept": "rag"}
+
+
+def test_moc_boost_matches_topic_by_equality_only(tmp_path):
+    """'IA' must not boost 'Avaliação de Modelos' by substring (#292)."""
+    from zettel.article_graph.search import apply_moc_boost
+
+    db = StateDB(tmp_path / "state.db")
+    db.upsert_moc("MOC1", "Avaliação de Modelos", None, "sig", body="# Avaliação de Modelos\n")
+
+    assert apply_moc_boost(db, [], "IA", [], 8) == ([], [])
+    _, moc_ids = apply_moc_boost(db, [], "avaliacao de modelos", [], 8)
+    assert moc_ids == ["MOC1"]
+    db.close()

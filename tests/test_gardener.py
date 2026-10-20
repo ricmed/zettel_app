@@ -20,6 +20,7 @@ from zettel.gardener import (
     _validate_moc_topic,
     purge_pipeline_mocs,
 )
+from zettel.gardener_assign import ClusterReport
 from zettel.schemas import (
     MOCGenerationOutput,
     MOCIncrementalOutput,
@@ -318,27 +319,19 @@ def test_find_moc_by_topic_exact(tmp_path):
     db = StateDB(tmp_path / "test.db")
     db.upsert_moc("MOC001", "Machine Learning Classico", "/path/moc.md", "sig1")
 
-    result = db.find_moc_by_topic("Machine Learning Classico")
+    result = db.find_moc_by_topic("Machine Learning Classico", origins=("pipeline",))
     assert result is not None
     assert result["moc_id"] == "MOC001"
     db.close()
 
 
-def test_find_moc_by_topic_substring(tmp_path):
-    """Bidirectional substring match works."""
+def test_find_moc_by_topic_rejects_substring(tmp_path):
+    """Substring in either direction is not a match (#292)."""
     db = StateDB(tmp_path / "test.db")
-    db.upsert_moc("MOC001", "Machine Learning Classico", "/path/moc.md", "sig1")
+    db.upsert_moc("MOC001", "Etica Normativa e Metaetica", "/path/moc.md", "sig1")
 
-    # Existing topic contains the query
-    result = db.find_moc_by_topic("Machine Learning")
-    assert result is not None
-    assert result["moc_id"] == "MOC001"
-
-    # Query contains the existing topic
-    result2 = db.find_moc_by_topic("Machine Learning Classico e Avancado")
-    assert result2 is not None
-    assert result2["moc_id"] == "MOC001"
-
+    assert db.find_moc_by_topic("Etica", origins=None) is None
+    assert db.find_moc_by_topic("Etica Normativa e Metaetica e Mais", origins=None) is None
     db.close()
 
 
@@ -347,19 +340,101 @@ def test_find_moc_by_topic_no_match(tmp_path):
     db = StateDB(tmp_path / "test.db")
     db.upsert_moc("MOC001", "Machine Learning Classico", "/path/moc.md", "sig1")
 
-    result = db.find_moc_by_topic("Culinaria Molecular")
+    result = db.find_moc_by_topic("Culinaria Molecular", origins=None)
     assert result is None
     db.close()
 
 
-def test_find_moc_by_topic_case_insensitive(tmp_path):
-    """Match is case-insensitive."""
+def test_find_moc_by_topic_folds_case_and_accents(tmp_path):
+    """Match ignores case and accents."""
     db = StateDB(tmp_path / "test.db")
-    db.upsert_moc("MOC001", "Deep Learning", "/path/moc.md", "sig1")
+    db.upsert_moc("MOC001", "Ética Aplicada", "/path/moc.md", "sig1")
 
-    result = db.find_moc_by_topic("deep learning")
+    result = db.find_moc_by_topic("etica aplicada", origins=None)
     assert result is not None
     assert result["moc_id"] == "MOC001"
+    db.close()
+
+
+def test_find_moc_by_topic_filters_origin(tmp_path):
+    """The taxonomy pipeline never finds a manual or hub MOC (#292)."""
+    db = StateDB(tmp_path / "test.db")
+    db.upsert_moc("MAN001", "Epistemologia", "/path/man.md", "sig1", origin="manual")
+    db.upsert_moc("HUB001", "Epistemologia", "/path/hub.md", "sig2", origin="hub_pipeline")
+
+    assert db.find_moc_by_topic("Epistemologia", origins=("pipeline",)) is None
+    assert db.find_moc_by_topic("Epistemologia", origins=None)["moc_id"] in {"MAN001", "HUB001"}
+    db.close()
+
+
+def test_process_cluster_creates_new_moc_beside_manual_one(tmp_path):
+    """A manual MOC named after the category stays untouched (#292)."""
+    vault = tmp_path / "vault"
+    moc_dir = vault / "40_MOCs"
+    moc_dir.mkdir(parents=True)
+    manual_file = moc_dir / "MOC - MAN001 - epistemologia.md"
+    manual_body = "# Epistemologia\n\nMeu mapa.\n\n## Leituras\n\n- [[LIT - Kant1781 - p001 - x]]\n"
+    safe_write_note(
+        manual_file, {"type": "moc", "moc_id": "MAN001", "origin": "manual"}, manual_body
+    )
+    before = manual_file.read_bytes()
+
+    db = StateDB(tmp_path / "test.db")
+    db.upsert_moc("MAN001", "Epistemologia", str(manual_file), "sig-man", origin="manual")
+    cfg = AppConfig()
+    cfg.vault_path = vault
+    cfg.gardener.topics_path = None
+    cfg.gardener.strict_topics = False
+
+    created: list[str] = []
+
+    def fake_create(*args, **kwargs):
+        created.append(args[4])
+        return "NEW001"
+
+    import zettel.gardener as gardener_mod
+
+    original = gardener_mod._create_new_moc
+    gardener_mod._create_new_moc = fake_create
+    try:
+        from zettel.gardener import _GardenStats, _process_cluster
+
+        moc_id = _process_cluster(
+            cfg, db, MagicMock(), MagicMock(), "Epistemologia", ["N1", "N2", "N3"], _GardenStats()
+        )
+    finally:
+        gardener_mod._create_new_moc = original
+
+    assert moc_id == "NEW001"
+    assert created == ["Epistemologia"]
+    assert manual_file.read_bytes() == before
+    assert db.get_moc("MAN001")["origin"] == "manual"
+    db.close()
+
+
+def test_update_existing_moc_refuses_foreign_origin(tmp_path):
+    """The incremental rewrite never touches a MOC owned by another origin."""
+    moc_file = tmp_path / "MOC - HUB001 - tema.md"
+    safe_write_note(
+        moc_file,
+        {"type": "hub_moc", "moc_id": "HUB001", "origin": "hub_pipeline"},
+        "# Tema\n\nResumo.\n\n## Porta de entrada\n\n",
+    )
+    before = moc_file.read_bytes()
+    db = StateDB(tmp_path / "test.db")
+    db.upsert_moc("HUB001", "Tema", str(moc_file), "sig", origin="hub_pipeline")
+    llm = MagicMock()
+
+    from zettel.gardener import _update_existing_moc
+
+    result = _update_existing_moc(
+        AppConfig(), db, MagicMock(), llm, db.get_moc("HUB001"), ["N1"], "sig-new"
+    )
+
+    assert result is None
+    assert moc_file.read_bytes() == before
+    assert db.get_moc("HUB001")["origin"] == "hub_pipeline"
+    llm.invoke.assert_not_called()
     db.close()
 
 
@@ -489,7 +564,7 @@ def test_update_existing_moc_no_new_notes(tmp_path):
     idx = MagicMock()
     llm = MagicMock()
 
-    existing_moc = db.find_moc_by_topic("Machine Learning Classico")
+    existing_moc = db.find_moc_by_topic("Machine Learning Classico", origins=("pipeline",))
     result = _update_existing_moc(
         cfg,
         db,
@@ -504,7 +579,7 @@ def test_update_existing_moc_no_new_notes(tmp_path):
     # LLM should NOT have been called
     llm.invoke.assert_not_called()
     # Signature should be updated
-    updated_moc = db.find_moc_by_topic("Machine Learning Classico")
+    updated_moc = db.find_moc_by_topic("Machine Learning Classico", origins=("pipeline",))
     assert updated_moc["cluster_signature"] == "new_sig"
 
     db.close()
@@ -542,7 +617,7 @@ def test_update_existing_moc_with_placements(tmp_path):
     llm = MagicMock()
     llm.invoke.return_value = mock_response
 
-    existing_moc = db.find_moc_by_topic("Machine Learning Classico")
+    existing_moc = db.find_moc_by_topic("Machine Learning Classico", origins=("pipeline",))
     result = _update_existing_moc(
         cfg,
         db,
@@ -598,7 +673,7 @@ def test_incremental_ignores_notes(tmp_path):
     llm = MagicMock()
     llm.invoke.return_value = mock_response
 
-    existing_moc = db.find_moc_by_topic("Machine Learning Classico")
+    existing_moc = db.find_moc_by_topic("Machine Learning Classico", origins=("pipeline",))
     result = _update_existing_moc(
         cfg,
         db,
@@ -662,7 +737,7 @@ def test_update_existing_moc_with_new_subsection(tmp_path):
     llm = MagicMock()
     llm.invoke.return_value = mock_response
 
-    existing_moc = db.find_moc_by_topic("Machine Learning Classico")
+    existing_moc = db.find_moc_by_topic("Machine Learning Classico", origins=("pipeline",))
     result = _update_existing_moc(
         cfg,
         db,
@@ -934,4 +1009,185 @@ def test_purge_pipeline_mocs_keeps_manual(tmp_path):
     assert db.get_moc("PIPE001") is None
     assert db.get_moc("MAN001") is not None
     idx.delete_mocs.assert_called_once_with(["PIPE001"])
+    db.close()
+
+
+def test_purge_keeps_file_whose_frontmatter_names_another_origin(tmp_path):
+    """A row mislabeled 'pipeline' is not deleted when the file says 'manual' (#292)."""
+    vault = tmp_path / "vault"
+    moc_dir = vault / "40_MOCs"
+    moc_dir.mkdir(parents=True)
+    hijacked = moc_dir / "MOC - MAN002 - epistemologia.md"
+    safe_write_note(hijacked, {"type": "moc", "moc_id": "MAN002", "origin": "manual"}, "# E\n")
+
+    db = StateDB(tmp_path / "state.db")
+    db.upsert_moc("MAN002", "Epistemologia", str(hijacked), "sig", origin="pipeline")
+    idx = MagicMock()
+    cfg = AppConfig()
+    cfg.vault_path = vault
+
+    removed = purge_pipeline_mocs(cfg, db, idx)
+
+    assert removed == 0
+    assert hijacked.exists()
+    assert db.get_moc("MAN002") is not None
+    idx.delete_mocs.assert_not_called()
+    db.close()
+
+
+# ── Fail-fast (#293) ─────────────────────────────────────────────────
+
+
+def _garden_env(tmp_path):
+    cfg = AppConfig()
+    cfg.vault_path = tmp_path / "vault"
+    cfg.gardener.topics_path = None
+    cfg.gardener.strict_topics = False
+    db = StateDB(tmp_path / "state.db")
+    return cfg, db
+
+
+def _last_run_status(db: StateDB, signature: str) -> str:
+    row = db.conn.execute(
+        "SELECT status FROM runs WHERE pipeline_signature=? ORDER BY run_id DESC LIMIT 1",
+        (signature,),
+    ).fetchone()
+    return row[0]
+
+
+def test_garden_stops_on_llm_unavailable(tmp_path, monkeypatch):
+    import zettel.gardener as gardener_mod
+    from zettel.llm import LLMUnavailableError
+
+    cfg, db = _garden_env(tmp_path)
+    calls: list[int] = []
+
+    def down(*args, **kwargs):
+        calls.append(1)
+        raise LLMUnavailableError("provider down", phase="garden")
+
+    monkeypatch.setattr(gardener_mod, "get_llm", lambda cfg, phase: MagicMock())
+    monkeypatch.setattr(
+        gardener_mod,
+        "_cluster_pairs",
+        lambda cfg, idx, observer: (
+            [("_unassigned", ["A", "B", "C"]), ("_unassigned", ["D", "E"])],
+            ClusterReport(),
+        ),
+    )
+    monkeypatch.setattr(gardener_mod, "call_llm", down)
+
+    with pytest.raises(LLMUnavailableError):
+        gardener_mod.run_garden(cfg, db, MagicMock())
+
+    assert calls == [1]
+    assert _last_run_status(db, "garden") == "failed"
+    db.close()
+
+
+def test_garden_records_failed_run_when_get_llm_raises(tmp_path, monkeypatch):
+    import zettel.gardener as gardener_mod
+    from zettel.llm import LLMUnavailableError
+
+    cfg, db = _garden_env(tmp_path)
+
+    def missing(cfg, phase):
+        raise LLMUnavailableError("pacote ausente", phase=phase)
+
+    monkeypatch.setattr(gardener_mod, "get_llm", missing)
+
+    with pytest.raises(LLMUnavailableError):
+        gardener_mod.run_garden(cfg, db, MagicMock())
+
+    assert _last_run_status(db, "garden") == "failed"
+    db.close()
+
+
+def test_category_vectors_raise_on_embedding_outage(tmp_path):
+    from zettel.gardener import _category_vectors
+    from zettel.llm import LLMUnavailableError
+
+    idx = MagicMock()
+    idx.embed_texts.side_effect = ConnectionError("embedding down")
+
+    with pytest.raises(LLMUnavailableError):
+        _category_vectors(AppConfig(), idx, [("Pilar", "Categoria")])
+
+
+def test_category_vectors_fall_back_on_content_error():
+    from zettel.gardener import _category_vectors
+
+    idx = MagicMock()
+    idx.embed_texts.side_effect = ValueError("dimensao inesperada")
+
+    assert _category_vectors(AppConfig(), idx, [("Pilar", "Categoria")]) is None
+
+
+def test_invalid_taxonomy_with_recreate_deletes_nothing(tmp_path):
+    from zettel.gardener import run_garden
+    from zettel.taxonomy import TaxonomyLoadError
+
+    cfg, db = _garden_env(tmp_path)
+    cfg.gardener.topics_path = tmp_path / "missing.yaml"
+    cfg.gardener.strict_topics = True
+    moc_dir = cfg.vault_path / "40_MOCs"
+    moc_dir.mkdir(parents=True)
+    moc_file = moc_dir / "MOC - PIPE001 - tema.md"
+    moc_file.write_text("# Tema\n", encoding="utf-8")
+    db.upsert_moc("PIPE001", "Tema", str(moc_file), "sig", origin="pipeline")
+
+    with pytest.raises(TaxonomyLoadError):
+        run_garden(cfg, db, MagicMock(), recreate=True)
+
+    assert moc_file.exists()
+    assert db.get_moc("PIPE001") is not None
+    assert _last_run_status(db, "garden") == "failed"
+    db.close()
+
+
+def test_invalid_response_goes_to_llm_failures_and_garden_continues(tmp_path, monkeypatch):
+    import zettel.gardener as gardener_mod
+
+    cfg, db = _garden_env(tmp_path)
+    calls: list[int] = []
+
+    def bad_answer(*args, **kwargs):
+        calls.append(1)
+        return "isto nao e json"
+
+    monkeypatch.setattr(gardener_mod, "get_llm", lambda cfg, phase: MagicMock())
+    monkeypatch.setattr(
+        gardener_mod,
+        "_cluster_pairs",
+        lambda cfg, idx, observer: (
+            [("_unassigned", ["A", "B", "C"]), ("_unassigned", ["D", "E"])],
+            ClusterReport(),
+        ),
+    )
+    monkeypatch.setattr(gardener_mod, "call_llm", bad_answer)
+
+    assert gardener_mod.run_garden(cfg, db, MagicMock()) == []
+
+    assert calls == [1, 1]
+    failures = db.conn.execute("SELECT phase, raw_response FROM llm_failures").fetchall()
+    assert [tuple(f) for f in failures] == [("garden", "isto nao e json")] * 2
+    assert _last_run_status(db, "garden") == "completed"
+    db.close()
+
+
+def test_garden_hubs_records_failed_run_when_get_llm_raises(tmp_path, monkeypatch):
+    import zettel.gardener_hub as hub_mod
+    from zettel.llm import LLMUnavailableError
+
+    cfg, db = _garden_env(tmp_path)
+
+    def missing(cfg, phase):
+        raise LLMUnavailableError("pacote ausente", phase=phase)
+
+    monkeypatch.setattr(hub_mod, "get_llm", missing)
+
+    with pytest.raises(LLMUnavailableError):
+        hub_mod.run_garden_hubs(cfg, db, MagicMock(), recreate=True)
+
+    assert _last_run_status(db, "garden_hubs") == "failed"
     db.close()

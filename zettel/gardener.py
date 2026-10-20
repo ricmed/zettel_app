@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,7 @@ from ulid import ULID
 from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, llm_phase
 from zettel.decision import shadow as decision_shadow
 from zettel.gardener_assign import (
+    ClusterReport,
     assign_notes_to_categories,
     build_embeddings_by_id,
     category_pairs,
@@ -31,7 +33,15 @@ from zettel.gardener_assign import (
 )
 from zettel.hashing import sha256_hex
 from zettel.index import VectorIndex
-from zettel.llm import call_llm, fill_template, get_llm, load_prompt_parts, parse_llm_json
+from zettel.llm import (
+    _raise_unavailable,
+    call_llm,
+    fill_template,
+    get_llm,
+    is_llm_unavailable,
+    load_prompt_parts,
+    parse_llm_json,
+)
 from zettel.schemas import MOCGenerationOutput, MOCIncrementalOutput
 from zettel.state import StateDB
 from zettel.taxonomy import TaxonomyLoadError, resolve_allowed_topics
@@ -46,6 +56,7 @@ from zettel.vault import (
 logger = logging.getLogger(__name__)
 
 _MOC_FALLBACK_SUBSECTION = "Outras notas do cluster"
+PIPELINE_ORIGIN = "pipeline"
 
 
 @dataclass
@@ -67,17 +78,31 @@ def run_garden(
     recreate: bool = False,
     observer=None,
 ) -> list[str]:
-    """Cluster permanent notes and generate/update MOCs. Returns moc_ids."""
+    """Cluster permanent notes and generate/update MOCs. Returns moc_ids.
+
+    Provider outages stop the phase (ADR-059): the run is recorded ``failed``
+    for any exception that escapes, and ``--recreate`` purges only after the
+    taxonomy, the LLM client and the label embeddings proved usable.
+    """
     from zettel.usage import begin_run, finish_pipeline_run
 
     run_id = db.start_run("garden")
     begin_run(run_id)
+    status = "completed"
+    try:
+        return _garden(cfg, db, idx, recreate=recreate, observer=observer)
+    except Exception:
+        status = "failed"
+        raise
+    finally:
+        finish_pipeline_run(db, run_id, status)
 
-    if recreate:
-        removed = purge_pipeline_mocs(cfg, db, idx)
-        logger.info("Recriacao: %d MOC(s) do pipeline removidos", removed)
 
-    # Fail fast if taxonomy file is required but missing/invalid.
+def _garden(
+    cfg: AppConfig, db: StateDB, idx: VectorIndex, *, recreate: bool, observer
+) -> list[str]:
+    from zettel.progress import report
+
     try:
         resolve_allowed_topics(
             cfg.gardener.topics_path,
@@ -86,81 +111,21 @@ def run_garden(
         )
     except TaxonomyLoadError as e:
         logger.error("Taxonomia de MOCs indisponivel: %s", e)
-        finish_pipeline_run(db, run_id, "failed")
         raise
+    llm = get_llm(cfg, "garden")
+    cluster_pairs, cluster_report = _cluster_pairs(cfg, idx, observer)
+    _log_cluster_report(cluster_report, len(cluster_pairs))
 
-    note_count = idx.count_permanent_notes()
-    from zettel.progress import report
-
-    report(observer, "garden", f"Analisando {note_count} nota(s).", total_items=note_count)
-    if note_count < cfg.gardener.min_cluster_size:
-        logger.info(
-            "Poucas notas para clusterização (%d < %d)",
-            note_count,
-            cfg.gardener.min_cluster_size,
-        )
-        finish_pipeline_run(db, run_id)
-        return []
-
-    ids, embeddings = idx.get_all_permanent_embeddings()
-    if embeddings is None or len(embeddings) < cfg.gardener.min_cluster_size:
-        logger.info("Embeddings insuficientes para clusterização")
-        finish_pipeline_run(db, run_id)
-        return []
-
-    embeddings_array = np.array(embeddings)
-    embeddings_by_id = build_embeddings_by_id(ids, embeddings)
-    gcfg = cfg.gardener
-    stats = _GardenStats()
-
-    categories = category_pairs(gcfg)
-
-    cluster_pairs: list[tuple[str, list[str]]] = []
-    domain = cfg.domain.name
-
-    if categories and gcfg.cluster_within_category:
-        try:
-            cat_vectors = embed_category_labels(
-                idx,
-                categories,
-                domain,
-                gcfg.category_label_template,
-            )
-            buckets = assign_notes_to_categories(ids, embeddings_by_id, cat_vectors)
-            cluster_pairs = cluster_notes_within_buckets(buckets, embeddings_by_id, gcfg)
-        except Exception as e:
-            logger.warning("Atribuicao por categoria falhou (%s); cluster global.", e)
-            categories = []
-
-    if not cluster_pairs:
-        global_clusters = cluster_notes_global(ids, embeddings_array, gcfg)
-        if categories:
-            try:
-                cat_vectors = embed_category_labels(
-                    idx,
-                    categories,
-                    domain,
-                    gcfg.category_label_template,
-                )
-                buckets = assign_notes_to_categories(ids, embeddings_by_id, cat_vectors)
-            except Exception:
-                buckets = {}
-        else:
-            buckets = {}
-        for cluster_ids in global_clusters:
-            if len(cluster_ids) < gcfg.min_notes_for_moc:
-                continue
-            category = dominant_category_for_cluster(cluster_ids, buckets)
-            cluster_pairs.append((category, cluster_ids))
+    if recreate:
+        removed = purge_pipeline_mocs(cfg, db, idx)
+        logger.info("Recriacao: %d MOC(s) do pipeline removidos", removed)
 
     if not cluster_pairs:
         logger.info("Nenhum cluster encontrado")
-        finish_pipeline_run(db, run_id)
         return []
 
     logger.info("Clusters encontrados: %d", len(cluster_pairs))
-
-    llm = get_llm(cfg, "garden")
+    stats = _GardenStats()
     moc_ids: list[str] = []
 
     for cluster_index, (category, cluster_ids) in enumerate(cluster_pairs, 1):
@@ -192,23 +157,113 @@ def run_garden(
         stats.skipped_signature,
         stats.rejected_cohesion,
     )
-
-    finish_pipeline_run(db, run_id)
     return moc_ids
+
+
+def _cluster_pairs(
+    cfg: AppConfig, idx: VectorIndex, observer
+) -> tuple[list[tuple[str, list[str]]], ClusterReport]:
+    """``(category, note_ids)`` per cluster that can become a MOC, and how they were made."""
+    from zettel.progress import report
+
+    gcfg = cfg.gardener
+    cluster_report = ClusterReport()
+    note_count = idx.count_permanent_notes()
+    report(observer, "garden", f"Analisando {note_count} nota(s).", total_items=note_count)
+    if note_count < gcfg.min_cluster_size:
+        logger.info("Poucas notas para clusterização (%d < %d)", note_count, gcfg.min_cluster_size)
+        return [], cluster_report
+
+    ids, embeddings = idx.get_all_permanent_embeddings()
+    if embeddings is None or len(embeddings) < gcfg.min_cluster_size:
+        logger.info("Embeddings insuficientes para clusterização")
+        return [], cluster_report
+    embeddings_by_id = build_embeddings_by_id(ids, embeddings)
+
+    categories = category_pairs(gcfg)
+    cat_vectors = _category_vectors(cfg, idx, categories) if categories else None
+    buckets = assign_notes_to_categories(ids, embeddings_by_id, cat_vectors) if cat_vectors else {}
+    if buckets and gcfg.cluster_within_category:
+        pairs = cluster_notes_within_buckets(buckets, embeddings_by_id, gcfg, cluster_report)
+        if pairs:
+            return pairs, cluster_report
+
+    pairs = [
+        (dominant_category_for_cluster(cluster_ids, buckets), cluster_ids)
+        for cluster_ids in cluster_notes_global(ids, np.array(embeddings), gcfg, cluster_report)
+    ]
+    return pairs, cluster_report
+
+
+def _log_cluster_report(cluster_report: ClusterReport, kept: int) -> None:
+    backends = ", ".join(sorted(cluster_report.backends)) or "nenhum"
+    logger.info(
+        "Clusterizacao: backend=%s, clusters=%d, aceitos=%d, notas em ruido=%d, "
+        "buckets pequenos=%d",
+        backends,
+        cluster_report.clusters,
+        kept,
+        cluster_report.noise_notes,
+        cluster_report.small_buckets,
+    )
+    if "kmeans" in cluster_report.backends:
+        logger.warning("Clusterizacao caiu para KMeans: sem ruido, toda nota forcada num cluster")
+
+
+def _category_vectors(
+    cfg: AppConfig, idx: VectorIndex, categories: list[tuple[str, str]]
+) -> dict[str, np.ndarray] | None:
+    """Embedded category labels; a provider outage stops the phase (ADR-059).
+
+    Any other failure falls back to global clustering, as before.
+    """
+    try:
+        return embed_category_labels(
+            idx, categories, cfg.domain.name, cfg.gardener.category_label_template
+        )
+    except Exception as e:
+        if is_llm_unavailable(e):
+            _raise_unavailable(e, phase="embedding")
+        logger.warning("Atribuicao por categoria falhou (%s); cluster global.", e)
+        return None
 
 
 def purge_pipeline_mocs(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
     """Delete pipeline MOCs from SQLite, ChromaDB and the vault. Returns count removed."""
+    return purge_mocs_by_origin(cfg, db, idx, PIPELINE_ORIGIN)
+
+
+def purge_mocs_by_origin(cfg: AppConfig, db: StateDB, idx: VectorIndex, origin: str) -> int:
+    """Delete every MOC of one pipeline ``origin``. Returns count removed.
+
+    The vault file has the last word: a row whose file frontmatter names
+    another origin (a manual or hub MOC the database mislabeled) is kept,
+    file and row, so a recreate can never delete a note the pipeline does
+    not own.
+    """
     from zettel.moc_backrefs import clear_moc_backrefs
 
-    removed = db.delete_pipeline_mocs()
+    removed: list[dict] = []
+    for moc in db.list_mocs(origin=origin):
+        file_origin = moc_file_origin(_moc_vault_path(cfg, moc))
+        if file_origin is not None and file_origin != origin:
+            logger.warning(
+                "MOC %s mantido: origem '%s' no arquivo, '%s' no banco",
+                moc["moc_id"],
+                file_origin,
+                origin,
+            )
+            continue
+        removed.append(moc)
     if not removed:
         return 0
 
     for moc in removed:
         clear_moc_backrefs(db, moc, vault_timezone=cfg.vault_timezone)
 
-    idx.delete_mocs([m["moc_id"] for m in removed])
+    moc_ids = [m["moc_id"] for m in removed]
+    db.delete_mocs(moc_ids)
+    idx.delete_mocs(moc_ids)
 
     for moc in removed:
         path = _moc_vault_path(cfg, moc)
@@ -217,6 +272,34 @@ def purge_pipeline_mocs(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
             logger.debug("Arquivo MOC removido: %s", path)
 
     return len(removed)
+
+
+def owns_moc(moc: dict, moc_path: Path, origin: str) -> bool:
+    """True when both the row and the file say ``origin`` wrote this MOC.
+
+    Defense in depth for the incremental rewrite: it replaces the whole file,
+    so it must never touch a manual MOC or another pipeline's MOC.
+    """
+    file_origin = moc_file_origin(moc_path)
+    if moc.get("origin") != origin or (file_origin is not None and file_origin != origin):
+        logger.error(
+            "MOC %s nao pertence ao pipeline '%s' (banco: %s, arquivo: %s); nao sera reescrito",
+            moc.get("moc_id"),
+            origin,
+            moc.get("origin"),
+            file_origin,
+        )
+        return False
+    return True
+
+
+def moc_file_origin(path: Path) -> str | None:
+    """``origin`` from a MOC file's frontmatter (None when absent or unreadable)."""
+    if not path.is_file():
+        return None
+    meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+    origin = meta.get("origin")
+    return str(origin) if origin else None
 
 
 def _moc_vault_path(cfg: AppConfig, moc: dict) -> Path:
@@ -294,7 +377,7 @@ def _process_cluster(
         )
 
     if category and category != "_unassigned":
-        topic_moc = db.find_moc_by_topic(category)
+        topic_moc = db.find_moc_by_topic(category, origins=(PIPELINE_ORIGIN,))
         if topic_moc:
             logger.info(
                 "Cluster roteado por categoria '%s' para MOC %s",
@@ -383,18 +466,10 @@ def _create_new_moc(
     system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
     user = fill_template(prompt_parts.user_template, mapping)
 
-    try:
-        spec = llm_phase(cfg, "garden")
-        response = call_llm(
-            llm,
-            user,
-            system=system or None,
-            provider=spec.provider,
-            prompt_cache=cfg.llm.prompt_cache,
-        )
-        moc_output = _parse_moc_output(response)
-    except Exception as e:
-        logger.error("Erro ao gerar MOC: %s", e)
+    moc_output = call_garden_llm(
+        cfg, db, llm, system, user, _parse_moc_output, subject_id=cluster_signature
+    )
+    if moc_output is None:
         return None
 
     if suggested and _topic_matches_allowed(suggested, allowed_topics):
@@ -412,7 +487,7 @@ def _create_new_moc(
         "moc_id": moc_id,
         "topic": topic,
         "cluster_signature": cluster_signature,
-        "origin": "pipeline",
+        "origin": PIPELINE_ORIGIN,
         "created_at": now,
         "updated_at": now,
     }
@@ -441,7 +516,7 @@ def _create_new_moc(
         cluster_signature,
         body=body,
         frontmatter_json=json.dumps(meta, ensure_ascii=False),
-        origin="pipeline",
+        origin=PIPELINE_ORIGIN,
     )
     idx.upsert_moc(
         moc_id,
@@ -607,6 +682,8 @@ def _update_existing_moc(
     if not moc_path or not moc_path.exists():
         logger.warning("MOC file not found for %s, skipping incremental update", moc_id)
         return None
+    if not owns_moc(existing_moc, moc_path, PIPELINE_ORIGIN):
+        return None
 
     structure = _parse_moc_structure(moc_path)
     if structure is None:
@@ -625,7 +702,7 @@ def _update_existing_moc(
             cluster_signature,
             body=body_snap,
             frontmatter_json=fm_snap,
-            origin="pipeline",
+            origin=PIPELINE_ORIGIN,
         )
         return moc_id
 
@@ -658,18 +735,10 @@ def _update_existing_moc(
     system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
     user = fill_template(prompt_parts.user_template, mapping)
 
-    try:
-        spec = llm_phase(cfg, "garden")
-        response = call_llm(
-            llm,
-            user,
-            system=system or None,
-            provider=spec.provider,
-            prompt_cache=cfg.llm.prompt_cache,
-        )
-        incremental_output = _parse_incremental_output(response)
-    except Exception as e:
-        logger.error("Erro ao classificar notas incrementais: %s", e)
+    incremental_output = call_garden_llm(
+        cfg, db, llm, system, user, _parse_incremental_output, subject_id=moc_id
+    )
+    if incremental_output is None:
         return None
 
     _apply_incremental_placements(
@@ -690,7 +759,7 @@ def _update_existing_moc(
         cluster_signature,
         body=body_snap,
         frontmatter_json=fm_snap,
-        origin="pipeline",
+        origin=PIPELINE_ORIGIN,
     )
     idx.upsert_moc(
         moc_id,
@@ -817,6 +886,45 @@ def _apply_incremental_placements(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
+
+
+def call_garden_llm[T](
+    cfg: AppConfig,
+    db: StateDB,
+    llm: Any,
+    system: str,
+    user: str,
+    parse: Callable[[str], T],
+    *,
+    subject_id: str,
+) -> T | None:
+    """One garden LLM call. Outages propagate (ADR-059); a bad answer is per cluster.
+
+    A response that does not parse or validate is kept in ``llm_failures``
+    (``phase='garden'``) with the raw text, and the cluster is skipped.
+    """
+    spec = llm_phase(cfg, "garden")
+    try:
+        response = call_llm(
+            llm,
+            user,
+            system=system or None,
+            provider=spec.provider,
+            prompt_cache=cfg.llm.prompt_cache,
+        )
+    except Exception as e:
+        if is_llm_unavailable(e):
+            _raise_unavailable(e, phase="garden")
+        logger.error("Erro na chamada de LLM do garden (%s): %s", subject_id, e)
+        return None
+    try:
+        return parse(response)
+    except Exception as e:
+        logger.error("Resposta invalida do garden (%s): %s", subject_id, e)
+        db.record_llm_failure(
+            "garden", str(e), response, subject_id=subject_id, model=spec.model or ""
+        )
+        return None
 
 
 def _moc_embeddable(topic: str, summary: str) -> str:

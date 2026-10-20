@@ -213,12 +213,12 @@ Pipeline **híbrido** (taxonomia → cluster por categoria → grafo → roteame
 
 1. Carrega embeddings de todas as notas permanentes
 2. **Atribuição taxonomia-first** (`gardener_assign.py`): embedda labels `{pilar}: {categoria}` de `config/moc_topics.yaml` e agrupa cada nota no bucket de maior similaridade. Nomes de categoria precisam ser **globalmente únicos**.
-3. **Clusterização por bucket**: UMAP + HDBSCAN (ou KMeans como fallback) **dentro de cada categoria**, alinhando clusters ao guarda-chuva da taxonomia
+3. **Clusterização por bucket**: UMAP + HDBSCAN (ou KMeans como fallback) **dentro de cada categoria**, alinhando clusters ao guarda-chuva da taxonomia. A semente `random_state` torna a partição reprodutível, e o HDBSCAN usa `max(min_cluster_size, min_notes_for_moc)` como tamanho mínimo, para não aceitar um cluster que não poderia virar MOC. O log informa o backend usado (`umap+hdbscan`, `kmeans` ou `single`), o ruído e os buckets pequenos
 4. Extrai termos representativos via **TF-IDF**
 5. **Roteamento inteligente** (`_process_cluster`) — no máximo **1 chamada LLM por cluster**:
    - Assinatura idêntica → skip (sem LLM)
    - Overlap de notas com MOC existente ≥ `overlap_threshold` → `moc_incremental` apenas
-   - Categoria do bucket já tem MOC → `moc_incremental` apenas
+   - Categoria do bucket já tem MOC **do pipeline** (nome igual, sem diferenciar caixa e acento; nunca um MOC manual ou hub) → `moc_incremental` apenas
    - Coesão de grafo abaixo de `graph_cohesion_min_ratio` (se > 0) → cluster rejeitado, sem MOC novo
    - Caso contrário → `moc_generation` uma vez, com **categoria sugerida** pelo pipeline no prompt
 6. **Validação de tópico** pós-geração:
@@ -239,8 +239,9 @@ Parâmetros híbridos em `config.yaml` (`gardener.*`):
 | `graph_cohesion_min_ratio` | `0` = so log; `>0` rejeita cluster fraco antes de criar MOC novo |
 | `umap_n_neighbors` | `null` = auto |
 | `hdbscan_min_samples` | Opcional; ajuste fino do HDBSCAN |
+| `random_state` | Semente do UMAP (e do KMeans de fallback). Fixa (`42`) = mesma partição para os mesmos vetores, o que permite reaproveitar MOCs por assinatura; `null` = mais rápido e não determinístico |
 
-`zettel garden --recreate` apaga os MOCs gerados pelo pipeline (`origin='pipeline'`) e regenera do zero, preservando MOCs manuais. É **obrigatório** depois de mudar o template de rótulo ou a taxonomia — os MOCs existentes ficam desalinhados. Antes de apagar cada MOC, **`clear_moc_backrefs`** remove os links dele dos blocos `auto-moc-backrefs` das notas permanentes. Ao criar ou atualizar um MOC, **`sync_moc_backrefs`** adiciona/remove wikilinks do MOC nas ZTL listadas no corpo do mapa.
+`zettel garden --recreate` apaga os MOCs gerados pelo pipeline (`origin='pipeline'`) e regenera do zero, preservando MOCs manuais. Um arquivo cujo frontmatter diga outra origem nunca é apagado. A taxonomia, o cliente de LLM e o embedding dos rótulos são conferidos **antes** da purga: se o provedor estiver fora, o comando para com código 1 sem apagar nada (ADR-059). É **obrigatório** depois de mudar o template de rótulo ou a taxonomia — os MOCs existentes ficam desalinhados. Antes de apagar cada MOC, **`clear_moc_backrefs`** remove os links dele dos blocos `auto-moc-backrefs` das notas permanentes. Ao criar ou atualizar um MOC, **`sync_moc_backrefs`** adiciona/remove wikilinks do MOC nas ZTL listadas no corpo do mapa.
 
 ---
 

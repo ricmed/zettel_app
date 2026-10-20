@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from zettel.state.base import StateBase
+from collections.abc import Iterable
+
+from zettel.search_terms import fold
+from zettel.state.base import StateBase, placeholders
 
 # `hub_note_id` lives in the frontmatter mirror; json_valid guards a hand-edited
 # row with malformed JSON (json_extract would raise on it).
@@ -46,15 +49,29 @@ class MocsMixin(StateBase):
     def get_moc_by_signature(self, signature: str) -> dict | None:
         return self._fetchone("SELECT * FROM mocs WHERE cluster_signature=?", (signature,))
 
-    def list_mocs(self) -> list[dict]:
-        return self._fetchall("SELECT * FROM mocs ORDER BY created_at DESC")
+    def list_mocs(self, origin: str | None = None) -> list[dict]:
+        if origin is None:
+            return self._fetchall("SELECT * FROM mocs ORDER BY created_at DESC")
+        return self._fetchall(
+            "SELECT * FROM mocs WHERE origin=? ORDER BY created_at DESC", (origin,)
+        )
 
-    def find_moc_by_topic(self, topic: str) -> dict | None:
-        """Find existing MOC whose topic has a bidirectional substring match."""
-        topic_lower = topic.lower()
+    def find_moc_by_topic(self, topic: str, *, origins: Iterable[str] | None) -> dict | None:
+        """Newest MOC whose topic equals ``topic`` (accent/case-folded).
+
+        ``origins`` is required so no caller crosses pipelines by accident:
+        the taxonomy pipeline passes ``("pipeline",)``; ``None`` means any
+        origin and must be spelled out. Equality, not substring: "Etica" must
+        not route into "Etica Normativa e Metaetica".
+        """
+        wanted = fold(topic)
+        if not wanted:
+            return None
+        allowed = None if origins is None else set(origins)
         for moc in self.list_mocs():
-            existing_lower = moc["topic"].lower()
-            if existing_lower in topic_lower or topic_lower in existing_lower:
+            if allowed is not None and moc.get("origin") not in allowed:
+                continue
+            if fold(moc["topic"]) == wanted:
                 return moc
         return None
 
@@ -73,20 +90,14 @@ class MocsMixin(StateBase):
         )
         return {r["hub_note_id"] for r in rows if r["hub_note_id"]}
 
-    def delete_pipeline_mocs(self) -> list[dict]:
-        """Remove pipeline MOC rows and return the deleted records."""
-        return self._delete_mocs_by_origin("pipeline")
-
-    def delete_hub_pipeline_mocs(self) -> list[dict]:
-        """Remove hub_pipeline MOC rows and return the deleted records."""
-        return self._delete_mocs_by_origin("hub_pipeline")
-
-    def _delete_mocs_by_origin(self, origin: str) -> list[dict]:
-        rows = self._fetchall("SELECT * FROM mocs WHERE origin=?", (origin,))
-        if rows:
-            self.conn.execute("DELETE FROM mocs WHERE origin=?", (origin,))
-            self.conn.commit()
-        return rows
+    def delete_mocs(self, moc_ids: list[str]) -> None:
+        """Remove MOC rows by id (the caller decides which ones are safe)."""
+        if not moc_ids:
+            return
+        self.conn.execute(
+            f"DELETE FROM mocs WHERE moc_id IN ({placeholders(moc_ids)})", tuple(moc_ids)
+        )
+        self.conn.commit()
 
     # ── Topic index (term -> note routing) ─────────────────────────────
 

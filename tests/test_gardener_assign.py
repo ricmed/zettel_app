@@ -75,3 +75,92 @@ def test_graph_cohesion_internal_edges(tmp_path):
     db.upsert_note_connection("A", "X", "related", "")
     assert graph_cohesion(db, ["A", "B"]) >= 0
     db.close()
+
+
+# ── Reproducible clustering (#294) ───────────────────────────────────
+
+
+def _blobs(n_per: int = 25, dims: int = 16, seed: int = 0) -> tuple[np.ndarray, list[str]]:
+    rng = np.random.default_rng(seed)
+    centers = np.eye(dims)[:3] * 4.0
+    points = np.vstack([c + rng.normal(scale=0.6, size=(n_per, dims)) for c in centers])
+    return points, [f"n{i}" for i in range(len(points))]
+
+
+def test_cluster_embeddings_is_deterministic_with_seed():
+    from zettel.config import GardenerConfig
+    from zettel.gardener_assign import _cluster_embeddings
+
+    emb, ids = _blobs()
+    cfg = GardenerConfig(min_cluster_size=5, min_notes_for_moc=5, random_state=7)
+
+    first = _cluster_embeddings(emb, ids, cfg)
+    second = _cluster_embeddings(emb, ids, cfg)
+
+    assert first
+    assert sorted(map(sorted, first)) == sorted(map(sorted, second))
+
+
+def test_effective_min_cluster_size_never_below_moc_floor():
+    from zettel.config import GardenerConfig
+    from zettel.gardener_assign import effective_min_cluster_size
+
+    assert (
+        effective_min_cluster_size(GardenerConfig(min_cluster_size=5, min_notes_for_moc=10)) == 10
+    )
+    assert effective_min_cluster_size(GardenerConfig(min_cluster_size=5, min_notes_for_moc=3)) == 5
+
+
+def test_no_accepted_cluster_is_smaller_than_moc_floor():
+    from zettel.config import GardenerConfig
+    from zettel.gardener_assign import ClusterReport, cluster_notes_within_buckets
+
+    emb, ids = _blobs(n_per=12)
+    cfg = GardenerConfig(min_cluster_size=5, min_notes_for_moc=10, random_state=7)
+    report = ClusterReport()
+
+    pairs = cluster_notes_within_buckets(
+        {"Cat": ids}, dict(zip(ids, emb, strict=True)), cfg, report
+    )
+
+    assert pairs
+    assert all(len(cluster) >= 10 for _cat, cluster in pairs)
+    assert report.backends == {"umap+hdbscan"}
+    assert report.clusters == len(pairs)
+
+
+def test_kmeans_fallback_is_reported(monkeypatch):
+    import builtins
+
+    from zettel.config import GardenerConfig
+    from zettel.gardener_assign import ClusterReport, _cluster_embeddings
+
+    real_import = builtins.__import__
+
+    def no_umap(name, *args, **kwargs):
+        if name in {"umap", "hdbscan"}:
+            raise ImportError(name)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_umap)
+    emb, ids = _blobs(n_per=10)
+    report = ClusterReport()
+
+    clusters = _cluster_embeddings(emb, ids, GardenerConfig(min_cluster_size=5), report)
+
+    assert clusters
+    assert report.backends == {"kmeans"}
+
+
+def test_bucket_with_missing_embedding_keeps_ids_aligned():
+    """A note without a vector must not shift the id/vector pairing."""
+    from zettel.config import GardenerConfig
+    from zettel.gardener_assign import cluster_notes_within_buckets
+
+    emb, ids = _blobs(n_per=12)
+    by_id = dict(zip(ids, emb, strict=True))
+    cfg = GardenerConfig(min_cluster_size=5, min_notes_for_moc=10, random_state=7)
+
+    pairs = cluster_notes_within_buckets({"Cat": ["ghost", *ids]}, by_id, cfg)
+
+    assert all("ghost" not in cluster for _cat, cluster in pairs)

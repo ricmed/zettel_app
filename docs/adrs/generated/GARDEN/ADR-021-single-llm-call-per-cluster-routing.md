@@ -68,3 +68,13 @@ Because generation (`moc_generation.md`) and incremental update (`moc_incrementa
 - `zettel/gardener.py:293-397` — `_create_new_moc()`, the single generation call path
 - `zettel/gardener_assign.py:157-182` — `find_moc_by_note_overlap()`, overlap-threshold routing
 - `zettel/gardener_hub.py` — `_process_hub_cluster()`, mirrored routing for the hub-anchored pipeline
+
+## Addendum (2026-10-19): category routing stays inside its own pipeline (issue #292)
+
+**Status:** Accepted amendment. The third routing branch used `find_moc_by_topic`, which scanned every MOC (manual and hub included) by substring in both directions. A cluster in the "Epistemologia" bucket could land in a manual MOC "Epistemologia" or in a hub MOC whose free topic contained the word; `_update_existing_moc` then rewrote the whole file with `safe_write_note` and stored `origin='pipeline'`, and the next `garden --recreate` deleted it.
+
+- `StateDB.find_moc_by_topic(topic, *, origins)` takes the origin set explicitly (`None` means any origin and must be spelled out) and matches by **folded equality** (`search_terms.fold`), never substring. The taxonomy pipeline passes `("pipeline",)`. The article's MOC boost passes `None`, so a manual MOC still boosts its topic, but "IA" no longer matches "Avaliação".
+- `gardener.owns_moc` guards both incremental rewrites (taxonomy and hub): the row **and** the file frontmatter must name the writing pipeline, otherwise the MOC is not touched.
+- `purge_mocs_by_origin` (shared by `--recreate` and `--hubs --recreate`) keeps any row whose file frontmatter names another origin, file and row both. `delete_pipeline_mocs` / `delete_hub_pipeline_mocs` were replaced by `list_mocs(origin=...)` + `delete_mocs(ids)`.
+
+Correction to the decision drivers above: the incremental update preserves the structure the pipeline itself writes (summary, subsection titles and descriptions, `[[ZTL - …]]` lines). It does **not** preserve arbitrary user edits in a pipeline MOC; prose outside that structure is lost on the next rewrite. Adopting a generated MOC as manual is tracked in #300.
