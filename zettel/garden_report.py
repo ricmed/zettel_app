@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 from zettel.gardener_assign import NOTE_ID_RE
 
 if TYPE_CHECKING:
+    from zettel.config import GardenerConfig
     from zettel.state import StateDB
 
 ENTRY_ORIGINS = ("pipeline", "hub_pipeline", "manual")
@@ -58,6 +59,8 @@ class GardenReport:
     reach_by_source: dict[str, dict[str, float]] = field(default_factory=dict)
     traversable_edges: int = 0
     total_edges: int = 0
+    proposed_edges: int = 0  # LLM edges waiting for review (#279)
+    warnings: list[str] = field(default_factory=list)  # graph health (#299)
     subjects_without_door: list[str] = field(default_factory=list)
 
     def action_counts(self) -> dict[str, int]:
@@ -145,6 +148,57 @@ def entry_note_ids(db: StateDB, origins: Iterable[str] = ENTRY_ORIGINS) -> set[s
     return ids
 
 
+def graph_warnings(
+    report: GardenReport, gcfg: GardenerConfig, *, with_proposed_note: bool = True
+) -> list[str]:
+    """What in the graph limits the doors of ``report`` (#299), as messages for the user.
+
+    The doors lead the reader only over traversable edges; LLM edges stay
+    ``proposed`` until a human accepts them, so an unreviewed queue shrinks
+    both the walkable share and the reachability. ``with_proposed_note`` adds
+    the reminder that proposed edges weigh in the garden's own choices.
+    """
+    review = "revise a fila com `zettel links` (ou /review?queue=links)"
+    warnings: list[str] = []
+    if not report.total_edges:
+        warnings.append(
+            "Nenhuma aresta no grafo: as portas nao levam a outras notas (rode `zettel connect`)."
+        )
+        return warnings
+    share = report.traversable_edges / report.total_edges
+    if share < gcfg.warn_min_traversable_share:
+        warnings.append(
+            f"So {report.traversable_edges}/{report.total_edges} arestas sao percorriveis "
+            f"({share:.0%}, abaixo de {gcfg.warn_min_traversable_share:.0%}): {review}."
+        )
+    reach = report.reach.get("r2", 0.0)
+    if report.entries and reach < gcfg.warn_min_reach:
+        warnings.append(
+            f"Alcancabilidade a 2 saltos das portas de {reach:.0%}, abaixo de "
+            f"{gcfg.warn_min_reach:.0%}: {review}."
+        )
+    if with_proposed_note and report.proposed_edges and gcfg.proposed_edge_factor > 0:
+        warnings.append(
+            f"{report.proposed_edges} aresta(s) propostas contam com peso "
+            f"{gcfg.proposed_edge_factor:g} nos hubs, na coesao e na escolha das portas, "
+            "mas o leitor so percorre as aceitas."
+        )
+    return warnings
+
+
+def graph_health(db: StateDB, gcfg: GardenerConfig) -> tuple[GardenReport, list[str]]:
+    """The current edge counts and the last garden's reach, with their warnings (doctor)."""
+    from zettel.state.connections import edge_is_traversable
+
+    latest = db.latest_garden_report("garden")
+    report = GardenReport.from_dict(latest) if latest else GardenReport(pipeline="garden")
+    edges = db.list_note_connections()
+    report.total_edges = len(edges)
+    report.traversable_edges = sum(1 for e in edges if edge_is_traversable(e))
+    report.proposed_edges = sum(1 for e in edges if e.get("status") == "proposed")
+    return report, graph_warnings(report, gcfg, with_proposed_note=False)
+
+
 def fill_reachability(
     report: GardenReport,
     db: StateDB,
@@ -152,8 +206,9 @@ def fill_reachability(
     *,
     buckets: Mapping[str, list[str]] | None = None,
     min_notes: int = 0,
+    gcfg: GardenerConfig | None = None,
 ) -> GardenReport:
-    """Reachability, per-source reach and subjects without door, on ``report``."""
+    """Reachability, per-source reach, subjects without door and warnings, on ``report``."""
     from zettel.state.connections import edge_is_traversable
 
     notes = db.list_note_sources()
@@ -164,6 +219,7 @@ def fill_reachability(
     report.entries = len(entries & set(notes))
     report.total_edges = len(edges)
     report.traversable_edges = len(walkable)
+    report.proposed_edges = sum(1 for e in edges if e.get("status") == "proposed")
     report.reach = reach_shares(entries, adj, notes)
     by_source: dict[str, list[str]] = defaultdict(list)
     for note_id, source_id in notes.items():
@@ -174,4 +230,6 @@ def fill_reachability(
     }
     if buckets is not None:
         report.subjects_without_door = subjects_without_door(buckets, entries, min_notes)
+    if gcfg is not None:
+        report.warnings = graph_warnings(report, gcfg)
     return report

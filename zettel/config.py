@@ -402,7 +402,17 @@ class GardenerConfig(BaseModel):
     # Fracao das entradas de uma subsecao do MOC que caem no cluster -> incremental.
     overlap_threshold: float = 0.4
     graph_cohesion_enabled: bool = True
-    graph_cohesion_min_ratio: float = 0.0  # 0 = metrica apenas; >0 rejeita MOC novo
+    # Coesao = densidade ponderada 0..1 (2*W_int / (n*(n-1))). 0 = metrica apenas;
+    # >0 rejeita MOC novo abaixo dela (o incremental nao e filtrado).
+    graph_cohesion_min_ratio: float = Field(default=0.0, ge=0, le=1)
+    # Arestas de LLM ainda propostas (#279) contam com esta fracao do peso no grau
+    # e na BFS dos hubs, na coesao e no grau interno das entradas (#299). 0 = so o
+    # grafo percorrivel. Alcancabilidade e recuperacao nunca usam propostas.
+    proposed_edge_factor: float = Field(default=0.5, ge=0, le=1)
+    # Avisos do relatorio (garden, garden --hubs, doctor): fracao minima de arestas
+    # percorriveis e alcancabilidade minima a 2 saltos das portas de entrada.
+    warn_min_traversable_share: float = Field(default=0.5, ge=0, le=1)
+    warn_min_reach: float = Field(default=0.5, ge=0, le=1)
     umap_n_neighbors: int | None = None  # None = auto (min(15, n-1))
     hdbscan_min_samples: int | None = None  # None = default HDBSCAN
     # Semente do UMAP (e do KMeans de fallback). Fixa = particao reprodutivel;

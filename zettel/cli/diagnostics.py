@@ -469,6 +469,26 @@ def doctor(config: ConfigOption = None):
     except Exception as e:
         checks.append(("Chunking coverage", False, f"erro ao verificar: {e}"))
 
+    # Graph the MOC/hub doors lead through (#299): unreviewed LLM edges are not walkable.
+    from zettel.garden_report import graph_health
+
+    db = get_db(cfg)
+    try:
+        graph, graph_problems = graph_health(db, cfg.gardener)
+    finally:
+        db.close()
+    checks.append(
+        (
+            "Grafo das portas (garden)",
+            not graph_problems,
+            " ".join(graph_problems)
+            or (
+                f"{graph.traversable_edges}/{graph.total_edges} arestas percorriveis, "
+                f"{graph.reach.get('r2', 0):.0%} a 2 saltos das portas"
+            ),
+        )
+    )
+
     # Display
     table = Table(title="Zettelkasten — Doctor")
     table.add_column("Verificação", style="bold")

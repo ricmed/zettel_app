@@ -222,12 +222,15 @@ gardener:
   category_label_template: "{pilar}: {categoria}"  # texto embeddado por categoria
   overlap_threshold: 0.4     # fracao das entradas de uma subsecao do MOC que caem no cluster -> incremental
   graph_cohesion_enabled: true
-  graph_cohesion_min_ratio: 0.0  # 0 = so log; >0 rejeita cluster fraco
+  graph_cohesion_min_ratio: 0.0  # densidade ponderada 0..1; 0 = so log; >0 rejeita cluster fraco
   umap_n_neighbors: null     # null = auto min(15, n-1)
   hdbscan_min_samples: null  # null = default do HDBSCAN
   random_state: 42           # semente do UMAP/KMeans; null = nao deterministico
   max_entries_per_moc: 10    # teto de notas de entrada por MOC (ADR-060)
   min_entries_per_subtopic: 3  # k sub-clusters num MOC so se k*3 <= teto; senao MOC de MOCs (#296)
+  proposed_edge_factor: 0.5  # arestas de LLM propostas valem metade no grau/BFS dos hubs, coesao e entradas (#299)
+  warn_min_traversable_share: 0.5  # avisa se menos da metade das arestas e percorrivel
+  warn_min_reach: 0.5        # avisa se menos da metade das notas esta a 2 saltos de uma porta
 
 # ── MOCs hub (zettel garden --hubs) ────────────────────────────────────
 hub_mocs:

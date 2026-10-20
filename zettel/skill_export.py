@@ -188,14 +188,12 @@ def load_notes(
     permanent notes, so an empty one means the slice is empty, not that we should
     reach for literature notes belonging to some other source.
     """
-    from zettel.config import DEFAULT_RELATION_WEIGHTS
-
     if not note_rows and source_id:
         return _literature_notes(db, source_id)
     if not note_rows:
         return []
 
-    degrees = db.get_weighted_note_degrees(DEFAULT_RELATION_WEIGHTS)
+    degrees = db.get_weighted_note_degrees(cfg.retrieval.graph_expansion.relation_weights)
     concepts = db.get_concepts_for_notes([r["note_id"] for r in note_rows])
 
     notes: list[SkillNote] = []

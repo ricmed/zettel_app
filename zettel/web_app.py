@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, load_config
+from zettel.config import AppConfig, load_config
 from zettel.llm import LLMUnavailableError
 from zettel.state import StateDB
 
@@ -1215,7 +1215,7 @@ class WebApplication:
             return db.get_web_dashboard(
                 low_max=LOW_CONFIDENCE_MAX,
                 limiar=self.cfg.literature_review.auto_approve_min_confidence,
-                relation_weights=DEFAULT_RELATION_WEIGHTS,
+                relation_weights=self.cfg.retrieval.graph_expansion.relation_weights,
             )
         finally:
             db.close()

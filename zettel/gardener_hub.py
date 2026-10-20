@@ -10,11 +10,13 @@ from ulid import ULID
 
 from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, HubMocsConfig
 from zettel.garden_report import ClusterAction, GardenReport, entry_note_ids, fill_reachability
+from zettel.gardener_assign import garden_edge_policy
 from zettel.graph import expand_notes
 from zettel.hashing import sha256_hex
 from zettel.index import VectorIndex
 from zettel.llm import fill_template, get_llm, load_prompt_parts, parse_llm_json
 from zettel.schemas import MOCHubGenerationOutput
+from zettel.state.connections import EdgePolicy
 from zettel.taxonomy import resolve_allowed_topics
 from zettel.time import now_vault_iso
 from zettel.vault import note_filename
@@ -44,11 +46,11 @@ class _HubGardenStats:
 def rank_note_hubs(
     db: StateDB,
     cfg: HubMocsConfig,
-    relation_weights: dict[str, float] | None = None,
+    policy: EdgePolicy | None = None,
 ) -> list[tuple[str, float]]:
-    """Rank permanent notes by weighted graph degree."""
-    weights = relation_weights or DEFAULT_RELATION_WEIGHTS
-    degrees = db.get_weighted_note_degrees(weights)
+    """Rank permanent notes by weighted graph degree under the garden's ``policy`` (#299)."""
+    policy = policy or EdgePolicy(dict(DEFAULT_RELATION_WEIGHTS))
+    degrees = db.get_weighted_note_degrees(policy.weights, proposed_factor=policy.proposed_factor)
     permanent = db.list_permanent_note_ids()
     if permanent:
         degrees = {nid: deg for nid, deg in degrees.items() if nid in permanent}
@@ -90,21 +92,11 @@ def build_hub_neighborhood(
     db: StateDB,
     hub_id: str,
     cfg: HubMocsConfig,
-    relation_weights: dict[str, float] | None = None,
+    policy: EdgePolicy | None = None,
 ) -> list[str]:
     """Return hub_id plus neighbor note IDs ordered by BFS weight."""
-    weights = relation_weights or DEFAULT_RELATION_WEIGHTS
     max_neighbor_slots = max(0, cfg.max_neighbors - 1)
-
-    neighbors = expand_notes(
-        db,
-        [hub_id],
-        max_hops=cfg.max_hops,
-        decay=cfg.decay,
-        relation_weights=weights,
-        max_neighbors=max_neighbor_slots * 2,
-        seed_weights={hub_id: 1.0},
-    )
+    neighbors = _hub_bfs(db, hub_id, cfg, policy, max_neighbor_slots * 2)
 
     ranked = sorted(
         (
@@ -117,6 +109,22 @@ def build_hub_neighborhood(
     )
     neighbor_ids = [nid for nid, _, _ in ranked[:max_neighbor_slots]]
     return [hub_id, *neighbor_ids]
+
+
+def _hub_bfs(
+    db: StateDB, hub_id: str, cfg: HubMocsConfig, policy: EdgePolicy | None, limit: int
+) -> dict:
+    policy = policy or EdgePolicy(dict(DEFAULT_RELATION_WEIGHTS))
+    return expand_notes(
+        db,
+        [hub_id],
+        max_hops=cfg.max_hops,
+        decay=cfg.decay,
+        relation_weights=dict(policy.weights),
+        max_neighbors=limit,
+        seed_weights={hub_id: 1.0},
+        proposed_factor=policy.proposed_factor,
+    )
 
 
 def dedup_hub_neighborhoods(
@@ -152,18 +160,10 @@ def get_neighbor_graph_context(
     hub_id: str,
     neighbor_ids: list[str],
     cfg: HubMocsConfig,
+    policy: EdgePolicy | None = None,
 ) -> dict[str, Any]:
     """Build per-neighbor hop/weight metadata for prompts."""
-    weights = DEFAULT_RELATION_WEIGHTS
-    expanded = expand_notes(
-        db,
-        [hub_id],
-        max_hops=cfg.max_hops,
-        decay=cfg.decay,
-        relation_weights=weights,
-        max_neighbors=cfg.max_neighbors,
-        seed_weights={hub_id: 1.0},
-    )
+    expanded = _hub_bfs(db, hub_id, cfg, policy, cfg.max_neighbors)
     context: dict[str, dict[str, Any]] = {}
     for nid in neighbor_ids:
         if nid == hub_id:
@@ -205,7 +205,10 @@ def run_garden_hubs(
             GardenReport(pipeline="garden_hubs", actions=list(stats.actions)),
             db,
             entry_note_ids(db, origins=(_HUB_ORIGIN,)),
+            gcfg=cfg.gardener,
         )
+        for warning in report.warnings:
+            logger.warning("Garden hubs: %s", warning)
         db.save_garden_report(run_id, "garden_hubs", report.to_json())
         return moc_ids
     except Exception:
@@ -224,7 +227,7 @@ def _garden_hubs(
         logger.info("Recriacao hub: %d MOC(s) removidos", removed)
 
     stats = _HubGardenStats()
-    ranked, cluster_pairs = _hub_neighbourhoods(db, cfg.hub_mocs, stats)
+    ranked, cluster_pairs = _hub_neighbourhoods(cfg, db, stats)
     from zettel.progress import report
 
     report(
@@ -277,10 +280,12 @@ def _garden_hubs(
 
 
 def _hub_neighbourhoods(
-    db: StateDB, hcfg: HubMocsConfig, stats: _HubGardenStats
+    cfg: AppConfig, db: StateDB, stats: _HubGardenStats
 ) -> tuple[list[tuple[str, float]], list[tuple[str, list[str]]]]:
     """Ranked hubs and their deduplicated neighbourhoods (no LLM, no write)."""
-    ranked = rank_note_hubs(db, hcfg)
+    hcfg = cfg.hub_mocs
+    policy = garden_edge_policy(cfg)
+    ranked = rank_note_hubs(db, hcfg, policy)
     if not ranked:
         logger.info("Nenhum hub encontrado no grafo")
         return [], []
@@ -288,7 +293,7 @@ def _hub_neighbourhoods(
 
     hubs_with_notes: list[tuple[str, float, list[str]]] = []
     for hub_id, degree in ranked:
-        note_ids = build_hub_neighborhood(db, hub_id, hcfg)
+        note_ids = build_hub_neighborhood(db, hub_id, hcfg, policy)
         if len(note_ids) < hcfg.min_neighbors:
             stats.skipped_small += 1
             continue
@@ -310,13 +315,18 @@ def hub_entry_notes(db: StateDB, hub_id: str, note_ids: list[str], cfg: AppConfi
 
     neighbours = [nid for nid in note_ids if nid != hub_id]
     limit = max(0, cfg.gardener.max_entries_per_moc - 1)
-    return [hub_id, *select_entry_notes(db, neighbours, cfg.gardener, limit=limit)]
+    return [
+        hub_id,
+        *select_entry_notes(
+            db, neighbours, cfg.gardener, limit=limit, policy=garden_edge_policy(cfg)
+        ),
+    ]
 
 
 def plan_garden_hubs(cfg: AppConfig, db: StateDB) -> GardenReport:
     """What ``run_garden_hubs`` would do, with no LLM call and no write (#298)."""
     stats = _HubGardenStats()
-    _ranked, cluster_pairs = _hub_neighbourhoods(db, cfg.hub_mocs, stats)
+    _ranked, cluster_pairs = _hub_neighbourhoods(cfg, db, stats)
     planned_entries = entry_note_ids(db, origins=(_HUB_ORIGIN,))
     actions: list[ClusterAction] = []
     for hub_id, note_ids in cluster_pairs:
@@ -332,7 +342,7 @@ def plan_garden_hubs(cfg: AppConfig, db: StateDB) -> GardenReport:
         if action in ("created", "incremental"):
             planned_entries.update(hub_entry_notes(db, hub_id, note_ids, cfg))
     report = GardenReport(pipeline="garden_hubs", planned=True, actions=actions)
-    return fill_reachability(report, db, planned_entries)
+    return fill_reachability(report, db, planned_entries, gcfg=cfg.gardener)
 
 
 def purge_hub_pipeline_mocs(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
@@ -442,7 +452,9 @@ def _create_new_hub_moc(
 
     alias_to_id = _build_note_alias_map(note_ids)
     allowed = _allowed_note_ids(db, note_ids)
-    graph_ctx = get_neighbor_graph_context(db, hub_id, note_ids, cfg.hub_mocs)
+    graph_ctx = get_neighbor_graph_context(
+        db, hub_id, note_ids, cfg.hub_mocs, garden_edge_policy(cfg)
+    )
 
     prompt_parts = load_prompt_parts(cfg.prompts_path / "moc_hub_generation.md")
     try:

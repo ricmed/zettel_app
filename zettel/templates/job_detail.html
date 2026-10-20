@@ -124,6 +124,7 @@
       <tr><th>Alcançável a 1 salto</th><td>{{ '%.1f'|format((gr.reach.r1 or 0) * 100) }}%</td></tr>
       <tr><th>Alcançável a 2 saltos</th><td>{{ '%.1f'|format((gr.reach.r2 or 0) * 100) }}%</td></tr>
       <tr><th>Arestas percorríveis</th><td>{{ gr.traversable_edges }}/{{ gr.total_edges }}</td></tr>
+      {% if gr.proposed_edges %}<tr><th>Arestas propostas (fila de revisão)</th><td>{{ gr.proposed_edges }}</td></tr>{% endif %}
       {% if gr.llm_failures %}<tr><th>Respostas inválidas</th><td>{{ gr.llm_failures }}</td></tr>{% endif %}
       {% if gr.omitted %}<tr><th>Entradas omitidas</th><td>{{ gr.omitted }}</td></tr>{% endif %}
       {% if gr.cap_reached %}<tr><th>Candidatas recusadas (MOC cheio)</th><td>{{ gr.cap_reached }}</td></tr>{% endif %}
@@ -131,6 +132,9 @@
   </table>
   {% if gr.subjects_without_door %}
   <p>Assuntos sem porta de entrada: {{ gr.subjects_without_door|join(', ') }}</p>
+  {% endif %}
+  {% if gr.warnings %}
+  <ul>{% for warning in gr.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
   {% endif %}
 </section>
 {% elif result.kind == 'summarize' %}

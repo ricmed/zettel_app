@@ -1,6 +1,7 @@
 """Tests for hybrid gardener assignment and graph helpers."""
 
 import numpy as np
+import pytest
 from zettel.gardener_assign import (
     assign_notes_to_categories,
     extract_note_ids_from_moc_body,
@@ -180,3 +181,34 @@ def test_bucket_with_missing_embedding_keeps_ids_aligned():
     pairs = cluster_notes_within_buckets({"Cat": ["ghost", *ids]}, by_id, cfg)
 
     assert all("ghost" not in cluster for _cat, cluster in pairs)
+
+
+def test_graph_cohesion_is_a_weighted_density_between_zero_and_one(tmp_path):
+    from zettel.state.connections import EdgePolicy
+
+    db = StateDB(tmp_path / "test.db")
+    for nid in "ABCD":
+        db.upsert_note(nid, "SRC", None, nid)
+    policy = EdgePolicy({"contradicts": 1.0, "related": 0.5, "heavy": 3.0})
+
+    assert graph_cohesion(db, ["A"], policy) == 0.0
+    assert graph_cohesion(db, ["A", "B", "C"], policy) == 0.0
+    for a, b in (("A", "B"), ("A", "C"), ("B", "C")):
+        db.upsert_note_connection(a, b, "contradicts", "")
+    assert graph_cohesion(db, ["A", "B", "C"], policy) == 1.0
+    db.upsert_note_connection("C", "D", "heavy", "")  # capped at 1 per pair
+    assert graph_cohesion(db, ["A", "B", "C", "D"], policy) == pytest.approx(4 / 6)
+    db.close()
+
+
+def test_graph_cohesion_counts_proposed_edges_at_the_factor(tmp_path):
+    from zettel.state.connections import EdgePolicy
+
+    db = StateDB(tmp_path / "test.db")
+    for nid in "AB":
+        db.upsert_note(nid, "SRC", None, nid)
+    db.upsert_note_connection("A", "B", "contradicts", "", status="proposed")
+
+    assert graph_cohesion(db, ["A", "B"], EdgePolicy({"contradicts": 1.0})) == 0.0
+    assert graph_cohesion(db, ["A", "B"], EdgePolicy({"contradicts": 1.0}, 0.5)) == 0.5
+    db.close()

@@ -7,9 +7,11 @@ module ranks a cluster's notes by one configurable signal and keeps the top
 
 Signals (``gardener.entry_selection``):
 
-* ``internal_degree`` — weighted degree inside the cluster over traversable
-  edges: the notes the rest of the subject hangs from (provisional default; on
-  the measured vault, 10 per MOC reach 92.4% of the notes within two hops).
+* ``internal_degree`` — weighted degree inside the cluster under the garden's
+  ``EdgePolicy`` (traversable edges, plus proposed LLM edges at
+  ``gardener.proposed_edge_factor``, #299): the notes the rest of the subject
+  hangs from (provisional default; on the measured vault, 10 per MOC reach
+  92.4% of the notes within two hops).
 * ``medoid`` — cosine to the cluster centroid: the most representative note.
 * ``first_in_source`` — earliest ``created_at`` (connect writes in source and
   chunk order), often the foundational definition of the subject.
@@ -28,7 +30,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from zettel.config import DEFAULT_RELATION_WEIGHTS, GardenerConfig
-from zettel.state.connections import edge_weight
+from zettel.state.connections import EdgePolicy, connections_for
 
 if TYPE_CHECKING:
     from zettel.state import StateDB
@@ -37,19 +39,19 @@ ENTRY_SIGNALS = ("internal_degree", "medoid", "first_in_source", "relevance", "c
 
 
 def internal_degrees(
-    db: StateDB, note_ids: list[str], weights: Mapping[str, float] | None = None
+    db: StateDB, note_ids: list[str], policy: EdgePolicy | None = None
 ) -> dict[str, float]:
     """Weighted degree of each note counting only edges inside ``note_ids``."""
     members = set(note_ids)
-    weights = weights or DEFAULT_RELATION_WEIGHTS
+    policy = policy or EdgePolicy(dict(DEFAULT_RELATION_WEIGHTS))
     degree: dict[str, float] = defaultdict(float)
     seen: set[tuple[str, str, str]] = set()
-    for edge in db.get_connections_for_notes(list(members)):
+    for edge in connections_for(db, list(members), policy):
         src, tgt = edge["source_note_id"], edge["target_note_id"]
         key = (src, tgt, edge.get("relation_type") or "")
         if src in members and tgt in members and key not in seen:
             seen.add(key)
-            w = edge_weight(edge, weights)
+            w = policy.weight(edge)
             degree[src] += w
             degree[tgt] += w
     return {nid: degree.get(nid, 0.0) for nid in note_ids}
@@ -105,12 +107,17 @@ def select_entry_notes(
     vectors: Mapping[str, np.ndarray] | None = None,
     *,
     limit: int | None = None,
+    policy: EdgePolicy | None = None,
 ) -> list[str]:
-    """The top ``limit`` (default ``max_entries_per_moc``) notes by the configured signal."""
+    """The top ``limit`` (default ``max_entries_per_moc``) notes by the configured signal.
+
+    ``policy`` weighs the edges of the internal degree (default: the walkable
+    graph with the built-in relation weights).
+    """
     if not note_ids:
         return []
     cap = cfg.max_entries_per_moc if limit is None else limit
-    degree = internal_degrees(db, note_ids)
+    degree = internal_degrees(db, note_ids, policy)
     signal = cfg.entry_selection
     if signal == "internal_degree":
         scores = degree

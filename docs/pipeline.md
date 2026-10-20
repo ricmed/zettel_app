@@ -243,13 +243,15 @@ Parâmetros híbridos em `config.yaml` (`gardener.*`):
 | `category_label_template` | Texto embeddavel por categoria (default `"{pilar}: {categoria}"`; `domain` continua disponível num template customizado) |
 | `overlap_threshold` | Fração das entradas de uma subseção do MOC que cai no cluster → update incremental direto |
 | `graph_cohesion_enabled` | Calcula score interno do cluster via `note_connections` |
-| `graph_cohesion_min_ratio` | `0` = so log; `>0` rejeita cluster fraco antes de criar MOC novo |
+| `graph_cohesion_min_ratio` | Densidade ponderada `2*W_int / (n*(n-1))`, de 0 a 1. `0` = so log; `>0` rejeita cluster fraco antes de criar MOC novo |
 | `umap_n_neighbors` | `null` = auto |
 | `hdbscan_min_samples` | Opcional; ajuste fino do HDBSCAN |
 | `entry_selection` | Sinal que escolhe as notas de entrada (`internal_degree` provisório; medição pré-registrada em `evals/preregistration/297-portas-de-entrada.md`) |
 | `max_entries_per_moc` / `max_entries_per_subsection` | Teto de entradas por MOC (10, contando o hub nos MOCs hub) e por subseção (5) |
 | `min_entries_per_subtopic` | Entradas mínimas de cada sub-cluster num MOC compartilhado (3): `k` sub-clusters cabem num MOC só enquanto `k * 3 <= max_entries_per_moc`; acima disso, MOC de MOCs |
 | `summary_refresh_growth` | Fração de crescimento das entradas que dispara a reescrita do resumo (0,5) |
+| `proposed_edge_factor` | Fração do peso das arestas de LLM ainda propostas no grau/BFS dos hubs, na coesão e nas portas (0,5; 0 = só percorríveis) |
+| `warn_min_traversable_share` / `warn_min_reach` | Limiares dos avisos de grafo do relatório e do `doctor` (0,5 / 0,5) |
 | `random_state` | Semente do UMAP (e do KMeans de fallback). Fixa (`42`) = mesma partição para os mesmos vetores, o que permite reaproveitar MOCs por assinatura; `null` = mais rápido e não determinístico |
 
 `zettel garden --recreate` apaga os MOCs gerados pelo pipeline (`origin='pipeline'`) e regenera do zero, preservando MOCs manuais. Um arquivo cujo frontmatter diga outra origem nunca é apagado. A taxonomia, o cliente de LLM e o embedding dos rótulos são conferidos **antes** da purga: se o provedor estiver fora, o comando para com código 1 sem apagar nada (ADR-059). É **obrigatório** depois de mudar o template de rótulo ou a taxonomia — os MOCs existentes ficam desalinhados. Antes de apagar cada MOC, **`clear_moc_backrefs`** remove os links dele dos blocos `auto-moc-backrefs` das notas permanentes. Ao criar ou atualizar um MOC, **`sync_moc_backrefs`** adiciona/remove wikilinks do MOC nas ZTL listadas no corpo do mapa.
@@ -267,7 +269,7 @@ python -m zettel garden --hubs              # MOCs hub (complementar)
 python -m zettel garden --hubs --recreate -y
 ```
 
-1. Ranqueia notas permanentes por **grau ponderado** no grafo (`DEFAULT_RELATION_WEIGHTS`)
+1. Ranqueia notas permanentes por **grau ponderado** no grafo (pesos de `retrieval.graph_expansion.relation_weights`). Arestas aceitas, derivadas e manuais pesam o peso da relação; arestas de LLM ainda **propostas** (fila de `zettel links`) pesam `gardener.proposed_edge_factor` (0,5) vezes isso; rejeitadas não contam. A mesma regra vale para a BFS, a coesão e a escolha das portas, nunca para o que o leitor percorre
 2. Expande a vizinhança via BFS (`expand_notes`, `max_hops` configurável)
 3. Deduplica vizinhanças muito sobrepostas (`dedup_subset_threshold`)
 4. Roteia cada hub:
@@ -285,6 +287,8 @@ python -m zettel garden --hubs --recreate -y
 | `max_neighbors` / `min_neighbors` | Tamanho da vizinhanca |
 | `min_neighbor_weight` | Filtra vizinhos fracos pos-BFS |
 | `dedup_subset_threshold` | Descarta hub menor se vizinhanca >= N% contida em outra |
+
+O relatório de `garden` e `garden --hubs` traz **avisos de grafo**: nenhuma aresta, menos de `warn_min_traversable_share` (50%) das arestas percorríveis, alcançabilidade a 2 saltos das portas abaixo de `warn_min_reach` (50%), e quantas arestas propostas pesaram nas escolhas. O `zettel doctor` repete a verificação ("Grafo das portas"). Medido no acervo de desenvolvimento (`scripts/probe_hub_policy.py`): com a fila revisada, as portas alcançam 99,2% das notas a 2 saltos; sem revisão, 35,9% com fator 0,5 e 24,7% com fator 0.
 
 `garden --hubs --recreate` apaga apenas MOCs `origin='hub_pipeline'`; MOCs taxonômicos (`pipeline`) e manuais permanecem intactos. A limpeza dos blocos `auto-moc-backrefs` segue a mesma lógica do `--recreate` taxonômico.
 

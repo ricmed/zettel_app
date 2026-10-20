@@ -17,7 +17,7 @@ from typing import Any
 import numpy as np
 from ulid import ULID
 
-from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, llm_phase
+from zettel.config import AppConfig, llm_phase
 from zettel.decision import shadow as decision_shadow
 from zettel.garden_entries import select_entry_notes
 from zettel.garden_report import ClusterAction, GardenReport, entry_note_ids, fill_reachability
@@ -32,6 +32,7 @@ from zettel.gardener_assign import (
     dominant_category_for_cluster,
     embed_category_labels,
     find_moc_by_note_overlap,
+    garden_edge_policy,
     graph_cohesion,
 )
 from zettel.hashing import sha256_hex
@@ -141,9 +142,7 @@ def plan_garden(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> GardenReport:
             if step.action in ("signature_skip", "rejected_cohesion"):
                 continue
             for note_ids in step.clusters:
-                planned_entries.update(
-                    select_entry_notes(db, note_ids, cfg.gardener, cluster_report.vectors)
-                )
+                planned_entries.update(_entries(cfg, db, note_ids, cluster_report.vectors))
     report = _garden_report(cfg, cluster_report, stats, planned=True)
     return fill_reachability(
         report,
@@ -151,6 +150,7 @@ def plan_garden(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> GardenReport:
         planned_entries,
         buckets=cluster_report.buckets,
         min_notes=cfg.gardener.min_notes_for_moc,
+        gcfg=cfg.gardener,
     )
 
 
@@ -230,7 +230,10 @@ def _garden(
         entry_note_ids(db),
         buckets=cluster_report.buckets,
         min_notes=cfg.gardener.min_notes_for_moc,
+        gcfg=cfg.gardener,
     )
+    for warning in garden_report.warnings:
+        logger.warning("Garden: %s", warning)
     return moc_ids, garden_report
 
 
@@ -484,6 +487,20 @@ def group_subjects(
     return subjects
 
 
+def _entries(
+    cfg: AppConfig,
+    db: StateDB,
+    note_ids: list[str],
+    vectors: dict[str, np.ndarray],
+    *,
+    limit: int | None = None,
+) -> list[str]:
+    """``select_entry_notes`` under the garden's edge policy (#299)."""
+    return select_entry_notes(
+        db, note_ids, cfg.gardener, vectors, limit=limit, policy=garden_edge_policy(cfg)
+    )
+
+
 def _is_category(category: str) -> bool:
     return bool(category) and category != "_unassigned"
 
@@ -515,7 +532,7 @@ def route_cluster(cfg: AppConfig, db: StateDB, note_ids: list[str]) -> _Route:
         return _Route("incremental", signature, overlap_moc)
 
     if cfg.gardener.graph_cohesion_enabled:
-        cohesion = graph_cohesion(db, note_ids, DEFAULT_RELATION_WEIGHTS)
+        cohesion = graph_cohesion(db, note_ids, garden_edge_policy(cfg))
         logger.debug("Coesao de grafo do cluster: %.3f", cohesion)
         min_ratio = cfg.gardener.graph_cohesion_min_ratio
         if min_ratio > 0 and cohesion < min_ratio:
@@ -611,7 +628,7 @@ def _run_step(
     if step.action == "incremental":
         logger.info("Cluster roteado para MOC %s", step.moc["moc_id"])
         stats.incremental += 1
-        entries = select_entry_notes(db, step.clusters[0], gcfg, vectors)
+        entries = _entries(cfg, db, step.clusters[0], vectors)
         moc_id = _update_existing_moc(
             cfg, db, idx, llm, step.moc, entries, step.signature, stats=stats
         )
@@ -622,7 +639,7 @@ def _run_step(
         return _create_moc_of_mocs(cfg, db, idx, llm, category, step, stats, vectors)
 
     limit = gcfg.max_entries_per_moc // len(step.clusters)
-    groups = [select_entry_notes(db, ids, gcfg, vectors, limit=limit) for ids in step.clusters]
+    groups = [_entries(cfg, db, ids, vectors, limit=limit) for ids in step.clusters]
     moc_id = _create_new_moc(cfg, db, idx, llm, category, groups, step.signature, stats=stats)
     if moc_id:
         stats.created += 1
@@ -665,7 +682,7 @@ def _join_home(
     before = _parse_moc_structure(home_path)
     if before is None:
         return _record(stats, category, _size(step), "home", None)
-    entries = select_entry_notes(db, note_ids, gcfg, vectors)
+    entries = _entries(cfg, db, note_ids, vectors)
 
     room = gcfg.max_entries_per_moc - len(before["all_note_ids"])
     if not before["children"] and room >= gcfg.min_entries_per_subtopic:
@@ -707,7 +724,7 @@ def _create_moc_of_mocs(
     parent = {"moc_id": parent_id, "topic": category}
     children: list[str] = []
     for note_ids in step.clusters:
-        entries = select_entry_notes(db, note_ids, cfg.gardener, vectors)
+        entries = _entries(cfg, db, note_ids, vectors)
         child_id = _create_new_moc(
             cfg, db, idx, llm, category, [entries], _signature(note_ids), stats=stats, parent=parent
         )

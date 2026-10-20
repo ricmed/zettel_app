@@ -281,7 +281,7 @@ gardener:
   category_label_template: "{pilar}: {categoria}"  # texto embeddado p/ atribuir notas
   overlap_threshold: 0.4               # fracao das entradas de uma subsecao do MOC que caem no cluster -> incremental
   graph_cohesion_enabled: true         # mede coesao via note_connections
-  graph_cohesion_min_ratio: 0.0        # 0 = so log; >0 exige coesao minima p/ MOC novo
+  graph_cohesion_min_ratio: 0.0        # densidade ponderada 0..1; 0 = so log; >0 exige coesao minima p/ MOC novo
   umap_n_neighbors: null               # null = auto min(15, n-1); cluster UMAP+HDBSCAN
   hdbscan_min_samples: null            # null = default da lib HDBSCAN
   random_state: 42                     # semente do UMAP: particao reprodutivel; null = nao deterministico
@@ -291,17 +291,24 @@ gardener:
   max_entries_per_subsection: 5        # teto por subsecao
   min_entries_per_subtopic: 3          # k sub-clusters cabem num MOC se k*3 <= teto; senao MOC de MOCs (#296)
   summary_refresh_growth: 0.5          # reescreve o resumo quando as entradas crescem 50%
+  # Arestas de LLM propostas (ainda nao revisadas, #279) no grafo do garden (#299).
+  proposed_edge_factor: 0.5           # fracao do peso no grau/BFS dos hubs, coesao e entradas; 0 = so percorriveis
+  warn_min_traversable_share: 0.5     # avisa (garden, doctor) se menos de 50% das arestas e percorrivel
+  warn_min_reach: 0.5                 # avisa se menos de 50% das notas esta a 2 saltos de uma porta
 
 # ── MOCs Hub (zettel garden --hubs) ────────────────────────────────────
 # Porta de entrada tematica: ranqueia notas permanentes por grau ponderado
 # em note_connections, expande vizinhanca (BFS) e gera MOC radial
 # (origin=hub_pipeline, hub_note_id no frontmatter).
-# Pre-requisito: grafo populado (connect + sync-manual --rebuild-graph).
+# Grafo: arestas percorriveis (aceitas em `zettel links`, derivadas, manuais) com peso
+# cheio e arestas de LLM ainda propostas com gardener.proposed_edge_factor. Sem revisar
+# a fila, os hubs saem quase so de corroborates e propostas; o relatorio avisa.
+# Pesos por relacao: retrieval.graph_expansion.relation_weights.
 hub_mocs:
   selection_mode: percentile       # percentile (escala com o vault) | absolute (limiar fixo)
   hub_percentile: 0.90             # modo percentile: 0.90 = top 10% por grau ponderado
   top_n_hubs: 15                   # teto de hubs processados por execucao (apos filtros/dedup)
-  min_weighted_degree: 8.0         # modo absolute: grau minimo (soma DEFAULT_RELATION_WEIGHTS)
+  min_weighted_degree: 8.0         # modo absolute: grau minimo (soma dos relation_weights)
   max_hops: 2                      # profundidade BFS a partir do hub (1 = so vizinhos diretos)
   max_neighbors: 25                # teto do cluster (hub + vizinhos de maior peso BFS)
   min_neighbors: 8                 # vizinhanca minima; abaixo disso o hub e ignorado

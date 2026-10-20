@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 
+from rich.markup import escape
 from rich.table import Table
 
 from zettel.cli.app import console
@@ -225,6 +226,8 @@ def print_garden_report(report: Mapping, *, title: str = "Garden") -> None:
     table.add_row("Alcancavel a 1 salto", f"{rep.reach.get('r1', 0):.1%}")
     table.add_row("Alcancavel a 2 saltos", f"{rep.reach.get('r2', 0):.1%}")
     table.add_row("Arestas percorriveis", f"{rep.traversable_edges}/{rep.total_edges}")
+    if rep.proposed_edges:
+        table.add_row("Arestas propostas (fila de revisao)", str(rep.proposed_edges))
     console.print(table)
     if rep.subjects_without_door:
         console.print(
@@ -232,8 +235,5 @@ def print_garden_report(report: Mapping, *, title: str = "Garden") -> None:
             + ", ".join(rep.subjects_without_door)
             + "[/yellow]"
         )
-    if rep.total_edges and rep.traversable_edges < rep.total_edges / 2:
-        console.print(
-            "[yellow]Menos da metade das arestas e percorrivel: revise a fila com "
-            "`zettel links` (ou /review?queue=links) para as portas alcancarem mais notas.[/yellow]"
-        )
+    for warning in rep.warnings:
+        console.print(f"[yellow]{escape(warning)}[/yellow]")

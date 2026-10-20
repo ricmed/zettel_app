@@ -133,3 +133,7 @@ and that existing edges are not rebuilt. Both sentences are wrong.
   the ones it does, and rebuilds `auto-backlinks` plus the `(corroborates)`
   lines in `## Conexões`. A note with neither thesis nor definition is left
   alone.
+
+## Addendum (2026-10-20): corroborates in an unreviewed graph (issue #299)
+
+**Status:** Accepted amendment. The "accepted and not mitigated" risk above (garden cohesion inflated by `corroborates` cliques) became the whole signal under `linking.llm_edges: propose`: right after connect, `corroborates` was the only traversable relation, so hubs ranked on authorial convergence. The garden now counts proposed LLM edges at `gardener.proposed_edge_factor` (ADR-020 addendum of the same date), which restores the argumentative relations to the hub degree, the cohesion and the entry selection. Collapsing `corroborates` cliques to one representative is still not implemented.

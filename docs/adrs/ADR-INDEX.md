@@ -351,7 +351,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-08-27
-- **Summary**: Complementary pipeline (opt-in via `--hubs`): rank notes by weighted graph degree, expand neighborhoods via BFS, deduplicate overlaps, generate MOCs. Surfaces connectivity-based organization taxonomy-first clustering cannot detect.
+- **Summary**: Complementary pipeline (opt-in via `--hubs`): rank notes by weighted graph degree, expand neighborhoods via BFS, deduplicate overlaps, generate MOCs. Surfaces connectivity-based organization taxonomy-first clustering cannot detect. Addendum 2026-10-20 (#299): proposed LLM edges weigh `gardener.proposed_edge_factor` (0.5) in hub degree, BFS, cohesion and entry selection; relation weights from `config.yaml`; graph warnings in the report and `doctor`.
 - **Link**: [`ADR-020-hub-anchored-moc-pipeline.md`](./generated/GARDEN/ADR-020-hub-anchored-moc-pipeline.md)
 
 ---

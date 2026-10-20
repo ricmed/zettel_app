@@ -9,8 +9,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from zettel.config import DEFAULT_RELATION_WEIGHTS, GardenerConfig
+from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, GardenerConfig
 from zettel.index import VectorIndex
+from zettel.state.connections import EdgePolicy, connections_for
 from zettel.taxonomy import category_pillar_pairs, load_moc_taxonomy
 
 if TYPE_CHECKING:
@@ -176,35 +177,39 @@ def dominant_category_for_cluster(
     return max(counts, key=counts.get)
 
 
-def graph_cohesion(
-    db: StateDB,
-    note_ids: list[str],
-    relation_weights: dict[str, float] | None = None,
-) -> float:
-    """Weighted internal edge ratio for a note set (0..1 scale)."""
-    if len(note_ids) < 2:
+def garden_edge_policy(cfg: AppConfig) -> EdgePolicy:
+    """The garden's edge weights: the configured relation weights plus proposed edges (#299)."""
+    return EdgePolicy(
+        dict(cfg.retrieval.graph_expansion.relation_weights),
+        cfg.gardener.proposed_edge_factor,
+    )
+
+
+def graph_cohesion(db: StateDB, note_ids: list[str], policy: EdgePolicy | None = None) -> float:
+    """Weighted density of a note set, in ``[0, 1]``: ``2 * W_int / (n * (n - 1))``.
+
+    ``W_int`` sums, over each linked pair inside the set, the strongest edge
+    weight under ``policy`` (capped at 1). A clique of weight-1 edges scores 1;
+    a set with no internal edge scores 0. The old score divided by ``n`` and
+    had no ceiling (0.33 to 2.15 on the measured vault), which the ``ratio``
+    knob could not express (#299).
+    """
+    n = len(set(note_ids))
+    if n < 2:
         return 0.0
 
-    weights = relation_weights or DEFAULT_RELATION_WEIGHTS
+    policy = policy or EdgePolicy(dict(DEFAULT_RELATION_WEIGHTS))
     cluster = set(note_ids)
-    edges = db.get_connections_for_notes(list(cluster))
-
-    internal_weight = 0.0
-    seen_pairs: set[frozenset[str]] = set()
-    for edge in edges:
+    best: dict[frozenset[str], float] = {}
+    for edge in connections_for(db, list(cluster), policy):
         src = edge["source_note_id"]
         tgt = edge["target_note_id"]
-        if src not in cluster or tgt not in cluster:
+        if src not in cluster or tgt not in cluster or src == tgt:
             continue
         pair = frozenset((src, tgt))
-        if pair in seen_pairs:
-            continue
-        seen_pairs.add(pair)
-        rel = edge.get("relation_type") or "related"
-        internal_weight += weights.get(rel, 0.5)
+        best[pair] = max(best.get(pair, 0.0), min(1.0, policy.weight(edge)))
 
-    # Normalize by cluster size (avg weighted degree proxy).
-    return internal_weight / len(cluster)
+    return 2 * sum(best.values()) / (n * (n - 1))
 
 
 def moc_entry_groups(body: str) -> list[set[str]]:

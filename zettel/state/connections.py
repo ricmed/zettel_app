@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 
 from zettel.state.base import StateBase, placeholders
 
@@ -40,6 +41,43 @@ def edge_weight(edge: Mapping, weights: Mapping[str, float]) -> float:
         return weights.get("manual", 0.95)
     relation = edge.get("relation_type") or "related"
     return weights.get(relation, weights.get("related", 0.5))
+
+
+@dataclass(frozen=True)
+class EdgePolicy:
+    """How the garden weighs an edge (#299).
+
+    A traversable edge weighs its relation (``edge_weight``). An LLM edge still
+    waiting for review (``status='proposed'``) weighs ``proposed_factor`` times
+    that: the model's judgement is a real signal of centrality, but not yet a
+    path the reader walks. A rejected edge weighs nothing. ``proposed_factor=0``
+    is the walkable graph only. Retrieval and reachability never use this.
+    """
+
+    weights: Mapping[str, float] = field(default_factory=dict)
+    proposed_factor: float = 0.0
+
+    @property
+    def include_proposed(self) -> bool:
+        return self.proposed_factor > 0
+
+    def weight(self, edge: Mapping) -> float:
+        if edge_is_traversable(edge):
+            return edge_weight(edge, self.weights)
+        if self.include_proposed and edge.get("status") == "proposed":
+            return self.proposed_factor * edge_weight(edge, self.weights)
+        return 0.0
+
+
+def connections_for(db, note_ids: list[str], policy: EdgePolicy) -> list[dict]:
+    """``db.get_connections_for_notes`` with the proposed edges ``policy`` counts.
+
+    The keyword is passed only when needed, so read-only adapters that serve
+    the walkable graph (probes, test doubles) keep working.
+    """
+    if policy.include_proposed:
+        return db.get_connections_for_notes(note_ids, include_proposed=True)
+    return db.get_connections_for_notes(note_ids)
 
 
 class ConnectionsMixin(StateBase):
@@ -164,36 +202,45 @@ class ConnectionsMixin(StateBase):
             (note_id, note_id),
         )
 
-    def get_connections_for_notes(self, note_ids: list[str]) -> list[dict]:
-        """Batch-fetch every edge touching any of ``note_ids`` (as source or target).
+    def get_connections_for_notes(
+        self, note_ids: list[str], *, include_proposed: bool = False
+    ) -> list[dict]:
+        """Batch-fetch every traversable edge touching any of ``note_ids``.
 
         One query per BFS frontier during graph expansion, instead of N per-note
-        queries. Returns an empty list for an empty input.
+        queries. ``include_proposed`` also returns LLM edges waiting for review,
+        for the garden's ``EdgePolicy`` (#299). Empty input, empty list.
         """
         if not note_ids:
             return []
         marks = placeholders(note_ids)
+        allowed = (
+            f"({_TRAVERSABLE_SQL} OR status = 'proposed')" if include_proposed else _TRAVERSABLE_SQL
+        )
         return self._fetchall(
             f"SELECT * FROM note_connections "
             f"WHERE (source_note_id IN ({marks}) OR target_note_id IN ({marks})) "
-            f"AND {_TRAVERSABLE_SQL}",
+            f"AND {allowed}",
             (*note_ids, *note_ids),
         )
 
     def count_note_connections(self) -> int:
         return self._count("SELECT COUNT(*) FROM note_connections")
 
-    def get_weighted_note_degrees(self, relation_weights: Mapping[str, float]) -> dict[str, float]:
-        """Undirected weighted degree per note from note_connections."""
+    def get_weighted_note_degrees(
+        self, relation_weights: Mapping[str, float], *, proposed_factor: float = 0.0
+    ) -> dict[str, float]:
+        """Undirected weighted degree per note; proposed edges count at ``proposed_factor``."""
+        policy = EdgePolicy(relation_weights, proposed_factor)
         degrees: dict[str, float] = defaultdict(float)
         rows = self._fetchall(
             "SELECT source_note_id, target_note_id, relation_type, origin, status "
             "FROM note_connections"
         )
         for row in rows:
-            if not edge_is_traversable(row):
+            weight = policy.weight(row)
+            if weight <= 0:
                 continue
-            weight = edge_weight(row, relation_weights)
             degrees[row["source_note_id"]] += weight
             degrees[row["target_note_id"]] += weight
         return dict(degrees)

@@ -9,6 +9,8 @@ from zettel.garden_report import (
     GardenReport,
     adjacency,
     fill_reachability,
+    graph_health,
+    graph_warnings,
     reach_shares,
     subjects_without_door,
 )
@@ -171,4 +173,54 @@ def test_estimate_garden_counts_one_call_per_create_or_update(tmp_path):
 
     assert estimate.items == 5
     assert estimate.input_tokens > 0
+    db.close()
+
+
+# ── Graph warnings (#299) ────────────────────────────────────────────
+
+
+def test_graph_warnings_flag_low_walkable_share_and_low_reach():
+    cfg = AppConfig().gardener
+    report = GardenReport(
+        pipeline="garden",
+        total_edges=100,
+        traversable_edges=20,
+        proposed_edges=80,
+        entries=10,
+        reach={"r1": 0.1, "r2": 0.3},
+    )
+
+    warnings = graph_warnings(report, cfg)
+
+    assert len(warnings) == 3
+    assert "20/100" in warnings[0] and "zettel links" in warnings[0]
+    assert "30%" in warnings[1]
+    assert "80 aresta(s) propostas" in warnings[2]
+    assert len(graph_warnings(report, cfg, with_proposed_note=False)) == 2
+
+
+def test_graph_warnings_are_quiet_on_a_healthy_graph():
+    report = GardenReport(
+        pipeline="garden", total_edges=10, traversable_edges=9, entries=5, reach={"r2": 0.9}
+    )
+
+    assert graph_warnings(report, AppConfig().gardener) == []
+    assert (
+        "rode `zettel connect`" in graph_warnings(GardenReport("garden"), AppConfig().gardener)[0]
+    )
+
+
+def test_graph_health_reads_current_edges_and_the_last_reach(tmp_path):
+    cfg, db = _garden_env(tmp_path)
+    run_id = db.start_run("garden")
+    db.save_garden_report(
+        run_id, "garden", GardenReport("garden", entries=3, reach={"r2": 0.2}).to_json()
+    )
+    db.upsert_note_connection("A", "B", "supports", status="proposed")
+    db.upsert_note_connection("A", "C", "corroborates", origin="derived")
+
+    report, problems = graph_health(db, cfg.gardener)
+
+    assert (report.traversable_edges, report.total_edges, report.proposed_edges) == (1, 2, 1)
+    assert len(problems) == 1 and "20%" in problems[0]
     db.close()
