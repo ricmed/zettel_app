@@ -2786,3 +2786,30 @@ def test_idle_worker_does_not_poll_the_database(web_client, monkeypatch):
             break
         time.sleep(0.05)
     assert job["state"] == "succeeded"
+
+
+def test_job_detail_lists_every_run_and_its_cost(web_client, monkeypatch):
+    """A multi-phase job showed only its last run, and none after a pause (#311)."""
+    from zettel.web_app import WebWorker
+
+    client, _ = web_client
+    csrf = _login(client)
+
+    def fake_dispatch(cfg, db, progress, operation, payload, **_kwargs):
+        for phase in ("harvest", "extract"):
+            run_id = db.start_run(phase)
+            db.finish_run(run_id, usage={"cost_usd_total": 0.25})
+        return {}
+
+    monkeypatch.setattr(WebWorker, "_dispatch", staticmethod(fake_dispatch))
+    response = client.post("/pipeline/retry_assets", data={"csrf": csrf}, follow_redirects=False)
+    job_id = response.headers["location"].rsplit("/", 1)[1]
+    deadline = time.monotonic() + 5
+    while client.app.state.service.job(job_id)["state"] != "succeeded":
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    job = client.app.state.service.job(job_id)
+    assert [run["pipeline_signature"] for run in job["runs"]] == ["harvest", "extract"]
+    assert job["cost_usd_total"] == pytest.approx(0.5)
+    page = client.get(f"/jobs/{job_id}").text
+    assert "harvest" in page and "extract" in page

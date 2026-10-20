@@ -409,3 +409,62 @@ def test_manual_lit_llm_rejection_is_user_facing(tmp_path: Path, monkeypatch):
             {"chunk_id": "chunk-1", "thesis": "Uma tese", "use_llm": True},
         )
     assert safe_error(caught.value).startswith("O modelo recusou")
+
+
+def test_runs_started_by_a_job_are_linked_to_it_and_no_other(tmp_path: Path):
+    """The job used to guess its run as "the last one that changed" (#311)."""
+    from zettel.state.runs import current_web_job
+
+    db = StateDB(tmp_path / "state.db")
+    try:
+        assert db.create_web_job("job", "run_all", {})
+        token = current_web_job.set("job")
+        try:
+            first = db.start_run("harvest")
+            second = db.start_run("extract")
+        finally:
+            current_web_job.reset(token)
+        outside = db.start_run("connect")  # a CLI run in the same window
+        assert [run["run_id"] for run in db.list_web_job_runs("job")] == [first, second]
+        assert outside not in {run["run_id"] for run in db.list_web_job_runs("job")}
+    finally:
+        db.close()
+
+
+def test_recovery_closes_the_runs_of_an_interrupted_job(tmp_path: Path):
+    from zettel.state.runs import current_web_job
+
+    db = StateDB(tmp_path / "state.db")
+    try:
+        assert db.create_web_job("job", "extract", {})
+        assert db.claim_web_job("job")
+        token = current_web_job.set("job")
+        try:
+            run_id = db.start_run("extract")
+        finally:
+            current_web_job.reset(token)
+        cli_run = db.start_run("connect")
+        db.recover_web_jobs()
+        runs = {run["run_id"]: run for run in db.list_web_job_runs("job")}
+        assert runs[run_id]["status"] == "interrupted"
+        assert runs[run_id]["finished_at"]
+        assert (
+            db.conn.execute("SELECT status FROM runs WHERE run_id=?", (cli_run,)).fetchone()[0]
+            == "running"
+        )
+    finally:
+        db.close()
+
+
+def test_sync_records_a_run(tmp_path: Path):
+    from zettel.sync import run_sync_manual
+
+    cfg = AppConfig(vault_path=tmp_path / "vault", state_db_path=tmp_path / "state.db")
+    db = StateDB(cfg.state_db_path)
+    try:
+        run_sync_manual(cfg, db, None)
+        last = db.get_last_run()
+        assert last["pipeline_signature"] == "sync"
+        assert last["status"] == "completed"
+    finally:
+        db.close()

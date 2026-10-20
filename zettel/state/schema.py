@@ -276,11 +276,18 @@ CREATE TABLE IF NOT EXISTS web_jobs (
     message         TEXT NOT NULL DEFAULT '',
     result_json     TEXT,
     error_message   TEXT,
-    run_id          INTEGER,
     created_at      TEXT NOT NULL,
     started_at      TEXT,
-    finished_at     TEXT,
-    FOREIGN KEY (run_id) REFERENCES runs(run_id)
+    finished_at     TEXT
+);
+
+-- Every run a web job opened, linked when the run starts (#311). A job can
+-- open several (run_all opens five) and an article opens its run before a
+-- pause that the job outlives.
+CREATE TABLE IF NOT EXISTS web_job_runs (
+    job_id  TEXT NOT NULL REFERENCES web_jobs(job_id) ON DELETE CASCADE,
+    run_id  INTEGER NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    PRIMARY KEY (job_id, run_id)
 );
 
 CREATE TABLE IF NOT EXISTS web_job_events (

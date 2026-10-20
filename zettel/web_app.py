@@ -18,6 +18,7 @@ from uuid import uuid4
 from zettel.config import AppConfig, load_config
 from zettel.llm import LLMUnavailableError
 from zettel.state import StateDB
+from zettel.state.runs import current_web_job
 
 logger = logging.getLogger(__name__)
 
@@ -670,8 +671,8 @@ class WebWorker:
         job = db.get_web_job(job_id) or {}
         payload = job.get("payload") or {}
         operation = job.get("operation", "")
-        previous_run = db.get_last_run()
-        previous_run_id = previous_run["run_id"] if previous_run else None
+        # Every run this job opens is linked to it in start_run (#311).
+        run_link = current_web_job.set(job_id)
         progress.emit(ProgressEvent("starting", f"Iniciando {operation}."))
         try:
             result = self._dispatch(
@@ -683,17 +684,12 @@ class WebWorker:
                 sessions=self._articles,
                 job_id=job_id,
             )
-            last_run = db.get_last_run()
-            run_id = (
-                last_run["run_id"] if last_run and last_run["run_id"] != previous_run_id else None
-            )
             db.update_web_job(
                 job_id,
                 state="succeeded",
                 phase="completed",
                 message="Operação concluída.",
                 result=result or {},
-                run_id=run_id,
                 finished=True,
             )
             db.add_web_job_event(job_id, "completed", message="Operação concluída.")
@@ -731,6 +727,7 @@ class WebWorker:
             )
             db.add_web_job_event(job_id, "failed", message=message)
         finally:
+            current_web_job.reset(run_link)
             succeeded = (db.get_web_job(job_id) or {}).get("state") == "succeeded"
             from zettel.harvester.prepared import remove_preparation
 
@@ -1294,9 +1291,16 @@ class WebApplication:
             db.close()
 
     def job(self, job_id: str) -> dict | None:
+        """The job with the runs it opened and their summed cost (#311)."""
         db = self.db()
         try:
-            return db.get_web_job(job_id)
+            job = db.get_web_job(job_id)
+            if job is not None:
+                job["runs"] = db.list_web_job_runs(job_id)
+                job["cost_usd_total"] = sum(
+                    float(run.get("cost_usd_total") or 0) for run in job["runs"]
+                )
+            return job
         finally:
             db.close()
 

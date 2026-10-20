@@ -161,6 +161,7 @@ PUBLIC_METHODS = {
     "update_web_job",
     "add_web_job_event",
     "list_web_job_events",
+    "list_web_job_runs",
     "web_session_key",
     "rotate_web_session_key",
     "create_web_harvest_review",

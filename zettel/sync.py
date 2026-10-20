@@ -45,8 +45,23 @@ _AUTO_BLOCKS_TO_SKIP = ("auto-connections", "auto-backlinks", "auto-moc-backrefs
 def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, int]:
     """Scan all four note folders for manual/modified notes and sync them.
 
-    Returns per-type counters plus aggregate new/updated/skipped.
+    Returns per-type counters plus aggregate new/updated/skipped. Opens a
+    ``sync`` run so the embedding cost of the notes it indexes is recorded (#311).
     """
+    from zettel.usage import begin_run, finish_pipeline_run
+
+    run_id = db.start_run("sync")
+    begin_run(run_id)
+    try:
+        stats = _sync_all(cfg, db, idx)
+    except Exception:
+        finish_pipeline_run(db, run_id, status="failed")
+        raise
+    finish_pipeline_run(db, run_id)
+    return stats
+
+
+def _sync_all(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, int]:
     stats = {
         "new": 0,
         "updated": 0,

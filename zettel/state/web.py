@@ -40,8 +40,16 @@ class WebMixin(StateBase):
 
         Queued work remains queued and is picked up by the new worker. A harvest
         the reviewer already confirmed (``payload.review_id``) is re-queued
-        instead, since its confirmation cannot be given again.
+        instead, since its confirmation cannot be given again. Runs those jobs
+        left ``running`` are closed as ``interrupted``, so their partial cost is
+        not shown as work still in progress (#311).
         """
+        self.conn.execute(
+            "UPDATE runs SET status='interrupted', finished_at=? WHERE status='running' "
+            "AND run_id IN (SELECT l.run_id FROM web_job_runs l JOIN web_jobs j "
+            "ON j.job_id=l.job_id WHERE j.state IN ('running', 'awaiting_input'))",
+            (self._now(),),
+        )
         resumed = self.conn.execute(
             "UPDATE web_jobs SET state='queued', phase='queued', started_at=NULL, "
             "message='Retomando harvest confirmado após reinicialização' "
@@ -267,7 +275,6 @@ class WebMixin(StateBase):
         message: str | None = None,
         result: dict | None = None,
         error_message: str | None = None,
-        run_id: int | None = None,
         finished: bool = False,
     ) -> None:
         """COALESCE-update a job; an unknown ``job_id`` is a no-op."""
@@ -276,7 +283,7 @@ class WebMixin(StateBase):
             "current_item=COALESCE(?,current_item), current_index=COALESCE(?,current_index), "
             "total_items=COALESCE(?,total_items), message=COALESCE(?,message), "
             "result_json=COALESCE(?,result_json), error_message=COALESCE(?,error_message), "
-            "run_id=COALESCE(?,run_id), finished_at=COALESCE(?,finished_at) "
+            "finished_at=COALESCE(?,finished_at) "
             "WHERE job_id=?",
             (
                 state,
@@ -287,7 +294,6 @@ class WebMixin(StateBase):
                 message,
                 json.dumps(result) if result is not None else None,
                 error_message,
-                run_id,
                 self._now() if finished else None,
                 job_id,
             ),
@@ -316,6 +322,14 @@ class WebMixin(StateBase):
         return self._fetchall(
             "SELECT * FROM web_job_events WHERE job_id=? AND event_id>? ORDER BY event_id",
             (job_id, after_id),
+        )
+
+    def list_web_job_runs(self, job_id: str) -> list[dict]:
+        """The runs ``job_id`` opened, oldest first, with their cost and status."""
+        return self._fetchall(
+            "SELECT r.* FROM web_job_runs l JOIN runs r ON r.run_id=l.run_id "
+            "WHERE l.job_id=? ORDER BY r.run_id",
+            (job_id,),
         )
 
     # ── Aggregates ─────────────────────────────────────────────────────
