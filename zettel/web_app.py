@@ -295,6 +295,31 @@ def _discard_extract_review(
     return stats
 
 
+def _decide_web_links(
+    cfg: AppConfig, db: StateDB, progress: JobProgress, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Accept or reject a batch of proposed edges (#309). SQLite only."""
+    from zettel.connector.links import decide_link
+
+    action = payload.get("action")
+    edges = [tuple(edge) for edge in payload.get("edges") or []]
+    stats = {"decided": 0, "skipped": 0}
+    total = len(edges)
+    for number, (source_id, target_id, relation) in enumerate(edges, 1):
+        progress.emit(
+            ProgressEvent(
+                "review",
+                f"Aresta {number}/{total}.",
+                current_item=f"{source_id[-8:]} {relation} {target_id[-8:]}",
+                current_index=number,
+                total_items=total,
+            )
+        )
+        decided = decide_link(cfg, db, source_id, target_id, relation, action, surface="web")
+        stats["decided" if decided else "skipped"] += 1
+    return stats
+
+
 def _vault_rel(path: Path, vault: Path) -> str:
     try:
         return str(path.relative_to(vault))
@@ -849,6 +874,8 @@ class WebWorker:
                 return {"kind": "adopt_moc", **adopt_moc(cfg, db, payload["moc_id"])}
             except MocAdoptError as exc:
                 raise UserFacingError(str(exc)) from exc
+        if operation == "review_links":
+            return _decide_web_links(cfg, db, progress, payload)
         if operation == "skill":
             return _dispatch_skill(cfg, db, progress, payload)
         if operation == "article":

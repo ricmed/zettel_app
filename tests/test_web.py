@@ -2872,6 +2872,148 @@ def test_pipeline_page_shows_the_extract_and_connect_preflight(web_client, monke
     assert "0.5678" in page and "modelo-connect" in page
 
 
+def _seed_review_drafts(client, confidences):
+    """Drafts with the given (chunk suffix, confidence, has_defect) and their concepts."""
+    import json
+
+    db = client.app.state.service.db()
+    try:
+        db.upsert_source("@Book2024", "Book2024", "Livro", ["Autor"], 2024, "h", "/x.md", "md")
+        db.upsert_chapter("@Book2024::ch000", "@Book2024", "Cap", "ch")
+        for index, (suffix, confidence, defect) in enumerate(confidences):
+            candidate = {"thesis": f"Tese {suffix}", "intuition": "i", "limits": "l"}
+            if defect:
+                candidate.pop("limits")
+            db.upsert_chunk(
+                f"@Book2024::ch000::{suffix}",
+                "@Book2024",
+                "@Book2024::ch000",
+                f"Texto {suffix}",
+                f"ck{suffix}",
+                status="awaiting_review",
+                chunk_index=index,
+                review_confidence=confidence,
+                summary_json=json.dumps({"candidates": [candidate]}),
+            )
+            db.upsert_concept(
+                f"c-{suffix}",
+                "@Book2024",
+                f"@Book2024::ch000::{suffix}",
+                candidate_json=json.dumps(candidate),
+                status="awaiting_review",
+            )
+    finally:
+        db.close()
+
+
+def test_review_drafts_follow_the_cli_queue_order(web_client):
+    """Defects first, then ascending confidence, as zettel review does (#268, #309)."""
+    client, _ = web_client
+    _login(client)
+    _seed_review_drafts(
+        client, [("aaa", 0.9, False), ("bbb", 0.5, False), ("ccc", 0.95, True), ("ddd", 0.7, False)]
+    )
+    page = client.get("/review").text
+    order = sorted(("aaa", "bbb", "ccc", "ddd"), key=page.index)
+    assert order == ["ccc", "bbb", "ddd", "aaa"]
+
+
+def test_review_queries_do_not_grow_with_the_queue(web_client):
+    """Every draft was enriched before slicing 20 in Python (#309)."""
+    from zettel.state import StateDB
+
+    client, _ = web_client
+    _login(client)
+
+    def count_queries(path):
+        statements = []
+        real_init = StateDB.__init__
+
+        def traced(self, db_path):
+            real_init(self, db_path)
+            self.conn.set_trace_callback(statements.append)
+
+        StateDB.__init__ = traced
+        try:
+            assert client.get(path).status_code == 200
+        finally:
+            StateDB.__init__ = real_init
+        return len([s for s in statements if s.lstrip().upper().startswith("SELECT")])
+
+    _seed_review_drafts(client, [(f"a{n:02d}", 0.5, False) for n in range(25)])
+    small = count_queries("/review")
+    _seed_review_drafts(client, [(f"b{n:02d}", 0.5, False) for n in range(60)])
+    assert count_queries("/review") == small
+
+
+def _seed_proposed_edges(client, count):
+    db = client.app.state.service.db()
+    try:
+        db.upsert_source("@A2020", "A2020", "A", ["A"], 2020, "ha", "/a.md", "md")
+        db.upsert_source("@B2021", "B2021", "B", ["B"], 2021, "hb", "/b.md", "md")
+        for n in range(count):
+            for side, source in (("s", "@A2020"), ("t", "@A2020" if n % 2 else "@B2021")):
+                db.upsert_note(
+                    f"{side}{n:03d}",
+                    source,
+                    None,
+                    title=f"Nota {side}{n:03d}",
+                    body=f"## Tese\n\nTese {side}{n:03d}.\n",
+                )
+            db.upsert_note_connection(
+                f"s{n:03d}",
+                f"t{n:03d}",
+                "supports" if n % 3 else "contradicts",
+                origin="llm",
+                status="proposed",
+            )
+    finally:
+        db.close()
+
+
+def test_link_queue_filters_by_relation_and_scope(web_client):
+    client, _ = web_client
+    _login(client)
+    _seed_proposed_edges(client, 6)
+    contradicts = client.get("/review?queue=links&relation_type=contradicts").text
+    assert "s000" in contradicts and "s003" in contradicts and "s001" not in contradicts
+    intra = client.get("/review?queue=links&scope=intra").text
+    assert "s001" in intra and "s000" not in intra
+
+
+def test_link_queue_decides_a_batch_as_one_job(web_client):
+    """One click per edge does not scale to what connect proposes (#309)."""
+    client, _ = web_client
+    csrf = _login(client)
+    _seed_proposed_edges(client, 3)
+    response = client.post(
+        "/review/links/batch",
+        data={
+            "csrf": csrf,
+            "action": "accept",
+            "edges": ["s000|t000|contradicts", "s001|t001|supports"],
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    job_id = response.headers["location"].rsplit("/", 1)[1]
+    deadline = time.monotonic() + 5
+    while client.app.state.service.job(job_id)["state"] not in {"succeeded", "failed"}:
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    job = client.app.state.service.job(job_id)
+    assert job["state"] == "succeeded"
+    assert job["result"]["decided"] == 2
+    db = client.app.state.service.db()
+    try:
+        remaining = {
+            (e["source_note_id"], e["target_note_id"]) for e in db.list_proposed_connections()
+        }
+    finally:
+        db.close()
+    assert remaining == {("s002", "t002")}
+
+
 def test_pipeline_page_survives_an_estimate_that_cannot_be_built(web_client, monkeypatch):
     """A missing few-shot file must not take the Pipeline page down with it."""
     from zettel import preflight

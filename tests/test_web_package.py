@@ -42,6 +42,7 @@ EXPECTED_ROUTES = [
     ("POST", "/pipeline/{operation}"),
     ("GET", "/review"),
     ("POST", "/review/action"),
+    ("POST", "/review/links/batch"),
     ("POST", "/review/links"),
     ("GET", "/notes"),
     ("GET", "/notes/new"),

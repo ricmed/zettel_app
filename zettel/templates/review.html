@@ -37,13 +37,37 @@
     <option value="high" {% if selected_confidence=='high' %}selected{% endif %}>Alta</option>
   </select>
   {% endif %}
+  {% if queue == 'links' %}
+  <select name="relation_type">
+    <option value="">Todos os tipos</option>
+    {% for relation in relations %}
+    <option value="{{ relation }}" {% if selected_relation == relation %}selected{% endif %}>{{ relation }}</option>
+    {% endfor %}
+  </select>
+  <select name="scope">
+    <option value="">Mesma fonte ou não</option>
+    <option value="intra" {% if selected_scope == 'intra' %}selected{% endif %}>Mesma fonte</option>
+    <option value="inter" {% if selected_scope == 'inter' %}selected{% endif %}>Fontes diferentes</option>
+  </select>
+  {% endif %}
   <button class="button">Filtrar</button>
 </form>
 {% if queue == 'links' %}
+{% set link_query = 'queue=links&source_id=' ~ selected_source ~ '&relation_type=' ~ selected_relation ~ '&scope=' ~ selected_scope %}
+{% if chunks %}
+<form id="links-batch" class="review-actions" method="post" action="/review/links/batch" data-confirm="Confirma a decisão nas arestas selecionadas?">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <span class="muted">Marque as arestas e decida todas de uma vez.</span>
+  <button class="button" name="action" value="accept" onclick="return confirmReviewAction(this)">Aceitar selecionadas</button>
+  <button class="button" name="action" value="reject" onclick="return confirmReviewAction(this)">Rejeitar selecionadas</button>
+</form>
+{% endif %}
 <section class="stack">
   {% for edge in chunks %}
   <article class="panel">
-    <p><b>{{ edge.source_note_id }}</b> {{ edge.relation_type }} <b>{{ edge.target_note_id }}</b></p>
+    <label class="document-check"><input type="checkbox" name="edges" value="{{ edge.source_note_id }}|{{ edge.target_note_id }}|{{ edge.relation_type }}" form="links-batch"> Selecionar</label>
+    <p><b>{{ edge.source_title or edge.source_note_id }}</b> {{ edge.relation_type }} <b>{{ edge.target_title or edge.target_note_id }}</b></p>
+    <p class="muted"><code>{{ edge.source_note_id }}</code> · <code>{{ edge.target_note_id }}</code></p>
     <p>{{ edge.description }}</p>
     <p>{{ edge.source_thesis }}</p>
     <p>{{ edge.target_thesis }}</p>
@@ -66,9 +90,16 @@
     </form>
   </article>
   {% else %}
-  <div class="empty panel">Nenhuma aresta de LLM pendente.</div>
+  <div class="empty panel">Nenhuma aresta de LLM pendente corresponde aos filtros.</div>
   {% endfor %}
 </section>
+{% if chunks %}
+<div class="pagination">
+  {% if review_page > 1 %}<a class="button" href="?{{ link_query }}&amp;page={{ review_page - 1 }}">Anterior</a>{% endif %}
+  <span>Página {{ review_page }} de {{ page_count }}</span>
+  {% if has_next %}<a class="button" href="?{{ link_query }}&amp;page={{ review_page + 1 }}">Próxima</a>{% endif %}
+</div>
+{% endif %}
 {% else %}
 <form method="post" action="/review/action" data-confirm="{% if queue == 'rejected' %}Confirma reenfileirar os chunks selecionados para o extract?{% elif queue == 'duplicates' %}Confirma a decisão nas duplicatas selecionadas?{% else %}Confirma a ação nos drafts selecionados?{% endif %}">
   <input type="hidden" name="csrf" value="{{ csrf }}">

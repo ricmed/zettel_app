@@ -786,8 +786,13 @@ def extract_rejected_chunks(db: StateDB, source_id: str | None = None) -> list[d
     return [
         c
         for c in db.get_chunks_by_status("rejected", source_id=source_id)
-        if not _load_json(c.get("summary_json")).get("candidates")
+        if is_extract_rejected(c)
     ]
+
+
+def is_extract_rejected(chunk: dict) -> bool:
+    """A rejected chunk with no candidate: the extract's verdict, not a reviewer's."""
+    return not _load_json(chunk.get("summary_json")).get("candidates")
 
 
 def requeue_extract_rejected(

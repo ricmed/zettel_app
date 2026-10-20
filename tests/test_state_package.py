@@ -162,6 +162,8 @@ PUBLIC_METHODS = {
     "add_web_job_event",
     "list_web_job_events",
     "list_web_job_runs",
+    "list_chunk_queue",
+    "proposed_connections_page",
     "web_session_key",
     "rotate_web_session_key",
     "create_web_harvest_review",

@@ -187,6 +187,52 @@ class ConnectionsMixin(StateBase):
             "ORDER BY source_note_id, target_note_id, relation_type"
         )
 
+    def proposed_connections_page(
+        self,
+        *,
+        source_id: str | None = None,
+        relation_type: str | None = None,
+        scope: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[dict], int]:
+        """One page of the proposed-edge queue, with both notes' title, body and source.
+
+        ``source_id`` matches either end; ``scope`` is ``intra`` (same source) or
+        ``inter``. Returns the page and the filtered total, in two queries
+        whatever the queue size (#309).
+        """
+        clauses = ["c.origin='llm'", "c.status='proposed'"]
+        params: list = []
+        if source_id:
+            clauses.append("(s.source_id=? OR t.source_id=?)")
+            params += [source_id, source_id]
+        if relation_type:
+            clauses.append("c.relation_type=?")
+            params.append(relation_type)
+        if scope == "intra":
+            clauses.append("s.source_id IS NOT NULL AND s.source_id=t.source_id")
+        elif scope == "inter":
+            clauses.append(
+                "(s.source_id IS NULL OR t.source_id IS NULL OR s.source_id<>t.source_id)"
+            )
+        joins = (
+            "FROM note_connections c "
+            "LEFT JOIN notes s ON s.note_id=c.source_note_id "
+            "LEFT JOIN notes t ON t.note_id=c.target_note_id "
+            "WHERE " + " AND ".join(clauses)
+        )
+        total = self._count("SELECT COUNT(*) " + joins, tuple(params))
+        rows = self._fetchall(
+            "SELECT c.*, s.title AS source_title, s.body AS source_body, "
+            "s.source_id AS source_source_id, t.title AS target_title, "
+            "t.body AS target_body, t.source_id AS target_source_id "
+            + joins
+            + " ORDER BY c.source_note_id, c.target_note_id, c.relation_type LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        )
+        return rows, total
+
     def mark_llm_edges_proposed(self) -> int:
         """Move accepted LLM edges back to the review queue. Derived and manual stay."""
         cur = self.conn.execute(
