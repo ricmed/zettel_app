@@ -198,7 +198,9 @@ def test_ask_summarize_and_skill_show_a_readable_result(web_client, monkeypatch,
     detail = client.get(f"/jobs/{job_id}")
     assert "Resposta citada do acervo." in detail.text
     assert 'id="result-copy"' in detail.text
-    assert "Copiar JSON" in detail.text
+    # A presented result links to its JSON instead of printing it again (#313).
+    assert 'id="job-result"' not in detail.text
+    assert f'href="/api/jobs/{job_id}"' in detail.text
     assert "Nota de RAG" in detail.text
     assert "topk" in detail.text
 

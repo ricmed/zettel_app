@@ -67,3 +67,13 @@ If the web UI is expected to become the primary interface to the system, or if r
 * `zettel/web/` — HTTP endpoints (HTML or redirect; JSON reserved for job progress and the picker GETs of ADR-040)
 * `zettel/web_app.py` — `WebApplication` service layer; web routes delegate business logic here, holding no HTTP concerns themselves
 * `zettel/templates/` — Jinja2 templates covering dashboard, documents, pipeline, review, notes, MOCs, runs, and settings pages
+
+## Addendum (2026-10-20): progress is polled, there is no SSE (#313)
+
+**Status:** Accepted. The context above says job progress streams to the browser by Server-Sent Events. It did not: `GET /api/jobs/{id}/events` existed, but the job page never opened it and polled `GET /api/jobs/{id}?after=<last event>` once a second. The endpoint was removed instead of adopted.
+
+* Polling is enough for one user watching one job, and it keeps the page a plain `fetch`.
+* Since [ADR-062](./ADR-062-web-handlers-run-in-threadpool.md) every handler runs in the threadpool, so a stream would hold one worker thread per open job page for the whole job.
+* The poll reads only the events after the last one it saw, through the index `web_job_events(job_id, event_id)`.
+
+A batch job reports item k only once item k is done; a batch that is one call (deleting extract rejections from SQLite and Chroma) reports that it started, with no count. Before, the bar reached 100% before the work began.

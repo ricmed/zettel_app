@@ -1,12 +1,14 @@
-"""Job list, detail, JSON snapshot, SSE stream."""
+"""Job list, detail and JSON snapshot.
+
+The detail page polls ``/api/jobs/{id}`` once a second. There is no SSE stream:
+nothing consumed it, and a stream would hold a threadpool thread per open page
+(ADR-062) for a single-user app where one-second polling is enough (#313).
+"""
 
 from __future__ import annotations
 
-import json
-import time
-
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from zettel.web.rendering import render, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login
@@ -222,25 +224,3 @@ def job_api(request: Request, job_id: str, after: int = 0):
         "events": service(request).events(job_id, max(0, after)),
         "continue_href": continue_href(job),
     }
-
-
-@router.get("/api/jobs/{job_id}/events")
-def job_events(request: Request, job_id: str):
-    if not authenticated(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-
-    # A sync generator: Starlette iterates it in the threadpool, so the database
-    # reads and the sleep never block the event loop (#304).
-    def stream():
-        last = 0
-        for _ in range(20):
-            events = service(request).events(job_id, last)
-            for event in events:
-                last = max(last, event["event_id"])
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-            job = service(request).job(job_id)
-            if job and job["state"] in {"succeeded", "failed", "interrupted"}:
-                break
-            time.sleep(0.5)
-
-    return StreamingResponse(stream(), media_type="text/event-stream")

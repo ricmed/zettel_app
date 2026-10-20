@@ -136,19 +136,8 @@ def _force_extract_review(
     review_run_id = db.start_run("review")
     begin_run(review_run_id)
     try:
-        total = len(eligible)
-        for number, chunk_id in enumerate(eligible, 1):
-            progress.emit(
-                ProgressEvent(
-                    "review",
-                    f"Marcando extração obrigatória {number}/{total}.",
-                    current_item=chunk_id[-18:],
-                    current_index=number,
-                    total_items=total,
-                )
-            )
         stats["forced"] = force_extract_rejected(
-            db, eligible, mode="web_batch", surface="web", run_id=review_run_id
+            db, eligible, mode="web_batch", surface="web", run_id=review_run_id, observer=progress
         )
         stats["dedupe_pending"] = len(pending_dedupe_concepts(db))
     except Exception:
@@ -174,6 +163,19 @@ def _decide_web_duplicates(
     try:
         total = len(requested)
         for number, concept_id in enumerate(requested, 1):
+            concept = db.get_concept(concept_id)
+            if not concept or concept.get("status") != "dedupe_pending":
+                stats["skipped"] += 1
+            else:
+                decide(
+                    db,
+                    concept_id,
+                    mode="web_batch",
+                    surface="web",
+                    run_id=review_run_id,
+                )
+                stats["kept" if action == "keep_duplicate" else "discarded"] += 1
+            # Reported once decided, never before (#313).
             progress.emit(
                 ProgressEvent(
                     "review",
@@ -183,18 +185,6 @@ def _decide_web_duplicates(
                     total_items=total,
                 )
             )
-            concept = db.get_concept(concept_id)
-            if not concept or concept.get("status") != "dedupe_pending":
-                stats["skipped"] += 1
-                continue
-            decide(
-                db,
-                concept_id,
-                mode="web_batch",
-                surface="web",
-                run_id=review_run_id,
-            )
-            stats["kept" if action == "keep_duplicate" else "discarded"] += 1
         stats["dedupe_pending"] = len(pending_dedupe_concepts(db))
     except Exception:
         finish_pipeline_run(db, review_run_id, status="failed")
@@ -225,19 +215,8 @@ def _requeue_extract_review(
     review_run_id = db.start_run("review")
     begin_run(review_run_id)
     try:
-        total = len(eligible)
-        for number, chunk_id in enumerate(eligible, 1):
-            progress.emit(
-                ProgressEvent(
-                    "review",
-                    f"Reenfileirando item {number}/{total}.",
-                    current_item=chunk_id[-18:],
-                    current_index=number,
-                    total_items=total,
-                )
-            )
         stats["requeued"] = requeue_extract_rejected(
-            db, eligible, mode="web_batch", surface="web", run_id=review_run_id
+            db, eligible, mode="web_batch", surface="web", run_id=review_run_id, observer=progress
         )
         stats["dedupe_pending"] = len(pending_dedupe_concepts(db))
     except Exception:
@@ -273,19 +252,14 @@ def _discard_extract_review(
     try:
         if eligible:
             idx = VectorIndex(**index_kwargs(cfg))
-            total = len(eligible)
-            for number, chunk_id in enumerate(eligible, 1):
-                progress.emit(
-                    ProgressEvent(
-                        "review",
-                        f"Apagando item {number}/{total}.",
-                        current_item=chunk_id[-18:],
-                        current_index=number,
-                        total_items=total,
-                    )
-                )
             stats["discarded"] = discard_extract_rejected(
-                db, idx, eligible, mode="web_batch", surface="web", run_id=review_run_id
+                db,
+                idx,
+                eligible,
+                mode="web_batch",
+                surface="web",
+                run_id=review_run_id,
+                observer=progress,
             )
         stats["dedupe_pending"] = len(pending_dedupe_concepts(db))
     except Exception:
@@ -306,6 +280,8 @@ def _decide_web_links(
     stats = {"decided": 0, "skipped": 0}
     total = len(edges)
     for number, (source_id, target_id, relation) in enumerate(edges, 1):
+        decided = decide_link(cfg, db, source_id, target_id, relation, action, surface="web")
+        stats["decided" if decided else "skipped"] += 1
         progress.emit(
             ProgressEvent(
                 "review",
@@ -315,8 +291,6 @@ def _decide_web_links(
                 total_items=total,
             )
         )
-        decided = decide_link(cfg, db, source_id, target_id, relation, action, surface="web")
-        stats["decided" if decided else "skipped"] += 1
     return stats
 
 
@@ -619,6 +593,9 @@ class WebWorker:
             recovered = db.recover_web_jobs()
             if recovered:
                 logger.warning("Web: %d trabalho(s) marcados como interrupted", recovered)
+            purged = db.purge_web_jobs(older_than_days=self.config.get().web.job_retention_days)
+            if purged:
+                logger.info("Web: %d trabalho(s) antigo(s) expurgado(s)", purged)
             from zettel.harvester.prepared import (
                 discard_orphan_preparations,
                 remove_preparation,
@@ -1159,15 +1136,6 @@ class WebWorker:
             persisted: list[str] = []
             try:
                 for number, chunk_id in enumerate(chunk_ids, 1):
-                    progress.emit(
-                        ProgressEvent(
-                            "review",
-                            f"Revisando item {number}/{total}.",
-                            current_item=chunk_id[-18:],
-                            current_index=number,
-                            total_items=total,
-                        )
-                    )
                     if action == "approve":
                         ok = approve_chunk(
                             cfg,
@@ -1194,9 +1162,21 @@ class WebWorker:
                         )
                     stats["approved" if action == "approve" else "rejected"] += int(ok)
                     stats["skipped"] += int(not ok)
+                    progress.emit(
+                        ProgressEvent(
+                            "review",
+                            f"Revisado {number}/{total}.",
+                            current_item=chunk_id[-18:],
+                            current_index=number,
+                            total_items=total,
+                        )
+                    )
                 if action == "approve":
                     refresh_approved_literature(cfg, db, persisted)
                     if stats["approved"]:
+                        progress.emit(
+                            ProgressEvent("review", "Deduplicando os conceitos aprovados.")
+                        )
                         finalize_approved_concepts(cfg, db, idx)
                 stats["dedupe_pending"] = len(pending_dedupe_concepts(db))
             except Exception:

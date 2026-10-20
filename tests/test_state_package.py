@@ -151,6 +151,7 @@ PUBLIC_METHODS = {
     "rebuild_fts",
     # web + aggregates
     "recover_web_jobs",
+    "purge_web_jobs",
     "create_web_job",
     "has_active_web_job",
     "next_queued_web_job",

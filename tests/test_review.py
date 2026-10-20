@@ -1192,6 +1192,71 @@ def test_discard_extract_rejected_skips_reviewer_rejections(env):
     assert idx.chunk_deletes == ["@Book2024::ch000::refs"]
 
 
+class _ProgressProbe:
+    """At every progress event, how many of ``ids`` had already left ``rejected``."""
+
+    def __init__(self, db, ids):
+        self.db, self.ids, self.events = db, ids, []
+
+    def update(self, phase, message, *, current_item=None, current_index=None, total_items=None):
+        done = sum((self.db.get_chunk(cid) or {}).get("status") != "rejected" for cid in self.ids)
+        self.events.append((current_index, total_items, done))
+
+
+@pytest.mark.parametrize("name", ["requeue_extract_rejected", "force_extract_rejected"])
+def test_batch_requeue_reports_item_k_only_after_it_moved(env, name):
+    """No "k/N" before item k is done: the bar used to reach 100% first (#313)."""
+    from zettel import review
+
+    _, db, _ = env
+    ids = [f"@Book2024::ch000::r{n}" for n in range(3)]
+    for cid in ids:
+        _seed_extract_rejected(db, cid)
+    probe = _ProgressProbe(db, ids)
+
+    assert getattr(review, name)(db, ids, observer=probe) == 3
+    assert probe.events == [(1, 3, 1), (2, 3, 2), (3, 3, 3)]
+
+
+def test_batch_discard_reports_no_item_count_before_the_delete(env):
+    from zettel.review import discard_extract_rejected
+
+    _, db, idx = env
+    ids = [f"@Book2024::ch000::r{n}" for n in range(3)]
+    for cid in ids:
+        _seed_extract_rejected(db, cid)
+    probe = _ProgressProbe(db, ids)
+
+    assert discard_extract_rejected(db, idx, ids, observer=probe) == 3
+    assert probe.events
+    assert all(index is None for index, _, _ in probe.events)
+
+
+def test_web_duplicate_batch_reports_each_decision_after_it(env):
+    from zettel.web_app import _decide_web_duplicates
+
+    _, db, _ = env
+    ids = ["dup-0", "dup-1"]
+    for concept_id in ids:
+        db.upsert_concept(
+            concept_id,
+            "@Book2024",
+            "@Book2024::ch000::abc",
+            candidate_json=json.dumps({"thesis": concept_id, "definition": "d"}),
+            status="dedupe_pending",
+        )
+    seen = []
+
+    class Probe:
+        def emit(self, event):
+            decided = sum(db.get_concept(c)["status"] != "dedupe_pending" for c in ids)
+            seen.append((event.current_index, decided))
+
+    with patch("zettel.usage.begin_run"), patch("zettel.usage.finish_pipeline_run"):
+        _decide_web_duplicates(db, Probe(), {"action": "keep_duplicate", "concept_ids": ids})
+    assert seen == [(1, 1), (2, 2)]
+
+
 def test_format_extract_rejected_item_keeps_full_text():
     from zettel.review import format_extract_rejected_item
 

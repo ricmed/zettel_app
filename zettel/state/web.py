@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import secrets
 from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from zettel.state.base import StateBase, placeholders
@@ -64,6 +65,26 @@ class WebMixin(StateBase):
         )
         self.conn.commit()
         return cur.rowcount + resumed
+
+    def purge_web_jobs(self, *, older_than_days: int) -> int:
+        """Delete finished jobs older than ``older_than_days``; ``0`` keeps all (#313).
+
+        Their events and run links go with them (cascade); the runs stay, as
+        pipeline history. A preparation's review row is deleted first, and its
+        snapshot is left for ``discard_orphan_preparations``. Returns the count.
+        """
+        if older_than_days <= 0:
+            return 0
+        cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
+        cutoff = cutoff.isoformat(timespec="seconds")
+        old = (
+            "SELECT job_id FROM web_jobs WHERE state IN ('succeeded','failed','interrupted') "
+            "AND COALESCE(finished_at, created_at) < ?"
+        )
+        self.conn.execute(f"DELETE FROM web_harvest_reviews WHERE job_id IN ({old})", (cutoff,))
+        cur = self.conn.execute(f"DELETE FROM web_jobs WHERE job_id IN ({old})", (cutoff,))
+        self.conn.commit()
+        return cur.rowcount
 
     def create_web_job(self, job_id: str, operation: str, payload: dict) -> bool:
         """Atomically enqueue a job, allowing one mutating operation at a time."""

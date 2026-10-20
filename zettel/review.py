@@ -12,6 +12,7 @@ from zettel.config import AppConfig
 from zettel.decision.shadow import label_dedupe
 from zettel.hashing import quote_is_grounded
 from zettel.index import VectorIndex
+from zettel.progress import ProgressObserver, report
 from zettel.schemas import PermanentNoteCandidate
 from zettel.state import StateDB
 from zettel.time import now_vault_iso
@@ -802,20 +803,38 @@ def requeue_extract_rejected(
     mode: str = "manual",
     surface: str = "cli",
     run_id: int | None = None,
+    observer: ProgressObserver | None = None,
 ) -> int:
     """Send extract rejections back to ``pending``, dropping the cached verdict.
 
     This is a second opinion: the next extract may reject the chunk again.
-    It does not set ``force_extract``.
+    It does not set ``force_extract``. ``observer`` hears item k once it moved.
     """
     moved = 0
-    for cid in chunk_ids:
+    total = len(chunk_ids)
+    for number, cid in enumerate(chunk_ids, 1):
         chunk = db.get_chunk(cid)
-        if not db.reset_chunk_to_pending(cid, drop_llm_cache=True):
-            continue
-        log_review_event(db, chunk, decision="requeue", mode=mode, surface=surface, run_id=run_id)
-        moved += 1
+        if db.reset_chunk_to_pending(cid, drop_llm_cache=True):
+            log_review_event(
+                db, chunk, decision="requeue", mode=mode, surface=surface, run_id=run_id
+            )
+            moved += 1
+        _report_item(observer, "Reenfileirado", cid, number, total)
     return moved
+
+
+def _report_item(
+    observer: ProgressObserver | None, verb: str, chunk_id: str, number: int, total: int
+) -> None:
+    """Progress for a batch item that is already done, never one about to start (#313)."""
+    report(
+        observer,
+        "review",
+        f"{verb} {number}/{total}.",
+        current_item=chunk_id[-18:],
+        current_index=number,
+        total_items=total,
+    )
 
 
 def force_extract_rejected(
@@ -825,14 +844,17 @@ def force_extract_rejected(
     mode: str = "manual",
     surface: str = "cli",
     run_id: int | None = None,
+    observer: ProgressObserver | None = None,
 ) -> int:
     """Send extract rejections back to ``pending`` with ``force_extract`` set.
 
     The next extract must produce a draft: Prompt 1 is told to ignore the
     selectivity locks. A draft or a reviewer rejection is not eligible.
+    ``observer`` hears item k once it moved.
     """
     forced = 0
-    for cid in requeueable_extract_ids(db, chunk_ids):
+    eligible = requeueable_extract_ids(db, chunk_ids)
+    for number, cid in enumerate(eligible, 1):
         chunk = db.get_chunk(cid)
         if not chunk:
             continue
@@ -845,6 +867,7 @@ def force_extract_rejected(
         if db.reset_chunk_to_pending(cid, drop_llm_cache=True):
             log_review_event(db, chunk, decision="force", mode=mode, surface=surface, run_id=run_id)
             forced += 1
+        _report_item(observer, "Extração obrigatória marcada", cid, number, len(eligible))
     return forced
 
 
@@ -856,15 +879,22 @@ def discard_extract_rejected(
     mode: str = "manual",
     surface: str = "cli",
     run_id: int | None = None,
+    observer: ProgressObserver | None = None,
 ) -> int:
     """Hard-delete extract rejections from SQLite and the chunks index.
 
     A draft or a reviewer rejection is not in :func:`requeueable_extract_ids`,
     so this cannot remove it. No VACUUM: reclaiming disk stays on ``purge-rejected``.
+    The delete is one batch, so ``observer`` hears that it started, with no count.
     """
     eligible = requeueable_extract_ids(db, chunk_ids)
     if not eligible:
         return 0
+    report(
+        observer,
+        "review",
+        f"Apagando {len(eligible)} item(ns) do SQLite e do índice vetorial.",
+    )
     for cid in eligible:
         log_review_event(
             db,

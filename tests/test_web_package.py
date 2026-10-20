@@ -59,7 +59,6 @@ EXPECTED_ROUTES = [
     ("GET", "/jobs/{job_id}"),
     ("POST", "/jobs/{job_id}/resume"),
     ("GET", "/api/jobs/{job_id}"),
-    ("GET", "/api/jobs/{job_id}/events"),
     ("GET", "/settings"),
     ("GET", "/notes/{note_id}/markdown"),
     ("GET", "/mocs/{moc_id}/markdown"),

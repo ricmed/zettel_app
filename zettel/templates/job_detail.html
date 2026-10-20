@@ -205,17 +205,19 @@
 
 {% if copy_text %}<textarea id="result-copy" class="copy-source" readonly>{{ copy_text }}</textarea>{% endif %}
 <section id="job-outcome" class="panel" {% if not job.result and not job.error_message %}hidden{% endif %}>
+  {% if result.kind and not job.error_message %}
+  {# Presented above; the raw JSON is a link, not a second copy of the page (#313). #}
+  <p class="muted"><a href="/api/jobs/{{ job.job_id }}">JSON completo do resultado</a></p>
+  {% else %}
   <div class="result-heading">
     <h2>Resultado</h2>
     <div class="copy-actions">
-      <button type="button" class="button copy-text" data-copy="job-result">{% if result.kind %}Copiar JSON{% else %}Copiar{% endif %}</button>
+      <button type="button" class="button copy-text" data-copy="job-result">Copiar</button>
       <span class="copy-status" role="status" aria-live="polite"></span>
     </div>
   </div>
-  <details {% if not result.kind %}open{% endif %}>
-    <summary>JSON</summary>
-    <pre id="job-result">{% if job.error_message %}{{ job.error_message }}{% elif job.result %}{{ job.result|tojson(indent=2) }}{% endif %}</pre>
-  </details>
+  <pre id="job-result">{% if job.error_message %}{{ job.error_message }}{% elif job.result %}{{ job.result|tojson(indent=2) }}{% endif %}</pre>
+  {% endif %}
 </section>
 <p id="job-continue" class="panel" {% if not continue_href or job.state != 'succeeded' %}hidden{% endif %}><a id="job-continue-link" href="{{ continue_href or '#' }}">Continuar</a></p>
 <section class="panel"><h2>Eventos</h2><div id="events" class="event-list"></div></section>
@@ -256,9 +258,10 @@ async function refresh(){
     bar.style.width="";
     document.querySelector("#job-count").textContent=j.message||"Em andamento";
   }
-  if(j.result||j.error_message){
+  const out=document.querySelector("#job-result");
+  if(out&&(j.result||j.error_message)){
     document.querySelector("#job-outcome").hidden=false;
-    document.querySelector("#job-result").textContent=j.error_message||JSON.stringify(j.result,null,2);
+    out.textContent=j.error_message||JSON.stringify(j.result,null,2);
   }
   d.events.forEach(e=>{
     after=Math.max(after,e.event_id);

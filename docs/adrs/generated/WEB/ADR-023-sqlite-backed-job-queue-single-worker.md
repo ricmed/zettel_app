@@ -80,3 +80,7 @@ The worker claims `WHERE state='queued' ORDER BY created_at ASC, rowid ASC`. Tak
 * The writes the web does in the request take it as well: a single edge decision on `/review?queue=links`, the scaffolds of `/notes/new`, and the catalog's read of Chroma. An upload only adds a new file to the inbox and does not.
 
 Two handles exclude each other inside one process too, which is what keeps a request thread out while the worker runs a job. This is not a broker: it serialises one machine's writers, the deployment ADR-023 assumes.
+
+## Addendum (2026-10-20): retention of finished jobs (#313)
+
+`web_jobs` and `web_job_events` grew forever. On start, after `recover_web_jobs`, the worker calls `StateDB.purge_web_jobs(older_than_days=web.job_retention_days)` (90 by default, `0` keeps everything): finished jobs (`succeeded`, `failed`, `interrupted`) older than that go, with their events and their `web_job_runs` links by cascade. The `runs` rows stay, since they are pipeline history that `zettel status` reads. A preparation's `web_harvest_reviews` row goes with its job, and its snapshot is then removed by `discard_orphan_preparations`. Queued, running and parked jobs are never purged.

@@ -565,6 +565,16 @@ class CatalogConfig(BaseModel):
     max_chapters_per_source: int = 8
 
 
+class WebConfig(BaseModel):
+    """Interface web. Catalogo: config.yaml -> web."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Jobs encerrados ha mais que isto (e seus eventos) saem do banco na subida
+    # do worker (#313). 0 guarda todos. Os runs ficam, como historico.
+    job_retention_days: int = Field(default=90, ge=0)
+
+
 class SummarizeConfig(BaseModel):
     """Resumo de capitulo e de fonte (ADR-047). Catalogo: config.yaml -> summarize."""
 
@@ -694,6 +704,7 @@ class AppConfig(BaseModel):
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     summarize: SummarizeConfig = Field(default_factory=SummarizeConfig)
     decision: DecisionConfig = Field(default_factory=DecisionConfig)
+    web: WebConfig = Field(default_factory=WebConfig)
 
     language: str = "pt-BR"
     vault_timezone: str = "America/Sao_Paulo"

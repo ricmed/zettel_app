@@ -519,3 +519,88 @@ def test_sync_records_a_run(tmp_path: Path):
         assert last["status"] == "completed"
     finally:
         db.close()
+
+
+_LONG_AGO = "2020-01-01T00:00:00+00:00"
+
+
+def _finished_job(db, job_id, operation="extract", state="succeeded", finished_at=_LONG_AGO):
+    assert db.create_web_job(job_id, operation, {})
+    assert db.claim_web_job(job_id)
+    db.update_web_job(job_id, state=state, phase="completed", finished=True)
+    db.add_web_job_event(job_id, operation, message="feito")
+    db.conn.execute("UPDATE web_jobs SET finished_at=? WHERE job_id=?", (finished_at, job_id))
+    db.conn.commit()
+
+
+def test_purge_web_jobs_drops_finished_jobs_past_the_retention(tmp_path: Path):
+    """Jobs, events and run links no longer grow forever (#313); runs stay as history."""
+    from zettel.state.runs import current_web_job
+    from zettel.time import now_utc_iso
+
+    db = StateDB(tmp_path / "state.db")
+    try:
+        _finished_job(db, "old-ok")
+        token = current_web_job.set("old-ok")
+        try:
+            run_id = db.start_run("extract")
+        finally:
+            current_web_job.reset(token)
+        _finished_job(db, "old-failed", state="failed")
+        _finished_job(db, "old-prep", operation="prepare_harvest")
+        db.create_web_harvest_review("old-prep", "sessao", "checksum")
+        _finished_job(db, "recent", finished_at=now_utc_iso())
+        assert db.create_web_job("queued-old", "extract", {})
+        db.conn.execute("UPDATE web_jobs SET created_at=? WHERE job_id='queued-old'", (_LONG_AGO,))
+        db.conn.commit()
+
+        assert db.purge_web_jobs(older_than_days=0) == 0  # 0 keeps everything
+        assert db.purge_web_jobs(older_than_days=30) == 3
+
+        assert {job["job_id"] for job in db.list_web_jobs()} == {"recent", "queued-old"}
+        assert db.list_web_job_events("old-ok") == []
+        assert db.list_web_job_runs("old-ok") == []
+        assert db.get_web_harvest_review("old-prep", "sessao") is None
+        assert db.get_run(run_id) is not None
+    finally:
+        db.close()
+
+
+def test_job_events_are_read_through_an_index(tmp_path: Path):
+    db = StateDB(tmp_path / "state.db")
+    try:
+        plan = db.conn.execute(
+            "EXPLAIN QUERY PLAN SELECT * FROM web_job_events "
+            "WHERE job_id=? AND event_id>? ORDER BY event_id",
+            ("job", 0),
+        ).fetchall()
+    finally:
+        db.close()
+    details = " ".join(str(row[-1]) for row in plan)
+    assert "idx_web_job_events_job" in details
+    assert "TEMP B-TREE" not in details
+
+
+def test_worker_start_applies_the_job_retention(tmp_path: Path):
+    from zettel.web_app import ConfigCache
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"state_db_path: {tmp_path / 'state.db'}\n"
+        f"cache_path: {tmp_path / 'cache'}\n"
+        "web:\n  job_retention_days: 7\n",
+        encoding="utf-8",
+    )
+    db = StateDB(tmp_path / "state.db")
+    try:
+        _finished_job(db, "old-ok")
+    finally:
+        db.close()
+    worker = WebWorker(ConfigCache(config))
+    worker.start()
+    worker.stop()
+    db = StateDB(tmp_path / "state.db")
+    try:
+        assert db.get_web_job("old-ok") is None
+    finally:
+        db.close()
