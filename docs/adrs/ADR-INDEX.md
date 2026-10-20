@@ -389,7 +389,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-08-29
-- **Summary**: 23 endpoints serving complete HTML via Jinja2 templates, no separate frontend build; forms submit via standard POST/GET with server-side validation. The job page polls `/api/jobs/{id}` once a second; the unused SSE endpoint was removed (#313).
+- **Summary**: Routes serving complete HTML via Jinja2 templates (41 routes, 3 of them read-only JSON, on 2026-10-20), no separate frontend build; forms submit via standard POST/GET with server-side validation. The job page polls `/api/jobs/{id}` once a second; the unused SSE endpoint was removed (#313).
 - **Link**: [`ADR-022-fastapi-server-rendered-jinja2.md`](./generated/WEB/ADR-022-fastapi-server-rendered-jinja2.md)
 
 ---

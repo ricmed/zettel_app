@@ -1233,7 +1233,7 @@ def test_batch_discard_reports_no_item_count_before_the_delete(env):
 
 
 def test_web_duplicate_batch_reports_each_decision_after_it(env):
-    from zettel.web_app import _decide_web_duplicates
+    from zettel.web_app import JobContext, _op_review_duplicates
 
     _, db, _ = env
     ids = ["dup-0", "dup-1"]
@@ -1253,7 +1253,8 @@ def test_web_duplicate_batch_reports_each_decision_after_it(env):
             seen.append((event.current_index, decided))
 
     with patch("zettel.usage.begin_run"), patch("zettel.usage.finish_pipeline_run"):
-        _decide_web_duplicates(db, Probe(), {"action": "keep_duplicate", "concept_ids": ids})
+        payload = {"action": "keep_duplicate", "concept_ids": ids}
+        _op_review_duplicates(JobContext(None, db, Probe(), payload, {}, "job"))
     assert seen == [(1, 1), (2, 2)]
 
 

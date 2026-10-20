@@ -6,6 +6,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
 from zettel.web.enqueue import lock_busy_message, operation_lock, post_job
+from zettel.web.labels import md_cell
 from zettel.web.rendering import error_page, render, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login
 
@@ -119,10 +120,6 @@ def _page(request: Request, *, status_code: int = 200, error: str | None = None,
     )
 
 
-def _cell(value: object) -> str:
-    return str(value or "").replace("|", "/").replace("\n", " ").strip()
-
-
 def catalog_copy_text(result, *, show_context: bool) -> str:
     """Markdown of the catalog the page is showing, for the copy button."""
     lines = [f"# Catálogo: {result.query}", ""]
@@ -140,10 +137,10 @@ def catalog_copy_text(result, *, show_context: bool) -> str:
                 "| "
                 + " | ".join(
                     [
-                        _cell(title),
-                        _cell(chapter.page_label or "-"),
+                        md_cell(title),
+                        md_cell(chapter.page_label or "-"),
                         str(chapter.note_count),
-                        _cell(chapter.origin_label),
+                        md_cell(chapter.origin_label),
                     ]
                 )
                 + " |"
@@ -170,11 +167,11 @@ def catalog_copy_text(result, *, show_context: bool) -> str:
                 "| "
                 + " | ".join(
                     [
-                        _cell(chapter.chapter_title),
-                        _cell(chapter.source_id),
+                        md_cell(chapter.chapter_title),
+                        md_cell(chapter.source_id),
                         similarity,
                         "sim" if chapter.passed_floor else "não",
-                        _cell(chapter.floor_reason or "-"),
+                        md_cell(chapter.floor_reason or "-"),
                     ]
                 )
                 + " |"

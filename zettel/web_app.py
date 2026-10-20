@@ -137,10 +137,34 @@ class JobProgress:
         )
 
 
-def _force_extract_review(
-    db: StateDB, progress: JobProgress, payload: dict[str, Any]
-) -> dict[str, Any]:
+@dataclass
+class JobContext:
+    """What a worker operation receives (#318). ``idx`` opens on first use:
+    an operation that never searches never opens Chroma (nor needs its key)."""
+
+    cfg: AppConfig
+    db: StateDB
+    progress: JobProgress
+    payload: dict[str, Any]
+    sessions: dict[str, Any]
+    job_id: str
+    _idx: Any = None
+
+    @property
+    def idx(self) -> Any:
+        if self._idx is None:
+            from zettel.index import VectorIndex, index_kwargs
+
+            self._idx = VectorIndex(**index_kwargs(self.cfg))
+        return self._idx
+
+
+Handler = Callable[[JobContext], dict[str, Any]]
+
+
+def _op_review_force(ctx: JobContext) -> dict[str, Any]:
     """Mark extract rejections for a forced Prompt 1 call. No vector index."""
+    db, progress, payload = ctx.db, ctx.progress, ctx.payload
     from zettel.review import (
         force_extract_rejected,
         pending_dedupe_concepts,
@@ -171,10 +195,9 @@ def _force_extract_review(
     return stats
 
 
-def _decide_web_duplicates(
-    db: StateDB, progress: JobProgress, payload: dict[str, Any]
-) -> dict[str, Any]:
+def _op_review_duplicates(ctx: JobContext) -> dict[str, Any]:
     """Keep or discard concepts the dedupe flagged. SQLite only: no vector index."""
+    db, progress, payload = ctx.db, ctx.progress, ctx.payload
     from zettel.review import discard_duplicate, keep_duplicate, pending_dedupe_concepts
     from zettel.usage import begin_run, finish_pipeline_run
 
@@ -217,10 +240,9 @@ def _decide_web_duplicates(
     return stats
 
 
-def _requeue_extract_review(
-    db: StateDB, progress: JobProgress, payload: dict[str, Any]
-) -> dict[str, Any]:
+def _op_review_requeue(ctx: JobContext) -> dict[str, Any]:
     """Send extract rejections back to pending. Does not open the vector index."""
+    db, progress, payload = ctx.db, ctx.progress, ctx.payload
     from zettel.review import (
         pending_dedupe_concepts,
         requeue_extract_rejected,
@@ -250,11 +272,9 @@ def _requeue_extract_review(
     return stats
 
 
-def _discard_extract_review(
-    cfg: AppConfig, db: StateDB, progress: JobProgress, payload: dict[str, Any]
-) -> dict[str, Any]:
+def _op_review_discard(ctx: JobContext) -> dict[str, Any]:
     """Delete extract rejections from SQLite and Chroma. Drafts stay put."""
-    from zettel.index import VectorIndex, index_kwargs
+    db, progress, payload = ctx.db, ctx.progress, ctx.payload
     from zettel.review import (
         discard_extract_rejected,
         pending_dedupe_concepts,
@@ -275,10 +295,9 @@ def _discard_extract_review(
     begin_run(review_run_id)
     try:
         if eligible:
-            idx = VectorIndex(**index_kwargs(cfg))
             stats["discarded"] = discard_extract_rejected(
                 db,
-                idx,
+                ctx.idx,
                 eligible,
                 mode="web_batch",
                 surface="web",
@@ -293,10 +312,9 @@ def _discard_extract_review(
     return stats
 
 
-def _decide_web_links(
-    cfg: AppConfig, db: StateDB, progress: JobProgress, payload: dict[str, Any]
-) -> dict[str, Any]:
+def _op_review_links(ctx: JobContext) -> dict[str, Any]:
     """Accept or reject a batch of proposed edges (#309). SQLite only."""
+    cfg, db, progress, payload = ctx.cfg, ctx.db, ctx.progress, ctx.payload
     from zettel.connector.links import decide_link
 
     action = payload.get("action")
@@ -339,9 +357,8 @@ def _ask_candidate(src: Any) -> dict[str, Any]:
     }
 
 
-def _dispatch_ask(
-    cfg: AppConfig, db: StateDB, idx: Any, progress: JobProgress, payload: dict
-) -> dict:
+def _op_ask(ctx: JobContext) -> dict:
+    cfg, db, progress, payload, idx = ctx.cfg, ctx.db, ctx.progress, ctx.payload, ctx.idx
     from zettel.ask import run_ask, save_ask_note
 
     progress.emit(ProgressEvent("ask", "Consultando o acervo."))
@@ -373,9 +390,8 @@ def _dispatch_ask(
     return body
 
 
-def _dispatch_summarize(
-    cfg: AppConfig, db: StateDB, idx: Any, progress: JobProgress, payload: dict
-) -> dict:
+def _op_summarize(ctx: JobContext) -> dict:
+    cfg, db, progress, payload, idx = ctx.cfg, ctx.db, ctx.progress, ctx.payload, ctx.idx
     from zettel.summarize import generate_summaries
 
     progress.emit(ProgressEvent("summarize", "Resumindo capítulos."))
@@ -392,7 +408,8 @@ def _dispatch_summarize(
     }
 
 
-def _dispatch_skill(cfg: AppConfig, db: StateDB, progress: JobProgress, payload: dict) -> dict:
+def _op_skill(ctx: JobContext) -> dict:
+    cfg, db, progress, payload = ctx.cfg, ctx.db, ctx.progress, ctx.payload
     from zettel.skill_export import SkillExportError, estimate_tokens, run_skill_export
 
     progress.emit(ProgressEvent("skill", "Exportando skill."))
@@ -488,13 +505,9 @@ def _release_article(drive: Any, *, failed: bool) -> None:
             db.close()
 
 
-def _dispatch_article(
-    cfg: AppConfig,
-    progress: JobProgress,
-    payload: dict,
-    sessions: dict[str, Any],
-    job_id: str,
-) -> dict[str, Any]:
+def _op_article(ctx: JobContext) -> dict[str, Any]:
+    cfg, progress, payload = ctx.cfg, ctx.progress, ctx.payload
+    sessions, job_id = ctx.sessions, ctx.job_id
     from zettel.article_graph.graph import ArticleDrive
     from zettel.index import VectorIndex, index_kwargs
 
@@ -844,443 +857,475 @@ class WebWorker:
         sessions: dict[str, Any] | None = None,
         job_id: str | None = None,
     ) -> dict[str, Any]:
+        handler = OPERATIONS.get(operation)
+        if handler is None:
+            raise ValueError("Operação web desconhecida")
         progress.emit(ProgressEvent(operation, f"Carregando dependências para {operation}."))
-        if operation == "retry_chunks":
-            failed = db.get_chunks_by_status("failed", payload.get("source_id"))
-            for chunk in failed:
-                db.update_chunk_status(chunk["chunk_id"], "pending")
-            return {"chunks_reset": len(failed)}
-        if operation == "retry_assets":
-            return {"assets_reset": db.reset_failed_assets()}
-        if operation == "manual-ztl-from-lit" and not payload.get("use_llm"):
-            from zettel.manual_lit import create_permanent_from_literature
+        ctx = JobContext(
+            cfg, db, progress, payload, sessions if sessions is not None else {}, job_id or ""
+        )
+        return handler(ctx)
 
-            ref = payload.get("ref") or payload["chunk_id"]
-            path, used_llm = create_permanent_from_literature(
-                cfg,
-                db,
-                None,
-                ref,
-                thesis=payload.get("thesis") or None,
-                use_llm=False,
-                force=bool(payload.get("force")),
+
+def _op_retry_chunks(ctx: JobContext) -> dict[str, Any]:
+    """Failed chunks back to pending, optionally for one source."""
+    db, payload = ctx.db, ctx.payload
+    failed = db.get_chunks_by_status("failed", payload.get("source_id"))
+    for chunk in failed:
+        db.update_chunk_status(chunk["chunk_id"], "pending")
+    return {"chunks_reset": len(failed)}
+
+
+def _op_retry_assets(ctx: JobContext) -> dict[str, Any]:
+    """Failed image descriptions back to pending."""
+    db = ctx.db
+    return {"assets_reset": db.reset_failed_assets()}
+
+
+def _op_prepare_harvest(ctx: JobContext) -> dict[str, Any]:
+    """Extract one inbox file and infer its bibliography for the review page."""
+    cfg, db, progress, payload = ctx.cfg, ctx.db, ctx.progress, ctx.payload
+    from zettel.bibliography import build_bibliographic_metadata, format_abnt
+    from zettel.harvester import extract
+    from zettel.harvester.prepared import asset_stage_path, save_snapshot
+    from zettel.hashing import file_sha256
+
+    file_path = Path(payload["selected_file"]).resolve()
+    if (
+        not file_path.is_file()
+        or file_path.suffix.lower() not in {".pdf", ".md", ".markdown", ".txt"}
+        or not file_path.is_relative_to(cfg.inbox_path.resolve())
+        or file_sha256(file_path) != payload["checksum"]
+    ):
+        raise UserFacingError("O arquivo mudou ou não está mais no inbox. Selecione-o novamente.")
+    progress.emit(
+        ProgressEvent(
+            "preparing",
+            "Extraindo texto e inferindo bibliografia.",
+            current_item=file_path.name,
+        )
+    )
+    text, metadata = extract.extract_text(
+        cfg.model_copy(update={"vault_path": asset_stage_path(cfg, progress.job_id)}),
+        file_path,
+        "pdf" if file_path.suffix.lower() == ".pdf" else "md",
+    )
+    biblio = build_bibliographic_metadata(cfg, db, metadata, text, file_path.name)
+    if file_sha256(file_path) != payload["checksum"]:
+        raise UserFacingError("O arquivo mudou durante a preparação. Tente novamente.")
+    save_snapshot(cfg, progress.job_id, checksum=payload["checksum"], text=text, metadata=metadata)
+    db.create_web_harvest_review(progress.job_id, payload["checksum"])
+    return {
+        "selected_file": str(file_path),
+        "checksum": payload["checksum"],
+        "biblio": biblio.model_dump(),
+        "abnt_reference": format_abnt(biblio),
+        "render_hidden": metadata.get("_render_hidden") or [],
+    }
+
+
+def _op_adopt_moc(ctx: JobContext) -> dict[str, Any]:
+    """Hand a generated MOC over to the author (ADR-061)."""
+    cfg, db, payload = ctx.cfg, ctx.db, ctx.payload
+    from zettel.gardener import MocAdoptError, adopt_moc
+
+    try:
+        return {"kind": "adopt_moc", **adopt_moc(cfg, db, payload["moc_id"])}
+    except MocAdoptError as exc:
+        raise UserFacingError(str(exc)) from exc
+
+
+def _op_run_all(ctx: JobContext) -> dict[str, Any]:
+    """Every phase over the whole inbox, without the bibliographic review (#310)."""
+    cfg, db, progress, payload, idx = ctx.cfg, ctx.db, ctx.progress, ctx.payload, ctx.idx
+    from zettel.connector import load_approved_candidates, run_connect
+    from zettel.extractor import run_extract
+    from zettel.gardener import run_garden
+    from zettel.harvester import run_harvest
+    from zettel.review import run_review
+
+    progress.emit(ProgressEvent("harvest", "Fase 1/5 — iniciando harvest."))
+    harvest = run_harvest(
+        cfg,
+        db,
+        idx,
+        interactive=False,
+        duplicate_action=payload.get("duplicate_action", "skip"),
+        skip_biblio=bool(payload.get("skip_biblio", False)),
+        skip_paging=bool(payload.get("skip_paging", False)),
+        observer=progress,
+    )
+    sources = harvest.source_ids
+
+    progress.emit(ProgressEvent("extract", "Fase 2/5 — iniciando extract."))
+    drafts = run_extract(cfg, db, idx, auto_approve=False, observer=progress)
+
+    auto_approve = bool(payload.get("auto_approve"))
+    if auto_approve:
+        from zettel.review import AUTO_APPROVE_UNVALIDATED_WARNING
+
+        progress.emit(
+            ProgressEvent(
+                "review",
+                "Fase 3/5 — aprovando drafts elegíveis. " + AUTO_APPROVE_UNVALIDATED_WARNING,
             )
-            return {"path": str(path), "used_llm": used_llm}
-
-        if operation == "harvest" and not payload.get("selected_file"):
-            raise UserFacingError("Selecione um documento pendente antes de processar.")
-
-        if operation == "prepare_harvest":
-            from zettel.bibliography import build_bibliographic_metadata, format_abnt
-            from zettel.harvester import extract
-            from zettel.harvester.prepared import asset_stage_path, save_snapshot
-            from zettel.hashing import file_sha256
-
-            file_path = Path(payload["selected_file"]).resolve()
-            if (
-                not file_path.is_file()
-                or file_path.suffix.lower() not in {".pdf", ".md", ".markdown", ".txt"}
-                or not file_path.is_relative_to(cfg.inbox_path.resolve())
-                or file_sha256(file_path) != payload["checksum"]
-            ):
-                raise UserFacingError(
-                    "O arquivo mudou ou não está mais no inbox. Selecione-o novamente."
-                )
-            progress.emit(
-                ProgressEvent(
-                    "preparing",
-                    "Extraindo texto e inferindo bibliografia.",
-                    current_item=file_path.name,
-                )
+        )
+    else:
+        progress.emit(
+            ProgressEvent(
+                "review",
+                "Fase 3/5 — drafts ficam aguardando revisão.",
             )
-            text, metadata = extract.extract_text(
-                cfg.model_copy(update={"vault_path": asset_stage_path(cfg, progress.job_id)}),
-                file_path,
-                "pdf" if file_path.suffix.lower() == ".pdf" else "md",
-            )
-            biblio = build_bibliographic_metadata(cfg, db, metadata, text, file_path.name)
-            if file_sha256(file_path) != payload["checksum"]:
-                raise UserFacingError("O arquivo mudou durante a preparação. Tente novamente.")
-            save_snapshot(
-                cfg, progress.job_id, checksum=payload["checksum"], text=text, metadata=metadata
-            )
-            db.create_web_harvest_review(progress.job_id, payload["checksum"])
-            return {
-                "selected_file": str(file_path),
-                "checksum": payload["checksum"],
-                "biblio": biblio.model_dump(),
-                "abnt_reference": format_abnt(biblio),
-                "render_hidden": metadata.get("_render_hidden") or [],
-            }
+        )
+    review_stats = run_review(
+        cfg,
+        db,
+        idx,
+        source_ids=list(sources),
+        auto_approve=auto_approve,
+        interactive=False,
+        event_mode="run_all" if auto_approve else None,
+        surface="web",
+    )
 
-        if operation == "review" and payload.get("action") in {
-            "keep_duplicate",
-            "discard_duplicate",
-        }:
-            return _decide_web_duplicates(db, progress, payload)
+    approved = load_approved_candidates(db, source_ids=list(sources))
+    progress.emit(
+        ProgressEvent(
+            "connect",
+            f"Fase 4/5 — gerando {len(approved)} nota(s).",
+            total_items=len(approved),
+        )
+    )
+    outcome = run_connect(cfg, db, idx, approved, observer=progress)
+    note_ids = outcome.note_ids
 
-        if operation == "review" and payload.get("action") == "requeue":
-            # Status flip only: opening the vector index would fail the job when
-            # the embedding credential is absent, and this action never reads it.
-            return _requeue_extract_review(db, progress, payload)
-        if operation == "review" and payload.get("action") == "force":
-            return _force_extract_review(db, progress, payload)
-        if operation == "review" and payload.get("action") == "discard":
-            return _discard_extract_review(cfg, db, progress, payload)
+    progress.emit(ProgressEvent("garden", "Fase 5/5 — atualizando mapas de conteúdo."))
+    moc_ids = run_garden(cfg, db, idx, observer=progress)
+    garden_report = db.latest_garden_report("garden")
+    return {
+        "garden_report": garden_report,
+        "sources": sources,
+        "drafts": len(drafts),
+        "review": review_stats,
+        "pending_review": int(review_stats.get("pending_review") or 0),
+        "approved_threshold": int(review_stats.get("approved_threshold") or 0),
+        "notes": note_ids,
+        "mocs": moc_ids,
+        # run_all harvests the whole inbox without a bibliographic review,
+        # so a refused file must show up here, with its reason (#310).
+        "harvest_skipped": [
+            {"file": skip.path.name, "reason": skip.reason, "message": skip.message}
+            for skip in [*harvest.skipped, *harvest.declined]
+        ],
+    }
 
-        if operation == "adopt_moc":
-            from zettel.gardener import MocAdoptError, adopt_moc
 
-            try:
-                return {"kind": "adopt_moc", **adopt_moc(cfg, db, payload["moc_id"])}
-            except MocAdoptError as exc:
-                raise UserFacingError(str(exc)) from exc
-        if operation == "review_links":
-            return _decide_web_links(cfg, db, progress, payload)
-        if operation == "skill":
-            return _dispatch_skill(cfg, db, progress, payload)
-        if operation == "article":
-            return _dispatch_article(
-                cfg, progress, payload, sessions if sessions is not None else {}, job_id or ""
-            )
+def _op_harvest(ctx: JobContext) -> dict[str, Any]:
+    """One inbox file, confirmed by its review when it has one."""
+    cfg, db, progress, payload = ctx.cfg, ctx.db, ctx.progress, ctx.payload
+    if not payload.get("selected_file"):
+        raise UserFacingError("Selecione um documento pendente antes de processar.")
+    from zettel.harvester import run_harvest
+    from zettel.harvester.prepared import load_snapshot
+    from zettel.hashing import file_sha256
 
-        from zettel.index import VectorIndex, index_kwargs
+    file_path = Path(payload["selected_file"]).resolve()
+    prepared = None
+    review_id = payload.get("review_id")
+    if review_id:
+        review = db.get_web_harvest_review(review_id)
+        preparation = db.get_web_job(review_id)
+        if (
+            not review
+            or review["state"] != "submitted"
+            or review["harvest_job_id"] != progress.job_id
+            or not preparation
+            or preparation["state"] != "succeeded"
+            or preparation["result"]["selected_file"] != str(file_path)
+            or not file_path.is_file()
+            or not file_path.is_relative_to(cfg.inbox_path.resolve())
+            or file_sha256(file_path) != review["file_checksum"]
+        ):
+            raise UserFacingError("O arquivo mudou ou a revisão expirou. Prepare-o novamente.")
+        try:
+            prepared = load_snapshot(cfg, review_id)
+        except ValueError as exc:
+            raise UserFacingError(str(exc)) from exc
+        if prepared["checksum"] != review["file_checksum"]:
+            raise UserFacingError("A preparação não corresponde ao arquivo. Prepare-o novamente.")
+        prepared["biblio"] = payload["biblio"]
+        prepared["abnt_reference"] = payload["abnt_reference"]
+        prepared["review_id"] = review_id
+    progress.emit(
+        ProgressEvent(
+            "harvest",
+            "Processando documento.",
+            current_item=file_path.name,
+        )
+    )
+    harvest = run_harvest(
+        cfg,
+        db,
+        ctx.idx,
+        interactive=False,
+        duplicate_action=payload.get("duplicate_action", "skip"),
+        skip_biblio=bool(payload.get("skip_biblio", False)),
+        content_start_file=payload.get("content_start_file"),
+        content_start_book=payload.get("content_start_book"),
+        skip_paging=bool(payload.get("skip_paging", False)),
+        selected_file=file_path,
+        dump_dir=Path(payload["dump_dir"]) if payload.get("dump_dir") else None,
+        extraction_dump_dir=Path(payload["extraction_dump_dir"])
+        if payload.get("extraction_dump_dir")
+        else None,
+        observer=progress,
+        prepared=prepared,
+    )
+    sources = harvest.source_ids
+    if harvest.skipped:
+        raise UserFacingError(harvest.skipped[0].message)
+    if not sources:
+        # The harvester says why, naming the duplicate layer (#316).
+        from zettel.harvester.pipeline import REUSED_REASONS
 
-        idx = VectorIndex(**index_kwargs(cfg))
-        if operation == "ask":
-            return _dispatch_ask(cfg, db, idx, progress, payload)
-        if operation == "summarize":
-            return _dispatch_summarize(cfg, db, idx, progress, payload)
-        if operation == "run_all":
-            from zettel.connector import load_approved_candidates, run_connect
-            from zettel.extractor import run_extract
-            from zettel.gardener import run_garden
-            from zettel.harvester import run_harvest
-            from zettel.review import run_review
+        declined = harvest.declined[0] if harvest.declined else None
+        if declined and declined.reason in REUSED_REASONS:
+            return {"sources": [declined.source_id], "skipped": declined.message}
+        if declined:
+            raise UserFacingError(declined.message)
+        raise UserFacingError(
+            "Nenhuma fonte foi criada e o harvest não registrou o motivo. "
+            "Consulte os logs do servidor."
+        )
+    return {
+        "sources": sources,
+        "chunk_dump_dir": payload.get("dump_dir"),
+        "extraction_dump_dir": payload.get("extraction_dump_dir"),
+    }
 
-            progress.emit(ProgressEvent("harvest", "Fase 1/5 — iniciando harvest."))
-            harvest = run_harvest(
+
+def _op_manual_ztl_from_lit(ctx: JobContext) -> dict[str, Any]:
+    """A ZTL from a granular LIT; the index only with the LLM."""
+    cfg, db, payload = ctx.cfg, ctx.db, ctx.payload
+    from zettel.connector import ConnectRejected
+    from zettel.manual_lit import create_permanent_from_literature
+
+    ref = payload.get("ref") or payload["chunk_id"]
+    try:
+        result = create_permanent_from_literature(
+            cfg,
+            db,
+            ctx.idx if payload.get("use_llm") else None,
+            ref,
+            thesis=payload.get("thesis") or None,
+            use_llm=bool(payload.get("use_llm")),
+            force=bool(payload.get("force")),
+        )
+    except ConnectRejected as exc:
+        raise UserFacingError(str(exc)) from exc
+    path, used_llm = result
+    return {"path": str(path), "used_llm": used_llm}
+
+
+def _op_extract(ctx: JobContext) -> dict[str, Any]:
+    """Prompt 1 over every pending chunk; drafts wait for review."""
+    cfg, db, progress, idx = ctx.cfg, ctx.db, ctx.progress, ctx.idx
+    from zettel.extractor import run_extract
+
+    total = len(db.get_chunks_by_status("pending"))
+    progress.emit(ProgressEvent("extract", f"Extraindo {total} chunk(s).", total_items=total))
+    candidates = run_extract(cfg, db, idx, auto_approve=False, observer=progress)
+    return {"drafts": len(candidates), "auto_approved": False}
+
+
+def _op_review_drafts(ctx: JobContext) -> dict[str, Any]:
+    """Approve or reject drafts, or concepts of a draft."""
+    cfg, db, progress, payload, idx = ctx.cfg, ctx.db, ctx.progress, ctx.payload, ctx.idx
+    from zettel.review import (
+        approve_chunk,
+        finalize_approved_concepts,
+        pending_dedupe_concepts,
+        refresh_approved_literature,
+        reject_chunk,
+    )
+    from zettel.usage import begin_run, finish_pipeline_run
+
+    action = payload.get("action")
+    chunk_ids = list(payload.get("chunk_ids") or [])
+    concept_ids = list(payload.get("concept_ids") or [])
+    if action in {"approve", "reject"} and concept_ids:
+        from zettel.review import decide_concepts
+
+        review_run_id = db.start_run("review")
+        begin_run(review_run_id)
+        try:
+            outcome = decide_concepts(
                 cfg,
                 db,
                 idx,
-                interactive=False,
-                duplicate_action=payload.get("duplicate_action", "skip"),
-                skip_biblio=bool(payload.get("skip_biblio", False)),
-                skip_paging=bool(payload.get("skip_paging", False)),
-                observer=progress,
-            )
-            sources = harvest.source_ids
-
-            progress.emit(ProgressEvent("extract", "Fase 2/5 — iniciando extract."))
-            drafts = run_extract(cfg, db, idx, auto_approve=False, observer=progress)
-
-            auto_approve = bool(payload.get("auto_approve"))
-            if auto_approve:
-                from zettel.review import AUTO_APPROVE_UNVALIDATED_WARNING
-
-                progress.emit(
-                    ProgressEvent(
-                        "review",
-                        "Fase 3/5 — aprovando drafts elegíveis. "
-                        + AUTO_APPROVE_UNVALIDATED_WARNING,
-                    )
-                )
-            else:
-                progress.emit(
-                    ProgressEvent(
-                        "review",
-                        "Fase 3/5 — drafts ficam aguardando revisão.",
-                    )
-                )
-            review_stats = run_review(
-                cfg,
-                db,
-                idx,
-                source_ids=list(sources),
-                auto_approve=auto_approve,
-                interactive=False,
-                event_mode="run_all" if auto_approve else None,
+                dict.fromkeys(concept_ids, action),
+                mode="web_batch",
                 surface="web",
+                run_id=review_run_id,
             )
-
-            approved = load_approved_candidates(db, source_ids=list(sources))
-            progress.emit(
-                ProgressEvent(
-                    "connect",
-                    f"Fase 4/5 — gerando {len(approved)} nota(s).",
-                    total_items=len(approved),
-                )
-            )
-            outcome = run_connect(cfg, db, idx, approved, observer=progress)
-            note_ids = outcome.note_ids
-
-            progress.emit(ProgressEvent("garden", "Fase 5/5 — atualizando mapas de conteúdo."))
-            moc_ids = run_garden(cfg, db, idx, observer=progress)
-            garden_report = db.latest_garden_report("garden")
-            return {
-                "garden_report": garden_report,
-                "sources": sources,
-                "drafts": len(drafts),
-                "review": review_stats,
-                "pending_review": int(review_stats.get("pending_review") or 0),
-                "approved_threshold": int(review_stats.get("approved_threshold") or 0),
-                "notes": note_ids,
-                "mocs": moc_ids,
-                # run_all harvests the whole inbox without a bibliographic review,
-                # so a refused file must show up here, with its reason (#310).
-                "harvest_skipped": [
-                    {"file": skip.path.name, "reason": skip.reason, "message": skip.message}
-                    for skip in [*harvest.skipped, *harvest.declined]
-                ],
+            if outcome["approved"]:
+                finalize_approved_concepts(cfg, db, idx)
+            stats = {
+                "approved": len(outcome["persisted"]),
+                "concepts_approved": len(outcome["approved"]),
+                "rejected": len(outcome["rejected_chunks"]),
+                "concepts_rejected": len(outcome["rejected"]),
+                "refused": outcome["refused"],
+                "skipped": 0,
+                "draft_delete_failures": len(outcome.get("draft_delete_failures") or []),
             }
-        if operation == "harvest":
-            from zettel.harvester import run_harvest
-            from zettel.harvester.prepared import load_snapshot
-            from zettel.hashing import file_sha256
-
-            file_path = Path(payload["selected_file"]).resolve()
-            prepared = None
-            review_id = payload.get("review_id")
-            if review_id:
-                review = db.get_web_harvest_review(review_id)
-                preparation = db.get_web_job(review_id)
-                if (
-                    not review
-                    or review["state"] != "submitted"
-                    or review["harvest_job_id"] != progress.job_id
-                    or not preparation
-                    or preparation["state"] != "succeeded"
-                    or preparation["result"]["selected_file"] != str(file_path)
-                    or not file_path.is_file()
-                    or not file_path.is_relative_to(cfg.inbox_path.resolve())
-                    or file_sha256(file_path) != review["file_checksum"]
-                ):
-                    raise UserFacingError(
-                        "O arquivo mudou ou a revisão expirou. Prepare-o novamente."
-                    )
-                try:
-                    prepared = load_snapshot(cfg, review_id)
-                except ValueError as exc:
-                    raise UserFacingError(str(exc)) from exc
-                if prepared["checksum"] != review["file_checksum"]:
-                    raise UserFacingError(
-                        "A preparação não corresponde ao arquivo. Prepare-o novamente."
-                    )
-                prepared["biblio"] = payload["biblio"]
-                prepared["abnt_reference"] = payload["abnt_reference"]
-                prepared["review_id"] = review_id
-            progress.emit(
-                ProgressEvent(
-                    "harvest",
-                    "Processando documento.",
-                    current_item=file_path.name,
-                )
-            )
-            harvest = run_harvest(
-                cfg,
-                db,
-                idx,
-                interactive=False,
-                duplicate_action=payload.get("duplicate_action", "skip"),
-                skip_biblio=bool(payload.get("skip_biblio", False)),
-                content_start_file=payload.get("content_start_file"),
-                content_start_book=payload.get("content_start_book"),
-                skip_paging=bool(payload.get("skip_paging", False)),
-                selected_file=file_path,
-                dump_dir=Path(payload["dump_dir"]) if payload.get("dump_dir") else None,
-                extraction_dump_dir=Path(payload["extraction_dump_dir"])
-                if payload.get("extraction_dump_dir")
-                else None,
-                observer=progress,
-                prepared=prepared,
-            )
-            sources = harvest.source_ids
-            if harvest.skipped:
-                raise UserFacingError(harvest.skipped[0].message)
-            if not sources:
-                # The harvester says why, naming the duplicate layer (#316).
-                from zettel.harvester.pipeline import REUSED_REASONS
-
-                declined = harvest.declined[0] if harvest.declined else None
-                if declined and declined.reason in REUSED_REASONS:
-                    return {"sources": [declined.source_id], "skipped": declined.message}
-                if declined:
-                    raise UserFacingError(declined.message)
-                raise UserFacingError(
-                    "Nenhuma fonte foi criada e o harvest não registrou o motivo. "
-                    "Consulte os logs do servidor."
-                )
-            return {
-                "sources": sources,
-                "chunk_dump_dir": payload.get("dump_dir"),
-                "extraction_dump_dir": payload.get("extraction_dump_dir"),
-            }
-        if operation == "manual-ztl-from-lit":
-            from zettel.connector import ConnectRejected
-            from zettel.manual_lit import create_permanent_from_literature
-
-            ref = payload.get("ref") or payload["chunk_id"]
-            try:
-                result = create_permanent_from_literature(
+        except Exception:
+            finish_pipeline_run(db, review_run_id, status="failed")
+            raise
+        finish_pipeline_run(db, review_run_id)
+        return stats
+    if not chunk_ids and payload.get("confidence_below") is not None:
+        chunks = db.get_chunks_by_status("awaiting_review")
+        threshold = float(payload["confidence_below"])
+        chunk_ids = [c["chunk_id"] for c in chunks if (c.get("review_confidence") or 0) < threshold]
+    stats = {"approved": 0, "rejected": 0, "skipped": 0, "draft_delete_failures": 0}
+    total = len(chunk_ids)
+    review_run_id = db.start_run("review")
+    begin_run(review_run_id)
+    persisted: list[str] = []
+    try:
+        for number, chunk_id in enumerate(chunk_ids, 1):
+            if action == "approve":
+                ok = approve_chunk(
                     cfg,
                     db,
                     idx,
-                    ref,
-                    thesis=payload.get("thesis") or None,
-                    use_llm=bool(payload.get("use_llm")),
-                    force=bool(payload.get("force")),
+                    chunk_id,
+                    mode="web_batch",
+                    surface="web",
+                    run_id=review_run_id,
+                    refresh_source=False,
                 )
-            except ConnectRejected as exc:
-                raise UserFacingError(str(exc)) from exc
-            path, used_llm = result
-            return {"path": str(path), "used_llm": used_llm}
-        if operation == "extract":
-            from zettel.extractor import run_extract
-
-            total = len(db.get_chunks_by_status("pending"))
-            progress.emit(
-                ProgressEvent("extract", f"Extraindo {total} chunk(s).", total_items=total)
-            )
-            candidates = run_extract(cfg, db, idx, auto_approve=False, observer=progress)
-            return {"drafts": len(candidates), "auto_approved": False}
-        if operation == "review":
-            from zettel.review import (
-                approve_chunk,
-                finalize_approved_concepts,
-                pending_dedupe_concepts,
-                refresh_approved_literature,
-                reject_chunk,
-            )
-            from zettel.usage import begin_run, finish_pipeline_run
-
-            action = payload.get("action")
-            chunk_ids = list(payload.get("chunk_ids") or [])
-            concept_ids = list(payload.get("concept_ids") or [])
-            if action in {"approve", "reject"} and concept_ids:
-                from zettel.review import decide_concepts
-
-                review_run_id = db.start_run("review")
-                begin_run(review_run_id)
-                try:
-                    outcome = decide_concepts(
-                        cfg,
-                        db,
-                        idx,
-                        dict.fromkeys(concept_ids, action),
-                        mode="web_batch",
-                        surface="web",
-                        run_id=review_run_id,
-                    )
-                    if outcome["approved"]:
-                        finalize_approved_concepts(cfg, db, idx)
-                    stats = {
-                        "approved": len(outcome["persisted"]),
-                        "concepts_approved": len(outcome["approved"]),
-                        "rejected": len(outcome["rejected_chunks"]),
-                        "concepts_rejected": len(outcome["rejected"]),
-                        "refused": outcome["refused"],
-                        "skipped": 0,
-                        "draft_delete_failures": len(outcome.get("draft_delete_failures") or []),
-                    }
-                except Exception:
-                    finish_pipeline_run(db, review_run_id, status="failed")
-                    raise
-                finish_pipeline_run(db, review_run_id)
-                return stats
-            if not chunk_ids and payload.get("confidence_below") is not None:
-                chunks = db.get_chunks_by_status("awaiting_review")
-                threshold = float(payload["confidence_below"])
-                chunk_ids = [
-                    c["chunk_id"] for c in chunks if (c.get("review_confidence") or 0) < threshold
-                ]
-            stats = {"approved": 0, "rejected": 0, "skipped": 0, "draft_delete_failures": 0}
-            total = len(chunk_ids)
-            review_run_id = db.start_run("review")
-            begin_run(review_run_id)
-            persisted: list[str] = []
-            try:
-                for number, chunk_id in enumerate(chunk_ids, 1):
-                    if action == "approve":
-                        ok = approve_chunk(
-                            cfg,
-                            db,
-                            idx,
-                            chunk_id,
-                            mode="web_batch",
-                            surface="web",
-                            run_id=review_run_id,
-                            refresh_source=False,
-                        )
-                        if ok:
-                            persisted.append(chunk_id)
-                    else:
-                        ok = reject_chunk(
-                            cfg,
-                            db,
-                            idx,
-                            chunk_id,
-                            mode="web_batch",
-                            surface="web",
-                            run_id=review_run_id,
-                            stats=stats,
-                        )
-                    stats["approved" if action == "approve" else "rejected"] += int(ok)
-                    stats["skipped"] += int(not ok)
-                    progress.emit(
-                        ProgressEvent(
-                            "review",
-                            f"Revisado {number}/{total}.",
-                            current_item=chunk_id[-18:],
-                            current_index=number,
-                            total_items=total,
-                        )
-                    )
-                if action == "approve":
-                    refresh_approved_literature(cfg, db, persisted)
-                    if stats["approved"]:
-                        progress.emit(
-                            ProgressEvent("review", "Deduplicando os conceitos aprovados.")
-                        )
-                        finalize_approved_concepts(cfg, db, idx)
-                stats["dedupe_pending"] = len(pending_dedupe_concepts(db))
-            except Exception:
-                finish_pipeline_run(db, review_run_id, status="failed")
-                raise
-            finish_pipeline_run(db, review_run_id)
-            return stats
-        if operation == "connect":
-            from zettel.connector import load_approved_candidates, run_connect
-
-            candidates = load_approved_candidates(db)
+                if ok:
+                    persisted.append(chunk_id)
+            else:
+                ok = reject_chunk(
+                    cfg,
+                    db,
+                    idx,
+                    chunk_id,
+                    mode="web_batch",
+                    surface="web",
+                    run_id=review_run_id,
+                    stats=stats,
+                )
+            stats["approved" if action == "approve" else "rejected"] += int(ok)
+            stats["skipped"] += int(not ok)
             progress.emit(
                 ProgressEvent(
-                    "connect",
-                    f"Gerando {len(candidates)} nota(s).",
-                    total_items=len(candidates),
+                    "review",
+                    f"Revisado {number}/{total}.",
+                    current_item=chunk_id[-18:],
+                    current_index=number,
+                    total_items=total,
                 )
             )
-            return {"notes": run_connect(cfg, db, idx, candidates, observer=progress).note_ids}
-        if operation == "garden":
-            if payload.get("hubs"):
-                from zettel.gardener_hub import run_garden_hubs
+        if action == "approve":
+            refresh_approved_literature(cfg, db, persisted)
+            if stats["approved"]:
+                progress.emit(ProgressEvent("review", "Deduplicando os conceitos aprovados."))
+                finalize_approved_concepts(cfg, db, idx)
+        stats["dedupe_pending"] = len(pending_dedupe_concepts(db))
+    except Exception:
+        finish_pipeline_run(db, review_run_id, status="failed")
+        raise
+    finish_pipeline_run(db, review_run_id)
+    return stats
 
-                mocs = run_garden_hubs(cfg, db, observer=progress)
-            else:
-                from zettel.gardener import run_garden
 
-                mocs = run_garden(cfg, db, idx, observer=progress)
-            pipeline = "garden_hubs" if payload.get("hubs") else "garden"
-            return {
-                "kind": "garden",
-                "mocs": mocs,
-                "garden_report": db.latest_garden_report(pipeline),
-            }
-        if operation == "sync":
-            from zettel.sync import run_sync_manual
+def _op_connect(ctx: JobContext) -> dict[str, Any]:
+    """Prompt 2 over the approved concepts."""
+    cfg, db, progress, idx = ctx.cfg, ctx.db, ctx.progress, ctx.idx
+    from zettel.connector import load_approved_candidates, run_connect
 
-            progress.emit(ProgressEvent("sync", "Sincronizando notas manuais."))
-            return run_sync_manual(cfg, db, idx)
-        raise ValueError("Operação web desconhecida")
+    candidates = load_approved_candidates(db)
+    progress.emit(
+        ProgressEvent(
+            "connect",
+            f"Gerando {len(candidates)} nota(s).",
+            total_items=len(candidates),
+        )
+    )
+    return {"notes": run_connect(cfg, db, idx, candidates, observer=progress).note_ids}
+
+
+def _op_garden(ctx: JobContext) -> dict[str, Any]:
+    """Taxonomy MOCs, or hub MOCs with ``hubs`` (no vector index: #314)."""
+    cfg, db, progress, payload = ctx.cfg, ctx.db, ctx.progress, ctx.payload
+    if payload.get("hubs"):
+        from zettel.gardener_hub import run_garden_hubs
+
+        mocs = run_garden_hubs(cfg, db, observer=progress)
+    else:
+        from zettel.gardener import run_garden
+
+        mocs = run_garden(cfg, db, ctx.idx, observer=progress)
+    pipeline = "garden_hubs" if payload.get("hubs") else "garden"
+    return {
+        "kind": "garden",
+        "mocs": mocs,
+        "garden_report": db.latest_garden_report(pipeline),
+    }
+
+
+def _op_sync(ctx: JobContext) -> dict[str, Any]:
+    """Index the vault's manual edits."""
+    cfg, db, progress, idx = ctx.cfg, ctx.db, ctx.progress, ctx.idx
+    from zettel.sync import run_sync_manual
+
+    progress.emit(ProgressEvent("sync", "Sincronizando notas manuais."))
+    return run_sync_manual(cfg, db, idx)
+
+
+def _op_review(ctx: JobContext) -> dict[str, Any]:
+    """Every review action shares the ``review`` operation; ``action`` picks the work."""
+    return REVIEW_ACTIONS[ctx.payload.get("action")](ctx)
+
+
+# Action -> handler. The batch actions that never read the vector index
+# (requeue, force, duplicates) are SQLite only, so a missing embedding
+# credential cannot fail them.
+REVIEW_ACTIONS: dict[str, Handler] = {
+    "approve": _op_review_drafts,
+    "reject": _op_review_drafts,
+    "requeue": _op_review_requeue,
+    "force": _op_review_force,
+    "discard": _op_review_discard,
+    "keep_duplicate": _op_review_duplicates,
+    "discard_duplicate": _op_review_duplicates,
+}
+
+# Every operation the worker runs. Routes submit only these names, and
+# tests/test_web_package.py fails if one a route submits is missing.
+OPERATIONS: dict[str, Handler] = {
+    "prepare_harvest": _op_prepare_harvest,
+    "harvest": _op_harvest,
+    "run_all": _op_run_all,
+    "extract": _op_extract,
+    "review": _op_review,
+    "review_links": _op_review_links,
+    "connect": _op_connect,
+    "garden": _op_garden,
+    "sync": _op_sync,
+    "retry_chunks": _op_retry_chunks,
+    "retry_assets": _op_retry_assets,
+    "manual-ztl-from-lit": _op_manual_ztl_from_lit,
+    "adopt_moc": _op_adopt_moc,
+    "ask": _op_ask,
+    "summarize": _op_summarize,
+    "skill": _op_skill,
+    "article": _op_article,
+}
 
 
 class WebApplication:

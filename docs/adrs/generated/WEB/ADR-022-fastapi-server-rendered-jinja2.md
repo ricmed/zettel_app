@@ -1,11 +1,11 @@
-# ADR-XXX: FastAPI Server-Rendered Web Interface (No SPA)
+# ADR-022: FastAPI Server-Rendered Web Interface (No SPA)
 
 **Status:** Accepted
 **Date:** 2026-08-29
 **Related to:**
-- [ADR-XXX: Repository Pattern for Data Access (StateDB and VectorIndex)](../INFRA/ADR-008-repository-pattern-data-access.md)
-- [ADR-XXX: Typer and Rich as CLI Framework](../CLI/ADR-026-typer-rich-cli-framework.md)
-- [ADR-XXX: SQLite-Backed Persistent Job Queue with Single Worker Thread](./ADR-023-sqlite-backed-job-queue-single-worker.md)
+- [ADR-008: Repository Pattern for Data Access (StateDB and VectorIndex)](../INFRA/ADR-008-repository-pattern-data-access.md)
+- [ADR-026: Typer and Rich as CLI Framework](../CLI/ADR-026-typer-rich-cli-framework.md)
+- [ADR-023: SQLite-Backed Persistent Job Queue with Single Worker Thread](./ADR-023-sqlite-backed-job-queue-single-worker.md)
 - [ADR-039: Web as Python Package](./ADR-039-web-as-python-package.md)
 - [ADR-040: JSON Pickers and Progressive Enhancement](./ADR-040-json-pickers-progressive-enhancement.md)
 
@@ -13,15 +13,15 @@
 
 The pipeline (harvest, extract, review, connect, garden) previously exposed only a CLI. A web interface was needed to give non-CLI users dashboards, upload forms, a review queue, and job monitoring over the same underlying operations. The choice was between rendering HTML on the server and returning it directly to the browser, or building a JSON API consumed by a separate client-side framework.
 
-The web layer was implemented as a single-process FastAPI + Uvicorn application using Jinja2 templates: every route returns complete HTML (or a redirect), forms submit via standard POST/GET with server-side validation, and there is no Node, webpack, TypeScript, or other frontend build tooling anywhere in the project. All 23 web endpoints and 14 templates follow this pattern uniformly, and long-running pipeline operations are already modeled as background jobs whose progress streams to the browser via Server-Sent Events rather than requiring bidirectional client state.
+The web layer was implemented as a single-process FastAPI + Uvicorn application using Jinja2 templates: every route returns complete HTML (or a redirect), forms submit via standard POST/GET with server-side validation, and there is no Node, webpack, TypeScript, or other frontend build tooling anywhere in the project. All the web routes (41 on 2026-10-20: 38 HTML pages and form posts, 3 read-only JSON GETs) and the 19 templates follow this pattern, and long-running pipeline operations are background jobs whose progress the job page reads by polling a JSON snapshot once a second, with no bidirectional client state. Every handler is a plain `def` run in the threadpool ([ADR-062](./ADR-062-web-handlers-run-in-threadpool.md)).
 
-[NEEDS INPUT: Confirm whether server rendering was an explicit evaluation against a SPA/API-first architecture, or the default choice for a v1 driven by the team's Python-only skill set]
+**Recorded answer (2026-10-20).** Neither the repository nor the issue history records a formal evaluation against a SPA or an API-first design: server rendering was the default for a single-user control surface in a Python-only project. It has held. The web audit of 2026-10 (`docs/artigo/06-web.md`) traced the interface's problems to the execution model, the security of the login and the user flow, none to the rendering choice.
 
 ## Decision Drivers
 
 * All existing pipeline code is Python; a separate JS/TS frontend would split the toolchain and require a second skill set the team does not currently maintain.
 * The web app is a control surface over operations that already exist as CLI commands, not a real-time collaborative application, so client-side state management offers limited benefit.
-* Long-running jobs (harvest, extract, garden) are already modeled as a persistent queue; progress can be streamed with unidirectional SSE instead of a stateful client.
+* Long-running jobs (harvest, extract, garden) are already modeled as a persistent queue; the page reads their progress from a JSON snapshot instead of keeping client state.
 * Avoiding a JS build step removes an entire class of deployment and CI complexity (no Node toolchain, no npm dependency surface to audit).
 * Server-side rendering keeps session and CSRF state centralized on the server rather than split across an API and a separate client.
 
@@ -50,7 +50,7 @@ Chosen option: "Server-rendered FastAPI + Jinja2 templates", because it keeps th
 * Bad, because it requires standing up a JSON API layer, a JS/TS build pipeline, and client-side state management from nothing.
 * Bad, because it splits the team's required skill set across Python and JavaScript/TypeScript.
 
-[NEEDS INPUT: Was a specific SPA framework or library ever evaluated and rejected, or is this a hypothetical alternative used only for comparison?]
+**Recorded answer (2026-10-20).** No SPA framework was evaluated; the option above is a point of comparison, not a rejected candidate.
 
 ## Consequences
 
@@ -58,7 +58,7 @@ Every future **mutating** web feature must be implemented as a FastAPI route pai
 
 If the web UI is expected to become the primary interface to the system, or if requirements introduce real-time collaborative features, this decision will need to be revisited. The evidence estimates a move toward an API-first or SPA architecture at 6+ months of work (extracting an API layer, introducing a frontend framework, and restructuring client/server data flow), so the cost of reversing this decision grows with every feature added on top of it.
 
-[NEEDS INPUT: Is the current architecture intended to be permanent, or is an eventual SPA/API-first migration anticipated if the web UI becomes the primary interface or real-time features become a requirement?]
+**Recorded answer (2026-10-20).** It is meant to stay. The web UI is a control surface for one person on one instance ([ADR-023](./ADR-023-sqlite-backed-job-queue-single-worker.md)); the decision is to be reopened only if that changes, that is, several users at once or live collaboration, not because the UI becomes the main entry point.
 
 ## References
 

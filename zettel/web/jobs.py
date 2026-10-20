@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
+from zettel.web.labels import md_cell
 from zettel.web.rendering import error_page, render, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login
 from zettel.web_app import UserFacingError
@@ -59,10 +60,6 @@ def _resume_decision(
     raise UserFacingError("Decisão inválida.")
 
 
-def _cell(value: object) -> str:
-    return str(value or "").replace("|", "/").replace("\n", " ").strip()
-
-
 def result_copy_text(result: dict) -> str:
     """Plain text a person can paste elsewhere. Empty when the job has none."""
     kind = str((result or {}).get("kind") or "")
@@ -99,10 +96,10 @@ def result_copy_text(result: dict) -> str:
                 "| "
                 + " | ".join(
                     [
-                        _cell(note.get("title") or note.get("note_id")),
+                        md_cell(note.get("title") or note.get("note_id")),
                         f"{score:.4f}",
                         str(int(note.get("hop") or 0)),
-                        _cell(note.get("source_id") or "-"),
+                        md_cell(note.get("source_id") or "-"),
                     ]
                 )
                 + " |"

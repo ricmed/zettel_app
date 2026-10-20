@@ -12,6 +12,7 @@ from starlette.datastructures import FormData
 from zettel.web.enqueue import operation_lock, post_job
 from zettel.web.forms import read_form
 from zettel.web.health import llm_phase_ready as _llm_phase_ready
+from zettel.web.labels import lit_label, source_label
 from zettel.web.manual_form import (
     PreflightConflict,
     biblio_text_sample,
@@ -50,40 +51,13 @@ _PRESERVED_FORM_FIELDS = (
 )
 
 
-def _source_label(row: dict) -> str:
-    citekey = row.get("citekey") or ""
-    title = (row.get("title") or "").strip()
-    year = row.get("year")
-    parts = [citekey]
-    if title:
-        parts.append(title)
-    label = " · ".join(parts)
-    if year:
-        label = f"{label} ({year})"
-    return label
-
-
-def _lit_label(row: dict) -> str:
-    index = row.get("chunk_index")
-    token = f"{int(index):04d}" if index is not None else "?"
-    page = row.get("page_in_book")
-    page_bit = f"p. {int(page)}" if page is not None else ""
-    section = (row.get("section_path") or row.get("locator") or "").strip()
-    bits = [token]
-    if page_bit:
-        bits.append(page_bit)
-    if section:
-        bits.append(section)
-    return " · ".join(bits)
-
-
 def _picker_sources(db: Any) -> list[dict]:
     items = []
     for row in db.search_sources("", 50):
         items.append(
             {
                 "id": row["source_id"],
-                "label": _source_label(row),
+                "label": source_label(row),
                 "next_chunk_index": db.next_manual_chunk_index(row["source_id"]),
             }
         )
@@ -94,7 +68,7 @@ def _picker_literature(db: Any, source_id: str | None) -> list[dict]:
     if not source_id:
         return []
     return [
-        {"id": row["chunk_id"], "label": _lit_label(row)}
+        {"id": row["chunk_id"], "label": lit_label(row)}
         for row in db.search_literature_chunks("", source_id=source_id, limit=50)
     ]
 

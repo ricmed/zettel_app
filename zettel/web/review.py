@@ -211,15 +211,9 @@ def review_action(
     chunk_ids: list[str] = Form(default=[]),
     concept_ids: list[str] = Form(default=[]),
 ):
-    if action not in {
-        "approve",
-        "reject",
-        "requeue",
-        "discard",
-        "force",
-        "keep_duplicate",
-        "discard_duplicate",
-    }:
+    from zettel.web_app import REVIEW_ACTIONS
+
+    if action not in REVIEW_ACTIONS:
         return error_page(request, 400, "Ação inválida")
     return post_job(
         request,
