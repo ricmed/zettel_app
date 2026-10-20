@@ -212,3 +212,101 @@ def test_graph_cohesion_counts_proposed_edges_at_the_factor(tmp_path):
     assert graph_cohesion(db, ["A", "B"], EdgePolicy({"contradicts": 1.0})) == 0.0
     assert graph_cohesion(db, ["A", "B"], EdgePolicy({"contradicts": 1.0}, 0.5)) == 0.5
     db.close()
+
+
+# ── Category label modes and threshold (#295) ────────────────────────
+
+
+class _FakeIdx:
+    """Embeds a text as the axis of the first known word it contains."""
+
+    AXES = ("prompt", "linguagem", "kant", "agentes")
+
+    def __init__(self):
+        self.calls: list[list[str]] = []
+
+    def embed_texts(self, texts):
+        self.calls.append(list(texts))
+        out = []
+        for text in texts:
+            low = text.lower()
+            vec = [0.0] * (len(self.AXES) + 1)
+            for i, word in enumerate(self.AXES):
+                if word in low:
+                    vec[i] = 1.0
+            vec[-1] = 0.0 if any(vec) else 1.0  # anything else lies on its own axis
+            out.append(vec)
+        return out
+
+
+_CATS = [("IA", "Processamento de Linguagem"), ("IA", "Aplicacoes de LLMs")]
+_LEAVES = {
+    "Aplicacoes de LLMs": ["Engenharia de prompt", "Agentes"],
+    "Processamento de Linguagem": [],
+}
+
+
+def test_label_texts_per_mode():
+    from zettel.gardener_assign import category_label_texts
+
+    def texts(mode):
+        return category_label_texts(_CATS, "D", "{pilar}: {categoria}", mode=mode, leaves=_LEAVES)
+
+    assert texts("label")["Aplicacoes de LLMs"] == ["IA: Aplicacoes de LLMs"]
+    assert texts("leaves_in_label")["Aplicacoes de LLMs"] == [
+        "IA: Aplicacoes de LLMs — Engenharia de prompt, Agentes"
+    ]
+    assert texts("max_leaf")["Aplicacoes de LLMs"] == [
+        "IA: Aplicacoes de LLMs — Engenharia de prompt",
+        "IA: Aplicacoes de LLMs — Agentes",
+    ]
+    # A category with no leaves keeps its plain label in every mode.
+    assert texts("max_leaf")["Processamento de Linguagem"] == ["IA: Processamento de Linguagem"]
+
+
+def test_max_leaf_sends_a_note_to_the_category_of_its_leaf():
+    from zettel.gardener_assign import embed_category_labels
+
+    note = {"n1": np.array([1.0, 0.0, 0.0, 0.0, 0.0])}  # a note about prompts
+    idx = _FakeIdx()
+
+    label = embed_category_labels(idx, _CATS, "D", "{pilar}: {categoria}", mode="label")
+    leaf = embed_category_labels(
+        idx, _CATS, "D", "{pilar}: {categoria}", mode="max_leaf", leaves=_LEAVES
+    )
+
+    assert leaf["Aplicacoes de LLMs"].shape == (2, 5)
+    assert "n1" not in assign_notes_to_categories(["n1"], note, label)["Aplicacoes de LLMs"]
+    assert assign_notes_to_categories(["n1"], note, leaf)["Aplicacoes de LLMs"] == ["n1"]
+
+
+def test_note_below_the_threshold_goes_to_the_free_bucket():
+    cats = {"CatA": np.array([1.0, 0.0]), "CatB": np.array([0.0, 1.0])}
+    vectors = {"near": np.array([1.0, 0.05]), "far": np.array([-1.0, -1.0])}
+
+    forced = assign_notes_to_categories(["near", "far"], vectors, cats)
+    gated = assign_notes_to_categories(["near", "far"], vectors, cats, min_similarity=0.3)
+
+    assert "_unassigned" not in forced
+    assert gated["CatA"] == ["near"]
+    assert gated["_unassigned"] == ["far"]
+
+
+def test_unassigned_bucket_is_clustered_instead_of_dropped():
+    from zettel.config import GardenerConfig
+    from zettel.gardener_assign import cluster_notes_within_buckets
+
+    vectors = {f"u{i}": np.array([1.0, 0.0]) for i in range(4)}
+    cfg = GardenerConfig(min_cluster_size=5, min_notes_for_moc=3)
+
+    pairs = cluster_notes_within_buckets({"_unassigned": list(vectors)}, vectors, cfg)
+
+    assert pairs == [("_unassigned", list(vectors))]
+
+
+def test_assignment_defaults_stay_off_until_the_labels():
+    from zettel.config import GardenerConfig, load_config
+
+    for gcfg in (GardenerConfig(), load_config().gardener):
+        assert gcfg.category_label_mode == "label"
+        assert gcfg.assign_min_similarity is None

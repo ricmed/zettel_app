@@ -241,6 +241,8 @@ Parâmetros híbridos em `config.yaml` (`gardener.*`):
 |-----------|-----------|
 | `cluster_within_category` | Ativa pipeline taxonomia-first (default `true`) |
 | `category_label_template` | Texto embeddavel por categoria (default `"{pilar}: {categoria}"`; `domain` continua disponível num template customizado) |
+| `category_label_mode` | Como a categoria vira vetor: `label` (padrão), `leaves_in_label` (folhas anexadas) ou `max_leaf` (um vetor por folha, vale a melhor). Só muda pela regra de `evals/preregistration/295-atribuicao-categoria.md` |
+| `assign_min_similarity` | Cosseno mínimo para atribuir categoria (`null` = sem limiar). Abaixo dele a nota vai para `_unassigned`, clusterizado livremente; o MOC desse cluster recebe tópico proposto pelo LLM |
 | `overlap_threshold` | Fração das entradas de uma subseção do MOC que cai no cluster → update incremental direto |
 | `graph_cohesion_enabled` | Calcula score interno do cluster via `note_connections` |
 | `graph_cohesion_min_ratio` | Densidade ponderada `2*W_int / (n*(n-1))`, de 0 a 1. `0` = so log; `>0` rejeita cluster fraco antes de criar MOC novo |

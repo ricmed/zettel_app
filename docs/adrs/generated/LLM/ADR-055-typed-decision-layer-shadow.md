@@ -190,3 +190,7 @@ order divergence was 0.107 level.
 * The `decision.sites.corroborates` shadow can now be switched off. It is left on
   until the user decides, since it costs about $0.0001 per pair and keeps a check
   on the new threshold.
+
+## Addendum (2026-10-20): the fate of the `moc_category` shadow is pre-registered (issue #295)
+
+**Status:** Accepted amendment (decision pending labels). The `moc_category` shadow agrees with the embedding argmax on 9 of 22 clusters and costs most of the garden's input tokens. Its fate is now a rule in `evals/preregistration/295-atribuicao-categoria.md`, decided by `scripts/score_category_gold.py` on blind per-note labels: with fewer than 30 labelled notes covered by a shadow row it stays in shadow; if it beats the winning embedding condition by at least 0.05 accuracy with exact McNemar p < 0.05, a gate issue is opened (it still decides nothing in this cycle); otherwise `decision.sites.moc_category` is turned `off`. The Jev answer reaches each note through the titles listed in its cluster's `state_json`, so coverage is partial by construction.

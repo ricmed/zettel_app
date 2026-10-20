@@ -279,6 +279,8 @@ gardener:
   topics_path: ./config/moc_topics.yaml  # pilar > categoria > topicos; categorias = whitelist
   cluster_within_category: true        # clusteriza dentro de cada bucket da taxonomia
   category_label_template: "{pilar}: {categoria}"  # texto embeddado p/ atribuir notas
+  category_label_mode: label           # label | leaves_in_label | max_leaf (#295; troca so pela regra pre-registrada)
+  assign_min_similarity: null          # cosseno minimo p/ atribuir categoria; null = sem limiar; abaixo -> cluster livre
   overlap_threshold: 0.4               # fracao das entradas de uma subsecao do MOC que caem no cluster -> incremental
   graph_cohesion_enabled: true         # mede coesao via note_connections
   graph_cohesion_min_ratio: 0.0        # densidade ponderada 0..1; 0 = so log; >0 exige coesao minima p/ MOC novo

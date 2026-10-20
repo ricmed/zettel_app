@@ -58,7 +58,7 @@ Os templates usam `<!-- zettel:user -->` para separar as instruções **estávei
 
 ## Taxonomia de tópicos para MOCs
 
-O arquivo [`config/moc_topics.yaml`](../config/moc_topics.yaml) é a **fonte única** da taxonomia (pilar > categoria > tópicos). As **categorias** são a whitelist do campo `topic` do MOC; pilares agrupam; tópicos-folha orientam subseções no prompt.
+O arquivo [`config/moc_topics.yaml`](../config/moc_topics.yaml) é a **fonte única** da taxonomia (pilar > categoria > tópicos). As **categorias** são a whitelist do campo `topic` do MOC; pilares agrupam; tópicos-folha orientam subseções no prompt. Com `gardener.category_label_mode` em `leaves_in_label` ou `max_leaf`, as folhas também entram no vetor que atribui cada nota a uma categoria (padrão `label`: só o nome; ver `evals/preregistration/295-atribuicao-categoria.md`).
 
 Para personalizar:
 

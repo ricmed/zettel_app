@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -46,54 +47,129 @@ def extract_note_ids_from_moc_body(body: str) -> set[str]:
     return set(NOTE_ID_RE.findall(body or ""))
 
 
+UNASSIGNED = "_unassigned"
+CATEGORY_LABEL_MODES = ("label", "leaves_in_label", "max_leaf")
+
+
+def category_label_texts(
+    categories: list[tuple[str, str]],
+    domain: str,
+    template: str,
+    *,
+    mode: str = "label",
+    leaves: Mapping[str, list[str]] | None = None,
+) -> dict[str, list[str]]:
+    """The texts embedded for each category under ``mode`` (#295).
+
+    * ``label`` — one text, ``template`` as is (``{pilar}: {categoria}``).
+    * ``leaves_in_label`` — one text, the leaf topics appended to the category:
+      ``{pilar}: {categoria} — folha1, folha2``.
+    * ``max_leaf`` — one text per leaf, ``{pilar}: {categoria} — folha``; a
+      note's score for the category is its best leaf.
+
+    A category without leaves falls back to ``label``. ``domain`` stays
+    available on the template so a custom ``{domain}: {categoria}`` still works.
+    """
+    leaves = leaves or {}
+    texts: dict[str, list[str]] = {}
+    for pilar, cat in categories:
+
+        def fmt(categoria: str, pilar: str = pilar) -> str:
+            return template.format(
+                pilar=pilar or domain or "Geral",
+                categoria=categoria,
+                domain=domain or "Geral",
+            )
+
+        topics = [leaf for leaf in leaves.get(cat, []) if leaf]
+        if mode == "leaves_in_label" and topics:
+            texts[cat] = [fmt(f"{cat} — {', '.join(topics)}")]
+        elif mode == "max_leaf" and topics:
+            texts[cat] = [fmt(f"{cat} — {leaf}") for leaf in topics]
+        else:
+            texts[cat] = [fmt(cat)]
+    return texts
+
+
 def embed_category_labels(
     idx: VectorIndex,
     categories: list[tuple[str, str]],
     domain: str,
     template: str,
+    *,
+    mode: str = "label",
+    leaves: Mapping[str, list[str]] | None = None,
 ) -> dict[str, np.ndarray]:
-    """Embed ``(pilar, categoria)`` labels for taxonomy-first assignment.
-
-    ``domain`` stays available on the template so a custom
-    ``{domain}: {categoria}`` still works; the default is ``{pilar}: {categoria}``.
-    """
-    if not categories:
+    """Embed the category texts of ``mode``: category name -> ``(k, d)`` label vectors."""
+    texts = category_label_texts(categories, domain, template, mode=mode, leaves=leaves)
+    if not texts:
         return {}
-    labels = [
-        template.format(
-            pilar=pilar or domain or "Geral",
-            categoria=cat,
-            domain=domain or "Geral",
-        )
-        for pilar, cat in categories
-    ]
-    vectors = idx.embed_texts(labels)
-    names = [cat for _pilar, cat in categories]
-    return {cat: np.array(vec, dtype=float) for cat, vec in zip(names, vectors, strict=False)}
+    flat = [text for rows in texts.values() for text in rows]
+    vectors = idx.embed_texts(flat)
+    out: dict[str, np.ndarray] = {}
+    pos = 0
+    for cat, rows in texts.items():
+        out[cat] = np.array(vectors[pos : pos + len(rows)], dtype=float)
+        pos += len(rows)
+    return out
+
+
+class _LabelMatrix:
+    """Every label vector stacked, so one product scores a note against all categories."""
+
+    def __init__(self, category_vectors: Mapping[str, np.ndarray]):
+        self.names = list(category_vectors)
+        blocks = [np.atleast_2d(np.asarray(category_vectors[n], dtype=float)) for n in self.names]
+        self.matrix = np.vstack(blocks)
+        self.starts = np.cumsum([0, *(len(b) for b in blocks[:-1])])
+
+    def scores(self, vec: np.ndarray) -> np.ndarray:
+        """Best cosine of ``vec`` to each category (max over its label rows)."""
+        sims = _cosine_similarity_batch(np.asarray(vec, dtype=float), self.matrix)
+        return np.maximum.reduceat(sims, self.starts)
+
+    def ranked(self, vec: np.ndarray) -> list[tuple[str, float]]:
+        per = self.scores(vec)
+        order = np.argsort(-per, kind="stable")
+        return [(self.names[i], float(per[i])) for i in order]
 
 
 def assign_notes_to_categories(
     note_ids: list[str],
     embeddings_by_id: dict[str, np.ndarray],
     category_vectors: dict[str, np.ndarray],
+    *,
+    min_similarity: float | None = None,
 ) -> dict[str, list[str]]:
-    """Assign each note to the category with highest cosine similarity."""
-    buckets: dict[str, list[str]] = {cat: [] for cat in category_vectors}
+    """Assign each note to the category with the highest cosine similarity.
+
+    With ``min_similarity`` (cosine, ADR-058), a note whose best category
+    scores below it goes to the ``_unassigned`` bucket, which the garden
+    clusters freely instead of forcing it into a category (#295).
+    """
     if not category_vectors:
-        return {"_unassigned": list(note_ids)}
-
-    cat_names = list(category_vectors.keys())
-    cat_matrix = np.stack([category_vectors[c] for c in cat_names])
-
+        return {UNASSIGNED: list(note_ids)}
+    buckets: dict[str, list[str]] = {cat: [] for cat in category_vectors}
+    labels = _LabelMatrix(category_vectors)
     for nid in note_ids:
         vec = embeddings_by_id.get(nid)
         if vec is None:
             continue
-        sims = _cosine_similarity_batch(vec, cat_matrix)
-        best_idx = int(np.argmax(sims))
-        buckets[cat_names[best_idx]].append(nid)
-
+        name, score = labels.ranked(vec)[0]
+        if min_similarity is not None and score < min_similarity:
+            buckets.setdefault(UNASSIGNED, []).append(nid)
+        else:
+            buckets[name].append(nid)
     return buckets
+
+
+def rank_categories(
+    vec: np.ndarray, category_vectors: dict[str, np.ndarray]
+) -> list[tuple[str, float]]:
+    """Every category with its best cosine to ``vec``, strongest first."""
+    if not category_vectors:
+        return []
+    return _LabelMatrix(category_vectors).ranked(vec)
 
 
 def assign_vector_to_category(
@@ -101,12 +177,8 @@ def assign_vector_to_category(
     category_vectors: dict[str, np.ndarray],
 ) -> str | None:
     """Return the category name with highest cosine similarity to ``vec``."""
-    if not category_vectors:
-        return None
-    cat_names = list(category_vectors.keys())
-    cat_matrix = np.stack([category_vectors[c] for c in cat_names])
-    sims = _cosine_similarity_batch(np.asarray(vec, dtype=float), cat_matrix)
-    return cat_names[int(np.argmax(sims))]
+    ranked = rank_categories(vec, category_vectors)
+    return ranked[0][0] if ranked else None
 
 
 def effective_min_cluster_size(cfg: GardenerConfig) -> int:
@@ -124,13 +196,16 @@ def cluster_notes_within_buckets(
     cfg: GardenerConfig,
     report: ClusterReport | None = None,
 ) -> list[tuple[str, list[str]]]:
-    """Run UMAP+HDBSCAN (or KMeans) inside each category bucket."""
+    """Run UMAP+HDBSCAN (or KMeans) inside each category bucket.
+
+    The ``_unassigned`` bucket (notes under ``gardener.assign_min_similarity``,
+    #295) is clustered like any other: its clusters become MOCs whose topic the
+    LLM proposes, with no category suggested.
+    """
     results: list[tuple[str, list[str]]] = []
     min_cluster = effective_min_cluster_size(cfg)
 
     for category, note_ids in buckets.items():
-        if category == "_unassigned":
-            continue
         ids_arr = [nid for nid in note_ids if nid in embeddings_by_id]
         if len(ids_arr) < cfg.min_notes_for_moc:
             if report is not None and ids_arr:
@@ -395,3 +470,19 @@ def category_pairs(gcfg: GardenerConfig) -> list[tuple[str, str]]:
             if pairs:
                 return pairs
     return [("", name) for name in gcfg.allowed_topics]
+
+
+def category_leaves(gcfg: GardenerConfig) -> dict[str, list[str]]:
+    """Leaf topics of each category in the taxonomy file (empty when there is none)."""
+    if gcfg.topics_path is None:
+        return {}
+    try:
+        tax = load_moc_taxonomy(gcfg.topics_path)
+    except Exception as e:
+        logger.warning("Nao foi possivel carregar os topicos-folha: %s", e)
+        return {}
+    return {
+        cat.nome: list(cat.topicos)
+        for pilar in tax.taxonomia_conhecimento
+        for cat in pilar.categorias
+    }

@@ -26,6 +26,7 @@ from zettel.gardener_assign import (
     ClusterReport,
     assign_notes_to_categories,
     build_embeddings_by_id,
+    category_leaves,
     category_pairs,
     cluster_notes_global,
     cluster_notes_within_buckets,
@@ -285,7 +286,13 @@ def _cluster_pairs(
 
     categories = category_pairs(gcfg)
     cat_vectors = _category_vectors(cfg, idx, categories) if categories else None
-    buckets = assign_notes_to_categories(ids, embeddings_by_id, cat_vectors) if cat_vectors else {}
+    buckets = (
+        assign_notes_to_categories(
+            ids, embeddings_by_id, cat_vectors, min_similarity=gcfg.assign_min_similarity
+        )
+        if cat_vectors
+        else {}
+    )
     cluster_report.buckets = buckets
     if buckets and gcfg.cluster_within_category:
         pairs = cluster_notes_within_buckets(buckets, embeddings_by_id, gcfg, cluster_report)
@@ -322,8 +329,14 @@ def _category_vectors(
     Any other failure falls back to global clustering, as before.
     """
     try:
+        gcfg = cfg.gardener
         return embed_category_labels(
-            idx, categories, cfg.domain.name, cfg.gardener.category_label_template
+            idx,
+            categories,
+            cfg.domain.name,
+            gcfg.category_label_template,
+            mode=gcfg.category_label_mode,
+            leaves=category_leaves(gcfg) if gcfg.category_label_mode != "label" else None,
         )
     except Exception as e:
         if is_llm_unavailable(e):

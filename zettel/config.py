@@ -399,6 +399,15 @@ class GardenerConfig(BaseModel):
     # Pipeline hibrido: taxonomia -> cluster por categoria -> grafo -> LLM.
     cluster_within_category: bool = True
     category_label_template: str = "{pilar}: {categoria}"
+    # Como a categoria vira vetor (#295): label = so o template; leaves_in_label =
+    # template com os topicos-folha anexados; max_leaf = um vetor por folha, a nota
+    # vale a melhor folha. O padrao so muda pela regra pre-registrada em
+    # evals/preregistration/295-atribuicao-categoria.md.
+    category_label_mode: Literal["label", "leaves_in_label", "max_leaf"] = "label"
+    # Cosseno minimo para atribuir uma nota a uma categoria (ADR-058). None = sem
+    # limiar (toda nota recebe a melhor categoria); abaixo dele a nota vai para o
+    # bucket _unassigned, clusterizado livremente (#295).
+    assign_min_similarity: float | None = Field(default=None, ge=-1, le=1)
     # Fracao das entradas de uma subsecao do MOC que caem no cluster -> incremental.
     overlap_threshold: float = 0.4
     graph_cohesion_enabled: bool = True

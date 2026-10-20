@@ -220,6 +220,8 @@ gardener:
   topics_path: ./config/moc_topics.yaml  # pilar > categoria > topicos
   cluster_within_category: true          # clusteriza dentro de cada bucket da taxonomia
   category_label_template: "{pilar}: {categoria}"  # texto embeddado por categoria
+  category_label_mode: label  # label | leaves_in_label | max_leaf (#295, so muda pela regra pre-registrada)
+  assign_min_similarity: null  # cosseno minimo p/ atribuir categoria; abaixo -> cluster livre
   overlap_threshold: 0.4     # fracao das entradas de uma subsecao do MOC que caem no cluster -> incremental
   graph_cohesion_enabled: true
   graph_cohesion_min_ratio: 0.0  # densidade ponderada 0..1; 0 = so log; >0 rejeita cluster fraco

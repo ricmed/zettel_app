@@ -342,7 +342,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-08-26
-- **Summary**: Embed category labels from `moc_topics.yaml`, assign notes to highest-similarity category first, then cluster within each bucket using UMAP+HDBSCAN (with KMeans fallback when optional dependencies are missing). Anchors MOCs to user-defined domains rather than emergent clustering alone.
+- **Summary**: Embed category labels from `moc_topics.yaml`, assign notes to highest-similarity category first, then cluster within each bucket using UMAP+HDBSCAN (with KMeans fallback when optional dependencies are missing). Anchors MOCs to user-defined domains rather than emergent clustering alone. Addendum 2026-10-20 (#295): `category_label_mode` (label / leaves_in_label / max_leaf) and `assign_min_similarity` exist off by default; the default changes only by the pre-registered blind per-note measurement.
 - **Link**: [`ADR-019-taxonomy-first-moc-clustering.md`](./generated/GARDEN/ADR-019-taxonomy-first-moc-clustering.md)
 
 ---
