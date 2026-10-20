@@ -724,6 +724,11 @@ class AppConfig(BaseModel):
         return v
 
 
+def config_file_path(path: Path | str | None = None) -> Path:
+    """The YAML ``load_config`` reads for ``path`` (the default file when None)."""
+    return Path(path).resolve() if path else _DEFAULT_CONFIG_PATH
+
+
 def load_config(path: Path | str | None = None) -> AppConfig:
     """Carrega config/config.yaml (ou ``path``) e valida em AppConfig.
 
@@ -735,7 +740,7 @@ def load_config(path: Path | str | None = None) -> AppConfig:
     (pai de ``config/``), não do cwd do processo — o uvicorn/CLI enxergam o
     mesmo ``state.db`` e vault independentemente de onde foram iniciados.
     """
-    config_path = Path(path).resolve() if path else _DEFAULT_CONFIG_PATH
+    config_path = config_file_path(path)
     project_root = _project_root_for_config(config_path)
 
     env_path = project_root / ".env"

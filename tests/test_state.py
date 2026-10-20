@@ -599,3 +599,18 @@ def test_next_manual_chunk_index_starts_at_one(db):
         literature_note_path="/x.md",
     )
     assert db.next_manual_chunk_index("@S") == 2
+
+
+def test_chunks_by_chapter_use_an_index(tmp_path):
+    """Without it every chapter lookup scanned chunks, text included: 245 lookups
+    took 2.4 s on the development vault and stalled /studio (#307)."""
+    db = StateDB(tmp_path / "state.db")
+    try:
+        plan = db.conn.execute(
+            "EXPLAIN QUERY PLAN SELECT * FROM chunks WHERE chapter_id=? ORDER BY chunk_index",
+            ("x",),
+        ).fetchall()
+    finally:
+        db.close()
+    detail = " ".join(row["detail"] for row in plan)
+    assert "USING INDEX" in detail, detail

@@ -539,18 +539,51 @@ def _dispatch_article(
         _release_article(drive, failed=False)
 
 
-class WebWorker:
-    """A durable queue backed by SQLite and one process-local worker thread."""
+class ConfigCache:
+    """``load_config`` once, and again only when the YAML's mtime changes (#307).
+
+    Reading and validating config.yaml costs ~54 ms; it used to happen on every
+    access to ``WebApplication.cfg`` and twice a second in the idle worker.
+    Editing the file still takes effect on the next request.
+    """
 
     def __init__(self, config_path: str | Path | None = None):
         self.config_path = config_path
+        self._lock = threading.Lock()
+        self._stamp: int | None = None
+        self._cfg: AppConfig | None = None
+
+    def get(self) -> AppConfig:
+        from zettel.config import config_file_path
+
+        try:
+            stamp = config_file_path(self.config_path).stat().st_mtime_ns
+        except OSError:
+            stamp = None
+        with self._lock:
+            if self._cfg is None or stamp != self._stamp:
+                self._cfg = load_config(self.config_path)
+                self._stamp = stamp
+            return self._cfg
+
+
+# The worker sleeps until a submit wakes it. The timeout only covers a row
+# queued without that signal (none today); it is not a polling interval.
+_IDLE_WAKE_SECONDS = 30.0
+
+
+class WebWorker:
+    """A durable queue backed by SQLite and one process-local worker thread."""
+
+    def __init__(self, config: ConfigCache):
+        self.config = config
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._articles: dict[str, Any] = {}
 
     def _db(self) -> StateDB:
-        return StateDB(load_config(self.config_path).state_db_path)
+        return StateDB(self.config.get().state_db_path)
 
     def start(self) -> None:
         db = self._db()
@@ -565,10 +598,10 @@ class WebWorker:
 
             for review_id in db.discard_unavailable_web_harvest_reviews():
                 try:
-                    remove_preparation(load_config(self.config_path), review_id)
+                    remove_preparation(self.config.get(), review_id)
                 except OSError:
                     logger.warning("Não foi possível limpar a preparação %s", review_id)
-            discard_orphan_preparations(load_config(self.config_path), db)
+            discard_orphan_preparations(self.config.get(), db)
         finally:
             db.close()
         self._thread = threading.Thread(target=self._run, name="zettel-web-worker", daemon=True)
@@ -614,19 +647,21 @@ class WebWorker:
 
     def _run(self) -> None:
         while not self._stop.is_set():
+            # Clear before looking: a submit after the lookup still wakes the wait.
+            self._wake.clear()
             db = self._db()
             try:
                 job = db.next_queued_web_job()
             finally:
                 db.close()
             if not job:
-                self._wake.wait(timeout=0.5)
-                self._wake.clear()
+                self._wake.wait(timeout=_IDLE_WAKE_SECONDS)
                 continue
             self._execute(job["job_id"])
 
     def _execute(self, job_id: str) -> None:
-        cfg = load_config(self.config_path)
+        # A private copy: a long job never sees a config edited halfway through.
+        cfg = self.config.get().model_copy(deep=True)
         db = StateDB(cfg.state_db_path)
         if not db.claim_web_job(job_id):
             db.close()
@@ -1158,7 +1193,8 @@ class WebApplication:
 
     def __init__(self, config_path: str | Path | None = None):
         self.config_path = config_path
-        self.worker = WebWorker(config_path)
+        self._config = ConfigCache(config_path)
+        self.worker = WebWorker(self._config)
         self._session_key: bytes | None = None
         self._session_key_lock = threading.Lock()
 
@@ -1184,7 +1220,8 @@ class WebApplication:
 
     @property
     def cfg(self) -> AppConfig:
-        return load_config(self.config_path)
+        """Shared and read-only: handlers must not mutate it."""
+        return self._config.get()
 
     def start(self) -> None:
         self.worker.start()

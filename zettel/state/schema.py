@@ -317,6 +317,9 @@ CREATE TABLE IF NOT EXISTS web_harvest_reviews (
 
 CREATE INDEX IF NOT EXISTS idx_chunks_status    ON chunks(status);
 CREATE INDEX IF NOT EXISTS idx_chunks_source_id ON chunks(source_id);
+-- Chapter lookups (summarize, its pre-flight, the chapter map) scanned the
+-- whole table, text included (#307).
+CREATE INDEX IF NOT EXISTS idx_chunks_chapter   ON chunks(chapter_id, chunk_index);
 CREATE INDEX IF NOT EXISTS idx_concepts_note_id ON concepts(note_id);
 CREATE INDEX IF NOT EXISTS idx_concepts_status  ON concepts(status);
 CREATE INDEX IF NOT EXISTS idx_nc_source        ON note_connections(source_note_id);

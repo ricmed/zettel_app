@@ -2740,3 +2740,49 @@ def test_review_links_queue_accepts_a_proposed_edge(web_client):
         assert db.list_review_events()[-1]["surface"] == "web"
     finally:
         db.close()
+
+
+def test_config_is_read_once_until_the_yaml_changes(web_client, monkeypatch):
+    """Re-reading config.yaml cost 54 ms on every access (#307)."""
+    import os
+
+    import zettel.web_app as web_app_module
+
+    client, tmp_path = web_client
+    _login(client)
+    calls = []
+    real = web_app_module.load_config
+    monkeypatch.setattr(
+        web_app_module, "load_config", lambda path=None: calls.append(path) or real(path)
+    )
+    for path in ("/runs", "/settings", "/pipeline", "/runs"):
+        assert client.get(path).status_code == 200
+    assert calls == []
+    config = tmp_path / "config.yaml"
+    stamp = config.stat().st_mtime_ns + 1_000_000_000
+    os.utime(config, ns=(stamp, stamp))
+    assert client.get("/runs").status_code == 200
+    assert len(calls) == 1
+
+
+def test_idle_worker_does_not_poll_the_database(web_client, monkeypatch):
+    """An idle worker reopened state.db twice a second (#307); a submit wakes it."""
+    import zettel.web_app as web_app_module
+
+    client, _ = web_client
+    csrf = _login(client)
+    time.sleep(0.6)  # let the worker settle into its wait
+    opened = []
+    real = web_app_module.StateDB
+    monkeypatch.setattr(web_app_module, "StateDB", lambda path: opened.append(path) or real(path))
+    time.sleep(1.6)
+    assert opened == []
+    response = client.post("/pipeline/retry_assets", data={"csrf": csrf}, follow_redirects=False)
+    job_id = response.headers["location"].rsplit("/", 1)[1]
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        job = client.app.state.service.job(job_id)
+        if job["state"] == "succeeded":
+            break
+        time.sleep(0.05)
+    assert job["state"] == "succeeded"
