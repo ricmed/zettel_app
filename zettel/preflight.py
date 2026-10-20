@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any
 
 from zettel.config import AppConfig, llm_phase
 from zettel.note_content import note_content
@@ -324,6 +325,67 @@ def estimate_summarize(
         input_tokens=input_tokens,
         output_tokens=calls * per_call,
         caveats=caveats,
+    )
+
+
+# Output target for one garden call when no previous run exists. Not a cap.
+GARDEN_OUTPUT_TOKENS_FALLBACK = 800
+# A MOC prompt lists each note as "- **N1**: <title>"; the alias and markup.
+_GARDEN_LINE_OVERHEAD_CHARS = 12
+
+
+def estimate_garden(cfg: AppConfig, db: StateDB, report: Any) -> PreflightEstimate:
+    """One call per planned MOC creation or incremental update (``garden --plan``).
+
+    ``report`` is the planned ``GardenReport``. The per-call overhead is the
+    filled prompt (taxonomy included for a creation); each note costs its title.
+    The decision shadow (Jev) and the label embeddings are not in this figure.
+    """
+    from zettel.taxonomy import resolve_allowed_topics
+
+    hubs = report.pipeline == "garden_hubs"
+    create_prompt = "moc_hub_generation.md" if hubs else "moc_generation.md"
+    update_prompt = "moc_hub_incremental.md" if hubs else "moc_incremental.md"
+    try:
+        allowed, detail = resolve_allowed_topics(
+            cfg.gardener.topics_path, cfg.gardener.allowed_topics, strict=False
+        )
+    except Exception:
+        allowed, detail = [], ""
+    create_overhead = _filled_overhead(
+        cfg,
+        create_prompt,
+        {
+            "allowed_topics_section": "\n".join(f"- {t}" for t in allowed),
+            "taxonomy_detail": detail,
+        },
+    )
+    update_overhead = _filled_overhead(cfg, update_prompt)
+    mean_title = db.mean_permanent_title_chars() or 60
+    per_note = estimate_tokens("x" * (mean_title + _GARDEN_LINE_OVERHEAD_CHARS))
+
+    calls = 0
+    input_tokens = 0
+    for item in report.actions:
+        if item.action == "created":
+            calls += 1
+            input_tokens += create_overhead + item.size * per_note
+        elif item.action == "incremental":
+            calls += 1
+            input_tokens += update_overhead + item.size * per_note
+    per_call, output_note = _output_tokens_per_call(db, "garden", GARDEN_OUTPUT_TOKENS_FALLBACK)
+    return _build(
+        cfg,
+        "garden",
+        items=calls,
+        item_label="chamada(s)",
+        input_tokens=input_tokens,
+        output_tokens=calls * per_call,
+        caveats=[
+            "A camada de decisao em shadow (Jev) e o embedding dos rotulos nao entram na conta.",
+            "Incremental contado pelo cluster inteiro; so as notas novas vao ao prompt.",
+            output_note,
+        ],
     )
 
 

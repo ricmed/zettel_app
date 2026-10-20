@@ -78,3 +78,7 @@ Because generation (`moc_generation.md`) and incremental update (`moc_incrementa
 - `purge_mocs_by_origin` (shared by `--recreate` and `--hubs --recreate`) keeps any row whose file frontmatter names another origin, file and row both. `delete_pipeline_mocs` / `delete_hub_pipeline_mocs` were replaced by `list_mocs(origin=...)` + `delete_mocs(ids)`.
 
 Correction to the decision drivers above: the incremental update preserves the structure the pipeline itself writes (summary, subsection titles and descriptions, `[[ZTL - …]]` lines). It does **not** preserve arbitrary user edits in a pipeline MOC; prose outside that structure is lost on the next rewrite. Adopting a generated MOC as manual is tracked in #300.
+
+## Addendum (2026-10-19): every routing decision is recorded (issue #298)
+
+**Status:** Accepted amendment. Answering the open question above ("Is silent, unlogged cohesion rejection an accepted trade-off?"): no. The routing tree is now the read-only `gardener.route_cluster`, shared by the run and by `zettel garden --plan`, and every cluster's outcome (`signature_skip`, `incremental`, `created`, `rejected_cohesion`, `failed`) lands in the run's `GardenReport` (`garden_reports` table), together with the notes the incremental LLM answered `"ignorar"`. The report also carries the entry-point metrics of epic #291 — reachability within 1 and 2 hops of the notes listed in MOCs, and subjects without a door — because under the entry-point design a note outside every MOC is expected and is not, by itself, a failure.

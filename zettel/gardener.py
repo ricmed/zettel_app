@@ -10,7 +10,7 @@ import json
 import logging
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +19,7 @@ from ulid import ULID
 
 from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, llm_phase
 from zettel.decision import shadow as decision_shadow
+from zettel.garden_report import ClusterAction, GardenReport, entry_note_ids, fill_reachability
 from zettel.gardener_assign import (
     ClusterReport,
     assign_notes_to_categories,
@@ -65,6 +66,8 @@ class _GardenStats:
     created: int = 0
     skipped_signature: int = 0
     rejected_cohesion: int = 0
+    actions: list[ClusterAction] = field(default_factory=list)
+    discarded: dict[str, int] = field(default_factory=dict)
 
 
 # ── Public API ─────────────────────────────────────────────────────────
@@ -82,15 +85,20 @@ def run_garden(
 
     Provider outages stop the phase (ADR-059): the run is recorded ``failed``
     for any exception that escapes, and ``--recreate`` purges only after the
-    taxonomy, the LLM client and the label embeddings proved usable.
+    taxonomy, the LLM client and the label embeddings proved usable. A
+    completed run persists its ``GardenReport`` (#298).
     """
     from zettel.usage import begin_run, finish_pipeline_run
 
     run_id = db.start_run("garden")
     begin_run(run_id)
     status = "completed"
+    failures_before = _garden_failure_count(db)
     try:
-        return _garden(cfg, db, idx, recreate=recreate, observer=observer)
+        moc_ids, report = _garden(cfg, db, idx, recreate=recreate, observer=observer)
+        report.llm_failures = _garden_failure_count(db) - failures_before
+        db.save_garden_report(run_id, "garden", report.to_json())
+        return moc_ids
     except Exception:
         status = "failed"
         raise
@@ -98,11 +106,34 @@ def run_garden(
         finish_pipeline_run(db, run_id, status)
 
 
-def _garden(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, *, recreate: bool, observer
-) -> list[str]:
-    from zettel.progress import report
+def plan_garden(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> GardenReport:
+    """What ``run_garden`` would do, with no LLM call and no write (#298).
 
+    Costs only the category-label embeddings. Predicted entry points are the
+    current MOC notes plus the notes of every cluster that would create or
+    update a MOC.
+    """
+    _check_taxonomy(cfg)
+    cluster_pairs, cluster_report = _cluster_pairs(cfg, idx, None)
+    stats = _GardenStats()
+    planned_entries = entry_note_ids(db)
+    for category, note_ids in cluster_pairs:
+        route = route_cluster(cfg, db, category, note_ids)
+        moc_id = route.moc["moc_id"] if route.moc else None
+        stats.actions.append(ClusterAction(category, len(note_ids), route.action, moc_id))
+        if route.action in ("created", "incremental"):
+            planned_entries.update(note_ids)
+    report = _garden_report(cfg, cluster_report, stats, planned=True)
+    return fill_reachability(
+        report,
+        db,
+        planned_entries,
+        buckets=cluster_report.buckets,
+        min_notes=cfg.gardener.min_notes_for_moc,
+    )
+
+
+def _check_taxonomy(cfg: AppConfig) -> None:
     try:
         resolve_allowed_topics(
             cfg.gardener.topics_path,
@@ -112,6 +143,14 @@ def _garden(
     except TaxonomyLoadError as e:
         logger.error("Taxonomia de MOCs indisponivel: %s", e)
         raise
+
+
+def _garden(
+    cfg: AppConfig, db: StateDB, idx: VectorIndex, *, recreate: bool, observer
+) -> tuple[list[str], GardenReport]:
+    from zettel.progress import report
+
+    _check_taxonomy(cfg)
     llm = get_llm(cfg, "garden")
     cluster_pairs, cluster_report = _cluster_pairs(cfg, idx, observer)
     _log_cluster_report(cluster_report, len(cluster_pairs))
@@ -120,13 +159,12 @@ def _garden(
         removed = purge_pipeline_mocs(cfg, db, idx)
         logger.info("Recriacao: %d MOC(s) do pipeline removidos", removed)
 
-    if not cluster_pairs:
-        logger.info("Nenhum cluster encontrado")
-        return []
-
-    logger.info("Clusters encontrados: %d", len(cluster_pairs))
     stats = _GardenStats()
     moc_ids: list[str] = []
+    if not cluster_pairs:
+        logger.info("Nenhum cluster encontrado")
+    else:
+        logger.info("Clusters encontrados: %d", len(cluster_pairs))
 
     for cluster_index, (category, cluster_ids) in enumerate(cluster_pairs, 1):
         report(
@@ -157,7 +195,35 @@ def _garden(
         stats.skipped_signature,
         stats.rejected_cohesion,
     )
-    return moc_ids
+    garden_report = fill_reachability(
+        _garden_report(cfg, cluster_report, stats),
+        db,
+        entry_note_ids(db),
+        buckets=cluster_report.buckets,
+        min_notes=cfg.gardener.min_notes_for_moc,
+    )
+    return moc_ids, garden_report
+
+
+def _garden_report(
+    cfg: AppConfig, cluster_report: ClusterReport, stats: _GardenStats, *, planned: bool = False
+) -> GardenReport:
+    return GardenReport(
+        pipeline="garden",
+        planned=planned,
+        notes_total=cluster_report.notes_total,
+        backends=sorted(cluster_report.backends),
+        clusters_found=cluster_report.clusters,
+        noise_notes=cluster_report.noise_notes,
+        small_buckets=cluster_report.small_buckets,
+        bucket_sizes={k: len(v) for k, v in sorted(cluster_report.buckets.items())},
+        actions=list(stats.actions),
+        discarded=dict(stats.discarded),
+    )
+
+
+def _garden_failure_count(db: StateDB) -> int:
+    return sum(int(r["n"]) for r in db.llm_failure_counts() if r["phase"] == "garden")
 
 
 def _cluster_pairs(
@@ -179,10 +245,12 @@ def _cluster_pairs(
         logger.info("Embeddings insuficientes para clusterização")
         return [], cluster_report
     embeddings_by_id = build_embeddings_by_id(ids, embeddings)
+    cluster_report.notes_total = len(ids)
 
     categories = category_pairs(gcfg)
     cat_vectors = _category_vectors(cfg, idx, categories) if categories else None
     buckets = assign_notes_to_categories(ids, embeddings_by_id, cat_vectors) if cat_vectors else {}
+    cluster_report.buckets = buckets
     if buckets and gcfg.cluster_within_category:
         pairs = cluster_notes_within_buckets(buckets, embeddings_by_id, gcfg, cluster_report)
         if pairs:
@@ -340,6 +408,43 @@ def _extract_cluster_terms(db: StateDB, note_ids: list[str], n_terms: int = 10) 
 # ── MOC Generation ────────────────────────────────────────────────────
 
 
+@dataclass
+class _Route:
+    """Where a cluster goes, decided without calling the LLM or writing anything."""
+
+    action: str  # signature_skip | incremental | created | rejected_cohesion
+    signature: str
+    moc: dict | None = None
+
+
+def route_cluster(cfg: AppConfig, db: StateDB, category: str, note_ids: list[str]) -> _Route:
+    """The routing tree of ADR-021, read-only (``garden --plan`` reuses it)."""
+    signature = sha256_hex("|".join(sorted(note_ids)))
+
+    existing_sig = db.get_moc_by_signature(signature)
+    if existing_sig:
+        return _Route("signature_skip", signature, existing_sig)
+
+    overlap_moc = find_moc_by_note_overlap(db, note_ids, cfg.gardener.overlap_threshold)
+    if overlap_moc:
+        return _Route("incremental", signature, overlap_moc)
+
+    if category and category != "_unassigned":
+        topic_moc = db.find_moc_by_topic(category, origins=(PIPELINE_ORIGIN,))
+        if topic_moc:
+            return _Route("incremental", signature, topic_moc)
+
+    if cfg.gardener.graph_cohesion_enabled:
+        cohesion = graph_cohesion(db, note_ids, DEFAULT_RELATION_WEIGHTS)
+        logger.debug("Coesao de grafo do cluster: %.3f", cohesion)
+        min_ratio = cfg.gardener.graph_cohesion_min_ratio
+        if min_ratio > 0 and cohesion < min_ratio:
+            logger.warning("Cluster rejeitado: coesao de grafo %.3f < %.3f", cohesion, min_ratio)
+            return _Route("rejected_cohesion", signature)
+
+    return _Route("created", signature)
+
+
 def _process_cluster(
     cfg: AppConfig,
     db: StateDB,
@@ -350,75 +455,27 @@ def _process_cluster(
     stats: _GardenStats,
 ) -> str | None:
     """Route a cluster to incremental update or new MOC creation (at most one LLM call)."""
-    sorted_ids = sorted(note_ids)
-    cluster_signature = sha256_hex("|".join(sorted_ids))
-
-    existing_sig = db.get_moc_by_signature(cluster_signature)
-    if existing_sig:
-        logger.debug("MOC ja existe para assinatura: %s", existing_sig["moc_id"])
+    route = route_cluster(cfg, db, category, note_ids)
+    moc_id: str | None
+    if route.action == "signature_skip":
+        logger.debug("MOC ja existe para assinatura: %s", route.moc["moc_id"])
         stats.skipped_signature += 1
-        return existing_sig["moc_id"]
-
-    overlap_moc = find_moc_by_note_overlap(db, note_ids, cfg.gardener.overlap_threshold)
-    if overlap_moc:
-        logger.info(
-            "Cluster roteado por overlap para MOC %s",
-            overlap_moc["moc_id"],
-        )
+        moc_id = route.moc["moc_id"]
+    elif route.action == "incremental":
+        logger.info("Cluster roteado para MOC %s", route.moc["moc_id"])
         stats.incremental += 1
-        return _update_existing_moc(
-            cfg,
-            db,
-            idx,
-            llm,
-            overlap_moc,
-            note_ids,
-            cluster_signature,
+        moc_id = _update_existing_moc(
+            cfg, db, idx, llm, route.moc, note_ids, route.signature, stats=stats
         )
-
-    if category and category != "_unassigned":
-        topic_moc = db.find_moc_by_topic(category, origins=(PIPELINE_ORIGIN,))
-        if topic_moc:
-            logger.info(
-                "Cluster roteado por categoria '%s' para MOC %s",
-                category,
-                topic_moc["moc_id"],
-            )
-            stats.incremental += 1
-            return _update_existing_moc(
-                cfg,
-                db,
-                idx,
-                llm,
-                topic_moc,
-                note_ids,
-                cluster_signature,
-            )
-
-    if cfg.gardener.graph_cohesion_enabled:
-        cohesion = graph_cohesion(db, note_ids, DEFAULT_RELATION_WEIGHTS)
-        logger.debug("Coesao de grafo do cluster: %.3f", cohesion)
-        min_ratio = cfg.gardener.graph_cohesion_min_ratio
-        if min_ratio > 0 and cohesion < min_ratio:
-            logger.warning(
-                "Cluster rejeitado: coesao de grafo %.3f < %.3f",
-                cohesion,
-                min_ratio,
-            )
-            stats.rejected_cohesion += 1
-            return None
-
-    moc_id = _create_new_moc(
-        cfg,
-        db,
-        idx,
-        llm,
-        category,
-        note_ids,
-        cluster_signature,
-    )
-    if moc_id:
-        stats.created += 1
+    elif route.action == "rejected_cohesion":
+        stats.rejected_cohesion += 1
+        moc_id = None
+    else:
+        moc_id = _create_new_moc(cfg, db, idx, llm, category, note_ids, route.signature)
+        if moc_id:
+            stats.created += 1
+    action = route.action if moc_id or route.action == "rejected_cohesion" else "failed"
+    stats.actions.append(ClusterAction(category, len(note_ids), action, moc_id))
     return moc_id
 
 
@@ -674,6 +731,8 @@ def _update_existing_moc(
     existing_moc: dict,
     note_ids: list[str],
     cluster_signature: str,
+    *,
+    stats: _GardenStats | None = None,
 ) -> str | None:
     """Incrementally update an existing MOC with new notes."""
     moc_id = existing_moc["moc_id"]
@@ -741,7 +800,7 @@ def _update_existing_moc(
     if incremental_output is None:
         return None
 
-    _apply_incremental_placements(
+    ignored = _apply_incremental_placements(
         db,
         moc_path,
         structure,
@@ -750,6 +809,8 @@ def _update_existing_moc(
         alias_to_id,
         vault_timezone=cfg.vault_timezone,
     )
+    if stats is not None and ignored:
+        stats.discarded[moc_id] = stats.discarded.get(moc_id, 0) + ignored
 
     body_snap, fm_snap = _snapshot_moc_file(moc_path)
     db.upsert_moc(
@@ -799,8 +860,11 @@ def _apply_incremental_placements(
     alias_to_id: dict[str, str],
     *,
     vault_timezone: str = "America/Sao_Paulo",
-) -> None:
-    """Reconstruct and write the MOC file with new notes placed into subsections."""
+) -> int:
+    """Reconstruct and write the MOC file with new notes placed into subsections.
+
+    Returns how many notes the LLM answered ``"ignorar"`` (left out by design).
+    """
     content = moc_path.read_text(encoding="utf-8")
     meta, previous_body = parse_frontmatter(content)
 
@@ -808,6 +872,7 @@ def _apply_incremental_placements(
 
     placement_map: dict[str, list[str]] = {}
     placed: set[str] = set()
+    ignored = 0
     existing_titles = {sub["title"] for sub in structure["subsections"]}
 
     for p in incremental_output.placements:
@@ -816,6 +881,7 @@ def _apply_incremental_placements(
             continue
         if p.subsection.lower() == "ignorar":
             placed.add(nid)
+            ignored += 1
             continue
         if p.subsection not in existing_titles:
             continue
@@ -883,6 +949,7 @@ def _apply_incremental_placements(
             vault_timezone=vault_timezone,
             previous_body=previous_body,
         )
+    return ignored
 
 
 # ── Helpers ───────────────────────────────────────────────────────────

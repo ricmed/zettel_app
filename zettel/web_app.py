@@ -889,7 +889,9 @@ class WebWorker:
 
             progress.emit(ProgressEvent("garden", "Fase 5/5 — atualizando mapas de conteúdo."))
             moc_ids = run_garden(cfg, db, idx, observer=progress)
+            garden_report = db.latest_garden_report("garden")
             return {
+                "garden_report": garden_report,
                 "sources": sources,
                 "drafts": len(drafts),
                 "review": review_stats,
@@ -1130,7 +1132,12 @@ class WebWorker:
                 from zettel.gardener import run_garden
 
                 mocs = run_garden(cfg, db, idx, observer=progress)
-            return {"mocs": mocs}
+            pipeline = "garden_hubs" if payload.get("hubs") else "garden"
+            return {
+                "kind": "garden",
+                "mocs": mocs,
+                "garden_report": db.latest_garden_report(pipeline),
+            }
         if operation == "sync":
             from zettel.sync import run_sync_manual
 

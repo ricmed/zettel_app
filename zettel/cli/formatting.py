@@ -181,3 +181,50 @@ def print_connect_summary(outcome) -> None:
         )
     if outcome.cost_usd:
         console.print(f"  Custo LLM desta execucao: ${outcome.cost_usd:.4f}")
+
+
+_ACTION_LABELS = {
+    "created": "MOCs criados",
+    "incremental": "Atualizacoes incrementais",
+    "signature_skip": "Reaproveitados por assinatura",
+    "rejected_cohesion": "Rejeitados por coesao",
+    "failed": "Falhas (resposta invalida)",
+}
+
+
+def print_garden_report(report: Mapping, *, title: str = "Garden") -> None:
+    """Render a persisted ``GardenReport`` (#298): routing, reachability, subjects."""
+    from zettel.garden_report import GardenReport
+
+    rep = GardenReport.from_dict(report)
+    heading = f"{title} (previsto, sem LLM)" if rep.planned else title
+    table = Table(title=heading)
+    table.add_column("Item", style="bold")
+    table.add_column("Valor", justify="right")
+    if rep.pipeline == "garden":
+        table.add_row("Notas analisadas", str(rep.notes_total))
+        table.add_row("Backend de clusterizacao", ", ".join(rep.backends) or "-")
+        table.add_row("Clusters encontrados", str(rep.clusters_found))
+        table.add_row("Notas em ruido (fora por design)", str(rep.noise_notes))
+    for action, count in sorted(rep.action_counts().items()):
+        table.add_row(_ACTION_LABELS.get(action, action), str(count))
+    if rep.discarded:
+        table.add_row("Notas deixadas de fora pelo LLM", str(sum(rep.discarded.values())))
+    if rep.llm_failures:
+        table.add_row("Respostas invalidas (llm_failures)", str(rep.llm_failures))
+    table.add_row("Notas de entrada (portas)", str(rep.entries))
+    table.add_row("Alcancavel a 1 salto", f"{rep.reach.get('r1', 0):.1%}")
+    table.add_row("Alcancavel a 2 saltos", f"{rep.reach.get('r2', 0):.1%}")
+    table.add_row("Arestas percorriveis", f"{rep.traversable_edges}/{rep.total_edges}")
+    console.print(table)
+    if rep.subjects_without_door:
+        console.print(
+            "[yellow]Assuntos sem porta de entrada: "
+            + ", ".join(rep.subjects_without_door)
+            + "[/yellow]"
+        )
+    if rep.total_edges and rep.traversable_edges < rep.total_edges / 2:
+        console.print(
+            "[yellow]Menos da metade das arestas e percorrivel: revise a fila com "
+            "`zettel links` (ou /review?queue=links) para as portas alcancarem mais notas.[/yellow]"
+        )

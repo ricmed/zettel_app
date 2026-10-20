@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ulid import ULID
 
 from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, HubMocsConfig
+from zettel.garden_report import ClusterAction, GardenReport, entry_note_ids, fill_reachability
 from zettel.graph import expand_notes
 from zettel.hashing import sha256_hex
 from zettel.index import VectorIndex
@@ -36,6 +37,7 @@ class _HubGardenStats:
     skipped_signature: int = 0
     skipped_small: int = 0
     skipped_dedup: int = 0
+    actions: list[ClusterAction] = field(default_factory=list)
 
 
 # ── Graph ranking (pure) ──────────────────────────────────────────────
@@ -200,7 +202,14 @@ def run_garden_hubs(
     begin_run(run_id)
     status = "completed"
     try:
-        return _garden_hubs(cfg, db, idx, recreate=recreate, observer=observer)
+        moc_ids, stats = _garden_hubs(cfg, db, idx, recreate=recreate, observer=observer)
+        report = fill_reachability(
+            GardenReport(pipeline="garden_hubs", actions=list(stats.actions)),
+            db,
+            entry_note_ids(db, origins=(_HUB_ORIGIN,)),
+        )
+        db.save_garden_report(run_id, "garden_hubs", report.to_json())
+        return moc_ids
     except Exception:
         status = "failed"
         raise
@@ -210,16 +219,14 @@ def run_garden_hubs(
 
 def _garden_hubs(
     cfg: AppConfig, db: StateDB, idx: VectorIndex, *, recreate: bool, observer
-) -> list[str]:
+) -> tuple[list[str], _HubGardenStats]:
     llm = get_llm(cfg, "garden")
     if recreate:
         removed = purge_hub_pipeline_mocs(cfg, db, idx)
         logger.info("Recriacao hub: %d MOC(s) removidos", removed)
 
-    hcfg = cfg.hub_mocs
     stats = _HubGardenStats()
-
-    ranked = rank_note_hubs(db, hcfg)
+    ranked, cluster_pairs = _hub_neighbourhoods(db, cfg.hub_mocs, stats)
     from zettel.progress import report
 
     report(
@@ -228,33 +235,9 @@ def _garden_hubs(
         f"{len(ranked)} hub(s) candidato(s).",
         total_items=len(ranked),
     )
-    if not ranked:
-        logger.info("Nenhum hub encontrado no grafo")
-        return []
-
-    logger.info("Hubs candidatos: %d", len(ranked))
-
-    hubs_with_notes: list[tuple[str, float, list[str]]] = []
-    for hub_id, degree in ranked:
-        note_ids = build_hub_neighborhood(db, hub_id, hcfg)
-        if len(note_ids) < hcfg.min_neighbors:
-            stats.skipped_small += 1
-            continue
-        hubs_with_notes.append((hub_id, degree, note_ids))
-
-    before_dedup = len(hubs_with_notes)
-    cluster_pairs = dedup_hub_neighborhoods(hubs_with_notes, hcfg.dedup_subset_threshold)
-    stats.skipped_dedup = before_dedup - len(cluster_pairs)
-
     if not cluster_pairs:
-        logger.info("Nenhuma vizinhanca hub apos deduplicacao")
-        return []
-
-    logger.info(
-        "Vizinhancas hub: %d (dedup descartou %d)",
-        len(cluster_pairs),
-        stats.skipped_dedup,
-    )
+        logger.info("Nenhuma vizinhanca hub (sem hubs ou todas pequenas/duplicadas)")
+        return [], stats
 
     moc_ids: list[str] = []
     degree_by_hub = dict(ranked)
@@ -291,7 +274,53 @@ def _garden_hubs(
         stats.skipped_small,
         stats.skipped_dedup,
     )
-    return moc_ids
+    return moc_ids, stats
+
+
+def _hub_neighbourhoods(
+    db: StateDB, hcfg: HubMocsConfig, stats: _HubGardenStats
+) -> tuple[list[tuple[str, float]], list[tuple[str, list[str]]]]:
+    """Ranked hubs and their deduplicated neighbourhoods (no LLM, no write)."""
+    ranked = rank_note_hubs(db, hcfg)
+    if not ranked:
+        logger.info("Nenhum hub encontrado no grafo")
+        return [], []
+    logger.info("Hubs candidatos: %d", len(ranked))
+
+    hubs_with_notes: list[tuple[str, float, list[str]]] = []
+    for hub_id, degree in ranked:
+        note_ids = build_hub_neighborhood(db, hub_id, hcfg)
+        if len(note_ids) < hcfg.min_neighbors:
+            stats.skipped_small += 1
+            continue
+        hubs_with_notes.append((hub_id, degree, note_ids))
+
+    cluster_pairs = dedup_hub_neighborhoods(hubs_with_notes, hcfg.dedup_subset_threshold)
+    stats.skipped_dedup = len(hubs_with_notes) - len(cluster_pairs)
+    logger.info("Vizinhancas hub: %d (dedup descartou %d)", len(cluster_pairs), stats.skipped_dedup)
+    return ranked, cluster_pairs
+
+
+def plan_garden_hubs(cfg: AppConfig, db: StateDB) -> GardenReport:
+    """What ``run_garden_hubs`` would do, with no LLM call and no write (#298)."""
+    stats = _HubGardenStats()
+    _ranked, cluster_pairs = _hub_neighbourhoods(db, cfg.hub_mocs, stats)
+    planned_entries = entry_note_ids(db, origins=(_HUB_ORIGIN,))
+    actions: list[ClusterAction] = []
+    for hub_id, note_ids in cluster_pairs:
+        existing = db.find_moc_by_hub_note_id(hub_id)
+        signature = sha256_hex(f"hub:{hub_id}|" + "|".join(sorted(note_ids)))
+        if existing:
+            action, moc_id = "incremental", existing["moc_id"]
+        elif (by_sig := db.get_moc_by_signature(signature)) is not None:
+            action, moc_id = "signature_skip", by_sig["moc_id"]
+        else:
+            action, moc_id = "created", None
+        actions.append(ClusterAction(hub_id, len(note_ids), action, moc_id))
+        if action in ("created", "incremental"):
+            planned_entries.update(note_ids)
+    report = GardenReport(pipeline="garden_hubs", planned=True, actions=actions)
+    return fill_reachability(report, db, planned_entries)
 
 
 def purge_hub_pipeline_mocs(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
@@ -314,13 +343,30 @@ def _process_hub_cluster(
     weighted_degree: float,
     stats: _HubGardenStats,
 ) -> str | None:
+    action, moc_id = _route_hub_cluster(cfg, db, idx, llm, hub_id, note_ids, weighted_degree, stats)
+    stats.actions.append(
+        ClusterAction(hub_id, len(note_ids), action if moc_id else "failed", moc_id)
+    )
+    return moc_id
+
+
+def _route_hub_cluster(
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex,
+    llm: Any,
+    hub_id: str,
+    note_ids: list[str],
+    weighted_degree: float,
+    stats: _HubGardenStats,
+) -> tuple[str, str | None]:
     sorted_ids = sorted(note_ids)
     cluster_signature = sha256_hex(f"hub:{hub_id}|" + "|".join(sorted_ids))
 
     existing = db.find_moc_by_hub_note_id(hub_id)
     if existing:
         stats.incremental += 1
-        return _update_hub_moc(
+        return "incremental", _update_hub_moc(
             cfg,
             db,
             idx,
@@ -335,7 +381,7 @@ def _process_hub_cluster(
     if existing_sig:
         logger.debug("MOC hub ja existe para assinatura: %s", existing_sig["moc_id"])
         stats.skipped_signature += 1
-        return existing_sig["moc_id"]
+        return "signature_skip", existing_sig["moc_id"]
 
     moc_id = _create_new_hub_moc(
         cfg,
@@ -349,7 +395,7 @@ def _process_hub_cluster(
     )
     if moc_id:
         stats.created += 1
-    return moc_id
+    return "created", moc_id
 
 
 def _create_new_hub_moc(

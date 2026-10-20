@@ -159,6 +159,13 @@ def test_idx_kwargs_forwards_embedding_dimensions():
     assert index_kwargs(cfg)["dimensions"] == 1024
 
 
+class _GardenDB:
+    """The run_all dispatch only reads the garden report back from the database."""
+
+    def latest_garden_report(self, pipeline):
+        return None
+
+
 def test_run_all_dispatches_every_phase_in_order(tmp_path: Path, monkeypatch):
     from zettel import connector, extractor, gardener, harvester, index, review
 
@@ -213,7 +220,7 @@ def test_run_all_dispatches_every_phase_in_order(tmp_path: Path, monkeypatch):
     progress = Progress()
     result = WebWorker._dispatch(
         AppConfig(chroma_path=tmp_path / "chroma"),
-        object(),
+        _GardenDB(),
         progress,
         "run_all",
         {"duplicate_action": "skip", "skip_biblio": False, "skip_paging": True},
@@ -242,6 +249,7 @@ def test_run_all_dispatches_every_phase_in_order(tmp_path: Path, monkeypatch):
         "garden",
     ]
     assert result == {
+        "garden_report": None,
         "sources": ["@source"],
         "drafts": 1,
         "review": {"approved": 1, "rejected": 0, "skipped": 0},
@@ -282,7 +290,7 @@ def test_run_all_auto_approve_records_the_unvalidated_warning(tmp_path: Path, mo
     progress = Progress()
     WebWorker._dispatch(
         AppConfig(chroma_path=tmp_path / "chroma"),
-        object(),
+        _GardenDB(),
         progress,
         "run_all",
         {"auto_approve": True},

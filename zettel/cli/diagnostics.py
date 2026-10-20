@@ -97,6 +97,13 @@ def status(config: ConfigOption = None):
 
     console.print(table)
 
+    from zettel.cli.formatting import print_garden_report
+
+    for pipeline, title in (("garden", "Ultimo garden"), ("garden_hubs", "Ultimo garden hub")):
+        garden_report = db.latest_garden_report(pipeline)
+        if garden_report:
+            print_garden_report(garden_report, title=title)
+
     limiar = cfg.literature_review.auto_approve_min_confidence
     labels_by_source = db.review_label_summary(limiar)
     if labels_by_source:

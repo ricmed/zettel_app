@@ -173,6 +173,16 @@ class NotesMixin(StateBase):
         rows = self._fetchall(f"SELECT note_id FROM notes WHERE {_PERMANENT_PATH}")
         return {r["note_id"] for r in rows}
 
+    def list_note_sources(self) -> dict[str, str | None]:
+        """``note_id -> source_id`` for every permanent note."""
+        rows = self._fetchall(f"SELECT note_id, source_id FROM notes WHERE {_PERMANENT_PATH}")
+        return {r["note_id"]: r["source_id"] for r in rows}
+
+    def mean_permanent_title_chars(self) -> int:
+        """Mean title length of permanent notes (0 when there is none)."""
+        row = self._fetchone(f"SELECT AVG(LENGTH(title)) AS m FROM notes WHERE {_PERMANENT_PATH}")
+        return int(row["m"] or 0) if row else 0
+
     def count_permanent_notes(self) -> int:
         """Count notes under ``30_Permanent/`` (path slash style agnostic)."""
         return self._count(f"SELECT COUNT(*) FROM notes WHERE {_PERMANENT_PATH}")

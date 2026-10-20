@@ -241,6 +241,14 @@ CREATE TABLE IF NOT EXISTS runs (
     prompt_cache_write_tokens  INTEGER NOT NULL DEFAULT 0
 );
 
+-- What one garden run did and how far its entry points reach (#298).
+CREATE TABLE IF NOT EXISTS garden_reports (
+    run_id      INTEGER PRIMARY KEY REFERENCES runs(run_id) ON DELETE CASCADE,
+    pipeline    TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS web_jobs (
     job_id          TEXT PRIMARY KEY,
     operation       TEXT NOT NULL,

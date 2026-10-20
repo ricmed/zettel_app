@@ -33,6 +33,8 @@ class ClusterReport:
     clusters: int = 0
     noise_notes: int = 0
     small_buckets: int = 0
+    notes_total: int = 0
+    buckets: dict[str, list[str]] = field(default_factory=dict)
 
 
 NOTE_ID_RE = re.compile(r"\[\[ZTL\s*-\s*(\S+)\s*-\s*[^\]]*\]\]")

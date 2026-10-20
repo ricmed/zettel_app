@@ -107,3 +107,7 @@ The per-call overhead is now the prompt after `{domain}`, `{language}` and the d
 ## Addendum (2026-10-19): distant analogies and CLI `run-all` (issue #289)
 
 **Status:** Accepted amendment. `estimate_connect` sizes the RAG block as `linking.topk` plus graph neighbours plus `linking.distant_analogy_topk`. The PT-BR guard is named as uncounted. CLI `run-all` calls `preflight_gate` before connect, with the same `--yes` / non-TTY pass-through as `zettel connect`. The web worker still does not ask: it has no stdin, which is the original reason the gate lives in the CLI.
+
+## Addendum (2026-10-19): garden --plan shows an estimate, without a gate (issue #298)
+
+**Status:** Accepted amendment. `estimate_garden` is a pure estimator over a planned `GardenReport`: one call per planned creation or incremental update, the filled prompt (taxonomy included for a creation) plus each note's title, and the mean output of previous garden runs. `zettel garden --plan` prints it next to the plan. The garden still has no confirmation gate: a run costs cents. The decision shadow (Jev), which on 2026-10-07 was 75% of the phase's input tokens, and the label embeddings are named as uncounted.

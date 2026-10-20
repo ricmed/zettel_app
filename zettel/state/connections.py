@@ -136,6 +136,12 @@ class ConnectionsMixin(StateBase):
             (relation_type, origin),
         )
 
+    def list_note_connections(self) -> list[dict]:
+        """Every edge, whatever its status (callers apply ``edge_is_traversable``)."""
+        return self._fetchall(
+            "SELECT * FROM note_connections ORDER BY source_note_id, target_note_id, relation_type"
+        )
+
     def list_proposed_connections(self) -> list[dict]:
         """LLM edges waiting for a human, in a stable order."""
         return self._fetchall(
