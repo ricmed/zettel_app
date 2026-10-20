@@ -93,3 +93,7 @@ The baseline is the argmax, not the LLM's `topic`: `_create_new_moc` overwrites 
 ## Addendum (2026-10-19): clusters feed entry points, not lists (issue #297)
 
 **Status:** Accepted amendment. A cluster is still the routing unit, but its MOC lists only the entry notes chosen by `garden_entries.select_entry_notes` (ADR-060). The drivers' claim that ambiguous notes "stay out of MOCs" now holds by design for every note outside the selection, not only for HDBSCAN noise; reachability from the entries (#298) is the measure.
+
+## Addendum (2026-10-20): sub-clusters are subtopics (issue #296)
+
+**Status:** Accepted amendment. The per-category clustering now has a reader-facing role: the clusters of one category are its **subtopics**. While they fit in one MOC (`k * min_entries_per_subtopic <= max_entries_per_moc`) each becomes a subsection of the category MOC; above that, each becomes a sub-MOC "Categoria — subtema" and the category MOC lists the sub-MOCs (ADR-021 addendum of the same date). A category is the unit that must have a door; a cluster is how that door is divided.

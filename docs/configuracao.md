@@ -220,12 +220,14 @@ gardener:
   topics_path: ./config/moc_topics.yaml  # pilar > categoria > topicos
   cluster_within_category: true          # clusteriza dentro de cada bucket da taxonomia
   category_label_template: "{pilar}: {categoria}"  # texto embeddado por categoria
-  overlap_threshold: 0.4     # fracao do cluster ja no MOC -> update incremental
+  overlap_threshold: 0.4     # fracao das entradas de uma subsecao do MOC que caem no cluster -> incremental
   graph_cohesion_enabled: true
   graph_cohesion_min_ratio: 0.0  # 0 = so log; >0 rejeita cluster fraco
   umap_n_neighbors: null     # null = auto min(15, n-1)
   hdbscan_min_samples: null  # null = default do HDBSCAN
   random_state: 42           # semente do UMAP/KMeans; null = nao deterministico
+  max_entries_per_moc: 10    # teto de notas de entrada por MOC (ADR-060)
+  min_entries_per_subtopic: 3  # k sub-clusters num MOC so se k*3 <= teto; senao MOC de MOCs (#296)
 
 # ── MOCs hub (zettel garden --hubs) ────────────────────────────────────
 hub_mocs:

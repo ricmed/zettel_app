@@ -131,6 +131,25 @@ def test_plan_garden_calls_no_llm_and_writes_nothing(tmp_path, monkeypatch):
     db.close()
 
 
+def test_plan_garden_splits_a_subject_above_the_cap(tmp_path, monkeypatch):
+    import zettel.gardener as gardener_mod
+
+    cfg, db = _garden_env(tmp_path)
+    clusters = [[f"{p}{i}" for i in range(4)] for p in "ABCD"]
+    monkeypatch.setattr(
+        gardener_mod,
+        "_cluster_pairs",
+        lambda cfg, idx, obs: ([("Etica", ids) for ids in clusters], ClusterReport()),
+    )
+
+    report = gardener_mod.plan_garden(cfg, db, MagicMock())
+
+    assert [a.action for a in report.actions] == ["moc_of_mocs"] + ["submoc"] * 4
+    assert report.actions[0].size == 16
+    assert all(a.moc_id is None for a in report.actions)
+    db.close()
+
+
 def test_estimate_garden_counts_one_call_per_create_or_update(tmp_path):
     from zettel.preflight import estimate_garden
 
@@ -142,11 +161,14 @@ def test_estimate_garden_counts_one_call_per_create_or_update(tmp_path):
             ClusterAction("A", 10, "created"),
             ClusterAction("B", 12, "incremental", "M1"),
             ClusterAction("C", 11, "signature_skip", "M2"),
+            ClusterAction("D", 40, "moc_of_mocs"),
+            ClusterAction("D", 20, "submoc"),
+            ClusterAction("E", 15, "home", "M3"),
         ],
     )
 
     estimate = estimate_garden(cfg, db, report)
 
-    assert estimate.items == 2
+    assert estimate.items == 5
     assert estimate.input_tokens > 0
     db.close()

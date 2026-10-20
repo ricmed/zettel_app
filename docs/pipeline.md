@@ -218,17 +218,21 @@ Pipeline **híbrido** (taxonomia → cluster por categoria → grafo → roteame
 3. **Clusterização por bucket**: UMAP + HDBSCAN (ou KMeans como fallback) **dentro de cada categoria**, alinhando clusters ao guarda-chuva da taxonomia. A semente `random_state` torna a partição reprodutível, e o HDBSCAN usa `max(min_cluster_size, min_notes_for_moc)` como tamanho mínimo, para não aceitar um cluster que não poderia virar MOC. O log informa o backend usado (`umap+hdbscan`, `kmeans` ou `single`), o ruído e os buckets pequenos
 4. **Seleção das notas de entrada** (`garden_entries.select_entry_notes`): de cada cluster, as `max_entries_per_moc` (10) notas mais bem colocadas pelo sinal `entry_selection` (`internal_degree`, padrão provisório; ou `medoid`, `first_in_source`, `relevance`, `corroboration`). O roteamento usa o cluster inteiro; o MOC recebe só as entradas
 5. Extrai termos representativos via **TF-IDF**
-6. **Roteamento inteligente** (`_process_cluster`) — no máximo **1 chamada LLM por cluster**:
+6. **Roteamento por assunto** (`plan_subject` / `_process_subject`, #296). Cada categoria é um **assunto**, e todo assunto com notas suficientes ganha pelo menos uma porta. Primeiro, cada cluster da categoria:
    - Assinatura idêntica → skip (sem LLM)
-   - Overlap de notas com MOC existente ≥ `overlap_threshold` → `moc_incremental` apenas
-   - Categoria do bucket já tem MOC **do pipeline** (nome igual, sem diferenciar caixa e acento; nunca um MOC manual ou hub) → `moc_incremental` apenas
+   - Overlap com um MOC do pipeline (a fração das entradas de **uma subseção** do MOC que cai no cluster ≥ `overlap_threshold`) → `moc_incremental` apenas
    - Coesão de grafo abaixo de `graph_cohesion_min_ratio` (se > 0) → cluster rejeitado, sem MOC novo
-   - Caso contrário → `moc_generation` uma vez, com **categoria sugerida** pelo pipeline no prompt
+   - Caso contrário o cluster é **novo**. O nome da categoria não é mais uma rota por cluster: ele mandava todo sub-cluster novo para o primeiro MOC da categoria.
+
+   Depois, os clusters novos da categoria, juntos:
+   - A categoria ainda não tem MOC e `k * min_entries_per_subtopic <= max_entries_per_moc` → **um MOC** com uma subseção por cluster (`max_entries_per_moc // k` entradas de cada), numa chamada de `moc_generation`
+   - A categoria ainda não tem MOC e os clusters não cabem → **MOC de MOCs**: um sub-MOC "Categoria — subtema" por cluster (uma chamada cada) e o MOC da categoria, que lista só os sub-MOCs na seção "Subtemas", com a primeira frase do resumo de cada um como orientação (mais uma chamada, para o resumo)
+   - A categoria já tem MOC → cada cluster novo entra nele como entradas enquanto o MOC só lista notas e tem espaço para `min_entries_per_subtopic`; senão, ou se o LLM não posicionar nenhuma nota do cluster, o cluster vira um sub-MOC listado no MOC da categoria. É o único caso de duas chamadas para um cluster
 7. **Validação de tópico** pós-geração:
    - Substring match bidirecional contra os nomes das **categorias** do YAML
    - Se `strict_topics: true` e sem match: MOC rejeitado (com warning no log)
    - Se `strict_topics: false` e sem match: MOC aprovado (com info no log)
-8. **Atualização incremental**: oferece ao MOC só as entradas que cabem no teto (um MOC cheio não recebe nada e não gasta chamada); o LLM encaixa cada uma numa subseção existente ou nova, com a orientação, ou responde `ignorar`. Uma entrada que o LLM não posiciona fica registrada como omitida, não é listada (não existe mais a seção "Outras notas do cluster"). Cada subseção tem no máximo `max_entries_per_subsection` (5) entradas. Quando as entradas crescem `summary_refresh_growth` (50%), o resumo é reescrito (`moc_summary_refresh.md`)
+8. **Atualização incremental**: oferece ao MOC só as entradas que cabem no teto (um MOC cheio não recebe nada e não gasta chamada); o LLM encaixa cada uma numa subseção existente ou nova, com a orientação, ou responde `ignorar`. O `ignorar` fica gravado em `moc_discards` (nota, motivo, checksum semântico da nota, checksum do prompt, modelo): a nota não é oferecida de novo àquele MOC enquanto não mudar, ou até `zettel garden --reoffer-discarded`. O arquivo e a assinatura do MOC só mudam quando as entradas mudam. Uma entrada que o LLM não posiciona fica registrada como omitida, não é listada (não existe mais a seção "Outras notas do cluster"). Cada subseção tem no máximo `max_entries_per_subsection` (5) entradas. Quando as entradas crescem `summary_refresh_growth` (50%), o resumo é reescrito (`moc_summary_refresh.md`)
 9. Notas fora de MOC (ruído do HDBSCAN ou fora da seleção) permanecem no vault e são navegáveis via grafo/conexões — não existe fila de órfãs
 
 Parâmetros híbridos em `config.yaml` (`gardener.*`):
@@ -237,13 +241,14 @@ Parâmetros híbridos em `config.yaml` (`gardener.*`):
 |-----------|-----------|
 | `cluster_within_category` | Ativa pipeline taxonomia-first (default `true`) |
 | `category_label_template` | Texto embeddavel por categoria (default `"{pilar}: {categoria}"`; `domain` continua disponível num template customizado) |
-| `overlap_threshold` | Fracao do cluster ja presente em um MOC → update incremental direto |
+| `overlap_threshold` | Fração das entradas de uma subseção do MOC que cai no cluster → update incremental direto |
 | `graph_cohesion_enabled` | Calcula score interno do cluster via `note_connections` |
 | `graph_cohesion_min_ratio` | `0` = so log; `>0` rejeita cluster fraco antes de criar MOC novo |
 | `umap_n_neighbors` | `null` = auto |
 | `hdbscan_min_samples` | Opcional; ajuste fino do HDBSCAN |
 | `entry_selection` | Sinal que escolhe as notas de entrada (`internal_degree` provisório; medição pré-registrada em `evals/preregistration/297-portas-de-entrada.md`) |
 | `max_entries_per_moc` / `max_entries_per_subsection` | Teto de entradas por MOC (10, contando o hub nos MOCs hub) e por subseção (5) |
+| `min_entries_per_subtopic` | Entradas mínimas de cada sub-cluster num MOC compartilhado (3): `k` sub-clusters cabem num MOC só enquanto `k * 3 <= max_entries_per_moc`; acima disso, MOC de MOCs |
 | `summary_refresh_growth` | Fração de crescimento das entradas que dispara a reescrita do resumo (0,5) |
 | `random_state` | Semente do UMAP (e do KMeans de fallback). Fixa (`42`) = mesma partição para os mesmos vetores, o que permite reaproveitar MOCs por assinatura; `null` = mais rápido e não determinístico |
 

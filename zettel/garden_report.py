@@ -31,7 +31,9 @@ class ClusterAction:
 
     category: str
     size: int
-    action: str  # signature_skip | incremental | created | rejected_cohesion | failed
+    # signature_skip | incremental | created | submoc | moc_of_mocs | home (planned only)
+    # | rejected_cohesion | failed
+    action: str
     moc_id: str | None = None
 
 
@@ -50,6 +52,7 @@ class GardenReport:
     llm_failures: int = 0
     omitted: int = 0  # selected entries the LLM did not place
     cap_reached: int = 0  # entry candidates refused because the MOC was full
+    known_discards: int = 0  # candidates not offered again: discarded before (#296)
     entries: int = 0
     reach: dict[str, float] = field(default_factory=dict)  # "r1", "r2"
     reach_by_source: dict[str, dict[str, float]] = field(default_factory=dict)

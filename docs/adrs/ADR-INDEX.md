@@ -360,7 +360,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-08-26
-- **Summary**: Five-step decision tree (signature match → overlap → category → cohesion gate → generation) ensures at most one LLM call per cluster. Reuses existing MOCs when overlap ≥ threshold, preserves user edits on incremental updates.
+- **Summary**: Five-step decision tree (signature match → overlap → category → cohesion gate → generation) ensures at most one LLM call per cluster. Reuses existing MOCs when overlap ≥ threshold, preserves user edits on incremental updates. Addendum 2026-10-20 (#296): routing per subject (category); the category-name branch no longer swallows sub-clusters, a subject above the cap becomes a MOC of MOCs, and "ignorar" answers are kept in `moc_discards`.
 - **Link**: [`ADR-021-single-llm-call-per-cluster-routing.md`](./generated/GARDEN/ADR-021-single-llm-call-per-cluster-routing.md)
 
 ---

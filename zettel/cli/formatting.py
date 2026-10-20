@@ -185,6 +185,9 @@ def print_connect_summary(outcome) -> None:
 
 _ACTION_LABELS = {
     "created": "MOCs criados",
+    "moc_of_mocs": "MOCs de MOCs criados",
+    "submoc": "Sub-MOCs criados",
+    "home": "Clusters para o MOC da categoria",
     "incremental": "Atualizacoes incrementais",
     "signature_skip": "Reaproveitados por assinatura",
     "rejected_cohesion": "Rejeitados por coesao",
@@ -214,6 +217,8 @@ def print_garden_report(report: Mapping, *, title: str = "Garden") -> None:
         table.add_row("Entradas omitidas (nao posicionadas)", str(rep.omitted))
     if rep.cap_reached:
         table.add_row("Candidatas recusadas (MOC cheio)", str(rep.cap_reached))
+    if rep.known_discards:
+        table.add_row("Candidatas ja descartadas (nao reenviadas)", str(rep.known_discards))
     if rep.llm_failures:
         table.add_row("Respostas invalidas (llm_failures)", str(rep.llm_failures))
     table.add_row("Notas de entrada (portas)", str(rep.entries))

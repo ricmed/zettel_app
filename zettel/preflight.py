@@ -335,10 +335,11 @@ _GARDEN_LINE_OVERHEAD_CHARS = 12
 
 
 def estimate_garden(cfg: AppConfig, db: StateDB, report: Any) -> PreflightEstimate:
-    """One call per planned MOC creation or incremental update (``garden --plan``).
+    """One call per planned MOC, sub-MOC, incremental update or MOC of MOCs (``garden --plan``).
 
     ``report`` is the planned ``GardenReport``. The per-call overhead is the
-    filled prompt (taxonomy included for a creation); each note costs its title.
+    filled prompt (taxonomy included for a creation); each entry note costs its
+    title. A MOC of MOCs costs one summary call (#296).
     The decision shadow (Jev) and the label embeddings are not in this figure.
     """
     from zettel.taxonomy import resolve_allowed_topics
@@ -364,15 +365,22 @@ def estimate_garden(cfg: AppConfig, db: StateDB, report: Any) -> PreflightEstima
     mean_title = db.mean_permanent_title_chars() or 60
     per_note = estimate_tokens("x" * (mean_title + _GARDEN_LINE_OVERHEAD_CHARS))
 
+    summary_overhead = _filled_overhead(cfg, "moc_summary_refresh.md")
+    cap = cfg.gardener.max_entries_per_moc
+
     calls = 0
     input_tokens = 0
     for item in report.actions:
-        if item.action == "created":
+        sent = min(item.size, cap) * per_note  # only entry notes reach the prompt (ADR-060)
+        if item.action in ("created", "submoc"):
             calls += 1
-            input_tokens += create_overhead + item.size * per_note
-        elif item.action == "incremental":
+            input_tokens += create_overhead + sent
+        elif item.action in ("incremental", "home"):
             calls += 1
-            input_tokens += update_overhead + item.size * per_note
+            input_tokens += update_overhead + sent
+        elif item.action == "moc_of_mocs":
+            calls += 1
+            input_tokens += summary_overhead
     per_call, output_note = _output_tokens_per_call(db, "garden", GARDEN_OUTPUT_TOKENS_FALLBACK)
     return _build(
         cfg,
@@ -383,7 +391,10 @@ def estimate_garden(cfg: AppConfig, db: StateDB, report: Any) -> PreflightEstima
         output_tokens=calls * per_call,
         caveats=[
             "A camada de decisao em shadow (Jev) e o embedding dos rotulos nao entram na conta.",
-            "Incremental contado pelo cluster inteiro; so as notas novas vao ao prompt.",
+            (
+                "Cada chamada conta ate max_entries_per_moc notas; um cluster que o MOC da "
+                "categoria nao aceitar vira sub-MOC e custa uma segunda chamada."
+            ),
             output_note,
         ],
     )

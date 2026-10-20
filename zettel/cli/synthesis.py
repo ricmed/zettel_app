@@ -187,6 +187,13 @@ def garden(
             help="Apagar MOCs gerados pelo pipeline e regenerar do zero",
         ),
     ] = False,
+    reoffer_discarded: Annotated[
+        bool,
+        typer.Option(
+            "--reoffer-discarded",
+            help="Oferecer de novo aos MOCs as notas que o LLM ja deixou de fora",
+        ),
+    ] = False,
     plan: Annotated[
         bool,
         typer.Option(
@@ -228,6 +235,12 @@ def garden(
     if plan:
         _garden_plan(cfg, db, idx, hubs=hubs)
         return
+
+    if reoffer_discarded:
+        forgotten = db.clear_moc_discards()
+        console.print(
+            f"[dim]Descartes esquecidos: {forgotten} nota(s) podem voltar aos MOCs.[/dim]"
+        )
 
     try:
         if hubs:

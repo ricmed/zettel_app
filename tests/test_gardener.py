@@ -1,6 +1,7 @@
 """Tests for gardener MOC topic validation and incremental updates."""
 
 import json
+import re
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -398,15 +399,21 @@ def test_process_cluster_creates_new_moc_beside_manual_one(tmp_path):
     original = gardener_mod._create_new_moc
     gardener_mod._create_new_moc = fake_create
     try:
-        from zettel.gardener import _GardenStats, _process_cluster
+        from zettel.gardener import _GardenStats, _process_subject
 
-        moc_id = _process_cluster(
-            cfg, db, MagicMock(), MagicMock(), "Epistemologia", ["N1", "N2", "N3"], _GardenStats()
+        moc_ids = _process_subject(
+            cfg,
+            db,
+            MagicMock(),
+            MagicMock(),
+            "Epistemologia",
+            [["N1", "N2", "N3"]],
+            _GardenStats(),
         )
     finally:
         gardener_mod._create_new_moc = original
 
-    assert moc_id == "NEW001"
+    assert moc_ids == ["NEW001"]
     assert created == ["Epistemologia"]
     assert manual_file.read_bytes() == before
     assert db.get_moc("MAN001")["origin"] == "manual"
@@ -559,7 +566,7 @@ def _setup_moc_file(tmp_path):
 
 
 def test_update_existing_moc_no_new_notes(tmp_path):
-    """When all notes already exist in MOC, only signature is updated."""
+    """No new entry: no LLM call, and the signature stays (#296)."""
     db, _moc_file = _setup_moc_file(tmp_path)
     cfg = _make_config()
     cfg.prompts_path = tmp_path / "prompts"
@@ -581,9 +588,8 @@ def test_update_existing_moc_no_new_notes(tmp_path):
     assert result == "MOC001"
     # LLM should NOT have been called
     llm.invoke.assert_not_called()
-    # Signature should be updated
     updated_moc = db.find_moc_by_topic("Machine Learning Classico", origins=("pipeline",))
-    assert updated_moc["cluster_signature"] == "new_sig"
+    assert updated_moc["cluster_signature"] == "old_sig"
 
     db.close()
 
@@ -771,8 +777,8 @@ def test_update_existing_moc_with_new_subsection(tmp_path):
 # ── Routing Tests ────────────────────────────────────────────────────
 
 
-def test_generate_moc_routes_to_incremental(tmp_path):
-    """_process_cluster routes to incremental when category matches existing MOC."""
+def test_fresh_cluster_joins_the_category_moc_with_room(tmp_path):
+    """A cluster with no MOC joins its category MOC while that MOC has room (#296)."""
     db, _moc_file = _setup_moc_file(tmp_path)
     cfg = _make_config()
 
@@ -804,20 +810,21 @@ def test_generate_moc_routes_to_incremental(tmp_path):
     llm = MagicMock()
     llm.invoke.return_value = incremental_response
 
-    from zettel.gardener import _GardenStats, _process_cluster
+    from zettel.gardener import _GardenStats, _process_subject
 
     stats = _GardenStats()
-    result = _process_cluster(
+    result = _process_subject(
         cfg,
         db,
         idx,
         llm,
         "Machine Learning Classico",
-        ["NOTE001", "NOTE002", "NOTE003", "NOTE004"],
+        [["NOTE001", "NOTE002", "NOTE003", "NOTE004"]],
         stats,
     )
 
-    assert result == "MOC001"
+    assert result == ["MOC001"]
+    assert [a.action for a in stats.actions] == ["incremental"]
     assert llm.invoke.call_count == 1
     assert stats.incremental == 1
 
@@ -863,20 +870,20 @@ def test_process_cluster_routes_by_overlap(tmp_path):
     llm = MagicMock()
     llm.invoke.return_value = incremental_response
 
-    from zettel.gardener import _GardenStats, _process_cluster
+    from zettel.gardener import _GardenStats, _process_subject
 
     stats = _GardenStats()
-    result = _process_cluster(
+    result = _process_subject(
         cfg,
         db,
         idx,
         llm,
         "_unassigned",
-        ["NOTE001", "NOTE002", "NOTE005"],
+        [["NOTE001", "NOTE002", "NOTE005"]],
         stats,
     )
 
-    assert result == "MOC001"
+    assert result == ["MOC001"]
     assert llm.invoke.call_count == 1
     assert stats.incremental == 1
 
@@ -978,7 +985,7 @@ def test_merge_incremental_counts_unplaced_as_omitted(tmp_path):
     supervised = merged[0]["entries"]
     assert ("NOTE004", "ok") in supervised
     assert all(nid != "NOTE005" for sub in merged for nid, _ in sub["entries"])
-    assert (ignored, omitted) == (0, 1)
+    assert (ignored, omitted) == ([], 1)
     db.close()
 
 
@@ -1321,4 +1328,262 @@ def test_garden_hubs_records_failed_run_when_get_llm_raises(tmp_path, monkeypatc
         hub_mod.run_garden_hubs(cfg, db, MagicMock(), recreate=True)
 
     assert _last_run_status(db, "garden_hubs") == "failed"
+    db.close()
+
+
+# ── Subjects: one door per subject, sub-MOCs, persisted discards (#296) ──
+
+
+def _subject_env(tmp_path, monkeypatch, answers):
+    """Garden env with notes ``{prefix}{i}`` and a fake ``call_llm`` fed by ``answers``.
+
+    ``answers`` is a callable ``(system, user) -> dict``; every call is kept in
+    the returned list as ``(system, user)``.
+    """
+    import zettel.gardener as gardener_mod
+
+    cfg, db = _garden_env(tmp_path)
+    (cfg.vault_path / "40_MOCs").mkdir(parents=True)
+    for prefix in "ABCDE":
+        for i in range(1, 5):
+            db.upsert_note(f"{prefix}{i}", "@S", None, f"Nota {prefix}{i}")
+    calls: list[tuple[str, str]] = []
+
+    def fake_call(llm, user, *, system=None, **kwargs):
+        calls.append((system or "", user))
+        return json.dumps(answers(system or "", user))
+
+    monkeypatch.setattr(gardener_mod, "call_llm", fake_call)
+    return cfg, db, calls
+
+
+def _cluster(prefix: str) -> list[str]:
+    return [f"{prefix}{i}" for i in range(1, 5)]
+
+
+def _generation(user: str, subtopic: str = "") -> dict:
+    """One subsection per ``### Grupo`` block (or one for the whole list)."""
+    blocks = user.split("### Grupo")[1:] or [user]
+    subsections = []
+    for i, block in enumerate(blocks, start=1):
+        aliases = re.findall(r"\*\*(N\d+)\*\*", block)
+        subsections.append(
+            {
+                "title": f"Sub {i}",
+                "entries": [{"note_id": a, "orientation": f"Abre {a}"} for a in aliases],
+            }
+        )
+    return {
+        "topic": "Categoria Um",
+        "summary": f"Resumo de {subtopic or 'tema'}. Segunda frase.",
+        "subtopic": subtopic,
+        "subsections": subsections,
+    }
+
+
+def test_subject_below_the_cap_gets_one_moc_with_a_subsection_per_cluster(tmp_path, monkeypatch):
+    from zettel.gardener import _GardenStats, _process_subject
+
+    cfg, db, calls = _subject_env(tmp_path, monkeypatch, lambda s, u: _generation(u))
+
+    stats = _GardenStats()
+    moc_ids = _process_subject(
+        cfg, db, MagicMock(), MagicMock(), "Categoria Um", [_cluster(p) for p in "ABC"], stats
+    )
+
+    assert len(calls) == 1
+    assert "### Grupo 3" in calls[0][1]
+    assert "uma subsecao por grupo" in calls[0][1]
+    assert len(moc_ids) == 1 and len(db.list_mocs()) == 1
+    structure = _parse_moc_structure(Path(db.get_moc(moc_ids[0])["path"]))
+    assert [s["title"] for s in structure["subsections"]] == ["Sub 1", "Sub 2", "Sub 3"]
+    # 10 // 3 entries per cluster, so every cluster has its door.
+    assert [len(s["entries"]) for s in structure["subsections"]] == [3, 3, 3]
+    assert [a.action for a in stats.actions] == ["created"]
+    db.close()
+
+
+def test_subject_above_the_cap_becomes_a_moc_of_mocs(tmp_path, monkeypatch):
+    from zettel.gardener import _GardenStats, _process_subject
+
+    names = iter(["Alfa", "Beta", "Gama", "Delta"])
+
+    def answers(system, user):
+        if "Reescrita do Resumo" in system:
+            return {"summary": "Mapa dos subtemas."}
+        return _generation(user, next(names))
+
+    cfg, db, calls = _subject_env(tmp_path, monkeypatch, answers)
+
+    stats = _GardenStats()
+    moc_ids = _process_subject(
+        cfg, db, MagicMock(), MagicMock(), "Categoria Um", [_cluster(p) for p in "ABCD"], stats
+    )
+
+    assert len(calls) == 5  # four sub-MOCs + the category summary
+    parent = db.find_moc_by_topic("Categoria Um", origins=("pipeline",))
+    children = db.list_child_mocs(parent["moc_id"])
+    assert sorted(c["topic"] for c in children) == [
+        "Categoria Um — Alfa",
+        "Categoria Um — Beta",
+        "Categoria Um — Delta",
+        "Categoria Um — Gama",
+    ]
+    assert set(moc_ids) == {parent["moc_id"], *(c["moc_id"] for c in children)}
+    structure = _parse_moc_structure(Path(parent["path"]))
+    assert structure["all_note_ids"] == set()
+    assert structure["summary"] == "Mapa dos subtemas."
+    assert [orientation for _, orientation in structure["children"]] == [
+        "Resumo de Alfa.",
+        "Resumo de Beta.",
+        "Resumo de Gama.",
+        "Resumo de Delta.",
+    ]
+    child_meta = _parse_moc_structure(Path(children[0]["path"]))["meta"]
+    assert child_meta["parent_moc_id"] == parent["moc_id"]
+    actions = [a.action for a in stats.actions]
+    assert (actions.count("submoc"), actions.count("moc_of_mocs")) == (4, 1)
+    db.close()
+
+
+def _write_home(cfg, db, entries: list[str]) -> dict:
+    """A pipeline MOC named after the category, listing ``entries``."""
+    path = cfg.vault_path / "40_MOCs" / "MOC - HOME01 - categoria-um.md"
+    subsections = [{"title": "Base", "description": "", "entries": [(n, "") for n in entries]}]
+    body, _ = render_moc_body(db, "Categoria Um", "Resumo.", subsections, 5)
+    meta = {"type": "moc", "moc_id": "HOME01", "topic": "Categoria Um", "origin": "pipeline"}
+    safe_write_note(path, meta, body)
+    db.upsert_moc("HOME01", "Categoria Um", str(path), "home-sig", body=body)
+    return db.get_moc("HOME01")
+
+
+def test_cluster_fully_discarded_by_the_incremental_gets_a_sub_moc(tmp_path, monkeypatch):
+    """A subject never ends with a cluster without a door, not even then."""
+    from zettel.gardener import _GardenStats, _process_subject
+
+    def answers(system, user):
+        if "Novas Portas de Entrada" in system:
+            aliases = re.findall(r"\*\*(N\d+)\*\*", user)
+            return {
+                "placements": [
+                    {"note_id": a, "subsection": "ignorar", "reason": "Fora do tema"}
+                    for a in aliases
+                ]
+            }
+        return _generation(user, "Prompts")
+
+    cfg, db, calls = _subject_env(tmp_path, monkeypatch, answers)
+    _write_home(cfg, db, _cluster("A")[:3])
+
+    stats = _GardenStats()
+    _process_subject(cfg, db, MagicMock(), MagicMock(), "Categoria Um", [_cluster("E")], stats)
+
+    assert len(calls) == 2  # incremental (all ignored) + the sub-MOC
+    [child] = db.list_child_mocs("HOME01")
+    assert child["topic"] == "Categoria Um — Prompts"
+    home = _parse_moc_structure(Path(db.get_moc("HOME01")["path"]))
+    assert home["all_note_ids"] == set(_cluster("A")[:3])
+    assert [cid for cid, _ in home["children"]] == [child["moc_id"]]
+    assert set(db.moc_discard_checksums("HOME01")) == set(_cluster("E"))
+    assert db.get_moc("HOME01")["cluster_signature"] == "home-sig"
+    assert [a.action for a in stats.actions] == ["submoc"]
+    db.close()
+
+
+def test_category_name_no_longer_swallows_a_cluster_into_a_full_moc(tmp_path, monkeypatch):
+    from zettel.gardener import _GardenStats, _process_subject
+
+    cfg, db, calls = _subject_env(
+        tmp_path, monkeypatch, lambda s, u: _generation(u, "Novo subtema")
+    )
+    cfg.gardener.max_entries_per_moc = 3
+    _write_home(cfg, db, _cluster("A")[:3])
+
+    _process_subject(
+        cfg, db, MagicMock(), MagicMock(), "Categoria Um", [_cluster("E")], _GardenStats()
+    )
+
+    assert len(calls) == 1  # no incremental offer to a full MOC
+    assert len(db.list_child_mocs("HOME01")) == 1
+    db.close()
+
+
+def test_ignored_note_is_kept_and_not_offered_again(tmp_path):
+    from zettel.gardener import _GardenStats
+
+    db, moc_file = _setup_moc_file(tmp_path)
+    db.upsert_note("NOTE005", "SRC001", None, "Random Forest", note_semantic_checksum="v1")
+    cfg = _make_config()
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir()
+    (prompts_dir / "moc_incremental.md").write_text(
+        "Prompt: {moc_topic} {moc_summary} {existing_subsections} {new_notes_list}",
+        encoding="utf-8",
+    )
+    cfg.prompts_path = prompts_dir
+    response = MagicMock()
+    response.content = json.dumps(
+        {"placements": [{"note_id": "N1", "subsection": "ignorar", "reason": "Outro tema"}]}
+    )
+    llm = MagicMock()
+    llm.invoke.return_value = response
+    before = moc_file.read_bytes()
+
+    def offer(stats):
+        moc = db.get_moc("MOC001")
+        return _update_existing_moc(cfg, db, MagicMock(), llm, moc, ["NOTE005"], "sig", stats=stats)
+
+    assert offer(_GardenStats()) == "MOC001"
+    assert llm.invoke.call_count == 1
+    assert moc_file.read_bytes() == before
+    assert db.get_moc("MOC001")["cluster_signature"] == "old_sig"
+    row = db.conn.execute("SELECT reason, note_checksum FROM moc_discards").fetchone()
+    assert tuple(row) == ("Outro tema", "v1")
+
+    stats = _GardenStats()
+    offer(stats)
+    assert llm.invoke.call_count == 1
+    assert stats.known_discards == 1
+
+    db.upsert_note("NOTE005", "SRC001", None, "Random Forest", note_semantic_checksum="v2")
+    offer(_GardenStats())
+    assert llm.invoke.call_count == 2
+    db.close()
+
+
+def test_sub_mocs_round_trip_through_the_file(tmp_path):
+    db = StateDB(tmp_path / "test.db")
+    db.upsert_moc("CH1", "Cat — Sub", str(tmp_path / "MOC - CH1 - cat-sub.md"), "s")
+    body, _ = render_moc_body(db, "Cat", "Resumo.", [], 5, children=[("CH1", "Comece aqui.")])
+    path = tmp_path / "MOC - P1 - cat.md"
+    safe_write_note(path, {"moc_id": "P1", "topic": "Cat"}, body)
+
+    structure = _parse_moc_structure(path)
+
+    assert "## Subtemas" in body and "[[MOC - CH1 - cat-sub]] — Comece aqui." in body
+    assert structure["children"] == [("CH1", "Comece aqui.")]
+    assert structure["subsections"] == [] and structure["summary"] == "Resumo."
+    db.close()
+
+
+def test_group_subjects_keeps_categories_together_and_unassigned_apart():
+    from zettel.gardener import group_subjects
+
+    pairs = [("X", ["a"]), ("_unassigned", ["b"]), ("X", ["c"]), ("_unassigned", ["d"])]
+
+    assert group_subjects(pairs) == [
+        ("X", [["a"], ["c"]]),
+        ("_unassigned", [["b"]]),
+        ("_unassigned", [["d"]]),
+    ]
+
+
+def test_delete_mocs_drops_their_discards(tmp_path):
+    db = StateDB(tmp_path / "test.db")
+    db.upsert_moc("M1", "T", None, "s")
+    db.record_moc_discards("M1", [{"note_id": "N1", "reason": "r"}], prompt_checksum="p", model="m")
+
+    db.delete_mocs(["M1"])
+
+    assert db.moc_discard_checksums("M1") == {}
     db.close()

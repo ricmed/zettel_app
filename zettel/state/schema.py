@@ -142,8 +142,23 @@ CREATE TABLE IF NOT EXISTS mocs (
     frontmatter_json    TEXT,
     origin              TEXT NOT NULL DEFAULT 'pipeline',
     cluster_signature   TEXT,
+    parent_moc_id       TEXT,
     created_at          TEXT NOT NULL,
     updated_at          TEXT NOT NULL
+);
+
+-- Entry candidates the garden LLM answered "ignorar" for one MOC (#296): kept
+-- so the incremental update does not offer (and pay for) them again while the
+-- note's semantic checksum is unchanged.
+CREATE TABLE IF NOT EXISTS moc_discards (
+    moc_id          TEXT NOT NULL,
+    note_id         TEXT NOT NULL,
+    reason          TEXT NOT NULL DEFAULT '',
+    note_checksum   TEXT NOT NULL DEFAULT '',
+    prompt_checksum TEXT NOT NULL DEFAULT '',
+    model           TEXT NOT NULL DEFAULT '',
+    created_at      TEXT NOT NULL,
+    PRIMARY KEY (moc_id, note_id)
 );
 
 CREATE TABLE IF NOT EXISTS assets (

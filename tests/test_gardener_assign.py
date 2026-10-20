@@ -61,6 +61,22 @@ def test_find_moc_by_note_overlap(tmp_path):
     db.close()
 
 
+def test_overlap_counts_one_subsection_not_the_whole_moc(tmp_path):
+    """A MOC that gave this cluster one subsection among three still owns it (#296)."""
+    db = StateDB(tmp_path / "test.db")
+    body = (
+        "## A\n\n- [[ZTL - A1 - a]]\n- [[ZTL - A2 - a]]\n\n"
+        "## B\n\n- [[ZTL - B1 - b]]\n- [[ZTL - B2 - b]]\n\n"
+        "## C\n\n- [[ZTL - C1 - c]]\n- [[ZTL - C2 - c]]\n"
+    )
+    db.upsert_moc("M1", "Tema", "/p/m.md", "sig", body=body, origin="pipeline")
+    cluster = ["A1", "A2", *(f"X{i}" for i in range(30))]
+
+    assert find_moc_by_note_overlap(db, cluster, threshold=0.4)["moc_id"] == "M1"
+    assert find_moc_by_note_overlap(db, ["A1", "B1", "C1"], threshold=0.6) is None
+    db.close()
+
+
 def test_graph_cohesion_internal_edges(tmp_path):
     db = StateDB(tmp_path / "test.db")
     for nid in ("A", "B", "C"):

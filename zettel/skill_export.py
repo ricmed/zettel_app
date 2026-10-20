@@ -23,6 +23,7 @@ from zettel.citation import load_provenance
 from zettel.config import AppConfig
 from zettel.markdown_fences import h2_section
 from zettel.note_content import thesis_from_permanent_note
+from zettel.search_terms import fold
 from zettel.state import StateDB
 from zettel.time import vault_date_iso
 from zettel.topic_index import TermEntry, TermSource, build_term_map
@@ -124,9 +125,16 @@ def _slice_from_moc(db: StateDB, moc_id: str) -> tuple[str, str, list[dict]]:
     moc = db.get_moc(moc_id)
     if not moc:
         raise SkillExportError(f"MOC nao encontrado: {moc_id}")
-    note_ids = sorted(_NOTE_ID_RE.findall(moc.get("body") or ""))
-    rows = [n for n in (db.get_note(nid) for nid in note_ids) if n]
+    rows = [n for n in (db.get_note(nid) for nid in _moc_note_ids(db, moc)) if n]
     return moc.get("topic") or moc_id, f"MOC {moc_id}", rows
+
+
+def _moc_note_ids(db: StateDB, moc: dict) -> list[str]:
+    """Entry notes of a MOC plus those of its sub-MOCs (a MOC of MOCs lists none, #296)."""
+    note_ids = set(_NOTE_ID_RE.findall(moc.get("body") or ""))
+    for child in db.list_child_mocs(moc["moc_id"]):
+        note_ids.update(_NOTE_ID_RE.findall(child.get("body") or ""))
+    return sorted(note_ids)
 
 
 def _slice_from_topic(cfg: AppConfig, db: StateDB, topic: str) -> tuple[str, str, list[dict]]:
@@ -139,6 +147,9 @@ def _slice_from_topic(cfg: AppConfig, db: StateDB, topic: str) -> tuple[str, str
         for moc in db.list_mocs()
         if wanted in (moc.get("topic") or "").lower() or (moc.get("topic") or "").lower() in wanted
     ]
+    # A category's own sub-MOCs ("Categoria — subtema") are part of it, not rivals (#296).
+    exact = {moc["moc_id"] for moc in matches if fold(moc.get("topic") or "") == fold(topic)}
+    matches = [moc for moc in matches if moc.get("parent_moc_id") not in exact]
     if not matches:
         known = sorted({moc.get("topic") or "" for moc in db.list_mocs()} - {""})
         listing = ", ".join(known) if known else "(nenhum MOC no vault)"
@@ -153,11 +164,7 @@ def _slice_from_topic(cfg: AppConfig, db: StateDB, topic: str) -> tuple[str, str
             "Repita com o nome completo da categoria."
         )
 
-    note_ids: list[str] = []
-    for moc in matches:
-        for nid in _NOTE_ID_RE.findall(moc.get("body") or ""):
-            if nid not in note_ids:
-                note_ids.append(nid)
+    note_ids = {nid for moc in matches for nid in _moc_note_ids(db, moc)}
     rows = [n for n in (db.get_note(nid) for nid in sorted(note_ids)) if n]
     return topics.pop() or topic, f"topico '{topic}'", rows
 

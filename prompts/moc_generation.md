@@ -29,6 +29,7 @@ Pilares agrupam categorias; os topicos-folha orientam as **subsecoes** do MOC:
 - Para **cada** nota, escreva em `orientation` uma frase curta dizendo por que comecar por ela (o que ela abre no assunto). Nao repita o titulo.
 - Use **apenas** os aliases (`N1`, `N2`, ...) da lista de notas em `note_id`.
 - Cada nota aparece em no maximo uma subsecao. Se uma nota nao serve como porta de entrada, deixe-a de fora.
+- Siga a **estrutura pedida** na mensagem do usuario: notas divididas em grupos pedem uma subsecao por grupo; um MOC que e subtema de uma categoria pede, em `subtopic`, um nome curto para o subtema (sem repetir a categoria). Fora desses casos, deixe `subtopic` vazio.
 - NAO inclua wikilinks `[[ZTL - ...]]` em `summary`, `description` nem `orientation`.
 - TUDO em PT-BR.
 
@@ -39,6 +40,7 @@ Pilares agrupam categorias; os topicos-folha orientam as **subsecoes** do MOC:
   "topic": "Nome da categoria da lista acima",
   "summary": "Resumo do tema em 2-3 frases",
   "topic_justification": "Justificativa de porque esta categoria foi escolhida para o grupo",
+  "subtopic": "",
   "subsections": [
     {
       "title": "Subtema",
@@ -64,3 +66,6 @@ As notas de entrada e os termos representativos seguem na mensagem do usuario.
 
 **Categoria sugerida pelo pipeline**:
 {suggested_category}
+
+**Estrutura pedida**:
+{moc_structure}

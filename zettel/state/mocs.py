@@ -25,12 +25,14 @@ class MocsMixin(StateBase):
         body: str | None = None,
         frontmatter_json: str | None = None,
         origin: str = "pipeline",
+        parent_moc_id: str | None = None,
     ) -> None:
+        """Insert or update a MOC row. ``parent_moc_id`` is kept when not given."""
         now = self._now()
         self.conn.execute(
             """INSERT INTO mocs (moc_id, topic, path, body, frontmatter_json, origin,
-                                 cluster_signature, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 cluster_signature, parent_moc_id, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(moc_id) DO UPDATE SET
                  topic=excluded.topic,
                  path=COALESCE(excluded.path, mocs.path),
@@ -38,8 +40,20 @@ class MocsMixin(StateBase):
                  frontmatter_json=COALESCE(excluded.frontmatter_json, mocs.frontmatter_json),
                  origin=excluded.origin,
                  cluster_signature=excluded.cluster_signature,
+                 parent_moc_id=COALESCE(excluded.parent_moc_id, mocs.parent_moc_id),
                  updated_at=excluded.updated_at""",
-            (moc_id, topic, path, body, frontmatter_json, origin, cluster_signature, now, now),
+            (
+                moc_id,
+                topic,
+                path,
+                body,
+                frontmatter_json,
+                origin,
+                cluster_signature,
+                parent_moc_id,
+                now,
+                now,
+            ),
         )
         self.conn.commit()
 
@@ -75,6 +89,13 @@ class MocsMixin(StateBase):
                 return moc
         return None
 
+    def list_child_mocs(self, parent_moc_id: str) -> list[dict]:
+        """Sub-MOCs of a MOC of MOCs (#296), oldest first."""
+        return self._fetchall(
+            "SELECT * FROM mocs WHERE parent_moc_id=? ORDER BY created_at, moc_id",
+            (parent_moc_id,),
+        )
+
     def find_moc_by_hub_note_id(self, hub_note_id: str) -> dict | None:
         """Newest hub_pipeline MOC anchored on ``hub_note_id``."""
         return self._fetchone(
@@ -94,10 +115,58 @@ class MocsMixin(StateBase):
         """Remove MOC rows by id (the caller decides which ones are safe)."""
         if not moc_ids:
             return
-        self.conn.execute(
-            f"DELETE FROM mocs WHERE moc_id IN ({placeholders(moc_ids)})", tuple(moc_ids)
+        marks = placeholders(moc_ids)
+        self.conn.execute(f"DELETE FROM moc_discards WHERE moc_id IN ({marks})", tuple(moc_ids))
+        self.conn.execute(f"DELETE FROM mocs WHERE moc_id IN ({marks})", tuple(moc_ids))
+        self.conn.commit()
+
+    # ── Discarded entry candidates (#296) ──────────────────────────────
+
+    def record_moc_discards(
+        self,
+        moc_id: str,
+        rows: list[dict],
+        *,
+        prompt_checksum: str,
+        model: str,
+    ) -> None:
+        """Keep the notes the LLM answered "ignorar" for ``moc_id``.
+
+        Each row carries ``note_id``, ``reason`` and ``note_checksum`` (the
+        note's semantic checksum when it was judged).
+        """
+        now = self._now()
+        self.conn.executemany(
+            """INSERT OR REPLACE INTO moc_discards
+               (moc_id, note_id, reason, note_checksum, prompt_checksum, model, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    moc_id,
+                    r["note_id"],
+                    r.get("reason") or "",
+                    r.get("note_checksum") or "",
+                    prompt_checksum,
+                    model,
+                    now,
+                )
+                for r in rows
+            ],
         )
         self.conn.commit()
+
+    def moc_discard_checksums(self, moc_id: str) -> dict[str, str]:
+        """``note_id -> note_checksum`` of the notes discarded for ``moc_id``."""
+        rows = self._fetchall(
+            "SELECT note_id, note_checksum FROM moc_discards WHERE moc_id=?", (moc_id,)
+        )
+        return {r["note_id"]: r["note_checksum"] for r in rows}
+
+    def clear_moc_discards(self) -> int:
+        """Forget every discard so the next garden offers those notes again."""
+        cur = self.conn.execute("DELETE FROM moc_discards")
+        self.conn.commit()
+        return cur.rowcount
 
     # ── Topic index (term -> note routing) ─────────────────────────────
 

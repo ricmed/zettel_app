@@ -399,7 +399,8 @@ class GardenerConfig(BaseModel):
     # Pipeline hibrido: taxonomia -> cluster por categoria -> grafo -> LLM.
     cluster_within_category: bool = True
     category_label_template: str = "{pilar}: {categoria}"
-    overlap_threshold: float = 0.4  # overlap cluster/MOC -> incremental
+    # Fracao das entradas de uma subsecao do MOC que caem no cluster -> incremental.
+    overlap_threshold: float = 0.4
     graph_cohesion_enabled: bool = True
     graph_cohesion_min_ratio: float = 0.0  # 0 = metrica apenas; >0 rejeita MOC novo
     umap_n_neighbors: int | None = None  # None = auto (min(15, n-1))
@@ -415,6 +416,10 @@ class GardenerConfig(BaseModel):
     ] = "internal_degree"
     max_entries_per_moc: int = Field(default=10, ge=1)
     max_entries_per_subsection: int = Field(default=5, ge=1)
+    # Um assunto (categoria) com k sub-clusters cabe num MOC so enquanto
+    # k * min_entries_per_subtopic <= max_entries_per_moc; acima disso vira MOC
+    # de MOCs, um sub-MOC por sub-cluster (#296).
+    min_entries_per_subtopic: int = Field(default=3, ge=1)
     # Reescreve o resumo quando as entradas crescem esta fracao desde a ultima escrita.
     summary_refresh_growth: float = Field(default=0.5, gt=0)
 

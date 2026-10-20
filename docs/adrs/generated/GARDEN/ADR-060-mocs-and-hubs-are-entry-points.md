@@ -44,3 +44,7 @@ The author's intent is the opposite. A MOC (or hub MOC) is a **door into a subje
 * `zettel/schemas.py` — `MOCEntry`, `MOCSubsection`, `MOCSummaryOutput`
 * `prompts/moc_generation.md`, `prompts/moc_incremental.md`, `prompts/moc_hub_generation.md`, `prompts/moc_hub_incremental.md`, `prompts/moc_summary_refresh.md`
 * `scripts/probe_moc_entry_points.py`, `evals/preregistration/297-portas-de-entrada.md`, `evals/results/297-portas-de-entrada.json`
+
+## Addendum (2026-10-20): splitting large subjects (issue #296)
+
+**Status:** Accepted amendment. Point 5 left the split of a subject that outgrows the cap to #296. A category whose clusters do not fit in `max_entries_per_moc` at `min_entries_per_subtopic` entries each becomes a MOC of MOCs: the category MOC lists only its sub-MOCs ("Subtemas", one orientation line each) and every sub-MOC lists its own entry notes under the same cap. Sub-MOC entries count as entries for reachability; the category MOC contributes none of its own. A MOC that is full no longer silently absorbs a new cluster: the cluster gets a sub-MOC. Notes the LLM answers `"ignorar"` are kept per MOC (`moc_discards`) instead of being re-offered every run.

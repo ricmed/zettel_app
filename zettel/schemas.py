@@ -239,6 +239,10 @@ class MOCGenerationOutput(BaseModel):
     topic: str = Field(description="Nome/tema do MOC")
     summary: str = Field(description="Resumo do tema em PT-BR")
     subsections: list[MOCSubsection] = Field(default_factory=list)
+    subtopic: str = Field(
+        default="",
+        description="Nome curto do subtema, quando o MOC e um sub-MOC de uma categoria",
+    )
     topic_justification: str = Field(
         default="",
         description="Justificativa de porque este topico foi escolhido",

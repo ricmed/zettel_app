@@ -207,27 +207,46 @@ def graph_cohesion(
     return internal_weight / len(cluster)
 
 
+def moc_entry_groups(body: str) -> list[set[str]]:
+    """Entry note ids of each ``##`` section of a MOC body (text before the first heading too)."""
+    groups: list[set[str]] = [set()]
+    for line in (body or "").splitlines():
+        if line.startswith("## "):
+            groups.append(set())
+            continue
+        groups[-1].update(NOTE_ID_RE.findall(line))
+    return [g for g in groups if g]
+
+
 def find_moc_by_note_overlap(
     db: StateDB,
     note_ids: list[str],
     threshold: float,
 ) -> dict | None:
-    """Find pipeline MOC with highest note-id overlap fraction."""
+    """Pipeline MOC one of whose subsections lies mostly inside the cluster.
+
+    A MOC lists only entry notes (ADR-060), so "share of the cluster already in
+    the MOC" falls under any threshold for a large cluster. The score is the
+    best share of one subsection's entries that belong to the cluster: a MOC
+    made from this cluster scores 1.0, and so does a MOC that gave the cluster
+    one subsection among several (#296). Ties go to the MOC sharing more entries.
+    """
     if not note_ids:
         return None
 
     cluster_set = set(note_ids)
     best_moc: dict | None = None
-    best_score = 0.0
+    best_key = (0.0, 0)
 
     for moc in db.list_mocs(origin="pipeline"):
-        body = moc.get("body") or ""
-        moc_ids = extract_note_ids_from_moc_body(body)
-        if not moc_ids:
+        groups = moc_entry_groups(moc.get("body") or "")
+        if not groups:
             continue
-        overlap = len(cluster_set & moc_ids) / len(cluster_set)
-        if overlap >= threshold and overlap > best_score:
-            best_score = overlap
+        score = max(len(g & cluster_set) / len(g) for g in groups)
+        shared = len(set().union(*groups) & cluster_set)
+        key = (score, shared)
+        if score >= threshold and key > best_key:
+            best_key = key
             best_moc = moc
 
     return best_moc

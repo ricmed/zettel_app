@@ -292,18 +292,22 @@ python -m zettel garden --recreate -y
 # Ajustar o tamanho minimo de cluster nesta execucao
 python -m zettel garden --min-cluster-size 3
 
+# Oferecer de novo as notas que o LLM ja deixou de fora dos MOCs
+python -m zettel garden --reoffer-discarded
+
 # Ver o que seria feito, sem LLM e sem gravar (custa so o embedding dos rotulos)
 python -m zettel garden --plan
 python -m zettel garden --hubs --plan
 ```
 
-Ao terminar, o comando mostra o relatório da execução (também gravado no SQLite e exibido no `zettel status` e no detalhe do job na web): backend de clusterização, notas em ruído, ações por cluster (criados, incrementais, reaproveitados, rejeitados, falhas), notas que o LLM deixou de fora, **notas de entrada** e **alcançabilidade** a 1 e 2 saltos, arestas percorríveis e **assuntos sem porta de entrada**. MOCs e hubs são portas de entrada: notas fora deles são esperadas; o que indica problema é um assunto sem porta ou uma alcançabilidade baixa. Com menos da metade das arestas percorrível, o relatório sugere revisar a fila `zettel links`.
+Ao terminar, o comando mostra o relatório da execução (também gravado no SQLite e exibido no `zettel status` e no detalhe do job na web): backend de clusterização, notas em ruído, ações por cluster (criados, sub-MOCs, MOCs de MOCs, incrementais, reaproveitados, rejeitados, falhas), notas que o LLM deixou de fora e as que não foram reenviadas por já terem sido descartadas, **notas de entrada** e **alcançabilidade** a 1 e 2 saltos, arestas percorríveis e **assuntos sem porta de entrada**. MOCs e hubs são portas de entrada: notas fora deles são esperadas; o que indica problema é um assunto sem porta ou uma alcançabilidade baixa. Com menos da metade das arestas percorrível, o relatório sugere revisar a fila `zettel links`.
 
 | Flag | Efeito |
 |---|---|
 | `--hubs` | Executa o pipeline de MOCs ancorados em notas-hub em vez do taxonômico. |
 | `--recreate` | Apaga os MOCs **gerados pelo pipeline** (vault + banco + índice) e regenera do zero. MOCs manuais são preservados; `--hubs --recreate` afeta só `origin='hub_pipeline'`. |
 | `--min-cluster-size N` | Override de `gardener.min_cluster_size` nesta execução. |
+| `--reoffer-discarded` | Esquece os descartes gravados (`moc_discards`): as notas que o LLM respondeu `ignorar` voltam a ser candidatas. Sem a flag, uma nota descartada só volta quando muda. |
 | `--plan` | Mostra atribuição, clusters, ação prevista por cluster, alcançabilidade prevista, assuntos sem porta e a estimativa de custo, **sem** chamar o LLM e **sem** gravar. Não pede confirmação. |
 | `--yes` / `-y` | Confirma o `--recreate` e o reprocessamento de embedding. |
 
