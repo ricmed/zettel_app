@@ -230,6 +230,7 @@ gardener:
   random_state: 42           # semente do UMAP/KMeans; null = nao deterministico
   max_entries_per_moc: 10    # teto de notas de entrada por MOC (ADR-060)
   min_entries_per_subtopic: 3  # k sub-clusters num MOC so se k*3 <= teto; senao MOC de MOCs (#296)
+  model_refit_growth: 0.5    # modelo de cluster por categoria em data/cache/garden; reajusta se as notas novas passam de 50% (#300)
   proposed_edge_factor: 0.5  # arestas de LLM propostas valem metade no grau/BFS dos hubs, coesao e entradas (#299)
   warn_min_traversable_share: 0.5  # avisa se menos da metade das arestas e percorrivel
   warn_min_reach: 0.5        # avisa se menos da metade das notas esta a 2 saltos de uma porta

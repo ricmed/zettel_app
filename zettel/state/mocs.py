@@ -104,6 +104,13 @@ class MocsMixin(StateBase):
             (hub_note_id,),
         )
 
+    def list_orphan_hub_mocs(self) -> list[dict]:
+        """hub_pipeline MOCs whose ``hub_note_id`` no longer names a note (#300)."""
+        return self._fetchall(
+            f"SELECT * FROM mocs WHERE origin='hub_pipeline' AND {_HUB_NOTE_ID} IS NOT NULL "
+            f"AND {_HUB_NOTE_ID} NOT IN (SELECT note_id FROM notes) ORDER BY topic"
+        )
+
     def list_hub_anchor_note_ids(self) -> set[str]:
         """hub_note_id values from existing hub_pipeline MOCs."""
         rows = self._fetchall(

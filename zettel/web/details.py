@@ -5,10 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from zettel.markdown import render_markdown
+from zettel.web.enqueue import post_job
 from zettel.web.rendering import render, service
 from zettel.web.security import authenticated, redirect_login
 
@@ -97,6 +98,12 @@ async def moc_markdown(request: Request, moc_id: str, download: bool = False):
     finally:
         db.close()
     return _markdown_response(request, row, "40_MOCs", download)
+
+
+@router.post("/mocs/{moc_id}/adopt")
+async def moc_adopt(request: Request, moc_id: str, csrf: str = Form("")):
+    """Hand a generated MOC to the user (#300); runs as a job so no garden overlaps it."""
+    return post_job(request, "adopt_moc", {"moc_id": moc_id}, csrf)
 
 
 @router.get("/sources/{source_id}", response_class=HTMLResponse)

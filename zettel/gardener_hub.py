@@ -202,7 +202,11 @@ def run_garden_hubs(
     try:
         moc_ids, stats = _garden_hubs(cfg, db, idx, recreate=recreate, observer=observer)
         report = fill_reachability(
-            GardenReport(pipeline="garden_hubs", actions=list(stats.actions)),
+            GardenReport(
+                pipeline="garden_hubs",
+                actions=list(stats.actions),
+                orphan_hubs=_orphan_hub_topics(db),
+            ),
             db,
             entry_note_ids(db, origins=(_HUB_ORIGIN,)),
             gcfg=cfg.gardener,
@@ -323,6 +327,11 @@ def hub_entry_notes(db: StateDB, hub_id: str, note_ids: list[str], cfg: AppConfi
     ]
 
 
+def _orphan_hub_topics(db: StateDB) -> list[str]:
+    """Hub MOCs whose hub note was deleted (``delete-source --delete-permanent``, #300)."""
+    return [moc["topic"] for moc in db.list_orphan_hub_mocs()]
+
+
 def plan_garden_hubs(cfg: AppConfig, db: StateDB) -> GardenReport:
     """What ``run_garden_hubs`` would do, with no LLM call and no write (#298)."""
     stats = _HubGardenStats()
@@ -341,7 +350,9 @@ def plan_garden_hubs(cfg: AppConfig, db: StateDB) -> GardenReport:
         actions.append(ClusterAction(hub_id, len(note_ids), action, moc_id))
         if action in ("created", "incremental"):
             planned_entries.update(hub_entry_notes(db, hub_id, note_ids, cfg))
-    report = GardenReport(pipeline="garden_hubs", planned=True, actions=actions)
+    report = GardenReport(
+        pipeline="garden_hubs", planned=True, actions=actions, orphan_hubs=_orphan_hub_topics(db)
+    )
     return fill_reachability(report, db, planned_entries, gcfg=cfg.gardener)
 
 
@@ -443,6 +454,7 @@ def _create_new_hub_moc(
         _allowed_note_ids,
         _build_note_alias_map,
         _GardenStats,
+        _keep_discards,
         _moc_embeddable,
         _store_moc_row,
         _subsections_from_output,
@@ -491,13 +503,13 @@ def _create_new_hub_moc(
     garden_stats.omitted = len(allowed - placed)
 
     moc_id = str(ULID())
+    _keep_discards(cfg, db, moc_id, allowed - placed, "nao posicionada na criacao")
     topic = moc_output.topic
     now = now_vault_iso(cfg.vault_timezone)
     meta = {
         "type": "hub_moc",
         "moc_id": moc_id,
         "topic": topic,
-        "cluster_signature": cluster_signature,
         "origin": _HUB_ORIGIN,
         "hub_note_id": hub_id,
         "hub_weighted_degree": weighted_degree,

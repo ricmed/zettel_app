@@ -945,7 +945,7 @@ def test_body_lists_only_placed_entries_with_orientation(tmp_path):
     assert "NOTE003" not in body
     assert "Outras notas do cluster" not in body
     assert allowed - placed == {"NOTE003"}
-    assert truncated == 0
+    assert truncated == []
     db.close()
 
 
@@ -959,7 +959,7 @@ def test_render_caps_entries_per_subsection(tmp_path):
         db, "T", "R", [{"title": "G", "description": "", "entries": [(n, "") for n in ids]}], 2
     )
 
-    assert truncated == 2
+    assert truncated == ["NOTE003", "NOTE004"]
     assert "NOTE001" in body and "NOTE002" in body
     assert "NOTE003" not in body
     db.close()
@@ -985,7 +985,7 @@ def test_merge_incremental_counts_unplaced_as_omitted(tmp_path):
     supervised = merged[0]["entries"]
     assert ("NOTE004", "ok") in supervised
     assert all(nid != "NOTE005" for sub in merged for nid, _ in sub["entries"])
-    assert (ignored, omitted) == ([], 1)
+    assert (ignored, omitted) == ([], {"NOTE005"})
     db.close()
 
 
@@ -1208,7 +1208,7 @@ def test_garden_stops_on_llm_unavailable(tmp_path, monkeypatch):
     monkeypatch.setattr(
         gardener_mod,
         "_cluster_pairs",
-        lambda cfg, idx, observer: (
+        lambda cfg, idx, observer, **_: (
             [("_unassigned", ["A", "B", "C"]), ("_unassigned", ["D", "E"])],
             ClusterReport(),
         ),
@@ -1297,7 +1297,7 @@ def test_invalid_response_goes_to_llm_failures_and_garden_continues(tmp_path, mo
     monkeypatch.setattr(
         gardener_mod,
         "_cluster_pairs",
-        lambda cfg, idx, observer: (
+        lambda cfg, idx, observer, **_: (
             [("_unassigned", ["A", "B", "C"]), ("_unassigned", ["D", "E"])],
             ClusterReport(),
         ),
@@ -1586,4 +1586,153 @@ def test_delete_mocs_drops_their_discards(tmp_path):
     db.delete_mocs(["M1"])
 
     assert db.moc_discard_checksums("M1") == {}
+    db.close()
+
+
+# ── Stable MOCs, rebalance and adoption (#300) ───────────────────────
+
+
+def _vault_notes(cfg, db, prefixes: str = "ABCDE") -> None:
+    """Give the notes of ``_subject_env`` real files, so backrefs can be checked."""
+    perm = cfg.vault_path / "30_Permanent"
+    perm.mkdir(parents=True, exist_ok=True)
+    for prefix in prefixes:
+        for i in range(1, 5):
+            nid = f"{prefix}{i}"
+            path = perm / f"ZTL - {nid} - nota.md"
+            safe_write_note(path, {"note_id": nid}, f"# Nota {nid}\n\nTese.\n")
+            db.upsert_note(nid, "@S", str(path), f"Nota {nid}")
+
+
+def test_second_run_with_no_new_note_changes_no_moc(tmp_path, monkeypatch):
+    from zettel.gardener import _GardenStats, _process_subject, _rebalance
+
+    cfg, db, calls = _subject_env(tmp_path, monkeypatch, lambda s, u: _generation(u))
+    subjects = {"Categoria Um": [_cluster(p) for p in "ABC"], "Categoria Dois": [_cluster("D")]}
+    for category, clusters in subjects.items():
+        _process_subject(cfg, db, MagicMock(), MagicMock(), category, clusters, _GardenStats())
+    snapshot = {
+        m["moc_id"]: (Path(m["path"]).read_bytes(), m["cluster_signature"]) for m in db.list_mocs()
+    }
+    first_calls = len(calls)
+
+    stats = _GardenStats()
+    for category, clusters in subjects.items():
+        _process_subject(cfg, db, MagicMock(), MagicMock(), category, clusters, stats)
+    _rebalance(cfg, db, MagicMock(), stats)
+
+    assert len(calls) == first_calls
+    assert {
+        m["moc_id"]: (Path(m["path"]).read_bytes(), m["cluster_signature"]) for m in db.list_mocs()
+    } == snapshot
+    for moc in db.list_mocs():
+        assert "cluster_signature" not in _parse_moc_structure(Path(moc["path"]))["meta"]
+    db.close()
+
+
+def test_note_that_changed_cluster_leaves_its_old_moc_and_backref(tmp_path, monkeypatch):
+    from zettel.gardener import _GardenStats, _process_subject, _rebalance
+
+    cfg, db, _calls = _subject_env(tmp_path, monkeypatch, lambda s, u: _generation(u))
+    _vault_notes(cfg, db)
+    _process_subject(
+        cfg, db, MagicMock(), MagicMock(), "Categoria Um", [_cluster("A")], _GardenStats()
+    )
+    old = db.find_moc_by_topic("Categoria Um", origins=("pipeline",))
+    a1 = cfg.vault_path / "30_Permanent" / "ZTL - A1 - nota.md"
+    assert old["moc_id"] in a1.read_text(encoding="utf-8")
+
+    stats = _GardenStats()
+    _process_subject(cfg, db, MagicMock(), MagicMock(), "Categoria Um", [["A2", "A3", "A4"]], stats)
+    _process_subject(
+        cfg, db, MagicMock(), MagicMock(), "Categoria Dois", [["A1", "B1", "B2", "B3"]], stats
+    )
+    _rebalance(cfg, db, MagicMock(), stats)
+
+    remaining = _parse_moc_structure(Path(old["path"]))["all_note_ids"]
+    new = db.find_moc_by_topic("Categoria Dois", origins=("pipeline",))
+    assert remaining == {"A2", "A3", "A4"}
+    assert stats.departed == {old["moc_id"]: 1}
+    backrefs = a1.read_text(encoding="utf-8")
+    assert old["moc_id"] not in backrefs and new["moc_id"] in backrefs
+    db.close()
+
+
+def test_adopted_moc_is_left_alone_by_the_garden_and_synced_by_hand(tmp_path, monkeypatch):
+    from zettel.gardener import (
+        MocAdoptError,
+        _GardenStats,
+        _process_subject,
+        adopt_moc,
+        purge_pipeline_mocs,
+    )
+    from zettel.sync import _sync_moc
+
+    cfg, db, _calls = _subject_env(tmp_path, monkeypatch, lambda s, u: _generation(u))
+    _process_subject(
+        cfg, db, MagicMock(), MagicMock(), "Categoria Um", [_cluster("A")], _GardenStats()
+    )
+    moc = db.find_moc_by_topic("Categoria Um", origins=("pipeline",))
+    path = Path(moc["path"])
+
+    result = adopt_moc(cfg, db, moc["moc_id"])
+    adopted = path.read_bytes()
+
+    assert result["previous_origin"] == "pipeline"
+    assert db.get_moc(moc["moc_id"])["origin"] == "manual"
+    assert db.get_moc(moc["moc_id"])["cluster_signature"] is None
+    with pytest.raises(MocAdoptError):
+        adopt_moc(cfg, db, moc["moc_id"])
+    _process_subject(
+        cfg, db, MagicMock(), MagicMock(), "Categoria Um", [_cluster("A")], _GardenStats()
+    )
+    purge_pipeline_mocs(cfg, db, MagicMock())
+    assert path.read_bytes() == adopted
+    assert db.get_moc(moc["moc_id"])["origin"] == "manual"
+
+    meta = _parse_moc_structure(path)["meta"]
+    body = path.read_text(encoding="utf-8").split("---", 2)[2]
+    assert _sync_moc(cfg, db, MagicMock(), path, meta, body) == "updated"
+    db.close()
+
+
+def test_orphan_hub_mocs_are_listed_and_warned(tmp_path):
+    from zettel.garden_report import GardenReport, graph_warnings
+
+    db = StateDB(tmp_path / "test.db")
+    db.upsert_note("HUB", "@S", None, "Hub")
+    for moc_id, hub in (("M1", "HUB"), ("M2", "GONE")):
+        db.upsert_moc(
+            moc_id,
+            f"Tema {hub}",
+            None,
+            "s",
+            frontmatter_json=json.dumps({"hub_note_id": hub}),
+            origin="hub_pipeline",
+        )
+
+    orphans = [m["topic"] for m in db.list_orphan_hub_mocs()]
+    report = GardenReport("garden_hubs", total_edges=1, traversable_edges=1, orphan_hubs=orphans)
+
+    assert orphans == ["Tema GONE"]
+    assert any("Tema GONE" in w for w in graph_warnings(report, AppConfig().gardener))
+    db.close()
+
+
+def test_web_job_adopts_a_moc(tmp_path, monkeypatch):
+    from zettel.web_app import UserFacingError, WebWorker
+
+    cfg, db, _calls = _subject_env(tmp_path, monkeypatch, lambda s, u: _generation(u))
+    from zettel.gardener import _GardenStats, _process_subject
+
+    _process_subject(
+        cfg, db, MagicMock(), MagicMock(), "Categoria Um", [_cluster("A")], _GardenStats()
+    )
+    moc_id = db.find_moc_by_topic("Categoria Um", origins=("pipeline",))["moc_id"]
+
+    result = WebWorker._dispatch(cfg, db, MagicMock(), "adopt_moc", {"moc_id": moc_id})
+
+    assert result["kind"] == "adopt_moc" and db.get_moc(moc_id)["origin"] == "manual"
+    with pytest.raises(UserFacingError):
+        WebWorker._dispatch(cfg, db, MagicMock(), "adopt_moc", {"moc_id": "NOPE"})
     db.close()

@@ -439,6 +439,10 @@ class GardenerConfig(BaseModel):
     # k * min_entries_per_subtopic <= max_entries_per_moc; acima disso vira MOC
     # de MOCs, um sub-MOC por sub-cluster (#296).
     min_entries_per_subtopic: int = Field(default=3, ge=1)
+    # Modelo de cada bucket persistido em cache_path/garden (#300): notas novas
+    # entram nos clusters existentes por approximate_predict. Reajusta o bucket
+    # quando as notas nunca vistas passam desta fracao das ajustadas (ou --refit).
+    model_refit_growth: float = Field(default=0.5, gt=0)
     # Reescreve o resumo quando as entradas crescem esta fracao desde a ultima escrita.
     summary_refresh_growth: float = Field(default=0.5, gt=0)
 

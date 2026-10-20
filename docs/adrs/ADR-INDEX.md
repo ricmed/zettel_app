@@ -15,7 +15,7 @@
 | **EXTRACT** | 2 | [015, 034](#extract-literature-notes) |
 | **REVIEW** | 1 | [016](#review-approval-gate) |
 | **CONNECT** | 1 | [053](#connect-permanent-notes) |
-| **GARDEN** | 4 | [019–021, 060](#garden-moc-generation) |
+| **GARDEN** | 5 | [019–021, 060–061](#garden-moc-generation) |
 | **WEB** | 5 | [022–023, 039–040, 056](#web-ui--job-queue) |
 | **LLM** | 5 | [024–025, 045, 048, 055](#llm-provider--caching) |
 | **QA-WRITING** | 4 | [028–029, 038, 051](#qa-writing--article-pipeline) |
@@ -371,6 +371,15 @@
 - **Date**: 2026-10-19
 - **Summary**: A MOC is a door into a subject: `garden_entries.select_entry_notes` keeps the top `max_entries_per_moc` (10) notes of a cluster by one signal (provisional default `internal_degree`; also `medoid`, `first_in_source`, `relevance`, `corroboration`), each with an orientation line. No "Outras notas do cluster" reconciliation, a cap per subsection, a full MOC takes no candidates, and the summary is rewritten when the entries grow. Success is reachability from the entries and subjects without a door, not list coverage (#297).
 - **Link**: [`ADR-060-mocs-and-hubs-are-entry-points.md`](./generated/GARDEN/ADR-060-mocs-and-hubs-are-entry-points.md)
+
+---
+
+### ADR-061: Stable MOCs — Persisted Bucket Models, Rebalance and Adoption
+
+- **Status**: Accepted
+- **Date**: 2026-10-20
+- **Summary**: Each category's UMAP+HDBSCAN model is persisted (`cache_path/garden`) and reused: new notes join existing clusters by `approximate_predict`; `garden --refit`, a changed fingerprint or growth past `model_refit_growth` fit again. After routing, entries no cluster sent to a MOC leave it (one taxonomy MOC per note). A MOC shared by k clusters offers each one cap/k candidates and omissions are kept as discards, so a run with nothing new changes nothing. The signature lives only in SQLite. `zettel adopt-moc` hands a generated MOC to the user; orphan hub MOCs are flagged (#300).
+- **Link**: [`ADR-061-stable-mocs-persisted-bucket-models.md`](./generated/GARDEN/ADR-061-stable-mocs-persisted-bucket-models.md)
 
 ---
 

@@ -475,8 +475,16 @@ def doctor(config: ConfigOption = None):
     db = get_db(cfg)
     try:
         graph, graph_problems = graph_health(db, cfg.gardener)
+        orphan_hubs = [m["topic"] for m in db.list_orphan_hub_mocs()]
     finally:
         db.close()
+    checks.append(
+        (
+            "MOCs hub orfaos",
+            not orphan_hubs,
+            ", ".join(orphan_hubs) or "nenhum",
+        )
+    )
     checks.append(
         (
             "Grafo das portas (garden)",

@@ -307,9 +307,20 @@ Ao terminar, o comando mostra o relatório da execução (também gravado no SQL
 | `--hubs` | Executa o pipeline de MOCs ancorados em notas-hub em vez do taxonômico. |
 | `--recreate` | Apaga os MOCs **gerados pelo pipeline** (vault + banco + índice) e regenera do zero. MOCs manuais são preservados; `--hubs --recreate` afeta só `origin='hub_pipeline'`. |
 | `--min-cluster-size N` | Override de `gardener.min_cluster_size` nesta execução. |
+| `--refit` | Reajusta o modelo de cluster de cada categoria (guardado em `data/cache/garden/`); notas que mudarem de cluster saem do MOC antigo. Sem ele, notas novas entram nos clusters existentes. |
 | `--reoffer-discarded` | Esquece os descartes gravados (`moc_discards`): as notas que o LLM respondeu `ignorar` voltam a ser candidatas. Sem a flag, uma nota descartada só volta quando muda. |
 | `--plan` | Mostra atribuição, clusters, ação prevista por cluster, alcançabilidade prevista, assuntos sem porta e a estimativa de custo, **sem** chamar o LLM e **sem** gravar. Não pede confirmação. |
 | `--yes` / `-y` | Confirma o `--recreate` e o reprocessamento de embedding. |
+
+---
+
+## `adopt-moc`
+
+```bash
+python -m zettel adopt-moc 01J...
+```
+
+Transforma um MOC gerado (`pipeline` ou `hub_pipeline`) em MOC manual: `origin: manual` no arquivo e no SQLite, sem `cluster_signature`; corpo, backrefs e índice de tópicos ficam. Depois disso o `garden` (inclusive `--recreate`) não o reescreve nem apaga, e `zettel sync-manual` o sincroniza como qualquer MOC editado à mão ([ADR-061](adrs/generated/GARDEN/ADR-061-stable-mocs-persisted-bucket-models.md)).
 
 ---
 

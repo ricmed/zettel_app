@@ -61,6 +61,7 @@ EXPECTED_ROUTES = [
     ("GET", "/settings"),
     ("GET", "/notes/{note_id}/markdown"),
     ("GET", "/mocs/{moc_id}/markdown"),
+    ("POST", "/mocs/{moc_id}/adopt"),
     ("GET", "/sources/{source_id}"),
     ("GET", "/notes/{note_id}"),
     ("GET", "/mocs/{moc_id}"),

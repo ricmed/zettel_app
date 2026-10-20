@@ -60,6 +60,15 @@ class GardenReport:
     traversable_edges: int = 0
     total_edges: int = 0
     proposed_edges: int = 0  # LLM edges waiting for review (#279)
+    # Stable MOCs (#300): bucket models refitted / reused, notes placed by a
+    # reused model, entries that left a MOC after changing cluster, pipeline
+    # MOCs no cluster reached, and hub MOCs whose hub note is gone.
+    refit_buckets: int = 0
+    model_buckets: int = 0
+    predicted_notes: int = 0
+    departed: dict[str, int] = field(default_factory=dict)
+    mocs_without_cluster: list[str] = field(default_factory=list)
+    orphan_hubs: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)  # graph health (#299)
     subjects_without_door: list[str] = field(default_factory=list)
 
@@ -176,6 +185,12 @@ def graph_warnings(
         warnings.append(
             f"Alcancabilidade a 2 saltos das portas de {reach:.0%}, abaixo de "
             f"{gcfg.warn_min_reach:.0%}: {review}."
+        )
+    if report.orphan_hubs:
+        warnings.append(
+            f"{len(report.orphan_hubs)} MOC(s) hub sem a nota-hub "
+            f"({', '.join(report.orphan_hubs)}): remova com `zettel garden --hubs --recreate` "
+            "ou adote com `zettel adopt-moc`."
         )
     if with_proposed_note and report.proposed_edges and gcfg.proposed_edge_factor > 0:
         warnings.append(

@@ -187,6 +187,13 @@ def garden(
             help="Apagar MOCs gerados pelo pipeline e regenerar do zero",
         ),
     ] = False,
+    refit: Annotated[
+        bool,
+        typer.Option(
+            "--refit",
+            help="Reajustar o modelo de cluster de cada categoria (notas podem mudar de MOC)",
+        ),
+    ] = False,
     reoffer_discarded: Annotated[
         bool,
         typer.Option(
@@ -252,7 +259,7 @@ def garden(
             from zettel.gardener import run_garden
 
             with console.status("[bold blue]Cultivando o jardim de notas...", spinner="dots"):
-                moc_ids = run_garden(cfg, db, idx, recreate=recreate)
+                moc_ids = run_garden(cfg, db, idx, recreate=recreate, refit=refit)
     except LLMUnavailableError as exc:
         exit_llm_unavailable(exc, db)
     if recreate:

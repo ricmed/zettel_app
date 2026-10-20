@@ -292,6 +292,7 @@ gardener:
   max_entries_per_moc: 10              # teto de notas de entrada por MOC (e por MOC hub, contando o hub)
   max_entries_per_subsection: 5        # teto por subsecao
   min_entries_per_subtopic: 3          # k sub-clusters cabem num MOC se k*3 <= teto; senao MOC de MOCs (#296)
+  model_refit_growth: 0.5              # modelo do bucket persistido (#300); reajusta se as notas novas passam de 50%
   summary_refresh_growth: 0.5          # reescreve o resumo quando as entradas crescem 50%
   # Arestas de LLM propostas (ainda nao revisadas, #279) no grafo do garden (#299).
   proposed_edge_factor: 0.5           # fracao do peso no grau/BFS dos hubs, coesao e entradas; 0 = so percorriveis

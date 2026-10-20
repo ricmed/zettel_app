@@ -95,3 +95,7 @@ Correction to the decision drivers above: the incremental update preserves the s
 6. A MOC's file and `cluster_signature` change only when its entries change; an incremental update that places nothing writes nothing.
 
 `min_entries_per_subtopic` (3) is a provisional threshold derived from the cap of ADR-060 (three subtopics of three entries fit in ten), not a measured one. The before/after measurement on the development vault (subjects without a door, reachability per source, the two prompt-engineering books) needs `zettel init --reset` and a paid `garden --recreate`, and is still to be done.
+
+## Addendum (2026-10-20): the routing feeds a rebalance (issue #300)
+
+**Status:** Accepted amendment. Every step that sends a cluster to a MOC records it; after the run, the entries of a reached pipeline MOC that no cluster sent to it are removed (ADR-061). An incremental update offers a cluster only its share of a MOC shared by `k` clusters (`max_entries_per_moc // k`, `clusters` in the frontmatter), and omitted or truncated candidates are kept in `moc_discards`, so a run with no new note makes no call. The signature is stored only in SQLite.

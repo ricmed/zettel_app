@@ -91,7 +91,9 @@ def test_run_garden_persists_its_report(tmp_path, monkeypatch):
     cfg, db = _garden_env(tmp_path)
     monkeypatch.setattr(gardener_mod, "get_llm", lambda cfg, phase: MagicMock())
     cluster_report = ClusterReport(backends={"umap+hdbscan"}, clusters=0, notes_total=3)
-    monkeypatch.setattr(gardener_mod, "_cluster_pairs", lambda cfg, idx, obs: ([], cluster_report))
+    monkeypatch.setattr(
+        gardener_mod, "_cluster_pairs", lambda cfg, idx, obs, **_: ([], cluster_report)
+    )
 
     gardener_mod.run_garden(cfg, db, MagicMock())
 
@@ -116,7 +118,7 @@ def test_plan_garden_calls_no_llm_and_writes_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(
         gardener_mod,
         "_cluster_pairs",
-        lambda cfg, idx, obs: (
+        lambda cfg, idx, obs, **_: (
             [("Etica", ["A", "B", "C"])],
             ClusterReport(buckets={"Etica": ["A", "B", "C"], "Dados": ["D", "E", "F"]}),
         ),
@@ -141,7 +143,7 @@ def test_plan_garden_splits_a_subject_above_the_cap(tmp_path, monkeypatch):
     monkeypatch.setattr(
         gardener_mod,
         "_cluster_pairs",
-        lambda cfg, idx, obs: ([("Etica", ids) for ids in clusters], ClusterReport()),
+        lambda cfg, idx, obs, **_: ([("Etica", ids) for ids in clusters], ClusterReport()),
     )
 
     report = gardener_mod.plan_garden(cfg, db, MagicMock())

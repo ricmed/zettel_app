@@ -23,6 +23,7 @@ from zettel.garden_entries import select_entry_notes
 from zettel.garden_report import ClusterAction, GardenReport, entry_note_ids, fill_reachability
 from zettel.gardener_assign import (
     NOTE_ID_RE,
+    BucketModelStore,
     ClusterReport,
     assign_notes_to_categories,
     build_embeddings_by_id,
@@ -31,7 +32,9 @@ from zettel.gardener_assign import (
     cluster_notes_global,
     cluster_notes_within_buckets,
     dominant_category_for_cluster,
+    effective_min_cluster_size,
     embed_category_labels,
+    extract_note_ids_from_moc_body,
     find_moc_by_note_overlap,
     garden_edge_policy,
     graph_cohesion,
@@ -81,6 +84,8 @@ class _GardenStats:
     omitted: int = 0  # selected entries the LLM did not place (or past a subsection cap)
     cap_reached: int = 0  # entry candidates refused because the MOC was full
     known_discards: int = 0  # candidates not offered again: already discarded for that MOC
+    routed: dict[str, set[str]] = field(default_factory=dict)  # moc_id -> notes routed to it
+    departed: dict[str, int] = field(default_factory=dict)  # moc_id -> entries rebalanced out
 
 
 # ── Public API ─────────────────────────────────────────────────────────
@@ -92,9 +97,13 @@ def run_garden(
     idx: VectorIndex,
     *,
     recreate: bool = False,
+    refit: bool = False,
     observer=None,
 ) -> list[str]:
     """Cluster permanent notes and generate/update MOCs. Returns moc_ids.
+
+    The bucket models are persisted (#300): a run reuses them and places new
+    notes into the existing clusters; ``refit`` fits every bucket again.
 
     Provider outages stop the phase (ADR-059): the run is recorded ``failed``
     for any exception that escapes, and ``--recreate`` purges only after the
@@ -108,7 +117,7 @@ def run_garden(
     status = "completed"
     failures_before = _garden_failure_count(db)
     try:
-        moc_ids, report = _garden(cfg, db, idx, recreate=recreate, observer=observer)
+        moc_ids, report = _garden(cfg, db, idx, recreate=recreate, refit=refit, observer=observer)
         report.llm_failures = _garden_failure_count(db) - failures_before
         db.save_garden_report(run_id, "garden", report.to_json())
         return moc_ids
@@ -127,7 +136,7 @@ def plan_garden(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> GardenReport:
     join a MOC.
     """
     _check_taxonomy(cfg)
-    cluster_pairs, cluster_report = _cluster_pairs(cfg, idx, None)
+    cluster_pairs, cluster_report = _cluster_pairs(cfg, idx, None, readonly=True)
     stats = _GardenStats()
     planned_entries = entry_note_ids(db)
     for category, clusters in group_subjects(cluster_pairs):
@@ -144,7 +153,7 @@ def plan_garden(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> GardenReport:
                 continue
             for note_ids in step.clusters:
                 planned_entries.update(_entries(cfg, db, note_ids, cluster_report.vectors))
-    report = _garden_report(cfg, cluster_report, stats, planned=True)
+    report = _garden_report(cfg, db, cluster_report, stats, planned=True)
     return fill_reachability(
         report,
         db,
@@ -173,13 +182,14 @@ def _garden(
     idx: VectorIndex,
     *,
     recreate: bool,
+    refit: bool = False,
     observer=None,
 ) -> tuple[list[str], GardenReport]:
     from zettel.progress import report
 
     _check_taxonomy(cfg)
     llm = get_llm(cfg, "garden")
-    cluster_pairs, cluster_report = _cluster_pairs(cfg, idx, observer)
+    cluster_pairs, cluster_report = _cluster_pairs(cfg, idx, observer, refit=refit)
     _log_cluster_report(cluster_report, len(cluster_pairs))
 
     if recreate:
@@ -216,6 +226,7 @@ def _garden(
             _process_subject(cfg, db, idx, llm, category, clusters, stats, cluster_report.vectors)
         )
     moc_ids = list(dict.fromkeys(moc_ids))
+    _rebalance(cfg, db, idx, stats)
 
     logger.info(
         "Garden: %d MOCs, %d incrementais, %d novos, %d skip assinatura, %d rejeitados coesao",
@@ -226,7 +237,7 @@ def _garden(
         stats.rejected_cohesion,
     )
     garden_report = fill_reachability(
-        _garden_report(cfg, cluster_report, stats),
+        _garden_report(cfg, db, cluster_report, stats),
         db,
         entry_note_ids(db),
         buckets=cluster_report.buckets,
@@ -239,7 +250,12 @@ def _garden(
 
 
 def _garden_report(
-    cfg: AppConfig, cluster_report: ClusterReport, stats: _GardenStats, *, planned: bool = False
+    cfg: AppConfig,
+    db: StateDB,
+    cluster_report: ClusterReport,
+    stats: _GardenStats,
+    *,
+    planned: bool = False,
 ) -> GardenReport:
     return GardenReport(
         pipeline="garden",
@@ -255,6 +271,11 @@ def _garden_report(
         omitted=stats.omitted,
         cap_reached=stats.cap_reached,
         known_discards=stats.known_discards,
+        refit_buckets=cluster_report.refit_buckets,
+        model_buckets=cluster_report.model_buckets,
+        predicted_notes=cluster_report.predicted_notes,
+        departed=dict(stats.departed),
+        mocs_without_cluster=[] if planned else _mocs_without_cluster(db, stats),
     )
 
 
@@ -263,9 +284,13 @@ def _garden_failure_count(db: StateDB) -> int:
 
 
 def _cluster_pairs(
-    cfg: AppConfig, idx: VectorIndex, observer
+    cfg: AppConfig, idx: VectorIndex, observer, *, refit: bool = False, readonly: bool = False
 ) -> tuple[list[tuple[str, list[str]]], ClusterReport]:
-    """``(category, note_ids)`` per cluster that can become a MOC, and how they were made."""
+    """``(category, note_ids)`` per cluster that can become a MOC, and how they were made.
+
+    Per-category clustering goes through the persisted bucket models (#300);
+    ``readonly`` (``garden --plan``) reads them but saves nothing.
+    """
     from zettel.progress import report
 
     gcfg = cfg.gardener
@@ -295,7 +320,8 @@ def _cluster_pairs(
     )
     cluster_report.buckets = buckets
     if buckets and gcfg.cluster_within_category:
-        pairs = cluster_notes_within_buckets(buckets, embeddings_by_id, gcfg, cluster_report)
+        store = model_store(cfg, refit=refit, readonly=readonly)
+        pairs = cluster_notes_within_buckets(buckets, embeddings_by_id, gcfg, cluster_report, store)
         if pairs:
             return pairs, cluster_report
 
@@ -304,6 +330,36 @@ def _cluster_pairs(
         for cluster_ids in cluster_notes_global(ids, np.array(embeddings), gcfg, cluster_report)
     ]
     return pairs, cluster_report
+
+
+def model_store(cfg: AppConfig, *, refit: bool = False, readonly: bool = False) -> BucketModelStore:
+    """The bucket-model store, keyed by everything that invalidates a partition (#300)."""
+    gcfg = cfg.gardener
+    taxonomy = ""
+    if gcfg.topics_path is not None and Path(gcfg.topics_path).is_file():
+        taxonomy = sha256_hex(Path(gcfg.topics_path).read_text(encoding="utf-8"))
+    fingerprint = sha256_hex(
+        json.dumps(
+            {
+                "embedding": [
+                    cfg.embedding.provider,
+                    cfg.embedding.model,
+                    cfg.embedding.dimensions,
+                ],
+                "taxonomy": taxonomy,
+                "allowed_topics": gcfg.allowed_topics,
+                "label": [gcfg.category_label_template, gcfg.category_label_mode],
+                "assign_min_similarity": gcfg.assign_min_similarity,
+                "min_cluster": effective_min_cluster_size(gcfg),
+                "umap_n_neighbors": gcfg.umap_n_neighbors,
+                "hdbscan_min_samples": gcfg.hdbscan_min_samples,
+                "random_state": gcfg.random_state,
+            },
+            sort_keys=True,
+            default=str,
+        )
+    )
+    return BucketModelStore(cfg.cache_path / "garden", fingerprint, refit=refit, readonly=readonly)
 
 
 def _log_cluster_report(cluster_report: ClusterReport, kept: int) -> None:
@@ -389,6 +445,102 @@ def purge_mocs_by_origin(cfg: AppConfig, db: StateDB, idx: VectorIndex, origin: 
             logger.debug("Arquivo MOC removido: %s", path)
 
     return len(removed)
+
+
+def _rebalance(cfg: AppConfig, db: StateDB, idx: VectorIndex, stats: _GardenStats) -> None:
+    """Take out of each MOC the entries no cluster of this run sent to it (#300).
+
+    A note that moved to another cluster leaves its old MOC, and
+    ``sync_moc_backrefs`` drops the backref; since each cluster is routed to one
+    MOC, a note ends up in at most one taxonomy MOC. A MOC that no cluster
+    reached this run is left untouched and listed in the report.
+    """
+    for moc_id, members in stats.routed.items():
+        moc = db.get_moc(moc_id)
+        if not moc or moc.get("origin") != PIPELINE_ORIGIN:
+            continue
+        path = _moc_vault_path(cfg, moc)
+        if not owns_moc(moc, path, PIPELINE_ORIGIN):
+            continue
+        structure = _parse_moc_structure(path)
+        if structure is None:
+            continue
+        leaving = structure["all_note_ids"] - members
+        if not leaving:
+            continue
+        subsections = [
+            {**sub, "entries": [(n, o) for n, o in sub["entries"] if n not in leaving]}
+            for sub in structure["subsections"]
+        ]
+        _write_moc(
+            cfg,
+            db,
+            path,
+            structure["meta"],
+            structure["topic"],
+            structure["summary"],
+            subsections,
+            children=structure["children"],
+            previous_body=structure["body"],
+            stats=stats,
+        )
+        _store_moc_row(db, moc_id, moc["topic"], path, moc.get("cluster_signature") or "")
+        remaining = len(structure["all_note_ids"]) - len(leaving)
+        idx.upsert_moc(
+            moc_id,
+            _moc_embeddable(structure["topic"], structure["summary"]),
+            {"topic": moc["topic"], "note_count": remaining},
+        )
+        stats.departed[moc_id] = len(leaving)
+        logger.info("MOC %s: %d entrada(s) sairam (mudaram de cluster)", moc_id, len(leaving))
+
+
+def _mocs_without_cluster(db: StateDB, stats: _GardenStats) -> list[str]:
+    """Topics of pipeline MOCs listing notes that no cluster of this run reached."""
+    return sorted(
+        moc["topic"]
+        for moc in db.list_mocs(origin=PIPELINE_ORIGIN)
+        if moc["moc_id"] not in stats.routed and extract_note_ids_from_moc_body(moc.get("body"))
+    )
+
+
+class MocAdoptError(ValueError):
+    """The MOC cannot be adopted (unknown, already manual, or its file is gone)."""
+
+
+def adopt_moc(cfg: AppConfig, db: StateDB, moc_id: str) -> dict:
+    """Hand a generated MOC to the user: ``origin: manual`` in the file and in SQLite (#300).
+
+    The routing signature is dropped, so ``sync-manual`` takes the MOC as an
+    edited manual note on its next pass; the body, the ``auto-moc-backrefs``
+    blocks and the ``topic_index_terms`` rows stay. From then on no garden
+    pipeline rewrites or purges it (``owns_moc``, ``purge_mocs_by_origin``).
+    """
+    moc = db.get_moc(moc_id)
+    if not moc:
+        raise MocAdoptError(f"MOC nao encontrado: {moc_id}")
+    if moc.get("origin") not in (PIPELINE_ORIGIN, "hub_pipeline"):
+        raise MocAdoptError(f"MOC {moc_id} ja e {moc.get('origin')}; nada a adotar")
+    path = _moc_vault_path(cfg, moc)
+    if not path.is_file():
+        raise MocAdoptError(f"Arquivo do MOC nao encontrado: {path}")
+    meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+    previous = moc["origin"]
+    meta["origin"] = "manual"
+    meta.pop("cluster_signature", None)
+    meta["updated_at"] = now_vault_iso(cfg.vault_timezone)
+    safe_write_note(path, meta, body)
+    db.upsert_moc(
+        moc_id,
+        moc["topic"],
+        str(path),
+        None,
+        body=body,
+        frontmatter_json=json.dumps(meta, ensure_ascii=False),
+        origin="manual",
+    )
+    logger.info("MOC %s adotado (%s -> manual)", moc_id, previous)
+    return {"moc_id": moc_id, "topic": moc["topic"], "previous_origin": previous, "path": str(path)}
 
 
 def owns_moc(moc: dict, moc_path: Path, origin: str) -> bool:
@@ -634,6 +786,7 @@ def _run_step(
     if step.action == "signature_skip":
         logger.debug("MOC ja existe para assinatura: %s", step.moc["moc_id"])
         stats.skipped_signature += 1
+        _route(stats, step.moc["moc_id"], step.clusters)
         return _record(stats, category, _size(step), step.action, step.moc["moc_id"])
     if step.action == "rejected_cohesion":
         stats.rejected_cohesion += 1
@@ -641,10 +794,14 @@ def _run_step(
     if step.action == "incremental":
         logger.info("Cluster roteado para MOC %s", step.moc["moc_id"])
         stats.incremental += 1
-        entries = _entries(cfg, db, step.clusters[0], vectors)
+        # A MOC shared by k clusters gave each one k-th of the cap (#300): asking
+        # for more would offer the same notes again on every run.
+        share = gcfg.max_entries_per_moc // _moc_clusters(step.moc)
+        entries = _entries(cfg, db, step.clusters[0], vectors, limit=share)
         moc_id = _update_existing_moc(
             cfg, db, idx, llm, step.moc, entries, step.signature, stats=stats
         )
+        _route(stats, moc_id, step.clusters)
         return _record(stats, category, _size(step), step.action, moc_id)
     if step.action == "home":
         return _join_home(cfg, db, idx, llm, category, step, stats, vectors)
@@ -656,7 +813,25 @@ def _run_step(
     moc_id = _create_new_moc(cfg, db, idx, llm, category, groups, step.signature, stats=stats)
     if moc_id:
         stats.created += 1
+    _route(stats, moc_id, step.clusters)
     return _record(stats, category, _size(step), "created", moc_id)
+
+
+def _route(stats: _GardenStats, moc_id: str | None, clusters: list[list[str]]) -> None:
+    """Remember which notes reached ``moc_id`` this run (the rebalance keeps only them)."""
+    if moc_id:
+        members = stats.routed.setdefault(moc_id, set())
+        for note_ids in clusters:
+            members.update(note_ids)
+
+
+def _moc_clusters(moc: dict) -> int:
+    """How many clusters share a MOC (``clusters`` in its frontmatter mirror, default 1)."""
+    try:
+        meta = json.loads(moc.get("frontmatter_json") or "{}")
+        return max(1, int(meta.get("clusters") or 1))
+    except (TypeError, ValueError):
+        return 1
 
 
 def _record(
@@ -695,25 +870,30 @@ def _join_home(
     before = _parse_moc_structure(home_path)
     if before is None:
         return _record(stats, category, _size(step), "home", None)
-    entries = _entries(cfg, db, note_ids, vectors)
-
     room = gcfg.max_entries_per_moc - len(before["all_note_ids"])
     if not before["children"] and room >= gcfg.min_entries_per_subtopic:
         stats.incremental += 1
-        moc_id = _update_existing_moc(cfg, db, idx, llm, home, entries, step.signature, stats=stats)
+        share = gcfg.max_entries_per_moc // (_moc_clusters(home) + 1)
+        entries = _entries(cfg, db, note_ids, vectors, limit=share)
+        moc_id = _update_existing_moc(
+            cfg, db, idx, llm, home, entries, step.signature, stats=stats, joins_cluster=True
+        )
         if moc_id is None:
             return _record(stats, category, _size(step), "incremental", None)
         after = _parse_moc_structure(home_path)
         if after and (after["all_note_ids"] - before["all_note_ids"]) & set(note_ids):
+            _route(stats, moc_id, step.clusters)
             return _record(stats, category, _size(step), "incremental", moc_id)
         logger.info("Nenhuma entrada do cluster entrou no MOC %s: sub-MOC", moc_id)
 
+    entries = _entries(cfg, db, note_ids, vectors)
     child_id = _create_new_moc(
         cfg, db, idx, llm, category, [entries], step.signature, stats=stats, parent=home
     )
     if child_id is None:
         return _record(stats, category, _size(step), "submoc", None)
     stats.created += 1
+    _route(stats, child_id, step.clusters)
     _attach_children(cfg, db, home, [child_id], stats=stats)
     return [*_record(stats, category, _size(step), "submoc", child_id), home["moc_id"]]
 
@@ -742,6 +922,7 @@ def _create_moc_of_mocs(
             cfg, db, idx, llm, category, [entries], _signature(note_ids), stats=stats, parent=parent
         )
         _record(stats, category, len(note_ids), "submoc", child_id)
+        _route(stats, child_id, [note_ids])
         if child_id:
             stats.created += 1
             children.append(child_id)
@@ -757,7 +938,6 @@ def _create_moc_of_mocs(
         "type": "moc",
         "moc_id": parent_id,
         "topic": category,
-        "cluster_signature": step.signature,
         "origin": PIPELINE_ORIGIN,
         "summary_entries": len(children),
         "created_at": now,
@@ -913,14 +1093,17 @@ def _create_new_moc(
     stats.omitted += len(allowed - placed)
 
     moc_id = str(ULID())
+    _keep_discards(
+        cfg, db, moc_id, allowed - placed, "nao posicionada na criacao", prompt_parts=prompt_parts
+    )
     topic = moc_output.topic
     now = now_vault_iso(cfg.vault_timezone)
     meta = {
         "type": "moc",
         "moc_id": moc_id,
         "topic": topic,
-        "cluster_signature": cluster_signature,
         "origin": PIPELINE_ORIGIN,
+        "clusters": len(groups),
         "summary_entries": len(placed),
         "created_at": now,
         "updated_at": now,
@@ -1105,8 +1288,12 @@ def _update_existing_moc(
     stats: _GardenStats | None = None,
     origin: str = PIPELINE_ORIGIN,
     prompt_name: str = "moc_incremental.md",
+    joins_cluster: bool = False,
 ) -> str | None:
     """Offer a cluster's entry candidates to an existing MOC, within its capacity.
+
+    ``joins_cluster``: the cluster is new to this MOC, so its ``clusters``
+    count grows when one of its notes enters.
 
     ``note_ids`` are the cluster's selected entry notes (ADR-060). A note the
     LLM already answered "ignorar" for this MOC is not offered again while its
@@ -1177,7 +1364,8 @@ def _update_existing_moc(
             prompt_checksum=sha256_hex(prompt_parts.system + prompt_parts.user_template),
             model=llm_phase(cfg, "garden").model or "",
         )
-    stats.omitted += omitted
+    stats.omitted += len(omitted)
+    _keep_discards(cfg, db, moc_id, omitted, "nao posicionada", prompt_parts=prompt_parts)
 
     entries_now = sum(len(sub["entries"]) for sub in subsections)
     if entries_now == len(existing_ids):
@@ -1186,6 +1374,8 @@ def _update_existing_moc(
 
     summary = structure["summary"]
     meta = structure["meta"]
+    if joins_cluster:
+        meta["clusters"] = _moc_clusters({"frontmatter_json": json.dumps(meta)}) + 1
     if _summary_is_stale(cfg, meta, entries_now + len(structure["children"])):
         refreshed = _refresh_summary(
             cfg, db, llm, structure["topic"], subsections, moc_id, children=structure["children"]
@@ -1216,9 +1406,37 @@ def _update_existing_moc(
         moc_id,
         entries_now,
         len(ignored),
-        omitted,
+        len(omitted),
     )
     return moc_id
+
+
+def _keep_discards(
+    cfg: AppConfig,
+    db: StateDB,
+    moc_id: str,
+    note_ids: set[str] | list[str],
+    reason: str,
+    *,
+    prompt_parts: Any = None,
+) -> None:
+    """Remember notes considered for ``moc_id`` and left out (#300), like ``ignorar``.
+
+    Without it an omitted or truncated candidate is offered, and paid for,
+    again on every run, so a run with no new note would still change MOCs.
+    """
+    if not note_ids:
+        return
+    prompt = sha256_hex(prompt_parts.system + prompt_parts.user_template) if prompt_parts else ""
+    db.record_moc_discards(
+        moc_id,
+        [
+            {"note_id": nid, "reason": reason, "note_checksum": _note_checksum(db, nid)}
+            for nid in sorted(note_ids)
+        ],
+        prompt_checksum=prompt,
+        model=llm_phase(cfg, "garden").model or "",
+    )
 
 
 def _fresh_candidates(
@@ -1251,12 +1469,12 @@ def _merge_incremental(
     incremental_output: MOCIncrementalOutput,
     allowed_ids: set[str],
     alias_to_id: dict[str, str],
-) -> tuple[list[dict], list[tuple[str, str]], int]:
+) -> tuple[list[dict], list[tuple[str, str]], set[str]]:
     """Existing subsections plus the LLM's placements and new subsections.
 
     Returns ``(subsections, ignored, omitted)``: ``ignored`` holds the
     ``(note_id, reason)`` the LLM left out on purpose (``"ignorar"``);
-    ``omitted`` counts candidates it neither placed nor ignored. Neither is
+    ``omitted`` the candidates it neither placed nor ignored. Neither is
     listed: a MOC is a door, not an inventory (ADR-060). A subsection title
     is matched case- and accent-insensitively.
     """
@@ -1289,9 +1507,9 @@ def _merge_incremental(
                 {"title": new_sub.title, "description": new_sub.description, "entries": entries}
             )
 
-    omitted = len(allowed_ids - placed)
+    omitted = allowed_ids - placed
     if omitted:
-        logger.info("MOC incremental: %d entrada(s) omitida(s) pelo LLM", omitted)
+        logger.info("MOC incremental: %d entrada(s) omitida(s) pelo LLM", len(omitted))
     return merged, ignored, omitted
 
 
@@ -1397,6 +1615,9 @@ def _write_moc(
     from zettel.moc_backrefs import sync_moc_backrefs
 
     meta["updated_at"] = now_vault_iso(cfg.vault_timezone)
+    # The routing signature lives in SQLite only: the file copy went stale on
+    # every incremental update (#300).
+    meta.pop("cluster_signature", None)
     body, truncated = render_moc_body(
         db,
         topic,
@@ -1405,7 +1626,8 @@ def _write_moc(
         cfg.gardener.max_entries_per_subsection,
         children=children,
     )
-    stats.omitted += truncated
+    stats.omitted += len(truncated)
+    _keep_discards(cfg, db, meta.get("moc_id", ""), truncated, "subsecao cheia")
     safe_write_note(moc_path, meta, body)
     sync_moc_backrefs(
         db,
@@ -1615,7 +1837,7 @@ def render_moc_body(
     max_per_subsection: int,
     *,
     children: list[tuple[str, str]] | None = None,
-) -> tuple[str, int]:
+) -> tuple[str, list[str]]:
     """Markdown body of a MOC. Returns ``(body, entries cut by the per-subsection cap)``.
 
     Each entry renders as ``- [[ZTL - …]] — orientation``; a subsection left
@@ -1626,7 +1848,7 @@ def render_moc_body(
     from zettel.moc_backrefs import moc_link_line
 
     body = f"# {topic}\n\n{summary}\n\n"
-    truncated = 0
+    truncated: list[str] = []
     seen: set[str] = set()
     for sub in subsections:
         lines: list[str] = []
@@ -1634,7 +1856,7 @@ def render_moc_body(
             if nid in seen:
                 continue
             if len(lines) >= max_per_subsection:
-                truncated += 1
+                truncated.append(nid)
                 continue
             link = _note_wikilink(db, nid)
             if not link:
@@ -1657,7 +1879,7 @@ def render_moc_body(
     if child_lines:
         body += f"## {SUBTOPICS_HEADING}\n\n" + "\n".join(child_lines) + "\n\n"
     if truncated:
-        logger.info("MOC: %d entrada(s) acima do teto por subsecao", truncated)
+        logger.info("MOC: %d entrada(s) acima do teto por subsecao", len(truncated))
     return body, truncated
 
 

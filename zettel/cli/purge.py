@@ -177,6 +177,13 @@ def delete_source_cmd(
     console.print(f"[green]Chroma:[/green] {result['chunks_chroma']} chunks, 1 source.")
     if result["permanent_deleted"]:
         console.print(f"[green]Permanentes apagadas:[/green] {result['permanent_deleted']}")
+    if result.get("orphan_hub_mocs"):
+        console.print(
+            "[yellow]MOC(s) hub sem a nota-hub: "
+            + ", ".join(result["orphan_hub_mocs"])
+            + ". Remova com `zettel garden --hubs --recreate` "
+            "ou adote com `zettel adopt-moc`.[/yellow]"
+        )
     if result["wikilinks_cleaned"]:
         console.print(
             f"[green]Wikilinks limpos em {result['wikilinks_cleaned']} arquivo(s).[/green]"

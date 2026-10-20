@@ -94,3 +94,7 @@ Edge-weight and decay configuration is shared with the retrieval layer's graph e
 **Hub entries.** The neighbours listed in a hub MOC are chosen by the entry signal of ADR-060 within `max_entries_per_moc` (since #297); the BFS still decides the neighbourhood used for routing and deduplication.
 
 **Not decided here.** The hub topic stays free (`strict=False`): a hub is an emergent theme of the graph, not a taxonomy category, so validating it against the categories would defeat its purpose. `max_hops`, `decay`, `max_neighbors`, `min_neighbor_weight` and `dedup_subset_threshold` were not re-tuned, and Leiden communities were not compared with the degree-plus-BFS neighbourhoods; both need their own measurement.
+
+## Addendum (2026-10-20): orphan hub MOCs (issue #300)
+
+**Status:** Accepted amendment. Answering the open question about a hub MOC whose hub note was deleted: `StateDB.list_orphan_hub_mocs` finds them, the hub report (`orphan_hubs`, with a warning) and `zettel doctor` ("MOCs hub orfaos") flag them, and `delete-source` lists the ones its purge left. They are not removed automatically; `garden --hubs --recreate` removes them and `zettel adopt-moc` keeps them as manual MOCs (ADR-061). Hub MOCs no longer carry `cluster_signature` in the frontmatter.

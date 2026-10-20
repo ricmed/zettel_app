@@ -7,6 +7,12 @@
 <div class="library-detail-actions">
   <button type="button" class="button copy-markdown" data-url="/mocs/{{ moc.moc_id }}/markdown">Copiar Markdown</button>
   <a class="button" href="/mocs/{{ moc.moc_id }}/markdown?download=1" download>Baixar .md</a>
+  {% if moc.origin in ('pipeline', 'hub_pipeline') %}
+  <form method="post" action="/mocs/{{ moc.moc_id }}/adopt">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit" class="button" title="Vira MOC manual: o garden deixa de reescrevê-lo ou apagá-lo">Adotar MOC</button>
+  </form>
+  {% endif %}
   <span class="copy-status" role="status" aria-live="polite"></span>
 </div>
 <section class="panel markdown-body">{{ rendered_body|safe }}</section>

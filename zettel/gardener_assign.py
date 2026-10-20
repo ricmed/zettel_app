@@ -6,7 +6,8 @@ import logging
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -36,6 +37,11 @@ class ClusterReport:
     noise_notes: int = 0
     small_buckets: int = 0
     notes_total: int = 0
+    # Persisted bucket models (#300): buckets refitted, buckets reused, and the
+    # notes a reused model placed without refitting.
+    refit_buckets: int = 0
+    model_buckets: int = 0
+    predicted_notes: int = 0
     buckets: dict[str, list[str]] = field(default_factory=dict)
     vectors: dict[str, np.ndarray] = field(default_factory=dict, repr=False)
 
@@ -195,12 +201,14 @@ def cluster_notes_within_buckets(
     embeddings_by_id: dict[str, np.ndarray],
     cfg: GardenerConfig,
     report: ClusterReport | None = None,
+    store: BucketModelStore | None = None,
 ) -> list[tuple[str, list[str]]]:
     """Run UMAP+HDBSCAN (or KMeans) inside each category bucket.
 
     The ``_unassigned`` bucket (notes under ``gardener.assign_min_similarity``,
     #295) is clustered like any other: its clusters become MOCs whose topic the
-    LLM proposes, with no category suggested.
+    LLM proposes, with no category suggested. With a ``store``, each bucket's
+    fitted model is kept and reused (#300): see ``bucket_clusters``.
     """
     results: list[tuple[str, list[str]]] = []
     min_cluster = effective_min_cluster_size(cfg)
@@ -218,8 +226,8 @@ def cluster_notes_within_buckets(
             results.append((category, ids_arr))
             continue
 
-        emb = np.stack([embeddings_by_id[nid] for nid in ids_arr])
-        results.extend((category, ids) for ids in _cluster_embeddings(emb, ids_arr, cfg, report))
+        clusters = bucket_clusters(category, ids_arr, embeddings_by_id, cfg, report, store)
+        results.extend((category, ids) for ids in clusters)
 
     return results
 
@@ -345,19 +353,186 @@ def _cosine_similarity_batch(vec: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     return matrix @ vec / (m_norms * v_norm)
 
 
+# ── Bucket models (#300) ──────────────────────────────────────────────
+
+
+@dataclass
+class BucketModel:
+    """A fitted partition of one bucket that can place notes it has not seen (#300).
+
+    ``labels`` is the cluster of each note at fit time (``-1`` is noise) and
+    ``vector_hashes`` the vector it was fitted on, so a note whose embedding
+    changed is placed again instead of keeping a stale label.
+    """
+
+    kind: str  # umap+hdbscan | kmeans | single | empty
+    labels: dict[str, int]
+    vector_hashes: dict[str, str] = field(default_factory=dict)
+    reducer: Any = None
+    clusterer: Any = None
+    kept: frozenset[int] = frozenset()  # kmeans clusters large enough at fit
+
+    def predict(self, vectors: np.ndarray) -> list[int]:
+        """Cluster labels for new vectors; no new cluster is ever created."""
+        if not len(vectors):
+            return []
+        if self.kind == "umap+hdbscan":
+            import hdbscan
+
+            labels, _strengths = hdbscan.approximate_predict(
+                self.clusterer, self.reducer.transform(vectors)
+            )
+            return [int(label) for label in labels]
+        if self.kind == "kmeans":
+            return [
+                int(label) if int(label) in self.kept else -1
+                for label in self.clusterer.predict(vectors)
+            ]
+        if self.kind == "single":
+            return [0] * len(vectors)
+        return [-1] * len(vectors)
+
+
+def vector_hash(vec: np.ndarray) -> str:
+    """Short stable digest of an embedding (rounded, so float noise does not count)."""
+    import hashlib
+
+    data = np.round(np.asarray(vec, dtype=float), 6).astype(np.float32).tobytes()
+    return hashlib.sha256(data).hexdigest()[:16]
+
+
+class BucketModelStore:
+    """Bucket models on disk (``cache_path/garden``), valid for one ``fingerprint``.
+
+    The fingerprint covers what makes a partition meaningless when it changes:
+    the embedding model, the taxonomy file, the category representation and
+    the clustering knobs. ``refit`` ignores what is stored (and overwrites it);
+    ``readonly`` reads but never writes (``garden --plan``). The files are
+    pickles written by this process; never point the store at foreign files.
+    """
+
+    def __init__(
+        self, directory: Path, fingerprint: str, *, refit: bool = False, readonly: bool = False
+    ):
+        self.directory = Path(directory)
+        self.fingerprint = fingerprint
+        self.refit = refit
+        self.readonly = readonly
+
+    def _path(self, bucket: str) -> Path:
+        import hashlib
+
+        return self.directory / f"{hashlib.sha256(bucket.encode()).hexdigest()[:16]}.joblib"
+
+    def load(self, bucket: str) -> BucketModel | None:
+        path = self._path(bucket)
+        if self.refit or not path.is_file():
+            return None
+        import joblib
+
+        try:
+            data = joblib.load(path)
+        except Exception as e:
+            logger.warning("Modelo do bucket '%s' ilegivel (%s); reajustando", bucket, e)
+            return None
+        if data.get("fingerprint") != self.fingerprint or data.get("bucket") != bucket:
+            return None
+        return data["model"]
+
+    def save(self, bucket: str, model: BucketModel) -> None:
+        if self.readonly:
+            return
+        import joblib
+
+        self.directory.mkdir(parents=True, exist_ok=True)
+        joblib.dump(
+            {"fingerprint": self.fingerprint, "bucket": bucket, "model": model}, self._path(bucket)
+        )
+
+
+def bucket_clusters(
+    bucket: str,
+    ids: list[str],
+    embeddings_by_id: Mapping[str, np.ndarray],
+    cfg: GardenerConfig,
+    report: ClusterReport | None = None,
+    store: BucketModelStore | None = None,
+) -> list[list[str]]:
+    """The clusters of one bucket: the stored model's, or a fresh fit (#300).
+
+    A stored model keeps the label of every note it was fitted on (with the
+    same vector) and places the others with ``approximate_predict``, so a run
+    with no new note gives the same partition and a new note joins an existing
+    cluster. When the notes it has never seen exceed ``model_refit_growth``
+    times the fitted ones, or the store says ``refit``, the bucket is fitted
+    again and the model saved.
+    """
+    hashes = {nid: vector_hash(embeddings_by_id[nid]) for nid in ids}
+    model = store.load(bucket) if store is not None else None
+    if model is not None:
+        known = [nid for nid in ids if model.vector_hashes.get(nid) == hashes[nid]]
+        fresh = [nid for nid in ids if model.vector_hashes.get(nid) != hashes[nid]]
+        if len(fresh) > cfg.model_refit_growth * max(1, len(model.labels)):
+            logger.info("Bucket '%s': %d nota(s) novas, reajustando o modelo", bucket, len(fresh))
+            model = None
+
+    if model is None:
+        model = fit_bucket(np.stack([embeddings_by_id[n] for n in ids]), ids, cfg, report)
+        model.vector_hashes = hashes
+        if store is not None:
+            store.save(bucket, model)
+            if report is not None:
+                report.refit_buckets += 1
+        return clusters_of(ids, model.labels, cfg)
+
+    labels = {nid: model.labels[nid] for nid in known}
+    if fresh:
+        predicted = model.predict(np.stack([embeddings_by_id[n] for n in fresh]))
+        labels.update(zip(fresh, predicted, strict=True))
+    clusters = clusters_of(ids, labels, cfg)
+    if report is not None:
+        report.backends.add(model.kind)
+        report.model_buckets += 1
+        report.predicted_notes += len(fresh)
+        report.clusters += len(clusters)
+        report.noise_notes += len(ids) - sum(len(c) for c in clusters)
+    return clusters
+
+
+def clusters_of(ids: list[str], labels: Mapping[str, int], cfg: GardenerConfig) -> list[list[str]]:
+    """Notes grouped by label in ``ids`` order; noise and groups too small for a MOC drop."""
+    groups: dict[int, list[str]] = {}
+    for nid in ids:
+        label = labels.get(nid, -1)
+        if label != -1:
+            groups.setdefault(label, []).append(nid)
+    return [g for g in groups.values() if len(g) >= cfg.min_notes_for_moc]
+
+
 def _cluster_embeddings(
     embeddings: np.ndarray,
     ids: list[str],
     cfg: GardenerConfig,
     report: ClusterReport | None = None,
 ) -> list[list[str]]:
+    """Fit and return the clusters (no persistence: the global path and the probes)."""
+    return clusters_of(ids, fit_bucket(embeddings, ids, cfg, report).labels, cfg)
+
+
+def fit_bucket(
+    embeddings: np.ndarray,
+    ids: list[str],
+    cfg: GardenerConfig,
+    report: ClusterReport | None = None,
+) -> BucketModel:
+    """UMAP + HDBSCAN (``prediction_data=True``), KMeans when they are missing or fail."""
     min_cluster_size = effective_min_cluster_size(cfg)
     try:
         import hdbscan
         import umap
     except ImportError:
         logger.warning("umap-learn ou hdbscan nao instalados. Usando KMeans.")
-        return _cluster_kmeans(embeddings, ids, min_cluster_size, cfg.random_state, report)
+        return _fit_kmeans(embeddings, ids, min_cluster_size, cfg.random_state, report)
 
     n_samples = embeddings.shape[0]
     if cfg.umap_n_neighbors is not None:
@@ -366,11 +541,11 @@ def _cluster_embeddings(
         n_neighbors = min(15, n_samples - 1)
     if n_neighbors < 2:
         _note_backend(report, "single")
-        return [ids]
+        return BucketModel("single", dict.fromkeys(ids, 0))
 
     n_components = min(5, n_samples - 2)
     if n_components < 2:
-        return _cluster_kmeans(embeddings, ids, min_cluster_size, cfg.random_state, report)
+        return _fit_kmeans(embeddings, ids, min_cluster_size, cfg.random_state, report)
 
     init_method = "spectral" if n_samples > n_components + 2 else "random"
     try:
@@ -386,66 +561,70 @@ def _cluster_embeddings(
         reduced = reducer.fit_transform(embeddings)
     except Exception as e:
         logger.warning("UMAP falhou (%s). Usando KMeans.", e)
-        return _cluster_kmeans(embeddings, ids, min_cluster_size, cfg.random_state, report)
+        return _fit_kmeans(embeddings, ids, min_cluster_size, cfg.random_state, report)
 
-    hdbscan_kwargs: dict = {"min_cluster_size": min_cluster_size, "metric": "euclidean"}
+    hdbscan_kwargs: dict = {
+        "min_cluster_size": min_cluster_size,
+        "metric": "euclidean",
+        "prediction_data": True,
+    }
     if cfg.hdbscan_min_samples is not None:
         hdbscan_kwargs["min_samples"] = cfg.hdbscan_min_samples
 
     clusterer = hdbscan.HDBSCAN(**hdbscan_kwargs)
-    labels = clusterer.fit_predict(reduced)
+    labels = [int(label) for label in clusterer.fit_predict(reduced)]
 
-    clusters: dict[int, list[str]] = {}
-    for i, label in enumerate(labels):
-        if label == -1:
-            continue
-        clusters.setdefault(label, []).append(ids[i])
-
-    if not clusters:
+    if all(label == -1 for label in labels):
         if len(ids) >= min_cluster_size:
             _note_backend(report, "single")
-            return [ids]
+            return BucketModel("single", dict.fromkeys(ids, 0))
         if report is not None:
             report.noise_notes += len(ids)
-        return []
+        return BucketModel("empty", dict.fromkeys(ids, -1))
 
     _note_backend(report, "umap+hdbscan")
     if report is not None:
-        report.clusters += len(clusters)
-        report.noise_notes += int(sum(1 for label in labels if label == -1))
-    return list(clusters.values())
+        report.clusters += len({label for label in labels if label != -1})
+        report.noise_notes += sum(1 for label in labels if label == -1)
+    return BucketModel(
+        "umap+hdbscan", dict(zip(ids, labels, strict=True)), reducer=reducer, clusterer=clusterer
+    )
 
 
-def _cluster_kmeans(
+def _fit_kmeans(
     embeddings: np.ndarray,
     ids: list[str],
     min_cluster_size: int,
     random_state: int | None = 42,
     report: ClusterReport | None = None,
-) -> list[list[str]]:
+) -> BucketModel:
     try:
         from sklearn.cluster import KMeans
     except ImportError:
         logger.error("scikit-learn nao instalado.")
         _note_backend(report, "single")
-        return [ids] if len(ids) >= min_cluster_size else []
+        label = 0 if len(ids) >= min_cluster_size else -1
+        return BucketModel("single" if label == 0 else "empty", dict.fromkeys(ids, label))
 
     n = len(ids)
-    k = max(2, n // min_cluster_size)
-    k = min(k, n)
+    k = min(max(2, n // min_cluster_size), n)
     kmeans = KMeans(n_clusters=k, random_state=random_state, n_init=10)
-    labels = kmeans.fit_predict(embeddings)
+    labels = [int(label) for label in kmeans.fit_predict(embeddings)]
+    sizes: dict[int, int] = {}
+    for label in labels:
+        sizes[label] = sizes.get(label, 0) + 1
+    kept = frozenset(label for label, size in sizes.items() if size >= min_cluster_size)
 
-    clusters: dict[int, list[str]] = {}
-    for i, label in enumerate(labels):
-        clusters.setdefault(label, []).append(ids[i])
-
-    kept = [c for c in clusters.values() if len(c) >= min_cluster_size]
     _note_backend(report, "kmeans")
     if report is not None:
         report.clusters += len(kept)
-        report.noise_notes += n - sum(len(c) for c in kept)
-    return kept
+        report.noise_notes += n - sum(sizes[label] for label in kept)
+    return BucketModel(
+        "kmeans",
+        {nid: label if label in kept else -1 for nid, label in zip(ids, labels, strict=True)},
+        clusterer=kmeans,
+        kept=kept,
+    )
 
 
 def _note_backend(report: ClusterReport | None, backend: str) -> None:

@@ -91,6 +91,14 @@ python -m zettel garden --hubs --recreate -y   # so os MOCs de hub
 
 `--recreate` no pipeline taxonômico não apaga MOCs `origin=hub_pipeline`, e o inverso também vale.
 
+### Modelos de cluster e `zettel garden --refit`
+
+O garden guarda o modelo de cluster de cada categoria em `data/cache/garden/` ([ADR-061](adrs/generated/GARDEN/ADR-061-stable-mocs-persisted-bucket-models.md)). Uma execução normal reaproveita o modelo: notas novas entram nos clusters existentes e uma execução sem nota nova não muda nenhum MOC nem chama o LLM. O modelo é reajustado com `--refit`, quando mudam o embedding, a taxonomia ou os parâmetros de cluster, ou quando as notas novas de uma categoria passam de `gardener.model_refit_growth` (50%). Depois de um reajuste, uma nota que mudou de cluster sai do MOC antigo (o relatório mostra quantas saíram). Apagar `data/cache/garden/` equivale a um `--refit`.
+
+### Adotar um MOC gerado
+
+`zettel adopt-moc <moc_id>` (ou **Adotar MOC** na página do MOC na web) transforma um MOC do garden em MOC manual: `origin: manual` no arquivo e no banco, sem assinatura. Ele mantém os backrefs e passa a ser sincronizado por `zettel sync-manual`; o garden e o `--recreate` não o tocam mais. MOCs hub cuja nota-hub foi apagada aparecem no relatório do `garden --hubs` e no `zettel doctor`.
+
 ---
 
 ## `purge-rejected`

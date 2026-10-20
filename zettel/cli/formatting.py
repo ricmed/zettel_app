@@ -218,6 +218,12 @@ def print_garden_report(report: Mapping, *, title: str = "Garden") -> None:
         table.add_row("Entradas omitidas (nao posicionadas)", str(rep.omitted))
     if rep.cap_reached:
         table.add_row("Candidatas recusadas (MOC cheio)", str(rep.cap_reached))
+    if rep.model_buckets or rep.refit_buckets:
+        table.add_row("Categorias com modelo reaproveitado", str(rep.model_buckets))
+        table.add_row("Categorias reajustadas", str(rep.refit_buckets))
+        table.add_row("Notas novas encaixadas sem reajuste", str(rep.predicted_notes))
+    if rep.departed:
+        table.add_row("Entradas que sairam (mudaram de cluster)", str(sum(rep.departed.values())))
     if rep.known_discards:
         table.add_row("Candidatas ja descartadas (nao reenviadas)", str(rep.known_discards))
     if rep.llm_failures:
@@ -233,6 +239,12 @@ def print_garden_report(report: Mapping, *, title: str = "Garden") -> None:
         console.print(
             "[yellow]Assuntos sem porta de entrada: "
             + ", ".join(rep.subjects_without_door)
+            + "[/yellow]"
+        )
+    if rep.mocs_without_cluster:
+        console.print(
+            "[yellow]MOCs que nenhum cluster alcancou nesta execucao (mantidos): "
+            + ", ".join(rep.mocs_without_cluster)
             + "[/yellow]"
         )
     for warning in rep.warnings:

@@ -810,6 +810,13 @@ class WebWorker:
         if operation == "review" and payload.get("action") == "discard":
             return _discard_extract_review(cfg, db, progress, payload)
 
+        if operation == "adopt_moc":
+            from zettel.gardener import MocAdoptError, adopt_moc
+
+            try:
+                return {"kind": "adopt_moc", **adopt_moc(cfg, db, payload["moc_id"])}
+            except MocAdoptError as exc:
+                raise UserFacingError(str(exc)) from exc
         if operation == "skill":
             return _dispatch_skill(cfg, db, progress, payload)
         if operation == "article":

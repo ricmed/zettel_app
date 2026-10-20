@@ -310,3 +310,89 @@ def test_assignment_defaults_stay_off_until_the_labels():
     for gcfg in (GardenerConfig(), load_config().gardener):
         assert gcfg.category_label_mode == "label"
         assert gcfg.assign_min_similarity is None
+
+
+# ── Persisted bucket models (#300) ────────────────────────────────────
+
+
+def _two_groups(seed: int = 0):
+    """Two well separated groups of 12 notes in 8 dimensions."""
+    rng = np.random.default_rng(seed)
+    centres = np.eye(8)[:2] * 5
+    vectors = {}
+    for g, centre in enumerate(centres):
+        for i in range(12):
+            vectors[f"g{g}n{i}"] = centre + rng.normal(scale=0.05, size=8)
+    return vectors
+
+
+def _store(tmp_path, **kwargs):
+    from zettel.gardener_assign import BucketModelStore
+
+    return BucketModelStore(tmp_path / "garden", "fp", **kwargs)
+
+
+def _cfg():
+    from zettel.config import GardenerConfig
+
+    return GardenerConfig(min_cluster_size=5, min_notes_for_moc=5, random_state=42)
+
+
+def test_stored_model_gives_the_same_partition_without_refitting(tmp_path, monkeypatch):
+    import zettel.gardener_assign as assign
+
+    vectors = _two_groups()
+    ids = list(vectors)
+    first = assign.bucket_clusters("Cat", ids, vectors, _cfg(), store=_store(tmp_path))
+
+    def no_fit(*args, **kwargs):
+        raise AssertionError("a stored model must not be fitted again")
+
+    monkeypatch.setattr(assign, "fit_bucket", no_fit)
+    report = assign.ClusterReport()
+    second = assign.bucket_clusters("Cat", ids, vectors, _cfg(), report, _store(tmp_path))
+
+    assert sorted(map(sorted, first)) == sorted(map(sorted, second))
+    assert (report.model_buckets, report.predicted_notes) == (1, 0)
+
+
+def test_new_note_joins_its_existing_cluster_without_refitting(tmp_path, monkeypatch):
+    import zettel.gardener_assign as assign
+
+    vectors = _two_groups()
+    assign.bucket_clusters("Cat", list(vectors), vectors, _cfg(), store=_store(tmp_path))
+    monkeypatch.setattr(assign, "fit_bucket", lambda *a, **k: (_ for _ in ()).throw(AssertionError))
+    vectors["new"] = vectors["g1n0"] + 0.01
+
+    report = assign.ClusterReport()
+    clusters = assign.bucket_clusters(
+        "Cat", list(vectors), vectors, _cfg(), report, _store(tmp_path)
+    )
+
+    [home] = [c for c in clusters if "new" in c]
+    assert {"g1n0", "g1n5"} <= set(home)
+    assert report.predicted_notes == 1
+
+
+def test_refit_and_a_changed_fingerprint_fit_again(tmp_path):
+    from zettel.gardener_assign import BucketModelStore, ClusterReport, bucket_clusters
+
+    vectors = _two_groups()
+    bucket_clusters("Cat", list(vectors), vectors, _cfg(), store=_store(tmp_path))
+
+    for store in (
+        _store(tmp_path, refit=True),
+        BucketModelStore(tmp_path / "garden", "other-fingerprint"),
+    ):
+        report = ClusterReport()
+        bucket_clusters("Cat", list(vectors), vectors, _cfg(), report, store)
+        assert (report.refit_buckets, report.model_buckets) == (1, 0)
+
+
+def test_readonly_store_never_writes(tmp_path):
+    from zettel.gardener_assign import bucket_clusters
+
+    vectors = _two_groups()
+    bucket_clusters("Cat", list(vectors), vectors, _cfg(), store=_store(tmp_path, readonly=True))
+
+    assert not (tmp_path / "garden").exists()

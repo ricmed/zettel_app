@@ -251,7 +251,7 @@ See [RESOLUTION-LOG-2026-08-31.md](./RESOLUTION-LOG-2026-08-31.md) for full deta
          └─────────────────┬──────────────────────┘
                            │
          ┌─────────────────▼──────────────────────┐
-         │ PHASE 4: GARDEN                         │  ← ADR-019,020,021,060
+         │ PHASE 4: GARDEN                         │  ← ADR-019,020,021,060,061
          │ • Taxonomy-first clustering (default)   │    (MOC routing)
          │ • Hub-anchored clustering (opt-in)      │
          │ • Generate MOCs, sync backrefs           │
