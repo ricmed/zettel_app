@@ -938,6 +938,12 @@ class WebWorker:
                 "approved_threshold": int(review_stats.get("approved_threshold") or 0),
                 "notes": note_ids,
                 "mocs": moc_ids,
+                # run_all harvests the whole inbox without a bibliographic review,
+                # so a refused file must show up here, with its reason (#310).
+                "harvest_skipped": [
+                    {"file": skip.path.name, "reason": skip.reason, "message": skip.message}
+                    for skip in harvest.skipped
+                ],
             }
         if operation == "harvest":
             from zettel.harvester import run_harvest

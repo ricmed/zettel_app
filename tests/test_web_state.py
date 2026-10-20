@@ -257,7 +257,58 @@ def test_run_all_dispatches_every_phase_in_order(tmp_path: Path, monkeypatch):
         "approved_threshold": 0,
         "notes": ["note"],
         "mocs": ["moc"],
+        "harvest_skipped": [],
     }
+
+
+def test_run_all_reports_each_file_the_harvest_refused(tmp_path: Path, monkeypatch):
+    """A refused file used to vanish from the run_all result (#310)."""
+    from zettel import connector, extractor, gardener, harvester, index, review
+    from zettel.harvester.pipeline import HarvestSkip
+
+    monkeypatch.setattr(index, "VectorIndex", lambda **kwargs: object())
+    monkeypatch.setattr(
+        harvester,
+        "run_harvest",
+        lambda cfg, db, idx, **kwargs: harvester.HarvestOutcome(
+            source_ids=[],
+            skipped=[
+                HarvestSkip(
+                    path=tmp_path / "inbox" / "scan.pdf",
+                    reason="empty_text_layer",
+                    message="scan.pdf não tem camada de texto; aplique OCR.",
+                )
+            ],
+        ),
+    )
+    monkeypatch.setattr(extractor, "run_extract", lambda cfg, db, idx, **kwargs: [])
+    monkeypatch.setattr(review, "run_review", lambda cfg, db, idx, **kwargs: {})
+    monkeypatch.setattr(connector, "load_approved_candidates", lambda db, source_ids=None: [])
+    monkeypatch.setattr(
+        connector,
+        "run_connect",
+        lambda cfg, db, idx, candidates, **kwargs: type("O", (), {"note_ids": []})(),
+    )
+    monkeypatch.setattr(gardener, "run_garden", lambda cfg, db, idx, **kwargs: [])
+
+    class Progress:
+        def emit(self, event):
+            pass
+
+    result = WebWorker._dispatch(
+        AppConfig(chroma_path=tmp_path / "chroma"),
+        _GardenDB(),
+        Progress(),
+        "run_all",
+        {"duplicate_action": "skip"},
+    )
+    assert result["harvest_skipped"] == [
+        {
+            "file": "scan.pdf",
+            "reason": "empty_text_layer",
+            "message": "scan.pdf não tem camada de texto; aplique OCR.",
+        }
+    ]
 
 
 def test_run_all_auto_approve_records_the_unvalidated_warning(tmp_path: Path, monkeypatch):

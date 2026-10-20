@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
@@ -9,6 +11,8 @@ from zettel.web.enqueue import post_job
 from zettel.web.health import llm_ready as _llm_ready
 from zettel.web.rendering import render, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -35,9 +39,30 @@ def _safe_next(raw: str) -> str | None:
 def pipeline(request: Request):
     if not authenticated(request):
         return redirect_login()
+    from zettel import preflight
+    from zettel.connector import load_approved_candidates
+    from zettel.domain_examples import DomainExamplesLoadError
+
+    cfg = service(request).cfg
     db = service(request).db()
     try:
         stats = db.get_stats()
+        # The CLI asks before paying for these two; here submitting the form is
+        # the confirmation, so the estimate sits next to the button (#310).
+        candidates = load_approved_candidates(db)
+        builders = {}
+        if stats.get("chunks_pending"):
+            builders["extract"] = lambda: preflight.estimate_extract(cfg, db)
+        if candidates:
+            builders["connect"] = lambda: preflight.estimate_connect(cfg, db, candidates)
+        estimates, estimate_errors = {}, {}
+        for op, build in builders.items():
+            try:
+                estimates[op] = build()
+            except (OSError, ValueError, DomainExamplesLoadError) as exc:
+                # A missing prompt or few-shot file breaks the phase, not the page.
+                logger.warning("Pré-voo de %s indisponível: %s", op, exc)
+                estimate_errors[op] = str(exc)[:200]
     finally:
         db.close()
     return render(
@@ -45,7 +70,9 @@ def pipeline(request: Request):
         "pipeline.html",
         page="pipeline",
         stats=stats,
-        llm_ready=_llm_ready(service(request).cfg),
+        estimates=estimates,
+        estimate_errors=estimate_errors,
+        llm_ready=_llm_ready(cfg),
     )
 
 

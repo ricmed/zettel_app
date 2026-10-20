@@ -2813,3 +2813,78 @@ def test_job_detail_lists_every_run_and_its_cost(web_client, monkeypatch):
     assert job["cost_usd_total"] == pytest.approx(0.5)
     page = client.get(f"/jobs/{job_id}").text
     assert "harvest" in page and "extract" in page
+
+
+def test_run_all_form_names_the_files_it_will_ingest_without_review(web_client):
+    """run_all harvests the whole inbox; the form has to say so (#310)."""
+    client, tmp_path = web_client
+    _login(client)
+    inbox = tmp_path / "inbox"
+    inbox.mkdir(exist_ok=True)
+    (inbox / "artigo.md").write_text("# Texto\n", encoding="utf-8")
+    page = client.get("/documents").text
+    assert "sem revisão bibliográfica" in page
+    assert "artigo.md" in page.split("sem revisão bibliográfica", 1)[1]
+
+
+def _seed_pipeline_work(client, monkeypatch):
+    """One pending chunk and one connect candidate, so both estimates have work."""
+    from zettel import connector
+
+    db = client.app.state.service.db()
+    try:
+        db.upsert_source("@Book2024", "Book2024", "Livro", ["Autor"], 2024, "h", "/x.md", "md")
+        db.upsert_chapter("@Book2024::ch000", "@Book2024", "Cap", "ch")
+        db.upsert_chunk(
+            "@Book2024::ch000::p1", "@Book2024", "@Book2024::ch000", "Texto", "ck", chunk_index=0
+        )
+    finally:
+        db.close()
+    monkeypatch.setattr(connector, "load_approved_candidates", lambda db: [{"candidate": None}])
+
+
+def test_pipeline_page_shows_the_extract_and_connect_preflight(web_client, monkeypatch):
+    """The CLI asks before paying; the web showed no estimate for its costliest phases (#310)."""
+    from zettel import preflight
+
+    client, _ = web_client
+    _login(client)
+
+    def fake(phase, cost):
+        return preflight.PreflightEstimate(
+            phase=phase,
+            provider="openai",
+            model=f"modelo-{phase}",
+            items=3,
+            item_label="item(ns)",
+            input_tokens=10,
+            output_tokens=5,
+            cost_usd=cost,
+        )
+
+    monkeypatch.setattr(preflight, "estimate_extract", lambda cfg, db: fake("extract", 0.1234))
+    monkeypatch.setattr(
+        preflight, "estimate_connect", lambda cfg, db, candidates: fake("connect", 0.5678)
+    )
+    _seed_pipeline_work(client, monkeypatch)
+    page = client.get("/pipeline").text
+    assert "0.1234" in page and "modelo-extract" in page
+    assert "0.5678" in page and "modelo-connect" in page
+
+
+def test_pipeline_page_survives_an_estimate_that_cannot_be_built(web_client, monkeypatch):
+    """A missing few-shot file must not take the Pipeline page down with it."""
+    from zettel import preflight
+    from zettel.domain_examples import DomainExamplesLoadError
+
+    client, _ = web_client
+    _login(client)
+
+    def broken(*_args, **_kwargs):
+        raise DomainExamplesLoadError("Arquivo de exemplos de dominio nao encontrado")
+
+    monkeypatch.setattr(preflight, "estimate_extract", broken)
+    _seed_pipeline_work(client, monkeypatch)
+    page = client.get("/pipeline")
+    assert page.status_code == 200
+    assert "Pré-voo indisponível" in page.text
