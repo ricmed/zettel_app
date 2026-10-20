@@ -1006,6 +1006,89 @@ def test_notes_catalog_search_filters_and_pagination(web_client):
     assert "Página 2 de 2" in client.get("/notes?page=999999").text
 
 
+def _seed_ranked_notes(db):
+    db.upsert_note(
+        "note-a",
+        None,
+        None,
+        title="Ética aplicada",
+        body="Uma nota longa sobre deveres que cita Kant uma vez " + "e segue outro assunto " * 40,
+    )
+    db.upsert_note("note-b", None, None, title="Kant e a crítica", body="Kant, Kant e a CRÍTICA.")
+    db.upsert_note("note-c", None, None, title="Hume", body="Ceticismo sem relação.")
+    db.upsert_moc("mapa-kant", "Kant", body="Mapa")
+
+
+def test_notes_search_ranks_by_relevance_and_can_sort_by_date(web_client):
+    """With ``q`` the list is BM25-ranked from FTS5; a MOC whose topic or body
+    matches comes first, as the door to that subject (#312)."""
+    client, _ = web_client
+    _login(client)
+    db = client.app.state.service.db()
+    try:
+        _seed_ranked_notes(db)
+        db.conn.execute(
+            "UPDATE notes SET updated_at='2020-01-01T00:00:00+00:00' WHERE note_id='note-b'"
+        )
+        db.conn.commit()
+    finally:
+        db.close()
+
+    ranked = client.get("/notes", params={"q": "kant"}).text
+    assert "3 itens encontrados" in ranked
+    assert ranked.index("Kant e a crítica") < ranked.index("Ética aplicada")
+    assert ranked.index(">Kant<") < ranked.index("Kant e a crítica")
+    assert '<option value="" selected>' in ranked
+
+    by_date = client.get("/notes", params={"q": "kant", "sort": "recent", "kind": "ZTL"}).text
+    assert by_date.index("Ética aplicada") < by_date.index("Kant e a crítica")
+    assert "Hume" not in ranked and "Hume" not in by_date
+
+
+def test_notes_search_folds_accents_and_neutralizes_fts_operators(web_client):
+    client, _ = web_client
+    _login(client)
+    db = client.app.state.service.db()
+    try:
+        _seed_ranked_notes(db)
+    finally:
+        db.close()
+
+    assert "Kant e a crítica" in client.get("/notes", params={"q": "critica"}).text
+    assert "Kant e a crítica" in client.get("/notes", params={"q": "CRÍTICA"}).text
+    for raw in ('"kant', "kant OR", "NOT kant", "kant*", "title:kant", "kant NEAR("):
+        page = client.get("/notes", params={"q": raw, "kind": "ZTL"})
+        assert page.status_code == 200, raw
+        assert "Kant e a crítica" in page.text, raw
+    # A quoted prefix stays a literal term: "kan" is not "kant".
+    assert "Nenhuma nota corresponde" in client.get("/notes", params={"q": "kan*"}).text
+
+
+def test_notes_search_does_not_fold_every_note_in_python(tmp_path):
+    """Notes are matched by the FTS5 index, not by a Python UDF per row (#312)."""
+    from zettel.search_terms import fold
+    from zettel.state import StateDB
+
+    db = StateDB(tmp_path / "state.db")
+    try:
+        _seed_ranked_notes(db)
+        for index in range(30):
+            db.upsert_note(f"filler-{index}", None, None, title=f"Nota {index}", body="texto")
+        calls = []
+
+        def counting_fold(text):
+            calls.append(text)
+            return fold(text)
+
+        db.conn.create_function("zfold", 1, counting_fold, deterministic=True)
+        rows, total = db.search_catalog(query="kant")
+    finally:
+        db.close()
+    assert total == 3
+    assert [row["item_id"] for row in rows][:2] == ["mapa-kant", "note-b"]
+    assert len(calls) <= 4  # the MOC rows only, title and body
+
+
 def test_note_markdown_copy_and_download_use_vault_files_only(web_client):
     client, tmp_path = web_client
     permanent = tmp_path / "vault" / "30_Permanent"
