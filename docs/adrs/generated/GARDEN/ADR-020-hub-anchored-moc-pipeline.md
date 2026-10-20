@@ -31,7 +31,7 @@ This is a complementary strategy, not a replacement: taxonomy-first clustering r
 
 ## Decision Outcome
 
-Chosen option: hub-anchored BFS clustering with configurable degree ranking, because it surfaces the specific class of organization — connectivity-anchored neighborhoods — that taxonomy-first clustering cannot detect, while reusing the vault's existing graph-expansion mechanism and generation routing rather than introducing new infrastructure. [NEEDS INPUT: Was degree-based ranking validated against real vault usage, or chosen primarily for its simplicity and determinism relative to community detection?]
+Chosen option: hub-anchored BFS clustering with configurable degree ranking, because it surfaces the specific class of organization — connectivity-anchored neighborhoods — that taxonomy-first clustering cannot detect, while reusing the vault's existing graph-expansion mechanism and generation routing rather than introducing new infrastructure. *Answered (2026-10-20, #301):* chosen for simplicity and determinism, not validated. The audit measured that Louvain finds 13 communities with modularity 0.731 on the development graph against 0.231 for the MOC partition (`docs/artigo/05-garden.md`); comparing Leiden communities with degree + BFS is still open (#299).
 
 Supporting both a percentile mode (top N% by degree) and an absolute mode (fixed degree threshold) lets the selection scale with a growing vault or stay fixed for an archive of known size, trading the simplicity of a single default for configuration flexibility across different vault growth patterns.
 
@@ -58,11 +58,11 @@ Supporting both a percentile mode (top N% by degree) and an absolute mode (fixed
 
 ## Consequences
 
-The two pipelines increase the module's maintenance surface: two LLM prompt templates, two generation entry points, and a documented duplication where the hub pipeline reaches into roughly a dozen private symbols of the taxonomy pipeline's module to reuse shared cluster-routing and MOC-body-building logic. [NEEDS INPUT: Is consolidating this shared logic into a common module planned, or is the current duplication an accepted long-term trade-off?]
+The two pipelines increase the module's maintenance surface: two LLM prompt templates, two generation entry points, and a documented duplication where the hub pipeline reaches into roughly a dozen private symbols of the taxonomy pipeline's module to reuse shared cluster-routing and MOC-body-building logic. *Answered (2026-10-20, #301):* partly consolidated: the hub pipeline now shares `render_moc_body`, `_write_moc`, `_update_existing_moc` and the discard bookkeeping with the taxonomy pipeline (#297, #300); it still imports them as private symbols of `gardener.py`.
 
-Hub MOCs store a reference to their anchor note in frontmatter. If that note is later deleted, the MOC is not automatically cleaned up or flagged, and becomes orphaned with no warning surfaced to the user. [NEEDS INPUT: Should hub-note deletion trigger automatic MOC cleanup or a warning, and is this in scope for `delete-source`/`purge-source`?]
+Hub MOCs store a reference to their anchor note in frontmatter. If that note is later deleted, the MOC is not automatically cleaned up or flagged, and becomes orphaned with no warning surfaced to the user. *Answered (2026-10-20, #301):* a warning: orphan hub MOCs are flagged by the hub report, `zettel doctor` and `delete-source`, and removed only by `garden --hubs --recreate` (ADR-061).
 
-Edge-weight and decay configuration is shared with the retrieval layer's graph expansion, so retuning either affects both hub MOC generation and search-time graph expansion simultaneously; no separate tuning surface exists for the two use cases. [NEEDS INPUT: What evidence supports the default decay value used for hub-neighborhood expansion, and was it benchmarked separately from the retrieval use case?]
+Edge-weight and decay configuration is shared with the retrieval layer's graph expansion, so retuning either affects both hub MOC generation and search-time graph expansion simultaneously; no separate tuning surface exists for the two use cases. *Answered (2026-10-20, #301):* none; the decay was never measured. On the development graph all 15 neighbourhoods hit the `max_neighbors` cap and are almost all one hop, so `decay` and `max_hops: 2` have little effect. The relation weights now come from `retrieval.graph_expansion.relation_weights`, and proposed edges count at `gardener.proposed_edge_factor` in the garden only (#299); the hub parameters are still unmeasured.
 
 ## References
 

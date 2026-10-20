@@ -123,8 +123,8 @@ def test_clear_moc_backrefs_on_purge(tmp_path):
     assert read_managed_block(note_path.read_text(encoding="utf-8"), MOC_BACKREFS_BLOCK)
 
     cfg = _make_config(vault)
-    idx = MagicMock()
-    removed = purge_pipeline_mocs(cfg, db, idx)
+    MagicMock()
+    removed = purge_pipeline_mocs(cfg, db)
 
     assert removed == 1
     block = read_managed_block(note_path.read_text(encoding="utf-8"), MOC_BACKREFS_BLOCK)

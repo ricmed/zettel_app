@@ -24,7 +24,6 @@ from zettel.gardener import (
 from zettel.gardener_assign import ClusterReport
 from zettel.schemas import (
     MOCEntry,
-    MOCGenerationOutput,
     MOCIncrementalOutput,
     MOCNotePlacement,
     MOCSubsection,
@@ -40,16 +39,6 @@ from zettel.taxonomy import (
     resolve_allowed_topics,
 )
 from zettel.vault import safe_write_note
-
-
-def _make_moc_output(topic: str, justification: str = "") -> MOCGenerationOutput:
-    """Helper to build a MOCGenerationOutput."""
-    return MOCGenerationOutput(
-        topic=topic,
-        summary="Resumo de teste",
-        subsections=[],
-        topic_justification=justification,
-    )
 
 
 def _make_config(
@@ -189,64 +178,91 @@ def test_load_project_moc_topics_yaml():
 # ── Topic Validation Tests ───────────────────────────────────────────
 
 
-def test_validate_topic_in_list():
-    """Topic that exactly matches an allowed topic is approved."""
+def test_validate_topic_returns_the_canonical_category():
     cfg = _make_config(
-        allowed_topics=["Machine Learning Classico", "Deep Learning e Modelos Neurais"],
+        allowed_topics=["Machine Learning Clássico", "Deep Learning e Modelos Neurais"],
         strict=True,
         topics_path=None,
     )
-    moc = _make_moc_output("Machine Learning Classico")
-    assert _validate_moc_topic(cfg, moc) is True
+
+    assert _validate_moc_topic(cfg, "machine learning classico") == (
+        "Machine Learning Clássico",
+        False,
+    )
 
 
-def test_validate_topic_substring():
-    """Topic that contains a substring of an allowed topic is approved."""
+def test_validate_topic_no_longer_accepts_substrings():
+    """ "IA" used to pass through every category containing the letters (#301)."""
     cfg = _make_config(
-        allowed_topics=["Deep Learning e Modelos Neurais"],
+        allowed_topics=[
+            "Confiabilidade e Avaliação",
+            "Metafísica",
+            "Deep Learning e Modelos Neurais",
+        ],
         strict=True,
         topics_path=None,
     )
-    moc = _make_moc_output("Deep Learning")
-    assert _validate_moc_topic(cfg, moc) is True
 
-    moc2 = _make_moc_output("Deep Learning e Modelos Neurais Avancados")
-    assert _validate_moc_topic(cfg, moc2) is True
+    assert _validate_moc_topic(cfg, "IA") is None
+    assert _validate_moc_topic(cfg, "Deep Learning") is None
 
 
-def test_validate_topic_strict_reject():
-    """Topic not in the list is rejected when strict_topics=True."""
-    cfg = _make_config(
-        allowed_topics=["Machine Learning Classico"],
-        strict=True,
-        topics_path=None,
-    )
-    moc = _make_moc_output("Culinaria Molecular", justification="Nao se aplica")
-    assert _validate_moc_topic(cfg, moc) is False
+def test_validate_topic_permissive_keeps_an_emergent_theme():
+    cfg = _make_config(allowed_topics=["Machine Learning Classico"], strict=False, topics_path=None)
 
-
-def test_validate_topic_permissive():
-    """Topic not in the list is approved when strict_topics=False."""
-    cfg = _make_config(
-        allowed_topics=["Machine Learning Classico"],
-        strict=False,
-        topics_path=None,
-    )
-    moc = _make_moc_output("Culinaria Molecular", justification="Nao se aplica")
-    assert _validate_moc_topic(cfg, moc) is True
+    assert _validate_moc_topic(cfg, "Culinaria Molecular") == ("Culinaria Molecular", True)
 
 
 def test_validate_empty_list():
     """When allowed_topics is empty and no topics_path, any topic is approved."""
     cfg = _make_config(allowed_topics=[], strict=True, topics_path=None)
-    moc = _make_moc_output("Qualquer Topico")
-    assert _validate_moc_topic(cfg, moc) is True
+    assert _validate_moc_topic(cfg, "Qualquer Topico") == ("Qualquer Topico", False)
 
 
 def test_validate_from_taxonomy_file(mini_taxonomy_path: Path):
     cfg = _make_config(allowed_topics=[], strict=True, topics_path=mini_taxonomy_path)
-    assert _validate_moc_topic(cfg, _make_moc_output("Categoria Um")) is True
-    assert _validate_moc_topic(cfg, _make_moc_output("Fora da Taxonomia")) is False
+    assert _validate_moc_topic(cfg, "Categoria Um") == ("Categoria Um", False)
+    assert _validate_moc_topic(cfg, "Fora da Taxonomia") is None
+
+
+def test_cluster_terms_are_distinctive_and_free_of_stopwords(tmp_path):
+    from zettel.gardener import cluster_terms
+    from zettel.search_terms import PT_STOPWORDS, fold
+
+    db = StateDB(tmp_path / "test.db")
+    texts = {
+        "A1": "A autonomia da vontade em Kant",
+        "A2": "Kant e a autonomia como lei moral",
+        "B1": "Engenharia de prompt para modelos de linguagem",
+        "B2": "O prompt como interface com o modelo",
+    }
+    for nid, title in texts.items():
+        db.upsert_note(nid, "@S", None, title, body=f"> **Tese**: {title}.")
+
+    terms_a, terms_b = cluster_terms(db, [["A1", "A2"], ["B1", "B2"]], n_terms=3)
+
+    assert not {fold(w) for w in terms_a + terms_b} & PT_STOPWORDS
+    assert {"kant", "autonomia"} <= set(terms_a)
+    assert "prompt" in terms_b and "kant" not in terms_b
+    db.close()
+
+
+def test_orphan_moc_files_are_generated_files_without_a_row(tmp_path):
+    from zettel.gardener import orphan_moc_files
+
+    vault = tmp_path / "vault"
+    moc_dir = vault / "40_MOCs"
+    moc_dir.mkdir(parents=True)
+    for moc_id, origin in (("P1", "pipeline"), ("P2", "pipeline"), ("M1", "manual")):
+        meta = {"moc_id": moc_id, "origin": origin}
+        safe_write_note(moc_dir / f"MOC - {moc_id} - x.md", meta, "# T\n")
+    db = StateDB(tmp_path / "test.db")
+    db.upsert_moc("P1", "A", str(moc_dir / "MOC - P1 - x.md"), "s")
+    cfg = AppConfig()
+    cfg.vault_path = vault
+
+    assert [p.name for p in orphan_moc_files(cfg, db)] == ["MOC - P2 - x.md"]
+    db.close()
 
 
 # ── MOC Structure Parsing Tests ──────────────────────────────────────
@@ -391,7 +407,7 @@ def test_process_cluster_creates_new_moc_beside_manual_one(tmp_path):
     created: list[str] = []
 
     def fake_create(*args, **kwargs):
-        created.append(args[4])
+        created.append(args[3])
         return "NEW001"
 
     import zettel.gardener as gardener_mod
@@ -404,7 +420,6 @@ def test_process_cluster_creates_new_moc_beside_manual_one(tmp_path):
         moc_ids = _process_subject(
             cfg,
             db,
-            MagicMock(),
             MagicMock(),
             "Epistemologia",
             [["N1", "N2", "N3"]],
@@ -435,9 +450,7 @@ def test_update_existing_moc_refuses_foreign_origin(tmp_path):
 
     from zettel.gardener import _update_existing_moc
 
-    result = _update_existing_moc(
-        AppConfig(), db, MagicMock(), llm, db.get_moc("HUB001"), ["N1"], "sig-new"
-    )
+    result = _update_existing_moc(AppConfig(), db, llm, db.get_moc("HUB001"), ["N1"], "sig-new")
 
     assert result is None
     assert moc_file.read_bytes() == before
@@ -571,14 +584,13 @@ def test_update_existing_moc_no_new_notes(tmp_path):
     cfg = _make_config()
     cfg.prompts_path = tmp_path / "prompts"
 
-    idx = MagicMock()
+    MagicMock()
     llm = MagicMock()
 
     existing_moc = db.find_moc_by_topic("Machine Learning Classico", origins=("pipeline",))
     result = _update_existing_moc(
         cfg,
         db,
-        idx,
         llm,
         existing_moc,
         ["NOTE001", "NOTE002", "NOTE003"],  # all existing
@@ -608,7 +620,7 @@ def test_update_existing_moc_with_placements(tmp_path):
     )
     cfg.prompts_path = prompts_dir
 
-    idx = MagicMock()
+    MagicMock()
 
     # Mock LLM to return placement
     llm_response_data = {
@@ -630,7 +642,6 @@ def test_update_existing_moc_with_placements(tmp_path):
     result = _update_existing_moc(
         cfg,
         db,
-        idx,
         llm,
         existing_moc,
         ["NOTE001", "NOTE002", "NOTE003", "NOTE004"],  # NOTE004 is new
@@ -665,7 +676,7 @@ def test_incremental_ignores_notes(tmp_path):
     )
     cfg.prompts_path = prompts_dir
 
-    idx = MagicMock()
+    MagicMock()
 
     # LLM says to ignore NOTE005
     llm_response_data = {
@@ -687,7 +698,6 @@ def test_incremental_ignores_notes(tmp_path):
     result = _update_existing_moc(
         cfg,
         db,
-        idx,
         llm,
         existing_moc,
         ["NOTE001", "NOTE003", "NOTE005"],  # NOTE005 is new
@@ -719,7 +729,7 @@ def test_update_existing_moc_with_new_subsection(tmp_path):
     )
     cfg.prompts_path = prompts_dir
 
-    idx = MagicMock()
+    MagicMock()
 
     llm_response_data = {
         "placements": [
@@ -754,7 +764,6 @@ def test_update_existing_moc_with_new_subsection(tmp_path):
     result = _update_existing_moc(
         cfg,
         db,
-        idx,
         llm,
         existing_moc,
         ["NOTE001", "NOTE002", "NOTE003", "NOTE004", "NOTE005"],
@@ -791,7 +800,7 @@ def test_fresh_cluster_joins_the_category_moc_with_room(tmp_path):
     cfg.prompts_path = prompts_dir
     cfg.vault_path = tmp_path / "vault"
 
-    idx = MagicMock()
+    MagicMock()
 
     incremental_response = MagicMock()
     incremental_response.content = json.dumps(
@@ -816,7 +825,6 @@ def test_fresh_cluster_joins_the_category_moc_with_room(tmp_path):
     result = _process_subject(
         cfg,
         db,
-        idx,
         llm,
         "Machine Learning Classico",
         [["NOTE001", "NOTE002", "NOTE003", "NOTE004"]],
@@ -853,7 +861,7 @@ def test_process_cluster_routes_by_overlap(tmp_path):
     cfg.prompts_path = prompts_dir
     cfg.vault_path = tmp_path / "vault"
 
-    idx = MagicMock()
+    MagicMock()
     incremental_response = MagicMock()
     incremental_response.content = json.dumps(
         {
@@ -876,7 +884,6 @@ def test_process_cluster_routes_by_overlap(tmp_path):
     result = _process_subject(
         cfg,
         db,
-        idx,
         llm,
         "_unassigned",
         [["NOTE001", "NOTE002", "NOTE005"]],
@@ -1034,7 +1041,7 @@ def test_full_moc_takes_no_entry_and_calls_no_llm(tmp_path):
     existing = db.find_moc_by_topic("Machine Learning Classico", origins=("pipeline",))
 
     result = _update_existing_moc(
-        cfg, db, MagicMock(), llm, existing, ["NOTE004", "NOTE005"], "sig2", stats=stats
+        cfg, db, llm, existing, ["NOTE004", "NOTE005"], "sig2", stats=stats
     )
 
     assert result == "MOC001"
@@ -1062,9 +1069,7 @@ def test_capacity_limits_the_candidates_sent(tmp_path):
     stats = _GardenStats()
     existing = db.find_moc_by_topic("Machine Learning Classico", origins=("pipeline",))
 
-    _update_existing_moc(
-        cfg, db, MagicMock(), llm, existing, ["NOTE004", "NOTE005"], "sig2", stats=stats
-    )
+    _update_existing_moc(cfg, db, llm, existing, ["NOTE004", "NOTE005"], "sig2", stats=stats)
 
     sent = str(llm.invoke.call_args[0][0][-1].content)
     assert "SVM" in sent and "Random Forest" not in sent
@@ -1096,7 +1101,7 @@ def test_summary_is_rewritten_when_entries_grow(tmp_path):
     llm.invoke.side_effect = [placement, summary]
     existing = db.find_moc_by_topic("Machine Learning Classico", origins=("pipeline",))
 
-    _update_existing_moc(cfg, db, MagicMock(), llm, existing, ["NOTE004", "NOTE005"], "sig2")
+    _update_existing_moc(cfg, db, llm, existing, ["NOTE004", "NOTE005"], "sig2")
 
     content = moc_file.read_text(encoding="utf-8")
     assert "Resumo novo do MOC." in content
@@ -1135,18 +1140,17 @@ def test_purge_pipeline_mocs_keeps_manual(tmp_path):
     db.upsert_moc("PIPE001", "Pipeline Topic", str(pipeline_file), "sig1", origin="pipeline")
     db.upsert_moc("MAN001", "Manual Topic", str(manual_file), "sig2", origin="manual")
 
-    idx = MagicMock()
+    MagicMock()
     cfg = AppConfig()
     cfg.vault_path = vault
 
-    removed = purge_pipeline_mocs(cfg, db, idx)
+    removed = purge_pipeline_mocs(cfg, db)
 
     assert removed == 1
     assert not pipeline_file.exists()
     assert manual_file.exists()
     assert db.get_moc("PIPE001") is None
     assert db.get_moc("MAN001") is not None
-    idx.delete_mocs.assert_called_once_with(["PIPE001"])
     db.close()
 
 
@@ -1160,16 +1164,15 @@ def test_purge_keeps_file_whose_frontmatter_names_another_origin(tmp_path):
 
     db = StateDB(tmp_path / "state.db")
     db.upsert_moc("MAN002", "Epistemologia", str(hijacked), "sig", origin="pipeline")
-    idx = MagicMock()
+    MagicMock()
     cfg = AppConfig()
     cfg.vault_path = vault
 
-    removed = purge_pipeline_mocs(cfg, db, idx)
+    removed = purge_pipeline_mocs(cfg, db)
 
     assert removed == 0
     assert hijacked.exists()
     assert db.get_moc("MAN002") is not None
-    idx.delete_mocs.assert_not_called()
     db.close()
 
 
@@ -1325,7 +1328,7 @@ def test_garden_hubs_records_failed_run_when_get_llm_raises(tmp_path, monkeypatc
     monkeypatch.setattr(hub_mod, "get_llm", missing)
 
     with pytest.raises(LLMUnavailableError):
-        hub_mod.run_garden_hubs(cfg, db, MagicMock(), recreate=True)
+        hub_mod.run_garden_hubs(cfg, db, recreate=True)
 
     assert _last_run_status(db, "garden_hubs") == "failed"
     db.close()
@@ -1388,7 +1391,7 @@ def test_subject_below_the_cap_gets_one_moc_with_a_subsection_per_cluster(tmp_pa
 
     stats = _GardenStats()
     moc_ids = _process_subject(
-        cfg, db, MagicMock(), MagicMock(), "Categoria Um", [_cluster(p) for p in "ABC"], stats
+        cfg, db, MagicMock(), "Categoria Um", [_cluster(p) for p in "ABC"], stats
     )
 
     assert len(calls) == 1
@@ -1417,7 +1420,7 @@ def test_subject_above_the_cap_becomes_a_moc_of_mocs(tmp_path, monkeypatch):
 
     stats = _GardenStats()
     moc_ids = _process_subject(
-        cfg, db, MagicMock(), MagicMock(), "Categoria Um", [_cluster(p) for p in "ABCD"], stats
+        cfg, db, MagicMock(), "Categoria Um", [_cluster(p) for p in "ABCD"], stats
     )
 
     assert len(calls) == 5  # four sub-MOCs + the category summary
@@ -1476,7 +1479,7 @@ def test_cluster_fully_discarded_by_the_incremental_gets_a_sub_moc(tmp_path, mon
     _write_home(cfg, db, _cluster("A")[:3])
 
     stats = _GardenStats()
-    _process_subject(cfg, db, MagicMock(), MagicMock(), "Categoria Um", [_cluster("E")], stats)
+    _process_subject(cfg, db, MagicMock(), "Categoria Um", [_cluster("E")], stats)
 
     assert len(calls) == 2  # incremental (all ignored) + the sub-MOC
     [child] = db.list_child_mocs("HOME01")
@@ -1499,9 +1502,7 @@ def test_category_name_no_longer_swallows_a_cluster_into_a_full_moc(tmp_path, mo
     cfg.gardener.max_entries_per_moc = 3
     _write_home(cfg, db, _cluster("A")[:3])
 
-    _process_subject(
-        cfg, db, MagicMock(), MagicMock(), "Categoria Um", [_cluster("E")], _GardenStats()
-    )
+    _process_subject(cfg, db, MagicMock(), "Categoria Um", [_cluster("E")], _GardenStats())
 
     assert len(calls) == 1  # no incremental offer to a full MOC
     assert len(db.list_child_mocs("HOME01")) == 1
@@ -1531,7 +1532,7 @@ def test_ignored_note_is_kept_and_not_offered_again(tmp_path):
 
     def offer(stats):
         moc = db.get_moc("MOC001")
-        return _update_existing_moc(cfg, db, MagicMock(), llm, moc, ["NOTE005"], "sig", stats=stats)
+        return _update_existing_moc(cfg, db, llm, moc, ["NOTE005"], "sig", stats=stats)
 
     assert offer(_GardenStats()) == "MOC001"
     assert llm.invoke.call_count == 1
@@ -1610,7 +1611,7 @@ def test_second_run_with_no_new_note_changes_no_moc(tmp_path, monkeypatch):
     cfg, db, calls = _subject_env(tmp_path, monkeypatch, lambda s, u: _generation(u))
     subjects = {"Categoria Um": [_cluster(p) for p in "ABC"], "Categoria Dois": [_cluster("D")]}
     for category, clusters in subjects.items():
-        _process_subject(cfg, db, MagicMock(), MagicMock(), category, clusters, _GardenStats())
+        _process_subject(cfg, db, MagicMock(), category, clusters, _GardenStats())
     snapshot = {
         m["moc_id"]: (Path(m["path"]).read_bytes(), m["cluster_signature"]) for m in db.list_mocs()
     }
@@ -1618,8 +1619,8 @@ def test_second_run_with_no_new_note_changes_no_moc(tmp_path, monkeypatch):
 
     stats = _GardenStats()
     for category, clusters in subjects.items():
-        _process_subject(cfg, db, MagicMock(), MagicMock(), category, clusters, stats)
-    _rebalance(cfg, db, MagicMock(), stats)
+        _process_subject(cfg, db, MagicMock(), category, clusters, stats)
+    _rebalance(cfg, db, stats)
 
     assert len(calls) == first_calls
     assert {
@@ -1635,19 +1636,15 @@ def test_note_that_changed_cluster_leaves_its_old_moc_and_backref(tmp_path, monk
 
     cfg, db, _calls = _subject_env(tmp_path, monkeypatch, lambda s, u: _generation(u))
     _vault_notes(cfg, db)
-    _process_subject(
-        cfg, db, MagicMock(), MagicMock(), "Categoria Um", [_cluster("A")], _GardenStats()
-    )
+    _process_subject(cfg, db, MagicMock(), "Categoria Um", [_cluster("A")], _GardenStats())
     old = db.find_moc_by_topic("Categoria Um", origins=("pipeline",))
     a1 = cfg.vault_path / "30_Permanent" / "ZTL - A1 - nota.md"
     assert old["moc_id"] in a1.read_text(encoding="utf-8")
 
     stats = _GardenStats()
-    _process_subject(cfg, db, MagicMock(), MagicMock(), "Categoria Um", [["A2", "A3", "A4"]], stats)
-    _process_subject(
-        cfg, db, MagicMock(), MagicMock(), "Categoria Dois", [["A1", "B1", "B2", "B3"]], stats
-    )
-    _rebalance(cfg, db, MagicMock(), stats)
+    _process_subject(cfg, db, MagicMock(), "Categoria Um", [["A2", "A3", "A4"]], stats)
+    _process_subject(cfg, db, MagicMock(), "Categoria Dois", [["A1", "B1", "B2", "B3"]], stats)
+    _rebalance(cfg, db, stats)
 
     remaining = _parse_moc_structure(Path(old["path"]))["all_note_ids"]
     new = db.find_moc_by_topic("Categoria Dois", origins=("pipeline",))
@@ -1669,9 +1666,7 @@ def test_adopted_moc_is_left_alone_by_the_garden_and_synced_by_hand(tmp_path, mo
     from zettel.sync import _sync_moc
 
     cfg, db, _calls = _subject_env(tmp_path, monkeypatch, lambda s, u: _generation(u))
-    _process_subject(
-        cfg, db, MagicMock(), MagicMock(), "Categoria Um", [_cluster("A")], _GardenStats()
-    )
+    _process_subject(cfg, db, MagicMock(), "Categoria Um", [_cluster("A")], _GardenStats())
     moc = db.find_moc_by_topic("Categoria Um", origins=("pipeline",))
     path = Path(moc["path"])
 
@@ -1683,10 +1678,8 @@ def test_adopted_moc_is_left_alone_by_the_garden_and_synced_by_hand(tmp_path, mo
     assert db.get_moc(moc["moc_id"])["cluster_signature"] is None
     with pytest.raises(MocAdoptError):
         adopt_moc(cfg, db, moc["moc_id"])
-    _process_subject(
-        cfg, db, MagicMock(), MagicMock(), "Categoria Um", [_cluster("A")], _GardenStats()
-    )
-    purge_pipeline_mocs(cfg, db, MagicMock())
+    _process_subject(cfg, db, MagicMock(), "Categoria Um", [_cluster("A")], _GardenStats())
+    purge_pipeline_mocs(cfg, db)
     assert path.read_bytes() == adopted
     assert db.get_moc(moc["moc_id"])["origin"] == "manual"
 
@@ -1725,9 +1718,7 @@ def test_web_job_adopts_a_moc(tmp_path, monkeypatch):
     cfg, db, _calls = _subject_env(tmp_path, monkeypatch, lambda s, u: _generation(u))
     from zettel.gardener import _GardenStats, _process_subject
 
-    _process_subject(
-        cfg, db, MagicMock(), MagicMock(), "Categoria Um", [_cluster("A")], _GardenStats()
-    )
+    _process_subject(cfg, db, MagicMock(), "Categoria Um", [_cluster("A")], _GardenStats())
     moc_id = db.find_moc_by_topic("Categoria Um", origins=("pipeline",))["moc_id"]
 
     result = WebWorker._dispatch(cfg, db, MagicMock(), "adopt_moc", {"moc_id": moc_id})

@@ -142,8 +142,8 @@ def test_purge_hub_pipeline_mocs_keeps_taxonomy(tmp_path):
     db.upsert_moc("TAX001", "Tax", str(tax_file), "s2", origin="pipeline")
     db.upsert_moc("MAN001", "Manual", str(tax_file), "s3", origin="manual")
 
-    idx = MagicMock()
-    removed = purge_hub_pipeline_mocs(cfg, db, idx)
+    MagicMock()
+    removed = purge_hub_pipeline_mocs(cfg, db)
 
     assert removed == 1
     assert not hub_file.exists()
@@ -151,7 +151,6 @@ def test_purge_hub_pipeline_mocs_keeps_taxonomy(tmp_path):
     assert db.get_moc("HUB001") is None
     assert db.get_moc("TAX001") is not None
     assert db.get_moc("MAN001") is not None
-    idx.delete_mocs.assert_called_once_with(["HUB001"])
     db.close()
 
 
@@ -205,7 +204,7 @@ def test_process_hub_cluster_routes_to_incremental(tmp_path):
     )
     llm = MagicMock()
     llm.invoke.return_value = incremental_response
-    idx = MagicMock()
+    MagicMock()
 
     from zettel.gardener_hub import _HubGardenStats, _process_hub_cluster
 
@@ -213,7 +212,6 @@ def test_process_hub_cluster_routes_to_incremental(tmp_path):
     result = _process_hub_cluster(
         cfg,
         db,
-        idx,
         llm,
         "HUB",
         ["HUB", "A", "B", "C"],
@@ -283,7 +281,6 @@ def test_hub_incremental_lists_notes_already_in_the_moc(tmp_path):
     _update_hub_moc(
         cfg,
         db,
-        MagicMock(),
         llm,
         {"moc_id": "MOC002", "topic": "Tema Hub", "path": str(moc_file), "origin": "hub_pipeline"},
         "HUB",
@@ -367,7 +364,7 @@ def test_hubs_on_an_unreviewed_graph_warn_instead_of_failing_silently(tmp_path, 
     cfg.gardener.proposed_edge_factor = 0.0
     monkeypatch.setattr(hub_mod, "get_llm", lambda cfg, phase: MagicMock())
 
-    assert hub_mod.run_garden_hubs(cfg, db, MagicMock()) == []
+    assert hub_mod.run_garden_hubs(cfg, db) == []
 
     report = db.latest_garden_report("garden_hubs")
     assert report["actions"] == []

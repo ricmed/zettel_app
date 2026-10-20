@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -50,6 +52,7 @@ from zettel.llm import (
     load_prompt_parts,
     parse_llm_json,
 )
+from zettel.note_content import note_sections
 from zettel.schemas import (
     MOCEntry,
     MOCGenerationOutput,
@@ -57,7 +60,7 @@ from zettel.schemas import (
     MOCSubsection,
     MOCSummaryOutput,
 )
-from zettel.search_terms import fold
+from zettel.search_terms import PT_STOPWORDS, fold
 from zettel.state import StateDB
 from zettel.taxonomy import TaxonomyLoadError, resolve_allowed_topics
 from zettel.time import now_vault_iso
@@ -85,6 +88,7 @@ class _GardenStats:
     cap_reached: int = 0  # entry candidates refused because the MOC was full
     known_discards: int = 0  # candidates not offered again: already discarded for that MOC
     routed: dict[str, set[str]] = field(default_factory=dict)  # moc_id -> notes routed to it
+    terms: dict[str, list[str]] = field(default_factory=dict)  # cluster signature -> c-TF-IDF
     departed: dict[str, int] = field(default_factory=dict)  # moc_id -> entries rebalanced out
 
 
@@ -193,7 +197,7 @@ def _garden(
     _log_cluster_report(cluster_report, len(cluster_pairs))
 
     if recreate:
-        removed = purge_pipeline_mocs(cfg, db, idx)
+        removed = purge_pipeline_mocs(cfg, db)
         logger.info("Recriacao: %d MOC(s) do pipeline removidos", removed)
 
     stats = _GardenStats()
@@ -203,6 +207,12 @@ def _garden(
     else:
         logger.info("Clusters encontrados: %d", len(cluster_pairs))
 
+    stats.terms = {
+        _signature(ids): terms
+        for (_category, ids), terms in zip(
+            cluster_pairs, cluster_terms(db, [ids for _, ids in cluster_pairs]), strict=True
+        )
+    }
     subjects = group_subjects(cluster_pairs)
     for subject_index, (category, clusters) in enumerate(subjects, 1):
         report(
@@ -220,13 +230,13 @@ def _garden(
                     db,
                     category=category,
                     note_ids=cluster_ids,
-                    terms=_extract_cluster_terms(db, cluster_ids),
+                    terms=stats.terms.get(_signature(cluster_ids), []),
                 )
         moc_ids.extend(
-            _process_subject(cfg, db, idx, llm, category, clusters, stats, cluster_report.vectors)
+            _process_subject(cfg, db, llm, category, clusters, stats, cluster_report.vectors)
         )
     moc_ids = list(dict.fromkeys(moc_ids))
-    _rebalance(cfg, db, idx, stats)
+    _rebalance(cfg, db, stats)
 
     logger.info(
         "Garden: %d MOCs, %d incrementais, %d novos, %d skip assinatura, %d rejeitados coesao",
@@ -401,12 +411,12 @@ def _category_vectors(
         return None
 
 
-def purge_pipeline_mocs(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
-    """Delete pipeline MOCs from SQLite, ChromaDB and the vault. Returns count removed."""
-    return purge_mocs_by_origin(cfg, db, idx, PIPELINE_ORIGIN)
+def purge_pipeline_mocs(cfg: AppConfig, db: StateDB) -> int:
+    """Delete pipeline MOCs from SQLite and the vault. Returns count removed."""
+    return purge_mocs_by_origin(cfg, db, PIPELINE_ORIGIN)
 
 
-def purge_mocs_by_origin(cfg: AppConfig, db: StateDB, idx: VectorIndex, origin: str) -> int:
+def purge_mocs_by_origin(cfg: AppConfig, db: StateDB, origin: str) -> int:
     """Delete every MOC of one pipeline ``origin``. Returns count removed.
 
     The vault file has the last word: a row whose file frontmatter names
@@ -436,7 +446,6 @@ def purge_mocs_by_origin(cfg: AppConfig, db: StateDB, idx: VectorIndex, origin: 
 
     moc_ids = [m["moc_id"] for m in removed]
     db.delete_mocs(moc_ids)
-    idx.delete_mocs(moc_ids)
 
     for moc in removed:
         path = _moc_vault_path(cfg, moc)
@@ -447,7 +456,7 @@ def purge_mocs_by_origin(cfg: AppConfig, db: StateDB, idx: VectorIndex, origin: 
     return len(removed)
 
 
-def _rebalance(cfg: AppConfig, db: StateDB, idx: VectorIndex, stats: _GardenStats) -> None:
+def _rebalance(cfg: AppConfig, db: StateDB, stats: _GardenStats) -> None:
     """Take out of each MOC the entries no cluster of this run sent to it (#300).
 
     A note that moved to another cluster leaves its old MOC, and
@@ -485,12 +494,6 @@ def _rebalance(cfg: AppConfig, db: StateDB, idx: VectorIndex, stats: _GardenStat
             stats=stats,
         )
         _store_moc_row(db, moc_id, moc["topic"], path, moc.get("cluster_signature") or "")
-        remaining = len(structure["all_note_ids"]) - len(leaving)
-        idx.upsert_moc(
-            moc_id,
-            _moc_embeddable(structure["topic"], structure["summary"]),
-            {"topic": moc["topic"], "note_count": remaining},
-        )
         stats.departed[moc_id] = len(leaving)
         logger.info("MOC %s: %d entrada(s) sairam (mudaram de cluster)", moc_id, len(leaving))
 
@@ -562,6 +565,27 @@ def owns_moc(moc: dict, moc_path: Path, origin: str) -> bool:
     return True
 
 
+def orphan_moc_files(cfg: AppConfig, db: StateDB) -> list[Path]:
+    """Generated MOC files in ``40_MOCs/`` with no SQLite row (#301).
+
+    A MOC is written file first, then backrefs, then its row; a crash between
+    them leaves a file the next run cannot see, and a new MOC with the same
+    topic is created beside it. ``zettel doctor`` lists them.
+    """
+    moc_dir = cfg.vault_path / "40_MOCs"
+    if not moc_dir.is_dir():
+        return []
+    orphans: list[Path] = []
+    for path in sorted(moc_dir.glob("*.md")):
+        meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+        moc_id = meta.get("moc_id")
+        if meta.get("origin") in (PIPELINE_ORIGIN, "hub_pipeline") and not (
+            moc_id and db.get_moc(str(moc_id))
+        ):
+            orphans.append(path)
+    return orphans
+
+
 def moc_file_origin(path: Path) -> str | None:
     """``origin`` from a MOC file's frontmatter (None when absent or unreadable)."""
     if not path.is_file():
@@ -581,29 +605,54 @@ def _moc_vault_path(cfg: AppConfig, moc: dict) -> Path:
 # ── Topic Extraction ──────────────────────────────────────────────────
 
 
-def _extract_cluster_terms(db: StateDB, note_ids: list[str], n_terms: int = 10) -> list[str]:
-    """Extract representative terms for a cluster using TF-IDF."""
-    try:
-        from sklearn.feature_extraction.text import TfidfVectorizer
-    except ImportError:
-        return []
+_TERM_RE = re.compile(r"[^\W\d_]{3,}")
 
-    texts: list[str] = []
-    for nid in note_ids:
-        note = db.get_note(nid)
-        if note:
-            texts.append(note.get("title", ""))
 
-    if not texts:
-        return []
+def cluster_terms(db: StateDB, clusters: list[list[str]], n_terms: int = 10) -> list[list[str]]:
+    """Representative terms of each cluster by class-based TF-IDF (c-TF-IDF, #301).
 
-    vectorizer = TfidfVectorizer(max_features=n_terms, stop_words=None)
-    try:
-        vectorizer.fit_transform(texts)
-        terms = vectorizer.get_feature_names_out()
-        return list(terms)
-    except Exception:
-        return []
+    Each cluster is one class: ``W(t, c) = tf(t, c) / |c| * log(1 + A / f(t))``,
+    where ``f(t)`` is the frequency of ``t`` over all clusters of the run and
+    ``A`` the mean number of words per cluster, so a word every cluster uses
+    weighs little and a word that marks one cluster weighs much. The text is
+    each note's title and content fields (``note_sections``); PT-BR stopwords
+    (``search_terms.PT_STOPWORDS``) and words under three letters are dropped.
+    """
+    counts: list[Counter[str]] = []
+    for note_ids in clusters:
+        counter: Counter[str] = Counter()
+        for nid in note_ids:
+            note = db.get_note(nid) or {}
+            title = note.get("title") or ""
+            text = " ".join([title, *note_sections(title, note.get("body") or "").values()])
+            counter.update(
+                word for word in _TERM_RE.findall(text.lower()) if fold(word) not in PT_STOPWORDS
+            )
+        counts.append(counter)
+    totals: Counter[str] = Counter()
+    for counter in counts:
+        totals.update(counter)
+    mean_words = sum(totals.values()) / max(1, len(counts))
+    terms: list[list[str]] = []
+    for counter in counts:
+        size = sum(counter.values()) or 1
+        weights = {
+            word: n / size * math.log(1 + mean_words / totals[word]) for word, n in counter.items()
+        }
+        ranked = sorted(weights, key=lambda word: (-weights[word], word))
+        terms.append(ranked[:n_terms])
+    return terms
+
+
+def _step_terms(stats: _GardenStats, clusters: list[list[str]], n_terms: int = 10) -> list[str]:
+    """This run's terms of ``clusters``, interleaved (one MOC may serve several clusters)."""
+    lists = [stats.terms.get(_signature(ids), []) for ids in clusters]
+    merged: list[str] = []
+    for rank in range(max((len(x) for x in lists), default=0)):
+        for terms in lists:
+            if rank < len(terms) and terms[rank] not in merged:
+                merged.append(terms[rank])
+    return merged[:n_terms]
 
 
 # ── MOC Generation ────────────────────────────────────────────────────
@@ -753,7 +802,6 @@ def _fits_one_moc(cfg: AppConfig, clusters: int) -> bool:
 def _process_subject(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
     llm: Any,
     category: str,
     clusters: list[list[str]],
@@ -768,14 +816,13 @@ def _process_subject(
     vectors = vectors or {}
     moc_ids: list[str] = []
     for step in plan_subject(cfg, db, category, clusters):
-        moc_ids.extend(_run_step(cfg, db, idx, llm, category, step, stats, vectors))
+        moc_ids.extend(_run_step(cfg, db, llm, category, step, stats, vectors))
     return list(dict.fromkeys(moc_ids))
 
 
 def _run_step(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
     llm: Any,
     category: str,
     step: _Step,
@@ -798,19 +845,26 @@ def _run_step(
         # for more would offer the same notes again on every run.
         share = gcfg.max_entries_per_moc // _moc_clusters(step.moc)
         entries = _entries(cfg, db, step.clusters[0], vectors, limit=share)
-        moc_id = _update_existing_moc(
-            cfg, db, idx, llm, step.moc, entries, step.signature, stats=stats
-        )
+        moc_id = _update_existing_moc(cfg, db, llm, step.moc, entries, step.signature, stats=stats)
         _route(stats, moc_id, step.clusters)
         return _record(stats, category, _size(step), step.action, moc_id)
     if step.action == "home":
-        return _join_home(cfg, db, idx, llm, category, step, stats, vectors)
+        return _join_home(cfg, db, llm, category, step, stats, vectors)
     if step.action == "split":
-        return _create_moc_of_mocs(cfg, db, idx, llm, category, step, stats, vectors)
+        return _create_moc_of_mocs(cfg, db, llm, category, step, stats, vectors)
 
     limit = gcfg.max_entries_per_moc // len(step.clusters)
     groups = [_entries(cfg, db, ids, vectors, limit=limit) for ids in step.clusters]
-    moc_id = _create_new_moc(cfg, db, idx, llm, category, groups, step.signature, stats=stats)
+    moc_id = _create_new_moc(
+        cfg,
+        db,
+        llm,
+        category,
+        groups,
+        step.signature,
+        stats=stats,
+        terms=_step_terms(stats, step.clusters),
+    )
     if moc_id:
         stats.created += 1
     _route(stats, moc_id, step.clusters)
@@ -847,7 +901,6 @@ def _record(
 def _join_home(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
     llm: Any,
     category: str,
     step: _Step,
@@ -876,7 +929,7 @@ def _join_home(
         share = gcfg.max_entries_per_moc // (_moc_clusters(home) + 1)
         entries = _entries(cfg, db, note_ids, vectors, limit=share)
         moc_id = _update_existing_moc(
-            cfg, db, idx, llm, home, entries, step.signature, stats=stats, joins_cluster=True
+            cfg, db, llm, home, entries, step.signature, stats=stats, joins_cluster=True
         )
         if moc_id is None:
             return _record(stats, category, _size(step), "incremental", None)
@@ -888,7 +941,7 @@ def _join_home(
 
     entries = _entries(cfg, db, note_ids, vectors)
     child_id = _create_new_moc(
-        cfg, db, idx, llm, category, [entries], step.signature, stats=stats, parent=home
+        cfg, db, llm, category, [entries], step.signature, stats=stats, parent=home
     )
     if child_id is None:
         return _record(stats, category, _size(step), "submoc", None)
@@ -901,7 +954,6 @@ def _join_home(
 def _create_moc_of_mocs(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
     llm: Any,
     category: str,
     step: _Step,
@@ -919,7 +971,7 @@ def _create_moc_of_mocs(
     for note_ids in step.clusters:
         entries = _entries(cfg, db, note_ids, vectors)
         child_id = _create_new_moc(
-            cfg, db, idx, llm, category, [entries], _signature(note_ids), stats=stats, parent=parent
+            cfg, db, llm, category, [entries], _signature(note_ids), stats=stats, parent=parent
         )
         _record(stats, category, len(note_ids), "submoc", child_id)
         _route(stats, child_id, [note_ids])
@@ -957,11 +1009,6 @@ def _create_moc_of_mocs(
         stats=stats,
     )
     _store_moc_row(db, parent_id, category, moc_path, step.signature)
-    idx.upsert_moc(
-        parent_id,
-        _moc_embeddable(category, summary),
-        {"topic": category, "note_count": 0, "sub_mocs": len(children)},
-    )
     _record(stats, category, _size(step), "moc_of_mocs", parent_id)
     logger.info("MOC de MOCs criado: %s — %s (%d sub-MOCs)", parent_id, category, len(children))
     return [parent_id, *children]
@@ -1015,7 +1062,6 @@ def _attach_children(
 def _create_new_moc(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
     llm: Any,
     category: str,
     groups: list[list[str]],
@@ -1023,6 +1069,7 @@ def _create_new_moc(
     *,
     stats: _GardenStats | None = None,
     parent: dict | None = None,
+    terms: list[str] | None = None,
 ) -> str | None:
     """Generate a new MOC via LLM (single call) from entry notes.
 
@@ -1036,7 +1083,8 @@ def _create_new_moc(
     note_ids = [nid for group in groups for nid in group]
     alias_to_id = _build_note_alias_map(note_ids)
     notes_list_text = _build_grouped_notes_list(db, groups, alias_to_id)
-    cluster_terms = _extract_cluster_terms(db, note_ids)
+    if terms is None:
+        terms = cluster_terms(db, [note_ids])[0]
 
     prompt_parts = load_prompt_parts(cfg.prompts_path / "moc_generation.md")
 
@@ -1063,7 +1111,7 @@ def _create_new_moc(
         "allowed_topics_section": topics_section,
         "taxonomy_detail": taxonomy_detail,
         "notes_list": notes_list_text,
-        "cluster_terms": ", ".join(cluster_terms) if cluster_terms else "N/A",
+        "cluster_terms": ", ".join(terms) if terms else "N/A",
         "suggested_category": suggested or "_(Nenhuma — escolha da lista.)_",
         "moc_structure": _structure_instruction(len(groups), parent),
     }
@@ -1076,13 +1124,21 @@ def _create_new_moc(
     if moc_output is None:
         return None
 
-    if suggested and _topic_matches_allowed(suggested, allowed_topics):
-        moc_output.topic = suggested
+    emergent = False
     if parent is not None:
+        # The parent topic is already a canonical category.
         moc_output.topic = _subtopic_title(parent["topic"], moc_output)
-
-    if not _validate_moc_topic(cfg, moc_output):
-        return None
+    else:
+        # The bucket's category wins; with no whitelist there is nothing to check it against.
+        canonical = (
+            (_canonical_topic(suggested, allowed_topics) if allowed_topics else suggested)
+            if suggested
+            else None
+        )
+        resolved = (canonical, False) if canonical else _validate_moc_topic(cfg, moc_output.topic)
+        if resolved is None:
+            return None
+        moc_output.topic, emergent = resolved
 
     allowed = _allowed_note_ids(db, note_ids)
     placed: set[str] = set()
@@ -1105,6 +1161,7 @@ def _create_new_moc(
         "origin": PIPELINE_ORIGIN,
         "clusters": len(groups),
         "summary_entries": len(placed),
+        **({"emergent_topic": True} if emergent else {}),
         "created_at": now,
         "updated_at": now,
     }
@@ -1125,10 +1182,6 @@ def _create_new_moc(
         stats=stats,
     )
     _store_moc_row(db, moc_id, topic, moc_path, cluster_signature, parent_moc_id=parent_id)
-    metadata: dict[str, Any] = {"topic": topic, "note_count": len(placed)}
-    if parent_id:
-        metadata["parent_moc_id"] = parent_id
-    idx.upsert_moc(moc_id, _moc_embeddable(topic, moc_output.summary), metadata)
     logger.info("MOC criado: %s — %s (%d entradas)", moc_id, topic, len(placed))
     return moc_id
 
@@ -1155,22 +1208,24 @@ def _subtopic_title(category: str, output: MOCGenerationOutput) -> str:
     return f"{category} — {subtopic}" if subtopic else category
 
 
-def _topic_matches_allowed(topic: str, allowed: list[str]) -> bool:
-    if not allowed:
-        return True
-    topic_lower = topic.lower()
-    for allowed_topic in allowed:
-        al = allowed_topic.lower()
-        if al in topic_lower or topic_lower in al:
-            return True
-    return False
+def _canonical_topic(topic: str, allowed: list[str]) -> str | None:
+    """The taxonomy category equal to ``topic`` (accent/case-folded), never a substring (#301)."""
+    wanted = fold(topic)
+    return next((name for name in allowed if fold(name) == wanted), None)
 
 
 # ── MOC Topic Validation ─────────────────────────────────────────────
 
 
-def _validate_moc_topic(cfg: AppConfig, moc_output: MOCGenerationOutput) -> bool:
-    """Validate that the MOC topic matches an allowed category name."""
+def _validate_moc_topic(cfg: AppConfig, topic: str) -> tuple[str, bool] | None:
+    """``(topic, emergent)`` for the topic a MOC is written under, or None to reject it.
+
+    A topic equal to a category (folded) becomes that category's canonical name.
+    Substrings no longer count: "IA" used to pass through six categories that
+    merely contain the letters (#301). Any other topic is rejected under
+    ``strict_topics`` and kept as an emergent theme otherwise. With no
+    taxonomy at all, every topic is accepted as is.
+    """
     try:
         allowed, _ = resolve_allowed_topics(
             cfg.gardener.topics_path,
@@ -1179,35 +1234,17 @@ def _validate_moc_topic(cfg: AppConfig, moc_output: MOCGenerationOutput) -> bool
         )
     except TaxonomyLoadError as e:
         logger.error("Taxonomia de MOCs indisponivel na validacao: %s", e)
-        return False
-
+        return None
     if not allowed:
-        return True
-
-    topic = moc_output.topic
-    topic_lower = topic.lower()
-
-    for allowed_topic in allowed:
-        allowed_lower = allowed_topic.lower()
-        if allowed_lower in topic_lower or topic_lower in allowed_lower:
-            logger.debug("Topico '%s' corresponde a '%s'", topic, allowed_topic)
-            return True
-
-    justification = moc_output.topic_justification
+        return topic, False
+    canonical = _canonical_topic(topic, allowed)
+    if canonical:
+        return canonical, False
     if cfg.gardener.strict_topics:
-        logger.warning(
-            "MOC rejeitado: topico '%s' fora da lista permitida. Justificativa: %s",
-            topic,
-            justification or "(nenhuma)",
-        )
-        return False
-    else:
-        logger.info(
-            "MOC aprovado (modo permissivo): topico '%s' fora da lista. Justificativa: %s",
-            topic,
-            justification or "(nenhuma)",
-        )
-        return True
+        logger.warning("MOC rejeitado: topico '%s' fora das categorias", topic)
+        return None
+    logger.info("MOC com tema emergente (fora das categorias): '%s'", topic)
+    return topic, True
 
 
 # ── Incremental MOC Update ────────────────────────────────────────
@@ -1279,7 +1316,6 @@ def _parse_moc_structure(moc_path: Path) -> dict | None:
 def _update_existing_moc(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
     llm: Any,
     existing_moc: dict,
     note_ids: list[str],
@@ -1397,10 +1433,6 @@ def _update_existing_moc(
         stats=stats,
     )
     _store_moc_row(db, moc_id, existing_moc["topic"], moc_path, cluster_signature, origin)
-    metadata = {"topic": existing_moc["topic"], "note_count": entries_now}
-    if structure["meta"].get("hub_note_id"):
-        metadata["hub_note_id"] = structure["meta"]["hub_note_id"]
-    idx.upsert_moc(moc_id, _moc_embeddable(structure["topic"], summary), metadata)
     logger.info(
         "MOC %s atualizado: %d entradas, %d deixadas de fora pelo LLM, %d omitidas",
         moc_id,
@@ -1703,11 +1735,6 @@ def call_garden_llm[T](
             "garden", str(e), response, subject_id=subject_id, model=spec.model or ""
         )
         return None
-
-
-def _moc_embeddable(topic: str, summary: str) -> str:
-    """Canonical embeddable text for a MOC (unified across gardener and sync)."""
-    return f"{topic}\n\n{summary}".strip()
 
 
 def _snapshot_moc_file(moc_path: Path) -> tuple[str | None, str | None]:

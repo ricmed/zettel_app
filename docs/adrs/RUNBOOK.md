@@ -355,7 +355,7 @@ Read ADRs:
 Debug:
   - Are notes actually connected? (check note_connections table)
   - Run `zettel garden --hubs --recreate` to force regeneration
-  - Check config.gardener_hub settings (percentile vs absolute ranking)
+  - Check config.hub_mocs settings (percentile vs absolute ranking) and gardener.proposed_edge_factor
   - Verify notes are "approved" status (only approved notes included)
 ```
 

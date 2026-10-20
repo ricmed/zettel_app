@@ -23,7 +23,7 @@ Pilares agrupam categorias; os topicos-folha orientam as **subsecoes** do MOC:
 ## Regras
 
 - O MOC deve ter um **tema unificador** que conecte as notas de entrada.
-- O campo `topic` DEVE corresponder a uma das **categorias** da lista acima. Se nenhuma se aplica, use a mais proxima e explique em `topic_justification`.
+- O campo `topic` DEVE ser, letra por letra, o nome de uma das **categorias** da lista acima. Se nenhuma se aplica, use a mais proxima.
 - Se uma **categoria sugerida pelo pipeline** for informada abaixo, use-a como `topic` (salvo conflito evidente com as notas).
 - Organize as notas de entrada em **subsecoes** logicas (pode inspirar-se nos topicos-folha da taxonomia).
 - Para **cada** nota, escreva em `orientation` uma frase curta dizendo por que comecar por ela (o que ela abre no assunto). Nao repita o titulo.
@@ -39,7 +39,6 @@ Pilares agrupam categorias; os topicos-folha orientam as **subsecoes** do MOC:
 {
   "topic": "Nome da categoria da lista acima",
   "summary": "Resumo do tema em 2-3 frases",
-  "topic_justification": "Justificativa de porque esta categoria foi escolhida para o grupo",
   "subtopic": "",
   "subsections": [
     {

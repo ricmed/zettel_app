@@ -13,7 +13,6 @@ from zettel.garden_report import ClusterAction, GardenReport, entry_note_ids, fi
 from zettel.gardener_assign import garden_edge_policy
 from zettel.graph import expand_notes
 from zettel.hashing import sha256_hex
-from zettel.index import VectorIndex
 from zettel.llm import fill_template, get_llm, load_prompt_parts, parse_llm_json
 from zettel.schemas import MOCHubGenerationOutput
 from zettel.state.connections import EdgePolicy
@@ -183,7 +182,6 @@ def get_neighbor_graph_context(
 def run_garden_hubs(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
     *,
     recreate: bool = False,
     observer=None,
@@ -200,7 +198,7 @@ def run_garden_hubs(
     begin_run(run_id)
     status = "completed"
     try:
-        moc_ids, stats = _garden_hubs(cfg, db, idx, recreate=recreate, observer=observer)
+        moc_ids, stats = _garden_hubs(cfg, db, recreate=recreate, observer=observer)
         report = fill_reachability(
             GardenReport(
                 pipeline="garden_hubs",
@@ -223,11 +221,11 @@ def run_garden_hubs(
 
 
 def _garden_hubs(
-    cfg: AppConfig, db: StateDB, idx: VectorIndex, *, recreate: bool, observer
+    cfg: AppConfig, db: StateDB, *, recreate: bool, observer
 ) -> tuple[list[str], _HubGardenStats]:
     llm = get_llm(cfg, "garden")
     if recreate:
-        removed = purge_hub_pipeline_mocs(cfg, db, idx)
+        removed = purge_hub_pipeline_mocs(cfg, db)
         logger.info("Recriacao hub: %d MOC(s) removidos", removed)
 
     stats = _HubGardenStats()
@@ -259,7 +257,6 @@ def _garden_hubs(
         moc_id = _process_hub_cluster(
             cfg,
             db,
-            idx,
             llm,
             hub_id,
             note_ids,
@@ -356,11 +353,11 @@ def plan_garden_hubs(cfg: AppConfig, db: StateDB) -> GardenReport:
     return fill_reachability(report, db, planned_entries, gcfg=cfg.gardener)
 
 
-def purge_hub_pipeline_mocs(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
-    """Delete hub_pipeline MOCs from SQLite, ChromaDB and the vault."""
+def purge_hub_pipeline_mocs(cfg: AppConfig, db: StateDB) -> int:
+    """Delete hub_pipeline MOCs from SQLite and the vault."""
     from zettel.gardener import purge_mocs_by_origin
 
-    return purge_mocs_by_origin(cfg, db, idx, _HUB_ORIGIN)
+    return purge_mocs_by_origin(cfg, db, _HUB_ORIGIN)
 
 
 # ── Hub cluster processing ────────────────────────────────────────────
@@ -369,7 +366,6 @@ def purge_hub_pipeline_mocs(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> in
 def _process_hub_cluster(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
     llm: Any,
     hub_id: str,
     note_ids: list[str],
@@ -379,7 +375,7 @@ def _process_hub_cluster(
 ) -> str | None:
     """Route a hub neighbourhood; the MOC lists only ``entries`` (ADR-060)."""
     action, moc_id = _route_hub_cluster(
-        cfg, db, idx, llm, hub_id, note_ids, weighted_degree, stats, entries
+        cfg, db, llm, hub_id, note_ids, weighted_degree, stats, entries
     )
     stats.actions.append(
         ClusterAction(hub_id, len(note_ids), action if moc_id else "failed", moc_id)
@@ -390,7 +386,6 @@ def _process_hub_cluster(
 def _route_hub_cluster(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
     llm: Any,
     hub_id: str,
     note_ids: list[str],
@@ -408,7 +403,6 @@ def _route_hub_cluster(
         return "incremental", _update_hub_moc(
             cfg,
             db,
-            idx,
             llm,
             existing,
             hub_id,
@@ -425,7 +419,6 @@ def _route_hub_cluster(
     moc_id = _create_new_hub_moc(
         cfg,
         db,
-        idx,
         llm,
         hub_id,
         entries,
@@ -441,7 +434,6 @@ def _route_hub_cluster(
 def _create_new_hub_moc(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
     llm: Any,
     hub_id: str,
     note_ids: list[str],
@@ -455,7 +447,6 @@ def _create_new_hub_moc(
         _build_note_alias_map,
         _GardenStats,
         _keep_discards,
-        _moc_embeddable,
         _store_moc_row,
         _subsections_from_output,
         _write_moc,
@@ -530,11 +521,6 @@ def _create_new_hub_moc(
         stats=garden_stats,
     )
     _store_moc_row(db, moc_id, topic, moc_path, cluster_signature, _HUB_ORIGIN)
-    idx.upsert_moc(
-        moc_id,
-        _moc_embeddable(topic, moc_output.summary),
-        {"topic": topic, "note_count": len(placed), "hub_note_id": hub_id},
-    )
     if stats is not None:
         stats.omitted += garden_stats.omitted
     logger.info("MOC hub criado: %s — %s (hub %s, %d entradas)", moc_id, topic, hub_id, len(placed))
@@ -544,7 +530,6 @@ def _create_new_hub_moc(
 def _update_hub_moc(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
     llm: Any,
     existing_moc: dict,
     hub_id: str,
@@ -557,7 +542,6 @@ def _update_hub_moc(
     return _update_existing_moc(
         cfg,
         db,
-        idx,
         llm,
         existing_moc,
         [nid for nid in note_ids if nid != hub_id],

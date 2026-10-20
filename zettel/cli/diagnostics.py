@@ -476,8 +476,18 @@ def doctor(config: ConfigOption = None):
     try:
         graph, graph_problems = graph_health(db, cfg.gardener)
         orphan_hubs = [m["topic"] for m in db.list_orphan_hub_mocs()]
+        from zettel.gardener import orphan_moc_files
+
+        orphan_files = orphan_moc_files(cfg, db)
     finally:
         db.close()
+    checks.append(
+        (
+            "MOCs gerados sem linha no banco",
+            not orphan_files,
+            ", ".join(p.name for p in orphan_files) or "nenhum",
+        )
+    )
     checks.append(
         (
             "MOCs hub orfaos",

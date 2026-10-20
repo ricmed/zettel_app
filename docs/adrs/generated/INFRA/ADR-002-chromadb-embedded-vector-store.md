@@ -29,7 +29,7 @@ ChromaDB (pinned at `1.5.9`) was adopted in embedded `PersistentClient` mode rat
 
 ## Decision Outcome
 
-Chosen option: **ChromaDB embedded `PersistentClient`**, because it satisfies the local-first, single-process deployment model with no additional infrastructure to run, keeps all vector data on local disk for privacy, and sidesteps the CVE surface of ChromaDB's own server component by never running it. The five collections (`sources`, `chunks`, `permanent_notes`, `mocs`, `literature_notes`) are all managed through one `VectorIndex` wrapper, keeping the rest of the codebase decoupled from ChromaDB's API.
+Chosen option: **ChromaDB embedded `PersistentClient`**, because it satisfies the local-first, single-process deployment model with no additional infrastructure to run, keeps all vector data on local disk for privacy, and sidesteps the CVE surface of ChromaDB's own server component by never running it. The collections (today `sources`, `chunks`, `permanent_notes` and `chapter_summaries`; `literature_notes` and `mocs` were removed because nothing queried them) are all managed through one `VectorIndex` wrapper, keeping the rest of the codebase decoupled from ChromaDB's API.
 
 [NEEDS INPUT: Confirm risk acceptance for the CVSS 10.0 RCE in ChromaDB's FastAPI server component — it ships as a dependency even though embedded-mode usage never invokes it.]
 
@@ -73,3 +73,7 @@ Because the vector store choice is fixed while the embedding provider is pluggab
 - `zettel/index.py` — `VectorIndex`, which instantiates `chromadb.PersistentClient` (embedded mode)
 - `zettel/retrieval.py` — `Retriever`, consumes ChromaDB dense search results in hybrid RRF fusion
 - `zettel/harvester/duplicates.py` — `find_semantic_duplicate_candidates`, semantic layer-3 duplicate detection queries ChromaDB directly
+
+## Addendum (2026-10-20): the `mocs` collection is gone (issue #301)
+
+**Status:** Accepted amendment. The garden, `sync-manual` and `zettel reindex` embedded every MOC's topic and summary into a `mocs` collection that no code ever queried (`VectorIndex` had no MOC query; the article finds MOCs in SQLite). As with `literature_notes`, it was removed together with its embedding cost: MOCs live in the vault and in SQLite (`mocs.body`, `frontmatter_json`). A store created before this change keeps an orphan `mocs` collection until `zettel init --reset` (or a fresh `data/chroma`).

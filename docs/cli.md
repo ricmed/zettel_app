@@ -581,7 +581,7 @@ python -m zettel reindex --force --yes
 
 | Flag | Efeito |
 |---|---|
-| `--collection` | Reindexa apenas `sources`, `chunks`, `permanent_notes` ou `mocs`. |
+| `--collection` | Reindexa apenas `sources`, `chunks`, `permanent_notes` ou `chapter_summaries`. |
 | `--force` | Reseta a coleção antes de repovoar. Necessário após troca de embedding. |
 | `--yes` / `-y` | Confirma sem prompt. |
 

@@ -1134,7 +1134,7 @@ class WebWorker:
             if payload.get("hubs"):
                 from zettel.gardener_hub import run_garden_hubs
 
-                mocs = run_garden_hubs(cfg, db, idx, observer=progress)
+                mocs = run_garden_hubs(cfg, db, observer=progress)
             else:
                 from zettel.gardener import run_garden
 

@@ -4,7 +4,7 @@ import json
 
 import pytest
 from zettel.config import AppConfig
-from zettel.rebuild import _moc_summary_from_body, run_rebuild_vault, run_reindex
+from zettel.rebuild import run_rebuild_vault, run_reindex
 from zettel.state import StateDB
 
 
@@ -16,7 +16,6 @@ class FakeIndex:
             "sources": set(),
             "chunks": set(),
             "permanent_notes": set(),
-            "mocs": set(),
         }
         self.reset_calls: list[str] = []
 
@@ -35,9 +34,6 @@ class FakeIndex:
 
     def upsert_permanent_note(self, nid, text, meta):
         self.store["permanent_notes"].add(nid)
-
-    def upsert_moc(self, mid, text, meta):
-        self.store["mocs"].add(mid)
 
 
 @pytest.fixture
@@ -72,11 +68,6 @@ def _seed(db):
     )
 
 
-def test_moc_summary_extraction():
-    body = "# Topico\n\nLinha de resumo.\n\n## Subsecao\n\n- nota"
-    assert _moc_summary_from_body(body) == "Linha de resumo."
-
-
 def test_reindex_populates_all_collections(db):
     _seed(db)
     idx = FakeIndex()
@@ -85,7 +76,7 @@ def test_reindex_populates_all_collections(db):
     assert stats["sources"] == 1
     assert stats["chunks"] == 1
     assert stats["permanent_notes"] == 1
-    assert stats["mocs"] == 1
+    assert "mocs" not in stats
     assert idx.store["chunks"] == {"@S::ch000::a"}
     assert idx.store["permanent_notes"] == {"n1"}
     # embedding_input_hash backfilled so a re-embed can be skipped next time.

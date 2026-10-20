@@ -171,6 +171,7 @@ def garden(
         int | None,
         typer.Option(
             "--min-cluster-size",
+            help="Override de gardener.min_cluster_size nesta execucao",
         ),
     ] = None,
     hubs: Annotated[
@@ -254,7 +255,7 @@ def garden(
             from zettel.gardener_hub import run_garden_hubs
 
             with console.status("[bold blue]Cultivando MOCs hub...", spinner="dots"):
-                moc_ids = run_garden_hubs(cfg, db, idx, recreate=recreate)
+                moc_ids = run_garden_hubs(cfg, db, recreate=recreate)
         else:
             from zettel.gardener import run_garden
 

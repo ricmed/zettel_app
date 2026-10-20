@@ -243,10 +243,6 @@ class MOCGenerationOutput(BaseModel):
         default="",
         description="Nome curto do subtema, quando o MOC e um sub-MOC de uma categoria",
     )
-    topic_justification: str = Field(
-        default="",
-        description="Justificativa de porque este topico foi escolhido",
-    )
 
 
 # ── MOC Incremental Update ────────────────────────────────────────────

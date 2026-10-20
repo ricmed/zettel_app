@@ -11,9 +11,9 @@
 
 The GARDEN module builds MOCs (Maps of Content) from clusters of notes through two pipelines — taxonomy-first and hub-anchored. Each cluster needs to become a coherent MOC, but calling an LLM once per cluster to generate it, and again to refine it if the result is weak, scales cost and latency linearly with refinement rounds rather than with clusters. In a vault with hundreds of notes, that difference compounds quickly across a single `zettel garden` run.
 
-The system instead routes every cluster through a fixed five-step decision tree before ever reaching generation: an exact note-set signature match reuses an existing MOC at zero cost; overlap with a previously generated MOC above a configurable threshold triggers a single incremental-update call instead of regeneration; a category match against an existing MOC does the same; a graph cohesion gate can silently reject a cluster before any call is made; only if none of these apply does the system make one generation call. The result is a hard ceiling of one LLM call per cluster, with several paths costing nothing at all.
+The system instead routes every cluster through a fixed five-step decision tree before ever reaching generation: an exact note-set signature match reuses an existing MOC at zero cost; overlap with a previously generated MOC above a configurable threshold triggers a single incremental-update call instead of regeneration; a category match against an existing MOC does the same (replaced on 2026-10-20 by routing per subject, see the #296 addendum); a graph cohesion gate can silently reject a cluster before any call is made; only if none of these apply does the system make one generation call. The result is a hard ceiling of one LLM call per cluster, with several paths costing nothing at all.
 
-[NEEDS INPUT: Quantified cost/latency savings versus multi-round refinement have not been benchmarked — only the relative estimate (3-5x higher cost for iterative refinement) is documented.]
+*Answered (2026-10-20, #301):* still not benchmarked against multi-round refinement; `zettel garden --plan` now estimates the calls of a run before it is paid (#298).
 
 This pattern was introduced in commit 216a725 (2026-08-26) as part of the taxonomy-first clustering pipeline and has been stable for several days, with only threshold and weight tuning since — no rollback or structural rework.
 
@@ -58,7 +58,7 @@ Chosen option: single LLM call per cluster via the five-step routing tree, becau
 
 ## Consequences
 
-Cost monitoring only needs to count MOC creations and incremental updates, not raw LLM calls, since the routing tree already guarantees at most one call per cluster. Silent cohesion rejection means clusters that fail the gate leave no MOC and no visible record beyond internal stats counters. [NEEDS INPUT: Is silent, unlogged cohesion rejection an accepted trade-off, or should rejected clusters be surfaced for review?]
+Cost monitoring only needs to count MOC creations and incremental updates, not raw LLM calls, since the routing tree already guarantees at most one call per cluster. Silent cohesion rejection means clusters that fail the gate leave no MOC and no visible record beyond internal stats counters. *Answered (2026-10-20, #301):* no; every routing decision, `rejected_cohesion` included, is in the persisted run report (#298), and cohesion is now a weighted density in [0, 1] (#299).
 
 Because generation (`moc_generation.md`) and incremental update (`moc_incremental.md`) are separate prompts — mirrored again for the hub pipeline — editing one without the other can produce inconsistent MOC quality between a cluster's first pass and its later incremental updates. If prompt or model quality improves later, existing MOCs do not retroactively improve; they carry the quality of whichever pass last touched them until manually regenerated.
 
@@ -99,3 +99,7 @@ Correction to the decision drivers above: the incremental update preserves the s
 ## Addendum (2026-10-20): the routing feeds a rebalance (issue #300)
 
 **Status:** Accepted amendment. Every step that sends a cluster to a MOC records it; after the run, the entries of a reached pipeline MOC that no cluster sent to it are removed (ADR-061). An incremental update offers a cluster only its share of a MOC shared by `k` clusters (`max_entries_per_moc // k`, `clusters` in the frontmatter), and omitted or truncated candidates are kept in `moc_discards`, so a run with no new note makes no call. The signature is stored only in SQLite.
+
+## Addendum (2026-10-20): topic validation by equality, no paid-and-ignored field (issue #301)
+
+**Status:** Accepted amendment. `_validate_moc_topic` accepts only a topic equal (accent/case-folded) to a category and writes the category's canonical name; substrings no longer count ("IA" used to pass through six categories). Under `strict_topics: false` another topic is kept as an emergent theme (`emergent_topic: true` in the frontmatter). `topic_justification` left the prompt and the schema: it was paid for and never read. The terms shown to the LLM and to the `moc_category` shadow are now class-based TF-IDF across the clusters of the run, over titles and content fields, without PT-BR stopwords (`gardener.cluster_terms`). A generated MOC file with no SQLite row (a crash between the file and the row) is listed by `zettel doctor`.
