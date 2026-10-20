@@ -220,11 +220,13 @@ uv run pytest tests/test_hashing.py -v
 uv run pytest tests/test_hashing.py::test_normalize_collapses_whitespace -v
 
 # Interface web
-uv run pytest tests/test_web.py tests/test_web_state.py -v
+uv run pytest tests/test_web.py tests/test_web_state.py tests/test_web_package.py tests/test_web_studio.py -v
 
 # Avaliacao do ask (offline: sem LLM, sem rede)
 uv run pytest tests/evals/ -v
 ```
+
+O CI ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)) roda `ruff check`, `ruff format --check` e a suíte completa a cada push na `main` e em todo PR, sem segredos: um teste que chegue a um provedor falha lá.
 
 Problemas conhecidos e diagnósticos: [docs/troubleshooting.md](docs/troubleshooting.md).
 

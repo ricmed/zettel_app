@@ -16,12 +16,12 @@
     "max_input_tokens": 0,
     "question_set_hash": "0c3224250e98b036caebab0164e7dd22514f8467d0f7bd38248786a37af89b8f",
     "retrieval_params": {
-      "absolute_min_similarity": 0.15,
+      "absolute_min_similarity": -0.7,
       "bm25_bypass_max_rank": 5,
       "bm25_hit_bypasses_floor": true,
       "graph_expansion_used": true,
       "graph_max_hops": 1,
-      "min_vector_similarity": 0.7,
+      "min_vector_similarity": 0.4,
       "mode": "hybrid",
       "relevance_floor_enabled": true,
       "rrf_k": 60,
@@ -30,7 +30,7 @@
     },
     "schema_version": 1
   },
-  "manifest_identity": "02f06b093df3720b94597cd130318ba88ab21b19fcfeb432b22dae692535d184",
+  "manifest_identity": "e99e27a652f593ec7920ea32fac51ee72194d939d9ad20d84b361417691ead8e",
   "questions": [
     {
       "floor_reason": "similaridade 0.88 >= piso 0.70",

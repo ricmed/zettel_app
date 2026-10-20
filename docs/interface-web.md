@@ -28,8 +28,10 @@ Sem `SESSION_SECRET`, nenhuma sessão é emitida e o login não funciona. Para a
 Testes:
 
 ```bash
-uv run pytest tests/test_web.py tests/test_web_state.py tests/test_web_package.py -v
+uv run pytest tests/test_web.py tests/test_web_state.py tests/test_web_package.py tests/test_web_studio.py -v
 ```
+
+A suíte inteira roda em CI a cada push e PR (`.github/workflows/tests.yml`: `ruff check`, `ruff format --check`, `pytest tests/`).
 
 ---
 

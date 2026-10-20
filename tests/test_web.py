@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import time
@@ -942,11 +943,16 @@ def test_note_markdown_copy_and_download_use_vault_files_only(web_client):
     note_path = permanent / "ZTL - nota.md"
     moc_path = mocs / "MOC - mapa.md"
     original = "---\ntitle: Nota\n---\n\n# Versão atual\n"
-    note_path.write_text(original, encoding="utf-8")
-    moc_path.write_text("# Mapa atual\n", encoding="utf-8")
+    # Bytes, not text: the endpoint serves the file verbatim, and write_text
+    # would turn "\n" into "\r\n" on Windows.
+    note_path.write_bytes(original.encode("utf-8"))
+    moc_path.write_bytes(b"# Mapa atual\n")
     outside = tmp_path / "privado.md"
     outside.write_text("NÃO EXPOR", encoding="utf-8")
-    (permanent / "link.md").symlink_to(outside)
+    # Windows needs a privilege to create symlinks; without it the "symlink" row
+    # points at a missing file and still has to 404.
+    with contextlib.suppress(OSError):
+        (permanent / "link.md").symlink_to(outside)
     db = client.app.state.service.db()
     try:
         db.upsert_note("safe", None, str(note_path), title="Nota", body="Conteúdo antigo")
@@ -971,7 +977,7 @@ def test_note_markdown_copy_and_download_use_vault_files_only(web_client):
     assert raw.status_code == 200
     assert raw.text == original
     assert raw.headers["content-type"].startswith("text/markdown")
-    note_path.write_text("# Editado no vault\n", encoding="utf-8")
+    note_path.write_bytes(b"# Editado no vault\n")
     assert client.get("/notes/safe/markdown").text == "# Editado no vault\n"
     assert client.get("/mocs/safe-moc/markdown").text == "# Mapa atual\n"
     download = client.get("/notes/safe/markdown?download=1")

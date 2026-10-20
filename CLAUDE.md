@@ -28,7 +28,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 uvicorn zettel.web:app --host 0.0.0.0 --port 5000
 
 # Web UI tests
-.venv/Scripts/python.exe -m pytest tests/test_web.py tests/test_web_state.py tests/test_web_package.py -v
+.venv/Scripts/python.exe -m pytest tests/test_web.py tests/test_web_state.py tests/test_web_package.py tests/test_web_studio.py -v
 
 # Ask evaluation harness (offline: no LLM, no network)
 .venv/Scripts/python.exe -m pytest tests/evals/ -v
@@ -38,6 +38,8 @@ uvicorn zettel.web:app --host 0.0.0.0 --port 5000
 .venv/Scripts/python.exe scripts/probe_jev_gold.py --task extract --lang en
 .venv/Scripts/python.exe scripts/report_decision_shadow.py
 ```
+
+CI (`.github/workflows/tests.yml`) runs `ruff check`, `ruff format --check` and `pytest tests/` on every push to `main` and every PR; it has no secrets, so a test that reaches a provider fails there.
 
 Python 3.12, venv at `.venv/`, dependencies managed with uv (`pyproject.toml` + `uv.lock`; `pylock.toml` is `uv export --format pylock.toml`). Environment variables loaded from `.env` (python-dotenv) — not system env vars. **`SESSION_SECRET`** (web login) is read from the process environment at startup (`os.environ`), not from `config.yaml`; set it in `.env` or the host secrets (e.g. Replit). Optional **`ZETTEL_CONFIG`** points `create_app()` / `WebApplication` at an alternate YAML (used in tests).
 

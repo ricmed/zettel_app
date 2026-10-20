@@ -1,0 +1,36 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check zettel tests
+
+      - name: Format
+        run: uv run ruff format --check zettel tests
+
+      # No secrets: tests stub the LLM per test and tests/conftest.py refuses the
+      # decision-model client, so a test that reaches the network fails here.
+      - name: Tests
+        run: uv run pytest tests/ -q
