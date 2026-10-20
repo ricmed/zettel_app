@@ -4,7 +4,7 @@
 
 A UI FastAPI é server-rendered (Jinja2) e não exige Node, bundler ou acesso direto do navegador ao SQLite/ChromaDB. Não existe subcomando `zettel web`: é um app separado.
 
-Módulos: [`zettel/web/`](../zettel/web/) (rotas, auth, templates; ADR-039), [`web_app.py`](../zettel/web_app.py) (fila de jobs e dispatch), [`progress.py`](../zettel/progress.py) (progresso compartilhado com a CLI), [`markdown.py`](../zettel/markdown.py) (render seguro de Markdown). Decisões: [ADR-022](adrs/generated/WEB/ADR-022-fastapi-server-rendered-jinja2.md), [ADR-023](adrs/generated/WEB/ADR-023-sqlite-backed-job-queue-single-worker.md), [ADR-039](adrs/generated/WEB/ADR-039-web-as-python-package.md), [ADR-040](adrs/generated/WEB/ADR-040-json-pickers-progressive-enhancement.md), [ADR-062](adrs/generated/WEB/ADR-062-web-handlers-run-in-threadpool.md).
+Módulos: [`zettel/web/`](../zettel/web/) (rotas, auth, templates; ADR-039), [`web_app.py`](../zettel/web_app.py) (fila de jobs e dispatch), [`progress.py`](../zettel/progress.py) (progresso compartilhado com a CLI), [`markdown.py`](../zettel/markdown.py) (render seguro de Markdown). Decisões: [ADR-022](adrs/generated/WEB/ADR-022-fastapi-server-rendered-jinja2.md), [ADR-023](adrs/generated/WEB/ADR-023-sqlite-backed-job-queue-single-worker.md), [ADR-039](adrs/generated/WEB/ADR-039-web-as-python-package.md), [ADR-040](adrs/generated/WEB/ADR-040-json-pickers-progressive-enhancement.md), [ADR-062](adrs/generated/WEB/ADR-062-web-handlers-run-in-threadpool.md), [ADR-063](adrs/generated/WEB/ADR-063-web-login-without-secret-oracle.md).
 
 ---
 
@@ -37,8 +37,13 @@ A suíte inteira roda em CI a cada push e PR (`.github/workflows/tests.yml`: `ru
 
 ## Autenticação
 
-- O login compara o segredo informado com o `SESSION_SECRET` da instância usando `hmac.compare_digest`.
-- A sessão é um cookie `zettel_session` assinado por HMAC.
+Decisão: [ADR-063](adrs/generated/WEB/ADR-063-web-login-without-secret-oracle.md).
+
+- O `SESSION_SECRET` é só a senha: o servidor o compara e **nunca envia ao navegador nada calculado a partir dele**. Use pelo menos 32 caracteres gerados (`python -c "import secrets; print(secrets.token_urlsafe(32))"`); a página de configuração e o `zettel doctor` avisam quando ele é curto.
+- O formulário de login traz um token aleatório que precisa coincidir com o cookie `zettel_login` da mesma página.
+- A partir da quinta falha seguida, o endereço de origem fica bloqueado por um tempo que dobra a cada tentativa (até 15 minutos); a resposta é **429** com `Retry-After`. Atrás de um proxy, todos os clientes compartilham um endereço.
+- A sessão é um cookie `zettel_session` assinado por uma chave aleatória guardada no `state.db` (tabela `web_auth`). Ela sobrevive a um reinício do servidor.
+- **Sair** troca essa chave: encerra todas as sessões, em qualquer navegador, inclusive um cookie copiado.
 - Todos os POSTs exigem token CSRF.
 - A página de configuração/saúde nunca exibe segredos.
 

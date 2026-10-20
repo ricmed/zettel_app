@@ -2,15 +2,31 @@
 
 from __future__ import annotations
 
-import hmac
+import logging
 import secrets
 from pathlib import Path
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
-from zettel.web.rendering import render
-from zettel.web.security import authenticated, csrf_ok, secret, session_value, sign
+from zettel.web.rendering import render, service
+from zettel.web.security import (
+    LOGIN_COOKIE,
+    LOGIN_TOKEN_MAX_AGE,
+    SESSION_COOKIE,
+    SESSION_MAX_AGE,
+    authenticated,
+    csrf_ok,
+    is_https,
+    login_throttle,
+    login_token_ok,
+    new_login_token,
+    password_ok,
+    secret,
+    session_value,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -20,6 +36,22 @@ _FAVICON = Path(__file__).resolve().parent.parent / "static" / "favicon.svg"
 @router.get("/favicon.ico", include_in_schema=False)
 def favicon():
     return FileResponse(_FAVICON, media_type="image/svg+xml")
+
+
+def _login_page(request: Request, *, error: str | None = None, status_code: int = 200):
+    """The form with a fresh random token, mirrored in a short-lived cookie."""
+    token = new_login_token()
+    response = render(request, "login.html", error=error, status_code=status_code, login_csrf=token)
+    response.set_cookie(
+        LOGIN_COOKIE,
+        token,
+        httponly=True,
+        samesite="strict",
+        secure=is_https(request),
+        max_age=LOGIN_TOKEN_MAX_AGE,
+        path="/login",
+    )
+    return response
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -33,34 +65,37 @@ def login_page(request: Request):
         )
     if authenticated(request):
         return RedirectResponse("/", status_code=303)
-    return render(request, "login.html", login_csrf=sign("login"))
+    return _login_page(request)
 
 
 @router.post("/login", response_class=HTMLResponse)
 def login(request: Request, instance_secret: str = Form(...), login_csrf: str = Form("")):
-    valid_login_csrf = bool(
-        secret() and login_csrf and hmac.compare_digest(login_csrf, sign("login"))
-    )
-    if not valid_login_csrf:
+    if not secret() or not login_token_ok(request, login_csrf):
         return HTMLResponse("CSRF inválido", status_code=403)
-    if not hmac.compare_digest(instance_secret, secret()):
-        return render(
-            request,
-            "login.html",
-            error="Segredo inválido.",
-            status_code=401,
-            login_csrf=sign("login"),
+    client = request.client.host if request.client else ""
+    throttle = login_throttle(request)
+    wait = throttle.retry_after(client)
+    if wait:
+        return HTMLResponse(
+            f"Muitas tentativas. Tente de novo em {wait} s.",
+            status_code=429,
+            headers={"Retry-After": str(wait)},
         )
+    if not password_ok(instance_secret):
+        throttle.failure(client)
+        logger.warning("Web: login recusado para %s", client or "cliente desconhecido")
+        return _login_page(request, error="Segredo inválido.", status_code=401)
+    throttle.success(client)
     response = RedirectResponse("/", status_code=303)
-    forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
     response.set_cookie(
-        "zettel_session",
-        session_value(secrets.token_urlsafe(24)),
+        SESSION_COOKIE,
+        session_value(request, secrets.token_urlsafe(24)),
         httponly=True,
         samesite="lax",
-        secure=forwarded_proto == "https",
-        max_age=86400,
+        secure=is_https(request),
+        max_age=SESSION_MAX_AGE,
     )
+    response.delete_cookie(LOGIN_COOKIE, path="/login")
     return response
 
 
@@ -68,6 +103,8 @@ def login(request: Request, instance_secret: str = Form(...), login_csrf: str = 
 def logout(request: Request, csrf: str = Form("")):
     if not csrf_ok(request, csrf):
         return HTMLResponse("CSRF inválido", status_code=403)
+    # A new signing key ends every session, including a cookie copied elsewhere.
+    service(request).rotate_session_key()
     response = RedirectResponse("/login", status_code=303)
-    response.delete_cookie("zettel_session")
+    response.delete_cookie(SESSION_COOKIE)
     return response

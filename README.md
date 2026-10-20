@@ -173,7 +173,7 @@ uvicorn zettel.web:app --host 0.0.0.0 --port 5000
 ```
 
 - App FastAPI server-rendered (Jinja2), sem Node nem bundler — não há subcomando `zettel web`.
-- Login por `SESSION_SECRET` (variável de ambiente, não vai no `config.yaml`), cookie assinado por HMAC e CSRF em todo POST.
+- Login por `SESSION_SECRET` (variável de ambiente, não vai no `config.yaml`), com tentativas limitadas; cookie assinado por uma chave aleatória (nada derivado do segredo sai do servidor), revogado no "Sair", e CSRF em todo POST.
 - Instância única com fila de jobs no SQLite: **um** trabalho mutante por vez; operações destrutivas continuam só na CLI.
 - **Acervo** (`/studio`): perguntar, catálogo, resumir, artigo (com pausa para revisar contexto e outline) e exportar skill. O catálogo responde na página; os outros entram na fila.
 

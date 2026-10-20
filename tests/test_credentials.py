@@ -36,3 +36,14 @@ def test_openai_embedding_requires_openai_key(monkeypatch):
     assert embedding_ready(cfg) is False
     monkeypatch.setenv("OPENAI_API_KEY", "x")
     assert embedding_ready(cfg) is True
+
+
+def test_session_secret_warning_flags_a_short_secret(monkeypatch):
+    from zettel.credentials import session_secret_warning
+
+    monkeypatch.delenv("SESSION_SECRET", raising=False)
+    assert session_secret_warning() is None
+    monkeypatch.setenv("SESSION_SECRET", "minhasenha2026")
+    assert "SESSION_SECRET curto" in session_secret_warning()
+    monkeypatch.setenv("SESSION_SECRET", "x" * 32)
+    assert session_secret_warning() is None

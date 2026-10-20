@@ -295,6 +295,15 @@ CREATE TABLE IF NOT EXISTS web_job_events (
     FOREIGN KEY (job_id) REFERENCES web_jobs(job_id) ON DELETE CASCADE
 );
 
+-- The key that signs web session cookies (#305): random, never derived from
+-- SESSION_SECRET, so a captured cookie says nothing about the password.
+-- Logout replaces it, which ends every session. One row.
+CREATE TABLE IF NOT EXISTS web_auth (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    session_key TEXT NOT NULL,
+    rotated_at  TEXT NOT NULL
+);
+
 -- Bibliographic review of a web upload: the preparation job snapshots the
 -- file, the reviewer confirms once, and that confirmation enqueues the harvest.
 CREATE TABLE IF NOT EXISTS web_harvest_reviews (

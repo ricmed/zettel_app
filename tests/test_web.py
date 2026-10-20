@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import hmac
 import json
 import re
 import time
@@ -555,6 +557,76 @@ def test_authentication_and_csrf_protect_mutations(web_client):
         ).status_code
         == 303
     )
+
+
+def _login_token(page) -> str:
+    return re.search(r'name="login_csrf" value="([^"]+)"', page.text).group(1)
+
+
+def test_login_page_carries_nothing_computed_from_the_secret(web_client):
+    """An HMAC of a known message under the secret is an offline brute-force oracle (#305)."""
+    client, _ = web_client
+    first = _login_token(client.get("/login"))
+    second = _login_token(client.get("/login"))
+    assert first != second
+    oracle = hmac.new(b"web-test-secret", b"login", hashlib.sha256).hexdigest()
+    assert oracle not in {first, second}
+
+
+def test_session_cookie_is_not_keyed_by_the_secret(web_client):
+    client, _ = web_client
+    _login(client)
+    body, tag = client.cookies["zettel_session"].rsplit(".", 1)
+    assert tag != hmac.new(b"web-test-secret", body.encode(), hashlib.sha256).hexdigest()
+
+
+def test_login_with_non_ascii_secret_is_refused_not_crashed(web_client):
+    client, _ = web_client
+    token = _login_token(client.get("/login"))
+    response = client.post("/login", data={"instance_secret": "senhação", "login_csrf": token})
+    assert response.status_code == 401
+
+
+def test_repeated_login_failures_are_throttled(web_client):
+    client, _ = web_client
+    page = client.get("/login")
+    for _ in range(5):
+        page = client.post(
+            "/login", data={"instance_secret": "wrong", "login_csrf": _login_token(page)}
+        )
+        assert page.status_code == 401
+    locked = client.post(
+        "/login",
+        data={"instance_secret": "web-test-secret", "login_csrf": _login_token(page)},
+        follow_redirects=False,
+    )
+    assert locked.status_code == 429
+    assert int(locked.headers["retry-after"]) >= 1
+    assert "zettel_session" not in client.cookies
+
+
+def test_logout_revokes_a_copied_session_cookie(web_client):
+    client, _ = web_client
+    csrf = _login(client)
+    stolen = client.cookies["zettel_session"]
+    assert client.post("/logout", data={"csrf": csrf}, follow_redirects=False).status_code == 303
+    client.cookies.set("zettel_session", stolen)
+    assert client.get("/", follow_redirects=False).status_code == 303
+
+
+def test_session_survives_a_server_restart(web_client):
+    client, tmp_path = web_client
+    _login(client)
+    cookie = client.cookies["zettel_session"]
+    with TestClient(create_app(tmp_path / "config.yaml")) as restarted:
+        restarted.cookies.set("zettel_session", cookie)
+        assert restarted.get("/", follow_redirects=False).status_code == 200
+
+
+def test_settings_warns_about_a_short_session_secret(web_client):
+    client, _ = web_client
+    _login(client)
+    assert "SESSION_SECRET curto" in client.get("/settings").text
 
 
 def test_upload_rejects_traversal_and_collisions(web_client):

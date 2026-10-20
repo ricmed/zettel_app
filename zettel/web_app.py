@@ -1159,6 +1159,28 @@ class WebApplication:
     def __init__(self, config_path: str | Path | None = None):
         self.config_path = config_path
         self.worker = WebWorker(config_path)
+        self._session_key: bytes | None = None
+        self._session_key_lock = threading.Lock()
+
+    def session_key(self) -> bytes:
+        """The cookie-signing key from SQLite, read once per process."""
+        with self._session_key_lock:
+            if self._session_key is None:
+                db = self.db()
+                try:
+                    self._session_key = bytes.fromhex(db.web_session_key())
+                finally:
+                    db.close()
+            return self._session_key
+
+    def rotate_session_key(self) -> None:
+        """End every session: the next request needs a new login."""
+        with self._session_key_lock:
+            db = self.db()
+            try:
+                self._session_key = bytes.fromhex(db.rotate_web_session_key())
+            finally:
+                db.close()
 
     @property
     def cfg(self) -> AppConfig:

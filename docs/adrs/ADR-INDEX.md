@@ -16,7 +16,7 @@
 | **REVIEW** | 1 | [016](#review-approval-gate) |
 | **CONNECT** | 1 | [053](#connect-permanent-notes) |
 | **GARDEN** | 5 | [019–021, 060–061](#garden-moc-generation) |
-| **WEB** | 6 | [022–023, 039–040, 056, 062](#web-ui--job-queue) |
+| **WEB** | 7 | [022–023, 039–040, 056, 062–063](#web-ui--job-queue) |
 | **LLM** | 5 | [024–025, 045, 048, 055](#llm-provider--caching) |
 | **QA-WRITING** | 4 | [028–029, 038, 051](#qa-writing--article-pipeline) |
 | **MANUAL** | 1 | [030](#manual-hand-written-notes) |
@@ -436,6 +436,15 @@
 - **Date**: 2026-10-20
 - **Summary**: Every route handler is a plain `def`, so FastAPI runs it in the threadpool and blocking SQLite, YAML, Chroma or provider calls never stall the event loop of the single Uvicorn worker. The only `async` step is the `read_form` dependency. Pinned by an AST test.
 - **Link**: [`ADR-062-web-handlers-run-in-threadpool.md`](./generated/WEB/ADR-062-web-handlers-run-in-threadpool.md)
+
+---
+
+### ADR-063: Web Login Without a Secret Oracle
+
+- **Status**: Accepted
+- **Date**: 2026-10-20
+- **Summary**: Nothing computed from `SESSION_SECRET` leaves the server. Login CSRF is a random double-submit token; sessions are signed with a random key persisted in `web_auth` and rotated on logout (revokes every session); failed logins are throttled per client; short secrets are flagged on `/settings` and in `doctor`.
+- **Link**: [`ADR-063-web-login-without-secret-oracle.md`](./generated/WEB/ADR-063-web-login-without-secret-oracle.md)
 
 ---
 

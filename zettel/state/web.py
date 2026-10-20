@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 from collections.abc import Mapping
 from typing import Any
 
@@ -77,6 +78,29 @@ class WebMixin(StateBase):
         except Exception:
             self.conn.rollback()
             raise
+
+    # ── Session signing key (#305) ─────────────────────────────────────
+
+    def web_session_key(self) -> str:
+        """The cookie-signing key, created on first use."""
+        self.conn.execute(
+            "INSERT OR IGNORE INTO web_auth (id, session_key, rotated_at) VALUES (1, ?, ?)",
+            (secrets.token_hex(32), self._now()),
+        )
+        self.conn.commit()
+        return self.conn.execute("SELECT session_key FROM web_auth WHERE id=1").fetchone()[0]
+
+    def rotate_web_session_key(self) -> str:
+        """Replace the key; every cookie signed with the old one stops validating."""
+        key = secrets.token_hex(32)
+        self.conn.execute(
+            "INSERT INTO web_auth (id, session_key, rotated_at) VALUES (1, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET session_key=excluded.session_key, "
+            "rotated_at=excluded.rotated_at",
+            (key, self._now()),
+        )
+        self.conn.commit()
+        return key
 
     # ── Harvest reviews (web upload -> bibliographic review -> harvest) ──
 

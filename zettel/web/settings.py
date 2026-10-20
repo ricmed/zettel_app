@@ -47,6 +47,8 @@ def settings(request: Request):
         "configured": _format_space_id(cfg_p, cfg_m, cfg_d),
         "drift": has_stored and (stored_p != cfg_p or stored_m != cfg_m or stored_d != cfg_d),
     }
+    from zettel.credentials import session_secret_warning
+
     return render(
         request,
         "settings.html",
@@ -55,4 +57,5 @@ def settings(request: Request):
         health=health,
         embedding=embedding,
         llm_phases=llm_phase_rows(cfg),
+        secret_warning=session_secret_warning(),
     )
