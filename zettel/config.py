@@ -573,6 +573,9 @@ class WebConfig(BaseModel):
     # Jobs encerrados ha mais que isto (e seus eventos) saem do banco na subida
     # do worker (#313). 0 guarda todos. Os runs ficam, como historico.
     job_retention_days: int = Field(default=90, ge=0)
+    # Um artigo pausado numa revisao ha mais que isto e liberado (grafo e conexao
+    # SQLite) e marcado interrupted (#317). 0 nunca expira.
+    article_pause_ttl_hours: float = Field(default=24, ge=0)
 
 
 class SummarizeConfig(BaseModel):

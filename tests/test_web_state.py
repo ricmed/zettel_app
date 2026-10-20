@@ -689,3 +689,76 @@ def test_a_harvest_without_a_source_says_why(tmp_path: Path, monkeypatch, declin
                 run()
     finally:
         db.close()
+
+
+class _ParkedDrive:
+    """Stands in for an ArticleDrive parked at a review: it owns a connection."""
+
+    def __init__(self, path):
+        self.db = StateDB(path)
+        self.abandoned = False
+
+    def abandon(self):
+        self.abandoned = True
+
+
+def _parked_worker(tmp_path: Path, ttl_hours: float, now: list[float]):
+    from zettel.web_app import ConfigCache
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"state_db_path: {tmp_path / 'state.db'}\nweb:\n  article_pause_ttl_hours: {ttl_hours}\n",
+        encoding="utf-8",
+    )
+    return WebWorker(ConfigCache(config), clock=lambda: now[0])
+
+
+def _park(db, worker, job_id, tmp_path):
+    assert db.create_web_job(job_id, "article", {"topic": "t"})
+    assert db.claim_web_job(job_id)
+    db.update_web_job(job_id, state="awaiting_input", phase="article")
+    worker._articles[job_id] = _ParkedDrive(tmp_path / "state.db")
+    worker._parked_since[job_id] = 0.0
+
+
+def test_a_parked_article_expires_after_the_ttl(tmp_path: Path):
+    """An abandoned pause held a connection and the graph until the process stopped (#317)."""
+    import sqlite3
+
+    now = [0.0]
+    worker = _parked_worker(tmp_path, 24, now)
+    db = StateDB(tmp_path / "state.db")
+    try:
+        _park(db, worker, "art", tmp_path)
+        drive = worker._articles["art"]
+
+        now[0] = 23 * 3600
+        assert worker.expire_parked_articles() == 0
+        assert db.get_web_job("art")["state"] == "awaiting_input"
+
+        now[0] = 24 * 3600 + 1
+        assert worker.expire_parked_articles() == 1
+        job = db.get_web_job("art")
+        assert job["state"] == "interrupted"
+        assert "expirou" in job["message"]
+        assert drive.abandoned and "art" not in worker._articles
+        with pytest.raises(sqlite3.ProgrammingError):
+            drive.db.conn.execute("SELECT 1")  # its connection is closed
+    finally:
+        db.close()
+
+
+def test_a_resumed_article_is_never_expired(tmp_path: Path):
+    now = [0.0]
+    worker = _parked_worker(tmp_path, 1, now)
+    db = StateDB(tmp_path / "state.db")
+    try:
+        _park(db, worker, "art", tmp_path)
+        assert db.requeue_parked_job("art", {"resume": {"context_decision": "approve"}}) == "ok"
+        now[0] = 10 * 3600
+        assert worker.expire_parked_articles() == 0
+        assert db.get_web_job("art")["state"] == "queued"
+        assert not worker._articles["art"].abandoned
+    finally:
+        worker._articles.pop("art").db.close()
+        db.close()

@@ -11,7 +11,9 @@ import logging
 import re
 import secrets
 import threading
+import time
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -599,12 +601,15 @@ _LOCK_RETRY_SECONDS = 2.0
 class WebWorker:
     """A durable queue backed by SQLite and one process-local worker thread."""
 
-    def __init__(self, config: ConfigCache):
+    def __init__(self, config: ConfigCache, *, clock: Callable[[], float] = time.monotonic):
         self.config = config
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._articles: dict[str, Any] = {}
+        # When each article parked, by the worker's clock (#317).
+        self._parked_since: dict[str, float] = {}
+        self._clock = clock
 
     def _db(self) -> StateDB:
         return StateDB(self.config.get().state_db_path)
@@ -676,6 +681,7 @@ class WebWorker:
         while not self._stop.is_set():
             # Clear before looking: a submit after the lookup still wakes the wait.
             self._wake.clear()
+            self.expire_parked_articles()
             db = self._db()
             try:
                 job = db.next_queued_web_job()
@@ -703,6 +709,36 @@ class WebWorker:
             finally:
                 lock.release()
 
+    def expire_parked_articles(self) -> int:
+        """Release articles parked longer than ``web.article_pause_ttl_hours`` (#317).
+
+        The job becomes ``interrupted`` only if it is still waiting; then its
+        graph is dropped and its SQLite connection closed. Returns the count.
+        """
+        ttl = self.config.get().web.article_pause_ttl_hours
+        if not ttl or not self._parked_since:
+            return 0
+        now = self._clock()
+        expired = [j for j, since in self._parked_since.items() if now - since >= ttl * 3600]
+        if not expired:
+            return 0
+        released = 0
+        db = self._db()
+        try:
+            for job_id in expired:
+                self._parked_since.pop(job_id, None)
+                message = f"A pausa do artigo expirou após {ttl:g} h sem decisão."
+                if not db.expire_parked_job(job_id, message):
+                    continue
+                db.add_web_job_event(job_id, "interrupted", message=message)
+                drive = self._articles.pop(job_id, None)
+                if drive is not None:
+                    _release_article(drive, failed=True)
+                released += 1
+        finally:
+            db.close()
+        return released
+
     def _execute(self, job_id: str) -> None:
         # A private copy: a long job never sees a config edited halfway through.
         cfg = self.config.get().model_copy(deep=True)
@@ -710,6 +746,7 @@ class WebWorker:
         if not db.claim_web_job(job_id):
             db.close()
             return
+        self._parked_since.pop(job_id, None)  # resumed: the clock starts again if it parks
         progress = JobProgress(db, job_id)
         job = db.get_web_job(job_id) or {}
         payload = job.get("payload") or {}
@@ -737,6 +774,7 @@ class WebWorker:
             )
             db.add_web_job_event(job_id, "completed", message="Operação concluída.")
         except JobParked as parked:
+            self._parked_since[job_id] = self._clock()
             db.update_web_job(
                 job_id,
                 state="awaiting_input",

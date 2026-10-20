@@ -258,6 +258,19 @@ class WebMixin(StateBase):
             self.conn.rollback()
             raise
 
+    def expire_parked_job(self, job_id: str, message: str) -> bool:
+        """``awaiting_input`` -> ``interrupted``, atomically; False if it moved on (#317).
+
+        A pause the reviewer just resumed is ``queued`` and must keep its graph.
+        """
+        cur = self.conn.execute(
+            "UPDATE web_jobs SET state='interrupted', phase='interrupted', message=?, "
+            "finished_at=? WHERE job_id=? AND state='awaiting_input'",
+            (message, self._now(), job_id),
+        )
+        self.conn.commit()
+        return cur.rowcount == 1
+
     def claim_web_job(self, job_id: str) -> bool:
         cur = self.conn.execute(
             "UPDATE web_jobs SET state='running', phase='starting', started_at=? "

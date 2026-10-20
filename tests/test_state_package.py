@@ -157,6 +157,7 @@ PUBLIC_METHODS = {
     "next_queued_web_job",
     "requeue_parked_job",
     "claim_web_job",
+    "expire_parked_job",
     "get_web_job",
     "list_web_jobs",
     "update_web_job",
