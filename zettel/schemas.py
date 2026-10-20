@@ -222,19 +222,26 @@ class RelationshipResult(BaseModel):
 # ── LLM MOC Output ────────────────────────────────────────────────────
 
 
+class MOCEntry(BaseModel):
+    """One entry note of a MOC and why the reader should start from it (ADR-060)."""
+
+    note_id: str
+    orientation: str = ""
+
+
 class MOCSubsection(BaseModel):
     title: str
-    note_ids: list[str] = Field(default_factory=list)
     description: str = ""
+    entries: list[MOCEntry] = Field(default_factory=list)
 
 
 class MOCGenerationOutput(BaseModel):
     topic: str = Field(description="Nome/tema do MOC")
     summary: str = Field(description="Resumo do tema em PT-BR")
     subsections: list[MOCSubsection] = Field(default_factory=list)
-    topic_justification: str = Field(
+    subtopic: str = Field(
         default="",
-        description="Justificativa de porque este topico foi escolhido",
+        description="Nome curto do subtema, quando o MOC e um sub-MOC de uma categoria",
     )
 
 
@@ -250,6 +257,12 @@ class MOCNotePlacement(BaseModel):
 class MOCIncrementalOutput(BaseModel):
     placements: list[MOCNotePlacement] = Field(default_factory=list)
     new_subsections: list[MOCSubsection] = Field(default_factory=list)
+
+
+class MOCSummaryOutput(BaseModel):
+    """A MOC summary rewritten after its entry points changed (ADR-060)."""
+
+    summary: str = Field(description="Resumo do MOC em PT-BR, 2-3 frases")
 
 
 # ── Hub MOC Output ────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any
 
 from zettel.config import AppConfig, llm_phase
 from zettel.note_content import note_content
@@ -324,6 +325,78 @@ def estimate_summarize(
         input_tokens=input_tokens,
         output_tokens=calls * per_call,
         caveats=caveats,
+    )
+
+
+# Output target for one garden call when no previous run exists. Not a cap.
+GARDEN_OUTPUT_TOKENS_FALLBACK = 800
+# A MOC prompt lists each note as "- **N1**: <title>"; the alias and markup.
+_GARDEN_LINE_OVERHEAD_CHARS = 12
+
+
+def estimate_garden(cfg: AppConfig, db: StateDB, report: Any) -> PreflightEstimate:
+    """One call per planned MOC, sub-MOC, incremental update or MOC of MOCs (``garden --plan``).
+
+    ``report`` is the planned ``GardenReport``. The per-call overhead is the
+    filled prompt (taxonomy included for a creation); each entry note costs its
+    title. A MOC of MOCs costs one summary call (#296).
+    The decision shadow (Jev) and the label embeddings are not in this figure.
+    """
+    from zettel.taxonomy import resolve_allowed_topics
+
+    hubs = report.pipeline == "garden_hubs"
+    create_prompt = "moc_hub_generation.md" if hubs else "moc_generation.md"
+    update_prompt = "moc_hub_incremental.md" if hubs else "moc_incremental.md"
+    try:
+        allowed, detail = resolve_allowed_topics(
+            cfg.gardener.topics_path, cfg.gardener.allowed_topics, strict=False
+        )
+    except Exception:
+        allowed, detail = [], ""
+    create_overhead = _filled_overhead(
+        cfg,
+        create_prompt,
+        {
+            "allowed_topics_section": "\n".join(f"- {t}" for t in allowed),
+            "taxonomy_detail": detail,
+        },
+    )
+    update_overhead = _filled_overhead(cfg, update_prompt)
+    mean_title = db.mean_permanent_title_chars() or 60
+    per_note = estimate_tokens("x" * (mean_title + _GARDEN_LINE_OVERHEAD_CHARS))
+
+    summary_overhead = _filled_overhead(cfg, "moc_summary_refresh.md")
+    cap = cfg.gardener.max_entries_per_moc
+
+    calls = 0
+    input_tokens = 0
+    for item in report.actions:
+        sent = min(item.size, cap) * per_note  # only entry notes reach the prompt (ADR-060)
+        if item.action in ("created", "submoc"):
+            calls += 1
+            input_tokens += create_overhead + sent
+        elif item.action in ("incremental", "home"):
+            calls += 1
+            input_tokens += update_overhead + sent
+        elif item.action == "moc_of_mocs":
+            calls += 1
+            input_tokens += summary_overhead
+    per_call, output_note = _output_tokens_per_call(db, "garden", GARDEN_OUTPUT_TOKENS_FALLBACK)
+    return _build(
+        cfg,
+        "garden",
+        items=calls,
+        item_label="chamada(s)",
+        input_tokens=input_tokens,
+        output_tokens=calls * per_call,
+        caveats=[
+            "A camada de decisao em shadow (Jev) e o embedding dos rotulos nao entram na conta.",
+            (
+                "Cada chamada conta ate max_entries_per_moc notas; um cluster que o MOC da "
+                "categoria nao aceitar vira sub-MOC e custa uma segunda chamada."
+            ),
+            output_note,
+        ],
     )
 
 

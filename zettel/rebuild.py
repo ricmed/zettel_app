@@ -27,7 +27,6 @@ from zettel.hashing import (
 from zettel.index import (
     COL_CHAPTER_SUMMARIES,
     COL_CHUNKS,
-    COL_MOCS,
     COL_PERMANENT,
     COL_SOURCES,
     VectorIndex,
@@ -48,25 +47,6 @@ from zettel.vault import (
 logger = logging.getLogger(__name__)
 
 
-# ── MOC body parsing (summary between the H1 and the first H2) ──────────
-
-
-def _moc_summary_from_body(body: str) -> str:
-    if not body:
-        return ""
-    summary_lines: list[str] = []
-    in_summary = False
-    for line in body.split("\n"):
-        if line.startswith("## "):
-            break
-        if line.startswith("# "):
-            in_summary = True
-            continue
-        if in_summary:
-            summary_lines.append(line)
-    return "\n".join(summary_lines).strip()
-
-
 def _tags_from_frontmatter(frontmatter_json: str | None) -> list[str]:
     if not frontmatter_json:
         return []
@@ -82,7 +62,7 @@ def _tags_from_frontmatter(frontmatter_json: str | None) -> list[str]:
 
 # ── Reindex ChromaDB from SQLite ───────────────────────────────────────
 
-_ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS, COL_CHAPTER_SUMMARIES]
+_ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_CHAPTER_SUMMARIES]
 
 
 def run_reindex(
@@ -134,8 +114,6 @@ def run_reindex(
             stats[t] = _reindex_chunks(db, idx)
         elif t == COL_PERMANENT:
             stats[t] = _reindex_permanent(cfg, db, idx)
-        elif t == COL_MOCS:
-            stats[t] = _reindex_mocs(db, idx)
         elif t == COL_CHAPTER_SUMMARIES:
             stats[t] = _reindex_chapter_summaries(db, idx)
 
@@ -275,26 +253,6 @@ def _reindex_permanent(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
         db.update_note_embedding(note["note_id"], emb_hash, cfg.embedding.model)
         n += 1
     return n
-
-
-def _reindex_mocs(db: StateDB, idx: VectorIndex) -> int:
-    from zettel.gardener import _moc_embeddable
-
-    n = 0
-    for moc in db.list_mocs():
-        summary = _moc_summary_from_body(moc.get("body") or "")
-        idx.upsert_moc(
-            moc["moc_id"],
-            _moc_embeddable(moc["topic"], summary),
-            {
-                "topic": moc["topic"],
-            },
-        )
-        n += 1
-    return n
-
-
-# ── Rebuild vault .md files from SQLite (Fase 5) ───────────────────────
 
 
 def run_rebuild_vault(

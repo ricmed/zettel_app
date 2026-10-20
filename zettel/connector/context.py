@@ -125,6 +125,9 @@ def load_connect_taxonomy(cfg: AppConfig, idx: VectorIndex) -> Taxonomy:
         embed_category_labels,
     )
 
+    # Isolated from #295 on purpose: the analogies keep the plain label and no
+    # threshold whatever gardener.category_label_mode / assign_min_similarity
+    # say, so the attribution measurement cannot move connect's buckets.
     pairs = category_pairs(cfg.gardener)
     if not pairs:
         return {}, {}

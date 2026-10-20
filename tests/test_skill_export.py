@@ -411,6 +411,29 @@ def test_topic_slice_unions_matching_mocs(cfg, db, tmp_path):
     assert {n.note_id for n in pack.notes} == {NOTE_A, NOTE_C}
 
 
+def test_moc_of_mocs_exports_the_entries_of_its_sub_mocs(cfg, db, tmp_path):
+    parent = "01HMMMMMMMMMMMMMMMMMMMMMP0"
+    db.upsert_moc(parent, topic="Redes Neurais", body="## Subtemas\n\n- [[MOC - X - y]]\n")
+    db.upsert_moc(
+        "01HMMMMMMMMMMMMMMMMMMMMMP1",
+        topic="Redes Neurais — Convolucao",
+        body=f"- [[ZTL - {NOTE_A} - a]]",
+        parent_moc_id=parent,
+    )
+    db.upsert_moc(
+        "01HMMMMMMMMMMMMMMMMMMMMMP2",
+        topic="Redes Neurais — Atencao",
+        body=f"- [[ZTL - {NOTE_C} - c]]",
+        parent_moc_id=parent,
+    )
+
+    _, by_id = _export(cfg, db, tmp_path / "a", moc_id=parent)
+    _, by_topic = _export(cfg, db, tmp_path / "b", topic="Redes Neurais")
+
+    assert {n.note_id for n in by_id.notes} == {NOTE_A, NOTE_C}
+    assert {n.note_id for n in by_topic.notes} == {NOTE_A, NOTE_C}
+
+
 def test_empty_slice_fails_loudly(cfg, db, tmp_path):
     db.upsert_moc("01HMMMMMMMMMMMMMMMMMMMMMM3", topic="Vazio", body="sem notas")
     with pytest.raises(SkillExportError, match="Recorte vazio"):

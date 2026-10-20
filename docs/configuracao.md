@@ -214,17 +214,26 @@ domain:
 
 # ── Gardener (MOCs taxonomicos; zettel garden) ─────────────────────────
 gardener:
-  min_cluster_size: 5        # notas minimas por cluster
+  min_cluster_size: 5        # notas minimas para tentar clusterizar; o HDBSCAN usa max(este, min_notes_for_moc)
   min_notes_for_moc: 3       # cluster menor que isso nao vira MOC
   strict_topics: true        # rejeitar MOCs fora das categorias da taxonomia
   topics_path: ./config/moc_topics.yaml  # pilar > categoria > topicos
   cluster_within_category: true          # clusteriza dentro de cada bucket da taxonomia
   category_label_template: "{pilar}: {categoria}"  # texto embeddado por categoria
-  overlap_threshold: 0.4     # fracao do cluster ja no MOC -> update incremental
+  category_label_mode: label  # label | leaves_in_label | max_leaf (#295, so muda pela regra pre-registrada)
+  assign_min_similarity: null  # cosseno minimo p/ atribuir categoria; abaixo -> cluster livre
+  overlap_threshold: 0.4     # fracao das entradas de uma subsecao do MOC que caem no cluster -> incremental
   graph_cohesion_enabled: true
-  graph_cohesion_min_ratio: 0.0  # 0 = so log; >0 rejeita cluster fraco
+  graph_cohesion_min_ratio: 0.0  # densidade ponderada 0..1; 0 = so log; >0 rejeita cluster fraco
   umap_n_neighbors: null     # null = auto min(15, n-1)
   hdbscan_min_samples: null  # null = default do HDBSCAN
+  random_state: 42           # semente do UMAP/KMeans; null = nao deterministico
+  max_entries_per_moc: 10    # teto de notas de entrada por MOC (ADR-060)
+  min_entries_per_subtopic: 3  # k sub-clusters num MOC so se k*3 <= teto; senao MOC de MOCs (#296)
+  model_refit_growth: 0.5    # modelo de cluster por categoria em data/cache/garden; reajusta se as notas novas passam de 50% (#300)
+  proposed_edge_factor: 0.5  # arestas de LLM propostas valem metade no grau/BFS dos hubs, coesao e entradas (#299)
+  warn_min_traversable_share: 0.5  # avisa se menos da metade das arestas e percorrivel
+  warn_min_reach: 0.5        # avisa se menos da metade das notas esta a 2 saltos de uma porta
 
 # ── MOCs hub (zettel garden --hubs) ────────────────────────────────────
 hub_mocs:

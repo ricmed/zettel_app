@@ -24,6 +24,7 @@ Além disso, o sync:
 - Persiste como arestas `related` com `origin=manual` os `[[wikilinks]]` encontrados **no corpo** das notas, fora dos blocos gerenciados — sem nunca rebaixar uma aresta já tipada. O grafo pondera essas arestas como `manual` (0.95), não como `related` (0.5). Veja [recuperacao.md](recuperacao.md#fechando-o-ciclo-do-grafo-notas-manuais).
 - Roda `repair_permanent_links`, que reescreve alvos `[[ZTL - ULID]]` nus ou com prefixo duplicado para o stem atual do arquivo, e reconstrói todo bloco `auto-backlinks` a partir do grafo.
 - Chama `sync_moc_backrefs` para MOCs manuais ou editados à mão.
+- Um MOC gerado pelo `garden` só passa por aqui depois de adotado: `zettel adopt-moc <moc_id>` (ou **Adotar MOC** na web) troca a origem para `manual`, e a partir daí você pode editá-lo à vontade.
 
 ```bash
 python -m zettel sync-manual

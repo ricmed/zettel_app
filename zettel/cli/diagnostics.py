@@ -97,6 +97,13 @@ def status(config: ConfigOption = None):
 
     console.print(table)
 
+    from zettel.cli.formatting import print_garden_report
+
+    for pipeline, title in (("garden", "Ultimo garden"), ("garden_hubs", "Ultimo garden hub")):
+        garden_report = db.latest_garden_report(pipeline)
+        if garden_report:
+            print_garden_report(garden_report, title=title)
+
     limiar = cfg.literature_review.auto_approve_min_confidence
     labels_by_source = db.review_label_summary(limiar)
     if labels_by_source:
@@ -461,6 +468,44 @@ def doctor(config: ConfigOption = None):
             checks.append(("Chunking coverage", True, "todas as fontes cobertas"))
     except Exception as e:
         checks.append(("Chunking coverage", False, f"erro ao verificar: {e}"))
+
+    # Graph the MOC/hub doors lead through (#299): unreviewed LLM edges are not walkable.
+    from zettel.garden_report import graph_health
+
+    db = get_db(cfg)
+    try:
+        graph, graph_problems = graph_health(db, cfg.gardener)
+        orphan_hubs = [m["topic"] for m in db.list_orphan_hub_mocs()]
+        from zettel.gardener import orphan_moc_files
+
+        orphan_files = orphan_moc_files(cfg, db)
+    finally:
+        db.close()
+    checks.append(
+        (
+            "MOCs gerados sem linha no banco",
+            not orphan_files,
+            ", ".join(p.name for p in orphan_files) or "nenhum",
+        )
+    )
+    checks.append(
+        (
+            "MOCs hub orfaos",
+            not orphan_hubs,
+            ", ".join(orphan_hubs) or "nenhum",
+        )
+    )
+    checks.append(
+        (
+            "Grafo das portas (garden)",
+            not graph_problems,
+            " ".join(graph_problems)
+            or (
+                f"{graph.traversable_edges}/{graph.total_edges} arestas percorriveis, "
+                f"{graph.reach.get('r2', 0):.0%} a 2 saltos das portas"
+            ),
+        )
+    )
 
     # Display
     table = Table(title="Zettelkasten — Doctor")

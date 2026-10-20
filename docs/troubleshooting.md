@@ -112,6 +112,7 @@ Monitore o volume por faixa após harvest/extract. Se a carga do operador ficar 
 ## `garden --hubs` não gera nada
 
 - O pipeline hub depende do **grafo populado**: rode `connect` e, se você escreve notas à mão, `sync-manual --rebuild-graph`
+- Arestas de LLM nascem **propostas** e só viram caminho depois de aceitas em `zettel links` (ou `/review?queue=links`). Com `gardener.proposed_edge_factor: 0`, um grafo não revisado tem só `corroborates` e arestas manuais, e quase nenhum hub passa de `min_neighbors`; o relatório e o `zettel doctor` avisam. Com o fator padrão (0,5), as propostas contam pela metade; abaixo de `min_neighbor_weight / peso da relação` (0,3 / 0,8 para `supports`), um vizinho só por aresta proposta é descartado
 - `hub_mocs.min_neighbors` (padrão 8) descarta hubs com vizinhança pequena
 - No modo `percentile`, `hub_percentile: 0.90` só considera o top 10% por grau ponderado — em vaults pequenos, o modo `absolute` com `min_weighted_degree` menor tende a funcionar melhor
 

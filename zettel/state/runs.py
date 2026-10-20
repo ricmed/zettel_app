@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from zettel.state.base import StateBase
 
 # Duplicate-detection layer -> counter column on the run row.
@@ -77,6 +79,22 @@ class RunsMixin(StateBase):
 
     def get_last_run(self) -> dict | None:
         return self._fetchone("SELECT * FROM runs ORDER BY run_id DESC LIMIT 1")
+
+    def save_garden_report(self, run_id: int, pipeline: str, report_json: str) -> None:
+        self.conn.execute(
+            """INSERT OR REPLACE INTO garden_reports (run_id, pipeline, report_json, created_at)
+               VALUES (?, ?, ?, ?)""",
+            (run_id, pipeline, report_json, self._now()),
+        )
+        self.conn.commit()
+
+    def latest_garden_report(self, pipeline: str) -> dict | None:
+        """Newest persisted report of ``pipeline`` (``garden`` or ``garden_hubs``)."""
+        row = self._fetchone(
+            "SELECT report_json FROM garden_reports WHERE pipeline=? ORDER BY run_id DESC LIMIT 1",
+            (pipeline,),
+        )
+        return json.loads(row["report_json"]) if row else None
 
     def get_recent_runs(self, limit: int = 30) -> list[dict]:
         """Newest-first run rows, including cost/token columns."""

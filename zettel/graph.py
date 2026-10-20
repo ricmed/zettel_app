@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from .config import DEFAULT_RELATION_WEIGHTS
-from .state.connections import edge_weight
+from .state.connections import EdgePolicy, connections_for
 
 if TYPE_CHECKING:
     from .state import StateDB
@@ -47,6 +47,7 @@ def expand_notes(
     max_neighbors: int = 10,
     seed_weights: dict[str, float] | None = None,
     skip_ids: set[str] | None = None,
+    proposed_factor: float = 0.0,
 ) -> dict[str, GraphNeighbor]:
     """BFS over note_connections from ``seed_ids``.
 
@@ -59,8 +60,12 @@ def expand_notes(
     ``seed_weights`` seeds the BFS with each seed's own relevance (e.g. its RRF
     score), so a neighbour's weight is ``seed_score * relation_weight * decay^hop``.
     Defaults to 1.0 per seed.
+
+    Only traversable edges are walked, unless ``proposed_factor > 0``: the
+    garden's hub BFS then also follows LLM edges waiting for review, at that
+    fraction of their weight (#299). Retrieval keeps the default 0.
     """
-    weights = relation_weights or DEFAULT_RELATION_WEIGHTS
+    policy = EdgePolicy(relation_weights or DEFAULT_RELATION_WEIGHTS, proposed_factor)
     seeds = [s for s in seed_ids if s]
     if not seeds or max_hops < 1:
         return {}
@@ -74,14 +79,16 @@ def expand_notes(
     for hop in range(1, max_hops + 1):
         if not frontier:
             break
-        edges = db.get_connections_for_notes(list(frontier.keys()))
+        edges = connections_for(db, list(frontier.keys()), policy)
         next_frontier: dict[str, tuple[float, list[dict]]] = {}
         for edge in edges:
             src = edge["source_note_id"]
             tgt = edge["target_note_id"]
             rel = edge["relation_type"]
             desc = edge.get("description") or ""
-            rel_weight = edge_weight(edge, weights)
+            rel_weight = policy.weight(edge)
+            if rel_weight <= 0:
+                continue
             # Consider the edge from whichever endpoint is on the current frontier.
             for anchor, other in ((src, tgt), (tgt, src)):
                 if anchor not in frontier or not other:

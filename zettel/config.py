@@ -399,11 +399,52 @@ class GardenerConfig(BaseModel):
     # Pipeline hibrido: taxonomia -> cluster por categoria -> grafo -> LLM.
     cluster_within_category: bool = True
     category_label_template: str = "{pilar}: {categoria}"
-    overlap_threshold: float = 0.4  # overlap cluster/MOC -> incremental
+    # Como a categoria vira vetor (#295): label = so o template; leaves_in_label =
+    # template com os topicos-folha anexados; max_leaf = um vetor por folha, a nota
+    # vale a melhor folha. O padrao so muda pela regra pre-registrada em
+    # evals/preregistration/295-atribuicao-categoria.md.
+    category_label_mode: Literal["label", "leaves_in_label", "max_leaf"] = "label"
+    # Cosseno minimo para atribuir uma nota a uma categoria (ADR-058). None = sem
+    # limiar (toda nota recebe a melhor categoria); abaixo dele a nota vai para o
+    # bucket _unassigned, clusterizado livremente (#295).
+    assign_min_similarity: float | None = Field(default=None, ge=-1, le=1)
+    # Fracao das entradas de uma subsecao do MOC que caem no cluster -> incremental.
+    overlap_threshold: float = 0.4
     graph_cohesion_enabled: bool = True
-    graph_cohesion_min_ratio: float = 0.0  # 0 = metrica apenas; >0 rejeita MOC novo
+    # Coesao = densidade ponderada 0..1 (2*W_int / (n*(n-1))). 0 = metrica apenas;
+    # >0 rejeita MOC novo abaixo dela (o incremental nao e filtrado).
+    graph_cohesion_min_ratio: float = Field(default=0.0, ge=0, le=1)
+    # Arestas de LLM ainda propostas (#279) contam com esta fracao do peso no grau
+    # e na BFS dos hubs, na coesao e no grau interno das entradas (#299). 0 = so o
+    # grafo percorrivel. Alcancabilidade e recuperacao nunca usam propostas.
+    proposed_edge_factor: float = Field(default=0.5, ge=0, le=1)
+    # Avisos do relatorio (garden, garden --hubs, doctor): fracao minima de arestas
+    # percorriveis e alcancabilidade minima a 2 saltos das portas de entrada.
+    warn_min_traversable_share: float = Field(default=0.5, ge=0, le=1)
+    warn_min_reach: float = Field(default=0.5, ge=0, le=1)
     umap_n_neighbors: int | None = None  # None = auto (min(15, n-1))
     hdbscan_min_samples: int | None = None  # None = default HDBSCAN
+    # Semente do UMAP (e do KMeans de fallback). Fixa = particao reprodutivel;
+    # None = paralelo e nao deterministico (ADR-019, #294).
+    random_state: int | None = 42
+    # MOCs e hubs sao portas de entrada, nao indices completos (ADR-060, #297).
+    # Sinal que escolhe as notas de entrada de cada cluster; o padrao e provisorio
+    # ate a medicao pre-registrada (evals/preregistration/297-portas-de-entrada.md).
+    entry_selection: Literal[
+        "internal_degree", "medoid", "first_in_source", "relevance", "corroboration"
+    ] = "internal_degree"
+    max_entries_per_moc: int = Field(default=10, ge=1)
+    max_entries_per_subsection: int = Field(default=5, ge=1)
+    # Um assunto (categoria) com k sub-clusters cabe num MOC so enquanto
+    # k * min_entries_per_subtopic <= max_entries_per_moc; acima disso vira MOC
+    # de MOCs, um sub-MOC por sub-cluster (#296).
+    min_entries_per_subtopic: int = Field(default=3, ge=1)
+    # Modelo de cada bucket persistido em cache_path/garden (#300): notas novas
+    # entram nos clusters existentes por approximate_predict. Reajusta o bucket
+    # quando as notas nunca vistas passam desta fracao das ajustadas (ou --refit).
+    model_refit_growth: float = Field(default=0.5, gt=0)
+    # Reescreve o resumo quando as entradas crescem esta fracao desde a ultima escrita.
+    summary_refresh_growth: float = Field(default=0.5, gt=0)
 
     @field_validator("topics_path", mode="before")
     @classmethod

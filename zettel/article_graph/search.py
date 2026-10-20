@@ -68,7 +68,9 @@ def apply_moc_boost(
     """Boost notes linked from a matching MOC, once (only when ``moc_ids`` is empty)."""
     if moc_ids:
         return existing, moc_ids
-    moc = db.find_moc_by_topic(topic)
+    # Any origin may boost (manual MOCs are the best evidence of a topic), but
+    # only on folded equality: a substring let "IA" match "Avaliação".
+    moc = db.find_moc_by_topic(topic, origins=None)
     if not moc:
         return existing, moc_ids
     moc_ids = [*moc_ids, moc["moc_id"]]

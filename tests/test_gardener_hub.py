@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
 from zettel.config import AppConfig, HubMocsConfig
 from zettel.gardener_hub import (
     build_hub_neighborhood,
@@ -141,8 +142,8 @@ def test_purge_hub_pipeline_mocs_keeps_taxonomy(tmp_path):
     db.upsert_moc("TAX001", "Tax", str(tax_file), "s2", origin="pipeline")
     db.upsert_moc("MAN001", "Manual", str(tax_file), "s3", origin="manual")
 
-    idx = MagicMock()
-    removed = purge_hub_pipeline_mocs(cfg, db, idx)
+    MagicMock()
+    removed = purge_hub_pipeline_mocs(cfg, db)
 
     assert removed == 1
     assert not hub_file.exists()
@@ -150,7 +151,6 @@ def test_purge_hub_pipeline_mocs_keeps_taxonomy(tmp_path):
     assert db.get_moc("HUB001") is None
     assert db.get_moc("TAX001") is not None
     assert db.get_moc("MAN001") is not None
-    idx.delete_mocs.assert_called_once_with(["HUB001"])
     db.close()
 
 
@@ -204,7 +204,7 @@ def test_process_hub_cluster_routes_to_incremental(tmp_path):
     )
     llm = MagicMock()
     llm.invoke.return_value = incremental_response
-    idx = MagicMock()
+    MagicMock()
 
     from zettel.gardener_hub import _HubGardenStats, _process_hub_cluster
 
@@ -212,7 +212,6 @@ def test_process_hub_cluster_routes_to_incremental(tmp_path):
     result = _process_hub_cluster(
         cfg,
         db,
-        idx,
         llm,
         "HUB",
         ["HUB", "A", "B", "C"],
@@ -282,9 +281,8 @@ def test_hub_incremental_lists_notes_already_in_the_moc(tmp_path):
     _update_hub_moc(
         cfg,
         db,
-        MagicMock(),
         llm,
-        {"moc_id": "MOC002", "topic": "Tema Hub", "path": str(moc_file)},
+        {"moc_id": "MOC002", "topic": "Tema Hub", "path": str(moc_file), "origin": "hub_pipeline"},
         "HUB",
         ["B", "C"],
         "new_sig",
@@ -294,4 +292,82 @@ def test_hub_incremental_lists_notes_already_in_the_moc(tmp_path):
     subsections = sent.split("SUBSECOES:")[1].split("NOVAS:")[0]
     assert "[[ZTL - HUB - nota-central]]" in subsections
     assert "[[ZTL - A - nota-a]]" in subsections
+    db.close()
+
+
+# ── Proposed edges and configured weights (#299) ─────────────────────
+
+
+def _proposed_graph_db(tmp_path: Path) -> StateDB:
+    """HUB linked to A..E only by LLM edges still waiting for review."""
+    db = StateDB(tmp_path / "proposed.db")
+    for nid in ("HUB", "A", "B", "C", "D", "E"):
+        db.upsert_note(nid, "SRC", _perm_path(nid, nid.lower()), nid, body=nid)
+    for tgt in ("A", "B", "C", "D", "E"):
+        db.upsert_note_connection("HUB", tgt, "supports", "", status="proposed")
+    db.upsert_note_connection("A", "B", "related", "", status="rejected")
+    return db
+
+
+def test_edge_policy_weighs_proposed_edges_by_the_factor():
+    from zettel.state.connections import EdgePolicy
+
+    policy = EdgePolicy({"supports": 0.8}, proposed_factor=0.5)
+
+    assert policy.weight({"relation_type": "supports", "status": "accepted"}) == 0.8
+    assert policy.weight({"relation_type": "supports", "status": "proposed"}) == 0.4
+    assert policy.weight({"relation_type": "supports", "status": "rejected"}) == 0.0
+    walkable = EdgePolicy({"supports": 0.8})
+    assert walkable.weight({"relation_type": "supports", "status": "proposed"}) == 0.0
+
+
+def test_proposed_edges_count_in_hub_degree_and_bfs_only_with_a_factor(tmp_path):
+    from zettel.state.connections import EdgePolicy
+
+    db = _proposed_graph_db(tmp_path)
+    hcfg = HubMocsConfig(
+        selection_mode="absolute", min_weighted_degree=1.0, min_neighbor_weight=0.1
+    )
+    weights = {"supports": 0.8, "related": 0.5}
+
+    assert rank_note_hubs(db, hcfg, EdgePolicy(weights)) == []
+    assert build_hub_neighborhood(db, "HUB", hcfg, EdgePolicy(weights)) == ["HUB"]
+
+    policy = EdgePolicy(weights, proposed_factor=0.5)
+    assert rank_note_hubs(db, hcfg, policy) == [("HUB", pytest.approx(2.0))]
+    assert sorted(build_hub_neighborhood(db, "HUB", hcfg, policy)[1:]) == list("ABCDE")
+    db.close()
+
+
+def test_configured_relation_weights_change_hub_degree(tmp_path):
+    from zettel.gardener_assign import garden_edge_policy
+
+    db = _setup_graph_db(tmp_path)
+    cfg = AppConfig()
+    hcfg = HubMocsConfig(selection_mode="absolute", min_weighted_degree=0.0, top_n_hubs=10)
+    before = dict(rank_note_hubs(db, hcfg, garden_edge_policy(cfg)))
+
+    cfg.retrieval.graph_expansion.relation_weights["depends_on"] = 5.0
+    after = dict(rank_note_hubs(db, hcfg, garden_edge_policy(cfg)))
+
+    assert after["C"] == pytest.approx(before["C"] + 5.0 - 0.9)
+    assert after["HUB"] == pytest.approx(before["HUB"])
+    db.close()
+
+
+def test_hubs_on_an_unreviewed_graph_warn_instead_of_failing_silently(tmp_path, monkeypatch):
+    import zettel.gardener_hub as hub_mod
+
+    db = _proposed_graph_db(tmp_path)
+    cfg = AppConfig()
+    cfg.vault_path = tmp_path / "vault"
+    cfg.gardener.proposed_edge_factor = 0.0
+    monkeypatch.setattr(hub_mod, "get_llm", lambda cfg, phase: MagicMock())
+
+    assert hub_mod.run_garden_hubs(cfg, db) == []
+
+    report = db.latest_garden_report("garden_hubs")
+    assert report["actions"] == []
+    assert report["traversable_edges"] == 0 and report["proposed_edges"] == 5
+    assert any("zettel links" in w for w in report["warnings"])
     db.close()

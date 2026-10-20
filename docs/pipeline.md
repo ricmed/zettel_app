@@ -209,24 +209,32 @@ Quando uma nota permanente entra ou sai de um MOC, o pipeline atualiza o bloco *
 
 Módulos: [`gardener.py`](../zettel/gardener.py), [`gardener_assign.py`](../zettel/gardener_assign.py), [`moc_backrefs.py`](../zettel/moc_backrefs.py).
 
-Pipeline **híbrido** (taxonomia → cluster por categoria → grafo → roteamento LLM) — [ADR-019](adrs/generated/GARDEN/ADR-019-taxonomy-first-moc-clustering.md) e [ADR-021](adrs/generated/GARDEN/ADR-021-single-llm-call-per-cluster-routing.md):
+Pipeline **híbrido** (taxonomia → cluster por categoria → grafo → roteamento LLM) — [ADR-019](adrs/generated/GARDEN/ADR-019-taxonomy-first-moc-clustering.md) e [ADR-021](adrs/generated/GARDEN/ADR-021-single-llm-call-per-cluster-routing.md).
+
+**MOCs e hubs são portas de entrada, não índices completos** ([ADR-060](adrs/generated/GARDEN/ADR-060-mocs-and-hubs-are-entry-points.md)): cada MOC lista poucas notas, as melhores para começar, com uma linha de orientação para cada uma, e o leitor chega às demais pelo grafo. Notas fora de qualquer MOC são esperadas; o que indica problema é um assunto sem porta ou uma alcançabilidade baixa (relatório da execução).
 
 1. Carrega embeddings de todas as notas permanentes
 2. **Atribuição taxonomia-first** (`gardener_assign.py`): embedda labels `{pilar}: {categoria}` de `config/moc_topics.yaml` e agrupa cada nota no bucket de maior similaridade. Nomes de categoria precisam ser **globalmente únicos**.
-3. **Clusterização por bucket**: UMAP + HDBSCAN (ou KMeans como fallback) **dentro de cada categoria**, alinhando clusters ao guarda-chuva da taxonomia
-4. Extrai termos representativos via **TF-IDF**
-5. **Roteamento inteligente** (`_process_cluster`) — no máximo **1 chamada LLM por cluster**:
+3. **Clusterização por bucket**: UMAP + HDBSCAN (ou KMeans como fallback) **dentro de cada categoria**, alinhando clusters ao guarda-chuva da taxonomia. A semente `random_state` torna a partição reprodutível, e o HDBSCAN usa `max(min_cluster_size, min_notes_for_moc)` como tamanho mínimo, para não aceitar um cluster que não poderia virar MOC. O log informa o backend usado (`umap+hdbscan`, `kmeans` ou `single`), o ruído e os buckets pequenos
+4. **Seleção das notas de entrada** (`garden_entries.select_entry_notes`): de cada cluster, as `max_entries_per_moc` (10) notas mais bem colocadas pelo sinal `entry_selection` (`internal_degree`, padrão provisório; ou `medoid`, `first_in_source`, `relevance`, `corroboration`). O roteamento usa o cluster inteiro; o MOC recebe só as entradas
+5. Extrai termos representativos por **c-TF-IDF** entre os clusters da execução (título e campos de conteúdo das notas, sem stopwords PT-BR); vão para o prompt de geração e para o shadow `moc_category`
+6. **Roteamento por assunto** (`plan_subject` / `_process_subject`, #296). Cada categoria é um **assunto**, e todo assunto com notas suficientes ganha pelo menos uma porta. Primeiro, cada cluster da categoria:
    - Assinatura idêntica → skip (sem LLM)
-   - Overlap de notas com MOC existente ≥ `overlap_threshold` → `moc_incremental` apenas
-   - Categoria do bucket já tem MOC → `moc_incremental` apenas
+   - Overlap com um MOC do pipeline (a fração das entradas de **uma subseção** do MOC que cai no cluster ≥ `overlap_threshold`) → `moc_incremental` apenas
    - Coesão de grafo abaixo de `graph_cohesion_min_ratio` (se > 0) → cluster rejeitado, sem MOC novo
-   - Caso contrário → `moc_generation` uma vez, com **categoria sugerida** pelo pipeline no prompt
-6. **Validação de tópico** pós-geração:
-   - Substring match bidirecional contra os nomes das **categorias** do YAML
+   - Caso contrário o cluster é **novo**. O nome da categoria não é mais uma rota por cluster: ele mandava todo sub-cluster novo para o primeiro MOC da categoria.
+
+   Depois, os clusters novos da categoria, juntos:
+   - A categoria ainda não tem MOC e `k * min_entries_per_subtopic <= max_entries_per_moc` → **um MOC** com uma subseção por cluster (`max_entries_per_moc // k` entradas de cada), numa chamada de `moc_generation`
+   - A categoria ainda não tem MOC e os clusters não cabem → **MOC de MOCs**: um sub-MOC "Categoria — subtema" por cluster (uma chamada cada) e o MOC da categoria, que lista só os sub-MOCs na seção "Subtemas", com a primeira frase do resumo de cada um como orientação (mais uma chamada, para o resumo)
+   - A categoria já tem MOC → cada cluster novo entra nele como entradas enquanto o MOC só lista notas e tem espaço para `min_entries_per_subtopic`; senão, ou se o LLM não posicionar nenhuma nota do cluster, o cluster vira um sub-MOC listado no MOC da categoria. É o único caso de duas chamadas para um cluster
+7. **Validação de tópico** pós-geração:
+   - Igualdade (sem diferenciar caixa e acento) com o nome de uma **categoria** do YAML; o tópico gravado é o nome canônico. Substring não conta mais ("IA" passava por seis categorias)
    - Se `strict_topics: true` e sem match: MOC rejeitado (com warning no log)
-   - Se `strict_topics: false` e sem match: MOC aprovado (com info no log)
-7. **Atualização incremental**: classifica notas novas nas subseções existentes (`moc_incremental.md`); pode criar subseções
-8. Notas fora de MOC (ruído do HDBSCAN) permanecem no vault e são navegáveis via grafo/conexões — não existe fila de órfãs
+   - Se `strict_topics: false` e sem match: MOC aprovado como **tema emergente** (`emergent_topic: true` no frontmatter)
+8. **Atualização incremental**: oferece ao MOC só as entradas que cabem no teto (um MOC cheio não recebe nada e não gasta chamada); o LLM encaixa cada uma numa subseção existente ou nova, com a orientação, ou responde `ignorar`. O `ignorar` fica gravado em `moc_discards` (nota, motivo, checksum semântico da nota, checksum do prompt, modelo): a nota não é oferecida de novo àquele MOC enquanto não mudar, ou até `zettel garden --reoffer-discarded`. O arquivo e a assinatura do MOC só mudam quando as entradas mudam. Uma entrada que o LLM não posiciona fica registrada como omitida, não é listada (não existe mais a seção "Outras notas do cluster"). Cada subseção tem no máximo `max_entries_per_subsection` (5) entradas. Quando as entradas crescem `summary_refresh_growth` (50%), o resumo é reescrito (`moc_summary_refresh.md`)
+9. Notas fora de MOC (ruído do HDBSCAN ou fora da seleção) permanecem no vault e são navegáveis via grafo/conexões — não existe fila de órfãs
+10. **MOCs estáveis** ([ADR-061](adrs/generated/GARDEN/ADR-061-stable-mocs-persisted-bucket-models.md)): o modelo de cluster de cada categoria fica em `data/cache/garden/`; notas novas entram nos clusters existentes (`approximate_predict`) e uma execução sem nota nova não muda nada. Depois do roteamento, a entrada que nenhum cluster mandou a um MOC sai dele (no máximo um MOC taxonômico por nota). `--refit` reajusta; `zettel adopt-moc` entrega um MOC ao usuário
 
 Parâmetros híbridos em `config.yaml` (`gardener.*`):
 
@@ -234,13 +242,22 @@ Parâmetros híbridos em `config.yaml` (`gardener.*`):
 |-----------|-----------|
 | `cluster_within_category` | Ativa pipeline taxonomia-first (default `true`) |
 | `category_label_template` | Texto embeddavel por categoria (default `"{pilar}: {categoria}"`; `domain` continua disponível num template customizado) |
-| `overlap_threshold` | Fracao do cluster ja presente em um MOC → update incremental direto |
+| `category_label_mode` | Como a categoria vira vetor: `label` (padrão), `leaves_in_label` (folhas anexadas) ou `max_leaf` (um vetor por folha, vale a melhor). Só muda pela regra de `evals/preregistration/295-atribuicao-categoria.md` |
+| `assign_min_similarity` | Cosseno mínimo para atribuir categoria (`null` = sem limiar). Abaixo dele a nota vai para `_unassigned`, clusterizado livremente; o MOC desse cluster recebe tópico proposto pelo LLM |
+| `overlap_threshold` | Fração das entradas de uma subseção do MOC que cai no cluster → update incremental direto |
 | `graph_cohesion_enabled` | Calcula score interno do cluster via `note_connections` |
-| `graph_cohesion_min_ratio` | `0` = so log; `>0` rejeita cluster fraco antes de criar MOC novo |
+| `graph_cohesion_min_ratio` | Densidade ponderada `2*W_int / (n*(n-1))`, de 0 a 1. `0` = so log; `>0` rejeita cluster fraco antes de criar MOC novo |
 | `umap_n_neighbors` | `null` = auto |
 | `hdbscan_min_samples` | Opcional; ajuste fino do HDBSCAN |
+| `entry_selection` | Sinal que escolhe as notas de entrada (`internal_degree` provisório; medição pré-registrada em `evals/preregistration/297-portas-de-entrada.md`) |
+| `max_entries_per_moc` / `max_entries_per_subsection` | Teto de entradas por MOC (10, contando o hub nos MOCs hub) e por subseção (5) |
+| `min_entries_per_subtopic` | Entradas mínimas de cada sub-cluster num MOC compartilhado (3): `k` sub-clusters cabem num MOC só enquanto `k * 3 <= max_entries_per_moc`; acima disso, MOC de MOCs |
+| `summary_refresh_growth` | Fração de crescimento das entradas que dispara a reescrita do resumo (0,5) |
+| `proposed_edge_factor` | Fração do peso das arestas de LLM ainda propostas no grau/BFS dos hubs, na coesão e nas portas (0,5; 0 = só percorríveis) |
+| `warn_min_traversable_share` / `warn_min_reach` | Limiares dos avisos de grafo do relatório e do `doctor` (0,5 / 0,5) |
+| `random_state` | Semente do UMAP (e do KMeans de fallback). Fixa (`42`) = mesma partição para os mesmos vetores, o que permite reaproveitar MOCs por assinatura; `null` = mais rápido e não determinístico |
 
-`zettel garden --recreate` apaga os MOCs gerados pelo pipeline (`origin='pipeline'`) e regenera do zero, preservando MOCs manuais. É **obrigatório** depois de mudar o template de rótulo ou a taxonomia — os MOCs existentes ficam desalinhados. Antes de apagar cada MOC, **`clear_moc_backrefs`** remove os links dele dos blocos `auto-moc-backrefs` das notas permanentes. Ao criar ou atualizar um MOC, **`sync_moc_backrefs`** adiciona/remove wikilinks do MOC nas ZTL listadas no corpo do mapa.
+`zettel garden --recreate` apaga os MOCs gerados pelo pipeline (`origin='pipeline'`) e regenera do zero, preservando MOCs manuais. Um arquivo cujo frontmatter diga outra origem nunca é apagado. A taxonomia, o cliente de LLM e o embedding dos rótulos são conferidos **antes** da purga: se o provedor estiver fora, o comando para com código 1 sem apagar nada (ADR-059). É **obrigatório** depois de mudar o template de rótulo ou a taxonomia — os MOCs existentes ficam desalinhados. Antes de apagar cada MOC, **`clear_moc_backrefs`** remove os links dele dos blocos `auto-moc-backrefs` das notas permanentes. Ao criar ou atualizar um MOC, **`sync_moc_backrefs`** adiciona/remove wikilinks do MOC nas ZTL listadas no corpo do mapa.
 
 ---
 
@@ -255,7 +272,7 @@ python -m zettel garden --hubs              # MOCs hub (complementar)
 python -m zettel garden --hubs --recreate -y
 ```
 
-1. Ranqueia notas permanentes por **grau ponderado** no grafo (`DEFAULT_RELATION_WEIGHTS`)
+1. Ranqueia notas permanentes por **grau ponderado** no grafo (pesos de `retrieval.graph_expansion.relation_weights`). Arestas aceitas, derivadas e manuais pesam o peso da relação; arestas de LLM ainda **propostas** (fila de `zettel links`) pesam `gardener.proposed_edge_factor` (0,5) vezes isso; rejeitadas não contam. A mesma regra vale para a BFS, a coesão e a escolha das portas, nunca para o que o leitor percorre
 2. Expande a vizinhança via BFS (`expand_notes`, `max_hops` configurável)
 3. Deduplica vizinhanças muito sobrepostas (`dedup_subset_threshold`)
 4. Roteia cada hub:
@@ -273,6 +290,8 @@ python -m zettel garden --hubs --recreate -y
 | `max_neighbors` / `min_neighbors` | Tamanho da vizinhanca |
 | `min_neighbor_weight` | Filtra vizinhos fracos pos-BFS |
 | `dedup_subset_threshold` | Descarta hub menor se vizinhanca >= N% contida em outra |
+
+O relatório de `garden` e `garden --hubs` traz **avisos de grafo**: nenhuma aresta, menos de `warn_min_traversable_share` (50%) das arestas percorríveis, alcançabilidade a 2 saltos das portas abaixo de `warn_min_reach` (50%), e quantas arestas propostas pesaram nas escolhas. O `zettel doctor` repete a verificação ("Grafo das portas"). Medido no acervo de desenvolvimento (`scripts/probe_hub_policy.py`): com a fila revisada, as portas alcançam 99,2% das notas a 2 saltos; sem revisão, 35,9% com fator 0,5 e 24,7% com fator 0.
 
 `garden --hubs --recreate` apaga apenas MOCs `origin='hub_pipeline'`; MOCs taxonômicos (`pipeline`) e manuais permanecem intactos. A limpeza dos blocos `auto-moc-backrefs` segue a mesma lógica do `--recreate` taxonômico.
 

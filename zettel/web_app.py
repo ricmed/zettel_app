@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, load_config
+from zettel.config import AppConfig, load_config
 from zettel.llm import LLMUnavailableError
 from zettel.state import StateDB
 
@@ -810,6 +810,13 @@ class WebWorker:
         if operation == "review" and payload.get("action") == "discard":
             return _discard_extract_review(cfg, db, progress, payload)
 
+        if operation == "adopt_moc":
+            from zettel.gardener import MocAdoptError, adopt_moc
+
+            try:
+                return {"kind": "adopt_moc", **adopt_moc(cfg, db, payload["moc_id"])}
+            except MocAdoptError as exc:
+                raise UserFacingError(str(exc)) from exc
         if operation == "skill":
             return _dispatch_skill(cfg, db, progress, payload)
         if operation == "article":
@@ -889,7 +896,9 @@ class WebWorker:
 
             progress.emit(ProgressEvent("garden", "Fase 5/5 — atualizando mapas de conteúdo."))
             moc_ids = run_garden(cfg, db, idx, observer=progress)
+            garden_report = db.latest_garden_report("garden")
             return {
+                "garden_report": garden_report,
                 "sources": sources,
                 "drafts": len(drafts),
                 "review": review_stats,
@@ -1125,12 +1134,17 @@ class WebWorker:
             if payload.get("hubs"):
                 from zettel.gardener_hub import run_garden_hubs
 
-                mocs = run_garden_hubs(cfg, db, idx, observer=progress)
+                mocs = run_garden_hubs(cfg, db, observer=progress)
             else:
                 from zettel.gardener import run_garden
 
                 mocs = run_garden(cfg, db, idx, observer=progress)
-            return {"mocs": mocs}
+            pipeline = "garden_hubs" if payload.get("hubs") else "garden"
+            return {
+                "kind": "garden",
+                "mocs": mocs,
+                "garden_report": db.latest_garden_report(pipeline),
+            }
         if operation == "sync":
             from zettel.sync import run_sync_manual
 
@@ -1208,7 +1222,7 @@ class WebApplication:
             return db.get_web_dashboard(
                 low_max=LOW_CONFIDENCE_MAX,
                 limiar=self.cfg.literature_review.auto_approve_min_confidence,
-                relation_weights=DEFAULT_RELATION_WEIGHTS,
+                relation_weights=self.cfg.retrieval.graph_expansion.relation_weights,
             )
         finally:
             db.close()

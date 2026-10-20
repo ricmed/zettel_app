@@ -526,9 +526,6 @@ def _sync_moc(
     body: str,
 ) -> str:
     """Sync a MOC note. Returns 'new', 'updated', or 'skipped'."""
-    from zettel.gardener import _moc_embeddable
-    from zettel.rebuild import _moc_summary_from_body
-
     moc_id = meta.get("moc_id")
     if not moc_id:
         moc_id = str(ULID())
@@ -560,8 +557,6 @@ def _sync_moc(
         frontmatter_json=json.dumps(meta, ensure_ascii=False),
         origin=origin,
     )
-    # Unified MOC embedding text (matches gardener + reindex).
-    idx.upsert_moc(moc_id, _moc_embeddable(topic, _moc_summary_from_body(body)), {"topic": topic})
     from zettel.moc_backrefs import sync_moc_backrefs
 
     sync_moc_backrefs(

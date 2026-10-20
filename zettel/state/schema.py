@@ -142,8 +142,23 @@ CREATE TABLE IF NOT EXISTS mocs (
     frontmatter_json    TEXT,
     origin              TEXT NOT NULL DEFAULT 'pipeline',
     cluster_signature   TEXT,
+    parent_moc_id       TEXT,
     created_at          TEXT NOT NULL,
     updated_at          TEXT NOT NULL
+);
+
+-- Entry candidates the garden LLM answered "ignorar" for one MOC (#296): kept
+-- so the incremental update does not offer (and pay for) them again while the
+-- note's semantic checksum is unchanged.
+CREATE TABLE IF NOT EXISTS moc_discards (
+    moc_id          TEXT NOT NULL,
+    note_id         TEXT NOT NULL,
+    reason          TEXT NOT NULL DEFAULT '',
+    note_checksum   TEXT NOT NULL DEFAULT '',
+    prompt_checksum TEXT NOT NULL DEFAULT '',
+    model           TEXT NOT NULL DEFAULT '',
+    created_at      TEXT NOT NULL,
+    PRIMARY KEY (moc_id, note_id)
 );
 
 CREATE TABLE IF NOT EXISTS assets (
@@ -239,6 +254,14 @@ CREATE TABLE IF NOT EXISTS runs (
     cache_hits          INTEGER NOT NULL DEFAULT 0,
     prompt_cache_read_tokens   INTEGER NOT NULL DEFAULT 0,
     prompt_cache_write_tokens  INTEGER NOT NULL DEFAULT 0
+);
+
+-- What one garden run did and how far its entry points reach (#298).
+CREATE TABLE IF NOT EXISTS garden_reports (
+    run_id      INTEGER PRIMARY KEY REFERENCES runs(run_id) ON DELETE CASCADE,
+    pipeline    TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    created_at  TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS web_jobs (

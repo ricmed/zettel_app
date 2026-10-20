@@ -311,6 +311,8 @@ def purge_source(
         "wikilinks_cleaned": wikilinks_cleaned,
         "sqlite": sqlite_removed,
         "chunks_chroma": len(chunk_ids),
+        # Hub MOCs whose hub note this purge deleted (#300): flagged, not removed.
+        "orphan_hub_mocs": [m["topic"] for m in db.list_orphan_hub_mocs()],
         "compacted": False,
         "state_mb_before": 0.0,
         "state_mb_after": 0.0,

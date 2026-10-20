@@ -21,12 +21,13 @@ logger = logging.getLogger(__name__)
 COL_SOURCES = "sources"
 COL_CHUNKS = "chunks"
 COL_PERMANENT = "permanent_notes"
-COL_MOCS = "mocs"
+# There is no MOC collection (#301): nothing ever queried it, as with the
+# extinct `literature_notes`; MOCs live in the vault and in SQLite.
 # Resumos de capitulo (ADR-047). Leitor nomeado: zettel/catalog.py -- a colecao
 # nasce com consumidor, ao contrario da extinta `literature_notes`.
 COL_CHAPTER_SUMMARIES = "chapter_summaries"
 
-_ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_MOCS, COL_CHAPTER_SUMMARIES]
+_ALL_COLLECTIONS = [COL_SOURCES, COL_CHUNKS, COL_PERMANENT, COL_CHAPTER_SUMMARIES]
 
 _DEFAULT_OLLAMA_URL = "http://localhost:11434"
 _GEMINI_KEY_ENVS = ("GOOGLE_API_KEY", "GEMINI_API_KEY")
@@ -309,7 +310,7 @@ def peek_stored_embedding_identity(
 
 
 def _identity_from_client(client: Any) -> tuple[str | None, str | None, int | None]:
-    for name in (COL_PERMANENT, COL_CHUNKS, COL_SOURCES, COL_MOCS, COL_CHAPTER_SUMMARIES):
+    for name in (COL_PERMANENT, COL_CHUNKS, COL_SOURCES, COL_CHAPTER_SUMMARIES):
         try:
             col = client.get_collection(name)
         except Exception:
@@ -421,7 +422,6 @@ class VectorIndex:
         self.sources = None  # type: ignore[assignment]
         self.chunks = None  # type: ignore[assignment]
         self.permanent = None  # type: ignore[assignment]
-        self.mocs_col = None  # type: ignore[assignment]
         self.client = None  # type: ignore[assignment]
         self.embedding_fn = None  # type: ignore[assignment]
 
@@ -670,7 +670,6 @@ class VectorIndex:
             (COL_SOURCES, self.sources),
             (COL_CHUNKS, self.chunks),
             (COL_PERMANENT, self.permanent),
-            (COL_MOCS, self.mocs_col),
             (COL_CHAPTER_SUMMARIES, self.chapter_summaries),
         ):
             if self.collection_space(collection) != HNSW_SPACE:
@@ -691,7 +690,6 @@ class VectorIndex:
         self.sources = self._get_or_create(COL_SOURCES, **kwargs)
         self.chunks = self._get_or_create(COL_CHUNKS, **kwargs)
         self.permanent = self._get_or_create(COL_PERMANENT, **kwargs)
-        self.mocs_col = self._get_or_create(COL_MOCS, **kwargs)
         self.chapter_summaries = self._get_or_create(COL_CHAPTER_SUMMARIES, **kwargs)
         self._warn_if_distance_space_drifted()
         logger.debug("Coleções ChromaDB prontas")
@@ -707,7 +705,6 @@ class VectorIndex:
             COL_SOURCES: "sources",
             COL_CHUNKS: "chunks",
             COL_PERMANENT: "permanent",
-            COL_MOCS: "mocs_col",
             COL_CHAPTER_SUMMARIES: "chapter_summaries",
         }.get(name)
         if attr:
@@ -797,7 +794,6 @@ class VectorIndex:
             COL_SOURCES: self.sources,
             COL_CHUNKS: self.chunks,
             COL_PERMANENT: self.permanent,
-            COL_MOCS: self.mocs_col,
             COL_CHAPTER_SUMMARIES: self.chapter_summaries,
         }.get(collection_name)
         if collection is None:
@@ -834,11 +830,6 @@ class VectorIndex:
         if note_ids:
             self.permanent.delete(ids=note_ids)
             logger.debug("Index: %d notas permanentes removidas", len(note_ids))
-
-    def delete_mocs(self, moc_ids: list[str]) -> None:
-        if moc_ids:
-            self.mocs_col.delete(ids=moc_ids)
-            logger.debug("Index: %d mocs removidos", len(moc_ids))
 
     def query_similar_notes(
         self,
@@ -1052,14 +1043,6 @@ class VectorIndex:
                     self._stamp_distance(entry, self.chunks, raw["distances"][qi][i])
                 results.append(entry)
         return results
-
-    # ── MOCs ───────────────────────────────────────────────────────────
-
-    def upsert_moc(self, moc_id: str, summary: str, metadata: dict[str, Any]) -> None:
-        safe_meta = _sanitize_metadata(metadata)
-        self.mocs_col.upsert(ids=[moc_id], documents=[summary], metadatas=[safe_meta])
-        self._record_embed_usage(summary, label=f"moc:{moc_id}")
-        logger.debug("Index: upsert MOC %s", moc_id)
 
     def _record_embed_usage(
         self,

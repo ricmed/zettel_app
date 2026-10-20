@@ -177,3 +177,7 @@ relevance is the question in
 `evals/preregistration/286-ordem-contexto-prompt2.md`. Until that rule is
 scored, `build_rag_context` keeps the retriever's order. A caller may pass
 `order_key` to shuffle each group deterministically; connect does not.
+
+## Addendum (2026-10-20): the garden may weigh proposed edges (issue #299)
+
+**Status:** Accepted amendment. `graph.expand_notes` takes `proposed_factor` (default 0). Retrieval (`ask`, `article`, connect context) keeps 0 and walks only traversable edges. The garden's hub BFS passes `gardener.proposed_edge_factor`, so an LLM edge waiting for review contributes `factor * relation weight` to a path. The per-edge weight is `state.connections.EdgePolicy.weight`, which wraps `edge_weight`.

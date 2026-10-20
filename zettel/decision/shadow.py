@@ -165,17 +165,9 @@ def label_dedupe(db: StateDB, concept_id: str, action: str) -> None:
 
 
 def categories_with_topics(cfg: AppConfig) -> list[tuple[str, str, list[str]]]:
-    from zettel.gardener_assign import category_pairs
-    from zettel.taxonomy import TaxonomyLoadError, load_moc_taxonomy
+    from zettel.gardener_assign import category_leaves, category_pairs
 
-    topics: dict[str, list[str]] = {}
-    if cfg.gardener.topics_path is not None:
-        try:
-            tax = load_moc_taxonomy(cfg.gardener.topics_path)
-        except TaxonomyLoadError:
-            tax = None
-        if tax is not None:
-            topics = {c.nome: c.topicos for p in tax.taxonomia_conhecimento for c in p.categorias}
+    topics = category_leaves(cfg.gardener)
     return [(pillar, name, topics.get(name, [])) for pillar, name in category_pairs(cfg.gardener)]
 
 

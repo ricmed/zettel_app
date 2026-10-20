@@ -71,6 +71,7 @@ EXPECTED_COMMANDS = [
     "new-note",
     "sync-manual",
     "suggest-links",
+    "adopt-moc",
     # pipeline.py / qa.py / writing.py / export.py
     "run-all",
     "ask",

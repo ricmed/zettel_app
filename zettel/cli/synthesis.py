@@ -171,6 +171,7 @@ def garden(
         int | None,
         typer.Option(
             "--min-cluster-size",
+            help="Override de gardener.min_cluster_size nesta execucao",
         ),
     ] = None,
     hubs: Annotated[
@@ -185,6 +186,27 @@ def garden(
         typer.Option(
             "--recreate",
             help="Apagar MOCs gerados pelo pipeline e regenerar do zero",
+        ),
+    ] = False,
+    refit: Annotated[
+        bool,
+        typer.Option(
+            "--refit",
+            help="Reajustar o modelo de cluster de cada categoria (notas podem mudar de MOC)",
+        ),
+    ] = False,
+    reoffer_discarded: Annotated[
+        bool,
+        typer.Option(
+            "--reoffer-discarded",
+            help="Oferecer de novo aos MOCs as notas que o LLM ja deixou de fora",
+        ),
+    ] = False,
+    plan: Annotated[
+        bool,
+        typer.Option(
+            "--plan",
+            help="Mostrar o que seria feito (acoes, alcancabilidade), sem LLM e sem gravar",
         ),
     ] = False,
     yes: Annotated[
@@ -204,7 +226,7 @@ def garden(
     # --recreate deletes MOCs, so it is confirmed before anything is opened.
     # The two pipelines are purged independently: --hubs --recreate leaves the
     # taxonomy MOCs alone, and vice versa.
-    if recreate and not yes:
+    if recreate and not yes and not plan:
         target = "hub" if hubs else "taxonomia"
         if not typer.confirm(
             f"Apaga todos os MOCs do pipeline ({target}) "
@@ -216,26 +238,75 @@ def garden(
     db = get_db(cfg)
     idx = get_idx(cfg, db=db, yes=yes)
 
-    if hubs:
-        from zettel.gardener_hub import run_garden_hubs
+    from zettel.llm import LLMUnavailableError
 
-        with console.status("[bold blue]Cultivando MOCs hub...", spinner="dots"):
-            moc_ids = run_garden_hubs(cfg, db, idx, recreate=recreate)
-        if recreate:
-            console.print("[dim]MOCs hub do pipeline foram removidos antes da geracao.[/dim]")
-    else:
-        from zettel.gardener import run_garden
+    if plan:
+        _garden_plan(cfg, db, idx, hubs=hubs)
+        return
 
-        with console.status("[bold blue]Cultivando o jardim de notas...", spinner="dots"):
-            moc_ids = run_garden(cfg, db, idx, recreate=recreate)
-        if recreate:
-            console.print("[dim]MOCs do pipeline foram removidos antes da geracao.[/dim]")
+    if reoffer_discarded:
+        forgotten = db.clear_moc_discards()
+        console.print(
+            f"[dim]Descartes esquecidos: {forgotten} nota(s) podem voltar aos MOCs.[/dim]"
+        )
+
+    try:
+        if hubs:
+            from zettel.gardener_hub import run_garden_hubs
+
+            with console.status("[bold blue]Cultivando MOCs hub...", spinner="dots"):
+                moc_ids = run_garden_hubs(cfg, db, recreate=recreate)
+        else:
+            from zettel.gardener import run_garden
+
+            with console.status("[bold blue]Cultivando o jardim de notas...", spinner="dots"):
+                moc_ids = run_garden(cfg, db, idx, recreate=recreate, refit=refit)
+    except LLMUnavailableError as exc:
+        exit_llm_unavailable(exc, db)
+    if recreate:
+        target = "hub " if hubs else ""
+        console.print(f"[dim]MOCs {target}do pipeline foram removidos antes da geracao.[/dim]")
 
     if moc_ids:
         console.print(f"[green]MOCs gerados/atualizados: {len(moc_ids)}[/green]")
-        for mid in moc_ids:
-            console.print(f"  - {mid}")
     else:
-        console.print("[yellow]Nenhum MOC gerado (notas insuficientes ou ja atualizados).[/yellow]")
+        console.print("[yellow]Nenhum MOC gerado ou atualizado.[/yellow]")
+    from zettel.cli.formatting import print_garden_report
 
+    report = db.latest_garden_report("garden_hubs" if hubs else "garden")
+    if report:
+        print_garden_report(report, title="Garden hub" if hubs else "Garden")
+
+    db.close()
+
+
+def _garden_plan(cfg, db, idx, *, hubs: bool) -> None:
+    """Render ``garden --plan``: routing and reachability, no LLM, no write."""
+    import json
+
+    from zettel.cli.formatting import print_garden_report
+    from zettel.llm import LLMUnavailableError
+    from zettel.preflight import estimate_garden
+
+    try:
+        if hubs:
+            from zettel.gardener_hub import plan_garden_hubs
+
+            report = plan_garden_hubs(cfg, db)
+        else:
+            from zettel.gardener import plan_garden
+
+            with console.status("[bold blue]Planejando o jardim...", spinner="dots"):
+                report = plan_garden(cfg, db, idx)
+    except LLMUnavailableError as exc:
+        exit_llm_unavailable(exc, db)
+    print_garden_report(json.loads(report.to_json()))
+    estimate = estimate_garden(cfg, db, report)
+    console.print(
+        f"[dim]Chamadas de LLM previstas: {estimate.items} | tokens ~{estimate.input_tokens:,} in, "
+        f"~{estimate.output_tokens:,} out | custo est. ~${estimate.cost_usd:.4f} "
+        f"({estimate.provider}/{estimate.model})[/dim]"
+    )
+    for caveat in estimate.caveats:
+        console.print(f"[dim]{caveat}[/dim]")
     db.close()

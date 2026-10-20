@@ -2,23 +2,23 @@
 
 from __future__ import annotations
 
-import json
 import logging
-from dataclasses import dataclass
-from pathlib import Path
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from ulid import ULID
 
-from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, HubMocsConfig, llm_phase
+from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, HubMocsConfig
+from zettel.garden_report import ClusterAction, GardenReport, entry_note_ids, fill_reachability
+from zettel.gardener_assign import garden_edge_policy
 from zettel.graph import expand_notes
 from zettel.hashing import sha256_hex
-from zettel.index import VectorIndex
-from zettel.llm import call_llm, fill_template, get_llm, load_prompt_parts, parse_llm_json
+from zettel.llm import fill_template, get_llm, load_prompt_parts, parse_llm_json
 from zettel.schemas import MOCHubGenerationOutput
+from zettel.state.connections import EdgePolicy
 from zettel.taxonomy import resolve_allowed_topics
 from zettel.time import now_vault_iso
-from zettel.vault import note_filename, permanent_wikilink, safe_write_note
+from zettel.vault import note_filename
 
 if TYPE_CHECKING:
     from zettel.state import StateDB
@@ -26,7 +26,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _HUB_ORIGIN = "hub_pipeline"
-_MOC_FALLBACK_SUBSECTION = "Outras notas do cluster"
 
 
 @dataclass
@@ -36,6 +35,8 @@ class _HubGardenStats:
     skipped_signature: int = 0
     skipped_small: int = 0
     skipped_dedup: int = 0
+    actions: list[ClusterAction] = field(default_factory=list)
+    omitted: int = 0
 
 
 # ── Graph ranking (pure) ──────────────────────────────────────────────
@@ -44,11 +45,11 @@ class _HubGardenStats:
 def rank_note_hubs(
     db: StateDB,
     cfg: HubMocsConfig,
-    relation_weights: dict[str, float] | None = None,
+    policy: EdgePolicy | None = None,
 ) -> list[tuple[str, float]]:
-    """Rank permanent notes by weighted graph degree."""
-    weights = relation_weights or DEFAULT_RELATION_WEIGHTS
-    degrees = db.get_weighted_note_degrees(weights)
+    """Rank permanent notes by weighted graph degree under the garden's ``policy`` (#299)."""
+    policy = policy or EdgePolicy(dict(DEFAULT_RELATION_WEIGHTS))
+    degrees = db.get_weighted_note_degrees(policy.weights, proposed_factor=policy.proposed_factor)
     permanent = db.list_permanent_note_ids()
     if permanent:
         degrees = {nid: deg for nid, deg in degrees.items() if nid in permanent}
@@ -90,21 +91,11 @@ def build_hub_neighborhood(
     db: StateDB,
     hub_id: str,
     cfg: HubMocsConfig,
-    relation_weights: dict[str, float] | None = None,
+    policy: EdgePolicy | None = None,
 ) -> list[str]:
     """Return hub_id plus neighbor note IDs ordered by BFS weight."""
-    weights = relation_weights or DEFAULT_RELATION_WEIGHTS
     max_neighbor_slots = max(0, cfg.max_neighbors - 1)
-
-    neighbors = expand_notes(
-        db,
-        [hub_id],
-        max_hops=cfg.max_hops,
-        decay=cfg.decay,
-        relation_weights=weights,
-        max_neighbors=max_neighbor_slots * 2,
-        seed_weights={hub_id: 1.0},
-    )
+    neighbors = _hub_bfs(db, hub_id, cfg, policy, max_neighbor_slots * 2)
 
     ranked = sorted(
         (
@@ -117,6 +108,22 @@ def build_hub_neighborhood(
     )
     neighbor_ids = [nid for nid, _, _ in ranked[:max_neighbor_slots]]
     return [hub_id, *neighbor_ids]
+
+
+def _hub_bfs(
+    db: StateDB, hub_id: str, cfg: HubMocsConfig, policy: EdgePolicy | None, limit: int
+) -> dict:
+    policy = policy or EdgePolicy(dict(DEFAULT_RELATION_WEIGHTS))
+    return expand_notes(
+        db,
+        [hub_id],
+        max_hops=cfg.max_hops,
+        decay=cfg.decay,
+        relation_weights=dict(policy.weights),
+        max_neighbors=limit,
+        seed_weights={hub_id: 1.0},
+        proposed_factor=policy.proposed_factor,
+    )
 
 
 def dedup_hub_neighborhoods(
@@ -152,18 +159,10 @@ def get_neighbor_graph_context(
     hub_id: str,
     neighbor_ids: list[str],
     cfg: HubMocsConfig,
+    policy: EdgePolicy | None = None,
 ) -> dict[str, Any]:
     """Build per-neighbor hop/weight metadata for prompts."""
-    weights = DEFAULT_RELATION_WEIGHTS
-    expanded = expand_notes(
-        db,
-        [hub_id],
-        max_hops=cfg.max_hops,
-        decay=cfg.decay,
-        relation_weights=weights,
-        max_neighbors=cfg.max_neighbors,
-        seed_weights={hub_id: 1.0},
-    )
+    expanded = _hub_bfs(db, hub_id, cfg, policy, cfg.max_neighbors)
     context: dict[str, dict[str, Any]] = {}
     for nid in neighbor_ids:
         if nid == hub_id:
@@ -183,25 +182,54 @@ def get_neighbor_graph_context(
 def run_garden_hubs(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
     *,
     recreate: bool = False,
     observer=None,
 ) -> list[str]:
-    """Generate/update hub-anchored MOCs. Returns moc_ids."""
+    """Generate/update hub-anchored MOCs. Returns moc_ids.
+
+    Same fail-fast contract as ``run_garden`` (ADR-059): any escaping
+    exception records the run ``failed``; the LLM client is built before
+    ``--recreate`` purges anything.
+    """
     from zettel.usage import begin_run, finish_pipeline_run
 
     run_id = db.start_run("garden_hubs")
     begin_run(run_id)
+    status = "completed"
+    try:
+        moc_ids, stats = _garden_hubs(cfg, db, recreate=recreate, observer=observer)
+        report = fill_reachability(
+            GardenReport(
+                pipeline="garden_hubs",
+                actions=list(stats.actions),
+                orphan_hubs=_orphan_hub_topics(db),
+            ),
+            db,
+            entry_note_ids(db, origins=(_HUB_ORIGIN,)),
+            gcfg=cfg.gardener,
+        )
+        for warning in report.warnings:
+            logger.warning("Garden hubs: %s", warning)
+        db.save_garden_report(run_id, "garden_hubs", report.to_json())
+        return moc_ids
+    except Exception:
+        status = "failed"
+        raise
+    finally:
+        finish_pipeline_run(db, run_id, status)
 
+
+def _garden_hubs(
+    cfg: AppConfig, db: StateDB, *, recreate: bool, observer
+) -> tuple[list[str], _HubGardenStats]:
+    llm = get_llm(cfg, "garden")
     if recreate:
-        removed = purge_hub_pipeline_mocs(cfg, db, idx)
+        removed = purge_hub_pipeline_mocs(cfg, db)
         logger.info("Recriacao hub: %d MOC(s) removidos", removed)
 
-    hcfg = cfg.hub_mocs
     stats = _HubGardenStats()
-
-    ranked = rank_note_hubs(db, hcfg)
+    ranked, cluster_pairs = _hub_neighbourhoods(cfg, db, stats)
     from zettel.progress import report
 
     report(
@@ -210,37 +238,10 @@ def run_garden_hubs(
         f"{len(ranked)} hub(s) candidato(s).",
         total_items=len(ranked),
     )
-    if not ranked:
-        logger.info("Nenhum hub encontrado no grafo")
-        finish_pipeline_run(db, run_id)
-        return []
-
-    logger.info("Hubs candidatos: %d", len(ranked))
-
-    hubs_with_notes: list[tuple[str, float, list[str]]] = []
-    for hub_id, degree in ranked:
-        note_ids = build_hub_neighborhood(db, hub_id, hcfg)
-        if len(note_ids) < hcfg.min_neighbors:
-            stats.skipped_small += 1
-            continue
-        hubs_with_notes.append((hub_id, degree, note_ids))
-
-    before_dedup = len(hubs_with_notes)
-    cluster_pairs = dedup_hub_neighborhoods(hubs_with_notes, hcfg.dedup_subset_threshold)
-    stats.skipped_dedup = before_dedup - len(cluster_pairs)
-
     if not cluster_pairs:
-        logger.info("Nenhuma vizinhanca hub apos deduplicacao")
-        finish_pipeline_run(db, run_id)
-        return []
+        logger.info("Nenhuma vizinhanca hub (sem hubs ou todas pequenas/duplicadas)")
+        return [], stats
 
-    logger.info(
-        "Vizinhancas hub: %d (dedup descartou %d)",
-        len(cluster_pairs),
-        stats.skipped_dedup,
-    )
-
-    llm = get_llm(cfg, "garden")
     moc_ids: list[str] = []
     degree_by_hub = dict(ranked)
 
@@ -256,12 +257,12 @@ def run_garden_hubs(
         moc_id = _process_hub_cluster(
             cfg,
             db,
-            idx,
             llm,
             hub_id,
             note_ids,
             degree_by_hub.get(hub_id, 0.0),
             stats,
+            hub_entry_notes(db, hub_id, note_ids, cfg),
         )
         if moc_id:
             moc_ids.append(moc_id)
@@ -276,32 +277,87 @@ def run_garden_hubs(
         stats.skipped_small,
         stats.skipped_dedup,
     )
-
-    finish_pipeline_run(db, run_id)
-    return moc_ids
+    return moc_ids, stats
 
 
-def purge_hub_pipeline_mocs(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> int:
-    """Delete hub_pipeline MOCs from SQLite, ChromaDB and the vault."""
-    from zettel.gardener import _moc_vault_path
-    from zettel.moc_backrefs import clear_moc_backrefs
+def _hub_neighbourhoods(
+    cfg: AppConfig, db: StateDB, stats: _HubGardenStats
+) -> tuple[list[tuple[str, float]], list[tuple[str, list[str]]]]:
+    """Ranked hubs and their deduplicated neighbourhoods (no LLM, no write)."""
+    hcfg = cfg.hub_mocs
+    policy = garden_edge_policy(cfg)
+    ranked = rank_note_hubs(db, hcfg, policy)
+    if not ranked:
+        logger.info("Nenhum hub encontrado no grafo")
+        return [], []
+    logger.info("Hubs candidatos: %d", len(ranked))
 
-    removed = db.delete_hub_pipeline_mocs()
-    if not removed:
-        return 0
+    hubs_with_notes: list[tuple[str, float, list[str]]] = []
+    for hub_id, degree in ranked:
+        note_ids = build_hub_neighborhood(db, hub_id, hcfg, policy)
+        if len(note_ids) < hcfg.min_neighbors:
+            stats.skipped_small += 1
+            continue
+        hubs_with_notes.append((hub_id, degree, note_ids))
 
-    for moc in removed:
-        clear_moc_backrefs(db, moc, vault_timezone=cfg.vault_timezone)
+    cluster_pairs = dedup_hub_neighborhoods(hubs_with_notes, hcfg.dedup_subset_threshold)
+    stats.skipped_dedup = len(hubs_with_notes) - len(cluster_pairs)
+    logger.info("Vizinhancas hub: %d (dedup descartou %d)", len(cluster_pairs), stats.skipped_dedup)
+    return ranked, cluster_pairs
 
-    idx.delete_mocs([m["moc_id"] for m in removed])
 
-    for moc in removed:
-        path = _moc_vault_path(cfg, moc)
-        if path.is_file():
-            path.unlink()
-            logger.debug("Arquivo MOC hub removido: %s", path)
+def hub_entry_notes(db: StateDB, hub_id: str, note_ids: list[str], cfg: AppConfig) -> list[str]:
+    """The hub plus its best neighbours by the entry signal, within the MOC cap (ADR-060).
 
-    return len(removed)
+    No embeddings are loaded on the hub path, so ``medoid`` falls back to the
+    internal-degree tie-break.
+    """
+    from zettel.garden_entries import select_entry_notes
+
+    neighbours = [nid for nid in note_ids if nid != hub_id]
+    limit = max(0, cfg.gardener.max_entries_per_moc - 1)
+    return [
+        hub_id,
+        *select_entry_notes(
+            db, neighbours, cfg.gardener, limit=limit, policy=garden_edge_policy(cfg)
+        ),
+    ]
+
+
+def _orphan_hub_topics(db: StateDB) -> list[str]:
+    """Hub MOCs whose hub note was deleted (``delete-source --delete-permanent``, #300)."""
+    return [moc["topic"] for moc in db.list_orphan_hub_mocs()]
+
+
+def plan_garden_hubs(cfg: AppConfig, db: StateDB) -> GardenReport:
+    """What ``run_garden_hubs`` would do, with no LLM call and no write (#298)."""
+    stats = _HubGardenStats()
+    _ranked, cluster_pairs = _hub_neighbourhoods(cfg, db, stats)
+    planned_entries = entry_note_ids(db, origins=(_HUB_ORIGIN,))
+    actions: list[ClusterAction] = []
+    for hub_id, note_ids in cluster_pairs:
+        existing = db.find_moc_by_hub_note_id(hub_id)
+        signature = sha256_hex(f"hub:{hub_id}|" + "|".join(sorted(note_ids)))
+        if existing:
+            action, moc_id = "incremental", existing["moc_id"]
+        elif (by_sig := db.get_moc_by_signature(signature)) is not None:
+            action, moc_id = "signature_skip", by_sig["moc_id"]
+        else:
+            action, moc_id = "created", None
+        actions.append(ClusterAction(hub_id, len(note_ids), action, moc_id))
+        if action in ("created", "incremental"):
+            planned_entries.update(hub_entry_notes(db, hub_id, note_ids, cfg))
+    report = GardenReport(
+        pipeline="garden_hubs", planned=True, actions=actions, orphan_hubs=_orphan_hub_topics(db)
+    )
+    return fill_reachability(report, db, planned_entries, gcfg=cfg.gardener)
+
+
+def purge_hub_pipeline_mocs(cfg: AppConfig, db: StateDB) -> int:
+    """Delete hub_pipeline MOCs from SQLite and the vault."""
+    from zettel.gardener import purge_mocs_by_origin
+
+    return purge_mocs_by_origin(cfg, db, _HUB_ORIGIN)
 
 
 # ── Hub cluster processing ────────────────────────────────────────────
@@ -310,27 +366,47 @@ def purge_hub_pipeline_mocs(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> in
 def _process_hub_cluster(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
     llm: Any,
     hub_id: str,
     note_ids: list[str],
     weighted_degree: float,
     stats: _HubGardenStats,
+    entries: list[str] | None = None,
 ) -> str | None:
+    """Route a hub neighbourhood; the MOC lists only ``entries`` (ADR-060)."""
+    action, moc_id = _route_hub_cluster(
+        cfg, db, llm, hub_id, note_ids, weighted_degree, stats, entries
+    )
+    stats.actions.append(
+        ClusterAction(hub_id, len(note_ids), action if moc_id else "failed", moc_id)
+    )
+    return moc_id
+
+
+def _route_hub_cluster(
+    cfg: AppConfig,
+    db: StateDB,
+    llm: Any,
+    hub_id: str,
+    note_ids: list[str],
+    weighted_degree: float,
+    stats: _HubGardenStats,
+    entries: list[str] | None = None,
+) -> tuple[str, str | None]:
+    entries = list(note_ids) if entries is None else entries
     sorted_ids = sorted(note_ids)
     cluster_signature = sha256_hex(f"hub:{hub_id}|" + "|".join(sorted_ids))
 
     existing = db.find_moc_by_hub_note_id(hub_id)
     if existing:
         stats.incremental += 1
-        return _update_hub_moc(
+        return "incremental", _update_hub_moc(
             cfg,
             db,
-            idx,
             llm,
             existing,
             hub_id,
-            note_ids,
+            entries,
             cluster_signature,
         )
 
@@ -338,45 +414,52 @@ def _process_hub_cluster(
     if existing_sig:
         logger.debug("MOC hub ja existe para assinatura: %s", existing_sig["moc_id"])
         stats.skipped_signature += 1
-        return existing_sig["moc_id"]
+        return "signature_skip", existing_sig["moc_id"]
 
     moc_id = _create_new_hub_moc(
         cfg,
         db,
-        idx,
         llm,
         hub_id,
-        note_ids,
+        entries,
         cluster_signature,
         weighted_degree,
+        stats,
     )
     if moc_id:
         stats.created += 1
-    return moc_id
+    return "created", moc_id
 
 
 def _create_new_hub_moc(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
     llm: Any,
     hub_id: str,
     note_ids: list[str],
     cluster_signature: str,
     weighted_degree: float,
+    stats: _HubGardenStats | None = None,
 ) -> str | None:
+    """New hub MOC from the hub plus its selected entry neighbours (ADR-060)."""
     from zettel.gardener import (
         _allowed_note_ids,
         _build_note_alias_map,
-        _moc_embeddable,
+        _GardenStats,
+        _keep_discards,
+        _store_moc_row,
+        _subsections_from_output,
+        _write_moc,
+        call_garden_llm,
     )
 
     alias_to_id = _build_note_alias_map(note_ids)
     allowed = _allowed_note_ids(db, note_ids)
-    graph_ctx = get_neighbor_graph_context(db, hub_id, note_ids, cfg.hub_mocs)
+    graph_ctx = get_neighbor_graph_context(
+        db, hub_id, note_ids, cfg.hub_mocs, garden_edge_policy(cfg)
+    )
 
     prompt_parts = load_prompt_parts(cfg.prompts_path / "moc_hub_generation.md")
-    domain = cfg.domain.name
     try:
         _, taxonomy_detail = resolve_allowed_topics(
             cfg.gardener.topics_path,
@@ -387,7 +470,7 @@ def _create_new_hub_moc(
         taxonomy_detail = "_(Taxonomia indisponivel.)_"
 
     mapping = {
-        "domain": domain,
+        "domain": cfg.domain.name,
         "taxonomy_detail": taxonomy_detail,
         "hub_note_section": _format_hub_note_section(db, hub_id, weighted_degree),
         "neighbors_list": _format_neighbors_list(db, note_ids, hub_id, alias_to_id, graph_ctx),
@@ -396,205 +479,76 @@ def _create_new_hub_moc(
     system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
     user = fill_template(prompt_parts.user_template, mapping)
 
-    try:
-        spec = llm_phase(cfg, "garden")
-        response = call_llm(
-            llm,
-            user,
-            system=system or None,
-            provider=spec.provider,
-            prompt_cache=cfg.llm.prompt_cache,
-        )
-        moc_output = _parse_hub_moc_output(response)
-    except Exception as e:
-        logger.error("Erro ao gerar MOC hub: %s", e)
+    moc_output = call_garden_llm(
+        cfg, db, llm, system, user, _parse_hub_moc_output, subject_id=cluster_signature
+    )
+    if moc_output is None:
         return None
 
+    placed = {hub_id}
+    subsections = [
+        {"title": "Porta de entrada", "description": moc_output.hub_role, "entries": [(hub_id, "")]}
+    ]
+    subsections += _subsections_from_output(moc_output.subsections, allowed, alias_to_id, placed)
+    garden_stats = _GardenStats()
+    garden_stats.omitted = len(allowed - placed)
+
     moc_id = str(ULID())
+    _keep_discards(cfg, db, moc_id, allowed - placed, "nao posicionada na criacao")
     topic = moc_output.topic
     now = now_vault_iso(cfg.vault_timezone)
     meta = {
         "type": "hub_moc",
         "moc_id": moc_id,
         "topic": topic,
-        "cluster_signature": cluster_signature,
         "origin": _HUB_ORIGIN,
         "hub_note_id": hub_id,
         "hub_weighted_degree": weighted_degree,
+        "summary_entries": len(placed),
         "created_at": now,
         "updated_at": now,
     }
-
-    body = _build_hub_moc_body(
+    moc_path = cfg.vault_path / "40_MOCs" / note_filename("HUB", moc_id, topic)
+    _write_moc(
+        cfg,
         db,
+        moc_path,
+        meta,
         topic,
         moc_output.summary,
-        moc_output.hub_role,
-        hub_id,
-        moc_output.subsections,
-        allowed,
-        alias_to_id,
+        subsections,
+        previous_body=None,
+        stats=garden_stats,
     )
-
-    filename = note_filename("HUB", moc_id, topic)
-    moc_path = cfg.vault_path / "40_MOCs" / filename
-    safe_write_note(moc_path, meta, body)
-
-    from zettel.moc_backrefs import sync_moc_backrefs
-
-    sync_moc_backrefs(db, moc_id, topic, moc_path, vault_timezone=cfg.vault_timezone)
-
-    db.upsert_moc(
-        moc_id,
-        topic,
-        str(moc_path),
-        cluster_signature,
-        body=body,
-        frontmatter_json=json.dumps(meta, ensure_ascii=False),
-        origin=_HUB_ORIGIN,
-    )
-    idx.upsert_moc(
-        moc_id,
-        _moc_embeddable(topic, moc_output.summary),
-        {
-            "topic": topic,
-            "note_count": len(note_ids),
-            "hub_note_id": hub_id,
-        },
-    )
-
-    logger.info(
-        "MOC hub criado: %s — %s (hub %s, %d notas)",
-        moc_id,
-        topic,
-        hub_id,
-        len(note_ids),
-    )
+    _store_moc_row(db, moc_id, topic, moc_path, cluster_signature, _HUB_ORIGIN)
+    if stats is not None:
+        stats.omitted += garden_stats.omitted
+    logger.info("MOC hub criado: %s — %s (hub %s, %d entradas)", moc_id, topic, hub_id, len(placed))
     return moc_id
 
 
 def _update_hub_moc(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
     llm: Any,
     existing_moc: dict,
     hub_id: str,
     note_ids: list[str],
     cluster_signature: str,
 ) -> str | None:
-    from zettel.gardener import (
-        _allowed_note_ids,
-        _apply_incremental_placements,
-        _build_note_alias_map,
-        _build_notes_list,
-        _moc_embeddable,
-        _note_wikilink,
-        _parse_incremental_output,
-        _parse_moc_structure,
-        _snapshot_moc_file,
-    )
+    """Offer new entry neighbours to an existing hub MOC (shared incremental path)."""
+    from zettel.gardener import _update_existing_moc
 
-    moc_id = existing_moc["moc_id"]
-    moc_path = Path(existing_moc["path"]) if existing_moc.get("path") else None
-    if not moc_path or not moc_path.exists():
-        logger.warning("MOC hub file not found for %s", moc_id)
-        return None
-
-    structure = _parse_moc_structure(moc_path)
-    if structure is None:
-        return None
-
-    existing_ids = structure["all_note_ids"]
-    truly_new = [nid for nid in note_ids if nid not in existing_ids]
-
-    if not truly_new:
-        logger.info("MOC hub %s: nenhuma nota nova, atualizando assinatura", moc_id)
-        body_snap, fm_snap = _snapshot_moc_file(moc_path)
-        db.upsert_moc(
-            moc_id,
-            existing_moc["topic"],
-            str(moc_path),
-            cluster_signature,
-            body=body_snap,
-            frontmatter_json=fm_snap,
-            origin=_HUB_ORIGIN,
-        )
-        return moc_id
-
-    prompt_parts = load_prompt_parts(cfg.prompts_path / "moc_hub_incremental.md")
-    alias_to_id = _build_note_alias_map(truly_new)
-
-    sub_parts: list[str] = []
-    for sub in structure["subsections"]:
-        sub_parts.append(f"#### {sub['title']}")
-        if sub["description"]:
-            sub_parts.append(sub["description"])
-        for nid in sub["note_ids"]:
-            link = _note_wikilink(db, nid)
-            if link:
-                sub_parts.append(link.rstrip())
-        sub_parts.append("")
-
-    hub_note = db.get_note(hub_id)
-    hub_title = hub_note.get("title", hub_id) if hub_note else hub_id
-
-    mapping = {
-        "moc_topic": structure["topic"],
-        "moc_summary": structure["summary"],
-        "hub_note_title": hub_title,
-        "existing_subsections": "\n".join(sub_parts) if sub_parts else "_(Nenhuma subsecao)_",
-        "new_notes_list": _build_notes_list(db, truly_new, alias_to_id),
-    }
-    system = fill_template(prompt_parts.system, mapping) if prompt_parts.system else ""
-    user = fill_template(prompt_parts.user_template, mapping)
-
-    try:
-        spec = llm_phase(cfg, "garden")
-        response = call_llm(
-            llm,
-            user,
-            system=system or None,
-            provider=spec.provider,
-            prompt_cache=cfg.llm.prompt_cache,
-        )
-        incremental_output = _parse_incremental_output(response)
-    except Exception as e:
-        logger.error("Erro ao classificar notas hub incrementais: %s", e)
-        return None
-
-    _apply_incremental_placements(
+    return _update_existing_moc(
+        cfg,
         db,
-        moc_path,
-        structure,
-        incremental_output,
-        _allowed_note_ids(db, truly_new),
-        alias_to_id,
-        vault_timezone=cfg.vault_timezone,
-    )
-
-    body_snap, fm_snap = _snapshot_moc_file(moc_path)
-    db.upsert_moc(
-        moc_id,
-        existing_moc["topic"],
-        str(moc_path),
+        llm,
+        existing_moc,
+        [nid for nid in note_ids if nid != hub_id],
         cluster_signature,
-        body=body_snap,
-        frontmatter_json=fm_snap,
         origin=_HUB_ORIGIN,
+        prompt_name="moc_hub_incremental.md",
     )
-    idx.upsert_moc(
-        moc_id,
-        _moc_embeddable(structure["topic"], structure["summary"]),
-        {
-            "topic": existing_moc["topic"],
-            "note_count": len(existing_ids) + len(truly_new),
-            "hub_note_id": hub_id,
-        },
-    )
-
-    logger.info("MOC hub %s atualizado com %d notas novas", moc_id, len(truly_new))
-    return moc_id
 
 
 # ── Prompt / body helpers ─────────────────────────────────────────────
@@ -653,62 +607,3 @@ def _format_graph_context(graph_ctx: dict[str, dict[str, Any]]) -> str:
         for nid, m in graph_ctx.items()
     ]
     return "\n".join(lines)
-
-
-def _build_hub_moc_body(
-    db: StateDB,
-    topic: str,
-    summary: str,
-    hub_role: str,
-    hub_note_id: str,
-    subsections: list,
-    allowed_ids: set[str],
-    alias_to_id: dict[str, str],
-) -> str:
-    from zettel.gardener import (
-        _format_note_links,
-        _resolve_note_ref,
-    )
-
-    placed: set[str] = set()
-    body = f"# {topic}\n\n{summary}\n\n"
-
-    body += "## Porta de entrada\n\n"
-    if hub_role:
-        body += f"{hub_role}\n\n"
-    hub_note = db.get_note(hub_note_id)
-    if hub_note:
-        link = permanent_wikilink(
-            hub_note_id,
-            hub_note.get("title", ""),
-            path=hub_note.get("path"),
-        )
-        body += f"- {link}\n\n"
-        placed.add(hub_note_id)
-
-    for sub in subsections:
-        body += f"## {sub.title}\n\n"
-        if sub.description:
-            body += f"{sub.description}\n\n"
-        subsection_ids: list[str] = []
-        for ref in sub.note_ids:
-            nid = _resolve_note_ref(ref, allowed_ids, alias_to_id)
-            if not nid or nid in placed:
-                continue
-            subsection_ids.append(nid)
-            placed.add(nid)
-        body += _format_note_links(db, subsection_ids)
-        body += "\n"
-
-    missing = allowed_ids - placed
-    if missing:
-        logger.info(
-            "MOC hub: %d nota(s) reconciliada(s) em '%s'",
-            len(missing),
-            _MOC_FALLBACK_SUBSECTION,
-        )
-        body += f"## {_MOC_FALLBACK_SUBSECTION}\n\n"
-        body += _format_note_links(db, sorted(missing))
-        body += "\n"
-
-    return body

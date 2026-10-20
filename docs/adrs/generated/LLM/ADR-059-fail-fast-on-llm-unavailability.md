@@ -68,3 +68,12 @@ the failure that stops the phase.
 ## Addendum (2026-10-19): the PT-BR guard is on the same fail-fast (issue #289)
 
 **Status:** Accepted amendment. `apply_ptbr_guard` goes through `cached_call_llm`. A replay of Prompt 2 does not pay the guard again. `LLMUnavailableError` and any exception `is_llm_unavailable` classifies are re-raised, so a dead provider during the translation does not leave an English body as if the guard had merely "failed". A parse error on the guard still keeps the original text.
+
+## Addendum (2026-10-19): garden and garden --hubs fail fast (issue #293)
+
+**Status:** Accepted amendment. The garden wrapped every LLM call in `except Exception: return None`, so a dead provider made every cluster fail one by one (spending the retry budget N times), wrote no MOC and recorded the run `completed`; an exception outside those blocks (`get_llm` without the package) left the run `running`.
+
+- `gardener.call_garden_llm` is the single garden call: an error `is_llm_unavailable` classifies is re-raised as `LLMUnavailableError(phase="garden")`; a response that does not parse or validate is stored in `llm_failures` (`phase='garden'`, raw text, `subject_id` = cluster signature or MOC id) and only that cluster is skipped. Used by the four prompts (taxonomy and hub, generation and incremental).
+- A transport/auth/quota failure while embedding the category labels raises `LLMUnavailableError(phase="embedding")` instead of silently switching to global clustering. Any other failure still falls back to the global path.
+- `run_garden` and `run_garden_hubs` record `failed` for any exception that escapes, in a `finally`. The taxonomy check, `get_llm` and the label embeddings run **before** `--recreate` purges, so a broken setup never deletes MOCs without writing new ones.
+- CLI `zettel garden` exits 1 with the classified message (`exit_llm_unavailable`); the web worker and `run-all` already handled `LLMUnavailableError`.

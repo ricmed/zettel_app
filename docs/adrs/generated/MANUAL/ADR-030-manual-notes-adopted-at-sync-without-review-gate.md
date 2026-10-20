@@ -109,3 +109,7 @@ SRC→ZTL for fiction and authorial notes does **not** run Prompt 2. `zettel sug
 Adoption no longer embeds into `literature_notes` — that collection was removed ([ADR-015 amendment](../EXTRACT/ADR-015-granular-literature-notes-readable-filenames.md)). The rationale above rests on five behaviours the synthesized `chunks` row unlocks for free; four survive (the `auto-lit-index` refresh, `connector.literature_ref_for_chunk`, the `delete-source` cascade, FTS). The argument weakens rather than breaks: the chunk row is still the only thing the downstream machinery was missing.
 
 Correction to the surrounding docs: an adopted manual LIT does **not** appear in `ask`/`article`. The `Retriever` scores permanent notes, never LIT (ADR-036) — that was true before this change and is now also true of the vector store.
+
+## Addendum (2026-10-20): adopting a generated MOC (issue #300)
+
+**Status:** Accepted amendment. A MOC the garden generated can now become a manual note: `zettel adopt-moc <moc_id>` (or "Adotar MOC" on the web) sets `origin: manual` in the file and in SQLite and clears the routing signature, keeping the body, the `auto-moc-backrefs` blocks and the `topic_index_terms` rows. The next `sync-manual` sees a manual MOC whose checksum differs and syncs it like any hand-edited MOC; no garden pipeline rewrites or purges it again (ADR-061).

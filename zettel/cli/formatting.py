@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 
+from rich.markup import escape
 from rich.table import Table
 
 from zettel.cli.app import console
@@ -181,3 +182,70 @@ def print_connect_summary(outcome) -> None:
         )
     if outcome.cost_usd:
         console.print(f"  Custo LLM desta execucao: ${outcome.cost_usd:.4f}")
+
+
+_ACTION_LABELS = {
+    "created": "MOCs criados",
+    "moc_of_mocs": "MOCs de MOCs criados",
+    "submoc": "Sub-MOCs criados",
+    "home": "Clusters para o MOC da categoria",
+    "incremental": "Atualizacoes incrementais",
+    "signature_skip": "Reaproveitados por assinatura",
+    "rejected_cohesion": "Rejeitados por coesao",
+    "failed": "Falhas (resposta invalida)",
+}
+
+
+def print_garden_report(report: Mapping, *, title: str = "Garden") -> None:
+    """Render a persisted ``GardenReport`` (#298): routing, reachability, subjects."""
+    from zettel.garden_report import GardenReport
+
+    rep = GardenReport.from_dict(report)
+    heading = f"{title} (previsto, sem LLM)" if rep.planned else title
+    table = Table(title=heading)
+    table.add_column("Item", style="bold")
+    table.add_column("Valor", justify="right")
+    if rep.pipeline == "garden":
+        table.add_row("Notas analisadas", str(rep.notes_total))
+        table.add_row("Backend de clusterizacao", ", ".join(rep.backends) or "-")
+        table.add_row("Clusters encontrados", str(rep.clusters_found))
+        table.add_row("Notas em ruido (fora por design)", str(rep.noise_notes))
+    for action, count in sorted(rep.action_counts().items()):
+        table.add_row(_ACTION_LABELS.get(action, action), str(count))
+    if rep.discarded:
+        table.add_row("Notas deixadas de fora pelo LLM", str(sum(rep.discarded.values())))
+    if rep.omitted:
+        table.add_row("Entradas omitidas (nao posicionadas)", str(rep.omitted))
+    if rep.cap_reached:
+        table.add_row("Candidatas recusadas (MOC cheio)", str(rep.cap_reached))
+    if rep.model_buckets or rep.refit_buckets:
+        table.add_row("Categorias com modelo reaproveitado", str(rep.model_buckets))
+        table.add_row("Categorias reajustadas", str(rep.refit_buckets))
+        table.add_row("Notas novas encaixadas sem reajuste", str(rep.predicted_notes))
+    if rep.departed:
+        table.add_row("Entradas que sairam (mudaram de cluster)", str(sum(rep.departed.values())))
+    if rep.known_discards:
+        table.add_row("Candidatas ja descartadas (nao reenviadas)", str(rep.known_discards))
+    if rep.llm_failures:
+        table.add_row("Respostas invalidas (llm_failures)", str(rep.llm_failures))
+    table.add_row("Notas de entrada (portas)", str(rep.entries))
+    table.add_row("Alcancavel a 1 salto", f"{rep.reach.get('r1', 0):.1%}")
+    table.add_row("Alcancavel a 2 saltos", f"{rep.reach.get('r2', 0):.1%}")
+    table.add_row("Arestas percorriveis", f"{rep.traversable_edges}/{rep.total_edges}")
+    if rep.proposed_edges:
+        table.add_row("Arestas propostas (fila de revisao)", str(rep.proposed_edges))
+    console.print(table)
+    if rep.subjects_without_door:
+        console.print(
+            "[yellow]Assuntos sem porta de entrada: "
+            + ", ".join(rep.subjects_without_door)
+            + "[/yellow]"
+        )
+    if rep.mocs_without_cluster:
+        console.print(
+            "[yellow]MOCs que nenhum cluster alcancou nesta execucao (mantidos): "
+            + ", ".join(rep.mocs_without_cluster)
+            + "[/yellow]"
+        )
+    for warning in rep.warnings:
+        console.print(f"[yellow]{escape(warning)}[/yellow]")

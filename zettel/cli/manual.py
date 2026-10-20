@@ -362,3 +362,27 @@ def suggest_links(
     finally:
         db.close()
     console.print(f"[green]Sugestoes gravadas em auto-connections:[/green] {n}")
+
+
+@app.command(name="adopt-moc")
+def adopt_moc(
+    moc_id: Annotated[str, typer.Argument(help="ID do MOC gerado (pipeline ou hub)")],
+    config: ConfigOption = None,
+):
+    """Adotar um MOC gerado: vira manual, o garden nao o reescreve nem apaga."""
+    cfg = load_deps(config)
+    db = get_db(cfg)
+    from zettel.gardener import MocAdoptError
+    from zettel.gardener import adopt_moc as adopt
+
+    try:
+        result = adopt(cfg, db, moc_id)
+    except MocAdoptError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    finally:
+        db.close()
+    console.print(
+        f"[green]MOC adotado:[/green] {result['topic']} ({result['previous_origin']} -> manual). "
+        "Edite a vontade; `zettel sync-manual` o sincroniza."
+    )
