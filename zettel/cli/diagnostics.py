@@ -28,10 +28,13 @@ Each ``doctor`` check exists because of a specific failure mode:
 * **Chunking coverage** — a harvest interrupted between extraction and chunking
   leaves a source whose text is persisted but only partly chunked, so ``extract``
   silently processes an incomplete document. ``rechunk`` repairs it.
+* **SESSION_SECRET** — the web login is the only barrier in front of the vault,
+  and a short secret falls to an online guess campaign the throttle only slows.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from rich.table import Table
@@ -240,6 +243,13 @@ def doctor(config: ConfigOption = None):
             "(ou um processo ainda em execucao)",
         )
     )
+
+    # Web login secret: only its length can be checked from here (#305).
+    from zettel.credentials import session_secret_warning
+
+    if os.getenv("SESSION_SECRET"):
+        secret_warning = session_secret_warning()
+        checks.append(("SESSION_SECRET (web)", secret_warning is None, secret_warning or "ok"))
 
     # Inbox
     checks.append(("Inbox path", cfg.inbox_path.exists(), str(cfg.inbox_path)))

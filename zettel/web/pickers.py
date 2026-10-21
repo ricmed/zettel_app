@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from zettel.web.labels import lit_label, source_label
 from zettel.web.rendering import service
 from zettel.web.security import authenticated
 
@@ -38,33 +39,6 @@ def _authors(raw: Any) -> list[str]:
     return []
 
 
-def _source_label(row: dict) -> str:
-    citekey = row.get("citekey") or ""
-    title = (row.get("title") or "").strip()
-    year = row.get("year")
-    parts = [citekey]
-    if title:
-        parts.append(title)
-    label = " · ".join(parts)
-    if year:
-        label = f"{label} ({year})"
-    return label
-
-
-def _lit_label(row: dict) -> str:
-    index = row.get("chunk_index")
-    token = f"{int(index):04d}" if index is not None else "?"
-    page = row.get("page_in_book")
-    page_bit = f"p. {int(page)}" if page is not None else ""
-    section = (row.get("section_path") or row.get("locator") or "").strip()
-    bits = [token]
-    if page_bit:
-        bits.append(page_bit)
-    if section:
-        bits.append(section)
-    return " · ".join(bits)
-
-
 def _source_item(row: dict, next_index: int | None = None) -> dict:
     item = {
         "id": row["source_id"],
@@ -73,7 +47,7 @@ def _source_item(row: dict, next_index: int | None = None) -> dict:
         "title": row.get("title") or "",
         "authors": _authors(row.get("authors")),
         "year": row.get("year"),
-        "label": _source_label(row),
+        "label": source_label(row),
     }
     if next_index is not None:
         item["next_chunk_index"] = next_index
@@ -90,12 +64,12 @@ def _lit_item(row: dict) -> dict:
         "locator": row.get("locator") or "",
         "page_in_book": row.get("page_in_book"),
         "chunk_index": row.get("chunk_index"),
-        "label": _lit_label(row),
+        "label": lit_label(row),
     }
 
 
 @router.get("/api/pickers/sources")
-async def picker_sources(request: Request, q: str = "", limit: int = _DEFAULT_LIMIT):
+def picker_sources(request: Request, q: str = "", limit: int = _DEFAULT_LIMIT):
     if not authenticated(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     q = (q or "")[:_MAX_Q]
@@ -113,7 +87,7 @@ async def picker_sources(request: Request, q: str = "", limit: int = _DEFAULT_LI
 
 
 @router.get("/api/pickers/literature")
-async def picker_literature(
+def picker_literature(
     request: Request,
     q: str = "",
     source_id: str = "",

@@ -72,7 +72,7 @@ Variáveis reconhecidas:
 | `ANTHROPIC_API_KEY` | `provider: anthropic` |
 | `GOOGLE_API_KEY` | `provider: gemini` |
 | `DEEPSEEK_API_KEY` | `provider: deepseek` |
-| `SESSION_SECRET` | Login da [interface web](interface-web.md). Lido do ambiente do processo (`os.environ`), **não** do `config.yaml` |
+| `SESSION_SECRET` | Login da [interface web](interface-web.md). Lido do ambiente do processo (`os.environ`), **não** do `config.yaml`. Use pelo menos 32 caracteres gerados: `python -c "import secrets; print(secrets.token_urlsafe(32))"` (o `doctor` e a página de configuração avisam quando é curto) |
 | `ZETTEL_CONFIG` | Opcional: aponta `create_app()` / `WebApplication` para um YAML alternativo (usado nos testes) |
 
 O sistema carrega o `.env` automaticamente ao iniciar (via `python-dotenv`) — **não** é preciso exportar as variáveis no shell. Segredos nunca vão para o `config.yaml`.

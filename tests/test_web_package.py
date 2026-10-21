@@ -42,11 +42,14 @@ EXPECTED_ROUTES = [
     ("POST", "/pipeline/{operation}"),
     ("GET", "/review"),
     ("POST", "/review/action"),
+    ("POST", "/review/links/batch"),
+    ("POST", "/review/links"),
     ("GET", "/notes"),
     ("GET", "/notes/new"),
     ("POST", "/notes/new/biblio-preview"),
     ("POST", "/notes/new"),
     ("GET", "/studio"),
+    ("POST", "/studio/catalog"),
     ("POST", "/studio/ask"),
     ("POST", "/studio/summarize"),
     ("POST", "/studio/skill"),
@@ -57,7 +60,6 @@ EXPECTED_ROUTES = [
     ("GET", "/jobs/{job_id}"),
     ("POST", "/jobs/{job_id}/resume"),
     ("GET", "/api/jobs/{job_id}"),
-    ("GET", "/api/jobs/{job_id}/events"),
     ("GET", "/settings"),
     ("GET", "/notes/{note_id}/markdown"),
     ("GET", "/mocs/{moc_id}/markdown"),
@@ -169,6 +171,33 @@ def test_domain_modules_are_imported_lazily():
     )
 
 
+def _is_route_decorator(node: ast.expr) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "router"
+    )
+
+
+def test_route_handlers_run_in_the_threadpool():
+    """Every handler does blocking I/O: SQLite, YAML, Chroma, a provider call.
+
+    FastAPI runs an ``async def`` handler on the event loop, so one slow page
+    stalls every other request on the single Uvicorn worker (#304). A plain
+    ``def`` runs in the threadpool. Form bodies come from the async
+    ``read_form`` dependency, never from an ``await`` in the handler.
+    """
+    offenders = [
+        f"{path.name}:{node.name}"
+        for path in WEB_PKG.glob("*.py")
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.AsyncFunctionDef)
+        and any(_is_route_decorator(d) for d in node.decorator_list)
+    ]
+    assert not offenders, f"handlers async def: {offenders}"
+
+
 def test_route_modules_tuple_covers_the_package():
     from zettel.web import ROUTE_MODULES
 
@@ -203,3 +232,43 @@ def test_templates_and_static_resolve_from_the_package():
     assert mounts
     directory = Path(mounts[0].app.directory).resolve()
     assert directory == (ZETTEL_ROOT / "static").resolve()
+
+
+def _submitted_operations() -> set[str]:
+    """Every operation name a route passes to ``post_job`` as a literal."""
+    names = set()
+    for path in WEB_PKG.glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if (
+                isinstance(node, ast.Call)
+                and getattr(node.func, "id", None) == "post_job"
+                and len(node.args) > 1
+                and isinstance(node.args[1], ast.Constant)
+            ):
+                names.add(node.args[1].value)
+    return names
+
+
+def test_every_operation_a_route_submits_has_a_worker_handler():
+    """The routes and the worker share one enumerable registry (#318)."""
+    from zettel.web.preconditions import PIPELINE_OPERATIONS
+    from zettel.web_app import OPERATIONS
+
+    submitted = _submitted_operations()
+    assert {"adopt_moc", "ask", "article", "prepare_harvest", "review", "run_all"} <= submitted
+    pipeline = {"garden" if op == "garden_hubs" else op for op in PIPELINE_OPERATIONS}
+    # A confirmed review queues `harvest` in SQL (queue_web_harvest_review).
+    assert submitted | pipeline | {"harvest"} <= set(OPERATIONS)
+
+
+def test_no_function_is_copied_between_web_modules():
+    """A copy drifts (index_kwargs once lost `dimensions` in the web copy): share it (#318)."""
+    from collections import defaultdict
+
+    bodies: dict[str, list[str]] = defaultdict(list)
+    for path in sorted(WEB_PKG.glob("*.py")):
+        for node in ast.parse(path.read_text(encoding="utf-8")).body:
+            if isinstance(node, ast.FunctionDef):
+                body = ast.dump(ast.Module(body=node.body, type_ignores=[]))
+                bodies[body].append(f"{path.name}:{node.name}")
+    assert [names for names in bodies.values() if len(names) > 1] == []

@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
-import hashlib
+import os
 import re
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.datastructures import FormData
 
 from zettel.hashing import file_sha256
 from zettel.web.enqueue import post_job
-from zettel.web.health import llm_ready as _llm_ready
-from zettel.web.rendering import render, service
-from zettel.web.security import authenticated, csrf_ok, redirect_login, session
+from zettel.web.forms import read_form
+from zettel.web.preconditions import blocker
+from zettel.web.rendering import error_page, render, service
+from zettel.web.security import authenticated, csrf_ok, redirect_login
 
 router = APIRouter()
 
@@ -74,7 +76,7 @@ def _documents_page(request: Request, *, status_code: int = 200, error: str | No
         page="documents",
         sources=sources,
         inbox=inbox,
-        llm_ready=_llm_ready(cfg),
+        run_all_blocker=blocker(cfg, "run_all"),
         auto_approve_warning=_auto_approve_warning(),
         error=error,
         status_code=status_code,
@@ -82,18 +84,18 @@ def _documents_page(request: Request, *, status_code: int = 200, error: str | No
 
 
 @router.get("/documents", response_class=HTMLResponse)
-async def documents(request: Request):
+def documents(request: Request):
     if not authenticated(request):
         return redirect_login()
     return _documents_page(request)
 
 
 @router.post("/documents/upload", response_class=HTMLResponse)
-async def upload(request: Request, file: UploadFile = File(...), csrf: str = Form("")):
+def upload(request: Request, file: UploadFile = File(...), csrf: str = Form("")):
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, csrf):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
     original_name = file.filename or ""
     name = Path(original_name).name
     suffix = Path(name).suffix.lower()
@@ -110,7 +112,7 @@ async def upload(request: Request, file: UploadFile = File(...), csrf: str = For
         return _documents_page(
             request, error="Use um arquivo PDF, Markdown ou TXT com nome válido.", status_code=400
         )
-    data = await file.read(MAX_UPLOAD_BYTES + 1)
+    data = file.file.read(MAX_UPLOAD_BYTES + 1)
     if not data:
         return _documents_page(request, error="O arquivo está vazio.", status_code=400)
     if len(data) > MAX_UPLOAD_BYTES:
@@ -122,18 +124,30 @@ async def upload(request: Request, file: UploadFile = File(...), csrf: str = For
     try:
         destination.relative_to(cfg.inbox_path.resolve())
     except ValueError:
-        return HTMLResponse("Nome de arquivo inválido", status_code=400)
+        return error_page(request, 400, "Nome de arquivo inválido")
     if destination.exists():
         return _documents_page(
             request, error="Já existe um arquivo com esse nome no inbox.", status_code=409
         )
     cfg.inbox_path.mkdir(parents=True, exist_ok=True)
-    destination.write_bytes(data)
+    # Written beside, then linked in: a crash never leaves half a file under its
+    # final name, and a name taken meanwhile is refused, never overwritten (#315).
+    # The inbox lists only .pdf/.md/.txt, so the .part is never offered.
+    part = destination.with_name(f".{name}.part")
+    try:
+        part.write_bytes(data)
+        os.link(part, destination)
+    except FileExistsError:
+        return _documents_page(
+            request, error="Já existe um arquivo com esse nome no inbox.", status_code=409
+        )
+    finally:
+        part.unlink(missing_ok=True)
     return RedirectResponse("/documents", status_code=303)
 
 
 @router.post("/documents/harvest")
-async def harvest(
+def harvest(
     request: Request,
     selected_file: str = Form(""),
     duplicate_action: str = Form("skip"),
@@ -149,46 +163,45 @@ async def harvest(
     if not authenticated(request):
         return RedirectResponse("/login", status_code=303)
     if not csrf_ok(request, csrf):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
     if not selected_file.strip():
-        return HTMLResponse("Selecione um documento pendente antes de processar.", status_code=400)
+        return error_page(request, 400, "Selecione um documento pendente antes de processar.")
     cfg = service(request).cfg
     relative = Path(selected_file)
     if relative.is_absolute() or ".." in relative.parts or "\\" in selected_file:
-        return HTMLResponse("Seleção inválida", status_code=400)
+        return error_page(request, 400, "Seleção inválida")
     selected = (cfg.inbox_path / relative).resolve()
     try:
         selected.relative_to(cfg.inbox_path.resolve())
     except ValueError:
-        return HTMLResponse("Arquivo inválido", status_code=400)
+        return error_page(request, 400, "Arquivo inválido")
     if not selected.is_file() or selected.suffix.lower() not in ALLOWED_EXTENSIONS:
-        return HTMLResponse("Arquivo não encontrado", status_code=404)
+        return error_page(request, 404, "Arquivo não encontrado")
     db = service(request).db()
     try:
         if not _file_needs_harvest(db, selected):
-            return HTMLResponse(
-                "Este documento já foi processado e não precisa de novo harvest.",
-                status_code=409,
+            return error_page(
+                request, 409, "Este documento já foi processado e não precisa de novo harvest."
             )
     finally:
         db.close()
     if duplicate_action not in {"skip", "continue", "abort"}:
-        return HTMLResponse("Escolha uma ação válida para duplicatas.", status_code=400)
+        return error_page(request, 400, "Escolha uma ação válida para duplicatas.")
     if paging_mode not in {"auto", "manual", "first"}:
-        return HTMLResponse("Escolha um modo de paginação válido.", status_code=400)
+        return error_page(request, 400, "Escolha um modo de paginação válido.")
     if any(
         value not in {"", "1", "on", "true"}
         for value in (skip_biblio, skip_paging, dump_chunks, dump_extraction)
     ):
-        return HTMLResponse("Opção de processamento inválida.", status_code=400)
+        return error_page(request, 400, "Opção de processamento inválida.")
     if skip_paging:
         if paging_mode == "manual":
-            return HTMLResponse("Escolha apenas um modo de paginação.", status_code=400)
+            return error_page(request, 400, "Escolha apenas um modo de paginação.")
         paging_mode = "first"
     if selected.suffix.lower() != ".pdf" and (
         paging_mode != "auto" or content_start_file is not None or content_start_book is not None
     ):
-        return HTMLResponse("Paginação manual está disponível apenas para PDF.", status_code=400)
+        return error_page(request, 400, "Paginação manual está disponível apenas para PDF.")
     if paging_mode == "manual":
         if (
             content_start_file is None
@@ -196,11 +209,9 @@ async def harvest(
             or content_start_file < 1
             or content_start_book < 1
         ):
-            return HTMLResponse(
-                "Informe as duas páginas com valores a partir de 1.", status_code=400
-            )
+            return error_page(request, 400, "Informe as duas páginas com valores a partir de 1.")
     elif content_start_file is not None or content_start_book is not None:
-        return HTMLResponse("Remova as páginas manuais para usar este modo.", status_code=400)
+        return error_page(request, 400, "Remova as páginas manuais para usar este modo.")
     from zettel.chunk_dump import default_dump_dir as chunk_dump_dir
     from zettel.extraction_dump import default_dump_dir as extraction_dump_dir
 
@@ -210,7 +221,6 @@ async def harvest(
         {
             "selected_file": str(selected),
             "checksum": file_sha256(selected),
-            "session_hash": _session_hash(request),
             "duplicate_action": duplicate_action,
             "skip_biblio": bool(skip_biblio),
             "skip_paging": paging_mode == "first",
@@ -223,18 +233,12 @@ async def harvest(
     )
 
 
-def _session_hash(request: Request) -> str:
-    """Bind a review to the signed browser session without persisting its CSRF token."""
-    current = session(request)
-    return hashlib.sha256(current["csrf"].encode()).hexdigest()
-
-
 def _review_data(request: Request, review_id: str):
     svc = service(request)
     db = svc.db()
     try:
         job = db.get_web_job(review_id)
-        review = db.get_web_harvest_review(review_id, _session_hash(request))
+        review = db.get_web_harvest_review(review_id)
         if review and review["state"] == "submitted":
             review["retry_job"] = db.get_web_job(review["harvest_job_id"])
     finally:
@@ -384,24 +388,23 @@ def _parsed_biblio(form: Any, original: dict):
 
 
 @router.get("/documents/review/{review_id}", response_class=HTMLResponse)
-async def document_review(request: Request, review_id: str):
+def document_review(request: Request, review_id: str):
     if not authenticated(request):
         return redirect_login()
     found = _review_data(request, review_id)
     if not found:
-        return HTMLResponse("Revisão não encontrada para esta sessão.", status_code=404)
+        return error_page(request, 404, "Revisão não encontrada.")
     job, review = found
     error = _review_error(request, job, review)
     if error:
-        return HTMLResponse(error, status_code=409)
+        return error_page(request, 409, error)
     return _review_page(request, review_id, job)
 
 
 @router.post("/documents/review/{review_id}/preview")
-async def document_review_preview(request: Request, review_id: str):
+def document_review_preview(request: Request, review_id: str, form: FormData = Depends(read_form)):
     if not authenticated(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    form = await request.form()
     if not csrf_ok(request, str(form.get("csrf") or "")):
         return JSONResponse({"error": "csrf"}, status_code=403)
     found = _review_data(request, review_id)
@@ -424,21 +427,20 @@ async def document_review_preview(request: Request, review_id: str):
 
 
 @router.post("/documents/review/{review_id}")
-async def confirm_document_review(request: Request, review_id: str):
+def confirm_document_review(request: Request, review_id: str, form: FormData = Depends(read_form)):
     if not authenticated(request):
         return redirect_login()
-    form = await request.form()
     if not csrf_ok(request, str(form.get("csrf") or "")):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
     found = _review_data(request, review_id)
     if not found:
-        return HTMLResponse("Revisão não encontrada para esta sessão.", status_code=404)
+        return error_page(request, 404, "Revisão não encontrada.")
     job, review = found
     if form.get("decision") == "cancel":
         db = service(request).db()
         try:
-            if not db.cancel_web_harvest_review(review_id, _session_hash(request)):
-                return HTMLResponse("A revisão já foi concluída.", status_code=409)
+            if not db.cancel_web_harvest_review(review_id):
+                return error_page(request, 409, "A revisão já foi concluída.")
         finally:
             db.close()
         from zettel.harvester.prepared import remove_preparation
@@ -447,9 +449,9 @@ async def confirm_document_review(request: Request, review_id: str):
         return RedirectResponse("/documents", status_code=303)
     error = _review_error(request, job, review)
     if error:
-        return HTMLResponse(error, status_code=409)
+        return error_page(request, 409, error)
     if form.get("decision") != "confirm":
-        return HTMLResponse("Escolha uma ação válida.", status_code=400)
+        return error_page(request, 400, "Escolha uma ação válida.")
     from zettel.bibliography import FIELD_LABELS, missing_required
 
     values = {
@@ -494,13 +496,12 @@ async def confirm_document_review(request: Request, review_id: str):
     except ValueError as exc:
         return _review_page(request, review_id, job, error=str(exc), values=values, status_code=400)
     payload = {
-        **{k: v for k, v in job["payload"].items() if k not in {"checksum", "session_hash"}},
+        **{k: v for k, v in job["payload"].items() if k != "checksum"},
         "review_id": review_id,
-        "session_hash": _session_hash(request),
         "biblio": biblio.model_dump(),
         "abnt_reference": reference,
     }
-    harvest_job_id = service(request).submit_review(review_id, _session_hash(request), payload)
+    harvest_job_id = service(request).submit_review(review_id, payload)
     if not harvest_job_id:
         return _review_page(
             request,
@@ -520,7 +521,7 @@ def _auto_approve_warning() -> str:
 
 
 @router.post("/documents/run-all")
-async def documents_run_all(
+def documents_run_all(
     request: Request,
     csrf: str = Form(""),
     auto_approve: str = Form(""),
@@ -529,12 +530,10 @@ async def documents_run_all(
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, csrf):
-        return HTMLResponse("CSRF inválido", status_code=403)
-    if not _llm_ready(service(request).cfg):
-        return HTMLResponse(
-            "O provedor LLM não possui credencial configurada. Verifique Configuração / saúde.",
-            status_code=409,
-        )
+        return error_page(request, 403, "CSRF inválido")
+    reason = blocker(service(request).cfg, "run_all")
+    if reason:
+        return error_page(request, 409, reason)
     return post_job(
         request,
         "run_all",

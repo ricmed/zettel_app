@@ -61,3 +61,18 @@ Saved ask notes and articles go to `00_Inbox/`. Skills go to `<vault>/.claude/sk
 * `zettel/web_app.py` — `_dispatch_ask`, `_dispatch_summarize`, `_dispatch_skill`, `_dispatch_article`, `JobParked`
 * `zettel/article_graph/graph.py` — `ArticleDrive`
 * `zettel/state/web.py` — `awaiting_input` recovery, `next_queued_web_job`, `requeue_parked_job`
+
+## Addendum (2026-10-20): the catalog takes the operation lock (#308)
+
+The catalog no longer checks for a `queued`/`running` web job. It takes the cross-process operation lock (ADR-023 addendum) for its read of Chroma and answers 409 naming the holder, so it also waits out a CLI command. A job that is only queued no longer blocks it; the worker takes the lock once the catalog releases it.
+
+## Addendum (2026-10-20): the catalog runs on a POST (#315)
+
+`GET /studio?subject=` called the embedding, which is paid, from a GET that a browser may prefetch and that an outside link can fire (the session cookie is `SameSite=Lax`). `GET /studio` now only shows the forms; the catalog is `POST /studio/catalog` with the CSRF token, still synchronous, still answering 409 while the operation lock is held.
+
+## Addendum (2026-10-20): a pause expires; it does not survive a restart (#317)
+
+**Status:** Accepted.
+
+* **Deadline.** A parked article used to keep its compiled graph and its SQLite connection until the process stopped, however long nobody answered. The worker now records when each article parked (its own monotonic clock) and, on every pass of its loop (at least every 30 s), releases those parked longer than `web.article_pause_ttl_hours` (24; 0 never expires): the drive is abandoned, which finishes its run as failed, its connection is closed, and the job becomes `interrupted` with a message. The state change is atomic and conditional on `awaiting_input` (`StateDB.expire_parked_job`), so a pause the reviewer has just resumed (`queued`) keeps its graph.
+* **No persistent checkpointer, for now.** A LangGraph SQLite checkpointer (`langgraph-checkpoint-sqlite`, with `thread_id = job_id`) would let a pause survive a restart, but resuming would also have to rebuild the `ArticleRuntime` (config, database, vector index, callbacks) and re-attach the pipeline run whose usage is held by an in-memory `CostTracker` suspended at the pause. That is a new dependency and a second resume path for an event that is rare (a restart during a human pause measured at 101-150 s) and cheap to redo (the 204-314 s of generation before the pause, cents of LLM). The `MemorySaver` of ADR-028 stays. Revisit if pauses get longer (a review spread over days) or restarts become routine (a host that recycles the process).

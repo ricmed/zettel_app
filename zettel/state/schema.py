@@ -276,11 +276,18 @@ CREATE TABLE IF NOT EXISTS web_jobs (
     message         TEXT NOT NULL DEFAULT '',
     result_json     TEXT,
     error_message   TEXT,
-    run_id          INTEGER,
     created_at      TEXT NOT NULL,
     started_at      TEXT,
-    finished_at     TEXT,
-    FOREIGN KEY (run_id) REFERENCES runs(run_id)
+    finished_at     TEXT
+);
+
+-- Every run a web job opened, linked when the run starts (#311). A job can
+-- open several (run_all opens five) and an article opens its run before a
+-- pause that the job outlives.
+CREATE TABLE IF NOT EXISTS web_job_runs (
+    job_id  TEXT NOT NULL REFERENCES web_jobs(job_id) ON DELETE CASCADE,
+    run_id  INTEGER NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    PRIMARY KEY (job_id, run_id)
 );
 
 CREATE TABLE IF NOT EXISTS web_job_events (
@@ -295,11 +302,21 @@ CREATE TABLE IF NOT EXISTS web_job_events (
     FOREIGN KEY (job_id) REFERENCES web_jobs(job_id) ON DELETE CASCADE
 );
 
+-- The key that signs web session cookies (#305): random, never derived from
+-- SESSION_SECRET, so a captured cookie says nothing about the password.
+-- Logout replaces it, which ends every session. One row.
+CREATE TABLE IF NOT EXISTS web_auth (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    session_key TEXT NOT NULL,
+    rotated_at  TEXT NOT NULL
+);
+
 -- Bibliographic review of a web upload: the preparation job snapshots the
 -- file, the reviewer confirms once, and that confirmation enqueues the harvest.
+-- It belongs to the instance, not to a browser session: a new login or an
+-- expired cookie must not strand minutes of Docling work (#315).
 CREATE TABLE IF NOT EXISTS web_harvest_reviews (
     job_id           TEXT PRIMARY KEY,
-    session_hash     TEXT NOT NULL,
     file_checksum    TEXT NOT NULL,
     state            TEXT NOT NULL DEFAULT 'ready',
     harvest_job_id   TEXT,
@@ -308,7 +325,15 @@ CREATE TABLE IF NOT EXISTS web_harvest_reviews (
 
 CREATE INDEX IF NOT EXISTS idx_chunks_status    ON chunks(status);
 CREATE INDEX IF NOT EXISTS idx_chunks_source_id ON chunks(source_id);
+-- Chapter lookups (summarize, its pre-flight, the chapter map) scanned the
+-- whole table, text included (#307).
+CREATE INDEX IF NOT EXISTS idx_chunks_chapter   ON chunks(chapter_id, chunk_index);
 CREATE INDEX IF NOT EXISTS idx_concepts_note_id ON concepts(note_id);
+-- Notes created since the last garden, for the next-action banner (#316): without
+-- it the count reads every note body.
+CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at);
+-- The job page reads its events after the last one it saw (#313).
+CREATE INDEX IF NOT EXISTS idx_web_job_events_job ON web_job_events(job_id, event_id);
 CREATE INDEX IF NOT EXISTS idx_concepts_status  ON concepts(status);
 CREATE INDEX IF NOT EXISTS idx_nc_source        ON note_connections(source_note_id);
 CREATE INDEX IF NOT EXISTS idx_nc_target        ON note_connections(target_note_id);

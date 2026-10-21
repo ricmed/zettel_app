@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import secrets
 from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from zettel.state.base import StateBase, placeholders
@@ -39,8 +41,16 @@ class WebMixin(StateBase):
 
         Queued work remains queued and is picked up by the new worker. A harvest
         the reviewer already confirmed (``payload.review_id``) is re-queued
-        instead, since its confirmation cannot be given again.
+        instead, since its confirmation cannot be given again. Runs those jobs
+        left ``running`` are closed as ``interrupted``, so their partial cost is
+        not shown as work still in progress (#311).
         """
+        self.conn.execute(
+            "UPDATE runs SET status='interrupted', finished_at=? WHERE status='running' "
+            "AND run_id IN (SELECT l.run_id FROM web_job_runs l JOIN web_jobs j "
+            "ON j.job_id=l.job_id WHERE j.state IN ('running', 'awaiting_input'))",
+            (self._now(),),
+        )
         resumed = self.conn.execute(
             "UPDATE web_jobs SET state='queued', phase='queued', started_at=NULL, "
             "message='Retomando harvest confirmado após reinicialização' "
@@ -55,6 +65,26 @@ class WebMixin(StateBase):
         )
         self.conn.commit()
         return cur.rowcount + resumed
+
+    def purge_web_jobs(self, *, older_than_days: int) -> int:
+        """Delete finished jobs older than ``older_than_days``; ``0`` keeps all (#313).
+
+        Their events and run links go with them (cascade); the runs stay, as
+        pipeline history. A preparation's review row is deleted first, and its
+        snapshot is left for ``discard_orphan_preparations``. Returns the count.
+        """
+        if older_than_days <= 0:
+            return 0
+        cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
+        cutoff = cutoff.isoformat(timespec="seconds")
+        old = (
+            "SELECT job_id FROM web_jobs WHERE state IN ('succeeded','failed','interrupted') "
+            "AND COALESCE(finished_at, created_at) < ?"
+        )
+        self.conn.execute(f"DELETE FROM web_harvest_reviews WHERE job_id IN ({old})", (cutoff,))
+        cur = self.conn.execute(f"DELETE FROM web_jobs WHERE job_id IN ({old})", (cutoff,))
+        self.conn.commit()
+        return cur.rowcount
 
     def create_web_job(self, job_id: str, operation: str, payload: dict) -> bool:
         """Atomically enqueue a job, allowing one mutating operation at a time."""
@@ -78,30 +108,49 @@ class WebMixin(StateBase):
             self.conn.rollback()
             raise
 
+    # ── Session signing key (#305) ─────────────────────────────────────
+
+    def web_session_key(self) -> str:
+        """The cookie-signing key, created on first use."""
+        self.conn.execute(
+            "INSERT OR IGNORE INTO web_auth (id, session_key, rotated_at) VALUES (1, ?, ?)",
+            (secrets.token_hex(32), self._now()),
+        )
+        self.conn.commit()
+        return self.conn.execute("SELECT session_key FROM web_auth WHERE id=1").fetchone()[0]
+
+    def rotate_web_session_key(self) -> str:
+        """Replace the key; every cookie signed with the old one stops validating."""
+        key = secrets.token_hex(32)
+        self.conn.execute(
+            "INSERT INTO web_auth (id, session_key, rotated_at) VALUES (1, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET session_key=excluded.session_key, "
+            "rotated_at=excluded.rotated_at",
+            (key, self._now()),
+        )
+        self.conn.commit()
+        return key
+
     # ── Harvest reviews (web upload -> bibliographic review -> harvest) ──
 
-    def create_web_harvest_review(self, job_id: str, session_hash: str, checksum: str) -> None:
+    def create_web_harvest_review(self, job_id: str, checksum: str) -> None:
         self.conn.execute(
-            "INSERT INTO web_harvest_reviews (job_id, session_hash, file_checksum) "
-            "VALUES (?, ?, ?)",
-            (job_id, session_hash, checksum),
+            "INSERT INTO web_harvest_reviews (job_id, file_checksum) VALUES (?, ?)",
+            (job_id, checksum),
         )
         self.conn.commit()
 
-    def get_web_harvest_review(self, job_id: str, session_hash: str) -> dict | None:
-        return self._fetchone(
-            "SELECT * FROM web_harvest_reviews WHERE job_id=? AND session_hash=?",
-            (job_id, session_hash),
-        )
+    def get_web_harvest_review(self, job_id: str) -> dict | None:
+        return self._fetchone("SELECT * FROM web_harvest_reviews WHERE job_id=?", (job_id,))
 
-    def cancel_web_harvest_review(self, job_id: str, session_hash: str) -> bool:
+    def cancel_web_harvest_review(self, job_id: str) -> bool:
         cur = self.conn.execute(
             "UPDATE web_harvest_reviews SET state='cancelled' "
-            "WHERE job_id=? AND session_hash=? AND (state='ready' OR "
+            "WHERE job_id=? AND (state='ready' OR "
             "(state='submitted' AND EXISTS (SELECT 1 FROM web_jobs "
             "WHERE job_id=web_harvest_reviews.harvest_job_id "
             "AND state IN ('failed','interrupted'))))",
-            (job_id, session_hash),
+            (job_id,),
         )
         self.conn.commit()
         return cur.rowcount == 1
@@ -124,19 +173,17 @@ class WebMixin(StateBase):
             self.conn.commit()
         return ids
 
-    def queue_web_harvest_review(
-        self, job_id: str, session_hash: str, harvest_job_id: str, payload: dict
-    ) -> bool:
+    def queue_web_harvest_review(self, job_id: str, harvest_job_id: str, payload: dict) -> bool:
         """Consume a review exactly once, atomically with enqueuing its harvest."""
         try:
             self.conn.execute("BEGIN IMMEDIATE")
             ready = self.conn.execute(
                 "SELECT 1 FROM web_harvest_reviews r JOIN web_jobs j ON j.job_id=r.job_id "
                 "LEFT JOIN web_jobs prior ON prior.job_id=r.harvest_job_id "
-                "WHERE r.job_id=? AND r.session_hash=? AND j.state='succeeded' "
+                "WHERE r.job_id=? AND j.state='succeeded' "
                 "AND (r.state='ready' OR (r.state='submitted' "
                 "AND prior.state IN ('failed','interrupted')))",
-                (job_id, session_hash),
+                (job_id,),
             ).fetchone()
             busy = self.conn.execute(
                 "SELECT 1 FROM web_jobs WHERE state IN ('queued','running') LIMIT 1"
@@ -159,16 +206,16 @@ class WebMixin(StateBase):
             self.conn.rollback()
             raise
 
-    def has_active_web_job(self) -> bool:
-        """True when a job is ``queued`` or ``running``.
+    def active_web_job(self) -> dict | None:
+        """The ``queued`` or ``running`` job holding the slot (oldest first), or None.
 
         ``awaiting_input`` does not count: the worker is free while an article
-        waits for a human decision.
+        waits for a human decision. Returned so a 409 can name and link it (#316).
         """
-        row = self._fetchone(
-            "SELECT 1 AS present FROM web_jobs WHERE state IN ('queued','running') LIMIT 1"
+        return self._fetchone(
+            "SELECT job_id, operation, state FROM web_jobs WHERE state IN ('queued','running') "
+            "ORDER BY created_at, rowid LIMIT 1"
         )
-        return row is not None
 
     def next_queued_web_job(self) -> dict | None:
         """The oldest ``queued`` job. A newer finished row must not hide it."""
@@ -211,6 +258,19 @@ class WebMixin(StateBase):
             self.conn.rollback()
             raise
 
+    def expire_parked_job(self, job_id: str, message: str) -> bool:
+        """``awaiting_input`` -> ``interrupted``, atomically; False if it moved on (#317).
+
+        A pause the reviewer just resumed is ``queued`` and must keep its graph.
+        """
+        cur = self.conn.execute(
+            "UPDATE web_jobs SET state='interrupted', phase='interrupted', message=?, "
+            "finished_at=? WHERE job_id=? AND state='awaiting_input'",
+            (message, self._now(), job_id),
+        )
+        self.conn.commit()
+        return cur.rowcount == 1
+
     def claim_web_job(self, job_id: str) -> bool:
         cur = self.conn.execute(
             "UPDATE web_jobs SET state='running', phase='starting', started_at=? "
@@ -243,7 +303,6 @@ class WebMixin(StateBase):
         message: str | None = None,
         result: dict | None = None,
         error_message: str | None = None,
-        run_id: int | None = None,
         finished: bool = False,
     ) -> None:
         """COALESCE-update a job; an unknown ``job_id`` is a no-op."""
@@ -252,7 +311,7 @@ class WebMixin(StateBase):
             "current_item=COALESCE(?,current_item), current_index=COALESCE(?,current_index), "
             "total_items=COALESCE(?,total_items), message=COALESCE(?,message), "
             "result_json=COALESCE(?,result_json), error_message=COALESCE(?,error_message), "
-            "run_id=COALESCE(?,run_id), finished_at=COALESCE(?,finished_at) "
+            "finished_at=COALESCE(?,finished_at) "
             "WHERE job_id=?",
             (
                 state,
@@ -263,7 +322,6 @@ class WebMixin(StateBase):
                 message,
                 json.dumps(result) if result is not None else None,
                 error_message,
-                run_id,
                 self._now() if finished else None,
                 job_id,
             ),
@@ -294,6 +352,14 @@ class WebMixin(StateBase):
             (job_id, after_id),
         )
 
+    def list_web_job_runs(self, job_id: str) -> list[dict]:
+        """The runs ``job_id`` opened, oldest first, with their cost and status."""
+        return self._fetchall(
+            "SELECT r.* FROM web_job_runs l JOIN runs r ON r.run_id=l.run_id "
+            "WHERE l.job_id=? ORDER BY r.run_id",
+            (job_id,),
+        )
+
     # ── Aggregates ─────────────────────────────────────────────────────
 
     def get_stats(self) -> dict[str, int]:
@@ -312,6 +378,12 @@ class WebMixin(StateBase):
         )
         stats["concepts_connect_rejected"] = self._count(
             "SELECT COUNT(*) FROM concepts WHERE status='connect_rejected'"
+        )
+        stats["assets_failed"] = self._count("SELECT COUNT(*) FROM assets WHERE status='failed'")
+        # Notes the taxonomy garden has not seen yet: the "next action" banner (#316).
+        stats["notes_since_garden"] = self._count(
+            "SELECT COUNT(*) FROM notes WHERE created_at > COALESCE("
+            "(SELECT MAX(created_at) FROM garden_reports WHERE pipeline='garden'), '')"
         )
         stats["links_proposed"] = self._count(
             "SELECT COUNT(*) FROM note_connections WHERE origin='llm' AND status='proposed'"

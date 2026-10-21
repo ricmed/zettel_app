@@ -439,6 +439,11 @@ decision:
     article_judge: shadow          # notas do juiz (article)
     corroborates: shadow           # mesma ideia entre obras (connect)
 
+# ── Interface web ───────────────────────────────────────────────────────
+web:
+  job_retention_days: 90       # jobs encerrados mais antigos saem na subida; 0 guarda todos
+  article_pause_ttl_hours: 24  # pausa de artigo sem decisão é liberada depois disto; 0 nunca expira
+
 # ── Idioma dos prompts / texto gerado ──────────────────────────────────
 language: pt-BR
 

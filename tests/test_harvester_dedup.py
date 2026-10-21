@@ -34,7 +34,7 @@ from zettel.harvester import (
 from zettel.harvester import (
     sample_chunk_texts as _sample_chunk_texts,
 )
-from zettel.harvester.pipeline import _process_file
+from zettel.harvester.pipeline import HarvestDeclined, _process_file
 from zettel.state import StateDB
 
 
@@ -203,17 +203,18 @@ def test_process_file_detects_renamed_copy_by_file_hash(db, cfg, tmp_path, monke
     assert sid1 is not None
 
     run_id2 = db.start_run("sig2")
-    sid2, stats2 = _process_file(
-        cfg,
-        db,
-        idx,
-        copy,
-        run_id=run_id2,
-        interactive=False,
-        skip_biblio=True,
-    )
-    assert sid2 is None
-    assert stats2 == {}
+    with pytest.raises(HarvestDeclined) as declined:
+        _process_file(
+            cfg,
+            db,
+            idx,
+            copy,
+            run_id=run_id2,
+            interactive=False,
+            skip_biblio=True,
+        )
+    assert declined.value.reason == "duplicate_file"
+    assert "camada 1" in declined.value.message
 
     copy_record = db.get_file(str(copy))
     assert copy_record["source_id"] == sid1
@@ -248,17 +249,18 @@ def test_process_file_detects_cross_format_content_duplicate(db, cfg, tmp_path):
     assert sid1 is not None
 
     run_id2 = db.start_run("sig2")
-    sid2, stats2 = _process_file(
-        cfg,
-        db,
-        idx,
-        pdf_like_file,
-        run_id=run_id2,
-        interactive=False,
-        skip_biblio=True,
-    )
-    assert sid2 is None
-    assert stats2 == {}
+    with pytest.raises(HarvestDeclined) as declined:
+        _process_file(
+            cfg,
+            db,
+            idx,
+            pdf_like_file,
+            run_id=run_id2,
+            interactive=False,
+            skip_biblio=True,
+        )
+    assert declined.value.reason == "duplicate_content"
+    assert "camada 2" in declined.value.message
 
     second_file_record = db.get_file(str(pdf_like_file))
     assert second_file_record["source_id"] == sid1
@@ -292,18 +294,19 @@ def test_process_file_semantic_duplicate_skip(db, cfg, tmp_path, monkeypatch):
     )
 
     run_id = db.start_run("sig")
-    sid, stats = _process_file(
-        cfg,
-        db,
-        idx,
-        new_file,
-        run_id=run_id,
-        interactive=False,
-        duplicate_action="skip",
-        skip_biblio=True,
-    )
-    assert sid is None
-    assert stats == {}
+    with pytest.raises(HarvestDeclined) as declined:
+        _process_file(
+            cfg,
+            db,
+            idx,
+            new_file,
+            run_id=run_id,
+            interactive=False,
+            duplicate_action="skip",
+            skip_biblio=True,
+        )
+    assert declined.value.reason == "duplicate_skipped"
+    assert "camada 5" in declined.value.message
     run = db.get_run(run_id)
     assert run["duplicate_semantic_count"] == 1
     # No source should have been created for the skipped file.
@@ -549,11 +552,10 @@ def test_process_file_reuses_source_on_identical_doi(db, cfg, tmp_path, monkeypa
     assert db.get_source(sid1)["doi"] == "10.1234/artigo"
 
     run2 = db.start_run("sig2")
-    sid2, stats2 = _process_file(
-        cfg, db, idx, second, run_id=run2, interactive=False, skip_biblio=True
-    )
-    assert sid2 is None
-    assert stats2 == {}
+    with pytest.raises(HarvestDeclined) as declined:
+        _process_file(cfg, db, idx, second, run_id=run2, interactive=False, skip_biblio=True)
+    assert declined.value.reason == "duplicate_id"
+    assert "camada 3, DOI" in declined.value.message
     assert db.get_file(str(second))["source_id"] == sid1
     assert db.get_run(run2)["duplicate_biblio_count"] == 1
 
@@ -647,12 +649,13 @@ def test_process_file_reuses_source_on_doi_with_trailing_punctuation(db, cfg, tm
     sid1, _ = _process_file(
         cfg, db, idx, first, run_id=db.start_run("s1"), interactive=False, skip_biblio=True
     )
-    sid2, stats2 = _process_file(
-        cfg, db, idx, second, run_id=db.start_run("s2"), interactive=False, skip_biblio=True
-    )
+    with pytest.raises(HarvestDeclined) as declined:
+        _process_file(
+            cfg, db, idx, second, run_id=db.start_run("s2"), interactive=False, skip_biblio=True
+        )
+    assert declined.value.reason == "duplicate_id"
+    assert "camada 3, DOI" in declined.value.message
     assert sid1 is not None
-    assert sid2 is None
-    assert stats2 == {}
     assert db.get_file(str(second))["source_id"] == sid1
 
 
@@ -701,12 +704,13 @@ def test_same_isbn_and_title_still_merges_without_asking(db, cfg, tmp_path):
     sid1, _ = _process_file(
         cfg, db, idx, first, run_id=db.start_run("s1"), interactive=False, skip_biblio=True
     )
-    sid2, stats2 = _process_file(
-        cfg, db, idx, second, run_id=db.start_run("s2"), interactive=False, skip_biblio=True
-    )
+    with pytest.raises(HarvestDeclined) as declined:
+        _process_file(
+            cfg, db, idx, second, run_id=db.start_run("s2"), interactive=False, skip_biblio=True
+        )
+    assert declined.value.reason == "duplicate_id"
+    assert "camada 3, ISBN" in declined.value.message
     assert sid1 is not None
-    assert sid2 is None
-    assert stats2 == {}
     assert db.get_file(str(second))["source_id"] == sid1
 
 
@@ -810,12 +814,12 @@ def test_modified_file_skip_keeps_the_path_on_the_same_source(cfg, db, tmp_path,
     )
     assert sid
     before = {row["chunk_id"] for row in db.get_chunks_for_source(sid)}
-    with caplog.at_level("WARNING"):
-        again, stats = _harvest_markdown(
+    with caplog.at_level("WARNING"), pytest.raises(HarvestDeclined) as declined:
+        _harvest_markdown(
             cfg, db, path, _two_chapter_book("Texto revisado do segundo capitulo. " * 8)
         )
-    assert again is None
-    assert stats == {}
+    assert declined.value.reason == "modified_kept"
+    assert "mudou" in declined.value.message
     assert db.get_file(str(path))["source_id"] == sid
     assert {row["chunk_id"] for row in db.get_chunks_for_source(sid)} == before
     assert len(db.list_sources()) == 1

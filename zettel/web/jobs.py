@@ -1,13 +1,17 @@
-"""Job list, detail, JSON snapshot, SSE stream."""
+"""Job list, detail and JSON snapshot.
+
+The detail page polls ``/api/jobs/{id}`` once a second. There is no SSE stream:
+nothing consumed it, and a stream would hold a threadpool thread per open page
+(ADR-062) for a single-user app where one-second polling is enough (#313).
+"""
 
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from zettel.web.rendering import render, service
+from zettel.web.labels import md_cell
+from zettel.web.rendering import error_page, render, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login
 from zettel.web_app import UserFacingError
 
@@ -56,10 +60,6 @@ def _resume_decision(
     raise UserFacingError("Decisão inválida.")
 
 
-def _cell(value: object) -> str:
-    return str(value or "").replace("|", "/").replace("\n", " ").strip()
-
-
 def result_copy_text(result: dict) -> str:
     """Plain text a person can paste elsewhere. Empty when the job has none."""
     kind = str((result or {}).get("kind") or "")
@@ -96,10 +96,10 @@ def result_copy_text(result: dict) -> str:
                 "| "
                 + " | ".join(
                     [
-                        _cell(note.get("title") or note.get("note_id")),
+                        md_cell(note.get("title") or note.get("note_id")),
                         f"{score:.4f}",
                         str(int(note.get("hop") or 0)),
-                        _cell(note.get("source_id") or "-"),
+                        md_cell(note.get("source_id") or "-"),
                     ]
                 )
                 + " |"
@@ -153,19 +153,19 @@ def _presentation(job: dict) -> dict:
 
 
 @router.get("/runs", response_class=HTMLResponse)
-async def runs(request: Request):
+def runs(request: Request):
     if not authenticated(request):
         return redirect_login()
     return render(request, "jobs.html", page="runs", jobs=service(request).jobs())
 
 
 @router.get("/jobs/{job_id}", response_class=HTMLResponse)
-async def job_detail(request: Request, job_id: str):
+def job_detail(request: Request, job_id: str):
     if not authenticated(request):
         return redirect_login()
     job = service(request).job(job_id)
     if not job:
-        return HTMLResponse("Trabalho não encontrado", status_code=404)
+        return error_page(request, 404, "Trabalho não encontrado")
     view = _presentation(job)
     return render(
         request,
@@ -180,7 +180,7 @@ async def job_detail(request: Request, job_id: str):
 
 
 @router.post("/jobs/{job_id}/resume")
-async def job_resume(
+def job_resume(
     request: Request,
     job_id: str,
     csrf: str = Form(""),
@@ -191,26 +191,23 @@ async def job_resume(
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, csrf):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
     job = service(request).job(job_id)
     if not job:
-        return HTMLResponse("Trabalho não encontrado", status_code=404)
+        return error_page(request, 404, "Trabalho não encontrado")
     interrupt = ((job.get("result") or {}).get("interrupt_type")) or "context_review"
     try:
         choice = _resume_decision(interrupt, decision, extra_queries, outline_feedback)
         resumed = service(request).resume_article(job_id, choice)
     except UserFacingError as exc:
-        return HTMLResponse(str(exc), status_code=409)
+        return error_page(request, 409, str(exc))
     if resumed is None:
-        return HTMLResponse(
-            "Outra operação mutante já está em andamento.",
-            status_code=409,
-        )
+        return error_page(request, 409, "Outra operação mutante já está em andamento.")
     return RedirectResponse(f"/jobs/{job_id}", status_code=303)
 
 
 @router.get("/api/jobs/{job_id}")
-async def job_api(request: Request, job_id: str, after: int = 0):
+def job_api(request: Request, job_id: str, after: int = 0):
     if not authenticated(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     job = service(request).job(job_id)
@@ -221,25 +218,3 @@ async def job_api(request: Request, job_id: str, after: int = 0):
         "events": service(request).events(job_id, max(0, after)),
         "continue_href": continue_href(job),
     }
-
-
-@router.get("/api/jobs/{job_id}/events")
-async def job_events(request: Request, job_id: str):
-    if not authenticated(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-
-    async def stream():
-        last = 0
-        for _ in range(20):
-            events = service(request).events(job_id, last)
-            for event in events:
-                last = max(last, event["event_id"])
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-            job = service(request).job(job_id)
-            if job and job["state"] in {"succeeded", "failed", "interrupted"}:
-                break
-            import asyncio
-
-            await asyncio.sleep(0.5)
-
-    return StreamingResponse(stream(), media_type="text/event-stream")

@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import json
+from contextvars import ContextVar
 
 from zettel.state.base import StateBase
+
+# The web job whose worker is running in this context. The worker sets it
+# around a job, so every run that job opens is linked to it at start (#311);
+# a CLI process or another thread never sees the value.
+current_web_job: ContextVar[str | None] = ContextVar("current_web_job", default=None)
 
 # Duplicate-detection layer -> counter column on the run row.
 _DUPLICATE_COLUMNS = {
@@ -21,6 +27,11 @@ class RunsMixin(StateBase):
             "INSERT INTO runs (pipeline_signature, started_at, status) VALUES (?, ?, 'running')",
             (pipeline_signature, self._now()),
         )
+        job_id = current_web_job.get()
+        if job_id:
+            self.conn.execute(
+                "INSERT INTO web_job_runs (job_id, run_id) VALUES (?, ?)", (job_id, cur.lastrowid)
+            )
         self.conn.commit()
         return cur.lastrowid  # type: ignore[return-value]
 

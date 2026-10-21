@@ -5,11 +5,14 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.datastructures import FormData
 
-from zettel.web.enqueue import post_job
+from zettel.web.enqueue import operation_lock, post_job
+from zettel.web.forms import read_form
 from zettel.web.health import llm_phase_ready as _llm_phase_ready
+from zettel.web.labels import lit_label, source_label
 from zettel.web.manual_form import (
     PreflightConflict,
     biblio_text_sample,
@@ -18,7 +21,7 @@ from zettel.web.manual_form import (
     preflight_from_lit,
     resolve_from_lit,
 )
-from zettel.web.rendering import render, service
+from zettel.web.rendering import error_page, render, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login
 
 router = APIRouter()
@@ -48,40 +51,13 @@ _PRESERVED_FORM_FIELDS = (
 )
 
 
-def _source_label(row: dict) -> str:
-    citekey = row.get("citekey") or ""
-    title = (row.get("title") or "").strip()
-    year = row.get("year")
-    parts = [citekey]
-    if title:
-        parts.append(title)
-    label = " · ".join(parts)
-    if year:
-        label = f"{label} ({year})"
-    return label
-
-
-def _lit_label(row: dict) -> str:
-    index = row.get("chunk_index")
-    token = f"{int(index):04d}" if index is not None else "?"
-    page = row.get("page_in_book")
-    page_bit = f"p. {int(page)}" if page is not None else ""
-    section = (row.get("section_path") or row.get("locator") or "").strip()
-    bits = [token]
-    if page_bit:
-        bits.append(page_bit)
-    if section:
-        bits.append(section)
-    return " · ".join(bits)
-
-
 def _picker_sources(db: Any) -> list[dict]:
     items = []
     for row in db.search_sources("", 50):
         items.append(
             {
                 "id": row["source_id"],
-                "label": _source_label(row),
+                "label": source_label(row),
                 "next_chunk_index": db.next_manual_chunk_index(row["source_id"]),
             }
         )
@@ -92,7 +68,7 @@ def _picker_literature(db: Any, source_id: str | None) -> list[dict]:
     if not source_id:
         return []
     return [
-        {"id": row["chunk_id"], "label": _lit_label(row)}
+        {"id": row["chunk_id"], "label": lit_label(row)}
         for row in db.search_literature_chunks("", source_id=source_id, limit=50)
     ]
 
@@ -204,7 +180,7 @@ def _next_step(cfg: Any, db: Any, result: Any) -> dict | None:
 
 
 @router.get("/notes/new", response_class=HTMLResponse)
-async def new_note(
+def new_note(
     request: Request,
     type: str = "SRC",
     source_id: str = "",
@@ -255,11 +231,10 @@ async def new_note(
 
 
 @router.post("/notes/new/biblio-preview")
-async def biblio_preview(request: Request):
+def biblio_preview(request: Request, form: FormData = Depends(read_form)):
     """Fill SRC bibliography fields. Never writes the vault or enqueues a job."""
     if not authenticated(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    form = await request.form()
     if not csrf_ok(request, str(form.get("csrf") or "")):
         return JSONResponse({"error": "csrf"}, status_code=403)
     svc = service(request)
@@ -318,12 +293,13 @@ async def biblio_preview(request: Request):
 
 
 @router.post("/notes/new", response_class=HTMLResponse)
-async def create_note(request: Request):
+def create_note(request: Request, form: FormData = Depends(read_form)):
     if not authenticated(request):
         return redirect_login()
-    form = await request.form()
     if not csrf_ok(request, str(form.get("csrf") or "")):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
+    from zettel.oplock import LockBusy
+
     svc = service(request)
     db = svc.db()
     try:
@@ -372,38 +348,43 @@ async def create_note(request: Request):
             "LIT_GRANULAR": "LIT",
             "ZTL_BLANK": "ZTL",
         }[parsed["mode"]]
-        result = scaffold_manual_note(
-            svc.cfg,
-            note_type=note_type,
-            title=parsed["title"],
-            citekey=parsed["citekey"] if parsed["mode"] == "SRC" else None,
-            authors=parsed["authors"] or None if parsed["mode"] == "SRC" else None,
-            year=parsed["year"] if parsed["mode"] == "SRC" else None,
-            document_type=parsed["document_type"] if parsed["mode"] == "SRC" else None,
-            abnt_reference=parsed["abnt_reference"] if parsed["mode"] == "SRC" else None,
-            publisher=parsed["publisher"] if parsed["mode"] == "SRC" else None,
-            place=parsed["place"] if parsed["mode"] == "SRC" else None,
-            doi=parsed["doi"] if parsed["mode"] == "SRC" else None,
-            url=parsed["url"] if parsed["mode"] == "SRC" else None,
-            journal=parsed["journal"] if parsed["mode"] == "SRC" else None,
-            edition=parsed["edition"] if parsed["mode"] == "SRC" else None,
-            institution=parsed["institution"] if parsed["mode"] == "SRC" else None,
-            pages=parsed["pages"] if parsed["mode"] == "SRC" else None,
-            thesis=parsed["title"] if parsed["mode"] == "ZTL_BLANK" else None,
-            source_id=None if parsed["mode"] == "SRC" else selected["source_id"],
-            granular=parsed["granular"],
-            chunk_index=parsed["chunk_index"],
-            page=parsed["page"],
-            summary=parsed.get("lit_summary") if parsed["mode"] == "LIT_GRANULAR" else None,
-            source_text=parsed.get("lit_excerpt") if parsed["mode"] == "LIT_GRANULAR" else None,
-            key_concepts=(parsed.get("lit_concepts") if parsed["mode"] == "LIT_GRANULAR" else None),
-            candidates=(
-                [{"thesis": parsed["lit_candidate"]}]
-                if parsed["mode"] == "LIT_GRANULAR" and parsed.get("lit_candidate")
-                else None
-            ),
-            force=parsed["force"],
-        )
+        # Writes the vault in the request: it takes the operation lock, like a
+        # job, so it never lands while sync or garden walk the same folders (#308).
+        with operation_lock(request, "new-note"):
+            result = scaffold_manual_note(
+                svc.cfg,
+                note_type=note_type,
+                title=parsed["title"],
+                citekey=parsed["citekey"] if parsed["mode"] == "SRC" else None,
+                authors=parsed["authors"] or None if parsed["mode"] == "SRC" else None,
+                year=parsed["year"] if parsed["mode"] == "SRC" else None,
+                document_type=parsed["document_type"] if parsed["mode"] == "SRC" else None,
+                abnt_reference=parsed["abnt_reference"] if parsed["mode"] == "SRC" else None,
+                publisher=parsed["publisher"] if parsed["mode"] == "SRC" else None,
+                place=parsed["place"] if parsed["mode"] == "SRC" else None,
+                doi=parsed["doi"] if parsed["mode"] == "SRC" else None,
+                url=parsed["url"] if parsed["mode"] == "SRC" else None,
+                journal=parsed["journal"] if parsed["mode"] == "SRC" else None,
+                edition=parsed["edition"] if parsed["mode"] == "SRC" else None,
+                institution=parsed["institution"] if parsed["mode"] == "SRC" else None,
+                pages=parsed["pages"] if parsed["mode"] == "SRC" else None,
+                thesis=parsed["title"] if parsed["mode"] == "ZTL_BLANK" else None,
+                source_id=None if parsed["mode"] == "SRC" else selected["source_id"],
+                granular=parsed["granular"],
+                chunk_index=parsed["chunk_index"],
+                page=parsed["page"],
+                summary=parsed.get("lit_summary") if parsed["mode"] == "LIT_GRANULAR" else None,
+                source_text=parsed.get("lit_excerpt") if parsed["mode"] == "LIT_GRANULAR" else None,
+                key_concepts=(
+                    parsed.get("lit_concepts") if parsed["mode"] == "LIT_GRANULAR" else None
+                ),
+                candidates=(
+                    [{"thesis": parsed["lit_candidate"]}]
+                    if parsed["mode"] == "LIT_GRANULAR" and parsed.get("lit_candidate")
+                    else None
+                ),
+                force=parsed["force"],
+            )
         return _form_page(
             request,
             db,
@@ -412,11 +393,13 @@ async def create_note(request: Request):
             next_step=_next_step(svc.cfg, db, result),
             selected=selected,
         )
+    except LockBusy as busy:
+        return error_page(request, 409, str(busy))
     except PreflightConflict as exc:
         body = str(exc)
         if exc.href:
             body = f'{body} <a href="{exc.href}">Abrir o Pipeline</a>.'
-        return HTMLResponse(body, status_code=409)
+        return error_page(request, 409, body)
     except (ValueError, FileExistsError) as exc:
         note_type = str(form.get("note_type") or "SRC").upper()
         posted_granular = str(form.get("granular") or "")

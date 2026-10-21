@@ -17,6 +17,7 @@ data/inbox/*
 data/docs_example/*
 data/state.db
 data/zettel.db
+data/zettel.lock*
 data/processed/
 data/logs/
 

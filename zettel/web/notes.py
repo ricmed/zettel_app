@@ -15,14 +15,14 @@ router = APIRouter()
 
 
 @router.get("/notes", response_class=HTMLResponse)
-async def notes(
+def notes(
     request: Request,
     q: str = "",
     kind: str = "",
     source_id: str = "",
     author: str = "",
     origin: str = "",
-    sort: str = "recent",
+    sort: str = "",
     page: str = "1",
 ):
     if not authenticated(request):
@@ -33,7 +33,8 @@ async def notes(
         "source_id": source_id[:200],
         "author": author[:200],
         "origin": origin[:100],
-        "sort": sort if sort in {"recent", "oldest", "title"} else "recent",
+        # Empty is the default order: relevance for a search, recent otherwise (#312).
+        "sort": sort if sort in {"recent", "oldest", "title"} else "",
     }
     current = int(page) if page.isdecimal() and len(page) <= 6 and int(page) > 0 else 1
     db = service(request).db()
@@ -45,7 +46,7 @@ async def notes(
             source_id=filters["source_id"],
             author=filters["author"],
             origin=filters["origin"],
-            sort=filters["sort"],
+            sort=filters["sort"] or "relevance",
             page=current,
         )
         pages = max(1, (total + 11) // 12)
@@ -57,7 +58,7 @@ async def notes(
                 source_id=filters["source_id"],
                 author=filters["author"],
                 origin=filters["origin"],
-                sort=filters["sort"],
+                sort=filters["sort"] or "relevance",
                 page=current,
             )
     finally:
@@ -72,7 +73,7 @@ async def notes(
             if isinstance(names, list)
             else ""
         )
-    url_filters = {key: value for key, value in filters.items() if value and value != "recent"}
+    url_filters = {key: value for key, value in filters.items() if value}
 
     def page_url(number: int) -> str:
         return "/notes?" + urlencode({**url_filters, "page": number})

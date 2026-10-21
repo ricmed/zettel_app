@@ -565,6 +565,19 @@ class CatalogConfig(BaseModel):
     max_chapters_per_source: int = 8
 
 
+class WebConfig(BaseModel):
+    """Interface web. Catalogo: config.yaml -> web."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Jobs encerrados ha mais que isto (e seus eventos) saem do banco na subida
+    # do worker (#313). 0 guarda todos. Os runs ficam, como historico.
+    job_retention_days: int = Field(default=90, ge=0)
+    # Um artigo pausado numa revisao ha mais que isto e liberado (grafo e conexao
+    # SQLite) e marcado interrupted (#317). 0 nunca expira.
+    article_pause_ttl_hours: float = Field(default=24, ge=0)
+
+
 class SummarizeConfig(BaseModel):
     """Resumo de capitulo e de fonte (ADR-047). Catalogo: config.yaml -> summarize."""
 
@@ -694,6 +707,7 @@ class AppConfig(BaseModel):
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     summarize: SummarizeConfig = Field(default_factory=SummarizeConfig)
     decision: DecisionConfig = Field(default_factory=DecisionConfig)
+    web: WebConfig = Field(default_factory=WebConfig)
 
     language: str = "pt-BR"
     vault_timezone: str = "America/Sao_Paulo"
@@ -724,6 +738,11 @@ class AppConfig(BaseModel):
         return v
 
 
+def config_file_path(path: Path | str | None = None) -> Path:
+    """The YAML ``load_config`` reads for ``path`` (the default file when None)."""
+    return Path(path).resolve() if path else _DEFAULT_CONFIG_PATH
+
+
 def load_config(path: Path | str | None = None) -> AppConfig:
     """Carrega config/config.yaml (ou ``path``) e valida em AppConfig.
 
@@ -735,7 +754,7 @@ def load_config(path: Path | str | None = None) -> AppConfig:
     (pai de ``config/``), não do cwd do processo — o uvicorn/CLI enxergam o
     mesmo ``state.db`` e vault independentemente de onde foram iniciados.
     """
-    config_path = Path(path).resolve() if path else _DEFAULT_CONFIG_PATH
+    config_path = config_file_path(path)
     project_root = _project_root_for_config(config_path)
 
     env_path = project_root / ".env"

@@ -28,6 +28,24 @@ DECISION_PROVIDER_ENV: dict[str, tuple[str, ...]] = {
 }
 
 
+# The web login compares SESSION_SECRET online only, behind a throttle; nothing
+# derived from it is ever sent to a browser (#305). Length is the one property
+# the server can check: a generated secret is the recommendation.
+SESSION_SECRET_MIN_CHARS = 32
+
+
+def session_secret_warning() -> str | None:
+    """A warning when ``SESSION_SECRET`` is set but short; None when absent or long enough."""
+    value = os.getenv("SESSION_SECRET", "")
+    if not value or len(value) >= SESSION_SECRET_MIN_CHARS:
+        return None
+    return (
+        f"SESSION_SECRET curto ({len(value)} caracteres, minimo recomendado "
+        f"{SESSION_SECRET_MIN_CHARS}). Gere um com: "
+        'python -c "import secrets; print(secrets.token_urlsafe(32))"'
+    )
+
+
 def has_credential(required: tuple[str, ...] | None) -> bool:
     """True when no credential is required or any of ``required`` is set."""
     return required is None or any(os.getenv(name) for name in required)

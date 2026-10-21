@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from zettel.search_terms import fold
+from zettel.search_terms import fold, fts_match_expr
 from zettel.state.base import StateBase, placeholders
 from zettel.state.sources import escape_like
 
@@ -225,32 +225,58 @@ class NotesMixin(StateBase):
         source_id: str = "",
         author: str = "",
         origin: str = "",
-        sort: str = "recent",
+        sort: str = "relevance",
         page: int = 1,
         per_page: int = 12,
     ) -> tuple[list[dict], int]:
-        """Search both indexed collections with one stable, paginated result set."""
-        catalog = """
+        """Search notes and MOCs as one stable, paginated result set.
+
+        With a query, notes are matched through ``fts_notes`` and ranked by BM25,
+        never by a Python fold over every body (#312). MOCs are few (one per
+        subject), so they keep a folded ``LIKE`` over topic and body and rank
+        first: a MOC on the subject is the door to it. ``sort='relevance'``
+        without a query is ``recent``.
+        """
+        query = query[:200].strip()
+        params: list[str] = []
+        if query:
+            match = fts_match_expr(query) if self.fts_enabled else None
+            note_rows = (
+                "FROM fts_notes f JOIN notes n ON n.note_id=f.note_id "
+                "LEFT JOIN sources s ON s.source_id=n.source_id WHERE fts_notes MATCH ?"
+            )
+            note_score = "f.rank"
+            if match is None:
+                # No usable term (or no FTS5): the note half is empty.
+                note_rows = "FROM notes n LEFT JOIN sources s ON s.source_id=n.source_id WHERE 0"
+                note_score = "NULL"
+            else:
+                params.append(match)
+            pattern = f"%{escape_like(fold(query))}%"
+            moc_where = (
+                "WHERE zfold(m.topic) LIKE ? ESCAPE '\\' OR zfold(m.body) LIKE ? ESCAPE '\\'"
+            )
+            params.extend((pattern, pattern))
+        else:
+            note_rows = "FROM notes n LEFT JOIN sources s ON s.source_id=n.source_id"
+            note_score = "NULL"
+            moc_where = ""
+        catalog = f"""
             WITH catalog AS (
               SELECT 'ZTL' AS kind, n.note_id AS item_id, n.title, n.body, n.path,
                      n.origin, n.updated_at, n.source_id, s.title AS source_title,
-                     s.authors
-                FROM notes n LEFT JOIN sources s ON s.source_id=n.source_id
+                     s.authors, {note_score} AS score
+                {note_rows}
               UNION ALL
               SELECT 'MOC', m.moc_id, m.topic, m.body, m.path, m.origin,
-                     m.updated_at, NULL, NULL, NULL
-                FROM mocs m
+                     m.updated_at, NULL, NULL, NULL, NULL
+                FROM mocs m {moc_where}
             )
         """
         clauses: list[str] = []
-        params: list[str] = []
         if kind in {"ZTL", "MOC"}:
             clauses.append("kind=?")
             params.append(kind)
-        if query.strip():
-            pattern = f"%{escape_like(fold(query[:200].strip()))}%"
-            clauses.append("(zfold(title) LIKE ? ESCAPE '\\' OR zfold(body) LIKE ? ESCAPE '\\')")
-            params.extend((pattern, pattern))
         if source_id:
             clauses.append("source_id=?")
             params.append(source_id)
@@ -267,10 +293,13 @@ class NotesMixin(StateBase):
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         total = self._count(catalog + "SELECT COUNT(*) FROM catalog" + where, tuple(params))
         orders = {
+            "relevance": "kind='MOC' DESC, score ASC, updated_at DESC, kind, item_id",
             "recent": "updated_at DESC, kind, item_id",
             "oldest": "updated_at ASC, kind, item_id",
             "title": "title COLLATE NOCASE ASC, kind, item_id",
         }
+        if sort == "relevance" and not query:
+            sort = "recent"
         per_page = max(1, min(per_page, 50))
         page = max(1, page)
         rows = self._fetchall(

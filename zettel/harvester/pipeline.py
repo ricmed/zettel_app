@@ -37,19 +37,46 @@ SUPPORTED_EXTENSIONS = {".pdf", ".md", ".markdown", ".txt"}
 
 @dataclass(frozen=True)
 class HarvestSkip:
-    """A file the harvest refused to ingest, with the reason to show the operator."""
+    """A file that did not become a new source, with the reason to show the operator.
+
+    ``source_id`` is the existing source a duplicate was matched to, if any.
+    """
 
     path: Path
     reason: str
     message: str
+    source_id: str | None = None
+
+
+# Declined because the file already is a source: the operator has nothing to fix.
+REUSED_REASONS = frozenset({"unchanged", "duplicate_file", "duplicate_content", "duplicate_id"})
+
+
+class HarvestDeclined(Exception):
+    """``_process_file`` created no source, by a decision rather than a failure.
+
+    A duplicate (reused or skipped, with its layer), incomplete bibliography,
+    or a modified file kept as it was. The message names the file and why (#316).
+    """
+
+    def __init__(self, reason: str, message: str, source_id: str | None = None):
+        super().__init__(message)
+        self.reason = reason
+        self.message = message
+        self.source_id = source_id
 
 
 @dataclass
 class HarvestOutcome:
-    """What one harvest run produced: new sources plus the files it refused."""
+    """What one harvest run produced.
+
+    ``skipped`` are failures (the CLI exits 1); ``declined`` are files that did
+    not become a new source by a decision, each with its reason.
+    """
 
     source_ids: list[str] = field(default_factory=list)
     skipped: list[HarvestSkip] = field(default_factory=list)
+    declined: list[HarvestSkip] = field(default_factory=list)
 
 
 # ── Public API ─────────────────────────────────────────────────────
@@ -164,6 +191,12 @@ def run_harvest(
                     logger.warning("Arquivo ignorado (%s): %s", reason, e)
                     outcome.skipped.append(HarvestSkip(file_path, reason, str(e)))
                     report(observer, "harvest", str(e), current_item=file_path.name)
+                    continue
+                except HarvestDeclined as e:
+                    outcome.declined.append(
+                        HarvestSkip(file_path, e.reason, e.message, e.source_id)
+                    )
+                    report(observer, "harvest", e.message, current_item=file_path.name)
                     continue
                 except LLMUnavailableError as e:
                     logger.error("LLM indisponivel no harvest de %s: %s", file_path.name, e)
@@ -341,6 +374,12 @@ def _process_file(
             if source_chunking_incomplete(db, sid):
                 return _complete_incomplete_source(cfg, db, idx, sid)
         logger.debug("Arquivo inalterado, pulando: %s", file_path.name)
+        if sid:
+            raise HarvestDeclined(
+                "unchanged",
+                f"'{file_path.name}' já foi ingerido como {sid} e não mudou.",
+                sid,
+            )
         return None, empty_stats
 
     updating_source_id: str | None = None
@@ -352,7 +391,13 @@ def _process_file(
             cfg,
         )
         if action == "skip":
-            return None, empty_stats
+            raise HarvestDeclined(
+                "modified_kept",
+                f"'{file_path.name}' mudou desde que foi ingerido como "
+                f"{existing['source_id']}; a fonte foi mantida como estava "
+                "(harvest.modified_file_action: skip).",
+                existing["source_id"],
+            )
         if action == "update":
             updating_source_id = existing["source_id"]
 
@@ -371,7 +416,12 @@ def _process_file(
         db.record_duplicate(run_id, "file")
         if source_chunking_incomplete(db, sid):
             return _complete_incomplete_source(cfg, db, idx, sid)
-        return None, empty_stats
+        raise HarvestDeclined(
+            "duplicate_file",
+            f"'{file_path.name}' é cópia idêntica de '{Path(renamed_from['path']).name}' "
+            f"(camada 1, hash do arquivo): associado à fonte {sid}, nada novo criado.",
+            sid,
+        )
 
     ext = file_path.suffix.lower()
     origin_type = "pdf" if ext == ".pdf" else "md"
@@ -381,8 +431,10 @@ def _process_file(
     else:
         text, metadata = extract.extract_text(cfg, file_path, origin_type)
     if not text.strip():
-        logger.warning("Nenhum texto extraido de: %s", file_path.name)
-        return None, empty_stats
+        raise extract.EmptyTextLayerError(
+            f"Arquivo '{file_path.name}' nao produziu texto apos a extracao. Se for um "
+            "PDF escaneado, rode OCR (ex.: 'ocrmypdf entrada.pdf saida.pdf') e tente de novo."
+        )
 
     extraction_checksum = sha256_hex(normalize_text_for_hash(text))
 
@@ -408,7 +460,12 @@ def _process_file(
         db.record_duplicate(run_id, "content")
         if source_chunking_incomplete(db, sid):
             return _complete_incomplete_source(cfg, db, idx, sid)
-        return None, empty_stats
+        raise HarvestDeclined(
+            "duplicate_content",
+            f"'{file_path.name}' tem o mesmo texto extraído da fonte {sid} "
+            "(camada 2, conteúdo): fonte reaproveitada, nada novo criado.",
+            sid,
+        )
 
     from zettel.bibliography import (
         bibliography_dict,
@@ -438,7 +495,11 @@ def _process_file(
             "(use --skip-biblio no modo nao-interativo para forcar).",
             file_path.name,
         )
-        return None, empty_stats
+        raise HarvestDeclined(
+            "biblio_incomplete",
+            f"'{file_path.name}' tem metadados bibliográficos incompletos. Revise a "
+            "bibliografia antes do harvest ou permita bibliografia incompleta.",
+        )
 
     title = primary_title(biblio, fallback=metadata.get("title", file_path.stem))
     authors = primary_authors(biblio) or list(metadata.get("authors") or [])
@@ -489,7 +550,12 @@ def _process_file(
                     file_path.name,
                     matched.get("citekey"),
                 )
-                return None, empty_stats
+                raise HarvestDeclined(
+                    "duplicate_skipped",
+                    f"'{file_path.name}' tem o ISBN de {matched.get('citekey')} "
+                    "(camada 3, ISBN) e foi pulado.",
+                    matched["source_id"],
+                )
             logger.info(
                 "Arquivo '%s' segue como nova fonte apesar do ISBN de %s.",
                 file_path.name,
@@ -510,7 +576,12 @@ def _process_file(
             db.record_duplicate(run_id, "biblio")
             if source_chunking_incomplete(db, sid):
                 return _complete_incomplete_source(cfg, db, idx, sid)
-            return None, empty_stats
+            raise HarvestDeclined(
+                "duplicate_id",
+                f"'{file_path.name}' tem o mesmo {key_kind.upper()} da fonte {sid} "
+                f"(camada 3, {key_kind.upper()}): fonte reaproveitada, nada novo criado.",
+                sid,
+            )
 
     # Layer 4 — title + author. A heuristic, so it asks and never merges alone.
     title_matches = biblio_dedupe.find_title_author_candidates(
@@ -526,12 +597,18 @@ def _process_file(
             raise HarvestAborted(f"Usuario abortou o harvest ao processar {file_path.name}")
         db.record_duplicate(run_id, "biblio")
         if decision == "skip":
+            names = ", ".join(c["citekey"] for c in title_matches)
             logger.warning(
                 "Arquivo '%s' pulado: titulo e autor ja cadastrados (candidatos: %s).",
                 file_path.name,
-                ", ".join(c["citekey"] for c in title_matches),
+                names,
             )
-            return None, empty_stats
+            raise HarvestDeclined(
+                "duplicate_skipped",
+                f"'{file_path.name}' tem título e autor já cadastrados em {names} "
+                "(camada 4, título e autor) e foi pulado.",
+                title_matches[0]["source_id"],
+            )
 
     stored = db.get_source(updating_source_id) if updating_source_id else None
     if updating_source_id and stored is None:
@@ -577,13 +654,19 @@ def _process_file(
             raise HarvestAborted(f"Usuario abortou o harvest ao processar {file_path.name}")
         db.record_duplicate(run_id, "semantic")
         if decision == "skip":
+            names = ", ".join(c["citekey"] for c in dup_candidates)
             logger.warning(
                 "Arquivo '%s' pulado por suspeita de duplicidade semantica (candidatos: %s).",
                 file_path.name,
-                ", ".join(c["citekey"] for c in dup_candidates),
+                names,
             )
             set_source(None)
-            return None, empty_stats
+            raise HarvestDeclined(
+                "duplicate_skipped",
+                f"'{file_path.name}' tem trechos quase idênticos aos de {names} "
+                "(camada 5, semântica) e foi pulado.",
+                dup_candidates[0]["source_id"],
+            )
         logger.info(
             "Arquivo '%s' segue como nova fonte apesar da suspeita de duplicidade semantica.",
             file_path.name,

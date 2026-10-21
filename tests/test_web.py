@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import contextlib
+import hashlib
+import hmac
 import json
 import re
 import time
@@ -50,10 +53,18 @@ def _login(client: TestClient) -> str:
     return match.group(1)
 
 
+def _seed_failed_asset(client) -> None:
+    """``retry_assets`` is the cheapest job, and it refuses with nothing to retry (#314)."""
+    db = client.app.state.service.db()
+    try:
+        db.upsert_source("@Asset2024", "Asset2024", "Fonte", ["A"], 2024, "h", "/a.md", "md")
+        db.upsert_asset("asset-1", "@Asset2024", "90_Assets/a.png", "img", status="failed")
+    finally:
+        db.close()
+
+
 def _ready_biblio_review(client, tmp_path, csrf, *, allow_incomplete=False):
     """Create a completed preparation without racing the background worker."""
-    import hashlib
-
     from zettel.bibliography import BibliographicMetadata, format_abnt
     from zettel.harvester.prepared import save_snapshot
 
@@ -62,7 +73,6 @@ def _ready_biblio_review(client, tmp_path, csrf, *, allow_incomplete=False):
     path.parent.mkdir(exist_ok=True)
     path.write_text("# Obra\n\nTexto da obra.", encoding="utf-8")
     job_id = "a" * 32
-    token = hashlib.sha256(csrf.encode()).hexdigest()
     biblio = BibliographicMetadata(
         document_type="livro",
         confidence=0.9,
@@ -76,7 +86,6 @@ def _ready_biblio_review(client, tmp_path, csrf, *, allow_incomplete=False):
     payload = {
         "selected_file": str(path.resolve()),
         "checksum": file_sha256(path),
-        "session_hash": token,
         "skip_biblio": allow_incomplete,
         "duplicate_action": "skip",
         "skip_paging": False,
@@ -88,7 +97,7 @@ def _ready_biblio_review(client, tmp_path, csrf, *, allow_incomplete=False):
     db = svc.db()
     try:
         assert db.create_web_job(job_id, "prepare_harvest", payload)
-        db.create_web_harvest_review(job_id, token, payload["checksum"])
+        db.create_web_harvest_review(job_id, payload["checksum"])
         db.update_web_job(
             job_id,
             state="succeeded",
@@ -151,9 +160,7 @@ def test_document_review_confirms_edits_and_preserves_options(web_client, monkey
     monkeypatch.setattr(
         client.app.state.service,
         "submit_review",
-        lambda review_id, session_hash, payload: (
-            captured.append((review_id, session_hash, payload)) or "harvest-job"
-        ),
+        lambda review_id, payload: captured.append((review_id, payload)) or "harvest-job",
     )
     result = client.post(
         f"/documents/review/{job_id}",
@@ -163,11 +170,11 @@ def test_document_review_confirms_edits_and_preserves_options(web_client, monkey
     assert result.status_code == 303
     assert result.headers["location"] == "/jobs/harvest-job"
     assert captured[0][0] == job_id
-    assert captured[0][2]["selected_file"] == str(path.resolve())
-    assert captured[0][2]["duplicate_action"] == "skip"
-    assert captured[0][2]["biblio"]["authors"] == ["Ana Silva", "Bruno Costa"]
-    assert captured[0][2]["biblio"]["subtitle"] == "Complemento"
-    assert captured[0][2]["abnt_reference"] == "Referência personalizada."
+    assert captured[0][1]["selected_file"] == str(path.resolve())
+    assert captured[0][1]["duplicate_action"] == "skip"
+    assert captured[0][1]["biblio"]["authors"] == ["Ana Silva", "Bruno Costa"]
+    assert captured[0][1]["biblio"]["subtitle"] == "Complemento"
+    assert captured[0][1]["abnt_reference"] == "Referência personalizada."
 
 
 def test_review_rejects_missing_and_requires_ack_when_allowed(web_client, monkeypatch):
@@ -198,7 +205,7 @@ def test_review_rejects_missing_and_requires_ack_when_allowed(web_client, monkey
         follow_redirects=False,
     )
     assert accepted.status_code == 303
-    assert submitted[0][2]["biblio"]["publisher"] is None
+    assert submitted[0][1]["biblio"]["publisher"] is None
 
 
 def test_review_cancel_stale_file_and_session_isolation(web_client, monkeypatch):
@@ -243,43 +250,35 @@ def test_review_cancel_stale_file_and_session_isolation(web_client, monkeypatch)
         db.close()
 
 
-def test_review_queue_is_single_use_and_session_bound(web_client):
-    import hashlib
-
+def test_review_queue_is_single_use(web_client):
     client, tmp_path = web_client
     csrf = _login(client)
     job_id, path = _ready_biblio_review(client, tmp_path, csrf)
-    token = hashlib.sha256(csrf.encode()).hexdigest()
     db = client.app.state.service.db()
     try:
-        assert not db.queue_web_harvest_review(job_id, "wrong", "c" * 32, {})
+        assert not db.queue_web_harvest_review("f" * 32, "c" * 32, {})
         assert db.queue_web_harvest_review(
             job_id,
-            token,
             "c" * 32,
             {"selected_file": str(path), "review_id": job_id},
         )
-        assert not db.queue_web_harvest_review(job_id, token, "d" * 32, {})
-        assert db.get_web_harvest_review(job_id, token)["harvest_job_id"] == "c" * 32
+        assert not db.queue_web_harvest_review(job_id, "d" * 32, {})
+        assert db.get_web_harvest_review(job_id)["harvest_job_id"] == "c" * 32
         db.update_web_job("c" * 32, state="failed", error_message="Interrompido")
         assert db.queue_web_harvest_review(
             job_id,
-            token,
             "d" * 32,
             {"selected_file": str(path), "review_id": job_id},
         )
-        assert db.get_web_harvest_review(job_id, token)["harvest_job_id"] == "d" * 32
+        assert db.get_web_harvest_review(job_id)["harvest_job_id"] == "d" * 32
     finally:
         db.close()
 
 
 def test_review_recovers_confirmed_fields_after_failure(web_client):
-    import hashlib
-
     client, tmp_path = web_client
     csrf = _login(client)
     job_id, path = _ready_biblio_review(client, tmp_path, csrf)
-    token = hashlib.sha256(csrf.encode()).hexdigest()
     db = client.app.state.service.db()
     try:
         payload = {
@@ -296,7 +295,7 @@ def test_review_recovers_confirmed_fields_after_failure(web_client):
             },
             "abnt_reference": "Referência confirmada.",
         }
-        assert db.queue_web_harvest_review(job_id, token, "c" * 32, payload)
+        assert db.queue_web_harvest_review(job_id, "c" * 32, payload)
         db.update_web_job("c" * 32, state="failed")
     finally:
         db.close()
@@ -357,7 +356,7 @@ def test_prepare_stages_images_and_cancel_removes_them(tmp_path, monkeypatch):
             db,
             Progress(),
             "prepare_harvest",
-            {"selected_file": str(path), "checksum": file_sha256(path), "session_hash": "session"},
+            {"selected_file": str(path), "checksum": file_sha256(path)},
         )
         assert list((asset_stage_path(cfg, job_id) / "90_Assets").glob("img-*.png"))
         assert not (cfg.vault_path / "90_Assets").exists()
@@ -402,7 +401,7 @@ def test_confirmed_worker_reuses_preparation_and_passes_file_options(tmp_path, m
     db = StateDB(tmp_path / "worker.db")
     try:
         db.create_web_job(review_id, "prepare_harvest", {})
-        db.create_web_harvest_review(review_id, "session", file_sha256(path))
+        db.create_web_harvest_review(review_id, file_sha256(path))
         db.update_web_job(
             review_id,
             state="succeeded",
@@ -417,7 +416,6 @@ def test_confirmed_worker_reuses_preparation_and_passes_file_options(tmp_path, m
         )
         payload = {
             "selected_file": str(path.resolve()),
-            "session_hash": "session",
             "review_id": review_id,
             "biblio": biblio.model_dump(),
             "abnt_reference": "Referência final.",
@@ -426,7 +424,7 @@ def test_confirmed_worker_reuses_preparation_and_passes_file_options(tmp_path, m
             "dump_dir": None,
             "extraction_dump_dir": None,
         }
-        assert db.queue_web_harvest_review(review_id, "session", harvest_id, payload)
+        assert db.queue_web_harvest_review(review_id, harvest_id, payload)
         result = WebWorker._dispatch(
             cfg,
             db,
@@ -460,7 +458,7 @@ def test_preparation_stores_snapshot_without_source(web_client, monkeypatch, ext
     from zettel.web_app import WebWorker
 
     client, tmp_path = web_client
-    csrf = _login(client)
+    _login(client)
     path = tmp_path / "inbox" / f"obra{extension}"
     path.parent.mkdir(exist_ok=True)
     path.write_bytes(b"arquivo")
@@ -483,15 +481,12 @@ def test_preparation_stores_snapshot_without_source(web_client, monkeypatch, ext
     )
     svc = client.app.state.service
     job_id = "b" * 32
-    import hashlib
-
-    token = hashlib.sha256(csrf.encode()).hexdigest()
     db = svc.db()
     try:
         assert db.create_web_job(
             job_id,
             "prepare_harvest",
-            {"selected_file": str(path), "checksum": file_sha256(path), "session_hash": token},
+            {"selected_file": str(path), "checksum": file_sha256(path)},
         )
 
         class Progress:
@@ -505,11 +500,11 @@ def test_preparation_stores_snapshot_without_source(web_client, monkeypatch, ext
             db,
             Progress(),
             "prepare_harvest",
-            {"selected_file": str(path), "checksum": file_sha256(path), "session_hash": token},
+            {"selected_file": str(path), "checksum": file_sha256(path)},
         )
         assert result["biblio"]["title"] == "Obra"
         assert load_snapshot(svc.cfg, job_id)["text"] == "Texto da obra"
-        assert db.get_web_harvest_review(job_id, token)["state"] == "ready"
+        assert db.get_web_harvest_review(job_id)["state"] == "ready"
         assert db.list_sources() == []
         assert captured == ["pdf" if extension == ".pdf" else "md"]
     finally:
@@ -545,6 +540,7 @@ def test_authentication_and_csrf_protect_mutations(web_client):
         == 403
     )
     csrf = _login(client)
+    _seed_failed_asset(client)
     assert client.post("/pipeline/retry_assets", data={"csrf": "wrong"}).status_code == 403
     assert (
         client.post(
@@ -554,6 +550,76 @@ def test_authentication_and_csrf_protect_mutations(web_client):
         ).status_code
         == 303
     )
+
+
+def _login_token(page) -> str:
+    return re.search(r'name="login_csrf" value="([^"]+)"', page.text).group(1)
+
+
+def test_login_page_carries_nothing_computed_from_the_secret(web_client):
+    """An HMAC of a known message under the secret is an offline brute-force oracle (#305)."""
+    client, _ = web_client
+    first = _login_token(client.get("/login"))
+    second = _login_token(client.get("/login"))
+    assert first != second
+    oracle = hmac.new(b"web-test-secret", b"login", hashlib.sha256).hexdigest()
+    assert oracle not in {first, second}
+
+
+def test_session_cookie_is_not_keyed_by_the_secret(web_client):
+    client, _ = web_client
+    _login(client)
+    body, tag = client.cookies["zettel_session"].rsplit(".", 1)
+    assert tag != hmac.new(b"web-test-secret", body.encode(), hashlib.sha256).hexdigest()
+
+
+def test_login_with_non_ascii_secret_is_refused_not_crashed(web_client):
+    client, _ = web_client
+    token = _login_token(client.get("/login"))
+    response = client.post("/login", data={"instance_secret": "senhação", "login_csrf": token})
+    assert response.status_code == 401
+
+
+def test_repeated_login_failures_are_throttled(web_client):
+    client, _ = web_client
+    page = client.get("/login")
+    for _ in range(5):
+        page = client.post(
+            "/login", data={"instance_secret": "wrong", "login_csrf": _login_token(page)}
+        )
+        assert page.status_code == 401
+    locked = client.post(
+        "/login",
+        data={"instance_secret": "web-test-secret", "login_csrf": _login_token(page)},
+        follow_redirects=False,
+    )
+    assert locked.status_code == 429
+    assert int(locked.headers["retry-after"]) >= 1
+    assert "zettel_session" not in client.cookies
+
+
+def test_logout_revokes_a_copied_session_cookie(web_client):
+    client, _ = web_client
+    csrf = _login(client)
+    stolen = client.cookies["zettel_session"]
+    assert client.post("/logout", data={"csrf": csrf}, follow_redirects=False).status_code == 303
+    client.cookies.set("zettel_session", stolen)
+    assert client.get("/", follow_redirects=False).status_code == 303
+
+
+def test_session_survives_a_server_restart(web_client):
+    client, tmp_path = web_client
+    _login(client)
+    cookie = client.cookies["zettel_session"]
+    with TestClient(create_app(tmp_path / "config.yaml")) as restarted:
+        restarted.cookies.set("zettel_session", cookie)
+        assert restarted.get("/", follow_redirects=False).status_code == 200
+
+
+def test_settings_warns_about_a_short_session_secret(web_client):
+    client, _ = web_client
+    _login(client)
+    assert "SESSION_SECRET curto" in client.get("/settings").text
 
 
 def test_upload_rejects_traversal_and_collisions(web_client):
@@ -667,8 +733,8 @@ def test_document_options_queue_only_selected_file(web_client, monkeypatch):
     operation, payload = captured[-1]
     assert operation == "prepare_harvest"
     assert payload["checksum"] == file_sha256(pdf)
-    assert len(payload["session_hash"]) == 64
-    assert {k: v for k, v in payload.items() if k not in {"checksum", "session_hash"}} == {
+    assert "session_hash" not in payload
+    assert {k: v for k, v in payload.items() if k != "checksum"} == {
         "selected_file": str(pdf.resolve()),
         "duplicate_action": "continue",
         "skip_biblio": True,
@@ -802,9 +868,12 @@ def test_upload_keeps_pending_list_on_errors_and_rejects_invalid_files(web_clien
 def test_navigation_and_retry_job_flow(web_client):
     client, _ = web_client
     csrf = _login(client)
+    _seed_failed_asset(client)
     home = client.get("/")
     assert 'id="theme-toggle"' in home.text
-    assert "zettel-theme" in home.text
+    # Scripts are static files under the CSP (#315); the page only links them.
+    assert '<script src="/static/theme-init.js">' in home.text
+    assert "zettel-theme" in client.get("/static/theme-init.js").text
     for path, text in [
         ("/", "Bom trabalho"),
         ("/documents", "Documentos"),
@@ -832,7 +901,7 @@ def test_navigation_and_retry_job_flow(web_client):
             break
         time.sleep(0.05)
     assert payload["job"]["state"] == "succeeded"
-    assert payload["job"]["result"] == {"assets_reset": 0}
+    assert payload["job"]["result"] == {"assets_reset": 1}
     assert payload["events"]
     detail = client.get(f"/jobs/{job_id}")
     assert 'id="job-state"' in detail.text
@@ -933,6 +1002,89 @@ def test_notes_catalog_search_filters_and_pagination(web_client):
     assert "Página 2 de 2" in client.get("/notes?page=999999").text
 
 
+def _seed_ranked_notes(db):
+    db.upsert_note(
+        "note-a",
+        None,
+        None,
+        title="Ética aplicada",
+        body="Uma nota longa sobre deveres que cita Kant uma vez " + "e segue outro assunto " * 40,
+    )
+    db.upsert_note("note-b", None, None, title="Kant e a crítica", body="Kant, Kant e a CRÍTICA.")
+    db.upsert_note("note-c", None, None, title="Hume", body="Ceticismo sem relação.")
+    db.upsert_moc("mapa-kant", "Kant", body="Mapa")
+
+
+def test_notes_search_ranks_by_relevance_and_can_sort_by_date(web_client):
+    """With ``q`` the list is BM25-ranked from FTS5; a MOC whose topic or body
+    matches comes first, as the door to that subject (#312)."""
+    client, _ = web_client
+    _login(client)
+    db = client.app.state.service.db()
+    try:
+        _seed_ranked_notes(db)
+        db.conn.execute(
+            "UPDATE notes SET updated_at='2020-01-01T00:00:00+00:00' WHERE note_id='note-b'"
+        )
+        db.conn.commit()
+    finally:
+        db.close()
+
+    ranked = client.get("/notes", params={"q": "kant"}).text
+    assert "3 itens encontrados" in ranked
+    assert ranked.index("Kant e a crítica") < ranked.index("Ética aplicada")
+    assert ranked.index(">Kant<") < ranked.index("Kant e a crítica")
+    assert '<option value="" selected>' in ranked
+
+    by_date = client.get("/notes", params={"q": "kant", "sort": "recent", "kind": "ZTL"}).text
+    assert by_date.index("Ética aplicada") < by_date.index("Kant e a crítica")
+    assert "Hume" not in ranked and "Hume" not in by_date
+
+
+def test_notes_search_folds_accents_and_neutralizes_fts_operators(web_client):
+    client, _ = web_client
+    _login(client)
+    db = client.app.state.service.db()
+    try:
+        _seed_ranked_notes(db)
+    finally:
+        db.close()
+
+    assert "Kant e a crítica" in client.get("/notes", params={"q": "critica"}).text
+    assert "Kant e a crítica" in client.get("/notes", params={"q": "CRÍTICA"}).text
+    for raw in ('"kant', "kant OR", "NOT kant", "kant*", "title:kant", "kant NEAR("):
+        page = client.get("/notes", params={"q": raw, "kind": "ZTL"})
+        assert page.status_code == 200, raw
+        assert "Kant e a crítica" in page.text, raw
+    # A quoted prefix stays a literal term: "kan" is not "kant".
+    assert "Nenhuma nota corresponde" in client.get("/notes", params={"q": "kan*"}).text
+
+
+def test_notes_search_does_not_fold_every_note_in_python(tmp_path):
+    """Notes are matched by the FTS5 index, not by a Python UDF per row (#312)."""
+    from zettel.search_terms import fold
+    from zettel.state import StateDB
+
+    db = StateDB(tmp_path / "state.db")
+    try:
+        _seed_ranked_notes(db)
+        for index in range(30):
+            db.upsert_note(f"filler-{index}", None, None, title=f"Nota {index}", body="texto")
+        calls = []
+
+        def counting_fold(text):
+            calls.append(text)
+            return fold(text)
+
+        db.conn.create_function("zfold", 1, counting_fold, deterministic=True)
+        rows, total = db.search_catalog(query="kant")
+    finally:
+        db.close()
+    assert total == 3
+    assert [row["item_id"] for row in rows][:2] == ["mapa-kant", "note-b"]
+    assert len(calls) <= 4  # the MOC rows only, title and body
+
+
 def test_note_markdown_copy_and_download_use_vault_files_only(web_client):
     client, tmp_path = web_client
     permanent = tmp_path / "vault" / "30_Permanent"
@@ -942,11 +1094,16 @@ def test_note_markdown_copy_and_download_use_vault_files_only(web_client):
     note_path = permanent / "ZTL - nota.md"
     moc_path = mocs / "MOC - mapa.md"
     original = "---\ntitle: Nota\n---\n\n# Versão atual\n"
-    note_path.write_text(original, encoding="utf-8")
-    moc_path.write_text("# Mapa atual\n", encoding="utf-8")
+    # Bytes, not text: the endpoint serves the file verbatim, and write_text
+    # would turn "\n" into "\r\n" on Windows.
+    note_path.write_bytes(original.encode("utf-8"))
+    moc_path.write_bytes(b"# Mapa atual\n")
     outside = tmp_path / "privado.md"
     outside.write_text("NÃO EXPOR", encoding="utf-8")
-    (permanent / "link.md").symlink_to(outside)
+    # Windows needs a privilege to create symlinks; without it the "symlink" row
+    # points at a missing file and still has to 404.
+    with contextlib.suppress(OSError):
+        (permanent / "link.md").symlink_to(outside)
     db = client.app.state.service.db()
     try:
         db.upsert_note("safe", None, str(note_path), title="Nota", body="Conteúdo antigo")
@@ -971,7 +1128,7 @@ def test_note_markdown_copy_and_download_use_vault_files_only(web_client):
     assert raw.status_code == 200
     assert raw.text == original
     assert raw.headers["content-type"].startswith("text/markdown")
-    note_path.write_text("# Editado no vault\n", encoding="utf-8")
+    note_path.write_bytes(b"# Editado no vault\n")
     assert client.get("/notes/safe/markdown").text == "# Editado no vault\n"
     assert client.get("/mocs/safe-moc/markdown").text == "# Mapa atual\n"
     download = client.get("/notes/safe/markdown?download=1")
@@ -1113,7 +1270,8 @@ def test_manual_ztl_uses_single_title_as_thesis(web_client):
     assert "> **Tese**: Heurísticas reduzem esforço cognitivo" in content
     page = client.get("/notes/new")
     assert 'name="thesis"' not in page.text
-    assert "Tese / título da ideia" in page.text
+    assert '<script src="/static/manual-notes.js">' in page.text
+    assert "Tese / título da ideia" in client.get("/static/manual-notes.js").text
 
 
 @pytest.mark.parametrize("source_id", ["../../outside", r"..\\outside", "@not-known"])
@@ -1339,7 +1497,7 @@ def test_documents_can_queue_full_pipeline(web_client, monkeypatch):
     captured = {}
     service = client.app.state.service
 
-    monkeypatch.setattr("zettel.web.documents._llm_ready", lambda cfg: True)
+    monkeypatch.setattr("zettel.web.documents.blocker", lambda cfg, operation: None)
 
     def fake_submit(operation, payload):
         captured.update(operation=operation, payload=payload)
@@ -1484,7 +1642,8 @@ def test_manual_form_markup_contract(web_client):
     assert "pelo menos 3 letras" in page.text
     assert re.search(r"\srequired(\s|=|>)", page.text) is None
     assert 'name="thesis"' not in page.text
-    assert "Tese / título da ideia" in page.text
+    assert '<script src="/static/manual-notes.js">' in page.text
+    assert "Tese / título da ideia" in client.get("/static/manual-notes.js").text
     assert 'id="biblio-format"' in page.text
     assert 'id="biblio-enrich"' in page.text
     assert 'name="biblio_sample"' in page.text
@@ -2662,3 +2821,447 @@ def test_review_links_queue_accepts_a_proposed_edge(web_client):
         assert db.list_review_events()[-1]["surface"] == "web"
     finally:
         db.close()
+
+
+def test_config_is_read_once_until_the_yaml_changes(web_client, monkeypatch):
+    """Re-reading config.yaml cost 54 ms on every access (#307)."""
+    import os
+
+    import zettel.web_app as web_app_module
+
+    client, tmp_path = web_client
+    _login(client)
+    calls = []
+    real = web_app_module.load_config
+    monkeypatch.setattr(
+        web_app_module, "load_config", lambda path=None: calls.append(path) or real(path)
+    )
+    for path in ("/runs", "/settings", "/pipeline", "/runs"):
+        assert client.get(path).status_code == 200
+    assert calls == []
+    config = tmp_path / "config.yaml"
+    stamp = config.stat().st_mtime_ns + 1_000_000_000
+    os.utime(config, ns=(stamp, stamp))
+    assert client.get("/runs").status_code == 200
+    assert len(calls) == 1
+
+
+def test_idle_worker_does_not_poll_the_database(web_client, monkeypatch):
+    """An idle worker reopened state.db twice a second (#307); a submit wakes it."""
+    import zettel.web_app as web_app_module
+
+    client, _ = web_client
+    csrf = _login(client)
+    _seed_failed_asset(client)
+    time.sleep(0.6)  # let the worker settle into its wait
+    opened = []
+    real = web_app_module.StateDB
+    monkeypatch.setattr(web_app_module, "StateDB", lambda path: opened.append(path) or real(path))
+    time.sleep(1.6)
+    assert opened == []
+    response = client.post("/pipeline/retry_assets", data={"csrf": csrf}, follow_redirects=False)
+    job_id = response.headers["location"].rsplit("/", 1)[1]
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        job = client.app.state.service.job(job_id)
+        if job["state"] == "succeeded":
+            break
+        time.sleep(0.05)
+    assert job["state"] == "succeeded"
+
+
+def test_job_detail_lists_every_run_and_its_cost(web_client, monkeypatch):
+    """A multi-phase job showed only its last run, and none after a pause (#311)."""
+    from zettel.web_app import WebWorker
+
+    client, _ = web_client
+    csrf = _login(client)
+    _seed_failed_asset(client)
+
+    def fake_dispatch(cfg, db, progress, operation, payload, **_kwargs):
+        for phase in ("harvest", "extract"):
+            run_id = db.start_run(phase)
+            db.finish_run(run_id, usage={"cost_usd_total": 0.25})
+        return {}
+
+    monkeypatch.setattr(WebWorker, "_dispatch", staticmethod(fake_dispatch))
+    response = client.post("/pipeline/retry_assets", data={"csrf": csrf}, follow_redirects=False)
+    job_id = response.headers["location"].rsplit("/", 1)[1]
+    deadline = time.monotonic() + 5
+    while client.app.state.service.job(job_id)["state"] != "succeeded":
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    job = client.app.state.service.job(job_id)
+    assert [run["pipeline_signature"] for run in job["runs"]] == ["harvest", "extract"]
+    assert job["cost_usd_total"] == pytest.approx(0.5)
+    page = client.get(f"/jobs/{job_id}").text
+    assert "harvest" in page and "extract" in page
+
+
+def test_run_all_form_names_the_files_it_will_ingest_without_review(web_client):
+    """run_all harvests the whole inbox; the form has to say so (#310)."""
+    client, tmp_path = web_client
+    _login(client)
+    inbox = tmp_path / "inbox"
+    inbox.mkdir(exist_ok=True)
+    (inbox / "artigo.md").write_text("# Texto\n", encoding="utf-8")
+    page = client.get("/documents").text
+    assert "sem revisão bibliográfica" in page
+    assert "artigo.md" in page.split("sem revisão bibliográfica", 1)[1]
+
+
+def _seed_pipeline_work(client, monkeypatch):
+    """One pending chunk and one connect candidate, so both estimates have work."""
+    from zettel import connector
+
+    db = client.app.state.service.db()
+    try:
+        db.upsert_source("@Book2024", "Book2024", "Livro", ["Autor"], 2024, "h", "/x.md", "md")
+        db.upsert_chapter("@Book2024::ch000", "@Book2024", "Cap", "ch")
+        db.upsert_chunk(
+            "@Book2024::ch000::p1", "@Book2024", "@Book2024::ch000", "Texto", "ck", chunk_index=0
+        )
+    finally:
+        db.close()
+    monkeypatch.setattr(connector, "load_approved_candidates", lambda db: [{"candidate": None}])
+
+
+def test_pipeline_page_shows_the_extract_and_connect_preflight(web_client, monkeypatch):
+    """The CLI asks before paying; the web showed no estimate for its costliest phases (#310)."""
+    from zettel import preflight
+
+    client, _ = web_client
+    _login(client)
+
+    def fake(phase, cost):
+        return preflight.PreflightEstimate(
+            phase=phase,
+            provider="openai",
+            model=f"modelo-{phase}",
+            items=3,
+            item_label="item(ns)",
+            input_tokens=10,
+            output_tokens=5,
+            cost_usd=cost,
+        )
+
+    monkeypatch.setattr(preflight, "estimate_extract", lambda cfg, db: fake("extract", 0.1234))
+    monkeypatch.setattr(
+        preflight, "estimate_connect", lambda cfg, db, candidates: fake("connect", 0.5678)
+    )
+    _seed_pipeline_work(client, monkeypatch)
+    page = client.get("/pipeline").text
+    assert "0.1234" in page and "modelo-extract" in page
+    assert "0.5678" in page and "modelo-connect" in page
+
+
+def _seed_review_drafts(client, confidences):
+    """Drafts with the given (chunk suffix, confidence, has_defect) and their concepts."""
+    import json
+
+    db = client.app.state.service.db()
+    try:
+        db.upsert_source("@Book2024", "Book2024", "Livro", ["Autor"], 2024, "h", "/x.md", "md")
+        db.upsert_chapter("@Book2024::ch000", "@Book2024", "Cap", "ch")
+        for index, (suffix, confidence, defect) in enumerate(confidences):
+            candidate = {"thesis": f"Tese {suffix}", "intuition": "i", "limits": "l"}
+            if defect:
+                candidate.pop("limits")
+            db.upsert_chunk(
+                f"@Book2024::ch000::{suffix}",
+                "@Book2024",
+                "@Book2024::ch000",
+                f"Texto {suffix}",
+                f"ck{suffix}",
+                status="awaiting_review",
+                chunk_index=index,
+                review_confidence=confidence,
+                summary_json=json.dumps({"candidates": [candidate]}),
+            )
+            db.upsert_concept(
+                f"c-{suffix}",
+                "@Book2024",
+                f"@Book2024::ch000::{suffix}",
+                candidate_json=json.dumps(candidate),
+                status="awaiting_review",
+            )
+    finally:
+        db.close()
+
+
+def test_review_drafts_follow_the_cli_queue_order(web_client):
+    """Defects first, then ascending confidence, as zettel review does (#268, #309)."""
+    client, _ = web_client
+    _login(client)
+    _seed_review_drafts(
+        client, [("aaa", 0.9, False), ("bbb", 0.5, False), ("ccc", 0.95, True), ("ddd", 0.7, False)]
+    )
+    page = client.get("/review").text
+    order = sorted(("aaa", "bbb", "ccc", "ddd"), key=page.index)
+    assert order == ["ccc", "bbb", "ddd", "aaa"]
+
+
+def test_review_queries_do_not_grow_with_the_queue(web_client):
+    """Every draft was enriched before slicing 20 in Python (#309)."""
+    from zettel.state import StateDB
+
+    client, _ = web_client
+    _login(client)
+
+    def count_queries(path):
+        statements = []
+        real_init = StateDB.__init__
+
+        def traced(self, db_path):
+            real_init(self, db_path)
+            self.conn.set_trace_callback(statements.append)
+
+        StateDB.__init__ = traced
+        try:
+            assert client.get(path).status_code == 200
+        finally:
+            StateDB.__init__ = real_init
+        return len([s for s in statements if s.lstrip().upper().startswith("SELECT")])
+
+    _seed_review_drafts(client, [(f"a{n:02d}", 0.5, False) for n in range(25)])
+    small = count_queries("/review")
+    _seed_review_drafts(client, [(f"b{n:02d}", 0.5, False) for n in range(60)])
+    assert count_queries("/review") == small
+
+
+def _seed_proposed_edges(client, count):
+    db = client.app.state.service.db()
+    try:
+        db.upsert_source("@A2020", "A2020", "A", ["A"], 2020, "ha", "/a.md", "md")
+        db.upsert_source("@B2021", "B2021", "B", ["B"], 2021, "hb", "/b.md", "md")
+        for n in range(count):
+            for side, source in (("s", "@A2020"), ("t", "@A2020" if n % 2 else "@B2021")):
+                db.upsert_note(
+                    f"{side}{n:03d}",
+                    source,
+                    None,
+                    title=f"Nota {side}{n:03d}",
+                    body=f"## Tese\n\nTese {side}{n:03d}.\n",
+                )
+            db.upsert_note_connection(
+                f"s{n:03d}",
+                f"t{n:03d}",
+                "supports" if n % 3 else "contradicts",
+                origin="llm",
+                status="proposed",
+            )
+    finally:
+        db.close()
+
+
+def test_link_queue_filters_by_relation_and_scope(web_client):
+    client, _ = web_client
+    _login(client)
+    _seed_proposed_edges(client, 6)
+    contradicts = client.get("/review?queue=links&relation_type=contradicts").text
+    assert "s000" in contradicts and "s003" in contradicts and "s001" not in contradicts
+    intra = client.get("/review?queue=links&scope=intra").text
+    assert "s001" in intra and "s000" not in intra
+
+
+def test_link_queue_decides_a_batch_as_one_job(web_client):
+    """One click per edge does not scale to what connect proposes (#309)."""
+    client, _ = web_client
+    csrf = _login(client)
+    _seed_proposed_edges(client, 3)
+    response = client.post(
+        "/review/links/batch",
+        data={
+            "csrf": csrf,
+            "action": "accept",
+            "edges": ["s000|t000|contradicts", "s001|t001|supports"],
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    job_id = response.headers["location"].rsplit("/", 1)[1]
+    deadline = time.monotonic() + 5
+    while client.app.state.service.job(job_id)["state"] not in {"succeeded", "failed"}:
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    job = client.app.state.service.job(job_id)
+    assert job["state"] == "succeeded"
+    assert job["result"]["decided"] == 2
+    db = client.app.state.service.db()
+    try:
+        remaining = {
+            (e["source_note_id"], e["target_note_id"]) for e in db.list_proposed_connections()
+        }
+    finally:
+        db.close()
+    assert remaining == {("s002", "t002")}
+
+
+def test_pipeline_page_survives_an_estimate_that_cannot_be_built(web_client, monkeypatch):
+    """A missing few-shot file must not take the Pipeline page down with it."""
+    from zettel import preflight
+    from zettel.domain_examples import DomainExamplesLoadError
+
+    client, _ = web_client
+    _login(client)
+
+    def broken(*_args, **_kwargs):
+        raise DomainExamplesLoadError("Arquivo de exemplos de dominio nao encontrado")
+
+    monkeypatch.setattr(preflight, "estimate_extract", broken)
+    _seed_pipeline_work(client, monkeypatch)
+    page = client.get("/pipeline")
+    assert page.status_code == 200
+    assert "Pré-voo indisponível" in page.text
+
+
+def test_enqueue_refuses_while_the_cli_holds_the_lock(web_client):
+    """The web and the CLI used to write the same stores at once (#308)."""
+    from zettel.oplock import OperationLock
+
+    client, tmp_path = web_client
+    csrf = _login(client)
+    _seed_failed_asset(client)
+    held = OperationLock(tmp_path / "zettel.lock")
+    held.acquire("connect", "cli")
+    try:
+        response = client.post("/pipeline/retry_assets", data={"csrf": csrf})
+    finally:
+        held.release()
+    assert response.status_code == 409
+    assert "connect" in response.text and "CLI" in response.text
+
+
+def test_single_edge_decision_respects_the_lock(web_client):
+    from zettel.oplock import OperationLock
+
+    client, tmp_path = web_client
+    csrf = _login(client)
+    _seed_proposed_edges(client, 1)
+    held = OperationLock(tmp_path / "zettel.lock")
+    held.acquire("garden", "cli")
+    try:
+        response = client.post(
+            "/review/links",
+            data={
+                "csrf": csrf,
+                "source_note_id": "s000",
+                "target_note_id": "t000",
+                "relation_type": "contradicts",
+                "action": "accept",
+            },
+            follow_redirects=False,
+        )
+    finally:
+        held.release()
+    assert response.status_code == 409
+    db = client.app.state.service.db()
+    try:
+        assert len(db.list_proposed_connections()) == 1
+    finally:
+        db.close()
+
+
+def test_worker_waits_for_the_cli_instead_of_failing(web_client):
+    from zettel.oplock import OperationLock
+
+    client, tmp_path = web_client
+    _login(client)
+    held = OperationLock(tmp_path / "zettel.lock")
+    held.acquire("connect", "cli")
+    try:
+        job_id = client.app.state.service.submit("retry_assets", {})
+        time.sleep(1.5)
+        job = client.app.state.service.job(job_id)
+        assert job["state"] == "queued"
+        assert "connect" in job["message"]
+    finally:
+        held.release()
+    client.app.state.service.worker._wake.set()
+    deadline = time.monotonic() + 10
+    while client.app.state.service.job(job_id)["state"] != "succeeded":
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+
+
+def test_a_failed_job_shows_a_reference_the_log_also_has(web_client, monkeypatch, caplog):
+    """An unknown error reaches the browser only as a correlation id (#315)."""
+    import logging
+
+    from zettel.web_app import WebWorker
+
+    client, _ = web_client
+    csrf = _login(client)
+    _seed_failed_asset(client)
+
+    def failing_dispatch(cfg, db, progress, operation, payload, **_kwargs):
+        raise RuntimeError(r"database is locked: D:\projetos\zettel_app\data\state.db")
+
+    monkeypatch.setattr(WebWorker, "_dispatch", staticmethod(failing_dispatch))
+    with caplog.at_level(logging.ERROR, logger="zettel.web_app"):
+        response = client.post(
+            "/pipeline/retry_assets", data={"csrf": csrf}, follow_redirects=False
+        )
+        job_id = response.headers["location"].rsplit("/", 1)[1]
+        deadline = time.monotonic() + 5
+        while client.app.state.service.job(job_id)["state"] != "failed":
+            assert time.monotonic() < deadline
+            time.sleep(0.05)
+    job = client.app.state.service.job(job_id)
+    page = client.get(f"/jobs/{job_id}").text
+    assert "projetos" not in job["error_message"] and "projetos" not in page
+    ref = re.search(r"ref\. ([0-9a-f]{8})", job["error_message"]).group(1)
+    assert any(ref in record.getMessage() for record in caplog.records)
+
+
+def test_upload_is_written_beside_and_renamed_into_the_inbox(web_client, monkeypatch):
+    """A half-written file never sits under its final name (#315)."""
+    import os
+
+    client, tmp_path = web_client
+    csrf = _login(client)
+    inbox = tmp_path / "inbox"
+    seen = []
+    real_link = os.link
+
+    def watching_link(src, dst):
+        seen.append((Path(src).name, Path(dst).exists()))
+        real_link(src, dst)
+
+    monkeypatch.setattr("zettel.web.documents.os.link", watching_link)
+    response = client.post(
+        "/documents/upload",
+        data={"csrf": csrf},
+        files={"file": ("obra.md", b"# Obra\n", "text/markdown")},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert seen == [(".obra.md.part", False)]
+    assert (inbox / "obra.md").read_bytes() == b"# Obra\n"
+    assert sorted(p.name for p in inbox.iterdir()) == ["obra.md"]
+
+    def taken(src, dst):
+        raise FileExistsError(dst)
+
+    monkeypatch.setattr("zettel.web.documents.os.link", taken)
+    race = client.post(
+        "/documents/upload",
+        data={"csrf": csrf},
+        files={"file": ("outra.md", b"x", "text/markdown")},
+    )
+    assert race.status_code == 409
+    assert sorted(p.name for p in inbox.iterdir()) == ["obra.md"]
+
+
+def test_a_bibliographic_review_survives_a_new_login(web_client):
+    """The preparation (minutes of Docling) belongs to the instance, not the session (#315)."""
+    client, tmp_path = web_client
+    csrf = _login(client)
+    review_id, _ = _ready_biblio_review(client, tmp_path, csrf)
+    assert client.get(f"/documents/review/{review_id}").status_code == 200
+
+    client.post("/logout", data={"csrf": csrf})  # rotates the key: every session ends
+    _login(client)
+    page = client.get(f"/documents/review/{review_id}")
+    assert page.status_code == 200
+    assert "Obra" in page.text

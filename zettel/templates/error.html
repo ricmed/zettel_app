@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block title %}{{ heading }} · Zettelkasten{% endblock %}
+{% block content %}<section id="error-page" class="panel error-page">
+  <div class="eyebrow">erro {{ status_code }}</div>
+  <h1>{{ heading }}</h1>
+  <p>{{ detail }}</p>
+  {% if busy_job %}<p><a class="button" href="/jobs/{{ busy_job.job_id }}">Acompanhar o {{ busy_job.operation }} que ocupa a fila</a></p>{% endif %}
+  <p class="muted">{% if back %}<a href="{{ back }}">Voltar</a> · {% endif %}<a href="/">Visão geral</a>{% if status_code == 409 %} · <a href="/runs">Execuções</a>{% endif %}</p>
+</section>{% endblock %}

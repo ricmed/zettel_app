@@ -17,19 +17,84 @@ answers it differently, which is exactly why the resolution is not baked into
 from __future__ import annotations
 
 import sys
+from typing import Any
 
 import typer
 
-from zettel.cli.app import console
+from zettel.cli.app import app, console
 from zettel.cli.formatting import fmt_embedding_id, metrics_table
+
+#: Commands that write the state, the vectors or the vault. Each takes the
+#: cross-process lock in ``load_deps``, so it never runs beside a web job or
+#: another of these (#308). Read-only commands (status, doctor, ask, catalog,
+#: article, skill, dumps) do not.
+MUTATING_COMMANDS = frozenset(
+    {
+        "init",
+        "reindex",
+        "rebuild",
+        "harvest",
+        "rechunk",
+        "set-paging",
+        "extract",
+        "review",
+        "retry-failed",
+        "summarize",
+        "links",
+        "connect",
+        "reconnect",
+        "garden",
+        "adopt-moc",
+        "purge-rejected",
+        "delete-source",
+        "sync-manual",
+        "suggest-links",
+        "new-note",
+        "run-all",
+    }
+)
+
+
+# The command being run and the lock it took. The root callback fills the first
+# and releases the second when the invocation ends, however it ends.
+_invocation: dict[str, Any] = {"command": None, "lock": None}
+
+
+@app.callback()
+def _track_invocation(ctx: typer.Context) -> None:
+    _invocation["command"] = ctx.invoked_subcommand
+    _invocation["lock"] = None
+    ctx.call_on_close(_release_lock)
+
+
+def _release_lock() -> None:
+    lock, _invocation["lock"] = _invocation["lock"], None
+    if lock is not None:
+        lock.release()
 
 
 def load_deps(config_path: str | None = None):
-    """Load the config and configure logging. Returns the ``AppConfig``."""
+    """Load the config and configure logging. Returns the ``AppConfig``.
+
+    For a command in ``MUTATING_COMMANDS``, also take the operation lock until
+    the command ends, or exit with code 1 naming whoever holds it. The lock
+    file lives beside ``state.db``, which is why this is the place to take it.
+    """
     from zettel.config import load_config, setup_logging
 
     cfg = load_config(config_path)
     setup_logging(cfg.log_level)
+    command = _invocation["command"]
+    if command in MUTATING_COMMANDS and _invocation["lock"] is None:
+        from zettel.oplock import LockBusy, OperationLock, lock_path
+
+        lock = OperationLock(lock_path(cfg))
+        try:
+            lock.acquire(command, "cli")
+        except LockBusy as busy:
+            console.print(f"[red]{busy}[/red] Tente de novo quando ela terminar.")
+            raise typer.Exit(1) from busy
+        _invocation["lock"] = lock
     return cfg
 
 

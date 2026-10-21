@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from zettel.markdown import render_markdown
 from zettel.web.enqueue import post_job
-from zettel.web.rendering import render, service
+from zettel.web.rendering import error_page, render, service
 from zettel.web.security import authenticated, redirect_login
 
 router = APIRouter()
@@ -39,17 +39,17 @@ def _markdown_path(vault_path: Path, raw: str | None, folder: str) -> Path | Non
 
 def _markdown_response(request: Request, row: dict | None, folder: str, download: bool):
     if not row:
-        return HTMLResponse("Nota não encontrada", status_code=404)
+        return error_page(request, 404, "Nota não encontrada")
     path = _markdown_path(service(request).cfg.vault_path, row.get("path"), folder)
     if path is None:
-        return HTMLResponse("Arquivo Markdown não encontrado no vault", status_code=404)
+        return error_page(request, 404, "Arquivo Markdown não encontrado no vault")
     headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
     if download:
         return FileResponse(path, media_type="text/markdown", filename=path.name, headers=headers)
     try:
         content = path.read_bytes()
     except OSError:
-        return HTMLResponse("Arquivo Markdown indisponível", status_code=404)
+        return error_page(request, 404, "Arquivo Markdown indisponível")
     return Response(content=content, media_type="text/markdown; charset=utf-8", headers=headers)
 
 
@@ -77,7 +77,7 @@ def _decorate_connections(db: Any, note_id: str) -> list[dict]:
 
 
 @router.get("/notes/{note_id}/markdown")
-async def note_markdown(request: Request, note_id: str, download: bool = False):
+def note_markdown(request: Request, note_id: str, download: bool = False):
     if not authenticated(request):
         return redirect_login()
     db = service(request).db()
@@ -89,7 +89,7 @@ async def note_markdown(request: Request, note_id: str, download: bool = False):
 
 
 @router.get("/mocs/{moc_id}/markdown")
-async def moc_markdown(request: Request, moc_id: str, download: bool = False):
+def moc_markdown(request: Request, moc_id: str, download: bool = False):
     if not authenticated(request):
         return redirect_login()
     db = service(request).db()
@@ -101,13 +101,13 @@ async def moc_markdown(request: Request, moc_id: str, download: bool = False):
 
 
 @router.post("/mocs/{moc_id}/adopt")
-async def moc_adopt(request: Request, moc_id: str, csrf: str = Form("")):
+def moc_adopt(request: Request, moc_id: str, csrf: str = Form("")):
     """Hand a generated MOC to the user (#300); runs as a job so no garden overlaps it."""
     return post_job(request, "adopt_moc", {"moc_id": moc_id}, csrf)
 
 
 @router.get("/sources/{source_id}", response_class=HTMLResponse)
-async def source_detail(request: Request, source_id: str):
+def source_detail(request: Request, source_id: str):
     if not authenticated(request):
         return redirect_login()
     db = service(request).db()
@@ -117,12 +117,12 @@ async def source_detail(request: Request, source_id: str):
     finally:
         db.close()
     if not source:
-        return HTMLResponse("Fonte não encontrada", status_code=404)
+        return error_page(request, 404, "Fonte não encontrada")
     return render(request, "source_detail.html", page="documents", source=source, chunks=chunks)
 
 
 @router.get("/notes/{note_id}", response_class=HTMLResponse)
-async def note_detail(request: Request, note_id: str):
+def note_detail(request: Request, note_id: str):
     if not authenticated(request):
         return redirect_login()
     db = service(request).db()
@@ -132,7 +132,7 @@ async def note_detail(request: Request, note_id: str):
     finally:
         db.close()
     if not note:
-        return HTMLResponse("Nota não encontrada", status_code=404)
+        return error_page(request, 404, "Nota não encontrada")
     return render(
         request,
         "note_detail.html",
@@ -144,7 +144,7 @@ async def note_detail(request: Request, note_id: str):
 
 
 @router.get("/mocs/{moc_id}", response_class=HTMLResponse)
-async def moc_detail(request: Request, moc_id: str):
+def moc_detail(request: Request, moc_id: str):
     if not authenticated(request):
         return redirect_login()
     db = service(request).db()
@@ -153,7 +153,7 @@ async def moc_detail(request: Request, moc_id: str):
     finally:
         db.close()
     if not moc:
-        return HTMLResponse("MOC não encontrado", status_code=404)
+        return error_page(request, 404, "MOC não encontrado")
     return render(
         request,
         "moc_detail.html",

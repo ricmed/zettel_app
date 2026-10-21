@@ -84,6 +84,8 @@ from .runtime import (
 )
 
 if TYPE_CHECKING:
+    from langchain_core.runnables import RunnableConfig
+
     from ..config import AppConfig
     from ..index import VectorIndex
     from ..state import StateDB
@@ -112,7 +114,9 @@ def _phase_message(name: str, state: dict) -> str | None:
 def _watched(name: str, fn: Callable[..., Any]) -> Callable[..., Any]:
     """Announce the node, then run it. No hook means the node is unchanged."""
 
-    def node(state: dict, config: dict) -> Any:
+    # LangGraph passes ``config`` only to a parameter annotated RunnableConfig;
+    # ``config: dict`` made every wrapped node fail with a missing argument.
+    def node(state: dict, config: RunnableConfig) -> Any:
         hook = runtime_from(config).on_phase
         if hook is not None:
             message = _phase_message(name, state)

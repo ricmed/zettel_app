@@ -52,6 +52,7 @@
     </label>
     <label for="library-sort">Ordenar
       <select id="library-sort" name="sort">
+        <option value=""{% if not filters.sort %} selected{% endif %}>Relevância na busca, senão mais recentes</option>
         <option value="recent"{% if filters.sort == 'recent' %} selected{% endif %}>Mais recentes</option>
         <option value="oldest"{% if filters.sort == 'oldest' %} selected{% endif %}>Mais antigas</option>
         <option value="title"{% if filters.sort == 'title' %} selected{% endif %}>Título A–Z</option>

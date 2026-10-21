@@ -8,13 +8,35 @@
     <h1>{{ job.operation }}</h1>
     <p class="muted">ID {{ job.job_id }}</p>
   </div>
-  <span id="job-state" class="status large {{ job.state }}">{{ job.state }}</span>
+  <span id="job-state" class="status large {{ job.state }}" data-job-id="{{ job.job_id }}" data-job-state="{{ job.state }}">{{ job.state }}</span>
 </div>
 <section class="panel progress-panel">
   <div class="progress-copy"><b id="job-message">{{ job.message }}</b><span id="job-phase">{{ job.phase }}</span></div>
-  <div class="progress-track"><div id="progress-bar" class="progress-bar{% if job.state in ['queued','running'] and not job.total_items %} indeterminate{% endif %}" style="{% if job.total_items and job.current_index %}width:{{ (job.current_index / job.total_items * 100)|round }}%{% endif %}"></div></div>
+  <div class="progress-track"><div id="progress-bar" class="progress-bar{% if job.state in ['queued','running'] and not job.total_items %} indeterminate{% endif %}"></div></div>
   <div id="job-count">{% if job.total_items %}{{ job.current_index or 0 }} / {{ job.total_items }}{% elif job.state == 'succeeded' %}Concluído{% elif job.state in ['failed','interrupted'] %}Encerrado{% elif job.state == 'awaiting_input' %}Aguardando decisão{% else %}{{ job.message or 'Em andamento' }}{% endif %}</div>
 </section>
+
+{% if job.runs %}
+<section class="panel">
+  <h2>Runs</h2>
+  <table class="studio-table">
+    <thead><tr><th>Run</th><th>Fase</th><th>Status</th><th class="num">Chamadas LLM</th><th class="num">Cache</th><th class="num">Custo (US$)</th></tr></thead>
+    <tbody>
+    {% for run in job.runs %}
+      <tr>
+        <td>{{ run.run_id }}</td>
+        <td>{{ run.pipeline_signature }}</td>
+        <td><span class="status {{ run.status }}">{{ run.status }}</span></td>
+        <td class="num">{{ run.llm_calls }}</td>
+        <td class="num">{{ run.cache_hits }}</td>
+        <td class="num">{{ '%.4f'|format(run.cost_usd_total or 0) }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+    <tfoot><tr><td colspan="5">Total</td><td class="num">{{ '%.4f'|format(job.cost_usd_total) }}</td></tr></tfoot>
+  </table>
+</section>
+{% endif %}
 
 {% set result = job.result or {} %}
 {% if job.state == 'awaiting_input' and result.kind == 'article_pause' %}
@@ -183,77 +205,24 @@
 
 {% if copy_text %}<textarea id="result-copy" class="copy-source" readonly>{{ copy_text }}</textarea>{% endif %}
 <section id="job-outcome" class="panel" {% if not job.result and not job.error_message %}hidden{% endif %}>
+  {% if result.kind and not job.error_message %}
+  {# Presented above; the raw JSON is a link, not a second copy of the page (#313). #}
+  <p class="muted"><a href="/api/jobs/{{ job.job_id }}">JSON completo do resultado</a></p>
+  {% else %}
   <div class="result-heading">
     <h2>Resultado</h2>
     <div class="copy-actions">
-      <button type="button" class="button copy-text" data-copy="job-result">{% if result.kind %}Copiar JSON{% else %}Copiar{% endif %}</button>
+      <button type="button" class="button copy-text" data-copy="job-result">Copiar</button>
       <span class="copy-status" role="status" aria-live="polite"></span>
     </div>
   </div>
-  <details {% if not result.kind %}open{% endif %}>
-    <summary>JSON</summary>
-    <pre id="job-result">{% if job.error_message %}{{ job.error_message }}{% elif job.result %}{{ job.result|tojson(indent=2) }}{% endif %}</pre>
-  </details>
+  <pre id="job-result">{% if job.error_message %}{{ job.error_message }}{% elif job.result %}{{ job.result|tojson(indent=2) }}{% endif %}</pre>
+  {% endif %}
 </section>
 <p id="job-continue" class="panel" {% if not continue_href or job.state != 'succeeded' %}hidden{% endif %}><a id="job-continue-link" href="{{ continue_href or '#' }}">Continuar</a></p>
 <section class="panel"><h2>Eventos</h2><div id="events" class="event-list"></div></section>
 {% endblock %}
 {% block scripts %}
 <script src="/static/copy-text.js" defer></script>
-<script>
-let after=0; const id={{ job.job_id|tojson }}; const initialState={{ job.state|tojson }};
-async function refresh(){
-  const r=await fetch("/api/jobs/"+id+"?after="+after);
-  if(!r.ok)return;
-  const d=await r.json();
-  const j=d.job;
-  if(j.state!==initialState && (j.state==="awaiting_input" || initialState==="awaiting_input" || ["succeeded","failed","interrupted"].includes(j.state))){
-    location.reload();
-    return;
-  }
-  document.querySelector("#job-message").textContent=j.message;
-  document.querySelector("#job-phase").textContent=j.phase;
-  const state=document.querySelector("#job-state");
-  state.textContent=j.state;
-  state.className="status large "+j.state;
-  const bar=document.querySelector("#progress-bar");
-  const terminal=["succeeded","failed","interrupted"].includes(j.state);
-  if(j.total_items&&j.current_index){
-    bar.classList.remove("indeterminate");
-    bar.style.width=(j.current_index/j.total_items*100)+"%";
-    document.querySelector("#job-count").textContent=j.current_index+" / "+j.total_items;
-  }else if(terminal){
-    bar.classList.remove("indeterminate");
-    bar.style.width=j.state==="succeeded"?"100%":"0";
-    document.querySelector("#job-count").textContent=j.state==="succeeded"?"Concluído":"Encerrado";
-  }else if(j.state==="awaiting_input"){
-    bar.classList.remove("indeterminate");
-    document.querySelector("#job-count").textContent="Aguardando decisão";
-  }else{
-    bar.classList.add("indeterminate");
-    bar.style.width="";
-    document.querySelector("#job-count").textContent=j.message||"Em andamento";
-  }
-  if(j.result||j.error_message){
-    document.querySelector("#job-outcome").hidden=false;
-    document.querySelector("#job-result").textContent=j.error_message||JSON.stringify(j.result,null,2);
-  }
-  d.events.forEach(e=>{
-    after=Math.max(after,e.event_id);
-    const row=document.createElement("div");
-    const phase=document.createElement("b");
-    const message=document.createElement("span");
-    phase.textContent=e.phase||"";
-    message.textContent=e.message||"";
-    row.append(phase,message);
-    document.querySelector("#events").prepend(row);
-  });
-  const cont=document.querySelector("#job-continue");
-  const clink=document.querySelector("#job-continue-link");
-  if(cont&&clink&&j.state==="succeeded"&&d.continue_href){cont.hidden=false;clink.href=d.continue_href;}
-  if(terminal)clearInterval(timer);
-}
-const timer=setInterval(refresh,1000);
-refresh();
-</script>
+<script src="/static/job-detail.js" defer></script>
 {% endblock %}

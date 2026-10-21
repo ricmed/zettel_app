@@ -5,8 +5,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
-from zettel.web.enqueue import post_job
-from zettel.web.rendering import render, service
+from zettel.web.enqueue import lock_busy_message, operation_lock, post_job
+from zettel.web.labels import md_cell
+from zettel.web.rendering import error_page, render, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login
 
 router = APIRouter()
@@ -81,7 +82,7 @@ def _personalities(cfg) -> list[dict[str, str]]:
 
 def _page(request: Request, *, status_code: int = 200, error: str | None = None, **extra):
     from zettel.preflight import estimate_article, estimate_summarize
-    from zettel.web.health import embedding_ready, llm_phase_ready
+    from zettel.web.preconditions import blocker
 
     cfg = service(request).cfg
     db = service(request).db()
@@ -98,7 +99,7 @@ def _page(request: Request, *, status_code: int = 200, error: str | None = None,
             for row in db.list_mocs()
         ]
         summarize_estimate = estimate_summarize(cfg, db, None)
-        index_busy = db.has_active_web_job()
+        index_busy = db.active_web_job() is not None or lock_busy_message(request) is not None
     finally:
         db.close()
     return render(
@@ -111,19 +112,12 @@ def _page(request: Request, *, status_code: int = 200, error: str | None = None,
         mocs=mocs,
         categories=_categories(cfg),
         personalities=_personalities(cfg),
-        ask_ready=llm_phase_ready(cfg, "ask"),
-        article_ready=llm_phase_ready(cfg, "article"),
-        summarize_ready=llm_phase_ready(cfg, "summarize"),
-        embedding_ready=embedding_ready(cfg),
+        blockers={op: blocker(cfg, op) for op in ("ask", "catalog", "summarize", "article")},
         summarize_estimate=summarize_estimate,
         article_estimate=estimate_article(cfg),
         index_busy=index_busy,
         **extra,
     )
-
-
-def _cell(value: object) -> str:
-    return str(value or "").replace("|", "/").replace("\n", " ").strip()
 
 
 def catalog_copy_text(result, *, show_context: bool) -> str:
@@ -143,10 +137,10 @@ def catalog_copy_text(result, *, show_context: bool) -> str:
                 "| "
                 + " | ".join(
                     [
-                        _cell(title),
-                        _cell(chapter.page_label or "-"),
+                        md_cell(title),
+                        md_cell(chapter.page_label or "-"),
                         str(chapter.note_count),
-                        _cell(chapter.origin_label),
+                        md_cell(chapter.origin_label),
                     ]
                 )
                 + " |"
@@ -173,11 +167,11 @@ def catalog_copy_text(result, *, show_context: bool) -> str:
                 "| "
                 + " | ".join(
                     [
-                        _cell(chapter.chapter_title),
-                        _cell(chapter.source_id),
+                        md_cell(chapter.chapter_title),
+                        md_cell(chapter.source_id),
                         similarity,
                         "sim" if chapter.passed_floor else "não",
-                        _cell(chapter.floor_reason or "-"),
+                        md_cell(chapter.floor_reason or "-"),
                     ]
                 )
                 + " |"
@@ -188,31 +182,39 @@ def catalog_copy_text(result, *, show_context: bool) -> str:
 def _catalog(request: Request, subject: str, show_context: bool):
     from zettel.catalog import run_catalog
     from zettel.index import VectorIndex, index_kwargs
-    from zettel.web.health import embedding_ready
+    from zettel.web.preconditions import blocker
 
     cfg = service(request).cfg
-    if not embedding_ready(cfg):
+    reason = blocker(cfg, "catalog")
+    if reason:
         return _page(
             request,
             status_code=409,
-            error="A credencial de embedding não está configurada.",
+            error=reason,
+            catalog_subject=subject,
+            catalog_show_context=show_context,
+        )
+    from zettel.oplock import LockBusy
+
+    # Chroma is not process-safe: hold the operation lock for the read, so
+    # neither a job nor a CLI command writes the index meanwhile (#308).
+    try:
+        lock = operation_lock(request, "catalog")
+    except LockBusy as busy:
+        return _page(
+            request,
+            status_code=409,
+            error=f"O índice está em uso. {busy} Tente de novo quando ela terminar.",
             catalog_subject=subject,
             catalog_show_context=show_context,
         )
     db = service(request).db()
     try:
-        if db.has_active_web_job():
-            return _page(
-                request,
-                status_code=409,
-                error="O índice está em uso por outra execução. Tente de novo quando ela terminar.",
-                catalog_subject=subject,
-                catalog_show_context=show_context,
-            )
         idx = VectorIndex(**index_kwargs(cfg))
         result = run_catalog(cfg, db, idx, subject)
     finally:
         db.close()
+        lock.release()
     return _page(
         request,
         catalog=result,
@@ -223,12 +225,30 @@ def _catalog(request: Request, subject: str, show_context: bool):
 
 
 @router.get("/studio", response_class=HTMLResponse)
-async def studio(request: Request, subject: str = "", show_context: str = ""):
+def studio(request: Request):
+    """The forms only. The catalog pays for an embedding, so it runs on a POST
+    with CSRF, never on a GET a prefetch or an outside link can fire (#315)."""
     if not authenticated(request):
         return redirect_login()
+    return _page(request, catalog_show_context=True)
+
+
+@router.post("/studio/catalog", response_class=HTMLResponse)
+def studio_catalog(
+    request: Request,
+    csrf: str = Form(""),
+    subject: str = Form(""),
+    show_context: str = Form(""),
+):
+    if not authenticated(request):
+        return redirect_login()
+    if not csrf_ok(request, csrf):
+        return error_page(request, 403, "CSRF inválido")
     text = subject.strip()
     if not text:
-        return _page(request, catalog_show_context=True)
+        return _page(
+            request, status_code=400, error="Informe o assunto.", catalog_show_context=True
+        )
     if len(text) > 500:
         return _page(
             request,
@@ -241,7 +261,7 @@ async def studio(request: Request, subject: str = "", show_context: str = ""):
 
 
 @router.post("/studio/ask")
-async def studio_ask(
+def studio_ask(
     request: Request,
     csrf: str = Form(""),
     question: str = Form(""),
@@ -254,7 +274,7 @@ async def studio_ask(
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, csrf):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
     try:
         text = question.strip()
         if not text:
@@ -271,19 +291,16 @@ async def studio_ask(
         }
     except StudioFormError as exc:
         return _page(request, status_code=400, error=exc.message)
-    from zettel.web.health import llm_phase_ready
+    from zettel.web.preconditions import blocker
 
-    if not llm_phase_ready(service(request).cfg, "ask"):
-        return _page(
-            request,
-            status_code=409,
-            error="O provedor da fase ask não possui credencial configurada.",
-        )
+    reason = blocker(service(request).cfg, "ask")
+    if reason:
+        return _page(request, status_code=409, error=reason)
     return post_job(request, "ask", payload, csrf)
 
 
 @router.post("/studio/summarize")
-async def studio_summarize(
+def studio_summarize(
     request: Request,
     csrf: str = Form(""),
     source_id: str = Form(""),
@@ -291,20 +308,17 @@ async def studio_summarize(
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, csrf):
-        return HTMLResponse("CSRF inválido", status_code=403)
-    from zettel.web.health import llm_phase_ready
+        return error_page(request, 403, "CSRF inválido")
+    from zettel.web.preconditions import blocker
 
-    if not llm_phase_ready(service(request).cfg, "summarize"):
-        return _page(
-            request,
-            status_code=409,
-            error="O provedor da fase summarize não possui credencial configurada.",
-        )
+    reason = blocker(service(request).cfg, "summarize")
+    if reason:
+        return _page(request, status_code=409, error=reason)
     return post_job(request, "summarize", {"source_id": source_id.strip() or None}, csrf)
 
 
 @router.post("/studio/skill")
-async def studio_skill(
+def studio_skill(
     request: Request,
     csrf: str = Form(""),
     source_id: str = Form(""),
@@ -317,7 +331,7 @@ async def studio_skill(
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, csrf):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
     try:
         chosen = [value.strip() for value in (source_id, moc_id, topic) if value.strip()]
         if len(chosen) != 1:
@@ -336,7 +350,7 @@ async def studio_skill(
 
 
 @router.post("/studio/article")
-async def studio_article(
+def studio_article(
     request: Request,
     csrf: str = Form(""),
     topic: str = Form(""),
@@ -356,7 +370,7 @@ async def studio_article(
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, csrf):
-        return HTMLResponse("CSRF inválido", status_code=403)
+        return error_page(request, 403, "CSRF inválido")
     try:
         text = topic.strip()
         if not text:
@@ -393,12 +407,9 @@ async def studio_article(
         }
     except StudioFormError as exc:
         return _page(request, status_code=400, error=exc.message)
-    from zettel.web.health import llm_phase_ready
+    from zettel.web.preconditions import blocker
 
-    if not llm_phase_ready(service(request).cfg, "article"):
-        return _page(
-            request,
-            status_code=409,
-            error="O provedor da fase article não possui credencial configurada.",
-        )
+    reason = blocker(service(request).cfg, "article")
+    if reason:
+        return _page(request, status_code=409, error=reason)
     return post_job(request, "article", payload, csrf)

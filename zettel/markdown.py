@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-import bleach
+import nh3
 from markdown_it import MarkdownIt
 from markdown_it.rules_inline import StateInline
 
@@ -38,7 +38,16 @@ def _render_ztl_wikilink(state: StateInline, silent: bool) -> bool:
 
 
 _MARKDOWN.inline.ruler.before("link", "ztl_wikilink", _render_ztl_wikilink)
-_ALLOWED_TAGS = set(bleach.sanitizer.ALLOWED_TAGS) | {
+# What Markdown renders, and nothing else: the inline set bleach allowed plus
+# block structure. nh3 (ammonia) replaces bleach, deprecated since 2023 (#315).
+_ALLOWED_TAGS = {
+    "a",
+    "abbr",
+    "acronym",
+    "b",
+    "em",
+    "i",
+    "strong",
     "h1",
     "h2",
     "h3",
@@ -62,12 +71,27 @@ _ALLOWED_TAGS = set(bleach.sanitizer.ALLOWED_TAGS) | {
     "br",
 }
 _ALLOWED_ATTRIBUTES = {
-    "a": ["href", "title"],
-    "code": ["class"],
-    "th": ["align"],
-    "td": ["align"],
+    "a": {"href", "title"},
+    "code": {"class"},
+    "th": {"align"},
+    "td": {"align"},
 }
 _ALLOWED_PROTOCOLS = {"http", "https", "mailto"}
+
+
+def sanitize_html(html: str) -> str:
+    """Keep only the tags, attributes and URL schemes Markdown output needs.
+
+    A disallowed tag is dropped and its text kept; ``script`` and ``style``
+    lose their content too. ``link_rel=None`` adds no ``rel`` to links.
+    """
+    return nh3.clean(
+        html,
+        tags=_ALLOWED_TAGS,
+        attributes=_ALLOWED_ATTRIBUTES,
+        url_schemes=_ALLOWED_PROTOCOLS,
+        link_rel=None,
+    )
 
 
 def render_markdown(text: str | None) -> str:
@@ -77,12 +101,4 @@ def render_markdown(text: str | None) -> str:
     pass protects the rendered output if the parser or its configuration
     changes later.
     """
-
-    rendered = _MARKDOWN.render(text or "")
-    return bleach.clean(
-        rendered,
-        tags=_ALLOWED_TAGS,
-        attributes=_ALLOWED_ATTRIBUTES,
-        protocols=_ALLOWED_PROTOCOLS,
-        strip=True,
-    )
+    return sanitize_html(_MARKDOWN.render(text or ""))

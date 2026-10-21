@@ -127,6 +127,18 @@ class ChunksMixin(StateBase):
             "SELECT * FROM chunks WHERE chapter_id=? ORDER BY chunk_index", (chapter_id,)
         )
 
+    def list_chunk_queue(self, status: str, source_id: str | None = None) -> list[dict]:
+        """Enough of each chunk in ``status`` to order and filter a review queue.
+
+        No ``text``: the web loads the full rows only for the page it shows (#309).
+        """
+        return self._fetchall(
+            "SELECT chunk_id, source_id, chunk_index, review_confidence, summary_json "
+            "FROM chunks WHERE status=? AND (? IS NULL OR source_id=?) "
+            "ORDER BY source_id, chunk_index ASC",
+            (status, source_id or None, source_id),
+        )
+
     def get_chunks_by_status(self, status: str, source_id: str | None = None) -> list[dict]:
         """Chunks in ``status``, in document order (by source, then ``chunk_index``)."""
         return self._fetchall(

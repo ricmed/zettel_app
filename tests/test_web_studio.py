@@ -87,7 +87,7 @@ def test_studio_page_groups_the_five_operations(web_client):
 def test_studio_rejects_invalid_forms(web_client, monkeypatch):
     client, _ = web_client
     csrf = _login(client)
-    monkeypatch.setattr("zettel.web.health.llm_phase_ready", lambda cfg, phase: False)
+    monkeypatch.setattr("zettel.web.preconditions.llm_phase_ready", lambda cfg, phase: False)
     assert client.post("/studio/ask", data={"csrf": "wrong", "question": "x"}).status_code == 403
     empty = client.post("/studio/ask", data={"csrf": csrf, "question": "  "})
     assert empty.status_code == 400
@@ -103,13 +103,15 @@ def test_studio_rejects_invalid_forms(web_client, monkeypatch):
 
 def test_catalog_renders_on_the_page_and_refuses_a_busy_index(web_client, monkeypatch):
     client, _ = web_client
-    _login(client)
-    monkeypatch.setattr("zettel.web.health.embedding_ready", lambda cfg: False)
-    missing = client.get("/studio", params={"subject": "rag", "show_context": "1"})
+    csrf = _login(client)
+    monkeypatch.setattr("zettel.web.preconditions.embedding_ready", lambda cfg: False)
+    missing = client.post(
+        "/studio/catalog", data={"csrf": csrf, "subject": "rag", "show_context": "1"}
+    )
     assert missing.status_code == 409
     assert "embedding" in missing.text
 
-    monkeypatch.setattr("zettel.web.health.embedding_ready", lambda cfg: True)
+    monkeypatch.setattr("zettel.web.preconditions.embedding_ready", lambda cfg: True)
 
     def fake_catalog(cfg, db, idx, subject):
         return CatalogResult(
@@ -137,7 +139,14 @@ def test_catalog_renders_on_the_page_and_refuses_a_busy_index(web_client, monkey
 
     monkeypatch.setattr("zettel.catalog.run_catalog", fake_catalog)
     monkeypatch.setattr("zettel.index.VectorIndex", lambda **kwargs: object())
-    page = client.get("/studio", params={"subject": "rag", "show_context": "1"})
+    # The embedding is paid: a GET (a prefetch, an outside link) never runs it (#315).
+    shown = client.get("/studio", params={"subject": "rag"})
+    assert shown.status_code == 200 and "Livro de RAG" not in shown.text
+    forged = client.post("/studio/catalog", data={"csrf": "wrong", "subject": "rag"})
+    assert forged.status_code == 403
+    page = client.post(
+        "/studio/catalog", data={"csrf": csrf, "subject": "rag", "show_context": "1"}
+    )
     assert page.status_code == 200
     assert "Livro de RAG" in page.text
     assert "## Livro de RAG" in page.text
@@ -145,19 +154,27 @@ def test_catalog_renders_on_the_page_and_refuses_a_busy_index(web_client, monkey
     assert "Capítulo 1" in page.text
     assert "3" in page.text
 
-    monkeypatch.setattr(
-        "zettel.state.web.WebMixin.has_active_web_job",
-        lambda self: True,
-    )
-    busy = client.get("/studio", params={"subject": "rag"})
+    # A running job or a CLI command holds the operation lock (#308).
+    from zettel.oplock import OperationLock
+
+    _, tmp_path = web_client
+    held = OperationLock(tmp_path / "zettel.lock")
+    held.acquire("connect", "cli")
+    try:
+        busy = client.post("/studio/catalog", data={"csrf": csrf, "subject": "rag"})
+    finally:
+        held.release()
     assert busy.status_code == 409
+    assert "connect" in busy.text
     assert "índice está em uso" in busy.text
 
 
 def test_ask_summarize_and_skill_show_a_readable_result(web_client, monkeypatch, tmp_path):
     client, vault_root = web_client
     csrf = _login(client)
-    monkeypatch.setattr("zettel.web.health.llm_phase_ready", lambda cfg, phase: True)
+    monkeypatch.setattr("zettel.web.preconditions.llm_phase_ready", lambda cfg, phase: True)
+    # CI has no secrets: the search these actions run needs the embedding key (#314).
+    monkeypatch.setattr("zettel.web.preconditions.embedding_ready", lambda cfg: True)
     monkeypatch.setattr("zettel.index.VectorIndex", lambda **kwargs: object())
 
     def fake_ask(cfg, db, idx, question, **kwargs):
@@ -192,7 +209,9 @@ def test_ask_summarize_and_skill_show_a_readable_result(web_client, monkeypatch,
     detail = client.get(f"/jobs/{job_id}")
     assert "Resposta citada do acervo." in detail.text
     assert 'id="result-copy"' in detail.text
-    assert "Copiar JSON" in detail.text
+    # A presented result links to its JSON instead of printing it again (#313).
+    assert 'id="job-result"' not in detail.text
+    assert f'href="/api/jobs/{job_id}"' in detail.text
     assert "Nota de RAG" in detail.text
     assert "topk" in detail.text
 
@@ -245,7 +264,9 @@ def test_ask_summarize_and_skill_show_a_readable_result(web_client, monkeypatch,
 def test_article_pauses_for_context_and_resumes(web_client, monkeypatch):
     client, _ = web_client
     csrf = _login(client)
-    monkeypatch.setattr("zettel.web.health.llm_phase_ready", lambda cfg, phase: True)
+    monkeypatch.setattr("zettel.web.preconditions.llm_phase_ready", lambda cfg, phase: True)
+    # CI has no secrets: the search these actions run needs the embedding key (#314).
+    monkeypatch.setattr("zettel.web.preconditions.embedding_ready", lambda cfg: True)
     monkeypatch.setattr("zettel.index.VectorIndex", lambda **kwargs: object())
 
     class FakeDrive:
