@@ -173,6 +173,8 @@ def test_ask_summarize_and_skill_show_a_readable_result(web_client, monkeypatch,
     client, vault_root = web_client
     csrf = _login(client)
     monkeypatch.setattr("zettel.web.preconditions.llm_phase_ready", lambda cfg, phase: True)
+    # CI has no secrets: the search these actions run needs the embedding key (#314).
+    monkeypatch.setattr("zettel.web.preconditions.embedding_ready", lambda cfg: True)
     monkeypatch.setattr("zettel.index.VectorIndex", lambda **kwargs: object())
 
     def fake_ask(cfg, db, idx, question, **kwargs):
@@ -263,6 +265,8 @@ def test_article_pauses_for_context_and_resumes(web_client, monkeypatch):
     client, _ = web_client
     csrf = _login(client)
     monkeypatch.setattr("zettel.web.preconditions.llm_phase_ready", lambda cfg, phase: True)
+    # CI has no secrets: the search these actions run needs the embedding key (#314).
+    monkeypatch.setattr("zettel.web.preconditions.embedding_ready", lambda cfg: True)
     monkeypatch.setattr("zettel.index.VectorIndex", lambda **kwargs: object())
 
     class FakeDrive:

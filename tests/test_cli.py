@@ -22,6 +22,7 @@ vault. What is locked:
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -37,6 +38,15 @@ from zettel.cli.options import (
 )
 
 CLI_PKG = Path(__file__).resolve().parents[1] / "zettel" / "cli"
+
+# Typer forces a Rich terminal under GITHUB_ACTIONS / FORCE_COLOR / PY_COLORS,
+# and the colours split "--topk" into "-" + "-topk": compare the plain text.
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _output(*args: str) -> str:
+    return _ANSI.sub("", CliRunner().invoke(app, list(args)).output)
+
 
 # The command surface, in the order `zettel --help` lists it: the life of a vault
 # — set it up, feed it, curate it, synthesise, prune, write by hand, run it all,
@@ -149,10 +159,9 @@ def test_root_help_lists_every_command():
 
 def test_connect_does_not_offer_dedupe_threshold():
     """Dedupe runs in review. The flag wrote a config key connect never read."""
-    result = CliRunner().invoke(app, ["connect", "--help"])
-    assert result.exit_code == 0
-    assert "--dedupe-threshold" not in result.output
-    assert "--topk" in result.output
+    output = _output("connect", "--help")
+    assert "--dedupe-threshold" not in output
+    assert "--topk" in output
 
 
 def test_run_all_connects_only_the_harvest_sources_and_asks_before():
@@ -164,8 +173,7 @@ def test_run_all_connects_only_the_harvest_sources_and_asks_before():
 def test_harvest_no_longer_offers_move_processed():
     """`--move-processed` was removed in ADR-032's cleanup: it never moved a file,
     it only created `data/processed/` and told the user to move them by hand."""
-    result = CliRunner().invoke(app, ["harvest", "--help"])
-    assert "--move-processed" not in result.output
+    assert "--move-processed" not in _output("harvest", "--help")
 
 
 def test_review_exits_when_the_dedupe_llm_is_down(monkeypatch):
@@ -198,9 +206,7 @@ def test_retry_failed_rejected_requires_source_id():
 
 
 def test_retry_failed_rejected_help_mentions_cache():
-    result = CliRunner().invoke(app, ["retry-failed", "--help"])
-    assert result.exit_code == 0
-    assert "--rejected" in result.output
+    assert "--rejected" in _output("retry-failed", "--help")
 
 
 # ── Package structure ─────────────────────────────────────────────────
