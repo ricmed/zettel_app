@@ -1513,6 +1513,25 @@ def test_approved_lit_lists_the_permanent_notes_it_produced(env):
     assert read_managed_block(text, LIT_PERMANENT_BLOCK) == "- [[ZTL - 01HNOTE - serie-temporal]]"
 
 
+def test_lit_with_a_stray_end_marker_is_left_alone(env):
+    """A LIT whose block lost its start marker is refused, not scaffolded over (#321)."""
+    from zettel.review import LIT_PERMANENT_BLOCK, sync_lit_permanent_links
+
+    cfg, db, idx = env
+    chunk_id = "@Book2024::ch000::abc"
+    assert approve_chunk(cfg, db, idx, chunk_id)
+    lit = Path(db.get_chunk(chunk_id)["literature_note_path"])
+    broken = (
+        lit.read_text(encoding="utf-8").replace(f"<!-- zettel:{LIT_PERMANENT_BLOCK}:start -->", "")
+        + "\nTexto manual do autor.\n"
+    )
+    lit.write_text(broken, encoding="utf-8")
+
+    sync_lit_permanent_links(cfg, db, [chunk_id])
+
+    assert lit.read_text(encoding="utf-8") == broken
+
+
 def test_lit_links_skip_drafts_still_in_review(env):
     from zettel.review import sync_lit_permanent_links
 

@@ -110,3 +110,8 @@ fixable = ["ALL"]
 
 [tool.ruff.format]
 quote-style = "double"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.170.5",
+]

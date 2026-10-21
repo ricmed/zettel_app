@@ -454,7 +454,11 @@ def _write_blocks(cfg: AppConfig, path: Path, blocks: dict[str, str]) -> None:
     Mirrors ``topic_index._write_block``: this module scaffolds its own headings
     so the note builders never have to know about them.
     """
-    from zettel.vault import safe_update_managed_blocks, upsert_managed_block
+    from zettel.vault import (
+        MalformedManagedBlock,
+        safe_update_managed_blocks,
+        upsert_managed_block,
+    )
 
     if not path.is_file():
         return
@@ -468,7 +472,11 @@ def _write_blocks(cfg: AppConfig, path: Path, blocks: dict[str, str]) -> None:
             # upsert_managed_block adds its own blank line before an appended
             # block, so the heading gets one trailing newline, not two.
             content = content.rstrip() + f"\n\n{heading}\n"
-            content = upsert_managed_block(content, name, "")
+            try:
+                content = upsert_managed_block(content, name, "")
+            except MalformedManagedBlock as e:
+                logger.warning("%s em %s; nota nao atualizada", e, path)
+                return
             changed = True
     if changed:
         path.write_text(content, encoding="utf-8")

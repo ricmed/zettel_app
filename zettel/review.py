@@ -1844,7 +1844,7 @@ def sync_lit_permanent_links(cfg: AppConfig, db: StateDB, chunk_ids: list[str]) 
     called on approval (empty placeholder) and by ``connect`` after it writes.
     Drafts in review are skipped: only an approved LIT can have produced a note.
     """
-    from zettel.vault import permanent_wikilink, upsert_managed_block
+    from zettel.vault import MalformedManagedBlock, permanent_wikilink, upsert_managed_block
 
     for chunk_id in dict.fromkeys(chunk_ids):
         chunk = db.get_chunk(chunk_id)
@@ -1862,7 +1862,12 @@ def sync_lit_permanent_links(cfg: AppConfig, db: StateDB, chunk_ids: list[str]) 
         if f"zettel:{LIT_PERMANENT_BLOCK}:start" not in content:
             # This function owns the section, so the LIT builders never scaffold it.
             content = content.rstrip() + f"\n\n{_LIT_PERMANENT_HEADING}\n"
-            path.write_text(upsert_managed_block(content, LIT_PERMANENT_BLOCK, ""), "utf-8")
+            try:
+                content = upsert_managed_block(content, LIT_PERMANENT_BLOCK, "")
+            except MalformedManagedBlock as e:
+                logger.warning("%s em %s; nota nao atualizada", e, path)
+                continue
+            path.write_text(content, "utf-8")
         safe_update_managed_blocks(
             path, {LIT_PERMANENT_BLOCK: inner}, vault_timezone=cfg.vault_timezone
         )

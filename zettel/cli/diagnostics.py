@@ -228,6 +228,22 @@ def doctor(config: ConfigOption = None):
     # Vault
     checks.append(("Vault path", cfg.vault_path.exists(), str(cfg.vault_path)))
 
+    # Managed blocks the pipeline refuses to rewrite until the author fixes them (#321).
+    from zettel.vault import vault_notes_with_malformed_blocks
+
+    malformed = vault_notes_with_malformed_blocks(cfg.vault_path) if cfg.vault_path.exists() else []
+    checks.append(
+        (
+            "Blocos gerenciados malformados",
+            not malformed,
+            "; ".join(
+                f"{path.relative_to(cfg.vault_path)} ({', '.join(names)})"
+                for path, names in malformed
+            )
+            or "nenhum",
+        )
+    )
+
     # Native crashes: a C extension fault kills the process with no traceback, so
     # the leftover faulthandler dump is the only trace a run left behind.
     from zettel.crashlog import leftover_crash_logs

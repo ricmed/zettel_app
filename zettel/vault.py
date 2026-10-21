@@ -95,6 +95,24 @@ def strip_matching_wikilinks(text: str, link_targets: set[str]) -> str:
 # ── Managed Blocks ─────────────────────────────────────────────────────
 
 
+_MARKER_RE = re.compile(r"<!-- zettel:([\w-]+):(start|end) -->")
+
+
+class MalformedManagedBlock(ValueError):
+    """A note's markers for one block are not exactly one start followed by one end.
+
+    Rewriting such a note would mean guessing where the block ends, and a wrong
+    guess erases the author's text (#321). Fences are deliberately not consulted:
+    an unclosed fence in a source excerpt would hide every later marker and make
+    each run append a new block instead of refusing.
+    """
+
+    def __init__(self, block_name: str, reason: str):
+        super().__init__(f"bloco gerenciado {block_name!r} malformado: {reason}")
+        self.block_name = block_name
+        self.reason = reason
+
+
 def _block_pattern(name: str) -> tuple[str, str]:
     return (
         f"<!-- zettel:{name}:start -->",
@@ -102,37 +120,79 @@ def _block_pattern(name: str) -> tuple[str, str]:
     )
 
 
-def read_managed_block(content: str, block_name: str) -> str | None:
-    """Extract the content of a managed block, or None if not found."""
+def _marker_reason(starts: int, ends: int, start_first: bool) -> str | None:
+    """Why a block's markers are malformed, or None when they are a valid pair."""
+    if starts == ends == 0 or (starts == ends == 1 and start_first):
+        return None
+    if starts == ends == 1:
+        return "end antes do start"
+    return f"{starts} start(s) e {ends} end(s)"
+
+
+def _managed_block_span(content: str, block_name: str) -> tuple[int, int] | None:
+    """(start of the start marker, end of the end marker), or None when absent."""
     start_tag, end_tag = _block_pattern(block_name)
+    starts = content.count(start_tag)
+    ends = content.count(end_tag)
     start_idx = content.find(start_tag)
+    end_idx = content.find(end_tag)
+    reason = _marker_reason(starts, ends, start_idx < end_idx)
+    if reason:
+        raise MalformedManagedBlock(block_name, reason)
     if start_idx == -1:
         return None
-    end_idx = content.find(end_tag, start_idx)
-    if end_idx == -1:
+    return start_idx, end_idx + len(end_tag)
+
+
+def malformed_managed_blocks(content: str) -> list[str]:
+    """Names of the managed blocks in ``content`` whose markers are malformed, sorted."""
+    seen: dict[str, list[str]] = {}
+    for match in _MARKER_RE.finditer(content):
+        seen.setdefault(match.group(1), []).append(match.group(2))
+    return sorted(
+        name
+        for name, kinds in seen.items()
+        if _marker_reason(kinds.count("start"), kinds.count("end"), kinds[0] == "start")
+    )
+
+
+def vault_notes_with_malformed_blocks(vault_path: Path) -> list[tuple[Path, list[str]]]:
+    """Every Markdown note under ``vault_path`` with malformed managed blocks."""
+    found = []
+    for path in sorted(vault_path.rglob("*.md")):
+        names = malformed_managed_blocks(path.read_text(encoding="utf-8", errors="replace"))
+        if names:
+            found.append((path, names))
+    return found
+
+
+def read_managed_block(content: str, block_name: str) -> str | None:
+    """Extract the content of a managed block, or None if absent or malformed."""
+    try:
+        span = _managed_block_span(content, block_name)
+    except MalformedManagedBlock:
         return None
-    inner_start = start_idx + len(start_tag)
-    return content[inner_start:end_idx].strip()
+    if span is None:
+        return None
+    start_tag, end_tag = _block_pattern(block_name)
+    return content[span[0] + len(start_tag) : span[1] - len(end_tag)].strip()
 
 
 def upsert_managed_block(content: str, block_name: str, new_inner: str) -> str:
-    """Insert or replace a managed block. Preserves content outside the block."""
+    """Insert or replace a managed block. Preserves content outside the block.
+
+    Raises :class:`MalformedManagedBlock` instead of writing when the block's
+    markers are not exactly one start followed by one end.
+    """
     start_tag, end_tag = _block_pattern(block_name)
     block_text = f"{start_tag}\n{new_inner}\n{end_tag}"
 
-    start_idx = content.find(start_tag)
-    if start_idx == -1:
+    span = _managed_block_span(content, block_name)
+    if span is None:
         if not content.endswith("\n"):
             content += "\n"
         return content + "\n" + block_text + "\n"
-
-    end_idx = content.find(end_tag, start_idx)
-    if end_idx == -1:
-        return content + "\n" + block_text + "\n"
-
-    before = content[:start_idx]
-    after = content[end_idx + len(end_tag) :]
-    return before + block_text + after
+    return content[: span[0]] + block_text + content[span[1] :]
 
 
 # ── Safe File I/O ──────────────────────────────────────────────────────
@@ -192,8 +252,13 @@ def safe_update_managed_blocks(
 
     original = path.read_text(encoding="utf-8")
     content = original
-    for block_name, inner in blocks.items():
-        content = upsert_managed_block(content, block_name, inner)
+    try:
+        for block_name, inner in blocks.items():
+            content = upsert_managed_block(content, block_name, inner)
+    except MalformedManagedBlock as e:
+        # One broken note must not stop a batch; `zettel doctor` lists it.
+        logger.warning("%s em %s; nota nao atualizada, corrija os marcadores", e, path)
+        return
     if content == original:
         return
 

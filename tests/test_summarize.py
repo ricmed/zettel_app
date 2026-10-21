@@ -380,6 +380,21 @@ def test_refresh_preserves_manual_text_outside_the_blocks(cfg, db):
     assert "Novo resumo." in content
 
 
+def test_refresh_leaves_an_index_with_a_stray_end_marker_alone(cfg, db):
+    """A block that lost its start marker is refused, not scaffolded over (#321)."""
+    _seed(db)
+    path = _write_lit_index(cfg, db)
+    broken = (
+        path.read_text(encoding="utf-8")
+        + f"\n<!-- zettel:{CHAPTER_MAP_BLOCK}:end -->\nNao me apague.\n"
+    )
+    path.write_text(broken, encoding="utf-8")
+
+    refresh_chapter_map(cfg, db, SOURCE_ID)
+
+    assert path.read_text(encoding="utf-8") == broken
+
+
 def test_refresh_is_idempotent(cfg, db):
     """Running twice must not stack duplicate headings or blocks."""
     _seed(db)
