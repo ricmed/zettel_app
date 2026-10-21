@@ -30,6 +30,9 @@ uvicorn zettel.web:app --host 0.0.0.0 --port 5000
 # Web UI tests
 .venv/Scripts/python.exe -m pytest tests/test_web.py tests/test_web_state.py tests/test_web_package.py tests/test_web_studio.py -v
 
+# Pipeline contract: one Markdown through run-all, fake LLM + token-hash embedding (#322)
+.venv/Scripts/python.exe -m pytest tests/test_pipeline_smoke.py -v
+
 # Ask evaluation harness (offline: no LLM, no network)
 .venv/Scripts/python.exe -m pytest tests/evals/ -v
 .venv/Scripts/python.exe -m zettel.evals.replay evals/configs/current-ask.yaml
@@ -208,6 +211,8 @@ A shared `Annotated` option alias exists only when two or more commands declare 
 ### Data flow between phases
 
 `extract` writes drafts + concepts `awaiting_review`. `review` promotes approved concepts (after **same-source** dedupe) to `approved`. `connect` loads `get_concepts_by_status("approved", without_notes=True)` from SQLite only. All other inter-phase communication goes through StateDB and ChromaDB. Each CLI command instantiates `(AppConfig, StateDB, VectorIndex)` via `load_deps()`, `get_db()`, `get_idx()` in `cli/deps.py`.
+
+`tests/test_pipeline_smoke.py` is the contract between phases (#322): it runs `zettel run-all --yes --auto-approve` over a two-chapter Markdown with the operational `config/config.yaml` (paths moved to `tmp_path`, decision shadow off), a fixed answer per LLM phase (patched `get_llm` in `zettel.llm`, `zettel.extractor`, `zettel.connector.run`, `zettel.gardener`; the real `call_llm` and cache run) and a token-hash embedding put in `zettel.index._EF_BUILDERS` behind the real `VectorIndex` and Chroma. It asserts the ZTL cites its approved granular LIT with a code-computed citation and no page (Markdown), the concept is `noted`, the LIT and the chapter map list the note, and a second run changes no vault byte and makes no LLM call. Every other phase test seeds the state it receives; renaming a status or a `candidate_json` field breaks only this one, which is the point.
 
 **Breaking change**: the old monolithic LIT-per-source model is gone. Re-run `extract` + `review` for sources harvested before this change.
 

@@ -164,10 +164,57 @@ def test_connect_does_not_offer_dedupe_threshold():
     assert "--topk" in output
 
 
-def test_run_all_connects_only_the_harvest_sources_and_asks_before():
-    text = (CLI_PKG / "pipeline.py").read_text(encoding="utf-8")
-    assert "preflight_gate(estimate_connect" in text
-    assert "source_ids=list(harvest_outcome.source_ids)" in text
+def test_run_all_connects_only_the_harvest_sources_and_asks_before(monkeypatch):
+    """Connect is scoped to this run's harvest and runs only after the cost gate.
+
+    The whole pipeline is exercised for real in ``tests/test_pipeline_smoke.py``;
+    this pins the two orchestration rules that a single-source smoke run cannot.
+    """
+    from zettel.cli.pipeline import _run_all_phases
+
+    events: list[tuple[str, object]] = []
+    harvest = type("H", (), {"source_ids": ["@Ana2024"], "skipped": []})()
+    summary = type("S", (), {"chapters_summarized": 0, "chapters_skipped": 0})()
+    summary.sources_summarized = 0
+
+    def load_candidates(_db, source_ids=None):
+        events.append(("load", source_ids))
+        return [{"concept_id": "c1"}]
+
+    monkeypatch.setattr("zettel.harvester.run_harvest", lambda *_a, **_k: harvest)
+    monkeypatch.setattr("zettel.extractor.run_extract", lambda *_a, **_k: [])
+    monkeypatch.setattr(
+        "zettel.review.run_review",
+        lambda *_a, **_k: {"approved": 1, "rejected": 0, "skipped": 0},
+    )
+    monkeypatch.setattr("zettel.summarize.generate_summaries", lambda *_a, **_k: summary)
+    monkeypatch.setattr("zettel.connector.load_approved_candidates", load_candidates)
+    monkeypatch.setattr("zettel.preflight.estimate_connect", lambda _cfg, _db, cands: cands)
+    monkeypatch.setattr(
+        "zettel.cli.pipeline.preflight_gate", lambda est, yes, _db: events.append(("gate", est))
+    )
+    monkeypatch.setattr(
+        "zettel.connector.run_connect",
+        lambda _cfg, _db, _idx, cands, **_k: events.append(("connect", cands)),
+    )
+    monkeypatch.setattr("zettel.cli.formatting.print_connect_summary", lambda _o: None)
+    monkeypatch.setattr("zettel.gardener.run_garden", lambda *_a, **_k: [])
+    db = MagicMock()
+    db.get_last_run.return_value = None
+
+    _run_all_phases(
+        object(),
+        db,
+        object(),
+        interactive=False,
+        duplicate_action="skip",
+        skip_biblio=False,
+        yes=True,
+        dry_run=False,
+    )
+
+    assert [name for name, _ in events] == ["load", "gate", "connect"]
+    assert events[0][1] == ["@Ana2024"]
 
 
 def test_harvest_no_longer_offers_move_processed():
