@@ -50,6 +50,74 @@ def test_rrf_combines_vector_and_bm25(db):
     assert "n1" in ids  # surfaced purely by vector
 
 
+# -- the fusion itself (#328): RRF(d) = sum over lists of 1 / (k + rank_d) --
+
+
+def _vector(*ids: str) -> list[dict]:
+    return [{"id": nid, "distance": 0.1} for nid in ids]
+
+
+def _bm25(*ids: str) -> list[dict]:
+    return [{"note_id": nid} for nid in ids]
+
+
+def test_rrf_scores_and_orders_by_the_formula(db):
+    """Ranks picked by hand; the expected order and scores come from the formula."""
+    cfg = _cfg()
+    k = cfg.retrieval.rrf_k
+    fused = Retriever(cfg, db, FakeVectorIndex())._rrf_fuse_notes(
+        _vector("d1", "d2", "d3"), _bm25("d2", "d4", "d1")
+    )
+    expected = {
+        "d1": 1 / (k + 1) + 1 / (k + 3),
+        "d2": 1 / (k + 2) + 1 / (k + 1),
+        "d3": 1 / (k + 3),
+        "d4": 1 / (k + 2),
+    }
+    assert [hit.note_id for hit in fused] == ["d2", "d1", "d4", "d3"]
+    assert {hit.note_id: hit.score for hit in fused} == pytest.approx(expected)
+    assert {hit.note_id: (hit.vector_rank, hit.bm25_rank) for hit in fused} == {
+        "d1": (1, 3),
+        "d2": (2, 1),
+        "d3": (3, None),
+        "d4": (None, 2),
+    }
+
+
+@pytest.mark.parametrize(("k", "first"), [(0, "solo"), (60, "both")])
+def test_rrf_k_decides_between_one_top_rank_and_two_middle_ones(db, k, first):
+    """``solo`` is rank 1 in one list: 1/(k+1). ``both`` is rank 3 in two: 2/(k+3).
+
+    The second wins exactly when k > 1, so the order proves ``rrf_k`` is read.
+    """
+    cfg = _cfg()
+    cfg.retrieval.rrf_k = k
+    fused = Retriever(cfg, db, FakeVectorIndex())._rrf_fuse_notes(
+        _vector("solo", "x", "both"), _bm25("y", "z", "both")
+    )
+    assert fused[0].note_id == first
+
+
+def test_rrf_ties_keep_the_vector_order_then_the_bm25_order(db):
+    """Equal scores are not reordered: dense hits first, then BM25-only, each in rank order."""
+    fused = Retriever(_cfg(), db, FakeVectorIndex())._rrf_fuse_notes(_vector("v1"), _bm25("b1"))
+    assert [hit.note_id for hit in fused] == ["v1", "b1"]
+    assert fused[0].score == fused[1].score
+
+
+def test_chapter_rrf_uses_the_same_formula(db):
+    """The catalog fuses chapter summaries the same way (ADR-047)."""
+    cfg = _cfg()
+    k = cfg.retrieval.rrf_k
+    fused = Retriever(cfg, db, FakeVectorIndex())._rrf_fuse_chapters(
+        _vector("c1", "c2"), [{"chapter_id": "c2"}, {"chapter_id": "c3"}]
+    )
+    assert [hit.chapter_id for hit in fused] == ["c2", "c1", "c3"]
+    assert {hit.chapter_id: hit.score for hit in fused} == pytest.approx(
+        {"c1": 1 / (k + 1), "c2": 1 / (k + 2) + 1 / (k + 1), "c3": 1 / (k + 2)}
+    )
+
+
 def test_vector_only_mode_ignores_fts(db):
     if not db.fts_enabled:
         pytest.skip("SQLite build sem FTS5")
