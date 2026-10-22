@@ -400,3 +400,41 @@ def test_readonly_store_never_writes(tmp_path):
     bucket_clusters("Cat", list(vectors), vectors, _cfg(), store=_store(tmp_path, readonly=True))
 
     assert not (tmp_path / "garden").exists()
+
+
+@pytest.mark.slow
+def test_an_unreadable_model_file_is_refitted_with_a_warning(tmp_path, caplog):
+    """A corrupt pickle, or one another library version cannot read, refits (#331)."""
+    from zettel.gardener_assign import ClusterReport, bucket_clusters
+
+    vectors = _two_groups()
+    bucket_clusters("Cat", list(vectors), vectors, _cfg(), store=_store(tmp_path))
+    [model_file] = (tmp_path / "garden").glob("*.joblib")
+    model_file.write_bytes(b"not a pickle")
+
+    report = ClusterReport()
+    with caplog.at_level("WARNING", logger="zettel.gardener_assign"):
+        clusters = bucket_clusters("Cat", list(vectors), vectors, _cfg(), report, _store(tmp_path))
+
+    assert len(clusters) == 2
+    assert (report.refit_buckets, report.model_buckets) == (1, 0)
+    assert "ilegivel" in caplog.text
+    assert model_file.read_bytes() != b"not a pickle"  # the refit replaced it
+
+
+def test_a_library_upgrade_changes_the_model_fingerprint(tmp_path, monkeypatch):
+    """A pickle written under other numpy/joblib/umap/hdbscan versions is not loaded (#331)."""
+    from zettel import gardener
+    from zettel.config import AppConfig
+    from zettel.gardener_assign import MODEL_LIBRARIES, model_library_versions
+
+    installed = model_library_versions()
+    assert set(installed) == set(MODEL_LIBRARIES)
+    assert installed["joblib"] != "missing"
+
+    cfg = AppConfig(cache_path=tmp_path)
+    before = gardener.model_store(cfg).fingerprint
+    assert gardener.model_store(cfg).fingerprint == before
+
+    monkeypatch.setattr(gardener, "model_library_versions", lambda: {**installed, "numpy": "9.0.0"})
+    assert gardener.model_store(cfg).fingerprint != before

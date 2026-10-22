@@ -40,6 +40,7 @@ dependencies = [
     "langchain-google-genai>=4.3.7",
     "typesafe-sdk>=0.7.2",
     "nh3>=0.3",
+    "joblib>=1.6.0",
 ]
 
 [tool.uv.sources]
@@ -69,8 +70,6 @@ filterwarnings = [
   # A deprecation reached through our own code breaks the suite the day it lands.
   "error::DeprecationWarning:zettel",
   "error::PendingDeprecationWarning:zettel",
-  # joblib under NumPy 2.5, loading the garden's bucket models (#331).
-  "ignore:Setting the shape on a NumPy array has been deprecated:DeprecationWarning:joblib",
   # umap says it runs single-threaded because the garden seeds it (#294), by design.
   "ignore:n_jobs value 1 overridden to 1 by setting random_state:UserWarning:umap",
 ]

@@ -401,14 +401,37 @@ def vector_hash(vec: np.ndarray) -> str:
     return hashlib.sha256(data).hexdigest()[:16]
 
 
+MODEL_LIBRARIES = ("numpy", "joblib", "scikit-learn", "umap-learn", "hdbscan")
+
+
+def model_library_versions() -> dict[str, str]:
+    """Installed versions of the libraries a pickled bucket model is made of.
+
+    Read from the distribution metadata, so umap and numba are not imported.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    versions: dict[str, str] = {}
+    for name in MODEL_LIBRARIES:
+        try:
+            versions[name] = version(name)
+        except PackageNotFoundError:
+            versions[name] = "missing"
+    return versions
+
+
 class BucketModelStore:
     """Bucket models on disk (``cache_path/garden``), valid for one ``fingerprint``.
 
     The fingerprint covers what makes a partition meaningless when it changes:
-    the embedding model, the taxonomy file, the category representation and
-    the clustering knobs. ``refit`` ignores what is stored (and overwrites it);
-    ``readonly`` reads but never writes (``garden --plan``). The files are
-    pickles written by this process; never point the store at foreign files.
+    the embedding model, the taxonomy file, the category representation, the
+    clustering knobs and the versions of the libraries in the pickle
+    (``model_library_versions``), so an upgrade refits instead of unpickling
+    another version's objects. A file that does not load is logged and
+    refitted, never a garden failure. ``refit`` ignores what is stored (and
+    overwrites it); ``readonly`` reads but never writes (``garden --plan``).
+    The files are pickles written by this process; never point the store at
+    foreign files.
     """
 
     def __init__(
