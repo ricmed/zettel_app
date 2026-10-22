@@ -18,6 +18,7 @@ from score_decision_gold import (
     score_corroborates,
     score_relations,
 )
+from zettel.evals.stats import wilson
 
 
 def _item(
@@ -89,6 +90,7 @@ def test_scores_accuracy_weights_targets_bands_and_mcnemar():
     # create_new items weigh 40/2 = 20 each, link items 10/2 = 5 each.
     assert llm["accuracy_weighted"] == round((20 + 5 + 5) / 50, 4)
     assert jev["accuracy_weighted"] == round((20 + 20 + 5) / 50, 4)
+    assert jev["accuracy_ci95"] == wilson(jev["correct"], jev["n"])
     # Targets: only where human and model both link. LLM D3 right, D4 right; Jev D1 right, D3 wrong.
     assert llm["target"] == {"n": 2, "accuracy": 1.0}
     assert jev["target"] == {"n": 2, "accuracy": 0.5}
@@ -99,6 +101,7 @@ def test_scores_accuracy_weights_targets_bands_and_mcnemar():
         "only_a_right": 1,
         "only_b_right": 1,
         "mcnemar_p": 1.0,
+        "mid_p": 1.0,
     }
 
 

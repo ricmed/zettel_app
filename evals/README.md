@@ -119,6 +119,19 @@ Dedupe e categoria não têm gabarito humano: o m/d do revisor só cobre o que o
 - **Commitável**: só o `*-GABARITO-NAO-ABRIR.json` (ids, sem texto). Planilha e leitura são gitignored. Uma planilha existente nunca é sobrescrita sem `--force`.
 - **Pontuação**: `scripts/score_decision_gold.py --site dedupe|corroborates` cruza a planilha preenchida com o gabarito; `--key`/`--sheet` têm como padrão os arquivos do site. Em corroborates, "mesma ideia" é só `mesma-ideia`: o script compara a aresta criada, o nível 2 do Jev e o cosseno ≥ limiar (informativo), com McNemar exato, a matriz dos três níveis, a AUC do score do Jev e do cosseno, e a regra do #208. Resultado de 2026-10-07 na ADR-055.
 
+## Tamanho da rodada, *mid-p* e Wilson (#332)
+
+As rodadas comparam duas condições com o McNemar sobre os itens em que só uma acerta, e o poder depende de quantos itens discordam. Rodadas de 42 a 69 itens deixaram resultados "na trave" porque eram pequenas demais para o efeito procurado: a rodada 2 de #218 (16 contra 7 discordantes em 42) tinha poder de 39% para detectar o próprio efeito observado (+21 pontos) e precisaria de 98 itens; a de #231 (12 contra 9 em 69) precisaria de mais de mil.
+
+```bash
+.venv/Scripts/python.exe scripts/plan_gold_round.py --discordance 0.3 --effect 0.1
+.venv/Scripts/python.exe scripts/plan_gold_round.py --from-round 42:7:16 --items 42
+```
+
+- **Antes de exportar a planilha**, o pré-registro declara discordância esperada, efeito mínimo de interesse e itens planejados ([`preregistration/MODELO.md`](preregistration/MODELO.md), seção "Tamanho da amostra e poder"). O poder é calculado exatamente (soma sobre todas as contagens e divisões de discordantes, sem simulação), só na direção do efeito, como as regras adotam o desafiante; a aproximação de Connor (1987) sai ao lado.
+- **Relatórios**: `compare_gold_runs.py`, `score_decision_gold.py`, `score_category_gold.py` e `probe_dedupe_context.py` mostram o p exato e o *mid-p* de cada par, e o IC95 de Wilson de cada acurácia. O exato condicional é conservador; o *mid-p* tem tamanho próximo do nominal (Fagerland, Lydersen & Laake, 2013). Uma regra pré-registrada diz em qual dos dois se apoia; as regras já registradas se apoiam no exato e continuam assim.
+- Implementação única em `zettel/evals/stats.py` (`wilson`, `paired_exact_p`, `paired_mid_p`, `mcnemar_power`, `items_for_power`, `connor_items`).
+
 ## Rodadas de rotulagem e comparação de prompts
 
 Cada rodada tem os próprios arquivos. A rodada 1 usa os nomes sem sufixo; uma rodada nova usa `--round`, e `--exclude-labels` garante que nenhum item já rotulado (ou usado para escrever um prompt) volte:

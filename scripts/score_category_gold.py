@@ -30,8 +30,8 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from compare_gold_runs import paired_exact_p
 from score_decision_gold import read_sheet
+from zettel.evals.stats import paired_exact_p, paired_mid_p, wilson
 from zettel.search_terms import fold
 
 MIN_ITEMS = 100
@@ -98,9 +98,12 @@ def compare(a: Mapping[str, bool], b: Mapping[str, bool]) -> dict[str, Any]:
         "n": n,
         "acc_a": round(sum(a[i] for i in shared) / n, 4) if n else None,
         "acc_b": round(sum(b[i] for i in shared) / n, 4) if n else None,
+        "acc_a_ci95": wilson(sum(a[i] for i in shared), n),
+        "acc_b_ci95": wilson(sum(b[i] for i in shared), n),
         "only_a_right": only_a,
         "only_b_right": only_b,
         "mcnemar_p": round(paired_exact_p(only_a, only_b), 4),
+        "mid_p": round(paired_mid_p(only_a, only_b), 4),
     }
 
 
@@ -137,10 +140,11 @@ def score(key: Mapping[str, Any], sheet: Mapping[str, Mapping[str, str]]) -> dic
         "population": key["population"],
     }
     base = hits(items, gold, "A", none)
+    by_cond = {cond: hits(items, gold, cond, none) for cond in ("A", "B", "C", "D")}
     result["accuracy"] = {
-        cond: round(sum(h.values()) / len(h), 4) if (h := hits(items, gold, cond, none)) else None
-        for cond in ("A", "B", "C", "D")
+        cond: round(sum(h.values()) / len(h), 4) if h else None for cond, h in by_cond.items()
     }
+    result["accuracy_ci95"] = {cond: wilson(sum(h.values()), len(h)) for cond, h in by_cond.items()}
     result["vs_A"] = {
         cond: compare(base, hits(items, gold, cond, none)) for cond in (*CHALLENGERS, "D")
     }
