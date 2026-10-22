@@ -77,3 +77,15 @@ the failure that stops the phase.
 - A transport/auth/quota failure while embedding the category labels raises `LLMUnavailableError(phase="embedding")` instead of silently switching to global clustering. Any other failure still falls back to the global path.
 - `run_garden` and `run_garden_hubs` record `failed` for any exception that escapes, in a `finally`. The taxonomy check, `get_llm` and the label embeddings run **before** `--recreate` purges, so a broken setup never deletes MOCs without writing new ones.
 - CLI `zettel garden` exits 1 with the classified message (`exit_llm_unavailable`); the web worker and `run-all` already handled `LLMUnavailableError`.
+
+## Addendum (2026-10-21): the classifier decides by type and status, not by digits (issue #323)
+
+**Status:** Accepted amendment. `is_llm_unavailable` looked for `"401"`, `"404"`, `"429"`, `"503"`... anywhere in the message of every exception in the chain. Two content errors quote text the code does not control: pydantic's `ValidationError` carries the model's answer (`input_value='ver p. 429 do livro'`) and `json.JSONDecodeError` the error offset (`char 429`). Either one turned a parse failure of one item into an aborted run labelled "LLM indisponível" in the review dedupe and in the PT-BR guard, the two places that parse inside the `try` that wraps the call. The tests that pinned "a schema error is not an outage" used inputs without digits.
+
+The order is now explicit, first match wins:
+
+1. `LLMUnavailableError` / `ImportError` -> unavailable.
+2. Any `ValueError` (which includes `ValidationError` and `JSONDecodeError`) -> never unavailable.
+3. A status code a client attached (`status_code`, `status`, `code`, or the same on `.response`): 401, 403, 404, 408, 429 and 5xx stop the run; other 4xx (400, 422) do not, since the same request will fail again. The code also names the reason (`rate limit esgotado`, `autenticação recusada`, ...).
+4. Exception type (`ConnectionError`, `TimeoutError`, `OSError`, SDK class names such as `RateLimitError`).
+5. In the message, a code only where a client wrote it as a status (`Error code: 503`, `status 429`, `HTTP 401`), plus the transport phrases (`connection refused`, `quota`, `timed out`, ...). Bare digits no longer count.

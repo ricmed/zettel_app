@@ -1783,6 +1783,31 @@ def test_dedupe_parse_error_keeps_that_item_extracted(tmp_path, monkeypatch):
     db.close()
 
 
+def test_dedupe_answer_quoting_a_status_code_is_a_parse_error_not_an_outage(tmp_path, monkeypatch):
+    """A schema error whose text holds "429" fails that item only, never the run (#323)."""
+    cfg, db = _dedupe_env(tmp_path, note_source_id="@S")
+    first = _cand_dict("c1", thesis="Primeira tese sobre generalizacao implicita")
+    second = _cand_dict("c2", thesis="Segunda tese sobre regularizacao explicita")
+    for cand in (first, second):
+        db.upsert_concept(cand["concept_id"], "@S", "@S::ch000::a", status="extracted")
+    answers = iter(
+        [
+            '{"decision": "ver p. 429", "target_note_id": null, "reason": "x"}',
+            '{"decision": "create_new", "target_note_id": null, "reason": "nova"}',
+        ]
+    )
+    monkeypatch.setattr("zettel.extractor.call_llm", lambda *_a, **_k: next(answers))
+    idx = _FakeNeighbourIndex("N1")
+    idx._vectors_by_text = {
+        f"{first['candidate'].thesis} {first['candidate'].definition}": [1.0, 0.0],
+        f"{second['candidate'].thesis} {second['candidate'].definition}": [0.0, 1.0],
+    }
+    approved = deduplicate_candidates(cfg, db, idx, object(), [first, second])
+    assert [c["concept_id"] for c in approved] == ["c2"]
+    assert db.get_concept("c1")["status"] == "extracted"
+    db.close()
+
+
 def test_dedupe_does_not_build_the_llm_when_nothing_needs_it(tmp_path, monkeypatch):
     cfg, db = _dedupe_env(tmp_path, note_source_id="@Other")
     cand = _cand_dict("c1", thesis="Redes profundas generalizam por vies implicito")
