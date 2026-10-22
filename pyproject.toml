@@ -80,9 +80,9 @@ source = ["zettel"]
 branch = true
 
 [tool.coverage.report]
-# Measured total (lines + branches) rounded down: 79.63% at #326, 80.32% after #329.
-# Raise it when coverage grows; never lower it to make a change pass.
-fail_under = 80
+# Measured total (lines + branches) rounded down: 79.63% at #326, 80.32% after #329,
+# 84.57% after #330. Raise it when coverage grows; never lower it to make a change pass.
+fail_under = 84
 skip_covered = true
 show_missing = true
 
