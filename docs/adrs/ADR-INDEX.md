@@ -1,7 +1,7 @@
-# zettel_app ADR Index (58 Decisions)
+# zettel_app ADR Index (64 Decisions)
 
 **Last Updated**: 2026-10-22  
-**Status**: Complete — 58 formal ADRs across 13 modules
+**Status**: Complete — 64 formal ADRs (001–065; 044 unused) across 13 modules
 
 ---
 
@@ -10,14 +10,15 @@
 | Module | Count | ADRs |
 |--------|-------|------|
 | **INFRA** | 15 | [001–008, 041–042, 052, 054, 058, 064–065](#infra-core-infrastructure) |
-| **RETRIEVAL** | 4 | [009–010, 036, 043](#retrieval-hybrid-search--graph) |
-| **HARVEST** | 6 | [011–014, 027, 033](#harvest-ingestion--paging) |
-| **EXTRACT** | 2 | [015, 034](#extract-literature-notes) |
-| **REVIEW** | 1 | [016](#review-approval-gate) |
+| **RETRIEVAL** | 5 | [009–010, 036, 043, 047](#retrieval-hybrid-search--graph) |
+| **HARVEST** | 8 | [011–014, 027, 033, 046, 057](#harvest-ingestion--paging) |
+| **EXTRACT** | 4 | [015, 034, 049–050](#extract-literature-notes) |
+| **REVIEW** | 4 | [016–018, 045](#review-approval-gate) |
 | **CONNECT** | 1 | [053](#connect-permanent-notes) |
 | **GARDEN** | 5 | [019–021, 060–061](#garden-moc-generation) |
 | **WEB** | 7 | [022–023, 039–040, 056, 062–063](#web-ui--job-queue) |
-| **LLM** | 5 | [024–025, 045, 048, 055](#llm-provider--caching) |
+| **LLM** | 5 | [024–025, 048, 055, 059](#llm-provider--caching) |
+| **CLI** | 4 | [026, 032, 035, 037](#cli-orchestration) |
 | **QA-WRITING** | 4 | [028–029, 038, 051](#qa-writing--article-pipeline) |
 | **MANUAL** | 1 | [030](#manual-hand-written-notes) |
 | **ASSETS** | 1 | [031](#assets-images) |
@@ -126,12 +127,16 @@
 - **Summary**: Collections declare `hnsw.space: cosine`. `zettel/similarity.py` is the only distance conversion. Floors measured on `(1+cos)/2` are converted by `2s−1`. `dedupe_threshold` 0.85 stays, and now means cosine in both passes.
 - **Link**: [`ADR-058-chroma-distance-is-cosine.md`](./generated/INFRA/ADR-058-chroma-distance-is-cosine.md)
 
+---
+
 ### ADR-064: Managed Blocks Refuse Malformed Markers
 
 - **Status**: Accepted
 - **Date**: 2026-10-21
 - **Summary**: A managed block is exactly one start marker followed by one end marker, or absent. Anything else raises `MalformedManagedBlock` instead of guessing where the block ends (the guess erased the author's text after an orphan start). Writers skip the note, not the batch; readers see no block; `zettel doctor` lists the broken notes. Fences are deliberately not consulted. Pinned by Hypothesis property tests.
 - **Link**: [`ADR-064-managed-blocks-refuse-malformed-markers.md`](./generated/INFRA/ADR-064-managed-blocks-refuse-malformed-markers.md)
+
+---
 
 ### ADR-065: Test Strategy — Three Layers, No Network, Contracts at the Boundaries
 
@@ -177,24 +182,6 @@
 - **Date**: 2026-09-07
 - **Summary**: The vault gains a library index it could not answer before: `zettel catalog` returns which sources treat a subject, which chapters, and how many permanent notes each chapter produced. Chapter summaries are embedded and searchable; the source summary is a reduce over them and is not embedded. A summary *routes* and is never evidence — a test pins it out of `ask`. Own relevance floor, measured at 0.70 (off-domain tops at 0.693, self-match bottoms at 0.745).
 - **Link**: [`ADR-047-chapter-summaries-as-library-routing-index.md`](./generated/RETRIEVAL/ADR-047-chapter-summaries-as-library-routing-index.md)
-
----
-
-### ADR-046: Bibliographic Duplicate Layers Before the Semantic One
-
-- **Status**: Accepted
-- **Date**: 2026-09-07
-- **Summary**: Harvest dedupe goes from three layers to five. Exact DOI/ISBN (an identity) reuses the source silently; title + author (a heuristic) always asks and never merges on its own. Both are pure SQLite and run before any embedding.
-- **Link**: [`ADR-046-bibliographic-duplicate-layers.md`](./generated/HARVEST/ADR-046-bibliographic-duplicate-layers.md)
-
----
-
-### ADR-045: Cross-Source Overlap Is Corroboration, Not Duplication
-
-- **Status**: Accepted
-- **Date**: 2026-09-07
-- **Summary**: Concept dedupe is scoped to one `source_id`. Two sources stating one idea yield two notes plus a `corroborates` edge derived by code at connect — never offered to the LLM, and weighted 0.45 because weight governs traversal, not importance.
-- **Link**: [`ADR-045-cross-source-overlap-is-corroboration.md`](./generated/REVIEW/ADR-045-cross-source-overlap-is-corroboration.md)
 
 ---
 
@@ -272,6 +259,24 @@
 
 ---
 
+### ADR-046: Bibliographic Duplicate Layers Before the Semantic One
+
+- **Status**: Accepted
+- **Date**: 2026-09-07
+- **Summary**: Harvest dedupe goes from three layers to five. Exact DOI/ISBN (an identity) reuses the source silently; title + author (a heuristic) always asks and never merges on its own. Both are pure SQLite and run before any embedding.
+- **Link**: [`ADR-046-bibliographic-duplicate-layers.md`](./generated/HARVEST/ADR-046-bibliographic-duplicate-layers.md)
+
+---
+
+### ADR-057: Precedence and Provenance of Bibliographic Fields
+
+- **Status**: Accepted
+- **Date**: 2026-10-17
+- **Summary**: Each bibliographic field records where it came from (`user`, `file_metadata`, `heuristic`, `llm`). Frontmatter the user wrote is never overwritten by the model, which only fills gaps or replaces a heuristic; a non-interactive harvest does not accept a complete record whose required fields all came from the model; the document type from the filename matches whole words.
+- **Link**: [`ADR-057-bibliographic-field-provenance.md`](./generated/HARVEST/ADR-057-bibliographic-field-provenance.md)
+
+---
+
 ## EXTRACT — Literature Notes
 
 ### ADR-015: Granular Per-Chunk Literature Notes with Readable Filenames
@@ -336,6 +341,15 @@
 - **Date**: 2026-08-29, Resolved 2026-08-31
 - **Summary**: Threshold validation is now enforced server-side on both CLI and web paths, eliminating bypass vector. The configuration `literature_review.auto_approve_min_confidence` is now a uniform gate. Future override capability (if needed) must be explicit and audited.
 - **Link**: [`ADR-018-web-cli-validation-asymmetry.md`](./generated/REVIEW/ADR-018-web-cli-validation-asymmetry.md)
+
+---
+
+### ADR-045: Cross-Source Overlap Is Corroboration, Not Duplication
+
+- **Status**: Accepted
+- **Date**: 2026-09-07
+- **Summary**: Concept dedupe is scoped to one `source_id`. Two sources stating one idea yield two notes plus a `corroborates` edge derived by code at connect — never offered to the LLM, and weighted 0.45 because weight governs traversal, not importance.
+- **Link**: [`ADR-045-cross-source-overlap-is-corroboration.md`](./generated/REVIEW/ADR-045-cross-source-overlap-is-corroboration.md)
 
 ---
 
@@ -611,11 +625,18 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 56 |
-| **Accepted** | 56 |
+| **Total ADRs** | 64 |
+| **Accepted** | 64 |
 | **Needs Input** | 0 |
-| **Total Relationships** | 42 |
 | **Modules Covered** | 13 |
+
+The counts in this file are pinned to `docs/adrs/generated/` by `tests/test_docs_adr_references.py`.
+
+---
+
+## Status Update (2026-10-22)
+
+✅ **ADR-064** (managed blocks refuse malformed markers) and **ADR-065** (test strategy) added; addenda in ADR-003 (RRF formula), ADR-013 (`set-paging` refuses non-PDF sources), ADR-032 (every CLI command is invoked by a test), ADR-038 (one statistics module, rounds sized by power), ADR-052 (offline test embedding), ADR-058 (thresholds tested at their boundary), ADR-059 (status-code outage classification; `ask` without embedding) and ADR-061 (library versions in the garden model fingerprint). Index counts corrected to the 64 files on disk: ADR-057 had no entry, ADR-045 and ADR-046 sat under RETRIEVAL, and the module table summed to 52.
 
 ---
 

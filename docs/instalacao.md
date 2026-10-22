@@ -156,8 +156,8 @@ ollama pull qwen3-embedding
 ## Testes
 
 ```bash
-# Suite completa
-uv run pytest tests/ -v
+# Suíte completa, como o CI (testes lentos incluídos)
+uv run pytest
 
 # Ciclo de edição: sem os testes lentos (UMAP, Docling, scikit-learn, subprocessos), em paralelo
 uv run pytest -m "not slow" -n auto
@@ -165,14 +165,22 @@ uv run pytest -m "not slow" -n auto
 # Cobertura, como o CI roda (falha abaixo do piso em [tool.coverage.report])
 uv run pytest -n auto --cov
 
-# Um arquivo
+# Um arquivo / uma função
 uv run pytest tests/test_hashing.py -v
-
-# Uma função
 uv run pytest tests/test_hashing.py::test_normalize_collapses_whitespace -v
 
-# Interface web
-uv run pytest tests/test_web.py tests/test_web_state.py -v
+# Interface web: seleção por nome (todo tests/test_web_*.py e os testes que citam a web)
+uv run pytest tests/ -k web
+
+# Contrato entre as fases: run-all sobre um Markdown, LLM fixo, embedding local
+uv run pytest tests/test_pipeline_smoke.py -v
+
+# Avaliação offline: replay do ask, estatística dos gold sets, mapa de medições (sem LLM, sem rede)
+uv run pytest tests/evals/ -v
+uv run python -m zettel.evals.replay evals/configs/current-ask.yaml
+
+# Repetir a ordem aleatória de uma execução (a semente aparece no cabeçalho)
+uv run pytest --randomly-seed=N
 ```
 
 A suíte não acessa a rede: `tests/conftest.py` recusa qualquer conexão fora de `127.0.0.1`/`::1`, usa o mapa de preços que vem com o LiteLLM instalado (`LITELLM_LOCAL_MODEL_COST_MAP`) e oferece a *fixture* `token_hash_embedding`, um embedding determinístico local para os testes que precisam do `VectorIndex` real. Um teste que tente abrir conexão falha com `NetworkBlockedInTests`.

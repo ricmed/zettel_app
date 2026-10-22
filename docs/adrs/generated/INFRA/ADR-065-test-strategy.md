@@ -29,7 +29,7 @@ A pipeline that calls LLMs has three kinds of correctness, and each needs its ow
    - `pytest-randomly` shuffles the order on every run (the seed is printed; `--randomly-seed=N` replays it), so an order dependency surfaces instead of hiding.
    - Marker `slow`: tests whose own body needs UMAP/numba, Docling, scikit-learn or a subprocess, and the pipeline smoke test. `pytest -m "not slow" -n auto` (`pytest-xdist`) is the edit loop; CI runs everything.
 6. **Coverage with a floor.** CI runs with `--cov` (branch coverage, `[tool.coverage.*]`) and fails under `fail_under`, set to the measured total rounded down. The floor only rises. Coverage is a floor against losing tests, not a quality target: §6.5 of the audit shows fully covered lines whose tests would not notice a wrong threshold.
-7. **Time.** No test asserts a wall-clock budget outside `slow`; a growth rate is tested as a ratio of two sizes, measured interleaved, best of five. Waiting on a background worker is a condition with a generous deadline (`_wait_job` in `tests/test_web.py`), never a fixed number of sleeps.
+7. **Time.** No test asserts a wall-clock budget outside `slow`; a growth rate is tested as a ratio of two sizes, measured interleaved, best of five. Waiting on a background worker is a condition with a generous deadline (`wait_for_job` in `tests/web_support.py`), never a fixed number of sleeps.
 
 ### Consequences
 

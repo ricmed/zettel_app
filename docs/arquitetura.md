@@ -4,7 +4,7 @@
 
 Mapa do repositório, papel de cada módulo, estrutura do vault, as camadas de proteção contra drift e como os custos de LLM/embedding são registrados.
 
-Decisões de fundo estão documentadas nos [ADRs](adrs/ADR-INDEX.md) — 43 decisões formais em 12 módulos.
+Decisões de fundo estão documentadas nos [ADRs](adrs/ADR-INDEX.md), agrupados por módulo.
 
 ---
 
