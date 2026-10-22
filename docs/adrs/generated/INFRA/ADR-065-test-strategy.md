@@ -13,8 +13,8 @@ A pipeline that calls LLMs has three kinds of correctness, and each needs its ow
 
 1. **Three layers, three gates.**
    - *Code*: `pytest tests/` in CI on every push and PR (`.github/workflows/tests.yml`), with Ruff. Never calls a provider, never opens the network.
-   - *Observable behaviour, offline*: `zettel.evals.replay` scores recorded `ask` trajectories; tests prove it opens no socket and calls no LLM (ADR-038).
-   - *Model quality*: gold sets under `evals/gold/`, rules pre-registered under `evals/preregistration/`, scored by `scripts/score_*` and `scripts/compare_gold_runs.py` (exact McNemar, Wilson intervals, stratum weights). Those scripts are themselves tested. A prompt, threshold or model change is accepted by its measurement, not by green tests.
+   - *Observable behaviour, offline*: `zettel.evals.replay` scores recorded `ask` trajectories; tests prove it opens no socket and calls no LLM (ADR-038), and that a fresh replay reproduces `evals/results/current-ask.json` byte for byte, so a scoring or fixture change fails CI until the result is regenerated (#333).
+   - *Model quality*: gold sets under `evals/gold/`, rules pre-registered under `evals/preregistration/` with a sample size planned for power (#332), scored by `scripts/score_*` and `scripts/compare_gold_runs.py` (exact McNemar and mid-p, Wilson intervals, stratum weights; `zettel/evals/stats.py`). Those scripts are themselves tested. A prompt, threshold or model change is accepted by its measurement, not by green tests. `evals/measurement_map.yaml` records which measurement covers which prompt, file and config key, and the CI job `measurements` posts the covering ones, with their commands and pre-registrations, on the pull request (`zettel.evals.measurement_map`, #333); it runs nothing paid. Every prompt the code loads is either covered or listed with the reason it has no measurement, and every pattern must match a real file or key (`tests/evals/test_measurement_map.py`).
 2. **Seams, not mocks of everything.** LLM calls are replaced where they are consumed (`zettel.connector.prompt.call_llm`, `zettel.article.call_llm`, the `get_llm` of each phase); the decision model through `zettel.decision.client.get_decision_client`; the embedding through a test entry in `index._EF_BUILDERS` (`tests/fakes.py`, ADR-052 addendum) so the real `VectorIndex` and Chroma run. Shared doubles live in `tests/fakes.py`, web helpers in `tests/web_support.py`; test files never import each other. Where the index itself is replaced, it is by `tests.fakes.FakeVectorIndex` or a subclass of it (#327): `tests/test_fakes_contract.py` pins its public methods to `VectorIndex`'s, signature by signature, compares the shape of its search results with the real index on the offline embedding, and requires, by `ast`, that every index fake in the suite derive from it, override only real methods with the real parameter names, and that no test file import another. The migration removed about twenty hand-written fakes; two still offered `upsert_moc`, a method the index lost with the MOC collection (#301).
 3. **No network.** `tests/conftest.py` refuses every connection outside loopback and pins LiteLLM to its bundled price map (#324). A test that needs the network does not belong in this suite.
 4. **Contracts where the bugs live.**
@@ -48,6 +48,7 @@ A pipeline that calls LLMs has three kinds of correctness, and each needs its ow
 ## References
 
 * `pyproject.toml` — `[tool.pytest.ini_options]`, `[tool.coverage.*]`, dev dependency group
-* `.github/workflows/tests.yml`
+* `.github/workflows/tests.yml` — jobs `test` and `measurements`
+* `evals/measurement_map.yaml`, `zettel/evals/measurement_map.py`, `zettel/evals/stats.py`
 * `tests/conftest.py`, `tests/fakes.py`, `tests/web_support.py`, `tests/test_fakes_contract.py`
 * `tests/test_pipeline_smoke.py`, `tests/test_managed_blocks_properties.py`, `tests/test_threshold_boundaries.py`, `tests/test_hermetic.py`

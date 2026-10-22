@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -39,13 +38,11 @@ def test_result_carries_its_manifest_and_identity(result):
 
 
 def test_committed_result_matches_the_fixture():
-    """`evals/results/` is the checked-in baseline; drift should show up in a diff."""
-    committed = json.loads(
-        (REPO_ROOT / "evals" / "results" / "current-ask.json").read_text(encoding="utf-8")
-    )
-    fresh = replay(CONFIG)
-    assert committed["counts"] == fresh["counts"]
-    assert committed["manifest_identity"] == fresh["manifest_identity"]
+    """`evals/results/` is the checked-in baseline: a fresh replay reproduces it byte for
+    byte, so a change to scoring, the fixture or the manifest fails CI until the result
+    is regenerated and committed (#333)."""
+    committed = (REPO_ROOT / "evals" / "results" / "current-ask.json").read_text(encoding="utf-8")
+    assert render(replay(CONFIG)) == committed
 
 
 def test_replay_makes_no_network_call(monkeypatch):

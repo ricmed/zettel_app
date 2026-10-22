@@ -45,3 +45,41 @@ jobs:
           name: coverage-xml
           path: coverage.xml
           if-no-files-found: ignore
+
+  # Points the pull request at the gold-set measurement that covers a changed
+  # prompt, threshold or model (evals/measurement_map.yaml, #333). Runs nothing
+  # paid and needs only PyYAML, so it does not install the project. A fork's
+  # token cannot comment; the list still goes to the job summary.
+  measurements:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Measurements covering this change
+        run: |
+          uv run --no-project --with pyyaml python -m zettel.evals.measurement_map             --base "origin/${{ github.base_ref }}" --out measurements.md
+          cat measurements.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment on the pull request
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -s measurements.md ]; then
+            gh pr comment "$PR" --body-file measurements.md --edit-last --create-if-none
+          else
+            # A previous push may have touched a measured surface; say it no longer does.
+            gh pr comment "$PR" --edit-last               --body "<!-- zettel:measurement-map -->Nenhuma medição associada a esta mudança."               || true
+          fi

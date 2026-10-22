@@ -136,6 +136,9 @@ fixable = ["ALL"]
 "zettel/web/**/*.py" = ["B008"]
 "zettel/article_graph/**/*.py" = ["S101"]
 "zettel/evals/manifest.py" = ["S607"]
+# git on the CI checkout, arguments built by the module itself (#333).
+"zettel/evals/measurement_map.py" = ["S603", "S607"]
+"tests/evals/test_measurement_map.py" = ["S607"]
 
 [tool.ruff.format]
 quote-style = "double"

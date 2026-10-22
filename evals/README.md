@@ -119,6 +119,18 @@ Dedupe e categoria não têm gabarito humano: o m/d do revisor só cobre o que o
 - **Commitável**: só o `*-GABARITO-NAO-ABRIR.json` (ids, sem texto). Planilha e leitura são gitignored. Uma planilha existente nunca é sobrescrita sem `--force`.
 - **Pontuação**: `scripts/score_decision_gold.py --site dedupe|corroborates` cruza a planilha preenchida com o gabarito; `--key`/`--sheet` têm como padrão os arquivos do site. Em corroborates, "mesma ideia" é só `mesma-ideia`: o script compara a aresta criada, o nível 2 do Jev e o cosseno ≥ limiar (informativo), com McNemar exato, a matriz dos três níveis, a AUC do score do Jev e do cosseno, e a regra do #208. Resultado de 2026-10-07 na ADR-055.
 
+## Qual medição cobre uma mudança (#333)
+
+Uma mudança em prompt, limiar ou modelo passa no CI assim que os testes determinísticos passam; o que diz se ela melhorou o pipeline é a medição no gold set, rodada à mão e julgada pela regra pré-registrada. [`measurement_map.yaml`](measurement_map.yaml) liga cada prompt, arquivo (`paths`, glob) e chave do `config/config.yaml` (`config`, glob sobre chaves pontuadas, ex. `llm.extract.*`) à medição que o cobre: título, pré-registros e comandos. Prompt sem medição fica em `unmeasured`, com o motivo.
+
+```bash
+.venv/Scripts/python.exe -m zettel.evals.measurement_map --base main
+```
+
+- **No PR**: o job `measurements` do CI compara o branch com a base (arquivos alterados e chaves do YAML cujo valor mudou) e comenta as medições que cobrem a mudança. Não roda nenhuma delas. PR de fork não recebe comentário; a lista vai para o resumo do job.
+- **Completude** (`tests/evals/test_measurement_map.py`): todo prompt de `REQUIRED_PROMPTS` é medido ou explicado, todo padrão casa com um arquivo ou chave que existe, todo pré-registro e todo `scripts/*.py` citado existe. Um prompt novo ou uma chave renomeada quebra o teste até o mapa ser atualizado.
+- **Replay**: `tests/evals/test_replay.py` exige que um replay novo reproduza `results/current-ask.json` byte a byte; mudou a pontuação ou o fixture, regenere e commite o resultado.
+
 ## Tamanho da rodada, *mid-p* e Wilson (#332)
 
 As rodadas comparam duas condições com o McNemar sobre os itens em que só uma acerta, e o poder depende de quantos itens discordam. Rodadas de 42 a 69 itens deixaram resultados "na trave" porque eram pequenas demais para o efeito procurado: a rodada 2 de #218 (16 contra 7 discordantes em 42) tinha poder de 39% para detectar o próprio efeito observado (+21 pontos) e precisaria de 98 itens; a de #231 (12 contra 9 em 69) precisaria de mais de mil.
