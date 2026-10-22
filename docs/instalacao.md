@@ -159,6 +159,12 @@ ollama pull qwen3-embedding
 # Suite completa
 uv run pytest tests/ -v
 
+# Ciclo de edição: sem os testes lentos (UMAP, Docling, scikit-learn, subprocessos), em paralelo
+uv run pytest -m "not slow" -n auto
+
+# Cobertura, como o CI roda (falha abaixo do piso em [tool.coverage.report])
+uv run pytest -n auto --cov
+
 # Um arquivo
 uv run pytest tests/test_hashing.py -v
 
@@ -170,6 +176,8 @@ uv run pytest tests/test_web.py tests/test_web_state.py -v
 ```
 
 A suíte não acessa a rede: `tests/conftest.py` recusa qualquer conexão fora de `127.0.0.1`/`::1`, usa o mapa de preços que vem com o LiteLLM instalado (`LITELLM_LOCAL_MODEL_COST_MAP`) e oferece a *fixture* `token_hash_embedding`, um embedding determinístico local para os testes que precisam do `VectorIndex` real. Um teste que tente abrir conexão falha com `NetworkBlockedInTests`.
+
+A configuração do pytest fica em `pyproject.toml` (`[tool.pytest.ini_options]`): *markers* estritos, `DeprecationWarning` do próprio pacote vira erro, *timeout* de 300 s por teste e ordem aleatória a cada execução (`pytest-randomly`; a semente aparece no cabeçalho e `--randomly-seed=N` repete a ordem). A estratégia está no [ADR-065](adrs/generated/INFRA/ADR-065-test-strategy.md).
 
 ---
 

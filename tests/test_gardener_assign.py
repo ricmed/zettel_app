@@ -104,6 +104,7 @@ def _blobs(n_per: int = 25, dims: int = 16, seed: int = 0) -> tuple[np.ndarray, 
     return points, [f"n{i}" for i in range(len(points))]
 
 
+@pytest.mark.slow
 def test_cluster_embeddings_is_deterministic_with_seed():
     from zettel.config import GardenerConfig
     from zettel.gardener_assign import _cluster_embeddings
@@ -146,6 +147,7 @@ def test_no_accepted_cluster_is_smaller_than_moc_floor():
     assert report.clusters == len(pairs)
 
 
+@pytest.mark.slow
 def test_kmeans_fallback_is_reported(monkeypatch):
     import builtins
 
@@ -338,6 +340,7 @@ def _cfg():
     return GardenerConfig(min_cluster_size=5, min_notes_for_moc=5, random_state=42)
 
 
+@pytest.mark.slow
 def test_stored_model_gives_the_same_partition_without_refitting(tmp_path, monkeypatch):
     import zettel.gardener_assign as assign
 
@@ -356,6 +359,7 @@ def test_stored_model_gives_the_same_partition_without_refitting(tmp_path, monke
     assert (report.model_buckets, report.predicted_notes) == (1, 0)
 
 
+@pytest.mark.slow
 def test_new_note_joins_its_existing_cluster_without_refitting(tmp_path, monkeypatch):
     import zettel.gardener_assign as assign
 
@@ -374,6 +378,7 @@ def test_new_note_joins_its_existing_cluster_without_refitting(tmp_path, monkeyp
     assert report.predicted_notes == 1
 
 
+@pytest.mark.slow
 def test_refit_and_a_changed_fingerprint_fit_again(tmp_path):
     from zettel.gardener_assign import BucketModelStore, ClusterReport, bucket_clusters
 

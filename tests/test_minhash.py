@@ -67,10 +67,20 @@ def test_distinct_works_by_one_author_stay_apart():
     assert minhash_jaccard(_sign(first), _sign(second)) < 0.15
 
 
-def test_signature_of_a_long_text_is_under_a_second():
-    text = _SENTENCE * 2000
+def _signing_time(text: str) -> float:
     started = time.perf_counter()
     signature = minhash_signature(word_shingles(text))
     elapsed = time.perf_counter() - started
     assert len(signature) == NUM_HASHES
-    assert elapsed < 1.0
+    return elapsed
+
+
+def test_signature_cost_grows_linearly_with_the_text():
+    """Four times the text costs about 4x when linear, 16x when quadratic.
+
+    A ratio of two sizes, measured interleaved and best of five, instead of a
+    wall-clock budget that measures the machine (#326).
+    """
+    small, large = (" ".join(f"{_SENTENCE} variante {i}" for i in range(n)) for n in (500, 2000))
+    timings = [(_signing_time(small), _signing_time(large)) for _ in range(5)]
+    assert min(t[1] for t in timings) / min(t[0] for t in timings) < 10

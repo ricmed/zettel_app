@@ -11,6 +11,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Run all tests
 .venv/Scripts/python.exe -m pytest tests/ -v
 
+# Edit loop: skip the slow tests (UMAP, Docling, scikit-learn, subprocesses), in parallel
+.venv/Scripts/python.exe -m pytest -m "not slow" -n auto
+
+# Coverage as CI runs it (fails under [tool.coverage.report] fail_under)
+.venv/Scripts/python.exe -m pytest -n auto --cov
+
 # Lint / format (Ruff — pyproject.toml, .cursor/rules/python-ruff.mdc)
 .venv/Scripts/python.exe -m ruff check zettel tests --fix
 .venv/Scripts/python.exe -m ruff format zettel tests
@@ -42,7 +48,7 @@ uvicorn zettel.web:app --host 0.0.0.0 --port 5000
 .venv/Scripts/python.exe scripts/report_decision_shadow.py
 ```
 
-CI (`.github/workflows/tests.yml`) runs `ruff check`, `ruff format --check` and `pytest tests/` on every push to `main` and every PR. The suite is hermetic (#324): `tests/conftest.py` sets `LITELLM_LOCAL_MODEL_COST_MAP` before anything imports litellm (its import otherwise fetches the price map from GitHub) and an autouse fixture refuses every `connect`/`getaddrinfo` outside loopback with `NetworkBlockedInTests` (loopback stays open for asyncio's Windows self-pipe and the web `TestClient`; blocking `connect`, not socket creation, is what keeps them working). A test that needs the real `VectorIndex`/Chroma takes the `token_hash_embedding` fixture: an offline unit-norm embedding (`tests/fakes.py`) registered in `index._EF_BUILDERS`; never `allow_fallback=True`, whose Chroma default downloads an 83 MB ONNX model. `tests/fakes.py` is a helper module: test files import from it, never from each other.
+CI (`.github/workflows/tests.yml`) runs `ruff check`, `ruff format --check` and `pytest -n auto --cov` on every push to `main` and every PR, and uploads `coverage.xml`. Test strategy is ADR-065. `[tool.pytest.ini_options]` (#326): `--strict-markers --strict-config`; a `DeprecationWarning` attributed to `zettel` is an error and third-party warnings are ignored only by name, each with its reason and issue; `timeout = 300` (`pytest-timeout`); `pytest-randomly` shuffles the order every run (seed printed in the header, `--randomly-seed=N` replays it); marker `slow` for tests whose own body needs UMAP/numba, Docling, scikit-learn or a subprocess, plus the pipeline smoke test. `[tool.coverage.report] fail_under` is the measured total rounded down and only rises. No wall-clock assertion outside `slow` (a growth rate is a ratio of two sizes, interleaved, best of five), and waiting on the web worker goes through `_wait_job` (condition + 30 s deadline), never a fixed count of sleeps. The suite is hermetic (#324): `tests/conftest.py` sets `LITELLM_LOCAL_MODEL_COST_MAP` before anything imports litellm (its import otherwise fetches the price map from GitHub) and an autouse fixture refuses every `connect`/`getaddrinfo` outside loopback with `NetworkBlockedInTests` (loopback stays open for asyncio's Windows self-pipe and the web `TestClient`; blocking `connect`, not socket creation, is what keeps them working). A test that needs the real `VectorIndex`/Chroma takes the `token_hash_embedding` fixture: an offline unit-norm embedding (`tests/fakes.py`) registered in `index._EF_BUILDERS`; never `allow_fallback=True`, whose Chroma default downloads an 83 MB ONNX model. `tests/fakes.py` is a helper module: test files import from it, never from each other.
 
 Python 3.12, venv at `.venv/`, dependencies managed with uv (`pyproject.toml` + `uv.lock`; `pylock.toml` is `uv export --format pylock.toml`; the `dev` group holds test-only packages such as `hypothesis`, installed by `uv sync`). Environment variables loaded from `.env` (python-dotenv) — not system env vars. **`SESSION_SECRET`** (web login) is read from the process environment at startup (`os.environ`), not from `config.yaml`; set it in `.env` or the host secrets (e.g. Replit). Optional **`ZETTEL_CONFIG`** points `create_app()` / `WebApplication` at an alternate YAML (used in tests).
 

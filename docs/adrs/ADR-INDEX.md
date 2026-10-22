@@ -1,7 +1,7 @@
-# zettel_app ADR Index (57 Decisions)
+# zettel_app ADR Index (58 Decisions)
 
-**Last Updated**: 2026-10-21  
-**Status**: Complete — 57 formal ADRs across 13 modules
+**Last Updated**: 2026-10-22  
+**Status**: Complete — 58 formal ADRs across 13 modules
 
 ---
 
@@ -9,7 +9,7 @@
 
 | Module | Count | ADRs |
 |--------|-------|------|
-| **INFRA** | 14 | [001–008, 041–042, 052, 054, 058, 064](#infra-core-infrastructure) |
+| **INFRA** | 15 | [001–008, 041–042, 052, 054, 058, 064–065](#infra-core-infrastructure) |
 | **RETRIEVAL** | 4 | [009–010, 036, 043](#retrieval-hybrid-search--graph) |
 | **HARVEST** | 6 | [011–014, 027, 033](#harvest-ingestion--paging) |
 | **EXTRACT** | 2 | [015, 034](#extract-literature-notes) |
@@ -132,6 +132,13 @@
 - **Date**: 2026-10-21
 - **Summary**: A managed block is exactly one start marker followed by one end marker, or absent. Anything else raises `MalformedManagedBlock` instead of guessing where the block ends (the guess erased the author's text after an orphan start). Writers skip the note, not the batch; readers see no block; `zettel doctor` lists the broken notes. Fences are deliberately not consulted. Pinned by Hypothesis property tests.
 - **Link**: [`ADR-064-managed-blocks-refuse-malformed-markers.md`](./generated/INFRA/ADR-064-managed-blocks-refuse-malformed-markers.md)
+
+### ADR-065: Test Strategy — Three Layers, No Network, Contracts at the Boundaries
+
+- **Status**: Accepted
+- **Date**: 2026-10-22
+- **Summary**: Code is gated by `pytest` in CI, observable `ask` behaviour by offline replay, model quality by gold sets with pre-registered rules. LLM, decision model and embedding are replaced at their seams; the suite refuses the network. Contracts sit where bugs live: a pipeline smoke test, property tests for invariants, boundary tests for thresholds, `ast` tests for architecture. Strict markers and config, deprecations as errors, a per-test timeout, random order, a `slow` marker and a coverage floor that only rises.
+- **Link**: [`ADR-065-test-strategy.md`](./generated/INFRA/ADR-065-test-strategy.md)
 
 ---
 

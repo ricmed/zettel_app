@@ -118,6 +118,7 @@ def test_ask_result_converts_into_a_trajectory():
     assert traj.llm_called is True
 
 
+@pytest.mark.slow
 def test_evals_are_not_imported_by_the_production_path():
     """Nothing in harvest/extract/connect/ask may depend on the eval package."""
     import subprocess

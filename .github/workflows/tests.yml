@@ -33,5 +33,15 @@ jobs:
       # No secrets and no network: tests/conftest.py refuses every connection
       # outside loopback, pins LiteLLM to its bundled price map and offers an
       # offline embedding, so a test that tries to reach any host fails here.
+      # The whole suite, slow tests included, in parallel and in random order;
+      # fails under the coverage floor in pyproject.toml ([tool.coverage.report]).
       - name: Tests
-        run: uv run pytest tests/ -q
+        run: uv run pytest -q -n auto --cov --cov-report=term --cov-report=xml
+
+      - name: Coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore

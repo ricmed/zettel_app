@@ -194,6 +194,7 @@ def test_attach_embeddings_batches_requests():
 # -- source guard --------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_cross_val_proba_requires_three_sources():
     records = [
         _rec("a", 1, source="@Um", embedding=[1.0, 0.0]),

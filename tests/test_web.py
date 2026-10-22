@@ -895,11 +895,7 @@ def test_navigation_and_retry_job_flow(web_client):
         follow_redirects=False,
     )
     job_id = response.headers["location"].rsplit("/", 1)[-1]
-    for _ in range(30):
-        payload = client.get(f"/api/jobs/{job_id}").json()
-        if payload["job"]["state"] not in {"queued", "running"}:
-            break
-        time.sleep(0.05)
+    payload = _wait_job(client, job_id)
     assert payload["job"]["state"] == "succeeded"
     assert payload["job"]["result"] == {"assets_reset": 1}
     assert payload["events"]
@@ -2404,12 +2400,7 @@ def test_review_rejected_queue_shows_full_text_and_requeues_only_extract(web_cli
     )
     assert response.status_code == 303
     job_id = response.headers["location"].rsplit("/", 1)[-1]
-    payload = {}
-    for _ in range(50):
-        payload = client.get(f"/api/jobs/{job_id}").json()
-        if payload["job"]["state"] not in {"queued", "running"}:
-            break
-        time.sleep(0.05)
+    payload = _wait_job(client, job_id)
     assert payload["job"]["state"] == "succeeded"
     assert payload["job"]["result"]["requeued"] == 1
     assert payload["job"]["result"]["skipped"] == 2
@@ -2477,12 +2468,7 @@ def test_review_force_marks_only_extract_rejections(web_client):
     )
     assert response.status_code == 303
     job_id = response.headers["location"].rsplit("/", 1)[-1]
-    payload = {}
-    for _ in range(50):
-        payload = client.get(f"/api/jobs/{job_id}").json()
-        if payload["job"]["state"] not in {"queued", "running"}:
-            break
-        time.sleep(0.05)
+    payload = _wait_job(client, job_id)
     assert payload["job"]["state"] == "succeeded"
     assert payload["job"]["result"]["forced"] == 1
     assert payload["job"]["result"]["skipped"] == 1
@@ -2551,12 +2537,7 @@ def test_review_discard_deletes_only_extract_rejections(web_client, monkeypatch)
     )
     assert response.status_code == 303
     job_id = response.headers["location"].rsplit("/", 1)[-1]
-    payload = {}
-    for _ in range(50):
-        payload = client.get(f"/api/jobs/{job_id}").json()
-        if payload["job"]["state"] not in {"queued", "running"}:
-            break
-        time.sleep(0.05)
+    payload = _wait_job(client, job_id)
     assert payload["job"]["state"] == "succeeded"
     assert payload["job"]["result"]["discarded"] == 1
     assert payload["job"]["result"]["skipped"] == 1
@@ -2654,12 +2635,7 @@ def test_review_page_shows_candidates_and_approves_one(web_client, monkeypatch):
     )
     assert response.status_code == 303
     job_id = response.headers["location"].rsplit("/", 1)[-1]
-    payload = {}
-    for _ in range(50):
-        payload = client.get(f"/api/jobs/{job_id}").json()
-        if payload["job"]["state"] not in {"queued", "running"}:
-            break
-        time.sleep(0.05)
+    payload = _wait_job(client, job_id)
     assert payload["job"]["state"] == "succeeded"
     assert payload["job"]["result"]["concepts_approved"] == 1
 
@@ -2676,14 +2652,19 @@ def test_review_page_shows_candidates_and_approves_one(web_client, monkeypatch):
         db.close()
 
 
-def _wait_job(client, job_id: str) -> dict:
-    payload = {}
-    for _ in range(50):
+def _wait_job(client, job_id: str, timeout: float = 30.0) -> dict:
+    """The job's API payload once it left ``queued``/``running``.
+
+    Waits on the condition with a generous deadline instead of a fixed number of
+    short sleeps, so a loaded CI machine slows the test down instead of failing it.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
         payload = client.get(f"/api/jobs/{job_id}").json()
         if payload["job"]["state"] not in {"queued", "running"}:
-            break
+            return payload
+        assert time.monotonic() < deadline, f"job {job_id} still {payload['job']['state']}"
         time.sleep(0.05)
-    return payload
 
 
 def test_duplicate_queue_keeps_and_discards_with_a_shadow_label(web_client):
@@ -2861,13 +2842,7 @@ def test_idle_worker_does_not_poll_the_database(web_client, monkeypatch):
     assert opened == []
     response = client.post("/pipeline/retry_assets", data={"csrf": csrf}, follow_redirects=False)
     job_id = response.headers["location"].rsplit("/", 1)[1]
-    deadline = time.monotonic() + 3
-    while time.monotonic() < deadline:
-        job = client.app.state.service.job(job_id)
-        if job["state"] == "succeeded":
-            break
-        time.sleep(0.05)
-    assert job["state"] == "succeeded"
+    assert _wait_job(client, job_id)["job"]["state"] == "succeeded"
 
 
 def test_job_detail_lists_every_run_and_its_cost(web_client, monkeypatch):
@@ -2887,10 +2862,7 @@ def test_job_detail_lists_every_run_and_its_cost(web_client, monkeypatch):
     monkeypatch.setattr(WebWorker, "_dispatch", staticmethod(fake_dispatch))
     response = client.post("/pipeline/retry_assets", data={"csrf": csrf}, follow_redirects=False)
     job_id = response.headers["location"].rsplit("/", 1)[1]
-    deadline = time.monotonic() + 5
-    while client.app.state.service.job(job_id)["state"] != "succeeded":
-        assert time.monotonic() < deadline
-        time.sleep(0.05)
+    _wait_job(client, job_id)
     job = client.app.state.service.job(job_id)
     assert [run["pipeline_signature"] for run in job["runs"]] == ["harvest", "extract"]
     assert job["cost_usd_total"] == pytest.approx(0.5)
@@ -3080,10 +3052,7 @@ def test_link_queue_decides_a_batch_as_one_job(web_client):
     )
     assert response.status_code == 303
     job_id = response.headers["location"].rsplit("/", 1)[1]
-    deadline = time.monotonic() + 5
-    while client.app.state.service.job(job_id)["state"] not in {"succeeded", "failed"}:
-        assert time.monotonic() < deadline
-        time.sleep(0.05)
+    _wait_job(client, job_id)
     job = client.app.state.service.job(job_id)
     assert job["state"] == "succeeded"
     assert job["result"]["decided"] == 2
@@ -3171,17 +3140,15 @@ def test_worker_waits_for_the_cli_instead_of_failing(web_client):
     held.acquire("connect", "cli")
     try:
         job_id = client.app.state.service.submit("retry_assets", {})
-        time.sleep(1.5)
-        job = client.app.state.service.job(job_id)
-        assert job["state"] == "queued"
-        assert "connect" in job["message"]
+        deadline = time.monotonic() + 30
+        while "connect" not in (client.app.state.service.job(job_id)["message"] or ""):
+            assert time.monotonic() < deadline, "the worker never met the CLI's lock"
+            time.sleep(0.05)
+        assert client.app.state.service.job(job_id)["state"] == "queued"
     finally:
         held.release()
     client.app.state.service.worker._wake.set()
-    deadline = time.monotonic() + 10
-    while client.app.state.service.job(job_id)["state"] != "succeeded":
-        assert time.monotonic() < deadline
-        time.sleep(0.05)
+    assert _wait_job(client, job_id)["job"]["state"] == "succeeded"
 
 
 def test_a_failed_job_shows_a_reference_the_log_also_has(web_client, monkeypatch, caplog):
@@ -3203,10 +3170,7 @@ def test_a_failed_job_shows_a_reference_the_log_also_has(web_client, monkeypatch
             "/pipeline/retry_assets", data={"csrf": csrf}, follow_redirects=False
         )
         job_id = response.headers["location"].rsplit("/", 1)[1]
-        deadline = time.monotonic() + 5
-        while client.app.state.service.job(job_id)["state"] != "failed":
-            assert time.monotonic() < deadline
-            time.sleep(0.05)
+        assert _wait_job(client, job_id)["job"]["state"] == "failed"
     job = client.app.state.service.job(job_id)
     page = client.get(f"/jobs/{job_id}").text
     assert "projetos" not in job["error_message"] and "projetos" not in page

@@ -200,6 +200,7 @@ def _vault_bytes(vault: Path) -> dict[str, bytes]:
     return {str(p.relative_to(vault)): p.read_bytes() for p in sorted(vault.rglob("*.md"))}
 
 
+@pytest.mark.slow
 def test_a_markdown_source_becomes_cited_permanent_notes(pipeline):
     root, run_all, calls = pipeline
     run_all()
@@ -251,6 +252,7 @@ def test_a_markdown_source_becomes_cited_permanent_notes(pipeline):
         assert path.stem in chapter_map
 
 
+@pytest.mark.slow
 def test_a_second_run_changes_nothing_and_calls_no_llm(pipeline):
     root, run_all, calls = pipeline
     run_all()
