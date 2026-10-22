@@ -32,8 +32,13 @@ Gemini also differs from the three existing providers in two ways that matter fo
 * Bad, because thresholds do not transfer between models: `retrieval.relevance_floor`, `retrieval.chapter_floor`, `linking.dedupe_threshold` and `linking.corroborates_min_similarity` must be re-measured with `scripts/probe_relevance_floor.py` after a switch. The probe already measures through `collection.query`, i.e. the production query side. Those thresholds are cosine (ADR-058), not `1 − d/2`.
 * Bad, because with an asymmetric model every `collection.query` embeds its text as a question — including connect's RAG search, where the "question" is a candidate note. `corroborates_min_similarity` (0.85) and the dedupe thresholds were measured on a symmetric model and are likely too strict under Gemini until re-measured.
 
+## Addendum 2026-10-21 — an offline provider for the tests (#324)
+
+Tests that need the real `VectorIndex` and Chroma used an unknown provider with `allow_fallback=True`, which hands the embedding to Chroma's default: an ONNX model downloaded (83 MB) on first use, so every fresh CI runner went to the network. The registry is also the seam for tests: the `token_hash_embedding` fixture (`tests/conftest.py`) puts a test-only entry in `_EF_BUILDERS`, built on `_LangChainChromaEF` with `normalize = True` and a deterministic token-hash `Embeddings` (`tests/fakes.py`), so the unit-norm contract above holds in tests too. The entry exists only for the test that asks for it; the production registry and the `EmbeddingConfig.provider` Literal are unchanged. The suite refuses network connections outside loopback, so `allow_fallback=True` with an embedding call now fails a test instead of downloading.
+
 ## References
 
 - `zettel/index.py` — `_LangChainChromaEF`, `_OllamaChromaEF`, `_GeminiChromaEF`, `_EF_BUILDERS`
+- `tests/fakes.py` — `TokenHashEmbeddings`, `token_hash_ef_builder`; `tests/conftest.py` — `token_hash_embedding`, network guard
 - `zettel/credentials.py` — `EMBEDDING_PROVIDER_ENV`, `embedding_ready`
 - `tests/test_index.py` — registry/Literal pin, Gemini query routing and normalization, key never persisted

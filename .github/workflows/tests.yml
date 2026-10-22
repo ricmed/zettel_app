@@ -30,7 +30,8 @@ jobs:
       - name: Format
         run: uv run ruff format --check zettel tests
 
-      # No secrets: tests stub the LLM per test and tests/conftest.py refuses the
-      # decision-model client, so a test that reaches the network fails here.
+      # No secrets and no network: tests/conftest.py refuses every connection
+      # outside loopback, pins LiteLLM to its bundled price map and offers an
+      # offline embedding, so a test that tries to reach any host fails here.
       - name: Tests
         run: uv run pytest tests/ -q

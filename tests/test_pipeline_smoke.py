@@ -13,15 +13,15 @@ citing its literature note, and this test fails.
 
 from __future__ import annotations
 
-import hashlib
 import json
-import re
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 from typer.testing import CliRunner
+
+from tests.fakes import token_hash_ef_builder
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -71,44 +71,6 @@ def _source_markdown() -> str:
         sentence = chapter["anchor"][0].upper() + chapter["anchor"][1:] + "."
         parts += [f"## {chapter['heading']}", "", FILLER * 2 + sentence + " " + FILLER, ""]
     return "\n".join(parts)
-
-
-# -- deterministic embedding ------------------------------------------------
-
-
-class _TokenHashEmbeddings:
-    """Bag of folded tokens hashed into a small space; similar text, similar vector."""
-
-    dims = 64
-
-    def _vector(self, text: str) -> list[float]:
-        vec = [0.0] * self.dims
-        for token in re.findall(r"\w+", text.lower()):
-            vec[int(hashlib.sha256(token.encode()).hexdigest(), 16) % self.dims] += 1.0
-        return vec
-
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        return [self._vector(t) for t in texts]
-
-    def embed_query(self, text: str) -> list[float]:
-        return self._vector(text)
-
-
-def _token_hash_builder(_index: Any, model: str) -> Any:
-    from zettel.index import _LangChainChromaEF
-
-    class _TokenHashEF(_LangChainChromaEF):
-        normalize = True  # the relevance floor assumes unit vectors (ADR-052)
-
-        @staticmethod
-        def name() -> str:
-            return "zettel_test_token_hash"
-
-        @classmethod
-        def _client(cls, config: dict[str, Any]) -> _LangChainChromaEF:
-            return cls(_TokenHashEmbeddings(), model=config["model"])
-
-    return _TokenHashEF(_TokenHashEmbeddings(), model=model)
 
 
 # -- fixed LLM answers per phase --------------------------------------------
@@ -213,7 +175,8 @@ def pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     from zettel import index
 
-    monkeypatch.setitem(index._EF_BUILDERS, data["embedding"]["provider"], _token_hash_builder)
+    # The operational provider name keeps the config valid; its builder is the offline one.
+    monkeypatch.setitem(index._EF_BUILDERS, data["embedding"]["provider"], token_hash_ef_builder)
     calls: list[str] = []
 
     def fake_get_llm(_cfg: Any, phase: str, *_a: Any, **_k: Any) -> _FakeChat:

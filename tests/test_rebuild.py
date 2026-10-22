@@ -111,10 +111,8 @@ def test_reindex_unknown_collection_raises(db):
         run_reindex(AppConfig(), db, FakeIndex(), collection="bogus")
 
 
-def test_reindex_force_after_embedding_swap(db, tmp_path, monkeypatch):
+def test_reindex_force_after_embedding_swap(db, tmp_path, token_hash_embedding):
     """Troca de modelo com force regenera sources/chunks (sem force, ficariam stale)."""
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
     from zettel.index import EmbeddingSpaceMismatch, VectorIndex
 
     _seed(db)
@@ -125,30 +123,29 @@ def test_reindex_force_after_embedding_swap(db, tmp_path, monkeypatch):
         harvest={"semantic_duplicate_enabled": True},
     )
     # Bypass Literal validation by constructing VectorIndex directly for markers.
-    idx_a = VectorIndex(chroma, "provider-invalido", "modelo-a", allow_fallback=True)
+    idx_a = VectorIndex(chroma, token_hash_embedding, "modelo-a")
     run_reindex(cfg, db, idx_a, force=True)
     assert idx_a.chunks.count() == 1
     assert idx_a.get_stored_embedding_identity() == (
-        "provider-invalido",
+        token_hash_embedding,
         "modelo-a",
         None,
     )
 
     with pytest.raises(EmbeddingSpaceMismatch):
-        VectorIndex(chroma, "provider-invalido", "modelo-b", allow_fallback=True)
+        VectorIndex(chroma, token_hash_embedding, "modelo-b")
 
     idx_b = VectorIndex(
         chroma,
-        "provider-invalido",
+        token_hash_embedding,
         "modelo-b",
-        allow_fallback=True,
         reset_mismatched=True,
     )
     stats = run_reindex(cfg, db, idx_b, force=True)
     assert stats["chunks"] == 1
     assert stats["sources"] == 1
     assert idx_b.get_stored_embedding_identity() == (
-        "provider-invalido",
+        token_hash_embedding,
         "modelo-b",
         None,
     )

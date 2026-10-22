@@ -169,6 +169,8 @@ uv run pytest tests/test_hashing.py::test_normalize_collapses_whitespace -v
 uv run pytest tests/test_web.py tests/test_web_state.py -v
 ```
 
+A suíte não acessa a rede: `tests/conftest.py` recusa qualquer conexão fora de `127.0.0.1`/`::1`, usa o mapa de preços que vem com o LiteLLM instalado (`LITELLM_LOCAL_MODEL_COST_MAP`) e oferece a *fixture* `token_hash_embedding`, um embedding determinístico local para os testes que precisam do `VectorIndex` real. Um teste que tente abrir conexão falha com `NetworkBlockedInTests`.
+
 ---
 
 ## Próximos passos
