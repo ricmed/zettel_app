@@ -89,3 +89,9 @@ The order is now explicit, first match wins:
 3. A status code a client attached (`status_code`, `status`, `code`, or the same on `.response`): 401, 403, 404, 408, 429 and 5xx stop the run; other 4xx (400, 422) do not, since the same request will fail again. The code also names the reason (`rate limit esgotado`, `autenticação recusada`, ...).
 4. Exception type (`ConnectionError`, `TimeoutError`, `OSError`, SDK class names such as `RateLimitError`).
 5. In the message, a code only where a client wrote it as a status (`Error code: 503`, `status 429`, `HTTP 401`), plus the transport phrases (`connection refused`, `quota`, `timed out`, ...). Bare digits no longer count.
+
+## Addendum (2026-10-22): both sides of the embedding decision are tested (issue #329)
+
+**Status:** Accepted amendment. `Retriever._raise_if_strict` decides that `connect` stops when the embedding search fails while `ask` keeps the BM25 fall-through. Only the strict side ran in a test (`connect` with an index raising `ConnectionError`); the tolerant `return` and the strict re-raise of an error that is not a transport failure were never executed. `tests/test_ask.py` now runs `ask` with the dense search down and a note matching every term at BM25 rank 1: it clears the floor by the lexical bypass and reaches the LLM. `tests/test_retrieval.py` pins that strict mode re-raises a `KeyError` as itself and that tolerant mode returns an empty dense pool. Making `ask` strict, or converting every error into unavailability, each fails a test.
+
+The same path had an `except TypeError` that silently repeated the search without `purpose`. It served test doubles that took no `purpose`; every index double now has the real signature (#327), so it is removed: a `TypeError` from the index is a failure like any other, logged in tolerant mode and re-raised in strict mode, not a second call that hides it.

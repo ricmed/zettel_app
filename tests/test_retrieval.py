@@ -5,7 +5,7 @@ from zettel.config import AppConfig
 from zettel.retrieval import RetrievedNote, Retriever
 from zettel.state import StateDB
 
-from tests.fakes import FakeVectorIndex
+from tests.fakes import FakeVectorIndex, calls_to
 
 
 def _index(note_ids=None, chunk_ids=None, distances=None) -> FakeVectorIndex:
@@ -532,3 +532,32 @@ def test_source_quota_off_keeps_the_ranked_prefix():
     eligible = [_seed("s1", "@A"), _seed("o1", "@B")]
     picked = apply_source_quota(eligible, 1, source_id="@A", same_source_max=0)
     assert [hit.note_id for hit in picked] == ["s1"]
+
+
+def test_strict_search_reraises_an_error_that_is_not_an_outage(db):
+    """Connect's strict mode converts only transport failures; a bug surfaces as itself (#329)."""
+    broken = FakeVectorIndex(fail_on={"query_similar_notes": (1, KeyError("collection"))})
+    retriever = Retriever(_cfg(), db, broken, strict_embedding=True)
+    with pytest.raises(KeyError):
+        retriever.search_notes("pergunta", mode="vector", expand_graph=False)
+
+
+def test_tolerant_search_logs_and_returns_no_dense_hits(db):
+    """Ask's tolerant mode: a dead embedding leaves the vector pool empty, not an exception."""
+    down = FakeVectorIndex(fail_on={"query_similar_notes": (1, ConnectionError("refused"))})
+    result = Retriever(_cfg(), db, down).search_notes("pergunta", mode="vector", expand_graph=False)
+    assert result.hits == [] and result.candidates == []
+
+
+def test_a_type_error_from_the_index_is_not_retried_without_arguments(db):
+    """The search used to call again without ``purpose`` on any TypeError (#329).
+
+    That fallback served fakes that took no ``purpose``; every index double now has
+    the real signature (#327), so a TypeError is a real failure, handled like any other.
+    """
+    index = FakeVectorIndex(notes={"n1": 0.1}, fail_on={"query_similar_notes": (1, TypeError("x"))})
+    result = Retriever(_cfg(), db, index).search_notes(
+        "pergunta", mode="vector", expand_graph=False
+    )
+    assert result.candidates == []
+    assert len(calls_to(index, "query_similar_notes")) == 1

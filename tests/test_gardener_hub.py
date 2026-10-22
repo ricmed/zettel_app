@@ -371,3 +371,126 @@ def test_hubs_on_an_unreviewed_graph_warn_instead_of_failing_silently(tmp_path, 
     assert report["traversable_edges"] == 0 and report["proposed_edges"] == 5
     assert any("zettel links" in w for w in report["warnings"])
     db.close()
+
+
+# -- a new hub MOC (#329): the creation path had never run in a test ---------
+
+REPO_PROMPTS = Path(__file__).resolve().parents[1] / "prompts"
+_HUB_NOTES = [("HUB", "Nota Central"), ("A", "Nota A"), ("B", "Nota B"), ("C", "Nota C")]
+
+
+def _hub_vault(tmp_path: Path) -> tuple[AppConfig, StateDB]:
+    """The hub graph of ``_setup_graph_db`` with real permanent-note files in a tmp vault."""
+    cfg = AppConfig(vault_path=tmp_path / "vault", prompts_path=REPO_PROMPTS)
+    cfg.hub_mocs = HubMocsConfig(
+        selection_mode="absolute",
+        min_weighted_degree=2.0,
+        min_neighbors=3,
+        min_neighbor_weight=0.1,
+    )
+    db = StateDB(tmp_path / "hub.db")
+    for nid, title in _HUB_NOTES:
+        path = (
+            cfg.vault_path / "30_Permanent" / f"ZTL - {nid} - {title.lower().replace(' ', '-')}.md"
+        )
+        safe_write_note(
+            path, {"type": "permanent", "note_id": nid}, f"# {title}\n\nCorpo {title}.\n"
+        )
+        db.upsert_note(nid, "SRC", str(path), title, body=f"Corpo {title}")
+    for src, tgt, rel in [
+        ("HUB", "A", "extends"),
+        ("HUB", "B", "supports"),
+        ("HUB", "C", "supports"),
+    ]:
+        db.upsert_note_connection(src, tgt, rel, "")
+    return cfg, db
+
+
+def _llm_answering(content: str) -> MagicMock:
+    llm = MagicMock()
+    llm.invoke.return_value = MagicMock(content=content)
+    return llm
+
+
+def test_a_hub_without_a_moc_gets_one_with_the_hub_as_its_door(tmp_path):
+    from zettel.gardener_hub import _HubGardenStats, _process_hub_cluster
+    from zettel.vault import parse_frontmatter
+
+    cfg, db = _hub_vault(tmp_path)
+    answer = {
+        "topic": "Tema central",
+        "summary": "Resumo do tema.",
+        "hub_role": "Concentra as ligacoes do tema.",
+        "subsections": [
+            {
+                "title": "Vizinhos",
+                "description": "Desdobramentos.",
+                # N1 is the hub, N2 = A, N3 = B; C (N4) is left out on purpose.
+                "entries": [
+                    {"note_id": "N2", "orientation": "comece por A"},
+                    {"note_id": "N3", "orientation": "depois B"},
+                ],
+            }
+        ],
+    }
+    llm = _llm_answering(json.dumps(answer))
+    stats = _HubGardenStats()
+    try:
+        moc_id = _process_hub_cluster(cfg, db, llm, "HUB", ["HUB", "A", "B", "C"], 5.0, stats)
+
+        assert moc_id and stats.created == 1 and llm.invoke.call_count == 1
+        assert db.find_moc_by_hub_note_id("HUB")["moc_id"] == moc_id
+        (moc_file,) = (cfg.vault_path / "40_MOCs").glob("HUB - *.md")
+        meta, body = parse_frontmatter(moc_file.read_text(encoding="utf-8"))
+        assert meta["origin"] == "hub_pipeline" and meta["hub_note_id"] == "HUB"
+        door = body.split("## Porta de entrada", 1)[1]
+        assert "ZTL - HUB - nota-central" in door.split("##", 1)[0]
+        assert "comece por A" in body and "depois B" in body
+        assert "ZTL - C - nota-c" not in body
+        # The note the LLM did not place is kept out of this MOC's next offers.
+        assert set(db.moc_discard_checksums(moc_id)) == {"C"}
+        backrefs = (cfg.vault_path / "30_Permanent" / "ZTL - A - nota-a.md").read_text(
+            encoding="utf-8"
+        )
+        assert "zettel:auto-moc-backrefs:start" in backrefs and moc_file.stem in backrefs
+    finally:
+        db.close()
+
+
+def test_an_unparseable_hub_answer_is_recorded_and_writes_no_moc(tmp_path):
+    from zettel.gardener_hub import _HubGardenStats, _process_hub_cluster
+
+    cfg, db = _hub_vault(tmp_path)
+    try:
+        moc_id = _process_hub_cluster(
+            cfg,
+            db,
+            _llm_answering("isto nao e json"),
+            "HUB",
+            ["HUB", "A", "B"],
+            5.0,
+            _HubGardenStats(),
+        )
+        assert moc_id is None
+        assert db.find_moc_by_hub_note_id("HUB") is None
+        assert not list((cfg.vault_path / "40_MOCs").glob("*.md"))
+        assert any(row["phase"] == "garden" for row in db.llm_failure_counts())
+    finally:
+        db.close()
+
+
+def test_plan_garden_hubs_calls_no_llm_and_writes_nothing(tmp_path, monkeypatch):
+    import zettel.gardener_hub as hub_mod
+
+    cfg, db = _hub_vault(tmp_path)
+    monkeypatch.setattr(
+        hub_mod, "get_llm", lambda *_a, **_k: pytest.fail("plan must not build the LLM")
+    )
+    try:
+        report = hub_mod.plan_garden_hubs(cfg, db)
+        assert report.planned is True
+        assert [(a.category, a.action) for a in report.actions] == [("HUB", "created")]
+        assert db.find_moc_by_hub_note_id("HUB") is None
+        assert not (cfg.vault_path / "40_MOCs").exists()
+    finally:
+        db.close()

@@ -167,3 +167,41 @@ def test_save_ask_note_default_location(tmp_path):
     content = path.read_text(encoding="utf-8")
     assert "type: ask_answer" in content
     assert "# Pergunta" in content
+
+
+def test_run_ask_answers_from_bm25_while_the_embedding_is_down(db, tmp_path, monkeypatch):
+    """Connect stops when the embedding fails; ask keeps the lexical fall-through (#329).
+
+    A note that matches every term of the question at BM25 rank 1 clears the
+    floor by the lexical bypass, with no similarity at all, and reaches the LLM.
+    """
+    if not db.fts_enabled:
+        pytest.skip("SQLite build sem FTS5")
+    db.upsert_note(
+        "01HZZZ",
+        "@S",
+        "/vault/30_Permanent/ZTL - 01HZZZ - grafos.md",
+        "Grafos de conhecimento",
+        body="Grafos de conhecimento conectam conceitos por arestas tipadas.",
+    )
+    captured = {}
+
+    def _llm(llm, prompt="", **kwargs):
+        captured["prompt"] = kwargs.get("user") or prompt
+        return "Resposta com [[ZTL - 01HZZZ - grafos]]."
+
+    monkeypatch.setattr(ask_mod, "call_llm", _llm)
+    monkeypatch.setattr(ask_mod, "get_llm", lambda *a, **k: object())
+    cfg = AppConfig()
+    cfg.prompts_path = tmp_path
+    (tmp_path / "ask.md").write_text("{question}\n{context_notes}\n", encoding="utf-8")
+    down = FakeVectorIndex(
+        fail_on={"query_similar_notes": (1, ConnectionError("connection refused"))}
+    )
+
+    result = run_ask(cfg, db, down, "grafos de conhecimento")
+
+    assert result.llm_called is True
+    assert [s.note_id for s in result.sources] == ["01HZZZ"]
+    assert "match lexical forte" in result.sources[0].floor_reason
+    assert "[[ZTL - 01HZZZ - grafos]]" in captured["prompt"]

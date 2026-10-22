@@ -431,8 +431,6 @@ class Retriever:
             return self.idx.query_similar_notes(
                 query, n_results=pool, exclude_id=exclude_id, purpose=purpose
             )
-        except TypeError:
-            return self.idx.query_similar_notes(query, n_results=pool, exclude_id=exclude_id)
         except Exception as e:
             self._raise_if_strict(e)
             logger.warning("Busca vetorial de notas falhou: %s", e)
