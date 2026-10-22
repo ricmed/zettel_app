@@ -22,6 +22,8 @@ from zettel.connector.links import CorroborationCandidate, select_corroborating_
 from zettel.retrieval import Retriever
 from zettel.state import StateDB
 
+from tests.fakes import FakeVectorIndex
+
 EPS = 0.005
 CFG = AppConfig()
 
@@ -78,14 +80,6 @@ def test_bm25_bypass_needs_the_configured_coverage():
     assert _verdicts(floor_cfg, hits) == [False, True]
 
 
-class _ChapterIndex:
-    def __init__(self, distance: float):
-        self.distance = distance
-
-    def query_chapter_summaries(self, _query, n_results=10):
-        return [{"id": "ch1", "distance": self.distance, "distance_space": "cosine"}]
-
-
 @pytest.mark.parametrize(("offset", "admitted"), [(-EPS, False), (EPS, True)])
 def test_chapter_search_is_gated_by_the_chapter_floor_not_the_note_floor(
     tmp_path, offset, admitted
@@ -96,7 +90,7 @@ def test_chapter_search_is_gated_by_the_chapter_floor_not_the_note_floor(
     theta = cfg.retrieval.chapter_floor.min_vector_similarity
     db = StateDB(tmp_path / "state.db")
     try:
-        retriever = Retriever(cfg, db, _ChapterIndex(distance=1 - (theta + offset)))
+        retriever = Retriever(cfg, db, FakeVectorIndex(chapters={"ch1": 1 - (theta + offset)}))
         result = retriever.search_chapter_summaries("pergunta", mode="vector")
     finally:
         db.close()
@@ -123,19 +117,6 @@ def test_corroboration_starts_at_the_configured_similarity():
 # -- distant analogies -------------------------------------------------------
 
 
-class _NoteIndex:
-    def __init__(self, distances: dict[str, float]):
-        self.distances = distances
-
-    def query_similar_notes(self, _query, n_results=5, exclude_id=None, **_kwargs):
-        ranked = sorted(self.distances.items(), key=lambda item: item[1])
-        return [
-            {"id": nid, "document": "", "metadata": {}, "distance": d}
-            for nid, d in ranked
-            if nid != exclude_id
-        ][:n_results]
-
-
 def test_distant_analogies_use_their_own_local_floor(tmp_path):
     """``linking.distant_analogy_min_similarity`` decides, not the note floor (#161)."""
     theta = CFG.linking.distant_analogy_min_similarity
@@ -143,7 +124,7 @@ def test_distant_analogies_use_their_own_local_floor(tmp_path):
     try:
         for nid in ("below", "above"):
             db.upsert_note(nid, "@S", None, title=nid, body="corpo sem termos da pergunta")
-        index = _NoteIndex({"below": 1 - (theta - EPS), "above": 1 - (theta + EPS)})
+        index = FakeVectorIndex(notes={"below": 1 - (theta - EPS), "above": 1 - (theta + EPS)})
         hits = Retriever(CFG, db, index).search_distant_analogies(
             "consulta",
             exclude_id=None,

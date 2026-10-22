@@ -2,70 +2,19 @@
 
 from __future__ import annotations
 
-import re
-import time
-from pathlib import Path
-
-import pytest
-from fastapi.testclient import TestClient
 from zettel.article import ArticleResult
 from zettel.article_graph.graph import ArticleStep
 from zettel.ask import AskResult, AskSource
 from zettel.catalog import CatalogResult, ChapterMatch, SourceMatch
 from zettel.summarize import SummarizeOutcome
-from zettel.web import create_app
 
-
-@pytest.fixture
-def web_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    config = tmp_path / "config.yaml"
-    config.write_text(
-        "\n".join(
-            [
-                f"vault_path: {tmp_path / 'vault'}",
-                f"inbox_path: {tmp_path / 'inbox'}",
-                f"chroma_path: {tmp_path / 'chroma'}",
-                f"state_db_path: {tmp_path / 'state.db'}",
-                f"cache_path: {tmp_path / 'cache'}",
-                f"prompts_path: {Path('prompts').resolve()}",
-                "images:",
-                "  enabled: false",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    (tmp_path / "vault").mkdir()
-    monkeypatch.setenv("SESSION_SECRET", "web-test-secret")
-    with TestClient(create_app(config)) as client:
-        yield client, tmp_path
-
-
-def _login(client: TestClient) -> str:
-    login_page = client.get("/login")
-    token = re.search(r'name="login_csrf" value="([^"]+)"', login_page.text).group(1)
-    client.post(
-        "/login",
-        data={"instance_secret": "web-test-secret", "login_csrf": token},
-        follow_redirects=False,
-    )
-    page = client.get("/studio")
-    return re.search(r'name="csrf" value="([^"]+)"', page.text).group(1)
-
-
-def _wait(client: TestClient, job_id: str, states: set[str]) -> dict:
-    payload = {}
-    for _ in range(50):
-        payload = client.get(f"/api/jobs/{job_id}").json()
-        if payload["job"]["state"] in states:
-            return payload
-        time.sleep(0.05)
-    return payload
+from tests.web_support import login, wait_for_job
 
 
 def test_studio_page_groups_the_five_operations(web_client):
     client, _ = web_client
     assert client.get("/studio", follow_redirects=False).status_code in {302, 303}
-    _login(client)
+    login(client)
     page = client.get("/studio")
     assert page.status_code == 200
     for label in (
@@ -86,7 +35,7 @@ def test_studio_page_groups_the_five_operations(web_client):
 
 def test_studio_rejects_invalid_forms(web_client, monkeypatch):
     client, _ = web_client
-    csrf = _login(client)
+    csrf = login(client)
     monkeypatch.setattr("zettel.web.preconditions.llm_phase_ready", lambda cfg, phase: False)
     assert client.post("/studio/ask", data={"csrf": "wrong", "question": "x"}).status_code == 403
     empty = client.post("/studio/ask", data={"csrf": csrf, "question": "  "})
@@ -103,7 +52,7 @@ def test_studio_rejects_invalid_forms(web_client, monkeypatch):
 
 def test_catalog_renders_on_the_page_and_refuses_a_busy_index(web_client, monkeypatch):
     client, _ = web_client
-    csrf = _login(client)
+    csrf = login(client)
     monkeypatch.setattr("zettel.web.preconditions.embedding_ready", lambda cfg: False)
     missing = client.post(
         "/studio/catalog", data={"csrf": csrf, "subject": "rag", "show_context": "1"}
@@ -171,7 +120,7 @@ def test_catalog_renders_on_the_page_and_refuses_a_busy_index(web_client, monkey
 
 def test_ask_summarize_and_skill_show_a_readable_result(web_client, monkeypatch, tmp_path):
     client, vault_root = web_client
-    csrf = _login(client)
+    csrf = login(client)
     monkeypatch.setattr("zettel.web.preconditions.llm_phase_ready", lambda cfg, phase: True)
     # CI has no secrets: the search these actions run needs the embedding key (#314).
     monkeypatch.setattr("zettel.web.preconditions.embedding_ready", lambda cfg: True)
@@ -205,7 +154,7 @@ def test_ask_summarize_and_skill_show_a_readable_result(web_client, monkeypatch,
     )
     assert response.status_code == 303
     job_id = response.headers["location"].rsplit("/", 1)[-1]
-    assert _wait(client, job_id, {"succeeded"})["job"]["state"] == "succeeded"
+    assert wait_for_job(client, job_id, {"succeeded"})["job"]["state"] == "succeeded"
     detail = client.get(f"/jobs/{job_id}")
     assert "Resposta citada do acervo." in detail.text
     assert 'id="result-copy"' in detail.text
@@ -231,7 +180,7 @@ def test_ask_summarize_and_skill_show_a_readable_result(web_client, monkeypatch,
         follow_redirects=False,
     )
     job_id = response.headers["location"].rsplit("/", 1)[-1]
-    assert _wait(client, job_id, {"succeeded"})["job"]["result"]["chapters_summarized"] == 2
+    assert wait_for_job(client, job_id, {"succeeded"})["job"]["result"]["chapters_summarized"] == 2
     assert "Capítulos resumidos: 2" in client.get(f"/jobs/{job_id}").text
 
     pack_dir = vault_root / "vault" / ".claude" / "skills" / "demo"
@@ -255,7 +204,7 @@ def test_ask_summarize_and_skill_show_a_readable_result(web_client, monkeypatch,
         follow_redirects=False,
     )
     job_id = response.headers["location"].rsplit("/", 1)[-1]
-    payload = _wait(client, job_id, {"succeeded", "failed"})
+    payload = wait_for_job(client, job_id, {"succeeded", "failed"})
     assert payload["job"]["state"] == "succeeded"
     assert payload["job"]["result"]["notes"] == 1
     assert "demo" in client.get(f"/jobs/{job_id}").text
@@ -263,7 +212,7 @@ def test_ask_summarize_and_skill_show_a_readable_result(web_client, monkeypatch,
 
 def test_article_pauses_for_context_and_resumes(web_client, monkeypatch):
     client, _ = web_client
-    csrf = _login(client)
+    csrf = login(client)
     monkeypatch.setattr("zettel.web.preconditions.llm_phase_ready", lambda cfg, phase: True)
     # CI has no secrets: the search these actions run needs the embedding key (#314).
     monkeypatch.setattr("zettel.web.preconditions.embedding_ready", lambda cfg: True)
@@ -320,7 +269,10 @@ def test_article_pauses_for_context_and_resumes(web_client, monkeypatch):
     )
     assert response.status_code == 303
     job_id = response.headers["location"].rsplit("/", 1)[-1]
-    assert _wait(client, job_id, {"awaiting_input", "failed"})["job"]["state"] == "awaiting_input"
+    assert (
+        wait_for_job(client, job_id, {"awaiting_input", "failed"})["job"]["state"]
+        == "awaiting_input"
+    )
     paused = client.get(f"/jobs/{job_id}")
     assert "Nota de contexto" in paused.text
     assert 'data-copy="result-copy"' in paused.text
@@ -331,7 +283,7 @@ def test_article_pauses_for_context_and_resumes(web_client, monkeypatch):
         follow_redirects=False,
     )
     assert resumed.status_code == 303
-    assert _wait(client, job_id, {"succeeded", "failed"})["job"]["state"] == "succeeded"
+    assert wait_for_job(client, job_id, {"succeeded", "failed"})["job"]["state"] == "succeeded"
     done = client.get(f"/jobs/{job_id}")
     assert "Corpo do artigo gerado." in done.text
     assert "# Título gerado" in done.text

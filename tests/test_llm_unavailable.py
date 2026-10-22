@@ -17,7 +17,7 @@ from zettel.retrieval import NoteSearchResult
 from zettel.schemas import PermanentNoteCandidate
 from zettel.state import StateDB
 
-from tests.test_harvester_dedup import FakeVectorIndex
+from tests.fakes import FakeVectorIndex
 
 
 def test_is_llm_unavailable_connection_and_http():

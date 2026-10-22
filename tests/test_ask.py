@@ -7,20 +7,14 @@ from zettel.config import AppConfig
 from zettel.retrieval import NoteSearchResult, RetrievedNote
 from zettel.state import StateDB
 
+from tests.fakes import FakeVectorIndex
+
 
 @pytest.fixture
 def db(tmp_path):
     db = StateDB(tmp_path / "ask.db")
     yield db
     db.close()
-
-
-class FakeIndex:
-    def query_similar_notes(self, *a, **k):
-        return []
-
-    def find_similar_chunks(self, *a, **k):
-        return []
 
 
 def test_run_ask_empty_vault_no_llm(db, monkeypatch):
@@ -34,7 +28,7 @@ def test_run_ask_empty_vault_no_llm(db, monkeypatch):
     monkeypatch.setattr(ask_mod, "call_llm", _boom)
     monkeypatch.setattr(ask_mod, "get_llm", lambda *a, **k: object())
 
-    result = run_ask(AppConfig(), db, FakeIndex(), "o que e um grafo?")
+    result = run_ask(AppConfig(), db, FakeVectorIndex(), "o que e um grafo?")
     assert result.answer == ask_mod._NO_EVIDENCE
     assert result.llm_called is False
     assert called["n"] == 0
@@ -79,7 +73,7 @@ def test_run_ask_passes_wikilinks_to_prompt(db, tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    result = run_ask(cfg, db, FakeIndex(), "o que e um grafo?")
+    result = run_ask(cfg, db, FakeVectorIndex(), "o que e um grafo?")
     assert result.llm_called is True
     # The exact wikilink for the note must be in the context sent to the LLM.
     assert "[[ZTL - 01HZZZ - grafos-de-conhecimento]]" in captured["prompt"]
@@ -110,7 +104,7 @@ def test_run_ask_below_floor_shows_candidates_but_no_llm_call(db, monkeypatch):
     monkeypatch.setattr(ask_mod, "call_llm", _boom)
     monkeypatch.setattr(ask_mod, "get_llm", lambda *a, **k: object())
 
-    result = run_ask(AppConfig(), db, FakeIndex(), "pergunta fora do tema")
+    result = run_ask(AppConfig(), db, FakeVectorIndex(), "pergunta fora do tema")
     assert result.answer == ask_mod._NO_EVIDENCE
     assert result.llm_called is False
     assert called["n"] == 0

@@ -15,6 +15,8 @@ from zettel.chunk_dump import (
 from zettel.config import AppConfig
 from zettel.state import StateDB
 
+from tests.fakes import FakeVectorIndex
+
 
 def _cfg(**chunking) -> AppConfig:
     cfg = AppConfig()
@@ -223,21 +225,6 @@ def test_dump_source_chunks_loads_db(tmp_path: Path):
         db.close()
 
 
-class _FakeIdx:
-    def __init__(self):
-        self.chunks_store: set[str] = set()
-
-    def upsert_chunk(self, chunk_id, text, metadata, **kwargs):
-        self.chunks_store.add(chunk_id)
-
-    def delete_chunks(self, chunk_ids):
-        for cid in chunk_ids:
-            self.chunks_store.discard(cid)
-
-    def existing_ids(self, collection_name, ids):
-        return {cid for cid in ids if cid in self.chunks_store}
-
-
 def test_run_rechunk_writes_dump_when_dump_dir_set(tmp_path: Path):
     from zettel.harvester import run_rechunk
 
@@ -249,7 +236,7 @@ def test_run_rechunk_writes_dump_when_dump_dir_set(tmp_path: Path):
             extracted_text="# Cap\n\n### Alpha\n\n" + "conteudo suficientemente longo. " * 30,
         )
         dest = tmp_path / "dumps"
-        stats = run_rechunk(AppConfig(), db, _FakeIdx(), "@S", dump_dir=dest)
+        stats = run_rechunk(AppConfig(), db, FakeVectorIndex(), "@S", dump_dir=dest)
         assert stats["sources"] == 1
         out = dest / "chunks-S.md"
         assert out.exists()

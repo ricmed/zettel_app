@@ -205,7 +205,7 @@ def test_one_unusable_file_does_not_stop_the_batch(tmp_path: Path):
     from zettel.harvester import run_harvest
     from zettel.state import StateDB
 
-    from tests.test_harvester_dedup import FakeVectorIndex
+    from tests.fakes import FakeVectorIndex
 
     inbox = tmp_path / "inbox"
     inbox.mkdir()

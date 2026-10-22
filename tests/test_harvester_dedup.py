@@ -37,34 +37,16 @@ from zettel.harvester import (
 from zettel.harvester.pipeline import HarvestDeclined, _process_file
 from zettel.state import StateDB
 
+from tests.fakes import FakeVectorIndex, calls_to
 
-class FakeVectorIndex:
-    """Minimal stand-in for VectorIndex, avoiding real embeddings/network calls."""
 
-    def __init__(self, chunk_matches: list[dict] | None = None):
-        self._chunk_matches = chunk_matches or []
-        self.upserted_sources: list[str] = []
-        self.upserted_chunks: list[str] = []
-
-    def find_similar_chunks(self, texts, n_results=3):
-        return self._chunk_matches if texts else []
-
-    def upsert_source(self, source_id, summary, metadata):
-        self.upserted_sources.append(source_id)
-
-    def upsert_chunk(self, chunk_id, text, metadata, **kwargs):
-        self.upserted_chunks.append(chunk_id)
-
-    def delete_chunks(self, chunk_ids):
-        for cid in chunk_ids:
-            if cid in self.upserted_chunks:
-                self.upserted_chunks.remove(cid)
-
-    def existing_ids(self, collection_name, ids):
-        return {cid for cid in ids if cid in self.upserted_chunks}
-
-    def chunk_ids_for_source(self, source_id):
-        return set(self.upserted_chunks)
+def _index(chunk_matches: list[dict] | None = None) -> FakeVectorIndex:
+    """Canonical fake whose chunk search finds ``chunk_matches`` (other sources' chunks)."""
+    matches = chunk_matches or []
+    idx = FakeVectorIndex(chunks={m["id"]: m["distance"] for m in matches})
+    for match in matches:
+        idx.store["chunks"][match["id"]] = ("", match.get("metadata", {}))
+    return idx
 
 
 @pytest.fixture
@@ -120,7 +102,7 @@ def test_find_semantic_duplicate_candidates_aggregates_by_source(db, cfg):
         origin_path="/p",
         origin_type="pdf",
     )
-    idx = FakeVectorIndex(
+    idx = _index(
         chunk_matches=[
             {"id": "c1", "distance": 0.10, "metadata": {"source_id": "@Existing2024"}},
             {"id": "c2", "distance": 0.05, "metadata": {"source_id": "@Existing2024"}},
@@ -137,7 +119,7 @@ def test_find_semantic_duplicate_candidates_aggregates_by_source(db, cfg):
 
 
 def test_find_semantic_duplicate_candidates_below_threshold_ignored(db, cfg):
-    idx = FakeVectorIndex(
+    idx = _index(
         chunk_matches=[
             {"id": "c1", "distance": 1.5, "metadata": {"source_id": "@Distant2024"}},
         ]
@@ -287,7 +269,7 @@ def test_process_file_semantic_duplicate_skip(db, cfg, tmp_path, monkeypatch):
         origin_path="/p",
         origin_type="pdf",
     )
-    idx = FakeVectorIndex(
+    idx = _index(
         chunk_matches=[
             {"id": "c1", "distance": 0.05, "metadata": {"source_id": "@Similar2024"}},
         ]
@@ -332,7 +314,7 @@ def test_process_file_semantic_duplicate_continue_creates_source(db, cfg, tmp_pa
         origin_path="/p",
         origin_type="pdf",
     )
-    idx = FakeVectorIndex(
+    idx = _index(
         chunk_matches=[
             {"id": "c1", "distance": 0.05, "metadata": {"source_id": "@Similar2024b"}},
         ]
@@ -373,7 +355,7 @@ def test_process_file_semantic_duplicate_abort_raises(db, cfg, tmp_path):
         origin_path="/p",
         origin_type="pdf",
     )
-    idx = FakeVectorIndex(
+    idx = _index(
         chunk_matches=[
             {"id": "c1", "distance": 0.05, "metadata": {"source_id": "@Similar2024c"}},
         ]
@@ -590,7 +572,7 @@ def test_layer5_off_skips_chunk_embeddings_and_the_check(db, cfg, tmp_path, monk
     assert sid is not None, "o arquivo deve ser ingerido normalmente"
     # SQLite keeps every chunk; only the vector index is skipped.
     assert db.get_chunks_for_source(sid), "chunks devem existir no SQLite"
-    assert idx.upserted_chunks == [], "nenhum chunk deve ser embedado"
+    assert calls_to(idx, "upsert_chunk") == [], "nenhum chunk deve ser embedado"
     assert db.get_run(run_id)["duplicate_semantic_count"] == 0
 
 
@@ -608,7 +590,7 @@ def test_layer5_on_still_embeds_and_checks(db, cfg, tmp_path):
     sid, _ = _process_file(cfg, db, idx, f, run_id=run_id, interactive=False, skip_biblio=True)
 
     assert sid is not None
-    assert idx.upserted_chunks, "com a camada 5 ligada, os chunks alimentam o indice-alvo"
+    assert calls_to(idx, "upsert_chunk"), "com a camada 5 ligada, os chunks alimentam o indice-alvo"
 
 
 @pytest.mark.parametrize(

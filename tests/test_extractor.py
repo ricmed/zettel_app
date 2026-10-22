@@ -1482,23 +1482,7 @@ def test_summary_within_cap_is_untouched():
 
 from zettel.extractor import _intra_batch_dedupe, deduplicate_candidates
 
-
-class _FakeDedupeIndex:
-    """Minimal VectorIndex double for _intra_batch_dedupe / deduplicate_candidates."""
-
-    def __init__(self, vectors_by_text: dict[str, list[float]] | None = None):
-        self._vectors_by_text = vectors_by_text or {}
-        self.embed_calls: list[list[str]] = []
-
-    def embed_texts(self, texts):
-        self.embed_calls.append(list(texts))
-        return [self._vectors_by_text[t] for t in texts]
-
-    def _record_embed_usage(self, text, label="", **_kw):
-        pass
-
-    def query_similar_notes(self, query_text, n_results=5, exclude_id=None, **_kw):
-        return []  # no existing permanent notes -- isolates the intra-batch pass
+from tests.fakes import FakeVectorIndex, calls_to
 
 
 def _cand_dict(concept_id: str, **overrides) -> dict:
@@ -1512,7 +1496,7 @@ def _cand_dict(concept_id: str, **overrides) -> dict:
 
 def test_intra_batch_dedupe_exact_thesis_hash_match_keeps_higher_relevance():
     cfg = _make_config()
-    idx = _FakeDedupeIndex()
+    idx = FakeVectorIndex()
     same_thesis = "Gradient descent converge mais rapido com learning rate adaptativo"
     a = _cand_dict("c1", thesis=same_thesis, relevance_score=3)
     b = _cand_dict("c2", thesis=same_thesis, relevance_score=5)
@@ -1524,7 +1508,7 @@ def test_intra_batch_dedupe_exact_thesis_hash_match_keeps_higher_relevance():
     assert len(duplicates) == 1
     assert duplicates[0]["concept_id"] == "c1"
     assert duplicates[0]["duplicate_of"] == "c2"
-    assert idx.embed_calls == []  # exact-hash path never needs to embed
+    assert calls_to(idx, "embed_texts") == []  # exact-hash path never needs to embed
 
 
 def test_intra_batch_dedupe_semantic_match_within_threshold():
@@ -1534,7 +1518,7 @@ def test_intra_batch_dedupe_semantic_match_within_threshold():
     text_a = f"{a['candidate'].thesis} {a['candidate'].definition}"
     text_b = f"{b['candidate'].thesis} {b['candidate'].definition}"
     # Unit vectors, cosine 0.99 — above dedupe_threshold 0.85.
-    idx = _FakeDedupeIndex({text_a: [1.0, 0.0], text_b: [0.99, 0.1410673598]})
+    idx = FakeVectorIndex(vectors={text_a: [1.0, 0.0], text_b: [0.99, 0.1410673598]})
 
     kept, duplicates = _intra_batch_dedupe(cfg, idx, [a, b])
 
@@ -1542,7 +1526,7 @@ def test_intra_batch_dedupe_semantic_match_within_threshold():
     assert kept[0]["concept_id"] == "c2"
     assert len(duplicates) == 1
     assert duplicates[0]["concept_id"] == "c1"
-    assert idx.embed_calls == [[text_a, text_b]]  # one batched call, not per-pair
+    assert calls_to(idx, "embed_texts") == [[text_a, text_b]]  # one batched call, not per-pair
 
 
 def test_intra_batch_dedupe_distinct_candidates_both_survive():
@@ -1551,7 +1535,7 @@ def test_intra_batch_dedupe_distinct_candidates_both_survive():
     b = _cand_dict("c2", thesis="Uma ideia completamente diferente sobre grafos de conhecimento")
     text_a = f"{a['candidate'].thesis} {a['candidate'].definition}"
     text_b = f"{b['candidate'].thesis} {b['candidate'].definition}"
-    idx = _FakeDedupeIndex({text_a: [1.0, 0.0], text_b: [0.0, 1.0]})  # cosine 0
+    idx = FakeVectorIndex(vectors={text_a: [1.0, 0.0], text_b: [0.0, 1.0]})  # cosine 0
 
     kept, duplicates = _intra_batch_dedupe(cfg, idx, [a, b])
 
@@ -1561,18 +1545,18 @@ def test_intra_batch_dedupe_distinct_candidates_both_survive():
 
 def test_intra_batch_dedupe_single_candidate_is_a_noop():
     cfg = _make_config()
-    idx = _FakeDedupeIndex()
+    idx = FakeVectorIndex()
     a = _cand_dict("c1")
     kept, duplicates = _intra_batch_dedupe(cfg, idx, [a])
     assert kept == [a]
     assert duplicates == []
-    assert idx.embed_calls == []
+    assert calls_to(idx, "embed_texts") == []
 
 
 def test_intra_batch_dedupe_skips_pairwise_above_cap():
     """Above the pairwise cap, only the cheap hash pass runs -- no embedding call."""
     cfg = _make_config()
-    idx = _FakeDedupeIndex()
+    idx = FakeVectorIndex()
     from zettel.extractor import _INTRA_BATCH_PAIRWISE_MAX
 
     candidates = [
@@ -1582,7 +1566,7 @@ def test_intra_batch_dedupe_skips_pairwise_above_cap():
     kept, duplicates = _intra_batch_dedupe(cfg, idx, candidates)
     assert len(kept) == _INTRA_BATCH_PAIRWISE_MAX + 1
     assert duplicates == []
-    assert idx.embed_calls == []
+    assert calls_to(idx, "embed_texts") == []
 
 
 def test_deduplicate_candidates_intra_batch_duplicate_marked_before_existing_notes_pass(
@@ -1608,7 +1592,7 @@ def test_deduplicate_candidates_intra_batch_duplicate_marked_before_existing_not
     for cd in (a, b):
         db.upsert_concept(cd["concept_id"], "@S", "@S::ch000::a", status="extracted")
 
-    idx = _FakeDedupeIndex()
+    idx = FakeVectorIndex()
     monkeypatch.setattr(
         "zettel.extractor.call_llm",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("LLM should not be called")),
@@ -1628,16 +1612,21 @@ def test_deduplicate_candidates_intra_batch_duplicate_marked_before_existing_not
 # ── Dedupe is scoped to one source; cross-source hits are corroboration ──
 
 
-class _FakeNeighbourIndex(_FakeDedupeIndex):
-    """Returns one near-identical existing permanent note for every candidate."""
+class _FakeNeighbourIndex(FakeVectorIndex):
+    """One near-identical existing permanent note for every candidate, whatever ``where`` says.
 
-    def __init__(self, note_id: str):
-        super().__init__()
-        self._note_id = note_id
+    Dedupe guards the source twice: the Chroma ``where`` filter and
+    ``_same_source_notes`` over SQLite. Ignoring the filter on purpose is what
+    lets these tests pin the second guard. Distance 0.0 is cosine 1.0.
+    """
 
-    def query_similar_notes(self, query_text, n_results=5, exclude_id=None, **_kw):
-        # distance 0.0 => similarity 1.0, well inside dedupe_threshold
-        return [{"id": self._note_id, "distance": 0.0, "document": "doc", "metadata": {}}]
+    def __init__(self, note_id: str, distance: float = 0.0):
+        super().__init__(notes={note_id: distance})
+
+    def query_similar_notes(
+        self, query_text, n_results=5, exclude_id=None, *, purpose="densa", where=None
+    ):
+        return self._hits("permanent_notes", n_results, exclude_id=exclude_id)
 
 
 def _dedupe_env(tmp_path, note_source_id: str):
@@ -1670,7 +1659,7 @@ def test_intra_batch_dedupe_cosine_threshold_marks_086_and_not_084():
         text_a = f"{a['candidate'].thesis} {a['candidate'].definition}"
         text_b = f"{b['candidate'].thesis} {b['candidate'].definition}"
         ortho = math.sqrt(1.0 - cosine * cosine)
-        idx = _FakeDedupeIndex({text_a: [1.0, 0.0], text_b: [cosine, ortho]})
+        idx = FakeVectorIndex(vectors={text_a: [1.0, 0.0], text_b: [cosine, ortho]})
         return _intra_batch_dedupe(cfg, idx, [a, b])
 
     _kept, duplicates = _pair(0.86)
@@ -1689,15 +1678,13 @@ def test_dedupe_same_source_note_at_cosine_080_does_not_reach_the_llm(tmp_path, 
     cand = _cand_dict("c1", thesis="Redes profundas generalizam por vies implicito")
     db.upsert_concept("c1", "@S", "@S::ch000::a", status="extracted")
 
-    class _Index(_FakeNeighbourIndex):
-        def query_similar_notes(self, query_text, n_results=5, exclude_id=None, **_kw):
-            return [{"id": self._note_id, "distance": 0.20, "document": "doc", "metadata": {}}]
-
     monkeypatch.setattr(
         "zettel.extractor.call_llm",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("LLM should not be called")),
     )
-    approved = deduplicate_candidates(cfg, db, _Index("N1"), object(), [cand])
+    approved = deduplicate_candidates(
+        cfg, db, _FakeNeighbourIndex("N1", distance=0.20), object(), [cand]
+    )
     assert [c["concept_id"] for c in approved] == ["c1"]
     assert db.get_concept("c1")["status"] == "approved"
     db.close()
@@ -1725,7 +1712,7 @@ def test_second_dedupe_call_flags_a_repeat_of_an_approved_concept_without_a_note
         "zettel.extractor.call_llm",
         lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("LLM should not be called")),
     )
-    idx = _FakeDedupeIndex()
+    idx = FakeVectorIndex()
     approved = deduplicate_candidates(cfg, db, idx, object(), [first])
     assert [c["concept_id"] for c in approved] == ["c1"]
     approved_again = deduplicate_candidates(cfg, db, idx, object(), [second])
@@ -1772,7 +1759,7 @@ def test_dedupe_parse_error_keeps_that_item_extracted(tmp_path, monkeypatch):
     )
     monkeypatch.setattr("zettel.extractor.call_llm", lambda *_a, **_k: next(answers))
     idx = _FakeNeighbourIndex("N1")
-    idx._vectors_by_text = {
+    idx.vectors = {
         f"{first['candidate'].thesis} {first['candidate'].definition}": [1.0, 0.0],
         f"{second['candidate'].thesis} {second['candidate'].definition}": [0.0, 1.0],
     }
@@ -1798,7 +1785,7 @@ def test_dedupe_answer_quoting_a_status_code_is_a_parse_error_not_an_outage(tmp_
     )
     monkeypatch.setattr("zettel.extractor.call_llm", lambda *_a, **_k: next(answers))
     idx = _FakeNeighbourIndex("N1")
-    idx._vectors_by_text = {
+    idx.vectors = {
         f"{first['candidate'].thesis} {first['candidate'].definition}": [1.0, 0.0],
         f"{second['candidate'].thesis} {second['candidate'].definition}": [0.0, 1.0],
     }
@@ -1883,7 +1870,7 @@ def test_dedupe_override_skips_every_check(tmp_path, monkeypatch):
     concept = db.get_concept("c1")
     assert concept["status"] == "approved"
     assert json.loads(concept["dedupe_json"]) == {"override": True}
-    assert idx.embed_calls == []
+    assert calls_to(idx, "embed_texts") == []
     db.close()
 
 

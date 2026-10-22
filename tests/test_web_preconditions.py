@@ -3,52 +3,15 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 import pytest
 from fastapi.responses import RedirectResponse
-from fastapi.testclient import TestClient
 from zettel.config import LLM_PHASES
-from zettel.web import create_app
 from zettel.web.preconditions import PIPELINE_OPERATIONS, blocker, llm_phases
 
+from tests.web_support import login
+
 _ALL = frozenset(LLM_PHASES)
-
-
-@pytest.fixture
-def web_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    config = tmp_path / "config.yaml"
-    config.write_text(
-        "\n".join(
-            [
-                f"vault_path: {tmp_path / 'vault'}",
-                f"inbox_path: {tmp_path / 'inbox'}",
-                f"chroma_path: {tmp_path / 'chroma'}",
-                f"state_db_path: {tmp_path / 'state.db'}",
-                f"cache_path: {tmp_path / 'cache'}",
-                f"prompts_path: {Path('prompts').resolve()}",
-                "images:",
-                "  enabled: false",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    (tmp_path / "vault").mkdir()
-    monkeypatch.setenv("SESSION_SECRET", "web-test-secret")
-    with TestClient(create_app(config)) as client:
-        yield client, tmp_path
-
-
-def _login(client: TestClient) -> str:
-    login_page = client.get("/login")
-    token = re.search(r'name="login_csrf" value="([^"]+)"', login_page.text).group(1)
-    client.post(
-        "/login",
-        data={"instance_secret": "web-test-secret", "login_csrf": token},
-        follow_redirects=False,
-    )
-    page = client.get("/studio")
-    return re.search(r'name="csrf" value="([^"]+)"', page.text).group(1)
 
 
 def _seed_work(db):
@@ -121,7 +84,7 @@ def test_pipeline_button_enabled_iff_the_server_accepts(
     web_client, monkeypatch, accepted_jobs, phases, embedding, seeded
 ):
     client, _ = web_client
-    csrf = _login(client)
+    csrf = login(client)
     if seeded:
         db = client.app.state.service.db()
         try:
@@ -143,7 +106,7 @@ def test_pipeline_button_enabled_iff_the_server_accepts(
 
 def test_extract_does_not_need_the_article_credential(web_client, monkeypatch, accepted_jobs):
     client, _ = web_client
-    csrf = _login(client)
+    csrf = login(client)
     db = client.app.state.service.db()
     try:
         _seed_work(db)
@@ -159,7 +122,7 @@ def test_extract_does_not_need_the_article_credential(web_client, monkeypatch, a
 
 def test_without_embedding_connect_and_ask_say_why(web_client, monkeypatch, accepted_jobs):
     client, _ = web_client
-    csrf = _login(client)
+    csrf = login(client)
     db = client.app.state.service.db()
     try:
         _seed_work(db)
@@ -182,7 +145,7 @@ def test_without_embedding_connect_and_ask_say_why(web_client, monkeypatch, acce
 
 def test_retry_assets_refuses_when_nothing_failed(web_client, monkeypatch, accepted_jobs):
     client, _ = web_client
-    csrf = _login(client)
+    csrf = login(client)
     response = client.post("/pipeline/retry_assets", data={"csrf": csrf})
     assert response.status_code == 409
     assert "assets com falha" in response.text

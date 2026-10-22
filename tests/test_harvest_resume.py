@@ -7,37 +7,18 @@ from zettel.config import AppConfig, HarvestConfig
 from zettel.harvester.pipeline import run_harvest, run_rechunk, source_chunking_incomplete
 from zettel.state import StateDB
 
+from tests.fakes import FakeVectorIndex
 
-class _Idx:
-    def __init__(self):
-        self.chunks: set[str] = set()
-        self.fail_on: int | None = None
-        self.fail_delete = False
-        self.calls = 0
 
-    def upsert_source(self, source_id, summary, metadata):
-        return None
+class _Idx(FakeVectorIndex):
+    """Canonical fake whose chunk deletes can be switched to fail mid-test."""
 
-    def find_similar_chunks(self, texts, n_results=3):
-        return []
-
-    def upsert_chunk(self, chunk_id, text, metadata, **kwargs):
-        self.calls += 1
-        if self.fail_on is not None and self.calls == self.fail_on:
-            raise RuntimeError("queda no embedding")
-        self.chunks.add(chunk_id)
+    fail_delete = False
 
     def delete_chunks(self, chunk_ids):
         if self.fail_delete:
             raise RuntimeError("queda no chroma")
-        for cid in chunk_ids:
-            self.chunks.discard(cid)
-
-    def chunk_ids_for_source(self, source_id):
-        return set(self.chunks)
-
-    def existing_ids(self, collection_name, ids):
-        return {cid for cid in ids if cid in self.chunks}
+        super().delete_chunks(chunk_ids)
 
 
 def _cfg(tmp_path, *, embed: bool = False) -> AppConfig:
@@ -111,8 +92,7 @@ def test_harvest_resumes_embeddings_after_chroma_failure(tmp_path):
     cfg = _cfg(tmp_path, embed=True)
     _write_book(cfg.inbox_path)
     db = StateDB(tmp_path / "state.db")
-    idx = _Idx()
-    idx.fail_on = 2
+    idx = _Idx(fail_on={"upsert_chunk": (2, RuntimeError("queda no embedding"))})
     with pytest.raises(RuntimeError, match="queda no embedding"):
         run_harvest(cfg, db, idx, interactive=False, skip_biblio=True)
 
@@ -122,15 +102,15 @@ def test_harvest_resumes_embeddings_after_chroma_failure(tmp_path):
     assert source_chunking_incomplete(db, sid)
     stored = {row["chunk_id"] for row in db.get_chunks_for_source(sid)}
     assert stored
-    assert idx.chunks < stored
+    assert set(idx.store["chunks"]) < stored
     _assert_no_chapter_without_chunks(db, sid)
 
-    idx.fail_on = None
+    idx.fail_on = {}
     outcome = run_harvest(cfg, db, idx, interactive=False, skip_biblio=True)
     assert outcome.source_ids == [sid]
     assert db.get_source(sid)["processing_status"] == "completed"
     assert not source_chunking_incomplete(db, sid)
-    assert idx.chunks == stored
+    assert set(idx.store["chunks"]) == stored
     db.close()
 
 
@@ -185,7 +165,7 @@ def test_second_pass_drops_embedding_left_after_a_failed_delete(tmp_path):
     body = "Conteudo longo deste capitulo para formar um chunk. " * 8
     first = [{"title": "Cap", "text": body, "locator": "Cap"}]
     chunk_and_persist(cfg, db, idx, "@S", first, origin_type="md")
-    old = set(idx.chunks)
+    old = set(idx.store["chunks"])
     assert old
 
     idx.fail_delete = True
@@ -193,12 +173,12 @@ def test_second_pass_drops_embedding_left_after_a_failed_delete(tmp_path):
     second = [{"title": "Cap", "text": revised, "locator": "Cap"}]
     with pytest.raises(RuntimeError, match="queda no chroma"):
         chunk_and_persist(cfg, db, idx, "@S", second, origin_type="md")
-    assert old <= idx.chunks
+    assert old <= set(idx.store["chunks"])
 
     idx.fail_delete = False
     chunk_and_persist(cfg, db, idx, "@S", second, origin_type="md")
     live = {row["chunk_id"] for row in db.get_chunks_for_source("@S")}
     assert live
     assert old.isdisjoint(live)
-    assert idx.chunks == live
+    assert set(idx.store["chunks"]) == live
     db.close()

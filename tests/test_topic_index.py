@@ -22,6 +22,8 @@ from zettel.topic_index import (
 )
 from zettel.vault import safe_write_note
 
+from tests.fakes import FakeVectorIndex, calls_to
+
 NOTE_A = "01HAAAAAAAAAAAAAAAAAAAAAAA"
 NOTE_B = "01HBBBBBBBBBBBBBBBBBBBBBBB"
 
@@ -149,24 +151,21 @@ def test_moc_sync_builds_the_index_without_touching_the_vault(db, tmp_path):
 # ── ask boost ──────────────────────────────────────────────────────────
 
 
-class _FakeIndex:
-    """Chroma stand-in: `notes` maps note_id -> distance for any query."""
+class _FakeIndex(FakeVectorIndex):
+    """Dense search returns ``knn`` as given; a search restricted to ids sees ``by_id``.
+
+    A subclass because the two searches must disagree: a routed note absent from
+    the dense pool is exactly what the topic-index boost exists for.
+    """
 
     def __init__(self, knn: list[dict], by_id: dict[str, float]):
+        super().__init__(notes=by_id)
         self.knn = knn
-        self.by_id = by_id
-        self.restricted_calls: list[list[str]] = []
 
-    def query_similar_notes(self, query, n_results=5, exclude_id=None):
+    def query_similar_notes(
+        self, query_text, n_results=5, exclude_id=None, *, purpose="densa", where=None
+    ):
         return list(self.knn)
-
-    def query_notes_by_ids(self, query_text, note_ids):
-        self.restricted_calls.append(list(note_ids))
-        return [
-            {"id": nid, "distance": self.by_id[nid], "document": "", "metadata": {}}
-            for nid in note_ids
-            if nid in self.by_id
-        ]
 
 
 def _retriever(db, idx, **overrides):
@@ -198,7 +197,7 @@ def test_routed_note_becomes_a_seed_when_it_clears_the_floor(db, tmp_path):
     result = _retriever(db, idx).search_notes("o que e dropout?")
     assert [h.note_id for h in result.hits] == [NOTE_A]
     assert result.hits[0].origin == "topic_index"
-    assert idx.restricted_calls == [[NOTE_A]]
+    assert calls_to(idx, "query_notes_by_ids") == [[NOTE_A]]
 
 
 def test_routed_note_still_faces_the_floor(db, tmp_path):
@@ -218,7 +217,7 @@ def test_boost_off_restores_the_previous_behaviour(db, tmp_path):
     idx = _FakeIndex(knn=[], by_id={NOTE_A: 0.2})
     result = _retriever(db, idx, topic_index_boost=False).search_notes("o que e dropout?")
     assert result.hits == []
-    assert idx.restricted_calls == []
+    assert calls_to(idx, "query_notes_by_ids") == []
 
 
 def test_no_extra_query_when_the_note_is_already_in_the_pool(db, tmp_path):
@@ -228,7 +227,7 @@ def test_no_extra_query_when_the_note_is_already_in_the_pool(db, tmp_path):
         by_id={NOTE_A: 0.2},
     )
     result = _retriever(db, idx).search_notes("o que e dropout?")
-    assert idx.restricted_calls == []
+    assert calls_to(idx, "query_notes_by_ids") == []
     assert result.hits[0].origin == "search"
 
 
@@ -236,7 +235,7 @@ def test_no_extra_query_when_nothing_matches(db, tmp_path):
     _index_note(db, tmp_path, NOTE_A, "dropout", {})
     idx = _FakeIndex(knn=[], by_id={NOTE_A: 0.2})
     _retriever(db, idx).search_notes("pergunta sobre astrofisica")
-    assert idx.restricted_calls == []
+    assert calls_to(idx, "query_notes_by_ids") == []
 
 
 def test_seed_count_is_capped(db, tmp_path):
@@ -245,7 +244,7 @@ def test_seed_count_is_capped(db, tmp_path):
         _index_note(db, tmp_path, note_id, "dropout", {})
     idx = _FakeIndex(knn=[], by_id=dict.fromkeys(ids, 0.2))
     _retriever(db, idx, topic_index_max_seeds=3).search_notes("dropout")
-    assert len(idx.restricted_calls[0]) == 3
+    assert len(calls_to(idx, "query_notes_by_ids")[0]) == 3
 
 
 # ── Backfill via reindex ───────────────────────────────────────────────

@@ -30,15 +30,7 @@ from zettel.vault import (
     safe_write_note,
 )
 
-
-class _FakeLitIndex:
-    """Literature notes are never embedded — only `chunks` deletes reach Chroma."""
-
-    def __init__(self):
-        self.chunk_deletes = []
-
-    def delete_chunks(self, chunk_ids):
-        self.chunk_deletes.extend(chunk_ids)
+from tests.fakes import FakeVectorIndex, deleted
 
 
 @pytest.fixture
@@ -137,7 +129,7 @@ def env(tmp_path):
         '"relevance_score":4}',
         status="awaiting_review",
     )
-    idx = _FakeLitIndex()
+    idx = FakeVectorIndex()
     yield cfg, db, idx
     db.close()
 
@@ -230,7 +222,7 @@ def test_approve_preserves_candidate_quotes_block_without_duplicating(tmp_path):
         literature_note_path=str(draft_path),
         status="awaiting_review",
     )
-    idx = _FakeLitIndex()
+    idx = FakeVectorIndex()
 
     ok = approve_chunk(cfg, db, idx, "@Book2024::ch000::abc")
     assert ok
@@ -315,7 +307,7 @@ def env_no_draft(tmp_path):
         ),
         review_confidence=0.1,
     )
-    idx = _FakeLitIndex()
+    idx = FakeVectorIndex()
     yield cfg, db, idx
     db.close()
 
@@ -909,7 +901,7 @@ def test_purge_rejected_removes_sqlite_and_chroma(env):
     assert db.get_chunk("@Book2024::ch000::abc") is None
     assert db.get_concepts_for_chunk("@Book2024::ch000::abc") == []
     assert db.get_chunk("@Book2024::ch000::keep") is not None
-    assert idx.chunk_deletes == ["@Book2024::ch000::abc"]
+    assert deleted(idx, "chunks") == ["@Book2024::ch000::abc"]
 
 
 def test_purge_keeps_the_review_event_and_its_snapshot(env):
@@ -1157,7 +1149,7 @@ def test_run_review_d_deletes_an_extract_rejection(env):
     assert stats["discarded"] == 1
     assert stats["requeued"] == 0
     assert db.get_chunk("@Book2024::ch000::refs") is None
-    assert idx.chunk_deletes == ["@Book2024::ch000::refs"]
+    assert deleted(idx, "chunks") == ["@Book2024::ch000::refs"]
     assert db.get_chunk("@Book2024::ch000::abc")["status"] == "awaiting_review"
 
 
@@ -1174,7 +1166,7 @@ def test_run_review_d_cancel_keeps_the_extract_rejection(env):
 
     assert stats["discarded"] == 0
     assert db.get_chunk("@Book2024::ch000::refs")["status"] == "rejected"
-    assert idx.chunk_deletes == []
+    assert deleted(idx, "chunks") == []
 
 
 def test_discard_extract_rejected_skips_reviewer_rejections(env):
@@ -1189,7 +1181,7 @@ def test_discard_extract_rejected_skips_reviewer_rejections(env):
     assert removed == 1
     assert db.get_chunk("@Book2024::ch000::refs") is None
     assert db.get_chunk("@Book2024::ch000::abc")["status"] == "rejected"
-    assert idx.chunk_deletes == ["@Book2024::ch000::refs"]
+    assert deleted(idx, "chunks") == ["@Book2024::ch000::refs"]
 
 
 class _ProgressProbe:

@@ -84,6 +84,15 @@ def _no_decision_model_network(monkeypatch):
 
 
 @pytest.fixture
+def web_client(tmp_path, monkeypatch):
+    """``(client, tmp_path)`` on a fresh web instance; log in with ``web_support.login``."""
+    from tests.web_support import web_test_client
+
+    with web_test_client(tmp_path, monkeypatch) as client:
+        yield client, tmp_path
+
+
+@pytest.fixture
 def token_hash_embedding(monkeypatch) -> str:
     """Register the offline embedding and return its provider name for ``VectorIndex``."""
     from zettel import index

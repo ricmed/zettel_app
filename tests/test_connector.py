@@ -20,6 +20,8 @@ from zettel.schemas import RelationshipResult, RelationType
 from zettel.state import StateDB
 from zettel.vault import build_permanent_note_body, read_managed_block
 
+from tests.fakes import FakeVectorIndex
+
 
 class _CacheDB:
     """SQLite cache surface that ``cached_call_llm`` needs, and nothing else."""
@@ -818,13 +820,9 @@ def test_run_connect_links_refinement_and_writes_suggestions_once(tmp_path, monk
 
         monkeypatch.setattr(StateDB, "upsert_note", _count)
 
-        class _Index:
-            def upsert_permanent_note(self, *_a, **_k):
-                pass
-
         candidates = run.load_approved_candidates(db)
         assert candidates[0]["refines_note_id"] == "OLD"
-        [note_id] = run.run_connect(cfg, db, _Index(), candidates).note_ids
+        [note_id] = run.run_connect(cfg, db, FakeVectorIndex(), candidates).note_ids
 
         edges = {
             e["target_note_id"]: e["relation_type"]
@@ -898,16 +896,9 @@ def test_embedding_upsert_failure_is_resumed_on_the_same_note(tmp_path, monkeypa
         Retriever, "search_notes", lambda *_a, **_k: NoteSearchResult(hits=[], candidates=[])
     )
 
-    class _Index:
-        def __init__(self):
-            self.n = 0
-
-        def upsert_permanent_note(self, *_a, **_k):
-            self.n += 1
-            if self.n == 1:
-                raise ConnectionError("connection refused")
-
-    index = _Index()
+    index = FakeVectorIndex(
+        fail_on={"upsert_permanent_note": (1, ConnectionError("connection refused"))}
+    )
     try:
         with pytest.raises(LLMUnavailableError, match="embedding"):
             run.run_connect(cfg, db, index, run.load_approved_candidates(db))
@@ -937,13 +928,12 @@ def test_embedding_search_failure_stops_before_prompt_2(tmp_path, monkeypatch):
 
     cfg, db, run, calls = _approved_connect_db(tmp_path, monkeypatch)
 
-    class _Down:
-        def query_similar_notes(self, *_a, **_k):
-            raise ConnectionError("connection refused")
-
+    down = FakeVectorIndex(
+        fail_on={"query_similar_notes": (1, ConnectionError("connection refused"))}
+    )
     try:
         with pytest.raises(LLMUnavailableError, match="embedding"):
-            run.run_connect(cfg, db, _Down(), run.load_approved_candidates(db))
+            run.run_connect(cfg, db, down, run.load_approved_candidates(db))
         assert calls["n"] == 0
         concept = db.get_concept("c1")
         assert concept["status"] == "approved"

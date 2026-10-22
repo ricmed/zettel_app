@@ -11,15 +11,9 @@ from zettel.config import AppConfig
 from zettel.retrieval import NoteSearchResult, RetrievedNote
 from zettel.state import StateDB
 
+from tests.fakes import FakeVectorIndex
+
 NOTE_A = "01KZ6QKMSE8K4MWBDQ97N40F5Y"
-
-
-class FakeIndex:
-    def query_similar_notes(self, *a, **k):
-        return []
-
-    def find_similar_chunks(self, *a, **k):
-        return []
 
 
 def test_graph_judge_reject_then_approve(tmp_path, monkeypatch):
@@ -125,7 +119,7 @@ def test_graph_judge_reject_then_approve(tmp_path, monkeypatch):
     result = run_article_graph(
         cfg,
         db,
-        FakeIndex(),
+        FakeVectorIndex(),
         "conceito A",
         style="blog",
         personality="neutral",
@@ -209,7 +203,7 @@ def test_graph_context_enrich_loop(tmp_path, monkeypatch):
     result = run_article_graph(
         cfg,
         db,
-        FakeIndex(),
+        FakeVectorIndex(),
         "tema",
         style="blog",
         personality="neutral",
@@ -278,7 +272,7 @@ def test_hitl_handler_receives_interrupt_payload(tmp_path, monkeypatch):
     result = run_article_graph(
         cfg,
         db,
-        FakeIndex(),
+        FakeVectorIndex(),
         "tema",
         style="blog",
         personality="neutral",
@@ -340,7 +334,7 @@ def test_article_drive_keeps_the_run_open_across_a_pause(tmp_path, monkeypatch):
     drive = ArticleDrive(
         cfg,
         db,
-        FakeIndex(),
+        FakeVectorIndex(),
         "tema",
         style="blog",
         skip_judge=True,

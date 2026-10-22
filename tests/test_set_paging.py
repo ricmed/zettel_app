@@ -13,13 +13,7 @@ from zettel.vault import (
     safe_write_note,
 )
 
-
-class _FakeIdx:
-    def delete_chunks(self, ids):
-        self.deleted = list(ids)
-
-    def __init__(self):
-        self.deleted = []
+from tests.fakes import FakeVectorIndex
 
 
 def test_run_set_paging_updates_book_and_drops_pending(tmp_path: Path):
@@ -97,7 +91,7 @@ def test_run_set_paging_updates_book_and_drops_pending(tmp_path: Path):
         literature_note_path=str(draft),
     )
 
-    idx = _FakeIdx()
+    idx = FakeVectorIndex()
     stats = run_set_paging(
         cfg,
         db,

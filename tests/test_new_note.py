@@ -10,6 +10,8 @@ from zettel.new_note import (
 )
 from zettel.vault import parse_frontmatter, read_managed_block
 
+from tests.fakes import FakeVectorIndex, calls_to
+
 
 @pytest.fixture
 def cfg(tmp_path):
@@ -119,13 +121,6 @@ def test_scaffold_source_sync_manual_adopts(cfg, tmp_path):
     from zettel.state import StateDB
     from zettel.sync import run_sync_manual
 
-    class FakeIndex:
-        def __init__(self):
-            self.sources: list[str] = []
-
-        def upsert_source(self, sid, summary, meta):
-            self.sources.append(sid)
-
     scaffold_manual_note(
         cfg,
         "src",
@@ -137,7 +132,7 @@ def test_scaffold_source_sync_manual_adopts(cfg, tmp_path):
         journal="Revista X",
     )
     db = StateDB(tmp_path / "state.db")
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     try:
         stats = run_sync_manual(cfg, db, idx)
         assert stats["sources"] == 1
@@ -145,7 +140,7 @@ def test_scaffold_source_sync_manual_adopts(cfg, tmp_path):
         assert stored is not None
         assert stored["origin"] == "manual"
         assert stored["document_type"] == "artigo_periodico"
-        assert idx.sources == ["@Manual2025"]
+        assert calls_to(idx, "upsert_source") == ["@Manual2025"]
     finally:
         db.close()
 

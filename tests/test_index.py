@@ -458,3 +458,23 @@ def test_sanitize_metadata_types():
     assert "none" not in out  # None dropped
     assert out["list"] == "a, b"  # list joined
     assert isinstance(out["obj"], str)
+
+
+def test_embed_texts_records_its_own_embedding_usage(tmp_path, token_hash_embedding):
+    """Every caller is charged, not only the one that remembered to record (#327).
+
+    The intra-batch dedupe used to call the private ``_record_embed_usage`` itself,
+    and only for part of what it embedded; the garden's category labels and
+    connect's category assignment were never charged at all.
+    """
+    from zettel.usage import begin_run, get_tracker, reset
+
+    idx = VectorIndex(tmp_path / "chroma", token_hash_embedding, "m")
+    begin_run(1)
+    try:
+        idx.embed_texts(["grafos de conhecimento", "notas atomicas"], label="teste")
+        summary = get_tracker().summary()
+    finally:
+        reset()
+    assert summary.embed_calls == 2
+    assert summary.tokens_embedding > 0

@@ -111,7 +111,7 @@ def embed_category_labels(
     if not texts:
         return {}
     flat = [text for rows in texts.values() for text in rows]
-    vectors = idx.embed_texts(flat)
+    vectors = idx.embed_texts(flat, label="rotulos-categoria")
     out: dict[str, np.ndarray] = {}
     pos = 0
     for cat, rows in texts.items():

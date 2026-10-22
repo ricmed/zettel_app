@@ -10,6 +10,8 @@ from zettel.gardener_assign import (
 )
 from zettel.state import StateDB
 
+from tests.fakes import FakeVectorIndex
+
 
 def test_assign_notes_to_categories():
     cat_a = np.array([1.0, 0.0])
@@ -219,16 +221,13 @@ def test_graph_cohesion_counts_proposed_edges_at_the_factor(tmp_path):
 # ── Category label modes and threshold (#295) ────────────────────────
 
 
-class _FakeIdx:
+class _FakeIdx(FakeVectorIndex):
     """Embeds a text as the axis of the first known word it contains."""
 
     AXES = ("prompt", "linguagem", "kant", "agentes")
 
-    def __init__(self):
-        self.calls: list[list[str]] = []
-
-    def embed_texts(self, texts):
-        self.calls.append(list(texts))
+    def embed_texts(self, texts, *, label="embed_texts"):
+        self._record("embed_texts", list(texts))
         out = []
         for text in texts:
             low = text.lower()

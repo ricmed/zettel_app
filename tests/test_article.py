@@ -27,6 +27,8 @@ from zettel.retrieval import NoteSearchResult, RetrievedNote
 from zettel.schemas import ArticleOutline, ArticleOutlineSection
 from zettel.state import StateDB
 
+from tests.fakes import FakeVectorIndex
+
 NOTE_A = "01KZ6QKMSE8K4MWBDQ97N40F5Y"
 NOTE_B = "01KZ6QKWGZAQVXBXPVC0T5MB40"
 
@@ -98,14 +100,6 @@ def seeded(db, tmp_path):
         body=body_b,
     )
     return vault
-
-
-class FakeIndex:
-    def query_similar_notes(self, *a, **k):
-        return []
-
-    def find_similar_chunks(self, *a, **k):
-        return []
 
 
 def test_format_abnt_in_text_variants():
@@ -303,7 +297,7 @@ def test_run_article_no_evidence(db, monkeypatch):
     result = run_article(
         AppConfig(prompts_path=prompts),
         db,
-        FakeIndex(),
+        FakeVectorIndex(),
         "tema inexistente",
         skip_judge=True,
     )
@@ -376,7 +370,7 @@ def test_run_article_full_mock(db, seeded, monkeypatch, tmp_path):
     result = run_article(
         cfg,
         db,
-        FakeIndex(),
+        FakeVectorIndex(),
         "prompt engineering",
         style="blog",
         approve_outline=lambda o: ("approve", None),

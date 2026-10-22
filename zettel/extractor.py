@@ -1100,9 +1100,7 @@ def _intra_batch_dedupe(
 
     texts = [f"{cd['candidate'].thesis} {cd['candidate'].definition}" for cd in survivors]
     anchor_texts = [f"{cd['candidate'].thesis} {cd['candidate'].definition}" for cd in anchors]
-    vectors = idx.embed_texts(texts + anchor_texts)
-    for t in texts:
-        idx._record_embed_usage(t, label="dedupe-intra-lote")
+    vectors = idx.embed_texts(texts + anchor_texts, label="dedupe-intra-lote")
 
     threshold = cfg.linking.dedupe_threshold
     anchor_vectors = vectors[len(survivors) :]
