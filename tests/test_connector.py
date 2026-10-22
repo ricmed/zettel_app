@@ -85,8 +85,8 @@ def test_corroborating_note_ids_picks_other_sources_above_threshold():
     )
     hits = [
         _hit("SAME", 0.10),
-        _hit("OTHER", 0.10),  # similarity 0.95 >= 0.85
-        _hit("WEAK", 0.60),  # similarity 0.70 < 0.85
+        _hit("OTHER", 0.10),  # cosine 0.90 >= 0.76
+        _hit("WEAK", 0.60),  # cosine 0.40 < 0.76
         _hit("NEIGHBOUR", 0.10, hop=1),  # arrived by traversal: no similarity to judge
     ]
     assert corroborating_note_ids(cfg, db, hits, "@A", "SELF") == ["OTHER"]

@@ -10,7 +10,7 @@ class FakeIndex:
     """Stub VectorIndex returning a fixed ranked list of note ids.
 
     ``distances`` lets a test control the per-note vector distance (default
-    0.1 -> similarity 0.95, comfortably above the default 0.70 floor).
+    0.1 -> cosine 0.90, comfortably above the default 0.40 floor; ADR-058).
     """
 
     def __init__(self, note_ids=None, chunk_ids=None, distances=None):
@@ -189,7 +189,7 @@ def test_a_note_reads_the_same_by_every_retrieval_path(db):
 def test_floor_rejects_low_similarity_vector_hit(db):
     """A vector hit far below the similarity floor must not end up in `hits`."""
     _seed_notes(db, ["n1"])
-    # distance=0.7 -> similarity = 1 - 0.7/2 = 0.65, below the default 0.70 floor.
+    # distance=0.7 -> cosine 0.30, below the default 0.40 floor.
     idx = FakeIndex(note_ids=["n1"], distances={"n1": 0.7})
     r = Retriever(_cfg(), db, idx)
     result = r.search_notes("pergunta fora do tema", topk=5, mode="vector", expand_graph=False)
@@ -222,7 +222,7 @@ def test_floor_disabled_via_config_keeps_everything(db):
 
 def test_floor_override_at_call_site(db):
     _seed_notes(db, ["n1"])
-    idx = FakeIndex(note_ids=["n1"], distances={"n1": 0.7})  # similarity 0.65
+    idx = FakeIndex(note_ids=["n1"], distances={"n1": 0.7})  # cosine 0.30
     r = Retriever(_cfg(), db, idx)
     # Explicit override disables the floor for this call only.
     result = r.search_notes(
@@ -271,7 +271,7 @@ def _floor(cfg, hit):
 
 def test_strong_bm25_rank_bypasses_low_similarity():
     cfg = _cfg()  # default bm25_bypass_max_rank=5
-    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=2)  # sim=0.65
+    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=2)  # cosine 0.30
     _floor(cfg, hit)
     assert hit.passed_floor is True
     assert "forte" in hit.floor_reason
@@ -279,7 +279,7 @@ def test_strong_bm25_rank_bypasses_low_similarity():
 
 def test_weak_bm25_rank_does_not_bypass():
     cfg = _cfg()  # default bm25_bypass_max_rank=5
-    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=8)  # sim=0.65
+    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=8)  # cosine 0.30
     _floor(cfg, hit)
     # Rank 8 > max_rank 5 -> falls through to the similarity check, which fails.
     assert hit.passed_floor is False
@@ -289,7 +289,7 @@ def test_weak_bm25_rank_does_not_bypass():
 def test_bm25_bypass_max_rank_is_configurable():
     cfg = _cfg()
     cfg.retrieval.relevance_floor.bm25_bypass_max_rank = 10
-    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=8)  # sim=0.65
+    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=8)  # cosine 0.30
     _floor(cfg, hit)
     assert hit.passed_floor is True  # now within the widened rank window
 
@@ -297,7 +297,7 @@ def test_bm25_bypass_max_rank_is_configurable():
 def test_absolute_min_similarity_blocks_even_strong_bm25_bypass():
     """A hard backstop: an embedding-orthogonal note can't be rescued by BM25."""
     cfg = _cfg()  # default absolute_min_similarity=0.15
-    # distance=1.8 -> similarity = 1 - 1.8/2 = 0.10, below the 0.15 hard floor.
+    # distance=1.8 -> cosine -0.80, below the -0.70 hard floor.
     hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=1.8, bm25_rank=1)
     _floor(cfg, hit)
     assert hit.passed_floor is False
@@ -307,8 +307,8 @@ def test_absolute_min_similarity_blocks_even_strong_bm25_bypass():
 def test_absolute_min_similarity_does_not_block_legitimate_rescue():
     """A jargon/acronym rescue (moderate similarity, strong bm25) still works."""
     cfg = _cfg()
-    # similarity 0.40 -- well above absolute_min_similarity (0.15) and below
-    # min_vector_similarity (0.70), but rescued by a strong bm25 rank.
+    # distance=1.2 -> cosine -0.20: above absolute_min_similarity (-0.70) and
+    # below min_vector_similarity (0.40), but rescued by a strong bm25 rank.
     hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=1.2, bm25_rank=1)
     _floor(cfg, hit)
     assert hit.passed_floor is True
@@ -346,7 +346,7 @@ def test_low_coverage_denies_the_bypass():
     cfg = _cfg()
     hit = RetrievedNote(
         note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=1, bm25_coverage=0.25
-    )  # sim=0.65, below the 0.70 floor
+    )  # cosine 0.30, below the 0.40 floor
     _floor(cfg, hit)
     assert hit.passed_floor is False
     assert "cobertura lexical" in hit.floor_reason

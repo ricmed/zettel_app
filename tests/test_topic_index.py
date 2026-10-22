@@ -193,7 +193,7 @@ def _index_note(db, tmp_path, note_id, tag, distance_map):
 
 def test_routed_note_becomes_a_seed_when_it_clears_the_floor(db, tmp_path):
     _index_note(db, tmp_path, NOTE_A, "dropout", {})
-    # Distance 0.2 -> similarity 0.90, above the default 0.70 floor.
+    # Distance 0.2 -> cosine 0.80, above the default 0.40 floor.
     idx = _FakeIndex(knn=[], by_id={NOTE_A: 0.2})
     result = _retriever(db, idx).search_notes("o que e dropout?")
     assert [h.note_id for h in result.hits] == [NOTE_A]
@@ -204,7 +204,7 @@ def test_routed_note_becomes_a_seed_when_it_clears_the_floor(db, tmp_path):
 def test_routed_note_still_faces_the_floor(db, tmp_path):
     """The historical bug: a routing hint must not be a free pass."""
     _index_note(db, tmp_path, NOTE_A, "dropout", {})
-    # Distance 1.2 -> similarity 0.40, below the default 0.70 floor.
+    # Distance 1.2 -> cosine -0.20, below the default 0.40 floor.
     idx = _FakeIndex(knn=[], by_id={NOTE_A: 1.2})
     result = _retriever(db, idx).search_notes("o que e dropout?")
     assert result.hits == []
