@@ -17,30 +17,13 @@ from zettel.state import StateDB
 from zettel.sync import run_sync_manual
 from zettel.vault import parse_frontmatter, read_managed_block, safe_write_note
 
+from tests.fakes import FakeVectorIndex, calls_to
+
 # 1x1 transparent PNG.
 PNG_BYTES = bytes.fromhex(
     "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4"
     "890000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082"
 )
-
-
-class FakeIndex:
-    def __init__(self):
-        self.sources: list[str] = []
-        self.permanent: list[str] = []
-        self.mocs: list[str] = []
-
-    def upsert_source(self, sid, summary, meta):
-        self.sources.append(sid)
-
-    def upsert_permanent_note(self, nid, text, meta):
-        self.permanent.append(nid)
-
-    def upsert_moc(self, mid, text, meta):
-        self.mocs.append(mid)
-
-    def query_similar_notes(self, text, n_results=5, exclude_id=None):
-        return []
 
 
 @pytest.fixture
@@ -136,7 +119,7 @@ def test_literature_scaffold_honours_source_id(cfg):
 
 
 def test_manual_granular_literature_is_adopted(cfg, db):
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     lit = _scaffold_source_and_lit(cfg, db, idx)
 
     meta, _ = parse_frontmatter(lit.read_text(encoding="utf-8"))
@@ -160,7 +143,7 @@ def test_manual_granular_literature_is_adopted(cfg, db):
 
 
 def test_adopted_literature_appears_in_source_index(cfg, db):
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     _scaffold_source_and_lit(cfg, db, idx)
 
     index = cfg.vault_path / "20_Literature" / "LIT - Diestel2017 - teoria-dos-grafos.md"
@@ -172,7 +155,7 @@ def test_adopted_literature_appears_in_source_index(cfg, db):
 
 
 def test_adoption_is_idempotent(cfg, db):
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     lit = _scaffold_source_and_lit(cfg, db, idx)
     meta, _ = parse_frontmatter(lit.read_text(encoding="utf-8"))
     before = db.get_chunk(meta["chunk_id"])["summary_json"]
@@ -183,7 +166,7 @@ def test_adoption_is_idempotent(cfg, db):
 
 
 def test_edited_literature_is_re_adopted(cfg, db):
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     lit = _scaffold_source_and_lit(cfg, db, idx)
 
     meta, body = parse_frontmatter(lit.read_text(encoding="utf-8"))
@@ -200,7 +183,7 @@ def test_edited_literature_is_re_adopted(cfg, db):
 def test_wiki_embed_image_is_adopted(cfg, db):
     (cfg.vault_path / "anexos").mkdir()
     (cfg.vault_path / "anexos" / "diagrama.png").write_bytes(PNG_BYTES)
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     lit = _scaffold_source_and_lit(
         cfg,
         db,
@@ -223,7 +206,7 @@ def test_wiki_embed_image_is_adopted(cfg, db):
 
 def test_markdown_image_is_adopted_keeping_syntax(cfg, db):
     (cfg.vault_path / "figura.png").write_bytes(PNG_BYTES)
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     lit = _scaffold_source_and_lit(
         cfg,
         db,
@@ -236,7 +219,7 @@ def test_markdown_image_is_adopted_keeping_syntax(cfg, db):
 
 
 def test_remote_and_non_image_refs_are_untouched(cfg, db):
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     extra = "\n![remoto](https://exemplo.com/a.png)\n\n![[Outra Nota]]\n"
     lit = _scaffold_source_and_lit(cfg, db, idx, extra_body=extra)
 
@@ -248,7 +231,7 @@ def test_remote_and_non_image_refs_are_untouched(cfg, db):
 
 def test_image_adoption_does_not_duplicate_on_resync(cfg, db):
     (cfg.vault_path / "figura.png").write_bytes(PNG_BYTES)
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     lit = _scaffold_source_and_lit(
         cfg,
         db,
@@ -266,7 +249,7 @@ def test_image_adoption_does_not_duplicate_on_resync(cfg, db):
 
 
 def test_candidate_derived_from_literature_body(cfg, db):
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     lit = _scaffold_source_and_lit(cfg, db, idx)
     content = lit.read_text(encoding="utf-8")
     meta, body = parse_frontmatter(content)
@@ -280,7 +263,7 @@ def test_candidate_derived_from_literature_body(cfg, db):
 
 
 def test_permanent_from_literature_without_llm(cfg, db):
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     lit = _scaffold_source_and_lit(cfg, db, idx)
 
     path, via_llm = create_permanent_from_literature(cfg, db, idx, str(lit))
@@ -309,7 +292,7 @@ def test_permanent_from_literature_without_llm(cfg, db):
 
 
 def test_permanent_from_literature_accepts_chunk_id(cfg, db):
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     lit = _scaffold_source_and_lit(cfg, db, idx)
     chunk_id = parse_frontmatter(lit.read_text(encoding="utf-8"))[0]["chunk_id"]
 
@@ -318,7 +301,7 @@ def test_permanent_from_literature_accepts_chunk_id(cfg, db):
 
 
 def test_permanent_from_literature_rejects_non_literature(cfg, db):
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     _scaffold_source_and_lit(cfg, db, idx)
     src = next((cfg.vault_path / "10_Sources").glob("*.md"))
 
@@ -331,7 +314,7 @@ def test_permanent_from_literature_with_llm(cfg, db, monkeypatch):
     from zettel.connector import prompt, run
     from zettel.schemas import PermanentNoteLLMOutput
 
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     lit = _scaffold_source_and_lit(cfg, db, idx)
 
     response = PermanentNoteLLMOutput(
@@ -377,7 +360,7 @@ def test_permanent_from_literature_with_llm(cfg, db, monkeypatch):
 
     row = db.get_note(meta["note_id"])
     assert row is not None and row["origin"] == "manual"
-    assert idx.permanent == [meta["note_id"]]
+    assert calls_to(idx, "upsert_permanent_note") == [meta["note_id"]]
     # The concept is consumed, so a later `connect` will not duplicate the note.
     assert db.get_concepts_by_status("approved", without_notes=True) == []
 
@@ -386,7 +369,7 @@ def test_permanent_from_literature_llm_rejected_surfaces_reason(cfg, db, monkeyp
     from zettel.connector import ConnectRejected, prompt, run
     from zettel.schemas import PermanentNoteLLMOutput
 
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     lit = _scaffold_source_and_lit(cfg, db, idx)
     response = PermanentNoteLLMOutput(
         status="rejected",
@@ -460,7 +443,7 @@ def test_from_lit_without_llm_consumes_existing_approved_concept(cfg, db):
     """#132: scaffold without --llm must claim extract/review concepts."""
     from zettel.connector import load_approved_candidates
 
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     lit = _scaffold_source_and_lit(cfg, db, idx)
     thesis = "Conectividade determina robustez estrutural."
     concept_id = _insert_approved_concept(db, lit, thesis)
@@ -481,7 +464,7 @@ def test_sync_manual_consumes_approved_concept_for_existing_ztl(cfg, db):
     """#132: sync-manual of a hand-written ZTL claims covering concepts."""
     from zettel.connector import load_approved_candidates
 
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     lit = _scaffold_source_and_lit(cfg, db, idx)
     thesis = "Conectividade determina robustez estrutural."
     concept_id = _insert_approved_concept(db, lit, thesis)
@@ -510,7 +493,7 @@ def test_connect_skips_generation_when_manual_ztl_already_covers(cfg, db, monkey
     """#132: Connect guard skips LLM when a covering manual note is already indexed."""
     from zettel.connector import load_approved_candidates, prompt, run, run_connect
 
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     lit = _scaffold_source_and_lit(cfg, db, idx)
     thesis = "Conectividade determina robustez estrutural."
     path, _ = create_permanent_from_literature(cfg, db, idx, str(lit))

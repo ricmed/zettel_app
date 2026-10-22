@@ -40,6 +40,11 @@ def run_set_paging(
     src = db.get_source(source_id)
     if not src:
         raise ValueError(f"Fonte nao encontrada: {source_id}")
+    if (src.get("origin_type") or "pdf") != "pdf":
+        # Native Markdown has no pages (ADR-013): its locator is the section path.
+        raise ValueError(
+            f"{source_id} e {src['origin_type']}: sem paginas para corrigir (ADR-013)."
+        )
 
     start_file = max(1, int(content_start_file))
     start_book = max(1, int(content_start_book))

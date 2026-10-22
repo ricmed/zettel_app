@@ -82,13 +82,14 @@ def test_upsert_managed_block_insert():
 def test_upsert_managed_block_replace():
     content = (
         "# Title\n\n"
+        "Texto manual antes.\n\n"
         "<!-- zettel:auto-backlinks:start -->\n"
         "- old link\n"
-        "<!-- zettel:auto-backlinks:end -->\n"
+        "<!-- zettel:auto-backlinks:end -->\n\n"
+        "Texto manual depois.\n"
     )
     result = upsert_managed_block(content, "auto-backlinks", "- new link")
-    assert "old link" not in result
-    assert "- new link" in result
+    assert result == content.replace("- old link", "- new link")
 
 
 def test_safe_update_managed_blocks_bumps_updated_at(tmp_path):

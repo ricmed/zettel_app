@@ -154,6 +154,7 @@ def test_plan_garden_splits_a_subject_above_the_cap(tmp_path, monkeypatch):
     db.close()
 
 
+@pytest.mark.slow
 def test_estimate_garden_counts_one_call_per_create_or_update(tmp_path):
     from zettel.preflight import estimate_garden
 

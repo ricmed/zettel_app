@@ -5,41 +5,19 @@ from zettel.config import AppConfig
 from zettel.retrieval import RetrievedNote, Retriever
 from zettel.state import StateDB
 
+from tests.fakes import FakeVectorIndex, calls_to
 
-class FakeIndex:
-    """Stub VectorIndex returning a fixed ranked list of note ids.
 
-    ``distances`` lets a test control the per-note vector distance (default
-    0.1 -> similarity 0.95, comfortably above the default 0.70 floor).
+def _index(note_ids=None, chunk_ids=None, distances=None) -> FakeVectorIndex:
+    """Canonical fake ranking ``note_ids`` in order; ``distances`` overrides the 0.1 default.
+
+    Distance 0.1 is cosine 0.90, comfortably above the default 0.40 floor (ADR-058).
     """
-
-    def __init__(self, note_ids=None, chunk_ids=None, distances=None):
-        self._note_ids = note_ids or []
-        self._chunk_ids = chunk_ids or []
-        self._distances = distances or {}
-
-    def query_similar_notes(self, query_text, n_results=5, exclude_id=None):
-        out = []
-        for nid in self._note_ids:
-            if exclude_id and nid == exclude_id:
-                continue
-            out.append(
-                {
-                    "id": nid,
-                    "document": f"doc {nid}",
-                    "metadata": {"title": f"T {nid}"},
-                    "distance": self._distances.get(nid, 0.1),
-                }
-            )
-            if len(out) >= n_results:
-                break
-        return out
-
-    def find_similar_chunks(self, texts, n_results=3):
-        return [
-            {"id": cid, "document": f"chunk {cid}", "metadata": {}, "distance": 0.1}
-            for cid in self._chunk_ids[:n_results]
-        ]
+    distances = distances or {}
+    return FakeVectorIndex(
+        notes={nid: distances.get(nid, 0.1) for nid in note_ids or []},
+        chunks=dict.fromkeys(chunk_ids or [], 0.1),
+    )
 
 
 @pytest.fixture
@@ -64,7 +42,7 @@ def test_rrf_combines_vector_and_bm25(db):
     _seed_notes(db, ["n1", "n2", "n3"])
     # BM25 will match "grafo" only in n2's body.
     db.upsert_note("n2", "@S", "/p/n2.md", "Titulo n2", body="grafo de conhecimento")
-    idx = FakeIndex(note_ids=["n1", "n3"])  # vector doesn't surface n2
+    idx = _index(note_ids=["n1", "n3"])  # vector doesn't surface n2
     r = Retriever(_cfg(), db, idx)
     res = r.search_notes("grafo", topk=5, expand_graph=False).hits
     ids = [x.note_id for x in res]
@@ -72,12 +50,80 @@ def test_rrf_combines_vector_and_bm25(db):
     assert "n1" in ids  # surfaced purely by vector
 
 
+# -- the fusion itself (#328): RRF(d) = sum over lists of 1 / (k + rank_d) --
+
+
+def _vector(*ids: str) -> list[dict]:
+    return [{"id": nid, "distance": 0.1} for nid in ids]
+
+
+def _bm25(*ids: str) -> list[dict]:
+    return [{"note_id": nid} for nid in ids]
+
+
+def test_rrf_scores_and_orders_by_the_formula(db):
+    """Ranks picked by hand; the expected order and scores come from the formula."""
+    cfg = _cfg()
+    k = cfg.retrieval.rrf_k
+    fused = Retriever(cfg, db, FakeVectorIndex())._rrf_fuse_notes(
+        _vector("d1", "d2", "d3"), _bm25("d2", "d4", "d1")
+    )
+    expected = {
+        "d1": 1 / (k + 1) + 1 / (k + 3),
+        "d2": 1 / (k + 2) + 1 / (k + 1),
+        "d3": 1 / (k + 3),
+        "d4": 1 / (k + 2),
+    }
+    assert [hit.note_id for hit in fused] == ["d2", "d1", "d4", "d3"]
+    assert {hit.note_id: hit.score for hit in fused} == pytest.approx(expected)
+    assert {hit.note_id: (hit.vector_rank, hit.bm25_rank) for hit in fused} == {
+        "d1": (1, 3),
+        "d2": (2, 1),
+        "d3": (3, None),
+        "d4": (None, 2),
+    }
+
+
+@pytest.mark.parametrize(("k", "first"), [(0, "solo"), (60, "both")])
+def test_rrf_k_decides_between_one_top_rank_and_two_middle_ones(db, k, first):
+    """``solo`` is rank 1 in one list: 1/(k+1). ``both`` is rank 3 in two: 2/(k+3).
+
+    The second wins exactly when k > 1, so the order proves ``rrf_k`` is read.
+    """
+    cfg = _cfg()
+    cfg.retrieval.rrf_k = k
+    fused = Retriever(cfg, db, FakeVectorIndex())._rrf_fuse_notes(
+        _vector("solo", "x", "both"), _bm25("y", "z", "both")
+    )
+    assert fused[0].note_id == first
+
+
+def test_rrf_ties_keep_the_vector_order_then_the_bm25_order(db):
+    """Equal scores are not reordered: dense hits first, then BM25-only, each in rank order."""
+    fused = Retriever(_cfg(), db, FakeVectorIndex())._rrf_fuse_notes(_vector("v1"), _bm25("b1"))
+    assert [hit.note_id for hit in fused] == ["v1", "b1"]
+    assert fused[0].score == fused[1].score
+
+
+def test_chapter_rrf_uses_the_same_formula(db):
+    """The catalog fuses chapter summaries the same way (ADR-047)."""
+    cfg = _cfg()
+    k = cfg.retrieval.rrf_k
+    fused = Retriever(cfg, db, FakeVectorIndex())._rrf_fuse_chapters(
+        _vector("c1", "c2"), [{"chapter_id": "c2"}, {"chapter_id": "c3"}]
+    )
+    assert [hit.chapter_id for hit in fused] == ["c2", "c1", "c3"]
+    assert {hit.chapter_id: hit.score for hit in fused} == pytest.approx(
+        {"c1": 1 / (k + 1), "c2": 1 / (k + 2) + 1 / (k + 1), "c3": 1 / (k + 2)}
+    )
+
+
 def test_vector_only_mode_ignores_fts(db):
     if not db.fts_enabled:
         pytest.skip("SQLite build sem FTS5")
     _seed_notes(db, ["n1"])
     db.upsert_note("n2", "@S", "/p/n2.md", "Titulo n2", body="grafo")
-    idx = FakeIndex(note_ids=["n1"])
+    idx = _index(note_ids=["n1"])
     r = Retriever(_cfg(), db, idx)
     res = r.search_notes("grafo", topk=5, mode="vector", expand_graph=False).hits
     ids = [x.note_id for x in res]
@@ -87,7 +133,7 @@ def test_vector_only_mode_ignores_fts(db):
 def test_degrades_when_fts_disabled(db, monkeypatch):
     _seed_notes(db, ["n1"])
     monkeypatch.setattr(db, "fts_enabled", False)
-    idx = FakeIndex(note_ids=["n1"])
+    idx = _index(note_ids=["n1"])
     r = Retriever(_cfg(), db, idx)
     res = r.search_notes("qualquer", topk=5, mode="hybrid", expand_graph=False).hits
     assert [x.note_id for x in res] == ["n1"]
@@ -97,7 +143,7 @@ def test_hydration_fills_bm25_only_note(db):
     if not db.fts_enabled:
         pytest.skip("SQLite build sem FTS5")
     db.upsert_note("n2", "@S", "/p/n2.md", "Titulo Real", body="conteudo indexado")
-    idx = FakeIndex(note_ids=[])  # nothing from vector; only BM25 finds n2
+    idx = _index(note_ids=[])  # nothing from vector; only BM25 finds n2
     r = Retriever(_cfg(), db, idx)
     res = r.search_notes("conteudo", topk=5, expand_graph=False).hits
     assert res and res[0].note_id == "n2"
@@ -109,7 +155,7 @@ def test_exclude_id(db):
     if not db.fts_enabled:
         pytest.skip("SQLite build sem FTS5")
     _seed_notes(db, ["n1", "n2"])
-    idx = FakeIndex(note_ids=["n1", "n2"])
+    idx = _index(note_ids=["n1", "n2"])
     r = Retriever(_cfg(), db, idx)
     res = r.search_notes("corpo", topk=5, exclude_id="n1", expand_graph=False).hits
     assert all(x.note_id != "n1" for x in res)
@@ -120,7 +166,7 @@ def test_graph_expansion_adds_neighbors(db):
         pytest.skip("SQLite build sem FTS5")
     _seed_notes(db, ["n1", "n2"])
     db.upsert_note_connection("n1", "n2", "contradicts", "tensiona a tese")
-    idx = FakeIndex(note_ids=["n1"])  # only n1 is a search seed
+    idx = _index(note_ids=["n1"])  # only n1 is a search seed
     r = Retriever(_cfg(), db, idx)
     res = r.search_notes("corpo", topk=1, expand_graph=True).hits
     ids = [x.note_id for x in res]
@@ -153,12 +199,12 @@ def test_a_note_reads_the_same_by_every_retrieval_path(db):
     db.upsert_note(N2, "@S", "/p/b.md", "Outra", body="> **Tese**: outra\n\n## Definição\n\nX")
     db.upsert_note_connection(N2, N1, "supports", "")
     expected = note_content("Grafo", _ZTL_BODY)
-    r = Retriever(_cfg(), db, FakeIndex(note_ids=[N1]))
+    r = Retriever(_cfg(), db, _index(note_ids=[N1]))
 
     by_vector = r.search_notes("qualquer", topk=5, mode="vector", expand_graph=False).hits
-    by_bm25 = Retriever(_cfg(), db, FakeIndex()).search_notes("tipado", expand_graph=False).hits
+    by_bm25 = Retriever(_cfg(), db, _index()).search_notes("tipado", expand_graph=False).hits
     by_graph = (
-        Retriever(_cfg(), db, FakeIndex(note_ids=[N2]))
+        Retriever(_cfg(), db, _index(note_ids=[N2]))
         .search_notes("qualquer", topk=1, mode="vector", expand_graph=True)
         .hits
     )
@@ -189,8 +235,8 @@ def test_a_note_reads_the_same_by_every_retrieval_path(db):
 def test_floor_rejects_low_similarity_vector_hit(db):
     """A vector hit far below the similarity floor must not end up in `hits`."""
     _seed_notes(db, ["n1"])
-    # distance=0.7 -> similarity = 1 - 0.7/2 = 0.65, below the default 0.70 floor.
-    idx = FakeIndex(note_ids=["n1"], distances={"n1": 0.7})
+    # distance=0.7 -> cosine 0.30, below the default 0.40 floor.
+    idx = _index(note_ids=["n1"], distances={"n1": 0.7})
     r = Retriever(_cfg(), db, idx)
     result = r.search_notes("pergunta fora do tema", topk=5, mode="vector", expand_graph=False)
     assert result.hits == []
@@ -203,7 +249,7 @@ def test_floor_rejects_low_similarity_vector_hit(db):
 def test_floor_accepts_high_similarity_vector_hit(db):
     _seed_notes(db, ["n1"])
     # distance=0.2 -> similarity = 0.90, above the floor.
-    idx = FakeIndex(note_ids=["n1"], distances={"n1": 0.2})
+    idx = _index(note_ids=["n1"], distances={"n1": 0.2})
     r = Retriever(_cfg(), db, idx)
     result = r.search_notes("pergunta relevante", topk=5, mode="vector", expand_graph=False)
     assert [h.note_id for h in result.hits] == ["n1"]
@@ -214,7 +260,7 @@ def test_floor_disabled_via_config_keeps_everything(db):
     _seed_notes(db, ["n1"])
     cfg = _cfg()
     cfg.retrieval.relevance_floor.enabled = False
-    idx = FakeIndex(note_ids=["n1"], distances={"n1": 1.9})  # similarity ~0.05
+    idx = _index(note_ids=["n1"], distances={"n1": 1.9})  # similarity ~0.05
     r = Retriever(cfg, db, idx)
     result = r.search_notes("qualquer coisa", topk=5, mode="vector", expand_graph=False)
     assert [h.note_id for h in result.hits] == ["n1"]
@@ -222,7 +268,7 @@ def test_floor_disabled_via_config_keeps_everything(db):
 
 def test_floor_override_at_call_site(db):
     _seed_notes(db, ["n1"])
-    idx = FakeIndex(note_ids=["n1"], distances={"n1": 0.7})  # similarity 0.65
+    idx = _index(note_ids=["n1"], distances={"n1": 0.7})  # cosine 0.30
     r = Retriever(_cfg(), db, idx)
     # Explicit override disables the floor for this call only.
     result = r.search_notes(
@@ -236,7 +282,7 @@ def test_bm25_hit_bypasses_floor_even_without_vector_match(db):
     if not db.fts_enabled:
         pytest.skip("SQLite build sem FTS5")
     db.upsert_note("n2", "@S", "/p/n2.md", "Titulo n2", body="termo tecnico especifico")
-    idx = FakeIndex(note_ids=[])  # vector search finds nothing
+    idx = _index(note_ids=[])  # vector search finds nothing
     r = Retriever(_cfg(), db, idx)
     result = r.search_notes("termo tecnico especifico", topk=5, expand_graph=False)
     assert any(h.note_id == "n2" for h in result.hits)
@@ -245,7 +291,7 @@ def test_bm25_hit_bypasses_floor_even_without_vector_match(db):
 def test_no_hits_when_everything_below_floor_but_candidates_shown(db):
     """Simulates the 'chuva' scenario: nothing relevant, but top-k still surfaced."""
     _seed_notes(db, ["n1", "n2"])
-    idx = FakeIndex(
+    idx = _index(
         note_ids=["n1", "n2"],
         distances={
             "n1": 0.8,
@@ -271,7 +317,7 @@ def _floor(cfg, hit):
 
 def test_strong_bm25_rank_bypasses_low_similarity():
     cfg = _cfg()  # default bm25_bypass_max_rank=5
-    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=2)  # sim=0.65
+    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=2)  # cosine 0.30
     _floor(cfg, hit)
     assert hit.passed_floor is True
     assert "forte" in hit.floor_reason
@@ -279,7 +325,7 @@ def test_strong_bm25_rank_bypasses_low_similarity():
 
 def test_weak_bm25_rank_does_not_bypass():
     cfg = _cfg()  # default bm25_bypass_max_rank=5
-    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=8)  # sim=0.65
+    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=8)  # cosine 0.30
     _floor(cfg, hit)
     # Rank 8 > max_rank 5 -> falls through to the similarity check, which fails.
     assert hit.passed_floor is False
@@ -289,7 +335,7 @@ def test_weak_bm25_rank_does_not_bypass():
 def test_bm25_bypass_max_rank_is_configurable():
     cfg = _cfg()
     cfg.retrieval.relevance_floor.bm25_bypass_max_rank = 10
-    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=8)  # sim=0.65
+    hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=8)  # cosine 0.30
     _floor(cfg, hit)
     assert hit.passed_floor is True  # now within the widened rank window
 
@@ -297,7 +343,7 @@ def test_bm25_bypass_max_rank_is_configurable():
 def test_absolute_min_similarity_blocks_even_strong_bm25_bypass():
     """A hard backstop: an embedding-orthogonal note can't be rescued by BM25."""
     cfg = _cfg()  # default absolute_min_similarity=0.15
-    # distance=1.8 -> similarity = 1 - 1.8/2 = 0.10, below the 0.15 hard floor.
+    # distance=1.8 -> cosine -0.80, below the -0.70 hard floor.
     hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=1.8, bm25_rank=1)
     _floor(cfg, hit)
     assert hit.passed_floor is False
@@ -307,8 +353,8 @@ def test_absolute_min_similarity_blocks_even_strong_bm25_bypass():
 def test_absolute_min_similarity_does_not_block_legitimate_rescue():
     """A jargon/acronym rescue (moderate similarity, strong bm25) still works."""
     cfg = _cfg()
-    # similarity 0.40 -- well above absolute_min_similarity (0.15) and below
-    # min_vector_similarity (0.70), but rescued by a strong bm25 rank.
+    # distance=1.2 -> cosine -0.20: above absolute_min_similarity (-0.70) and
+    # below min_vector_similarity (0.40), but rescued by a strong bm25 rank.
     hit = RetrievedNote(note_id="n1", score=0.01, vector_distance=1.2, bm25_rank=1)
     _floor(cfg, hit)
     assert hit.passed_floor is True
@@ -346,7 +392,7 @@ def test_low_coverage_denies_the_bypass():
     cfg = _cfg()
     hit = RetrievedNote(
         note_id="n1", score=0.01, vector_distance=0.7, bm25_rank=1, bm25_coverage=0.25
-    )  # sim=0.65, below the 0.70 floor
+    )  # cosine 0.30, below the 0.40 floor
     _floor(cfg, hit)
     assert hit.passed_floor is False
     assert "cobertura lexical" in hit.floor_reason
@@ -414,7 +460,7 @@ def test_coverage_is_measured_against_the_real_note_text(db):
         pytest.skip("SQLite build sem FTS5")
     db.upsert_note("n1", "@S", "/p/n1.md", "Sazonalidade", body="tendencia e sazonalidade")
     db.upsert_note("n2", "@S", "/p/n2.md", "Outra nota", body="fala apenas de tendencia")
-    r = Retriever(_cfg(), db=db, idx=FakeIndex())
+    r = Retriever(_cfg(), db=db, idx=_index())
 
     hits = {h["note_id"]: h for h in r._bm25_notes("tendencia e sazonalidade", 20, None)}
     assert hits["n1"]["coverage"] == 1.0  # both terms present
@@ -426,7 +472,7 @@ def test_coverage_ignores_stopwords_like_the_match_expression(db):
     if not db.fts_enabled:
         pytest.skip("SQLite build sem FTS5")
     db.upsert_note("n1", "@S", "/p/n1.md", "Sazonalidade", body="sazonalidade")
-    r = Retriever(_cfg(), db=db, idx=FakeIndex())
+    r = Retriever(_cfg(), db=db, idx=_index())
     # "o", "que", "e", "a" are stopwords -> the only term is "sazonalidade".
     hits = {h["note_id"]: h for h in r._bm25_notes("o que e a sazonalidade", 20, None)}
     assert hits["n1"]["coverage"] == 1.0
@@ -441,7 +487,7 @@ def test_coverage_is_only_computed_for_bypass_eligible_hits(db):
         db.upsert_note(f"n{i}", "@S", f"/p/n{i}.md", "Sazonalidade", body="sazonalidade")
     cfg = _cfg()
     cfg.retrieval.relevance_floor.bm25_bypass_max_rank = 3
-    r = Retriever(cfg, db=db, idx=FakeIndex())
+    r = Retriever(cfg, db=db, idx=_index())
 
     hits = r._bm25_notes("sazonalidade", 20, None)
     assert len(hits) == 8
@@ -486,3 +532,32 @@ def test_source_quota_off_keeps_the_ranked_prefix():
     eligible = [_seed("s1", "@A"), _seed("o1", "@B")]
     picked = apply_source_quota(eligible, 1, source_id="@A", same_source_max=0)
     assert [hit.note_id for hit in picked] == ["s1"]
+
+
+def test_strict_search_reraises_an_error_that_is_not_an_outage(db):
+    """Connect's strict mode converts only transport failures; a bug surfaces as itself (#329)."""
+    broken = FakeVectorIndex(fail_on={"query_similar_notes": (1, KeyError("collection"))})
+    retriever = Retriever(_cfg(), db, broken, strict_embedding=True)
+    with pytest.raises(KeyError):
+        retriever.search_notes("pergunta", mode="vector", expand_graph=False)
+
+
+def test_tolerant_search_logs_and_returns_no_dense_hits(db):
+    """Ask's tolerant mode: a dead embedding leaves the vector pool empty, not an exception."""
+    down = FakeVectorIndex(fail_on={"query_similar_notes": (1, ConnectionError("refused"))})
+    result = Retriever(_cfg(), db, down).search_notes("pergunta", mode="vector", expand_graph=False)
+    assert result.hits == [] and result.candidates == []
+
+
+def test_a_type_error_from_the_index_is_not_retried_without_arguments(db):
+    """The search used to call again without ``purpose`` on any TypeError (#329).
+
+    That fallback served fakes that took no ``purpose``; every index double now has
+    the real signature (#327), so a TypeError is a real failure, handled like any other.
+    """
+    index = FakeVectorIndex(notes={"n1": 0.1}, fail_on={"query_similar_notes": (1, TypeError("x"))})
+    result = Retriever(_cfg(), db, index).search_notes(
+        "pergunta", mode="vector", expand_graph=False
+    )
+    assert result.candidates == []
+    assert len(calls_to(index, "query_similar_notes")) == 1

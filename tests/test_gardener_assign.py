@@ -10,6 +10,8 @@ from zettel.gardener_assign import (
 )
 from zettel.state import StateDB
 
+from tests.fakes import FakeVectorIndex
+
 
 def test_assign_notes_to_categories():
     cat_a = np.array([1.0, 0.0])
@@ -104,6 +106,7 @@ def _blobs(n_per: int = 25, dims: int = 16, seed: int = 0) -> tuple[np.ndarray, 
     return points, [f"n{i}" for i in range(len(points))]
 
 
+@pytest.mark.slow
 def test_cluster_embeddings_is_deterministic_with_seed():
     from zettel.config import GardenerConfig
     from zettel.gardener_assign import _cluster_embeddings
@@ -146,6 +149,7 @@ def test_no_accepted_cluster_is_smaller_than_moc_floor():
     assert report.clusters == len(pairs)
 
 
+@pytest.mark.slow
 def test_kmeans_fallback_is_reported(monkeypatch):
     import builtins
 
@@ -217,16 +221,13 @@ def test_graph_cohesion_counts_proposed_edges_at_the_factor(tmp_path):
 # ── Category label modes and threshold (#295) ────────────────────────
 
 
-class _FakeIdx:
+class _FakeIdx(FakeVectorIndex):
     """Embeds a text as the axis of the first known word it contains."""
 
     AXES = ("prompt", "linguagem", "kant", "agentes")
 
-    def __init__(self):
-        self.calls: list[list[str]] = []
-
-    def embed_texts(self, texts):
-        self.calls.append(list(texts))
+    def embed_texts(self, texts, *, label="embed_texts"):
+        self._record("embed_texts", list(texts))
         out = []
         for text in texts:
             low = text.lower()
@@ -338,6 +339,7 @@ def _cfg():
     return GardenerConfig(min_cluster_size=5, min_notes_for_moc=5, random_state=42)
 
 
+@pytest.mark.slow
 def test_stored_model_gives_the_same_partition_without_refitting(tmp_path, monkeypatch):
     import zettel.gardener_assign as assign
 
@@ -356,6 +358,7 @@ def test_stored_model_gives_the_same_partition_without_refitting(tmp_path, monke
     assert (report.model_buckets, report.predicted_notes) == (1, 0)
 
 
+@pytest.mark.slow
 def test_new_note_joins_its_existing_cluster_without_refitting(tmp_path, monkeypatch):
     import zettel.gardener_assign as assign
 
@@ -374,6 +377,7 @@ def test_new_note_joins_its_existing_cluster_without_refitting(tmp_path, monkeyp
     assert report.predicted_notes == 1
 
 
+@pytest.mark.slow
 def test_refit_and_a_changed_fingerprint_fit_again(tmp_path):
     from zettel.gardener_assign import BucketModelStore, ClusterReport, bucket_clusters
 
@@ -396,3 +400,41 @@ def test_readonly_store_never_writes(tmp_path):
     bucket_clusters("Cat", list(vectors), vectors, _cfg(), store=_store(tmp_path, readonly=True))
 
     assert not (tmp_path / "garden").exists()
+
+
+@pytest.mark.slow
+def test_an_unreadable_model_file_is_refitted_with_a_warning(tmp_path, caplog):
+    """A corrupt pickle, or one another library version cannot read, refits (#331)."""
+    from zettel.gardener_assign import ClusterReport, bucket_clusters
+
+    vectors = _two_groups()
+    bucket_clusters("Cat", list(vectors), vectors, _cfg(), store=_store(tmp_path))
+    [model_file] = (tmp_path / "garden").glob("*.joblib")
+    model_file.write_bytes(b"not a pickle")
+
+    report = ClusterReport()
+    with caplog.at_level("WARNING", logger="zettel.gardener_assign"):
+        clusters = bucket_clusters("Cat", list(vectors), vectors, _cfg(), report, _store(tmp_path))
+
+    assert len(clusters) == 2
+    assert (report.refit_buckets, report.model_buckets) == (1, 0)
+    assert "ilegivel" in caplog.text
+    assert model_file.read_bytes() != b"not a pickle"  # the refit replaced it
+
+
+def test_a_library_upgrade_changes_the_model_fingerprint(tmp_path, monkeypatch):
+    """A pickle written under other numpy/joblib/umap/hdbscan versions is not loaded (#331)."""
+    from zettel import gardener
+    from zettel.config import AppConfig
+    from zettel.gardener_assign import MODEL_LIBRARIES, model_library_versions
+
+    installed = model_library_versions()
+    assert set(installed) == set(MODEL_LIBRARIES)
+    assert installed["joblib"] != "missing"
+
+    cfg = AppConfig(cache_path=tmp_path)
+    before = gardener.model_store(cfg).fingerprint
+    assert gardener.model_store(cfg).fingerprint == before
+
+    monkeypatch.setattr(gardener, "model_library_versions", lambda: {**installed, "numpy": "9.0.0"})
+    assert gardener.model_store(cfg).fingerprint != before

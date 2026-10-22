@@ -17,7 +17,7 @@ from zettel.retrieval import NoteSearchResult
 from zettel.schemas import PermanentNoteCandidate
 from zettel.state import StateDB
 
-from tests.test_harvester_dedup import FakeVectorIndex
+from tests.fakes import FakeVectorIndex
 
 
 def test_is_llm_unavailable_connection_and_http():
@@ -36,6 +36,93 @@ def test_is_llm_unavailable_ignores_parse_and_schema():
         _M(x="no")
     assert not is_llm_unavailable(exc.value)
     assert not is_llm_unavailable(ValueError("Nenhum JSON encontrado na resposta do LLM"))
+
+
+@pytest.mark.parametrize("value", ["ver p. 429 do livro", "erro 404 na pagina 503", "HTTP 401"])
+def test_a_schema_error_quoting_a_number_is_not_an_outage(value):
+    """Pydantic puts the model's own text in the message; a page number is not HTTP (#323)."""
+
+    class _M(BaseModel):
+        relevance_score: int
+
+    with pytest.raises(ValidationError) as exc:
+        _M(relevance_score=value)
+    assert not is_llm_unavailable(exc.value)
+
+
+@pytest.mark.parametrize("position", [401, 404, 429, 503])
+def test_a_json_error_at_a_code_like_position_is_not_an_outage(position):
+    import json
+
+    with pytest.raises(json.JSONDecodeError) as exc:
+        json.loads("{" + " " * (position - 1) + "x}")
+    assert str(position) in str(exc.value)
+    assert not is_llm_unavailable(exc.value)
+
+
+class _HTTPError(Exception):
+    def __init__(self, status_code: int):
+        super().__init__("falha na chamada")
+        self.status_code = status_code
+
+
+@pytest.mark.parametrize("status", [401, 403, 404, 408, 429, 500, 503])
+def test_an_http_status_attribute_decides_without_reading_the_message(status):
+    assert is_llm_unavailable(_HTTPError(status))
+
+
+@pytest.mark.parametrize(
+    ("status", "reason"),
+    [(429, "rate limit esgotado"), (401, "autenticação recusada"), (503, "servidor indisponível")],
+)
+def test_the_status_attribute_names_the_reason(status, reason):
+    from zettel.llm import _unavailable_reason
+
+    assert _unavailable_reason(_HTTPError(status)) == reason
+
+
+def test_a_bad_request_status_is_not_an_outage():
+    """400/422: the request was wrong, retrying the same call later will not help."""
+    assert not is_llm_unavailable(_HTTPError(400))
+    assert not is_llm_unavailable(_HTTPError(422))
+
+
+def test_a_status_on_the_wrapped_response_counts_too():
+    class _Wrapped(Exception):
+        response = type("R", (), {"status_code": 429})()
+
+    assert is_llm_unavailable(_Wrapped("algo"))
+
+
+def test_ptbr_guard_with_a_broken_answer_keeps_the_note_and_continues(tmp_path, monkeypatch):
+    """A guard answer that fails to parse at char 429 is not a provider outage (#323)."""
+    from zettel.connector.prompt import apply_ptbr_guard
+    from zettel.schemas import PermanentNoteLLMOutput
+
+    cfg = AppConfig(
+        vault_path=tmp_path / "vault",
+        prompts_path=Path(__file__).resolve().parents[1] / "prompts",
+    )
+    output = PermanentNoteLLMOutput(
+        status="accepted",
+        thesis="The model learns from data that it sees",
+        definition="This definition is in English and should be translated",
+    )
+    monkeypatch.setattr(
+        "zettel.connector.prompt.call_llm", lambda *_a, **_k: "{" + " " * 428 + "x}"
+    )
+
+    class _Cache:
+        def get_cached_llm_response(self, _checksum):
+            return None
+
+        def cache_llm_response(self, *_a, **_k):
+            return None
+
+    guarded = apply_ptbr_guard(cfg, _Cache(), object(), output)
+
+    assert guarded.thesis == "The model learns from data that it sees"
+    assert guarded.ptbr_guard is False
 
 
 def test_call_llm_wraps_connection_error():

@@ -11,6 +11,8 @@ from zettel.retrieval import NoteSearchResult, RetrievedNote, Retriever
 from zettel.schemas import PermanentNoteCandidate, PermanentNoteLLMOutput, RelationshipResult
 from zettel.state import StateDB
 
+from tests.fakes import FakeVectorIndex
+
 
 def _cfg(tmp_path: Path) -> AppConfig:
     return AppConfig(
@@ -69,11 +71,6 @@ def _wire(monkeypatch, response: str, hits: list[RetrievedNote] | None = None) -
     return calls
 
 
-class _Index:
-    def upsert_permanent_note(self, *_a, **_k):
-        return None
-
-
 def test_rejected_concept_leaves_the_queue_and_is_not_asked_again(tmp_path, monkeypatch):
     cfg = _cfg(tmp_path)
     db = StateDB(tmp_path / "state.db")
@@ -96,7 +93,7 @@ def test_rejected_concept_leaves_the_queue_and_is_not_asked_again(tmp_path, monk
     calls = _wire(monkeypatch, response)
     candidates = run.load_approved_candidates(db)
     try:
-        outcome = run.run_connect(cfg, db, _Index(), candidates)
+        outcome = run.run_connect(cfg, db, FakeVectorIndex(), candidates)
         assert outcome.note_ids == []
         row = db.get_concept("c1")
         assert row["status"] == "connect_rejected"
@@ -106,7 +103,7 @@ def test_rejected_concept_leaves_the_queue_and_is_not_asked_again(tmp_path, monk
         assert outcome.rejected == 1
         assert db.get_stats()["concepts_connect_rejected"] == 1
         assert run.load_approved_candidates(db) == []
-        run.run_connect(cfg, db, _Index(), candidates)
+        run.run_connect(cfg, db, FakeVectorIndex(), candidates)
         assert calls["n"] == 1
     finally:
         db.close()
@@ -122,7 +119,10 @@ def test_invalid_json_is_recorded_and_not_cached(tmp_path, monkeypatch):
     )
     calls = _wire(monkeypatch, "isto nao e json")
     try:
-        assert run.run_connect(cfg, db, _Index(), run.load_approved_candidates(db)).note_ids == []
+        assert (
+            run.run_connect(cfg, db, FakeVectorIndex(), run.load_approved_candidates(db)).note_ids
+            == []
+        )
         assert calls["n"] == 1
         assert db.get_concept("c1")["status"] == "approved"
         failures = db.llm_failure_counts()
@@ -170,7 +170,7 @@ def test_one_bad_relation_does_not_drop_the_note(tmp_path, monkeypatch):
     ]
     _wire(monkeypatch, json.dumps(response), hits)
     try:
-        outcome = run.run_connect(cfg, db, _Index(), run.load_approved_candidates(db))
+        outcome = run.run_connect(cfg, db, FakeVectorIndex(), run.load_approved_candidates(db))
         [note_id] = outcome.note_ids
         edges = {
             (row["target_note_id"], row["relation_type"])

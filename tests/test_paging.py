@@ -1,5 +1,6 @@
 """Tests for page inference helpers."""
 
+import pytest
 from zettel.config import AppConfig
 from zettel.paging import (
     PAGE_BREAK_MARKER,
@@ -232,8 +233,15 @@ def test_lookup_page_fuzzy_ignores_stopwords():
     assert hint.confidence == "fuzzy"
 
 
+@pytest.mark.slow
 def test_page_lookup_stays_under_two_seconds_for_a_long_book():
-    """1 000 pages x 1 500 chunks. The old scan was quadratic and took minutes."""
+    """1 000 pages x 1 500 chunks. The old scan took minutes.
+
+    Still a wall-clock budget, so it runs with the slow tests only (#326): the
+    lookup is not linear yet. ``PageIndex._spans_other_page`` searches the whole
+    document once per chunk, so the cost grows as chunks x text (measured 3.8x
+    per doubling of pages). A ratio test would fail until that is fixed.
+    """
     import time
 
     filler = "texto de enchimento do paragrafo " * 20

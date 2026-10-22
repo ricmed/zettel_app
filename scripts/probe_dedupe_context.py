@@ -225,7 +225,7 @@ def model_comparison_rule(
     ``contract`` is the luna run of the new prompt, or None when that
     condition was not executed.
     """
-    from compare_gold_runs import paired_exact_p
+    from zettel.evals.stats import paired_exact_p, paired_mid_p
 
     def correct(result: dict[str, Any]) -> int:
         return int(result["conditions"]["full-a"]["correct"])
@@ -249,6 +249,7 @@ def model_comparison_rule(
         "only_luna_right": only_luna,
         "only_mini_right": only_mini,
         "mcnemar_p": round(p_value, 4),
+        "mcnemar_mid_p": round(paired_mid_p(only_mini, only_luna), 4),
         "valid": valid,
         "mini_ignore_recall": recall_of(mini),
         "luna_ignore_recall": recall_of(luna),
@@ -268,6 +269,7 @@ def model_comparison_rule(
     )
     out["contract_correct"] = contract_correct
     out["contract_mcnemar_p"] = round(contract_p, 4)
+    out["contract_mcnemar_mid_p"] = round(paired_mid_p(_only_current, only_contract), 4)
     out["contract_valid"] = contract_valid
     out["contract_ignore_recall"] = recall_of(contract)
     return out

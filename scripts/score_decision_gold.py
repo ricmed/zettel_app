@@ -20,7 +20,9 @@ pre-registrations (`evals/preregistration/206-jev-camada-decisao.md`, `#209`,
   whole), so corpus estimates weight each item by `population / sampled` of its
   stratum; raw counts are reported next to them.
 * **Paired test.** Exact McNemar on the items exactly one of two conditions gets
-  right (`compare_gold_runs.paired_exact_p`).
+  right, with the mid-p beside it (`zettel.evals.stats`, #332); the
+  pre-registered rules bind on the exact p. Every accuracy carries its Wilson 95%
+  interval (`accuracy_ci95`).
 * `?` answers are counted and excluded, never scored.
 * **Corroborates (#208).** The edge is binary, so a pair is `same_idea` only when
   the human answered `mesma-ideia`. Conditions: `threshold` (the edge `connect`
@@ -69,7 +71,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from calibrate_review_confidence import auc_ci, min_detectable_auc
-from compare_gold_runs import paired_exact_p
+from zettel.evals.stats import paired_exact_p, paired_mid_p, wilson
 
 DEDUPE_ANSWERS = {"nova": "create_new", "repete": "ignore", "desenvolve": "link"}
 UNJUDGEABLE = "?"
@@ -321,6 +323,7 @@ def score_condition(
         "n": len(judged),
         "correct": sum(right.values()),
         "accuracy": _rate(sum(right.values()), len(judged)),
+        "accuracy_ci95": wilson(sum(right.values()), len(judged)),
         "accuracy_weighted": _rate(weighted_right, weighted_total),
         "by_stratum": {
             s: {"n": len(v), "accuracy": _rate(sum(v), len(v))}
@@ -373,6 +376,7 @@ def score_conditions(
             "only_a_right": only_a,
             "only_b_right": only_b,
             "mcnemar_p": round(paired_exact_p(only_a, only_b), 4),
+            "mid_p": round(paired_mid_p(only_a, only_b), 4),
         }
     return {
         "conditions": {name: s["summary"] for name, s in scored.items()},

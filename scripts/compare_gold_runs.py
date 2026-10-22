@@ -15,7 +15,9 @@ script answers the questions a model choice depends on:
 The paired test is McNemar's, exact: of the items exactly one run gets right, is the split
 further from even than chance allows? It uses only the discordant items, so the many items
 both runs get right, or both get wrong, carry no weight -- which is what makes it the
-right test for "did switching change how many chunks are judged correctly".
+right test for "did switching change how many chunks are judged correctly". The mid-p
+and the Wilson interval of each run's correct count are printed beside it
+(`zettel.evals.stats`, #332).
 
 Offline and deterministic: reads JSON, calls no LLM, writes only `--out`.
 
@@ -30,7 +32,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -38,6 +39,8 @@ from typing import Any
 
 # Run from a clone without installing the package (mirrors scripts/ precedent).
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from zettel.evals.stats import paired_exact_p, paired_mid_p, wilson
 
 DEFAULT_LABELS = Path("evals/gold/extracao-rotulos.json")
 
@@ -61,16 +64,6 @@ def correctness(items: list[Any], human: dict[str, str]) -> dict[str, bool]:
         for item in items
         if item.item_id in human
     }
-
-
-def paired_exact_p(only_a_right: int, only_b_right: int) -> float:
-    """Two-sided exact McNemar p-value over the discordant items."""
-    n = only_a_right + only_b_right
-    if n == 0:
-        return 1.0
-    k = min(only_a_right, only_b_right)
-    tail = sum(math.comb(n, i) for i in range(k + 1)) / 2**n
-    return min(1.0, 2 * tail)
 
 
 def inclusion_weights(items: list[Any], population: dict[str, int]) -> dict[str, float]:
@@ -125,9 +118,13 @@ def compare_pair(
         "flipped_items": flipped_items,
         "correct_a": sum(right_a.values()),
         "correct_b": sum(right_b.values()),
+        "correct_a_ci95": wilson(sum(right_a.values()), len(right_a)),
+        "correct_b_ci95": wilson(sum(right_b.values()), len(right_b)),
+        "n_judged": len(right_a),
         "only_a_right": only_a,
         "only_b_right": only_b,
         "paired_exact_p": round(paired_exact_p(only_a, only_b), 4),
+        "paired_mid_p": round(paired_mid_p(only_a, only_b), 4),
         "weighted_net_correct_b_minus_a": weighted_net,
     }
 
@@ -151,6 +148,10 @@ def per_source(items: list[Any], human: dict[str, str]) -> dict[str, dict[str, A
             "recall": round(tp / (tp + fn), 4) if tp + fn else None,
         }
     return out
+
+
+def _ci(interval: tuple[float, float]) -> str:
+    return f"{interval[0]:.0%}-{interval[1]:.0%}"
 
 
 def parse_named(values: list[str], sep: str) -> list[tuple[str, str]]:
@@ -225,9 +226,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\npar {a_name} x {b_name}: {pair['n_common']} itens em comum")
         print(f"  mesmo veredito: {pair['verdict_agreement']:.1%}")
         print(
-            f"  acertos: {a_name}={pair['correct_a']}  {b_name}={pair['correct_b']}  | "
-            f"so {a_name} acerta: {pair['only_a_right']}  so {b_name} acerta: "
-            f"{pair['only_b_right']}  | McNemar exato p={pair['paired_exact_p']}"
+            f"  acertos: {a_name}={pair['correct_a']}/{pair['n_judged']} "
+            f"IC95 {_ci(pair['correct_a_ci95'])}  {b_name}={pair['correct_b']}/"
+            f"{pair['n_judged']} IC95 {_ci(pair['correct_b_ci95'])}"
+        )
+        print(
+            f"  so {a_name} acerta: {pair['only_a_right']}  so {b_name} acerta: "
+            f"{pair['only_b_right']}  | McNemar exato p={pair['paired_exact_p']}  "
+            f"mid-p={pair['paired_mid_p']}"
         )
         print(
             f"  acertos liquidos ponderados pelo corpus ({b_name} - {a_name}): "

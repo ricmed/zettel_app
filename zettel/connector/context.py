@@ -166,7 +166,7 @@ def search_distant_analogies(
     if not cat_vectors:
         return []
     try:
-        query_vec = idx.embed_texts([query_text])[0]
+        query_vec = idx.embed_texts([query_text], label="analogia-categoria")[0]
     except Exception as e:
         from zettel.llm import _raise_unavailable, is_llm_unavailable
 

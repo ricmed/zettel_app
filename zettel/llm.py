@@ -65,14 +65,26 @@ _UNAVAILABLE_CLASS_MARKERS = (
     "timeout",
 )
 
+# Codes worth stopping a run for: auth, missing model, timeout, rate limit, server
+# side. Other 4xx (400, 422) say the request itself was wrong; a retry will not help.
+_UNAVAILABLE_STATUS = frozenset({401, 403, 404, 408, 429})
+
+# A code in a message counts only where a client wrote it as a status
+# ("Error code: 503 - ...", "status 429"), never as a bare number: a page number
+# quoted by the model, or a JSON error at "char 404", is not HTTP (#323).
+_STATUS_REASONS = {
+    401: "autenticação recusada",
+    403: "acesso recusado",
+    404: "modelo não encontrado",
+    408: "timeout",
+    429: "rate limit esgotado",
+}
+
+_STATUS_IN_MESSAGE_RE = re.compile(
+    r"\b(?:error code|status(?: code)?|http)[:\s]+(\d{3})\b", re.IGNORECASE
+)
+
 _UNAVAILABLE_MSG_MARKERS = (
-    "401",
-    "403",
-    "404",
-    "429",
-    "502",
-    "503",
-    "504",
     "connection refused",
     "connect error",
     "connection reset",
@@ -134,17 +146,51 @@ def _walk_exception_chain(exc: BaseException) -> list[BaseException]:
     return out
 
 
+def _status_code(exc: BaseException) -> int | None:
+    """HTTP status a client attached to ``exc`` (OpenAI/Anthropic/httpx/google-genai)."""
+    for holder in (exc, getattr(exc, "response", None)):
+        for attr in ("status_code", "status", "code"):
+            value = getattr(holder, attr, None)
+            if isinstance(value, int) and 100 <= value <= 599:
+                return value
+    return None
+
+
+def _status_is_unavailable(status: int) -> bool:
+    return status in _UNAVAILABLE_STATUS or status >= 500
+
+
 def is_llm_unavailable(exc: BaseException) -> bool:
-    """True for transport, auth, or provider-down errors (not parse/validation)."""
+    """True for transport, auth, or provider-down errors (not parse/validation).
+
+    Decided in order, and the first rule that applies wins (#323):
+
+    1. a content error -- any ``ValueError``, which includes pydantic's
+       ``ValidationError`` and ``json.JSONDecodeError`` -- is never an outage: its
+       message carries the model's own text;
+    2. a status code a client attached to the exception (or to its response);
+    3. the exception's type (``ConnectionError``, ``TimeoutError``, ``OSError``,
+       SDK classes such as ``RateLimitError``);
+    4. a status written as one in the message ("Error code: 503"), or a transport
+       phrase ("connection refused", "quota").
+    """
     if isinstance(exc, (LLMUnavailableError, ImportError)):
         return True
+    if isinstance(exc, ValueError):
+        return False
     for cur in _walk_exception_chain(exc):
+        status = _status_code(cur)
+        if status is not None:
+            return _status_is_unavailable(status)
         if isinstance(cur, (ConnectionError, TimeoutError, OSError)):
             return True
         name = type(cur).__name__.lower()
         if any(marker in name for marker in _UNAVAILABLE_CLASS_MARKERS):
             return True
         msg = str(cur).lower()
+        code = _STATUS_IN_MESSAGE_RE.search(msg)
+        if code and _status_is_unavailable(int(code.group(1))):
+            return True
         if any(marker in msg for marker in _UNAVAILABLE_MSG_MARKERS):
             return True
     return False
@@ -155,6 +201,9 @@ def _unavailable_reason(exc: BaseException) -> str:
         pkg = getattr(exc, "name", None) or "do provider"
         return f"pacote {pkg} não instalado"
     for cur in _walk_exception_chain(exc):
+        status = _status_code(cur)
+        if status is not None:
+            return _STATUS_REASONS.get(status, "servidor indisponível")
         blob = f"{type(cur).__name__.lower()} {cur}".lower()
         for markers, reason in _REASON_RULES:
             if any(marker in blob for marker in markers):

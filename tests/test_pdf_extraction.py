@@ -21,8 +21,16 @@ def _cfg(**kwargs) -> AppConfig:
     return AppConfig(device="cpu", **kwargs)
 
 
+@pytest.mark.slow
 def test_extract_pdf_docling_missing_raises_pdf_extraction_error(monkeypatch, tmp_path):
-    """A missing Docling install fails harvest explicitly (no PyMuPDF fallback)."""
+    """A missing Docling install fails harvest explicitly (no PyMuPDF fallback).
+
+    Every ``docling.*`` already in ``sys.modules`` is blocked too: a submodule
+    another test imported is served from the cache without consulting its parent,
+    so blocking ``docling`` alone only worked when this test ran first (#326).
+    """
+    for name in [m for m in sys.modules if m == "docling" or m.startswith("docling.")]:
+        monkeypatch.setitem(sys.modules, name, None)
     monkeypatch.setitem(sys.modules, "docling", None)
     pdf = tmp_path / "doc.pdf"
     pdf.write_bytes(b"%PDF-1.4 fake")
@@ -31,6 +39,7 @@ def test_extract_pdf_docling_missing_raises_pdf_extraction_error(monkeypatch, tm
         extract_pdf_docling(_cfg(), pdf)
 
 
+@pytest.mark.slow
 def test_extract_pdf_docling_conversion_failure_raises_pdf_extraction_error(monkeypatch, tmp_path):
     """A Docling conversion error is fatal, with a message distinct from 'not installed'."""
     pdf = tmp_path / "doc.pdf"

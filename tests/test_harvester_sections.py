@@ -23,23 +23,7 @@ from zettel.harvester.chunking import _merge_short_pieces
 from zettel.markdown_fences import iter_fenced_spans as _iter_fenced_spans
 from zettel.state import StateDB
 
-
-class _FakeIdx:
-    def __init__(self):
-        self.chunks_store: set[str] = set()
-
-    def upsert_chunk(self, chunk_id, text, metadata, **kwargs):
-        self.chunks_store.add(chunk_id)
-
-    def delete_chunks(self, chunk_ids):
-        for cid in chunk_ids:
-            self.chunks_store.discard(cid)
-
-    def chunk_ids_for_source(self, source_id):
-        return set(self.chunks_store)
-
-    def existing_ids(self, collection_name, ids):
-        return {cid for cid in ids if cid in self.chunks_store}
+from tests.fakes import FakeVectorIndex
 
 
 def _cfg(**chunking):
@@ -323,7 +307,7 @@ def test_blank_file_pages_do_not_slide_the_chunk_page(tmp_path):
         n = _chunk_and_persist(
             _cfg(chunk_size=8000, min_chunk_chars=40),
             db,
-            _FakeIdx(),
+            FakeVectorIndex(),
             "@S",
             [{"title": "Cap", "text": body, "locator": "Cap"}],
             page_map=page_map,
@@ -341,7 +325,7 @@ def test_chunk_and_persist_writes_section_path(tmp_path):
     db = StateDB(tmp_path / "s.db")
     try:
         db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
-        idx = _FakeIdx()
+        idx = FakeVectorIndex()
         chapters = [
             {
                 "title": "Cap",
@@ -363,7 +347,7 @@ def test_chunk_and_persist_distinct_headings_keep_identical_bodies(tmp_path):
     db = StateDB(tmp_path / "s.db")
     try:
         db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
-        idx = _FakeIdx()
+        idx = FakeVectorIndex()
         same = "Conteudo identico suficientemente longo para virar chunk unico."
         chapters = [
             {
@@ -381,7 +365,7 @@ def test_chunk_and_persist_distinct_headings_keep_identical_bodies(tmp_path):
         texts = {c["section_path"]: c["text"] for c in chunks}
         assert texts["Cap > Alpha"].startswith("### Alpha")
         assert texts["Cap > Beta"].startswith("### Beta")
-        assert idx.chunks_store == {c["chunk_id"] for c in chunks}
+        assert set(idx.store["chunks"]) == {c["chunk_id"] for c in chunks}
     finally:
         db.close()
 
@@ -390,7 +374,7 @@ def test_chunk_and_persist_still_collapses_identical_heading_and_body(tmp_path):
     db = StateDB(tmp_path / "s.db")
     try:
         db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
-        idx = _FakeIdx()
+        idx = FakeVectorIndex()
         same = "Conteudo identico suficientemente longo para virar chunk unico."
         chapters = [
             {
@@ -412,13 +396,13 @@ def test_rechunk_removes_orphans_on_changed_text(tmp_path):
     db = StateDB(tmp_path / "s.db")
     try:
         db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
-        idx = _FakeIdx()
+        idx = FakeVectorIndex()
 
         text_v1 = "# Cap\n\n" + "conteudo original bem longo. " * 20
         db.update_source_texts("@S", extracted_text=text_v1)
         run_rechunk(_cfg(), db, idx, "@S")
         ids_v1 = {c["chunk_id"] for c in db.get_chunks_for_source("@S")}
-        assert ids_v1 and ids_v1 == idx.chunks_store
+        assert ids_v1 and ids_v1 == set(idx.store["chunks"])
 
         # Change the source text and rechunk: old chunks must be pruned from both stores.
         text_v2 = "# Cap\n\n" + "conteudo completamente diferente agora. " * 20
@@ -428,7 +412,7 @@ def test_rechunk_removes_orphans_on_changed_text(tmp_path):
 
         assert ids_v2 != ids_v1
         assert not (ids_v1 & ids_v2)  # no stale ids remain in SQLite
-        assert idx.chunks_store == ids_v2  # index matches SQLite exactly
+        assert set(idx.store["chunks"]) == ids_v2  # index matches SQLite exactly
     finally:
         db.close()
 
@@ -437,7 +421,7 @@ def test_rechunk_skips_source_without_extracted_text(tmp_path):
     db = StateDB(tmp_path / "s.db")
     try:
         db.upsert_source("@Old", "Old", "T", [], None, "h", "/p", "md")  # no extracted_text
-        idx = _FakeIdx()
+        idx = FakeVectorIndex()
         stats = run_rechunk(AppConfig(), db, idx, "@Old")
         assert stats["skipped"] == 1
         assert stats["sources"] == 0
@@ -489,7 +473,7 @@ def test_incomplete_chunking_detected_and_rechunk_completes(tmp_path):
         assert source_chunking_incomplete(db, "@S")
         assert len(db.get_chapters_for_source("@S")) == 1
 
-        idx = _FakeIdx()
+        idx = FakeVectorIndex()
         stats = run_rechunk(AppConfig(), db, idx, "@S")
         assert stats["sources"] == 1
         assert not source_chunking_incomplete(db, "@S")

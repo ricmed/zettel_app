@@ -13,13 +13,7 @@ from zettel.vault import (
     safe_write_note,
 )
 
-
-class _FakeIdx:
-    def delete_chunks(self, ids):
-        self.deleted = list(ids)
-
-    def __init__(self):
-        self.deleted = []
+from tests.fakes import FakeVectorIndex
 
 
 def test_run_set_paging_updates_book_and_drops_pending(tmp_path: Path):
@@ -97,7 +91,7 @@ def test_run_set_paging_updates_book_and_drops_pending(tmp_path: Path):
         literature_note_path=str(draft),
     )
 
-    idx = _FakeIdx()
+    idx = FakeVectorIndex()
     stats = run_set_paging(
         cfg,
         db,
@@ -126,3 +120,23 @@ def test_run_set_paging_updates_book_and_drops_pending(tmp_path: Path):
     assert src["content_start_book_page"] == 10
     assert src["page_offset"] == 25
     db.close()
+
+
+def test_run_set_paging_refuses_a_source_without_pages(tmp_path: Path):
+    """Native Markdown has no pages (ADR-013): repairing its paging is refused, not faked (#330).
+
+    It used to report the chunks as updated and store a meaningless page offset.
+    """
+    import pytest
+
+    db = StateDB(tmp_path / "s.db")
+    try:
+        db.upsert_source("@Md2024", "Md2024", "T", ["A"], 2024, "h", "/x.md", "md")
+        before = db.get_source("@Md2024")
+        with pytest.raises(ValueError, match="paginas"):
+            run_set_paging(AppConfig(), db, FakeVectorIndex(), "@Md2024", content_start_file=2)
+        after = db.get_source("@Md2024")
+        assert after["page_offset"] == before["page_offset"]
+        assert after["content_start_file_page"] == before["content_start_file_page"]
+    finally:
+        db.close()

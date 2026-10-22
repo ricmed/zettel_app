@@ -15,6 +15,8 @@ from zettel.extraction_dump import (
 from zettel.harvester.pipeline import _process_file
 from zettel.state import StateDB
 
+from tests.fakes import FakeVectorIndex
+
 
 def _cfg(**kwargs) -> AppConfig:
     return AppConfig(**kwargs)
@@ -40,27 +42,6 @@ RAW_MD = (
     "### Metodo\n\n"
     "detalhe do metodo\n"
 )
-
-
-class _FakeIdx:
-    def __init__(self):
-        self.upserted_sources: list[str] = []
-        self.upserted_chunks: list[str] = []
-
-    def find_similar_chunks(self, texts, n_results=3):
-        return []
-
-    def upsert_source(self, source_id, summary, metadata):
-        self.upserted_sources.append(source_id)
-
-    def upsert_chunk(self, chunk_id, text, metadata, **kwargs):
-        self.upserted_chunks.append(chunk_id)
-
-    def delete_chunks(self, chunk_ids):
-        pass
-
-    def existing_ids(self, collection_name, ids):
-        return set()
 
 
 def test_dump_filename_sanitizes_citekey():
@@ -221,7 +202,7 @@ def test_process_file_writes_extraction_dump_when_dir_set(tmp_path: Path):
         sid, stats = _process_file(
             cfg,
             db,
-            _FakeIdx(),
+            FakeVectorIndex(),
             path,
             run_id=db.start_run("sig"),
             interactive=False,

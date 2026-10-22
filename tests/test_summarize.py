@@ -29,19 +29,11 @@ from zettel.summarize import (
 )
 from zettel.vault import build_literature_index_note, read_managed_block, safe_write_note
 
+from tests.fakes import FakeVectorIndex, calls_to
+
 SOURCE_ID = "@Autor2024Obra"
 CITEKEY = "Autor2024Obra"
 TITLE = "Uma Obra de Teste"
-
-
-class FakeIndex:
-    """Records chapter-summary upserts without touching Chroma."""
-
-    def __init__(self) -> None:
-        self.upserts: list[tuple[str, str, dict]] = []
-
-    def upsert_chapter_summary(self, chapter_id, text, metadata):
-        self.upserts.append((chapter_id, text, metadata))
 
 
 @pytest.fixture
@@ -135,7 +127,7 @@ def test_second_pass_costs_no_llm_call(cfg, db, monkeypatch):
     _seed(db)
     calls: list[str] = []
     _fake_llm(monkeypatch, calls)
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
 
     first = generate_summaries(cfg, db, idx, SOURCE_ID)
     assert first.chapters_summarized == 2
@@ -152,7 +144,7 @@ def test_changed_chapter_is_resummarized_alone(cfg, db, monkeypatch):
     _seed(db)
     calls: list[str] = []
     _fake_llm(monkeypatch, calls)
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     generate_summaries(cfg, db, idx, SOURCE_ID)
 
     # A re-chunk changes the chapter's checksum; the summary is now stale.
@@ -172,7 +164,7 @@ def test_chapter_with_no_persisted_text_is_skipped(cfg, db, monkeypatch):
     calls: list[str] = []
     _fake_llm(monkeypatch, calls)
 
-    outcome = generate_summaries(cfg, db, FakeIndex(), SOURCE_ID)
+    outcome = generate_summaries(cfg, db, FakeVectorIndex(), SOURCE_ID)
     assert outcome.chapters_summarized == 0
     assert calls == []
 
@@ -180,10 +172,13 @@ def test_chapter_with_no_persisted_text_is_skipped(cfg, db, monkeypatch):
 def test_summary_is_embedded_once_per_chapter(cfg, db, monkeypatch):
     _seed(db)
     _fake_llm(monkeypatch, [])
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     generate_summaries(cfg, db, idx, SOURCE_ID)
-    assert [u[0] for u in idx.upserts] == [f"{SOURCE_ID}::ch000", f"{SOURCE_ID}::ch001"]
-    assert idx.upserts[0][2]["citekey"] == CITEKEY
+    assert calls_to(idx, "upsert_chapter_summary") == [
+        f"{SOURCE_ID}::ch000",
+        f"{SOURCE_ID}::ch001",
+    ]
+    assert idx.store["chapter_summaries"][f"{SOURCE_ID}::ch000"][1]["citekey"] == CITEKEY
 
 
 def test_source_summary_is_not_embedded(cfg, db, monkeypatch):
@@ -191,15 +186,15 @@ def test_source_summary_is_not_embedded(cfg, db, monkeypatch):
     defect that removed `literature_notes`."""
     _seed(db)
     _fake_llm(monkeypatch, [])
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     generate_summaries(cfg, db, idx, SOURCE_ID)
 
     assert db.get_source(SOURCE_ID)["summary"]
-    assert SOURCE_ID not in [u[0] for u in idx.upserts]
+    assert SOURCE_ID not in calls_to(idx, "upsert_chapter_summary")
 
 
 def test_missing_source_is_reported_not_raised(cfg, db):
-    outcome = generate_summaries(cfg, db, FakeIndex(), "@NaoExiste")
+    outcome = generate_summaries(cfg, db, FakeVectorIndex(), "@NaoExiste")
     assert outcome.skipped and "nao encontrada" in outcome.skipped[0].lower()
 
 
@@ -222,7 +217,7 @@ def test_oversized_chapter_still_yields_one_summary(cfg, db, monkeypatch):
     calls: list[str] = []
     _fake_llm(monkeypatch, calls)
 
-    outcome = generate_summaries(cfg, db, FakeIndex(), SOURCE_ID)
+    outcome = generate_summaries(cfg, db, FakeVectorIndex(), SOURCE_ID)
     assert outcome.chapters_summarized == 1
     # Several map calls plus a reduce, but exactly one stored summary.
     assert calls.count("chapter_summary.md") > 2
@@ -378,6 +373,21 @@ def test_refresh_preserves_manual_text_outside_the_blocks(cfg, db):
     content = path.read_text(encoding="utf-8")
     assert "Nao me apague." in content
     assert "Novo resumo." in content
+
+
+def test_refresh_leaves_an_index_with_a_stray_end_marker_alone(cfg, db):
+    """A block that lost its start marker is refused, not scaffolded over (#321)."""
+    _seed(db)
+    path = _write_lit_index(cfg, db)
+    broken = (
+        path.read_text(encoding="utf-8")
+        + f"\n<!-- zettel:{CHAPTER_MAP_BLOCK}:end -->\nNao me apague.\n"
+    )
+    path.write_text(broken, encoding="utf-8")
+
+    refresh_chapter_map(cfg, db, SOURCE_ID)
+
+    assert path.read_text(encoding="utf-8") == broken
 
 
 def test_refresh_is_idempotent(cfg, db):

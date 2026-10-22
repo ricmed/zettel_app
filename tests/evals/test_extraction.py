@@ -23,7 +23,6 @@ from zettel.evals.extraction import (
     read_sheet,
     sampling_stratum,
     score,
-    wilson,
 )
 
 HEADER = ["item_id", "veredito", "categoria", "nota", "fonte", "locator", "texto"]
@@ -256,14 +255,6 @@ def test_disagreements_list_carries_notes_and_no_text():
     assert [r["item_id"] for r in rows] == ["G1"]
     assert rows[0]["human_note"] == "math mal convertida"
     assert "texto" not in rows[0] and "text" not in rows[0]
-
-
-def test_wilson_is_bounded_and_empty_safe():
-    assert wilson(0, 0) == (0.0, 0.0)
-    low, high = wilson(0, 30)
-    assert low == 0.0 and 0.0 < high < 0.15
-    low, high = wilson(30, 30)
-    assert 0.85 < low < 1.0 and high == 1.0
 
 
 # -- isolation (ADR-038) -------------------------------------------------

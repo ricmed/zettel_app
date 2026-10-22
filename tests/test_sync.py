@@ -11,24 +11,7 @@ from zettel.sync import (
     run_sync_manual,
 )
 
-
-class FakeIndex:
-    def __init__(self):
-        self.sources: list[str] = []
-        self.permanent: list[str] = []
-        self.mocs: list[str] = []
-
-    def upsert_source(self, sid, summary, meta):
-        self.sources.append(sid)
-
-    def upsert_permanent_note(self, nid, text, meta):
-        self.permanent.append(nid)
-
-    def upsert_moc(self, mid, text, meta):
-        self.mocs.append(mid)
-
-    def query_similar_notes(self, text, n_results=5, exclude_id=None):
-        return []
+from tests.fakes import FakeVectorIndex, calls_to
 
 
 @pytest.fixture
@@ -60,7 +43,7 @@ def _frontmatter(path):
 def test_manual_source_is_adopted(cfg, db):
     src = cfg.vault_path / "10_Sources" / "SRC - meu-artigo.md"
     _write(src, {"type": "source", "title": "Meu Artigo", "year": 2023}, "# Meu Artigo")
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     stats = run_sync_manual(cfg, db, idx)
 
     assert stats["sources"] == 1
@@ -72,7 +55,7 @@ def test_manual_source_is_adopted(cfg, db):
     stored = db.get_source(fm["source_id"])
     assert stored is not None
     assert stored["origin"] == "manual"
-    assert idx.sources == [fm["source_id"]]
+    assert calls_to(idx, "upsert_source") == [fm["source_id"]]
 
 
 def test_manual_literature_links_and_persists_body(cfg, db):
@@ -87,7 +70,7 @@ def test_manual_literature_links_and_persists_body(cfg, db):
         },
         "Resumo manual do artigo.",
     )
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     stats = run_sync_manual(cfg, db, idx)
 
     assert stats["literature"] == 1
@@ -105,7 +88,7 @@ def test_manual_permanent_gets_id_and_origin(cfg, db):
         {"type": "permanent", "title": "Nota Manual"},
         "> **Tese**: uma tese manual\n\n## Definicao\n\ntexto",
     )
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     stats = run_sync_manual(cfg, db, idx)
 
     assert stats["permanent"] == 1
@@ -115,7 +98,7 @@ def test_manual_permanent_gets_id_and_origin(cfg, db):
     note = db.get_note(fm["note_id"])
     assert note["origin"] == "manual"
     assert note["body"]  # body persisted
-    assert idx.permanent == [fm["note_id"]]
+    assert calls_to(idx, "upsert_permanent_note") == [fm["note_id"]]
 
 
 def test_pipeline_permanent_is_skipped(cfg, db):
@@ -130,11 +113,11 @@ def test_pipeline_permanent_is_skipped(cfg, db):
         },
         "> **Tese**: gerada pelo pipeline\n\n## Definicao\n\ntexto",
     )
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     stats = run_sync_manual(cfg, db, idx)
     assert stats["permanent"] == 0
     assert db.get_note("01ABC") is None
-    assert idx.permanent == []
+    assert calls_to(idx, "upsert_permanent_note") == []
     assert _frontmatter(ztl)["origin"] == "pipeline"
 
 
@@ -181,10 +164,10 @@ def test_pipeline_permanent_does_not_adopt_images_or_reembed(cfg, db):
         origin="pipeline",
         note_semantic_checksum="stale",
     )
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     stats = run_sync_manual(cfg, db, idx)
     assert stats["permanent"] == 0
-    assert idx.permanent == []
+    assert calls_to(idx, "upsert_permanent_note") == []
     assert "![[figura.png]]" in ztl.read_text(encoding="utf-8")
     assert db.get_assets_for_source(source_id) == []
     assert db.get_note(note_id)["origin"] == "pipeline"
@@ -197,7 +180,7 @@ def test_resync_unchanged_is_skipped(cfg, db):
         {"type": "permanent", "title": "Nota"},
         "> **Tese**: tese estavel\n\n## Definicao\n\ntexto",
     )
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     run_sync_manual(cfg, db, idx)  # first pass: new
     stats2 = run_sync_manual(cfg, db, idx)  # second pass: unchanged
     assert stats2["skipped"] >= 1
@@ -252,7 +235,7 @@ def _seed_pipeline_granular_lit(cfg, db, *, path=None):
 
 def test_pipeline_granular_lit_unchanged_is_skipped(cfg, db):
     chunk_id, _ = _seed_pipeline_granular_lit(cfg, db)
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     stats = run_sync_manual(cfg, db, idx)
     assert stats["literature"] == 0
     assert stats["skipped"] >= 1
@@ -262,7 +245,7 @@ def test_pipeline_granular_lit_unchanged_is_skipped(cfg, db):
 def test_pipeline_granular_lit_does_not_overwrite_persisted_status(cfg, db):
     chunk_id, lit = _seed_pipeline_granular_lit(cfg, db)
     # Simulate the old bug: path already matches, frontmatter says approved.
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     run_sync_manual(cfg, db, idx)
     assert db.get_chunk(chunk_id)["status"] == "persisted"
     assert db.get_chunk(chunk_id)["literature_note_path"] == str(lit)
@@ -273,7 +256,7 @@ def test_pipeline_granular_lit_moved_updates_path(cfg, db):
     new = old.with_name("LIT - Pipe2024 - p001 - topic-renomeado.md")
     old.rename(new)
     db.update_chunk_review(chunk_id, literature_note_path=str(old))
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     stats = run_sync_manual(cfg, db, idx)
     assert stats["literature"] == 1
     row = db.get_chunk(chunk_id)
@@ -392,7 +375,7 @@ def test_edited_moc_returns_updated(cfg, db):
         {"type": "moc", "topic": "Topico"},
         "# Topico\n\nResumo inicial.\n\n## Sub\n\n- a",
     )
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     run_sync_manual(cfg, db, idx)  # new (moc_id injected)
 
     moc_id = _frontmatter(moc)["moc_id"]

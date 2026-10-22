@@ -116,3 +116,81 @@ def test_potential_adrs_index_links_resolve():
         f"potential-adrs-index.md tem link(s) relativo(s) quebrado(s): "
         f"{', '.join(broken)}. Itens triados mudam de pasta (must-document -> done)."
     )
+
+
+# -- the ADR index against the files (#334) ------------------------------------
+
+ADR_INDEX = REPO_ROOT / "docs" / "adrs" / "ADR-INDEX.md"
+_ROW_RE = re.compile(r"^\| \*\*([A-Z-]+)\*\* \| (\d+) \| \[([^\]]+)\]", re.MULTILINE)
+
+
+def _numbers_by_folder() -> dict[str, set[int]]:
+    out: dict[str, set[int]] = {}
+    for adr in _adr_files():
+        out.setdefault(adr.parent.name, set()).add(int(adr.name[4:7]))
+    return out
+
+
+_EN_DASH = chr(0x2013)  # the index writes ranges as 001-008 with an en dash
+
+
+def _expand(ranges: str) -> set[int]:
+    """`001-008, 041-042, 052` (en dashes) -> {1, ..., 8, 41, 42, 52}."""
+    numbers: set[int] = set()
+    for part in ranges.split(","):
+        low, _, high = part.strip().partition(_EN_DASH)
+        numbers.update(range(int(low), int(high or low) + 1))
+    return numbers
+
+
+def test_adr_index_counts_match_the_files():
+    """The header, the statistics and the module table drifted to 58, 56 and 52 while
+    64 ADRs were on disk, with ADR-057 missing (#334)."""
+    text = ADR_INDEX.read_text(encoding="utf-8")
+    total = len(_adr_files())
+    assert f"# zettel_app ADR Index ({total} Decisions)" in text
+    assert f"| **Total ADRs** | {total} |" in text
+
+    by_folder = _numbers_by_folder()
+    rows = {name: (int(count), _expand(ranges)) for name, count, ranges in _ROW_RE.findall(text)}
+    assert set(rows) == set(by_folder), "a tabela de modulos difere das pastas"
+    for folder, numbers in by_folder.items():
+        assert rows[folder] == (len(numbers), numbers), folder
+
+
+def test_adr_index_has_one_entry_per_file_with_a_working_link():
+    text = ADR_INDEX.read_text(encoding="utf-8")
+    sections = re.findall(r"^### ADR-(\d{3}):", text, re.MULTILINE)
+    assert sorted(sections) == sorted(adr.name[4:7] for adr in _adr_files())
+    links = {t for t in _relative_links(ADR_INDEX) if t.startswith("./generated/")}
+    for adr in _adr_files():
+        assert f"./{adr.relative_to(ADR_INDEX.parent).as_posix()}" in links, adr.name
+
+
+# -- commands in the user-facing docs (#334) -----------------------------------
+
+_USER_DOCS = [
+    REPO_ROOT / "README.md",
+    REPO_ROOT / "CLAUDE.md",
+    REPO_ROOT / "evals" / "README.md",
+    *sorted((REPO_ROOT / "docs").glob("*.md")),
+]
+_TEST_PATH_RE = re.compile(r"(?<![\w/.])(tests/[\w/]*\.py)")
+
+
+@pytest.mark.parametrize("doc", _USER_DOCS, ids=lambda p: p.relative_to(REPO_ROOT).as_posix())
+def test_test_paths_cited_in_the_docs_exist(doc: Path):
+    """A documented test command must run the file it names."""
+    cited = set(_TEST_PATH_RE.findall(doc.read_text(encoding="utf-8")))
+    missing = sorted(p for p in cited if not (REPO_ROOT / p).is_file())
+    assert not missing, f"{doc.name} cita teste(s) inexistente(s): {', '.join(missing)}"
+
+
+def test_only_the_adr_index_states_how_many_adrs_there_are():
+    """A count copied into the README aged from 43 to 55 while the index said 58."""
+    stale = [
+        doc.relative_to(REPO_ROOT).as_posix()
+        for doc in _USER_DOCS
+        if re.search(r"\b\d+\s*(?:%20)?decis(?:õ|%C3%B5)es", doc.read_text(encoding="utf-8"))
+    ]
+    assert not stale, f"contagem de ADRs fora do ADR-INDEX: {', '.join(stale)}"

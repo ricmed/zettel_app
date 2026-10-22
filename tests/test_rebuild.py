@@ -7,33 +7,7 @@ from zettel.config import AppConfig
 from zettel.rebuild import run_rebuild_vault, run_reindex
 from zettel.state import StateDB
 
-
-class FakeIndex:
-    """Records upserts per collection; enough for the rebuild code paths."""
-
-    def __init__(self):
-        self.store: dict[str, set[str]] = {
-            "sources": set(),
-            "chunks": set(),
-            "permanent_notes": set(),
-        }
-        self.reset_calls: list[str] = []
-
-    def reset_collection(self, name):
-        self.reset_calls.append(name)
-        self.store[name] = set()
-
-    def existing_ids(self, name, ids):
-        return {i for i in ids if i in self.store[name]}
-
-    def upsert_source(self, sid, summary, meta):
-        self.store["sources"].add(sid)
-
-    def upsert_chunk(self, cid, text, meta, **kwargs):
-        self.store["chunks"].add(cid)
-
-    def upsert_permanent_note(self, nid, text, meta):
-        self.store["permanent_notes"].add(nid)
+from tests.fakes import FakeVectorIndex
 
 
 @pytest.fixture
@@ -70,22 +44,22 @@ def _seed(db):
 
 def test_reindex_populates_all_collections(db):
     _seed(db)
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     # `chunks` is only reindexed while dedupe layer 5 is enabled (off by default).
     stats = run_reindex(AppConfig(harvest={"semantic_duplicate_enabled": True}), db, idx)
     assert stats["sources"] == 1
     assert stats["chunks"] == 1
     assert stats["permanent_notes"] == 1
     assert "mocs" not in stats
-    assert idx.store["chunks"] == {"@S::ch000::a"}
-    assert idx.store["permanent_notes"] == {"n1"}
+    assert set(idx.store["chunks"]) == {"@S::ch000::a"}
+    assert set(idx.store["permanent_notes"]) == {"n1"}
     # embedding_input_hash backfilled so a re-embed can be skipped next time.
     assert db.get_note("n1")["embedding_input_hash"]
 
 
 def test_reindex_single_collection_with_force(db):
     _seed(db)
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     cfg = AppConfig(harvest={"semantic_duplicate_enabled": True})
     stats = run_reindex(cfg, db, idx, collection="chunks", force=True)
     assert set(stats.keys()) == {"chunks"}
@@ -99,22 +73,20 @@ def test_reindex_leaves_chunks_untouched_while_layer5_is_off(db):
     a command whose contract is "rebuild".
     """
     _seed(db)
-    idx = FakeIndex()
+    idx = FakeVectorIndex()
     stats = run_reindex(AppConfig(), db, idx, collection="chunks", force=True)
     assert stats == {"chunks": 0}
     assert idx.reset_calls == []
-    assert idx.store["chunks"] == set()
+    assert not idx.store["chunks"]
 
 
 def test_reindex_unknown_collection_raises(db):
     with pytest.raises(ValueError):
-        run_reindex(AppConfig(), db, FakeIndex(), collection="bogus")
+        run_reindex(AppConfig(), db, FakeVectorIndex(), collection="bogus")
 
 
-def test_reindex_force_after_embedding_swap(db, tmp_path, monkeypatch):
+def test_reindex_force_after_embedding_swap(db, tmp_path, token_hash_embedding):
     """Troca de modelo com force regenera sources/chunks (sem force, ficariam stale)."""
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
     from zettel.index import EmbeddingSpaceMismatch, VectorIndex
 
     _seed(db)
@@ -125,30 +97,29 @@ def test_reindex_force_after_embedding_swap(db, tmp_path, monkeypatch):
         harvest={"semantic_duplicate_enabled": True},
     )
     # Bypass Literal validation by constructing VectorIndex directly for markers.
-    idx_a = VectorIndex(chroma, "provider-invalido", "modelo-a", allow_fallback=True)
+    idx_a = VectorIndex(chroma, token_hash_embedding, "modelo-a")
     run_reindex(cfg, db, idx_a, force=True)
     assert idx_a.chunks.count() == 1
     assert idx_a.get_stored_embedding_identity() == (
-        "provider-invalido",
+        token_hash_embedding,
         "modelo-a",
         None,
     )
 
     with pytest.raises(EmbeddingSpaceMismatch):
-        VectorIndex(chroma, "provider-invalido", "modelo-b", allow_fallback=True)
+        VectorIndex(chroma, token_hash_embedding, "modelo-b")
 
     idx_b = VectorIndex(
         chroma,
-        "provider-invalido",
+        token_hash_embedding,
         "modelo-b",
-        allow_fallback=True,
         reset_mismatched=True,
     )
     stats = run_reindex(cfg, db, idx_b, force=True)
     assert stats["chunks"] == 1
     assert stats["sources"] == 1
     assert idx_b.get_stored_embedding_identity() == (
-        "provider-invalido",
+        token_hash_embedding,
         "modelo-b",
         None,
     )

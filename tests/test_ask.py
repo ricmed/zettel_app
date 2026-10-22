@@ -7,20 +7,14 @@ from zettel.config import AppConfig
 from zettel.retrieval import NoteSearchResult, RetrievedNote
 from zettel.state import StateDB
 
+from tests.fakes import FakeVectorIndex
+
 
 @pytest.fixture
 def db(tmp_path):
     db = StateDB(tmp_path / "ask.db")
     yield db
     db.close()
-
-
-class FakeIndex:
-    def query_similar_notes(self, *a, **k):
-        return []
-
-    def find_similar_chunks(self, *a, **k):
-        return []
 
 
 def test_run_ask_empty_vault_no_llm(db, monkeypatch):
@@ -34,7 +28,7 @@ def test_run_ask_empty_vault_no_llm(db, monkeypatch):
     monkeypatch.setattr(ask_mod, "call_llm", _boom)
     monkeypatch.setattr(ask_mod, "get_llm", lambda *a, **k: object())
 
-    result = run_ask(AppConfig(), db, FakeIndex(), "o que e um grafo?")
+    result = run_ask(AppConfig(), db, FakeVectorIndex(), "o que e um grafo?")
     assert result.answer == ask_mod._NO_EVIDENCE
     assert result.llm_called is False
     assert called["n"] == 0
@@ -79,7 +73,7 @@ def test_run_ask_passes_wikilinks_to_prompt(db, tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    result = run_ask(cfg, db, FakeIndex(), "o que e um grafo?")
+    result = run_ask(cfg, db, FakeVectorIndex(), "o que e um grafo?")
     assert result.llm_called is True
     # The exact wikilink for the note must be in the context sent to the LLM.
     assert "[[ZTL - 01HZZZ - grafos-de-conhecimento]]" in captured["prompt"]
@@ -110,7 +104,7 @@ def test_run_ask_below_floor_shows_candidates_but_no_llm_call(db, monkeypatch):
     monkeypatch.setattr(ask_mod, "call_llm", _boom)
     monkeypatch.setattr(ask_mod, "get_llm", lambda *a, **k: object())
 
-    result = run_ask(AppConfig(), db, FakeIndex(), "pergunta fora do tema")
+    result = run_ask(AppConfig(), db, FakeVectorIndex(), "pergunta fora do tema")
     assert result.answer == ask_mod._NO_EVIDENCE
     assert result.llm_called is False
     assert called["n"] == 0
@@ -173,3 +167,41 @@ def test_save_ask_note_default_location(tmp_path):
     content = path.read_text(encoding="utf-8")
     assert "type: ask_answer" in content
     assert "# Pergunta" in content
+
+
+def test_run_ask_answers_from_bm25_while_the_embedding_is_down(db, tmp_path, monkeypatch):
+    """Connect stops when the embedding fails; ask keeps the lexical fall-through (#329).
+
+    A note that matches every term of the question at BM25 rank 1 clears the
+    floor by the lexical bypass, with no similarity at all, and reaches the LLM.
+    """
+    if not db.fts_enabled:
+        pytest.skip("SQLite build sem FTS5")
+    db.upsert_note(
+        "01HZZZ",
+        "@S",
+        "/vault/30_Permanent/ZTL - 01HZZZ - grafos.md",
+        "Grafos de conhecimento",
+        body="Grafos de conhecimento conectam conceitos por arestas tipadas.",
+    )
+    captured = {}
+
+    def _llm(llm, prompt="", **kwargs):
+        captured["prompt"] = kwargs.get("user") or prompt
+        return "Resposta com [[ZTL - 01HZZZ - grafos]]."
+
+    monkeypatch.setattr(ask_mod, "call_llm", _llm)
+    monkeypatch.setattr(ask_mod, "get_llm", lambda *a, **k: object())
+    cfg = AppConfig()
+    cfg.prompts_path = tmp_path
+    (tmp_path / "ask.md").write_text("{question}\n{context_notes}\n", encoding="utf-8")
+    down = FakeVectorIndex(
+        fail_on={"query_similar_notes": (1, ConnectionError("connection refused"))}
+    )
+
+    result = run_ask(cfg, db, down, "grafos de conhecimento")
+
+    assert result.llm_called is True
+    assert [s.note_id for s in result.sources] == ["01HZZZ"]
+    assert "match lexical forte" in result.sources[0].floor_reason
+    assert "[[ZTL - 01HZZZ - grafos]]" in captured["prompt"]

@@ -40,6 +40,7 @@ dependencies = [
     "langchain-google-genai>=4.3.7",
     "typesafe-sdk>=0.7.2",
     "nh3>=0.3",
+    "joblib>=1.6.0",
 ]
 
 [tool.uv.sources]
@@ -55,6 +56,34 @@ torchvision = [
 name = "pytorch-cu126"
 url = "https://download.pytorch.org/whl/cu126"
 explicit = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Strict: a misspelt marker or ini key is an error, not a silent new name.
+addopts = "--strict-markers --strict-config -ra"
+markers = [
+  "slow: needs UMAP/numba, Docling, scikit-learn or a subprocess; skip with -m 'not slow'",
+]
+# A hung lock or worker fails the test instead of holding CI for the job's hour.
+timeout = 300
+filterwarnings = [
+  # A deprecation reached through our own code breaks the suite the day it lands.
+  "error::DeprecationWarning:zettel",
+  "error::PendingDeprecationWarning:zettel",
+  # umap says it runs single-threaded because the garden seeds it (#294), by design.
+  "ignore:n_jobs value 1 overridden to 1 by setting random_state:UserWarning:umap",
+]
+
+[tool.coverage.run]
+source = ["zettel"]
+branch = true
+
+[tool.coverage.report]
+# Measured total (lines + branches) rounded down: 79.63% at #326, 80.32% after #329,
+# 84.57% after #330. Raise it when coverage grows; never lower it to make a change pass.
+fail_under = 84
+skip_covered = true
+show_missing = true
 
 [tool.ruff]
 target-version = "py312"
@@ -107,6 +136,18 @@ fixable = ["ALL"]
 "zettel/web/**/*.py" = ["B008"]
 "zettel/article_graph/**/*.py" = ["S101"]
 "zettel/evals/manifest.py" = ["S607"]
+# git on the CI checkout, arguments built by the module itself (#333).
+"zettel/evals/measurement_map.py" = ["S603", "S607"]
+"tests/evals/test_measurement_map.py" = ["S607"]
 
 [tool.ruff.format]
 quote-style = "double"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.170.5",
+    "pytest-cov>=7.1.0",
+    "pytest-randomly>=5.0.0",
+    "pytest-timeout>=2.4.0",
+    "pytest-xdist>=3.8.0",
+]

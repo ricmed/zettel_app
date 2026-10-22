@@ -9,16 +9,7 @@ from zettel.harvester import chunk_and_persist as _chunk_and_persist
 from zettel.paging import ContentPaging
 from zettel.state import StateDB
 
-
-class _FakeIdx:
-    def existing_ids(self, collection, ids):
-        return set()
-
-    def delete_chunks(self, ids):
-        pass
-
-    def upsert_chunk(self, *args, **kwargs):
-        pass
+from tests.fakes import FakeVectorIndex
 
 
 def test_chunk_and_persist_skips_pages_before_content_start(tmp_path: Path):
@@ -64,7 +55,7 @@ def test_chunk_and_persist_skips_pages_before_content_start(tmp_path: Path):
     n = _chunk_and_persist(
         cfg,
         db,
-        _FakeIdx(),
+        FakeVectorIndex(),
         "@TestBook",
         chapters,
         page_map=page_map,
@@ -112,7 +103,7 @@ def test_chunk_and_persist_markdown_has_no_pages(tmp_path: Path):
     n = _chunk_and_persist(
         cfg,
         db,
-        _FakeIdx(),
+        FakeVectorIndex(),
         "@CourseNotes",
         chapters,
         page_map=[],

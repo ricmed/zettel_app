@@ -432,6 +432,17 @@ def test_shadow_corroborates_judges_the_band_in_both_orders(tmp_path, db, fake):
     assert ba["state"]["note_a"]["thesis"] == "Tese B"
 
 
+def test_shadow_corroborates_band_starts_at_the_configured_minimum(tmp_path, db, fake):
+    """The band is read from ``decision.corroborates_band_min``, probed at its edge (#325)."""
+    cfg = _cfg(tmp_path, corroborates="shadow")
+    theta = cfg.decision.corroborates_band_min
+    for nid in ("01BELOW", "01ABOVE"):
+        db.upsert_note(nid, "@B", None, title=nid, body=_ztl_body("Tese B", "Def B"))
+    _shadow_corroborates(cfg, db, [_hit("01BELOW", theta - 0.005), _hit("01ABOVE", theta + 0.005)])
+    subjects = {r["subject_id"].split(":")[0] for r in db.list_decision_shadow("corroborates")}
+    assert subjects == {"01ABOVE|01NEW"}
+
+
 def test_shadow_corroborates_records_the_edge_the_pipeline_made(tmp_path, db, fake):
     db.upsert_note("01OTHER", "@B", None, title="Outra", body=_ztl_body("Tese B", "Def B"))
     cfg = _cfg(tmp_path, corroborates="shadow")

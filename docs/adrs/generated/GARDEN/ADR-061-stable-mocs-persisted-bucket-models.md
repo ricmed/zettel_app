@@ -32,6 +32,10 @@ Every `zettel garden` clustered the whole vault again. With a fixed seed (#294) 
 * The cache directory now holds pickles written by this process; the store refuses a model whose fingerprint or bucket does not match, but it must never be pointed at foreign files.
 * Growth is absorbed into existing clusters; a genuinely new theme inside a category waits for `--refit` or for the growth threshold, and then the rebalance moves notes between MOCs.
 
+## Addendum 2026-10-22 — library versions in the fingerprint, unreadable models refit (#331)
+
+A bucket model is a pickle of numpy arrays and UMAP/HDBSCAN (or KMeans) objects, so what reads it back is the installed libraries, not only the configuration. Under NumPy 2.5 joblib 1.5.3 still assigned `array.shape` while loading, deprecated in NumPy 2.5; joblib 1.6.0 reshapes instead, and it is now a direct dependency (`joblib>=1.6.0`, imported by `BucketModelStore`), so the suite no longer ignores that warning. The fingerprint built by `gardener.model_store` now includes `gardener_assign.model_library_versions()`: the installed `numpy`, `joblib`, `scikit-learn`, `umap-learn` and `hdbscan`, read from the distribution metadata (umap and numba are not imported). An upgrade of any of them refits every bucket on the next `garden` instead of unpickling another version's objects, the same reasoning as the Docling versions in `compute_docling_config_hash`; the cost is one refit per upgrade, after which the rebalance may move notes between MOCs. A model file that does not load (corrupt, truncated, or written by an incompatible version) was already logged and treated as absent; `tests/test_gardener_assign.py` now pins that path and the version-driven refit.
+
 ## References
 
 * `zettel/gardener_assign.py` — `BucketModel`, `BucketModelStore`, `bucket_clusters`, `fit_bucket`, `clusters_of`, `vector_hash`

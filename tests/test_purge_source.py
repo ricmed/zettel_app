@@ -18,24 +18,7 @@ from zettel.vault import (
     strip_matching_wikilinks,
 )
 
-
-class _FakeIndex:
-    def __init__(self):
-        self.chunk_deletes: list[str] = []
-        self.source_deletes: list[str] = []
-        self.permanent_deletes: list[str] = []
-
-    def delete_chunks(self, chunk_ids):
-        self.chunk_deletes.extend(chunk_ids)
-
-    def delete_sources(self, ids):
-        self.source_deletes.extend(ids)
-
-    def delete_permanent_notes(self, ids):
-        self.permanent_deletes.extend(ids)
-
-    def vacuum(self):
-        pass
+from tests.fakes import FakeVectorIndex, deleted
 
 
 @pytest.fixture
@@ -56,7 +39,7 @@ def env(tmp_path):
     ):
         (cfg.vault_path / d).mkdir(parents=True, exist_ok=True)
     db = StateDB(cfg.state_db_path)
-    idx = _FakeIndex()
+    idx = FakeVectorIndex()
     yield cfg, db, idx
     db.close()
 
@@ -188,8 +171,8 @@ def test_purge_source_removes_vault_sqlite_chroma(env):
     assert not (cfg.vault_path / "20_Literature" / literature_source_dirname(citekey)).exists()
     assert not (cfg.vault_path / "00_Inbox/Review" / literature_source_dirname(citekey)).exists()
 
-    assert "@Book2024::ch000::abc" in idx.chunk_deletes
-    assert "@Book2024" in idx.source_deletes
+    assert "@Book2024::ch000::abc" in deleted(idx, "chunks")
+    assert "@Book2024" in deleted(idx, "sources")
 
 
 def test_purge_source_keeps_permanent_cleans_wikilinks(env):
@@ -240,7 +223,7 @@ def test_purge_source_keeps_permanent_cleans_wikilinks(env):
 
     result = purge_source(cfg, db, idx, "@Book2024", compact=False)
     assert result["permanent_deleted"] == 0
-    assert "NOTE01" not in idx.permanent_deletes
+    assert "NOTE01" not in deleted(idx, "permanent_notes")
     assert ztl_path.exists()
 
     ztl_content = ztl_path.read_text(encoding="utf-8")
@@ -271,7 +254,7 @@ def test_purge_source_delete_permanent(env):
     assert not ztl_path.exists()
     assert db.get_note("NOTE01") is None
     assert db.get_note_connections("OTHER") == []
-    assert "NOTE01" in idx.permanent_deletes
+    assert "NOTE01" in deleted(idx, "permanent_notes")
 
 
 def test_purge_source_not_found(env):

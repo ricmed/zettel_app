@@ -264,3 +264,7 @@ The 2026-09 measurements (note floor 0.70, chapter floor 0.70, absolute backstop
 the printed "similarity" was `(1+cos)/2`. ADR-058 converts them by `2s − 1`
 (0.40, 0.40, −0.70) and does not re-measure. The cuts are the same physical
 pairs. `zettel.similarity.cosine_from_distance` is the only conversion.
+
+## Addendum 2026-10-22 — the fusion formula is pinned by tests (#328)
+
+The only RRF test checked that a note found by BM25 alone and one found by the vector alone both appeared in the result. Replacing `1/(k + rank)` with `1/rank`, ignoring `retrieval.rrf_k`, or adding raw similarities instead of reciprocal ranks all left it green (verified with the `1/rank` mutant). `tests/test_retrieval.py` now pins the fusion of `Retriever._rrf_fuse_notes` and `_rrf_fuse_chapters`: the score and order of four notes on ranks picked by hand, computed from `RRF(d) = Σ 1/(k + rank)` with the configured `k`; a pair whose order flips between `k = 0` and `k = 60` (one rank-1 hit scores `1/(k+1)`, two rank-3 hits score `2/(k+3)`, so the second wins exactly when `k > 1`), proving the knob is read; and the tie rule — equal scores keep the dense order, then the BM25-only hits in rank order. Four mutants (`1/rank`, a fixed `k`, raw similarities on the dense side, ties broken by id) each fail at least one of these tests.

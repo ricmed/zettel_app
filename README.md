@@ -5,7 +5,7 @@
 ![Obsidian](https://img.shields.io/badge/saída-Obsidian-7C3AED?logo=obsidian&logoColor=white)
 ![LangChain](https://img.shields.io/badge/LLM-LangChain%20%2B%20LangGraph-1C3C3C)
 ![Stores](https://img.shields.io/badge/stores-SQLite%20FTS5%20%2B%20ChromaDB-003B57?logo=sqlite&logoColor=white)
-![ADRs](https://img.shields.io/badge/ADRs-43%20decisões-0A7EA4)
+![ADRs](https://img.shields.io/badge/ADRs-decisões%20registradas-0A7EA4)
 ![Licença](https://img.shields.io/badge/licença-MIT-green)
 
 Sistema em Python que transforma PDFs e Markdown num Zettelkasten vivo no Obsidian: extrai apenas ideias que merecem virar nota, escreve Notas de Literatura e Permanentes de forma atômica e rastreáveis, com revisão humana.
@@ -17,11 +17,11 @@ Texto extraído → Chunks (com pagina) → SRC + indice LIT
     ↓ extract
 Drafts de LIT granular (1 por chunk) em 00_Inbox/Review
     ↓ review
-LIT aprovadas em 20_Literature/{Citekey}/ + literature_notes no Chroma
+LIT aprovadas em 20_Literature/{Citekey}/ + conceitos aprovados (dedupe da mesma fonte)
     ↓ connect
 Notas Permanentes (ZTL) com links e backlinks
     ↓ garden
-MOCs (Mapas de Conteúdo) por clusterização semântica
+MOCs (portas de entrada) por categoria da taxonomia + clusterização
 ```
 
 
@@ -57,7 +57,7 @@ MOCs (Mapas de Conteúdo) por clusterização semântica
 | [Solução de problemas](docs/troubleshooting.md) | Sintomas comuns e como sair deles                                                        |
 | [Prompts e taxonomia](docs/prompts.md)          | Personalizar `prompts/`, `domain_examples.yaml`, `moc_topics.yaml` e as personalidades do `article` |
 | [Avaliação do `ask`](evals/README.md)         | Replay offline de trajetórias, veredictos e guardrail de afirmações       |
-| [ADRs](docs/adrs/ADR-INDEX.md)                  | 55 decisões de arquitetura, com contexto e alternativas                                  |
+| [ADRs](docs/adrs/ADR-INDEX.md)                  | Decisões de arquitetura, com contexto e alternativas                                     |
 
 
 Índice completo em [docs/INDICE.md](docs/INDICE.md).
@@ -212,21 +212,34 @@ Catálogo completo, provedores suportados e o procedimento de troca de embedding
 ## Testes
 
 ```bash
-# Suite completa
-uv run pytest tests/ -v
+# Suíte completa, como o CI (testes lentos incluídos)
+uv run pytest
+
+# Ciclo de edição: sem os testes lentos (UMAP, Docling, scikit-learn, subprocessos), em paralelo
+uv run pytest -m "not slow" -n auto
+
+# Cobertura, como o CI roda (falha abaixo do piso em [tool.coverage.report])
+uv run pytest -n auto --cov
 
 # Um arquivo / uma função
 uv run pytest tests/test_hashing.py -v
 uv run pytest tests/test_hashing.py::test_normalize_collapses_whitespace -v
 
-# Interface web
-uv run pytest tests/test_web.py tests/test_web_state.py tests/test_web_package.py tests/test_web_studio.py -v
+# Interface web: seleção por nome (todo tests/test_web_*.py e os testes que citam a web)
+uv run pytest tests/ -k web
 
-# Avaliacao do ask (offline: sem LLM, sem rede)
+# Contrato entre as fases: run-all sobre um Markdown, LLM fixo, embedding local
+uv run pytest tests/test_pipeline_smoke.py -v
+
+# Avaliação offline: replay do ask, estatística dos gold sets, mapa de medições (sem LLM, sem rede)
 uv run pytest tests/evals/ -v
+uv run python -m zettel.evals.replay evals/configs/current-ask.yaml
+
+# Repetir a ordem aleatória de uma execução (a semente aparece no cabeçalho)
+uv run pytest --randomly-seed=N
 ```
 
-O CI ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)) roda `ruff check`, `ruff format --check` e a suíte completa a cada push na `main` e em todo PR, sem segredos: um teste que chegue a um provedor falha lá.
+O CI ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)) roda `ruff check`, `ruff format --check` e a suíte completa com cobertura a cada push na `main` e em todo PR, sem segredos: um teste que chegue a um provedor falha lá. Em PR, ele também comenta quais medições do gold set cobrem um prompt, limiar ou modelo alterado ([evals/README.md](evals/README.md#qual-medição-cobre-uma-mudança-333)). A estratégia de testes está no [ADR-065](docs/adrs/generated/INFRA/ADR-065-test-strategy.md).
 
 Problemas conhecidos e diagnósticos: [docs/troubleshooting.md](docs/troubleshooting.md).
 

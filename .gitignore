@@ -41,3 +41,9 @@ data/state.db-shm
 # state.db pelo chunk_id. O gabarito nao tem texto, so ids e vereditos.
 evals/gold/*-planilha.csv
 evals/gold/*-leitura.md
+
+# Coverage output (pytest --cov)
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/

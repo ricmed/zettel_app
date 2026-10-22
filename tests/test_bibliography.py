@@ -28,6 +28,8 @@ from zettel.harvester.pipeline import HarvestDeclined, _process_file
 from zettel.state import StateDB
 from zettel.vault import build_source_note, compose_note, parse_frontmatter
 
+from tests.fakes import FakeVectorIndex
+
 # ── Author / required fields ───────────────────────────────────────────
 
 
@@ -353,27 +355,6 @@ def test_frontmatter_biblio_fields_omits_core():
 
 
 # ── Non-interactive harvest path ───────────────────────────────────────
-
-
-class FakeVectorIndex:
-    def __init__(self):
-        self.upserted_sources: list[str] = []
-        self.upserted_chunks: list[str] = []
-
-    def find_similar_chunks(self, texts, n_results=3):
-        return []
-
-    def upsert_source(self, source_id, summary, metadata):
-        self.upserted_sources.append(source_id)
-
-    def upsert_chunk(self, chunk_id, text, metadata, **kwargs):
-        self.upserted_chunks.append(chunk_id)
-
-    def delete_chunks(self, chunk_ids):
-        pass
-
-    def existing_ids(self, collection_name, ids):
-        return set()
 
 
 @pytest.fixture

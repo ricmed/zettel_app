@@ -12,31 +12,16 @@ from compare_gold_runs import (
     correctness,
     human_verdicts,
     inclusion_weights,
-    paired_exact_p,
     parse_named,
     per_source,
 )
 from zettel.evals.extraction import KeyItem
+from zettel.evals.stats import wilson
 
 
 def _item(item_id, verdict, source="@S"):
     stratum = "accepted" if verdict == "accepted" else "contested"
     return KeyItem(item_id, f"c-{item_id}", source, verdict, "", stratum)
-
-
-# -- exact paired test ---------------------------------------------------
-
-
-def test_paired_exact_matches_the_hand_computed_value():
-    """17 items only one model gets right vs 6 the other does -- the #177 book split."""
-    assert paired_exact_p(17, 6) == pytest.approx(0.0347, abs=5e-4)
-
-
-def test_paired_exact_is_symmetric_and_bounded():
-    assert paired_exact_p(6, 17) == paired_exact_p(17, 6)
-    assert paired_exact_p(5, 5) == 1.0
-    assert paired_exact_p(0, 0) == 1.0
-    assert 0.0 < paired_exact_p(10, 0) < 0.01
 
 
 # -- correctness ---------------------------------------------------------
@@ -89,7 +74,10 @@ def test_compare_pair_counts_flips_by_direction_and_label():
     assert pair["flips"] == {"rejected->accepted (discard)": 1, "rejected->accepted (keep)": 1}
     # G1: only b right; G2: only a right; G3: both wrong; G4: both right
     assert (pair["only_a_right"], pair["only_b_right"]) == (1, 1)
-    assert pair["paired_exact_p"] == 1.0
+    assert pair["paired_exact_p"] == pair["paired_mid_p"] == 1.0
+    # each run got 2 of the 4 judged items right
+    assert pair["n_judged"] == 4
+    assert pair["correct_a_ci95"] == pair["correct_b_ci95"] == wilson(2, 4)
 
 
 def test_identical_runs_are_a_perfect_noise_floor():

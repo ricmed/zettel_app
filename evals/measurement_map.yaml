@@ -1,0 +1,190 @@
+# Which measurement covers a change to a prompt, a threshold or a model (#333).
+#
+# `python -m zettel.evals.measurement_map --base <ref>` reads the files and the
+# `config/config.yaml` keys a branch changed and lists the entries below that
+# cover them; the CI posts that list on the pull request. Nothing here runs a
+# measurement: the commands are what a person runs, with the budget it needs,
+# before applying the pre-registered rule.
+#
+# `paths` are glob patterns over repository paths; `config` are glob patterns
+# over dotted keys of config/config.yaml (`llm.extract.*`). Every prompt in
+# `zettel.llm.REQUIRED_PROMPTS` is covered by a measurement or listed under
+# `unmeasured` with the reason; every pattern must match something that exists
+# (tests/evals/test_measurement_map.py).
+
+measurements:
+  extract-gold:
+    title: Gold set de extração (veredito do Prompt 1 contra o humano)
+    paths: [prompts/literature_note.md, config/domain_examples.yaml]
+    config: [llm.extract.*, llm.temperature, extraction.*]
+    preregistration:
+      - evals/preregistration/181-modelo-extract.md
+      - evals/preregistration/259-prompt1-saida-estruturada.md
+      - evals/preregistration/262-prompt1-ablacao.md
+    commands:
+      - .venv/Scripts/python.exe scripts/probe_prompt1_variant.py --label <rodada> --yes --out-key evals/gold/extracao-GABARITO-<rodada>.json
+      - .venv/Scripts/python.exe scripts/compare_gold_runs.py --run atual=evals/gold/extracao-GABARITO-gpt4omini-atual.json --run <rodada>=evals/gold/extracao-GABARITO-<rodada>.json --pair atual:<rodada>
+
+  dedupe:
+    title: Dedupe da mesma fonte contra rótulos cegos
+    paths: [prompts/dedupe_decision.md]
+    config: [llm.review.*, llm.temperature, linking.dedupe_note_chars, linking.dedupe_threshold]
+    preregistration:
+      - evals/preregistration/209-dedupe-texto-completo.md
+      - evals/preregistration/218-prompt-dedupe.md
+      - evals/preregistration/273-modelo-dedupe.md
+    commands:
+      - git show main:prompts/dedupe_decision.md > .eval-work/prompts/dedupe-current.md
+      - .venv/Scripts/python.exe scripts/probe_dedupe_context.py --key evals/gold/dedupe-r2-GABARITO-NAO-ABRIR.json --labels evals/gold/dedupe-r2-rotulos.json --prompt current=.eval-work/prompts/dedupe-current.md --prompt new=prompts/dedupe_decision.md
+
+  connect-relations:
+    title: Relações tipadas do Prompt 2 contra rótulos cegos
+    paths: [prompts/permanent_note.md, config/domain_examples.yaml]
+    config:
+      - llm.connect.*
+      - llm.temperature
+      - linking.topk
+      - linking.rag_note_chars
+      - linking.distant_analogy_topk
+      - linking.seed_same_source_max
+      - linking.graph_expansion.*
+    preregistration:
+      - evals/preregistration/212-connect-contexto-completo.md
+      - evals/preregistration/231-prompt-relacoes.md
+      - evals/preregistration/285-connect-rag-diversidade.md
+      - evals/preregistration/286-ordem-contexto-prompt2.md
+    commands:
+      - git show main:prompts/permanent_note.md > .eval-work/prompts/permanent-current.md
+      - .venv/Scripts/python.exe scripts/probe_connect_context.py --sample 40 --seed 0 --yes --runs trunc-a,trunc-b --prompt current=.eval-work/prompts/permanent-current.md --prompt new=prompts/permanent_note.md --score-key evals/gold/relacoes-r2-GABARITO-NAO-ABRIR.json --labels evals/gold/relacoes-r2-rotulos.json
+
+  connect-split:
+    title: Escrita e ligação separadas do Prompt 2 (modo split)
+    paths: [prompts/note_write.md, prompts/note_link.md]
+    config: [linking.prompt2_mode, linking.write_source_chars, linking.thesis_drift_min_similarity]
+    preregistration: [evals/preregistration/288-escrita-ligacao.md]
+    commands: []
+    note: Rodada pré-registrada e ainda não executada; o modo split não é o padrão até ela ser pontuada.
+
+  relevance-floor:
+    title: Pisos de relevância (notas, capítulos, analogias distantes)
+    paths: []
+    config:
+      - retrieval.relevance_floor.*
+      - retrieval.chapter_floor.*
+      - linking.distant_analogy_min_similarity
+      - embedding.provider
+      - embedding.model
+      - embedding.dimensions
+    preregistration: [evals/preregistration/281-piso-relevancia-gemini.md]
+    commands:
+      - .venv/Scripts/python.exe scripts/probe_relevance_floor.py --samples 20
+      - .venv/Scripts/python.exe scripts/probe_relevance_floor.py --samples 20 --collection chapter_summaries
+
+  bm25-bypass:
+    title: Atalho lexical do piso (rank e cobertura do BM25)
+    paths: []
+    config: [retrieval.relevance_floor.bm25_*, retrieval.chapter_floor.bm25_*, retrieval.rrf_k]
+    preregistration: []
+    commands:
+      - .venv/Scripts/python.exe scripts/probe_bm25_bypass.py
+
+  corroborates:
+    title: Arestas corroborates entre fontes contra rótulos cegos
+    paths: []
+    config:
+      - linking.corroborates_min_similarity
+      - linking.corroborates_max_edges
+      - decision.corroborates_band_min
+      - embedding.provider
+      - embedding.model
+      - embedding.dimensions
+    preregistration:
+      - evals/preregistration/208-jev-corroborates.md
+      - evals/preregistration/226-corroborates-gate.md
+    commands:
+      - .venv/Scripts/python.exe scripts/rebuild_corroborates.py
+      - .venv/Scripts/python.exe scripts/score_decision_gold.py --site corroborates --key evals/gold/corroboracao-r2-GABARITO-NAO-ABRIR.json --sheet evals/gold/corroboracao-r2-planilha.csv
+
+  review-confidence:
+    title: Limiar de autoaprovação da review_confidence
+    paths: []
+    config: [literature_review.auto_approve_min_confidence]
+    preregistration: []
+    commands:
+      - .venv/Scripts/python.exe scripts/calibrate_review_confidence.py
+
+  garden-category:
+    title: Atribuição de nota a categoria da taxonomia
+    paths: [config/moc_topics.yaml]
+    config:
+      - gardener.category_label_mode
+      - gardener.category_label_template
+      - gardener.assign_min_similarity
+      - gardener.topics_path
+    preregistration: [evals/preregistration/295-atribuicao-categoria.md]
+    commands:
+      - .venv/Scripts/python.exe scripts/export_category_gold.py --chroma-path <copia de data/chroma>
+      - .venv/Scripts/python.exe scripts/score_category_gold.py --key .eval-work/categoria-notas/categoria-notas-GABARITO-NAO-ABRIR.json --sheet .eval-work/categoria-notas/categoria-notas-planilha.csv
+
+  garden-entries:
+    title: Portas de entrada dos MOCs (alcance em dois saltos)
+    paths: []
+    config:
+      - gardener.entry_selection
+      - gardener.max_entries_per_moc
+      - gardener.max_entries_per_subsection
+      - gardener.min_entries_per_subtopic
+    preregistration: [evals/preregistration/297-portas-de-entrada.md]
+    commands:
+      - .venv/Scripts/python.exe scripts/probe_moc_entry_points.py --chroma-path <copia de data/chroma> --json evals/results/297-portas-de-entrada.json
+
+  garden-stability:
+    title: Estabilidade da partição do garden (ARI entre execuções)
+    paths: []
+    config:
+      - gardener.random_state
+      - gardener.umap_n_neighbors
+      - gardener.hdbscan_min_samples
+      - gardener.min_cluster_size
+      - gardener.min_notes_for_moc
+    preregistration: []
+    commands:
+      - .venv/Scripts/python.exe scripts/probe_garden_stability.py --runs 5
+
+  garden-proposed-edges:
+    title: Peso das arestas propostas nos hubs e na coesão
+    paths: []
+    config: [gardener.proposed_edge_factor, linking.llm_edges]
+    preregistration: []
+    commands:
+      - .venv/Scripts/python.exe scripts/probe_hub_policy.py --json evals/results/299-arestas-propostas.json
+
+  decision-jev:
+    title: Camada de decisão tipada (Jev) no gold set
+    paths: []
+    config: [decision.model, decision.instructions_language, decision.order_permutations]
+    preregistration: [evals/preregistration/206-jev-camada-decisao.md]
+    commands:
+      - .venv/Scripts/python.exe scripts/probe_jev_gold.py --task extract --lang en
+      - .venv/Scripts/python.exe scripts/report_decision_shadow.py
+
+unmeasured:
+  - paths:
+      - prompts/moc_generation.md
+      - prompts/moc_incremental.md
+      - prompts/moc_hub_generation.md
+      - prompts/moc_hub_incremental.md
+      - prompts/moc_summary_refresh.md
+    reason: Sem gold set do texto do MOC; o garden_report (omitidas, ignoradas, falhas) é a única leitura.
+  - paths: [prompts/article_*.md]
+    reason: Sem gold set de artigo; o juiz e a verificação de citações rodam a cada artigo.
+  - paths: [prompts/ask.md]
+    reason: O replay offline (evals/configs/current-ask.yaml) mede a recuperação, não o texto da resposta.
+  - paths: [prompts/chapter_summary.md, prompts/source_summary.md]
+    reason: Resumos são artefatos de roteamento; sem gold set.
+  - paths: [prompts/bibliographic_metadata.md]
+    reason: Todo campo do modelo passa pela revisão bibliográfica do harvest.
+  - paths: [prompts/image_description.md]
+    reason: Sem gold set de descrição de imagem.
+  - paths: [prompts/ptbr_guard.md]
+    reason: Guarda de idioma; só a forma é testada (tests/test_prompts.py).

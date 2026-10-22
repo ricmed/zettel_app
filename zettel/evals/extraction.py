@@ -37,11 +37,12 @@ import argparse
 import csv
 import io
 import json
-import math
 import sys
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+from zettel.evals.stats import wilson
 
 RESULT_SCHEMA_VERSION = 1
 
@@ -210,17 +211,6 @@ def load_key(path: Path) -> tuple[list[KeyItem], dict[str, int]]:
         for e in payload["items"]
     ]
     return items, {k: int(v) for k, v in population.items()}
-
-
-def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
-    """95% Wilson score interval for ``k`` successes in ``n``."""
-    if n == 0:
-        return 0.0, 0.0
-    p = k / n
-    denom = 1 + z * z / n
-    centre = (p + z * z / (2 * n)) / denom
-    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
-    return round(max(0.0, centre - half), 4), round(min(1.0, centre + half), 4)
 
 
 @dataclass

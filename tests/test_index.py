@@ -35,22 +35,29 @@ def test_unknown_provider_fails_fast(tmp_path):
         VectorIndex(tmp_path / "chroma", "provider-invalido", "m", allow_fallback=False)
 
 
-def test_existing_ids_empty_and_unknown_collection(tmp_path, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
-    # allow_fallback -> uses ChromaDB default embedding, works offline for empty gets.
-    idx = VectorIndex(tmp_path / "chroma", "provider-invalido", "m", allow_fallback=True)
+def test_unknown_provider_with_fallback_leaves_the_embedding_to_chroma():
+    """``allow_fallback`` hands an unknown provider to Chroma's own default.
+
+    Built on the method alone: the default downloads an ONNX model on first use,
+    which no test may do (#324).
+    """
+    from types import SimpleNamespace
+
+    owner = SimpleNamespace(allow_fallback=True)
+    assert VectorIndex._build_embedding_fn(owner, "provider-invalido", "m") is None
+
+
+def test_existing_ids_empty_and_unknown_collection(tmp_path, token_hash_embedding):
+    idx = VectorIndex(tmp_path / "chroma", token_hash_embedding, "m")
     assert idx.existing_ids("chunks", ["a", "b"]) == set()
     assert idx.existing_ids("chunks", []) == set()
     with pytest.raises(ValueError):
         idx.existing_ids("colecao-inexistente", ["a"])
 
 
-def test_existing_ids_dedupes_duplicate_query_ids(tmp_path, monkeypatch):
+def test_existing_ids_dedupes_duplicate_query_ids(tmp_path, token_hash_embedding):
     """ChromaDB get() rejects duplicate ids; existing_ids must dedupe first."""
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
-    idx = VectorIndex(tmp_path / "chroma", "provider-invalido", "m", allow_fallback=True)
+    idx = VectorIndex(tmp_path / "chroma", token_hash_embedding, "m")
     idx.upsert_chunk("cid-a", "texto a", {"source_id": "@S"})
     # Same id twice in the query list must not raise DuplicateIDError.
     found = idx.existing_ids("chunks", ["cid-a", "cid-b", "cid-a"])
@@ -77,11 +84,9 @@ def test_chroma_cosine_space_distance_is_one_minus_cosine():
     assert cosine_from_distance(by_id["right"], "cosine") == pytest.approx(0.6, abs=1e-5)
 
 
-def test_query_similar_notes_filters_by_source_id(tmp_path, monkeypatch):
+def test_query_similar_notes_filters_by_source_id(tmp_path, token_hash_embedding):
     """#271: a where filter keeps a nearer other-source note out of the dedupe pool."""
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
-    idx = VectorIndex(tmp_path / "chroma", "provider-invalido", "m", allow_fallback=True)
+    idx = VectorIndex(tmp_path / "chroma", token_hash_embedding, "m")
     idx.upsert_permanent_note("near", "grafos de conhecimento e ligacoes", {"source_id": "@Other"})
     idx.upsert_permanent_note("same", "grafos de conhecimento e ligacoes", {"source_id": "@S"})
     hits = idx.query_similar_notes(
@@ -92,11 +97,9 @@ def test_query_similar_notes_filters_by_source_id(tmp_path, monkeypatch):
     assert [hit["id"] for hit in hits] == ["same"]
 
 
-def test_chapter_summary_distance_uses_that_collections_space(tmp_path, monkeypatch):
+def test_chapter_summary_distance_uses_that_collections_space(tmp_path, token_hash_embedding):
     """A reindex of one collection must not convert its distances as another."""
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
-    idx = VectorIndex(tmp_path / "chroma", "provider-invalido", "m", allow_fallback=True)
+    idx = VectorIndex(tmp_path / "chroma", token_hash_embedding, "m")
     idx.client.delete_collection("chapter_summaries")
     kwargs = idx._collection_kwargs()
     kwargs["configuration"] = {"hnsw": {"space": "l2"}}
@@ -111,27 +114,22 @@ def test_chapter_summary_distance_uses_that_collections_space(tmp_path, monkeypa
     assert notes[0]["distance_space"] == "cosine"
 
 
-def test_vector_index_declares_cosine_space(tmp_path, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
-    idx = VectorIndex(tmp_path / "chroma", "provider-invalido", "m", allow_fallback=True)
+def test_vector_index_declares_cosine_space(tmp_path, token_hash_embedding):
+    idx = VectorIndex(tmp_path / "chroma", token_hash_embedding, "m")
     assert idx.distance_space == "cosine"
     assert idx.permanent.configuration["hnsw"]["space"] == "cosine"
     assert idx.to_cosine(0.4) == pytest.approx(0.6)
 
 
-def test_collection_metadata_marks_provider(tmp_path, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
+def test_collection_metadata_marks_provider(tmp_path, token_hash_embedding):
     idx = VectorIndex(
         tmp_path / "chroma",
-        "provider-invalido",
+        token_hash_embedding,
         "meu-modelo",
-        allow_fallback=True,
         dimensions=1024,
     )
     meta = idx._collection_metadata()
-    assert meta["embedding_provider"] == "provider-invalido"
+    assert meta["embedding_provider"] == token_hash_embedding
     assert meta["embedding_model"] == "meu-modelo"
     assert meta["embedding_dimensions"] == 1024
 
@@ -140,78 +138,67 @@ def test_peek_empty_store(tmp_path):
     assert peek_stored_embedding_identity(tmp_path / "missing") == (None, None, None)
 
 
-def test_embedding_space_matches_empty_and_same(tmp_path, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
+def test_embedding_space_matches_empty_and_same(tmp_path, token_hash_embedding):
     path = tmp_path / "chroma"
-    idx = VectorIndex(path, "provider-invalido", "modelo-a", allow_fallback=True)
+    idx = VectorIndex(path, token_hash_embedding, "modelo-a")
     assert idx.embedding_space_matches() is True
     assert idx.get_stored_embedding_identity() == (
-        "provider-invalido",
+        token_hash_embedding,
         "modelo-a",
         None,
     )
     assert peek_stored_embedding_identity(path) == (
-        "provider-invalido",
+        token_hash_embedding,
         "modelo-a",
         None,
     )
 
 
-def test_embedding_space_mismatch_raises(tmp_path, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
+def test_embedding_space_mismatch_raises(tmp_path, token_hash_embedding):
     path = tmp_path / "chroma"
-    VectorIndex(path, "provider-invalido", "modelo-a", allow_fallback=True)
+    VectorIndex(path, token_hash_embedding, "modelo-a")
 
     with pytest.raises(EmbeddingSpaceMismatch) as ei:
-        VectorIndex(path, "provider-invalido", "modelo-b", allow_fallback=True)
+        VectorIndex(path, token_hash_embedding, "modelo-b")
     exc = ei.value
     assert exc.stored_model == "modelo-a"
     assert exc.current_model == "modelo-b"
 
 
-def test_embedding_dimensions_mismatch_raises(tmp_path, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
+def test_embedding_dimensions_mismatch_raises(tmp_path, token_hash_embedding):
     path = tmp_path / "chroma"
     VectorIndex(
         path,
-        "provider-invalido",
+        token_hash_embedding,
         "modelo-a",
-        allow_fallback=True,
         dimensions=1024,
     )
     with pytest.raises(EmbeddingSpaceMismatch) as ei:
         VectorIndex(
             path,
-            "provider-invalido",
+            token_hash_embedding,
             "modelo-a",
-            allow_fallback=True,
             dimensions=512,
         )
     assert ei.value.stored_dimensions == 1024
     assert ei.value.current_dimensions == 512
 
 
-def test_embedding_space_reset_mismatched(tmp_path, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("CHROMA_OPENAI_API_KEY", raising=False)
+def test_embedding_space_reset_mismatched(tmp_path, token_hash_embedding):
     path = tmp_path / "chroma"
-    idx_a = VectorIndex(path, "provider-invalido", "modelo-a", allow_fallback=True)
+    idx_a = VectorIndex(path, token_hash_embedding, "modelo-a")
     idx_a.upsert_chunk("c1", "texto", {"source_id": "@S"})
     assert idx_a.chunks.count() == 1
 
     idx_b = VectorIndex(
         path,
-        "provider-invalido",
+        token_hash_embedding,
         "modelo-b",
-        allow_fallback=True,
         reset_mismatched=True,
     )
     assert idx_b.embedding_space_matches() is True
     assert idx_b.get_stored_embedding_identity() == (
-        "provider-invalido",
+        token_hash_embedding,
         "modelo-b",
         None,
     )
@@ -471,3 +458,23 @@ def test_sanitize_metadata_types():
     assert "none" not in out  # None dropped
     assert out["list"] == "a, b"  # list joined
     assert isinstance(out["obj"], str)
+
+
+def test_embed_texts_records_its_own_embedding_usage(tmp_path, token_hash_embedding):
+    """Every caller is charged, not only the one that remembered to record (#327).
+
+    The intra-batch dedupe used to call the private ``_record_embed_usage`` itself,
+    and only for part of what it embedded; the garden's category labels and
+    connect's category assignment were never charged at all.
+    """
+    from zettel.usage import begin_run, get_tracker, reset
+
+    idx = VectorIndex(tmp_path / "chroma", token_hash_embedding, "m")
+    begin_run(1)
+    try:
+        idx.embed_texts(["grafos de conhecimento", "notas atomicas"], label="teste")
+        summary = get_tracker().summary()
+    finally:
+        reset()
+    assert summary.embed_calls == 2
+    assert summary.tokens_embedding > 0

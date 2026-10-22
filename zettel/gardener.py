@@ -40,6 +40,7 @@ from zettel.gardener_assign import (
     find_moc_by_note_overlap,
     garden_edge_policy,
     graph_cohesion,
+    model_library_versions,
 )
 from zettel.hashing import sha256_hex
 from zettel.index import VectorIndex
@@ -364,6 +365,7 @@ def model_store(cfg: AppConfig, *, refit: bool = False, readonly: bool = False) 
                 "umap_n_neighbors": gcfg.umap_n_neighbors,
                 "hdbscan_min_samples": gcfg.hdbscan_min_samples,
                 "random_state": gcfg.random_state,
+                "libraries": model_library_versions(),
             },
             sort_keys=True,
             default=str,

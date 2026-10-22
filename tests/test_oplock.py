@@ -52,10 +52,19 @@ def test_a_second_process_sees_who_holds_the_lock(tmp_path: Path):
 
 
 def test_a_dead_holder_frees_the_lock(tmp_path: Path):
+    """The OS frees a dead holder's lock, with no cleanup by us.
+
+    On Windows the release is asynchronous ("depends upon available system
+    resources", LockFileEx docs), so under a loaded parallel run it can lag the
+    process exit: wait for the condition instead of asserting it at once (#326).
+    """
     proc = _hold_in_another_process(tmp_path)
     proc.kill()
     proc.wait()
-    assert lock_holder(tmp_path / "zettel.lock") is None
+    deadline = time.monotonic() + 30
+    while lock_holder(tmp_path / "zettel.lock") is not None:
+        assert time.monotonic() < deadline, "the OS never released a dead holder's lock"
+        time.sleep(0.05)
     lock = OperationLock(tmp_path / "zettel.lock")
     lock.acquire("extract", "web")
     lock.release()

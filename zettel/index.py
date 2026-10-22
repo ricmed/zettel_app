@@ -1103,13 +1103,19 @@ class VectorIndex:
     def count_permanent_notes(self) -> int:
         return self.permanent.count()
 
-    def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        """Embed arbitrary texts with the same function used for Chroma collections."""
+    def embed_texts(self, texts: list[str], *, label: str = "embed_texts") -> list[list[float]]:
+        """Embed arbitrary texts with the same function used for Chroma collections.
+
+        Records the estimated usage of every text on the active ``CostTracker``,
+        so no caller has to remember to (#327).
+        """
         if not texts:
             return []
         if self.embedding_fn is None:
             raise RuntimeError("Embedding function not configured")
         vectors = self.embedding_fn(texts)
+        for text in texts:
+            self._record_embed_usage(text, label=label)
         return [list(v) for v in vectors]
 
 
