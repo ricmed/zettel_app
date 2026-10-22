@@ -212,6 +212,8 @@ Typer + Rich, split into a package by pipeline phase (ADR-026 for the framework,
 2. **Import order in `__init__.py` is the order of `zettel --help`.** Registration is an import side effect. The modules are bound to `COMMAND_MODULES` so an "unused import" cleanup cannot silently drop commands. `tests/test_cli.py` pins names *and* order.
 3. **Domain modules are imported inside the command function, never at module scope.** That is what keeps `zettel --help` from loading chromadb/docling/langchain.
 
+Every command is also invoked by a test (#330): `tests/test_cli_commands.py` runs each one through `CliRunner` against a throwaway project root built by `tests/cli_support.py` (`cli_instance` fixture: operational config moved into `tmp_path`, offline embedding, `install_fake_llm` for fixed per-phase answers), so flags, `load_deps` and the lock, exit codes and summaries run for real; read-only commands share one vault taken through `run-all`. A command that calls an LLM catches `LLMUnavailableError` with `exit_llm_unavailable` (exit 1, no traceback) -- `ask` and `article` did not. `set-paging` refuses a source that is not a PDF (Markdown has no pages).
+
 A shared `Annotated` option alias exists only when two or more commands declare the same flags with the same help text; where the flag means more in one command (`harvest --yes` also picks the duplicate action, `garden --yes` also confirms `--recreate`), that command declares it inline.
 
 ### Data flow between phases

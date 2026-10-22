@@ -247,3 +247,7 @@ Reason: Windows file locks; git tracking clarity.
 * `zettel/index.py` — `index_kwargs`, the single config-to-VectorIndex translation
 * `zettel/connector/run.py` — `load_approved_candidates`, the Phase 3 entry gate
 * `zettel/llm.py` — `REQUIRED_PROMPTS`, the canonical prompt list the doctor checks
+
+## Amendment (2026-10-22): every command is invoked by a test (#330)
+
+The three structural rules stay pinned by `tests/test_cli.py`; what ran in no test for most commands was the command itself (the package had 28% line coverage). `tests/test_cli_commands.py` invokes every registered command through Typer's `CliRunner` against a throwaway project root (`tests/cli_support.py`: the operational config moved into `tmp_path`, offline embedding, fixed LLM answers), so `load_deps`, the operation lock, `get_db`/`get_idx`, flag parsing, exit codes and the printed summary all run. Read-only commands share one vault taken through `run-all`; commands that write get a fresh instance. Package coverage rose to 73% of lines. The tests found that `ask` and `article` let `LLMUnavailableError` escape as a traceback; they now go through `exit_llm_unavailable` like `extract`, `connect` and `garden`.

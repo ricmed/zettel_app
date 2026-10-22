@@ -38,7 +38,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from zettel.cli.app import app, console
-from zettel.cli.deps import get_db, get_idx, load_deps, preflight_gate
+from zettel.cli.deps import exit_llm_unavailable, get_db, get_idx, load_deps, preflight_gate
 from zettel.cli.options import (
     ConfigOption,
     NoGraphOption,
@@ -214,23 +214,28 @@ def article(
         return {}
 
     console.print("[dim]Pipeline de artigo (LangGraph)...[/dim]")
-    result = run_article_graph(
-        cfg,
-        db,
-        idx,
-        topic,
-        style=style_norm,  # type: ignore[arg-type]
-        topk=topk,
-        use_graph=not no_graph,
-        mode=mode,
-        outline_only=outline_only,
-        personality=personality,
-        custom_style_notes=style_notes,
-        skip_context_review=skip_context_review or outline_only,
-        skip_judge=skip_judge or outline_only,
-        max_judge_iterations=max_judge_iterations,
-        hitl_handler=_hitl,
-    )
+    from zettel.llm import LLMUnavailableError
+
+    try:
+        result = run_article_graph(
+            cfg,
+            db,
+            idx,
+            topic,
+            style=style_norm,  # type: ignore[arg-type]
+            topk=topk,
+            use_graph=not no_graph,
+            mode=mode,
+            outline_only=outline_only,
+            personality=personality,
+            custom_style_notes=style_notes,
+            skip_context_review=skip_context_review or outline_only,
+            skip_judge=skip_judge or outline_only,
+            max_judge_iterations=max_judge_iterations,
+            hitl_handler=_hitl,
+        )
+    except LLMUnavailableError as exc:
+        exit_llm_unavailable(exc, db)
 
     if result.no_evidence:
         console.print(Panel(result.body, title="Sem evidencia"))

@@ -30,7 +30,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from zettel.cli.app import app, console
-from zettel.cli.deps import get_db, get_idx, load_deps
+from zettel.cli.deps import exit_llm_unavailable, get_db, get_idx, load_deps
 from zettel.cli.options import (
     ConfigOption,
     NoGraphOption,
@@ -83,17 +83,21 @@ def ask(
     idx = get_idx(cfg, db=db, yes=yes)
 
     from zettel.ask import run_ask, save_ask_note
+    from zettel.llm import LLMUnavailableError
 
-    with console.status("[bold blue]Consultando o acervo...", spinner="dots"):
-        result = run_ask(
-            cfg,
-            db,
-            idx,
-            question,
-            topk=topk,
-            use_graph=not no_graph,
-            mode=mode,
-        )
+    try:
+        with console.status("[bold blue]Consultando o acervo...", spinner="dots"):
+            result = run_ask(
+                cfg,
+                db,
+                idx,
+                question,
+                topk=topk,
+                use_graph=not no_graph,
+                mode=mode,
+            )
+    except LLMUnavailableError as exc:
+        exit_llm_unavailable(exc, db)
 
     console.print(Panel(result.answer.strip() or "(sem resposta)", title="Resposta"))
 

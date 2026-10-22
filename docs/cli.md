@@ -125,7 +125,7 @@ python -m zettel harvest --dump-extraction --dump-extraction-dir ./tmp/extractio
 
 ## `set-paging`
 
-Corrige a paginação de uma fonte **já harvestada**, recalculando o número impresso sem re-chamar o LLM. Renomeia as LIT granulares quando o token `pNNN` muda.
+Corrige a paginação de uma fonte **já harvestada**, recalculando o número impresso sem re-chamar o LLM. Renomeia as LIT granulares quando o token `pNNN` muda. Só vale para PDF: uma fonte em Markdown não tem páginas (o localizador é o caminho de seções) e o comando recusa com código de saída 1.
 
 ```bash
 python -m zettel set-paging --source-id @Citekey --content-start-file 35 --content-start-book 10

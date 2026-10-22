@@ -93,6 +93,24 @@ def web_client(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def cli_instance(tmp_path, monkeypatch):
+    """A project root running the operational config offline, for real CLI commands.
+
+    The configured embedding provider is backed by the offline token-hash builder,
+    so ``get_idx`` opens a real Chroma without a key or the network.
+    """
+    import yaml
+    from zettel import index
+
+    from tests.cli_support import CliInstance, write_operational_config
+
+    config = write_operational_config(tmp_path)
+    provider = yaml.safe_load(config.read_text(encoding="utf-8"))["embedding"]["provider"]
+    monkeypatch.setitem(index._EF_BUILDERS, provider, token_hash_ef_builder)
+    return CliInstance(root=tmp_path, config=config)
+
+
+@pytest.fixture
 def token_hash_embedding(monkeypatch) -> str:
     """Register the offline embedding and return its provider name for ``VectorIndex``."""
     from zettel import index
