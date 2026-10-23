@@ -57,6 +57,7 @@
 {% if chunks %}
 <form id="links-batch" class="review-actions" method="post" action="/review/links/batch" data-confirm="Confirma a decisão nas arestas selecionadas?">
   <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label class="select-all"><input type="checkbox" data-select-all><span>Selecionar todas</span></label>
   <span class="muted">Marque as arestas e decida todas de uma vez.</span>
   <button class="button" name="action" value="accept" data-review-confirm>Aceitar selecionadas</button>
   <button class="button" name="action" value="reject" data-review-confirm>Rejeitar selecionadas</button>
@@ -64,30 +65,55 @@
 {% endif %}
 <section class="stack">
   {% for edge in chunks %}
-  <article class="panel">
-    <label class="document-check"><input type="checkbox" name="edges" value="{{ edge.source_note_id }}|{{ edge.target_note_id }}|{{ edge.relation_type }}" form="links-batch"> Selecionar</label>
-    <p><b>{{ edge.source_title or edge.source_note_id }}</b> {{ edge.relation_type }} <b>{{ edge.target_title or edge.target_note_id }}</b></p>
-    <p class="muted"><code>{{ edge.source_note_id }}</code> · <code>{{ edge.target_note_id }}</code></p>
-    <p>{{ edge.description }}</p>
-    <p>{{ edge.source_thesis }}</p>
-    <p>{{ edge.target_thesis }}</p>
-    <form method="post" action="/review/links">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <input type="hidden" name="source_note_id" value="{{ edge.source_note_id }}">
-      <input type="hidden" name="target_note_id" value="{{ edge.target_note_id }}">
-      <input type="hidden" name="relation_type" value="{{ edge.relation_type }}">
-      <button class="button" name="action" value="accept">Aceitar</button>
-      <button class="button" name="action" value="reject">Rejeitar</button>
-      <select name="new_type">
-        <option value="supports">supports</option>
-        <option value="contradicts">contradicts</option>
-        <option value="extends">extends</option>
-        <option value="depends_on">depends_on</option>
-        <option value="exemplifies">exemplifies</option>
-        <option value="related">related</option>
-      </select>
-      <button class="button" name="action" value="retype">Trocar o tipo</button>
-    </form>
+  <article class="review-card">
+    <label class="select"><input type="checkbox" name="edges" value="{{ edge.source_note_id }}|{{ edge.target_note_id }}|{{ edge.relation_type }}" form="links-batch" aria-label="Selecionar aresta"><span></span></label>
+    <div class="review-body">
+      <div class="edge-header">
+        <b>{{ edge.source_note.title }}</b>
+        <span class="status edge-relation">{{ edge.relation_type }}</span>
+        <b>{{ edge.target_note.title }}</b>
+      </div>
+      {% if edge.description %}
+      <p class="edge-description"><b>Justificativa da relação ({{ edge.relation_type }}):</b> {{ edge.description }}</p>
+      {% endif %}
+      <div class="edge-notes">
+        {% for role, note in [('Nota de origem', edge.source_note), ('Nota de destino', edge.target_note)] %}
+        <div class="candidate edge-note">
+          <div class="review-meta">
+            <span class="edge-role">{{ role }}</span>
+            <a href="/notes/{{ note.note_id }}"><code>ZTL {{ note.note_id }}</code></a>
+            {% if note.source_id %}<code>{{ note.source_id }}</code>{% endif %}
+            {% if note.source_locator %}<span>{{ note.source_locator }}</span>{% endif %}
+            {% if note.citation %}<span>{{ note.citation }}</span>{% endif %}
+          </div>
+          <h3><a href="/notes/{{ note.note_id }}">{{ note.title }}</a></h3>
+          {% if note.thesis %}<p><b>Tese:</b> {{ note.thesis }}</p>{% endif %}
+          {% if note.definition %}<p><b>Definição:</b> {{ note.definition }}</p>{% endif %}
+          {% if note.intuition %}<p><b>Intuição:</b> {{ note.intuition }}</p>{% endif %}
+          {% if note.example %}<p><b>Exemplo:</b> {{ note.example }}</p>{% endif %}
+          {% if note.limits %}<p><b>Limites:</b> {{ note.limits }}</p>{% endif %}
+          {% if note.excerpt %}<p>{{ note.excerpt }}</p>{% endif %}
+          {% if note.anchor_quote %}<p class="edge-anchor"><b>Âncora na fonte:</b> “{{ note.anchor_quote }}”</p>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      <form class="edge-actions" method="post" action="/review/links">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="source_note_id" value="{{ edge.source_note_id }}">
+        <input type="hidden" name="target_note_id" value="{{ edge.target_note_id }}">
+        <input type="hidden" name="relation_type" value="{{ edge.relation_type }}">
+        <button class="button" name="action" value="accept">Aceitar</button>
+        <button class="button" name="action" value="reject">Rejeitar</button>
+        <div class="edge-retype">
+          <select name="new_type" aria-label="Novo tipo de relação">
+            {% for relation in relations %}
+            <option value="{{ relation }}" {% if relation == edge.relation_type %}selected{% endif %}>{{ relation }}</option>
+            {% endfor %}
+          </select>
+          <button class="button" name="action" value="retype">Trocar o tipo</button>
+        </div>
+      </form>
+    </div>
   </article>
   {% else %}
   <div class="empty panel">Nenhuma aresta de LLM pendente corresponde aos filtros.</div>
@@ -104,6 +130,7 @@
 <form method="post" action="/review/action" data-confirm="{% if queue == 'rejected' %}Confirma reenfileirar os chunks selecionados para o extract?{% elif queue == 'duplicates' %}Confirma a decisão nas duplicatas selecionadas?{% else %}Confirma a ação nos drafts selecionados?{% endif %}">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <div class="review-actions">
+    {% if chunks %}<label class="select-all"><input type="checkbox" data-select-all><span>Selecionar todos</span></label>{% endif %}
     <select name="action">
       {% if queue == 'rejected' %}
       <option value="requeue">Reenfileirar para o extract</option>

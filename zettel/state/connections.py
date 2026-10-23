@@ -226,7 +226,9 @@ class ConnectionsMixin(StateBase):
         rows = self._fetchall(
             "SELECT c.*, s.title AS source_title, s.body AS source_body, "
             "s.source_id AS source_source_id, t.title AS target_title, "
-            "t.body AS target_body, t.source_id AS target_source_id "
+            "t.body AS target_body, t.source_id AS target_source_id, "
+            "s.provenance_json AS source_provenance_json, "
+            "t.provenance_json AS target_provenance_json "
             + joins
             + " ORDER BY c.source_note_id, c.target_note_id, c.relation_type LIMIT ? OFFSET ?",
             (*params, limit, offset),
