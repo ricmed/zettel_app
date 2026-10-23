@@ -193,7 +193,7 @@ def test_pydantic_defaults_match_operational_yaml_for_chunking_and_linking():
     assert defaults.linking.seed_same_source_max == 0
     assert defaults.linking.graph_hub_repeat_limit == operational.linking.graph_hub_repeat_limit
     assert defaults.linking.graph_hub_repeat_limit == 0
-    assert defaults.linking.llm_edges == operational.linking.llm_edges == "propose"
+    assert defaults.linking.llm_edges == operational.linking.llm_edges == "accept"
     assert defaults.linking.prompt2_mode == operational.linking.prompt2_mode == "combined"
     assert defaults.linking.write_source_chars == operational.linking.write_source_chars == 4000
     assert defaults.linking.thesis_drift_min_similarity == 0.0

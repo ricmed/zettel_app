@@ -245,7 +245,7 @@ class LinkingConfig(BaseModel):
     # accept: aresta de LLM entra no grafo. propose: fica na fila ate um humano.
     # O padrao e propose porque a precisao medida (#212, #231) nao justifica
     # escrita direta. derived e manual nao passam por esta chave.
-    llm_edges: Literal["accept", "propose"] = "propose"
+    llm_edges: Literal["accept", "propose"] = "accept"
     # combined: o Prompt 2 atual (escreve e liga). split: escrita com a fonte,
     # depois ligacao. O padrao fica combined ate a regra #288.
     prompt2_mode: Literal["combined", "split"] = "combined"
