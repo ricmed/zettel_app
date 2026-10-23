@@ -2717,7 +2717,18 @@ def test_review_links_queue_accepts_a_proposed_edge(web_client):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(f"> **Tese**: tese {note_id}\n", encoding="utf-8")
             db.upsert_note(
-                note_id, "@S", str(path), title=note_id, body=f"> **Tese**: tese {note_id}\n"
+                note_id,
+                "@S",
+                str(path),
+                title=f"Titulo {note_id}",
+                body=f"> **Tese**: tese {note_id}\n\n## Definição\n\ndefinicao {note_id}\n",
+                provenance_json=json.dumps(
+                    {
+                        "citation": f"(AUTOR, 2024, p. {note_id})",
+                        "source_locator": f"p. {note_id}",
+                        "anchor_quote": f"ancora literal {note_id}",
+                    }
+                ),
             )
         db.upsert_note_connection("A", "B", "supports", "proposta", origin="llm", status="proposed")
     finally:
@@ -2727,6 +2738,12 @@ def test_review_links_queue_accepts_a_proposed_edge(web_client):
     assert page.status_code == 200
     assert "Aceitar" in page.text
     assert "tese A" in page.text and "tese B" in page.text
+    assert "definicao A" in page.text and "definicao B" in page.text
+    assert "Nota de origem" in page.text and "Nota de destino" in page.text
+    assert "Justificativa da relação (supports):" in page.text and "proposta" in page.text
+    assert "ancora literal A" in page.text and "(AUTOR, 2024, p. A)" in page.text
+    assert 'class="edge-retype"' in page.text and 'class="review-card"' in page.text
+    assert "data-select-all" in page.text and "Selecionar todas" in page.text
     response = client.post(
         "/review/links",
         data={

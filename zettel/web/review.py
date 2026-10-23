@@ -34,25 +34,78 @@ def _bounds(total: int, page: int, size: int) -> tuple[int, int, int]:
     return page, page_count, (page - 1) * size
 
 
-def _link_page(db, source_id, relation_type, scope, page):
-    from zettel.note_content import note_sections
+def _edge_note_detail(
+    note_id: str,
+    title: str | None,
+    body: str | None,
+    source_id: str | None,
+    provenance_json: str | None,
+) -> dict:
+    from zettel.citation import load_provenance
+    from zettel.markdown_fences import h2_section
+    from zettel.note_content import note_content, note_sections
 
+    raw_title = (title or "").strip()
+    raw_body = body or ""
+    sections = note_sections(raw_title, raw_body)
+    thesis = sections["thesis"]
+    if thesis == raw_title:
+        h2_thesis = h2_section(raw_body, "Tese")
+        if h2_thesis:
+            thesis = h2_thesis
+    has_structured = any(sections[k] for k in ("definition", "intuition", "example", "limits"))
+    excerpt = ""
+    if not has_structured and not raw_body.lstrip().startswith("> **Tese**:"):
+        free = note_content(raw_title, raw_body)
+        if free and free != thesis:
+            excerpt = free
+    prov = load_provenance({"provenance_json": provenance_json})
+    return {
+        "note_id": note_id,
+        "title": raw_title or note_id,
+        "source_id": source_id or "",
+        "thesis": thesis,
+        "definition": sections["definition"],
+        "intuition": sections["intuition"],
+        "example": sections["example"],
+        "limits": sections["limits"],
+        "excerpt": excerpt,
+        "citation": str(prov.get("citation") or ""),
+        "source_locator": str(prov.get("source_locator") or ""),
+        "anchor_quote": str(prov.get("anchor_quote") or ""),
+    }
+
+
+def _link_page(db, source_id, relation_type, scope, page):
     filters = {"source_id": source_id or None, "relation_type": relation_type, "scope": scope}
     _, total = db.proposed_connections_page(**filters, limit=0)
     page, page_count, offset = _bounds(total, page, _DRAFT_PAGE_SIZE)
     rows, _ = db.proposed_connections_page(**filters, limit=_DRAFT_PAGE_SIZE, offset=offset)
-    items = [
-        {
-            **row,
-            "source_thesis": note_sections(row["source_title"] or "", row["source_body"] or "")[
-                "thesis"
-            ],
-            "target_thesis": note_sections(row["target_title"] or "", row["target_body"] or "")[
-                "thesis"
-            ],
-        }
-        for row in rows
-    ]
+    items = []
+    for row in rows:
+        source_note = _edge_note_detail(
+            row["source_note_id"],
+            row.get("source_title"),
+            row.get("source_body"),
+            row.get("source_source_id"),
+            row.get("source_provenance_json"),
+        )
+        target_note = _edge_note_detail(
+            row["target_note_id"],
+            row.get("target_title"),
+            row.get("target_body"),
+            row.get("target_source_id"),
+            row.get("target_provenance_json"),
+        )
+        items.append(
+            {
+                **row,
+                "source_thesis": source_note["thesis"],
+                "target_thesis": target_note["thesis"],
+                "source_note": source_note,
+                "target_note": target_note,
+            }
+        )
     return items, total, page, page_count
 
 
