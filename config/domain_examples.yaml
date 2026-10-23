@@ -132,7 +132,6 @@ literature_note:
         {
           "thesis": "Em recuperacao por similaridade, a pergunta e os documentos passam pelo mesmo modelo de representacao antes da consulta ao indice.",
           "definition": "O pipeline separa a pergunta do usuario e o corpus em representacoes comparaveis. O modelo projeta ambos no mesmo espaco; o indice devolve os trechos mais proximos para o gerador.",
-          "intuition": "Como um catalogo que indexa livros e pedidos de emprestimo com o mesmo codigo de prateleira.",
           "limits": "Falha se o modelo de representacao mudar entre indexacao e consulta.",
           "anchor_quote": "question and documents are processed by the same representation model",
           "source_locator": "p.42 / secao 2.2",
@@ -161,7 +160,6 @@ literature_note:
         {
           "thesis": "Um sistema de pontuacao publica que condiciona o acesso a servicos ao historico do individuo transforma uma metrica em portao de cidadania.",
           "definition": "A cena encena um score unico que resume o comportamento passado de uma pessoa e passa a decidir, sozinho, quais servicos ela pode usar. O mecanismo generaliza para qualquer sistema de classificacao que vira pre-requisito de acesso: a pontuacao deixa de descrever o passado e passa a determinar o futuro.",
-          "intuition": "Como um score de credito que, em vez de julgar so emprestimos, decidisse tambem que trem voce pode pegar.",
           "limits": "So se aplica quando a pontuacao e condicao de acesso, nao apenas informacao — um score consultivo sem poder de veto e um caso diferente.",
           "anchor_quote": "sem o numero certo na tela, a porta simplesmente nao abria para ela",
           "source_locator": "cap. 4",

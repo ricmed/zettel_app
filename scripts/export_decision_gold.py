@@ -9,7 +9,7 @@ sheet a human fills to close both gaps.
 
 **The whole note, not the excerpt.** Each item is identified by the row's
 `state_json`, but notes are rendered **in full** from `state.db` at export time
-(thesis, definition, intuition, example, limits). The models saw less -- dedupe
+(thesis, definition, limits). The models saw less -- dedupe
 shows the LLM a 200-character excerpt of each existing note, corroborates only
 thesis and definition -- and that is the point: the label must be the best
 judgement available, and a model that errs because it saw too little is exactly

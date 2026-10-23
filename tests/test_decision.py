@@ -378,7 +378,7 @@ def _hit(note_id, similarity, hop=0):
 
 
 def _ztl_body(thesis, definition):
-    return f"> **Tese**: {thesis}\n\n## Definição\n\n{definition}\n"
+    return f"> **Tese**: {thesis}\n\n{definition}\n"
 
 
 def _shadow_corroborates(cfg, db, similar, corroborated=frozenset()):

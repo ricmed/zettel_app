@@ -957,9 +957,7 @@ def render_evidence_block(citation: str, anchor_quote: str) -> str:
 def build_permanent_note_body(
     thesis: str,
     definition: str,
-    intuition: str,
-    example: str,
-    limits: str,
+    limits: str = "",
     connections: list[dict] | None = None,
     literature_ref: str = "",
     source_ref: str = "",
@@ -970,6 +968,12 @@ def build_permanent_note_body(
     anchor_quote: str = "",
 ) -> str:
     """Build the Markdown body for a Permanent (ZTL) note.
+
+    `definition` sits directly below `> **Tese**:` as fluid prose (no heading),
+    followed optionally by `## Limites` and `## Figuras`.
+
+    `## Conexões` precedes `## Fonte` so the reader can traverse to related
+    notes before scrolling through provenance metadata.
 
     `images` is a list of {"path": ..., "description": ...} for figures deemed
     essential to the concept; rendered as a "## Figuras" section with embeds.
@@ -985,11 +989,7 @@ def build_permanent_note_body(
     """
     parts: list[str] = []
     parts.append(f"> **Tese**: {thesis}\n")
-    parts.append(f"## Definição\n\n{definition}\n")
-    if intuition:
-        parts.append(f"## Intuição\n\n{intuition}\n")
-    if example:
-        parts.append(f"## Exemplo\n\n{example}\n")
+    parts.append(f"{definition}\n")
     if limits:
         parts.append(f"## Limites\n\n{limits}\n")
     if images:
@@ -999,21 +999,6 @@ def build_permanent_note_body(
             desc = img.get("description") or ""
             fig_lines.append(f"{embed}\n\n{desc}\n" if desc else f"{embed}\n")
         parts.append("## Figuras\n\n" + "\n".join(fig_lines))
-    source_lines = ["## Fonte\n"]
-    if literature_ref:
-        source_lines.append(f"- Ref. literatura: {literature_ref}")
-    if source_ref:
-        source_lines.append(f"- Fonte (SRC): {source_ref}")
-    if page is not None:
-        source_lines.append(f"- Página: {page}")
-    if source_locator:
-        source_lines.append(f"- Localizador: {source_locator}")
-    evidence = render_evidence_block(citation, anchor_quote)
-    if evidence:
-        source_lines.append("")
-        source_lines.append(upsert_managed_block("", "auto-evidence", evidence).strip())
-    parts.append("\n".join(source_lines))
-    parts.append("")
     if connections:
         conn_lines: list[str] = []
         for c in connections:
@@ -1029,6 +1014,21 @@ def build_permanent_note_body(
                 line += f" -- {desc}"
             conn_lines.append(line)
         parts.append("## Conexões\n\n" + "\n".join(conn_lines) + "\n")
+    source_lines = ["## Fonte\n"]
+    if literature_ref:
+        source_lines.append(f"- Ref. literatura: {literature_ref}")
+    if source_ref:
+        source_lines.append(f"- Fonte (SRC): {source_ref}")
+    if page is not None:
+        source_lines.append(f"- Página: {page}")
+    if source_locator:
+        source_lines.append(f"- Localizador: {source_locator}")
+    evidence = render_evidence_block(citation, anchor_quote)
+    if evidence:
+        source_lines.append("")
+        source_lines.append(upsert_managed_block("", "auto-evidence", evidence).strip())
+    parts.append("\n".join(source_lines))
+    parts.append("")
     return "\n".join(parts)
 
 

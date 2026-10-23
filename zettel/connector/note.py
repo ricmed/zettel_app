@@ -353,8 +353,6 @@ def _write_note(
     body = build_permanent_note_body(
         thesis=note_output.thesis,
         definition=note_output.definition,
-        intuition=note_output.intuition,
-        example=note_output.example,
         limits=note_output.limits,
         connections=edges,
         literature_ref=literature_ref,

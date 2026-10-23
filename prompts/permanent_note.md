@@ -87,39 +87,25 @@ Responda mentalmente antes de decidir:
 
 - Deve ser **autossuficiente**: explicável sem a fonte
 - Deve incluir: o quê, como funciona, quando/onde se aplica
-- Mínimo de 3-6 frases substantivas
-- Deve revelar o **mecanismo** ou **princípio** subjacente quando houver
+- Mínimo de 3-6 frases substantivas em prosa fluida
+- **Não repita a tese na primeira frase**: a definição aparece logo abaixo da tese na nota, portanto avance direto para o **mecanismo** ou **princípio** subjacente
+- Se um exemplo concreto for indispensável para tornar o mecanismo claro, integre-o em 1 frase dentro da própria definição (sem inventar metáforas decorativas)
 - Evite descrições superficiais; busque profundidade explanatória
 - Você pode receber expressões matemáticas, algumas indicam cálculos, outras, fórmulas para conceitos, mostre os cálculos quando forem relevantes para entendimento da nota, para conceitos sempre inclua a fórmula. Sempre dentro da estrutura `$ $` para fórmulas in-line e `$$ $$` para fórmulas destacadas.
 
-### Intuição
+### Limites (Condicional)
 
-- Uma analogia concreta e cotidiana OU
-- Uma metáfora esclarecedora OU
-- Um exemplo do dia-a-dia que capture a essência
-- Deve iluminar o conceito, não apenas repeti-lo
-- Evite metáforas gastas (tapeçaria, bússola, orquestra, divisor de águas): a analogia precisa mapear o mecanismo, não só decorar
-
-### Exemplo
-
-- Deve demonstrar aplicação prática do conceito
-- Preferencialmente diferente do exemplo da fonte (se houver)
-- Pode ser do mesmo domínio se a aplicação for diferente
-
-### Limites
-
-- Especifique condições em que a tese NÃO se aplica
-- Indique exceções, pressupostos necessários ou contextos problemáticos
-- Seja honesto sobre as fronteiras do conceito
+- Especifique condições concretas em que a tese NÃO se aplica, exceções, pressupostos necessários ou trade-offs reais
 - Nomeie a condição concreta; "depende do contexto" sem dizer qual contexto não é um limite
+- **Estritamente condicional**: se o candidato e os anti-padrões não trouxerem limites específicos para este conceito, devolva string vazia `""` (nunca invente ressalvas genéricas apenas para preencher o campo)
 
 ### Julgamento do autor (entrada opcional)
 
 O input pode trazer **Regras de decisão**, **Anti-padrões** e **Frameworks nomeados**
 já extraídos do trecho-fonte. Quando vierem preenchidos:
 
-- Use as regras de decisão para deixar `definition`/`example` **acionáveis** ("quando
-  usar", "com que critério") em vez de puramente descritivos
+- Use as regras de decisão para deixar `definition` **acionável** ("quando
+  usar", "com que critério") em vez de puramente descritiva
 - Use os anti-padrões para tornar `limits` concreto — uma prática que falha e o motivo
   da falha valem mais que uma ressalva genérica
 - Cite o **nome exato** de um framework nomeado se ele aparecer na nota: não traduza,
@@ -177,7 +163,6 @@ neste formato:
 Conceito:
 - Tese: <thesis>
 - Definição: <definition>
-- Intuição: <intuition>
 - Limites: <limits>
 - Regras de decisão: <decision_rules>
 - Anti-padrões: <anti_patterns>
@@ -229,10 +214,8 @@ Responda APENAS com JSON válido:
   "category": "",
   "title": "Título declarativo curto (máx 100 chars)",
   "thesis": "Uma frase-tese clara e completa",
-  "definition": "Explicação autônoma, detalhada e compreensível por si só (mínimo 3-4 frases substantivas)",
-  "intuition": "Analogia, metáfora ou exemplo cotidiano que ilumina o conceito",
-  "example": "Exemplo prático de aplicação",
-  "limits": "Ressalvas, exceções e limites de aplicação específicos",
+  "definition": "Explicação autônoma, detalhada e compreensível por si só (mínimo 3-4 frases substantivas, sem repetir a tese na abertura)",
+  "limits": "Ressalvas, exceções e limites de aplicação específicos (ou string vazia se não houver)",
   "connections": [
     {
       "related_note_id": "01HAAAAAAAAAAAAAAAAAAAAAAA",
@@ -284,7 +267,6 @@ No caso **accepted**, `category` não carrega motivo de rejeição: devolva stri
 Conceito:
 - Tese: {thesis}
 - Definição: {definition}
-- Intuição: {intuition}
 - Limites: {limits}
 - Regras de decisão: {decision_rules}
 - Anti-padrões: {anti_patterns}

@@ -2552,7 +2552,6 @@ def test_review_page_shows_candidates_and_approves_one(web_client, monkeypatch):
                 {
                     "thesis": "Atencao liga tokens",
                     "definition": "Pesa outras posicoes da sequencia.",
-                    "intuition": "Como consultar o resto da frase.",
                     "limits": "Nao cria informacao nova.",
                     "relevance_score": 4,
                     "anchor_quote": "atencao para ligar tokens distantes",
@@ -2579,7 +2578,7 @@ def test_review_page_shows_candidates_and_approves_one(web_client, monkeypatch):
 
     page = client.get("/review")
     assert page.status_code == 200
-    assert "Como consultar o resto da frase." in page.text
+    assert "Pesa outras posicoes da sequencia." in page.text
     assert "Nao cria informacao nova." in page.text
     assert "so define o termo" in page.text
     assert "<mark>atencao para ligar tokens distantes</mark>" in page.text
@@ -2721,7 +2720,7 @@ def test_review_links_queue_accepts_a_proposed_edge(web_client):
                 "@S",
                 str(path),
                 title=f"Titulo {note_id}",
-                body=f"> **Tese**: tese {note_id}\n\n## Definição\n\ndefinicao {note_id}\n",
+                body=f"> **Tese**: tese {note_id}\n\ndefinicao {note_id}\n",
                 provenance_json=json.dumps(
                     {
                         "citation": f"(AUTOR, 2024, p. {note_id})",
@@ -2897,9 +2896,10 @@ def _seed_review_drafts(client, confidences):
         db.upsert_source("@Book2024", "Book2024", "Livro", ["Autor"], 2024, "h", "/x.md", "md")
         db.upsert_chapter("@Book2024::ch000", "@Book2024", "Cap", "ch")
         for index, (suffix, confidence, defect) in enumerate(confidences):
-            candidate = {"thesis": f"Tese {suffix}", "intuition": "i", "limits": "l"}
+            candidate = {"thesis": f"Tese {suffix}", "definition": f"Def {suffix}", "limits": "l"}
+            summary = {"candidates": [candidate]}
             if defect:
-                candidate.pop("limits")
+                summary["rejected_candidates"] = [{"thesis": " descartada", "reason": "curta"}]
             db.upsert_chunk(
                 f"@Book2024::ch000::{suffix}",
                 "@Book2024",
@@ -2909,7 +2909,7 @@ def _seed_review_drafts(client, confidences):
                 status="awaiting_review",
                 chunk_index=index,
                 review_confidence=confidence,
-                summary_json=json.dumps({"candidates": [candidate]}),
+                summary_json=json.dumps(summary),
             )
             db.upsert_concept(
                 f"c-{suffix}",

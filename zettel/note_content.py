@@ -1,10 +1,10 @@
 """The content of a permanent note, as a prompt or a human labeller should read it.
 
-A ZTL body (``vault.build_permanent_note_body``) holds the thesis line, the content
-sections (``## Definição``, ``## Intuição``, ``## Exemplo``, ``## Limites``) and then
-material that is *about* the note rather than *in* it: figures, ``## Fonte``, the
-``auto-evidence`` block, ``## Conexões``. Only the content sections say what the note
-claims. Connections would also leak a decision already taken (two notes already
+A ZTL body (``vault.build_permanent_note_body``) holds the thesis line, the fluid
+explanation prose (``definition``), optionally ``## Limites``, and then material
+that is *about* the note rather than *in* it: ``## Figuras``, ``## Conexões``,
+``## Fonte`` and the ``auto-evidence`` block. Only the content fields say what the
+note claims. Connections would also leak a decision already taken (two notes already
 linked), so they never travel with the content.
 
 Stdlib-only leaf, like ``markdown_fences``: importable without chromadb. #209 was the
@@ -24,16 +24,8 @@ from zettel.markdown_fences import h2_section, headings_outside_fences
 NOTE_FIELDS = (
     ("thesis", "Tese"),
     ("definition", "Definição"),
-    ("intuition", "Intuição"),
-    ("example", "Exemplo"),
     ("limits", "Limites"),
 )
-_HEADINGS = {
-    "definition": "Definição",
-    "intuition": "Intuição",
-    "example": "Exemplo",
-    "limits": "Limites",
-}
 _TESE_LINE = re.compile(r"^>\s*\*\*Tese\*\*:\s*(.+)$", re.MULTILINE)
 # H2 sections *about* a note rather than in it; dropped from a free-form body.
 _NOT_CONTENT = {"Conexões", "Fonte", "Figuras"}
@@ -51,12 +43,28 @@ def thesis_from_permanent_note(meta: dict[str, Any], body: str) -> str:
     return str(meta.get("title") or "").strip()
 
 
+def _definition_from_body(body: str) -> str:
+    """Explanation prose after ``> **Tese**: ...`` up to the first H2 heading."""
+    h2_def = h2_section(body, "Definição")
+    if h2_def:
+        return h2_def
+    match = _TESE_LINE.search(body)
+    if not match:
+        return ""
+    rest = _MANAGED_BLOCK.sub("", body[match.end() :])
+    headings = headings_outside_fences(_H2, rest)
+    prose = rest[: headings[0].start()] if headings else rest
+    return prose.strip()
+
+
 def note_sections(title: str, body: str) -> dict[str, str]:
     """Content fields of a ZTL body; empty string for a section the note lacks."""
-    sections = {"thesis": thesis_from_permanent_note({"title": title}, body)}
-    for key, heading in _HEADINGS.items():
-        sections[key] = h2_section(body or "", heading)
-    return sections
+    raw = body or ""
+    return {
+        "thesis": thesis_from_permanent_note({"title": title}, raw),
+        "definition": _definition_from_body(raw),
+        "limits": h2_section(raw, "Limites"),
+    }
 
 
 def render_note_content(fields: dict[str, Any], max_chars: int | None = None) -> str:
@@ -79,10 +87,11 @@ def note_content(title: str, body: str) -> str:
     blocks and the sections about the note (``## Conexões``, ``## Fonte``,
     ``## Figuras``), so its content is not lost to a layout it never had.
     """
-    sections = note_sections(title, body)
-    if any(sections[key] for key in _HEADINGS):
+    raw = body or ""
+    sections = note_sections(title, raw)
+    if _TESE_LINE.search(raw) or sections["definition"] or sections["limits"]:
         return render_note_content(sections)
-    return _free_form_content(body)
+    return _free_form_content(raw)
 
 
 def _free_form_content(body: str) -> str:

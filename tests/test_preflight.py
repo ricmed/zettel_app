@@ -191,7 +191,7 @@ def test_connect_counts_candidates_and_rag_context(cfg, db):
 
 
 def test_connect_context_follows_the_real_note_length_up_to_the_cap(cfg, db):
-    body = "> **Tese**: t\n\n## Definição\n\n" + "d" * 994
+    body = "> **Tese**: t\n\n" + "d" * 994
     db.upsert_note("N1", "@S", "/p/n1.md", "Titulo", body=body)
     assert rag_note_chars(db, 6000) == len(note_content("Titulo", body))
     assert rag_note_chars(db, 150) == 150

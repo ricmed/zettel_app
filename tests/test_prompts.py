@@ -368,7 +368,7 @@ def test_ptbr_guard_asks_for_the_json_object_the_caller_sends():
     assert "JSON" in text
     blocks = _json_examples(text)
     assert blocks, "ptbr_guard.md sem exemplo JSON"
-    keys = {"thesis", "definition", "intuition", "example", "limits"}
+    keys = {"thesis", "definition", "limits"}
     assert any(set(json.loads(b)) == keys for b in blocks)
 
 

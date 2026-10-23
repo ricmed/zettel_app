@@ -65,8 +65,6 @@ def test_split_writes_then_links_the_written_thesis(monkeypatch):
                 "title": "Titulo",
                 "thesis": "A tese aprovada.",
                 "definition": "A definicao.",
-                "intuition": "",
-                "example": "",
                 "limits": "",
             }
         else:

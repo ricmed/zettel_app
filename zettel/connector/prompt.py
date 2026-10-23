@@ -73,7 +73,6 @@ def prompt2_messages(
         "domain": cfg.domain.name,
         "thesis": cand.thesis,
         "definition": cand.definition,
-        "intuition": cand.intuition or "",
         "limits": cand.limits or "",
         "decision_rules": format_judgement(cand.decision_rules),
         "anti_patterns": format_judgement(cand.anti_patterns),
@@ -104,7 +103,6 @@ def note_write_messages(
         "domain": cfg.domain.name,
         "thesis": cand.thesis,
         "definition": cand.definition,
-        "intuition": cand.intuition or "",
         "limits": cand.limits or "",
         "anchor_quote": anchor_quote,
         "source_excerpt": source_excerpt,
@@ -267,7 +265,7 @@ def generate_permanent_note(
             category=output.category,
         )
 
-    if needs_ptbr_fix(f"{output.thesis} {output.definition} {output.intuition}"):
+    if needs_ptbr_fix(f"{output.thesis} {output.definition} {output.limits}"):
         output = apply_ptbr_guard(cfg, db, llm, output)
     return output, cache_hit
 
@@ -385,8 +383,6 @@ def generate_split_note(
         title=written.title,
         thesis=written.thesis,
         definition=written.definition,
-        intuition=written.intuition,
-        example=written.example,
         limits=written.limits,
         tags=list(cand.tags),
     )
@@ -432,7 +428,7 @@ def parse_permanent_note_output(text: str) -> PermanentNoteLLMOutput:
 
 _ENGLISH_MARKERS = re.compile(r"\b(the|and|this|that|with|from|which|where)\b")
 _PTBR_FIX_MIN_MARKERS = 3
-_GUARDED_FIELDS = ("thesis", "definition", "intuition", "example", "limits")
+_GUARDED_FIELDS = ("thesis", "definition", "limits")
 
 
 def needs_ptbr_fix(text: str) -> bool:

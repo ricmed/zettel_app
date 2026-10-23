@@ -62,7 +62,6 @@ def candidate_from_note(row: dict) -> PermanentNoteCandidate | None:
     return PermanentNoteCandidate(
         thesis=thesis or definition,
         definition=definition or thesis,
-        intuition=sections.get("intuition") or "",
         limits=sections.get("limits") or "",
     )
 

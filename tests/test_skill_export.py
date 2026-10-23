@@ -23,7 +23,7 @@ from zettel.topic_index import TermSource, build_term_map
 
 
 def _note_body(thesis: str, limits: str = "") -> str:
-    body = f"> **Tese**: {thesis}\n\n## Definição\n\nExplicação autônoma.\n"
+    body = f"> **Tese**: {thesis}\n\nExplicação autônoma.\n"
     if limits:
         body += f"\n## Limites\n\n{limits}\n"
     body += (

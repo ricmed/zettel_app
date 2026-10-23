@@ -64,7 +64,6 @@ class PermanentNoteCandidate(BaseModel):
     rejection_category: str = Field(default="", description="Categoria da rejeição")
     thesis: str = Field(description="Tese principal (uma frase declarativa)")
     definition: str = Field(description="Definição/explicação autônoma")
-    intuition: str = Field(default="", description="Intuição ou exemplo prático")
     limits: str = Field(default="", description="Limites ou ressalvas")
     anchor_quote: str = Field(
         default="",
@@ -345,8 +344,6 @@ class PermanentNoteLLMOutput(BaseModel):
     title: str = Field(default="", description="Título declarativo da nota")
     thesis: str = Field(default="", description="Tese principal (blockquote)")
     definition: str = Field(default="", description="Definição/explicação autônoma")
-    intuition: str = Field(default="", description="Intuição ou analogia")
-    example: str = Field(default="", description="Exemplo prático")
     limits: str = Field(default="", description="Limites e ressalvas")
     connections: list[RelationshipResult] = Field(
         default_factory=list,
@@ -365,8 +362,6 @@ class NoteWriteOutput(BaseModel):
     title: str = ""
     thesis: str = ""
     definition: str = ""
-    intuition: str = ""
-    example: str = ""
     limits: str = ""
 
 

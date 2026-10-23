@@ -178,12 +178,12 @@ def test_graph_expansion_adds_neighbors(db):
 
 N1, N2 = "01ARZ3NDEKTSV4RRFFQ69G5FAV", "01ARZ3NDEKTSV4RRFFQ69G5FAW"
 _ZTL_BODY = (
-    "> **Tese**: grafo tipado guia a busca\n\n## Definição\n\nArestas com tipo.\n\n"
+    "> **Tese**: grafo tipado guia a busca\n\nArestas com tipo.\n\n"
+    "<!-- zettel:auto-connections:start -->\n- [[ZTL - n9]]\n"
+    "<!-- zettel:auto-connections:end -->\n\n"
     "## Fonte\n\n[[LIT - X]]\n\n"
     "<!-- zettel:auto-evidence:start -->\n> citacao literal\n"
-    "<!-- zettel:auto-evidence:end -->\n\n"
-    "<!-- zettel:auto-connections:start -->\n- [[ZTL - n9]]\n"
-    "<!-- zettel:auto-connections:end -->\n"
+    "<!-- zettel:auto-evidence:end -->\n"
 )
 
 
@@ -196,7 +196,7 @@ def test_a_note_reads_the_same_by_every_retrieval_path(db):
     from zettel.note_content import note_content
 
     db.upsert_note(N1, "@S", "/p/a.md", "Grafo", body=_ZTL_BODY)
-    db.upsert_note(N2, "@S", "/p/b.md", "Outra", body="> **Tese**: outra\n\n## Definição\n\nX")
+    db.upsert_note(N2, "@S", "/p/b.md", "Outra", body="> **Tese**: outra\n\nX")
     db.upsert_note_connection(N2, N1, "supports", "")
     expected = note_content("Grafo", _ZTL_BODY)
     r = Retriever(_cfg(), db, _index(note_ids=[N1]))

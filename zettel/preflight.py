@@ -237,8 +237,7 @@ def estimate_connect(
     for item in candidates:
         cand = item.get("candidate")
         text = " ".join(
-            str(getattr(cand, attr, "") or "")
-            for attr in ("thesis", "definition", "intuition", "limits")
+            str(getattr(cand, attr, "") or "") for attr in ("thesis", "definition", "limits")
         )
         input_tokens += estimate_tokens(text) + context_tokens + overhead
     per_call, output_note = _output_tokens_per_call(

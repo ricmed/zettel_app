@@ -86,7 +86,7 @@ def test_manual_permanent_gets_id_and_origin(cfg, db):
     _write(
         ztl,
         {"type": "permanent", "title": "Nota Manual"},
-        "> **Tese**: uma tese manual\n\n## Definicao\n\ntexto",
+        "> **Tese**: uma tese manual\n\ntexto",
     )
     idx = FakeVectorIndex()
     stats = run_sync_manual(cfg, db, idx)
@@ -111,7 +111,7 @@ def test_pipeline_permanent_is_skipped(cfg, db):
             "title": "Pipe",
             "origin": "pipeline",
         },
-        "> **Tese**: gerada pelo pipeline\n\n## Definicao\n\ntexto",
+        "> **Tese**: gerada pelo pipeline\n\ntexto",
     )
     idx = FakeVectorIndex()
     stats = run_sync_manual(cfg, db, idx)
@@ -178,7 +178,7 @@ def test_resync_unchanged_is_skipped(cfg, db):
     _write(
         ztl,
         {"type": "permanent", "title": "Nota"},
-        "> **Tese**: tese estavel\n\n## Definicao\n\ntexto",
+        "> **Tese**: tese estavel\n\ntexto",
     )
     idx = FakeVectorIndex()
     run_sync_manual(cfg, db, idx)  # first pass: new

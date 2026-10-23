@@ -60,7 +60,6 @@ def _candidate(**overrides) -> dict:
             "O algoritmo ajusta os pesos iterativamente na direcao oposta ao gradiente "
             "da funcao de perda, e taxas adaptativas aceleram a convergencia"
         ),
-        "intuition": "Como descer uma montanha ajustando o passo",
         "limits": "Pode divergir com learning rates altos",
         "anchor_quote": _ANCHOR,
         "source_locator": "p.42",
@@ -198,7 +197,7 @@ def test_pass_rate_of_empty_input_is_zero():
 # ── gold set (#176) ───────────────────────────────────────────────────
 
 
-def _score(chunk_id, *, current, relevance=4.0, n_approved=1, n_rejected=0, completeness=1.0):
+def _score(chunk_id, *, current, relevance=4.0, n_approved=1, n_rejected=0):
     return ChunkScore(
         chunk_id=chunk_id,
         chunk_index=0,
@@ -210,7 +209,6 @@ def _score(chunk_id, *, current, relevance=4.0, n_approved=1, n_rejected=0, comp
         n_rejected=n_rejected,
         avg_relevance=relevance,
         avg_definition_words=20.0,
-        completeness=completeness,
     )
 
 
@@ -304,7 +302,6 @@ def test_gold_report_detects_a_separating_signal_and_saturation():
 
     assert report["signals"]["review_confidence"]["verdict"] == "separa"
     assert report["signals"]["relevance"]["verdict"] == "indistinguivel de moeda"  # constant
-    assert report["saturation"]["completeness"] == 1.0  # every item at the maximum
     assert report["saturation"]["integrity"] == 0.5  # only the keep half is at 1.0
 
 

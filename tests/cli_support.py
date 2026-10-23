@@ -159,7 +159,6 @@ def _extract_answer(user: str) -> dict:
                     f"No vocabulario da economia politica, {chapter['concept']} designa uma "
                     "categoria basica a partir da qual o autor organiza toda a analise seguinte."
                 ),
-                "intuition": "Funciona como o ponto de partida concreto do raciocinio.",
                 "limits": "A definicao vale para a sociedade mercantil analisada pelo autor.",
                 "anchor_quote": chapter["anchor"],
                 "source_locator": chapter["heading"],
@@ -180,8 +179,6 @@ def _connect_answer(user: str) -> dict:
             f"Para o autor, {chapter['concept']} e uma categoria que so faz sentido dentro "
             "das relacoes de troca que a sociedade mercantil estabelece entre as pessoas."
         ),
-        "intuition": "Pense numa feira em que tudo e trocado por algo equivalente.",
-        "example": "Um casaco trocado por dez metros de linho.",
         "limits": "Vale para a producao mercantil, nao para toda economia possivel.",
         "connections": [],
         "tags": [chapter["concept"]],

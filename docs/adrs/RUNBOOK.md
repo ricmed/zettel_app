@@ -145,7 +145,7 @@ Action — measure first, never retune from intuition:
   Since #152 the threshold is NOT a percentile. It sits just under the
   score a flawless chunk earns at the relevance floor (0.80), so a chunk
   auto-approves unless a defect was actually detected — the filter dropped
-  a candidate, or intuition/limits are missing. Moving it up starts
+  a candidate. Moving it up starts
   rejecting clean chunks for no nameable reason; moving it down stops
   catching real defects. Change the WEIGHTS only with the harness output
   and a reachability table attached to the GitHub issue.

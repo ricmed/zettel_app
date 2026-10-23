@@ -296,8 +296,6 @@ def test_build_permanent_note_body_with_enum_relation_type():
     body = build_permanent_note_body(
         thesis="Tese",
         definition="Def",
-        intuition="",
-        example="",
         limits="",
         connections=[
             {
@@ -314,7 +312,7 @@ def test_build_permanent_note_body_with_enum_relation_type():
 
 
 def test_build_permanent_note_body_with_connections():
-    """Connections are rendered with type and description in the note body."""
+    """Connections are rendered with type and description in the note body, before Fonte."""
     connections = [
         {
             "wiki_link": "[[ZTL - ABC - titulo-nota]]",
@@ -330,14 +328,14 @@ def test_build_permanent_note_body_with_connections():
     body = build_permanent_note_body(
         thesis="Tese de teste",
         definition="Definicao de teste",
-        intuition="",
-        example="",
         limits="",
         connections=connections,
         literature_ref="[[LIT - @test]]",
         source_locator="p.10",
     )
     assert "## Conexões" in body
+    assert "## Definição" not in body
+    assert body.index("## Conexões") < body.index("## Fonte")
     assert "[[ZTL - ABC - titulo-nota]] (supports) -- Valida a tese" in body
     assert "[[ZTL - DEF - outra-nota]] (contradicts)" in body
     # Second connection has no description, so no " -- " suffix
@@ -351,8 +349,6 @@ def test_build_permanent_note_body_without_connections():
     body = build_permanent_note_body(
         thesis="Tese",
         definition="Def",
-        intuition="",
-        example="",
         limits="",
         connections=[],
         literature_ref="[[LIT - @x]]",
@@ -366,8 +362,6 @@ def test_permanent_note_source_section_renders_structural_page():
     body = build_permanent_note_body(
         thesis="Tese",
         definition="Def",
-        intuition="",
-        example="",
         limits="",
         connections=[],
         literature_ref="[[Book2024/LIT - Book2024 - p042 - topico-0001|p. 42 — Topico]]",
@@ -384,8 +378,6 @@ def test_permanent_note_source_section_omits_page_without_paging():
     body = build_permanent_note_body(
         thesis="Tese",
         definition="Def",
-        intuition="",
-        example="",
         limits="",
         connections=[],
         literature_ref="[[LIT - @x]]",
@@ -401,8 +393,6 @@ def test_permanent_note_source_section_omits_empty_literature_ref():
     body = build_permanent_note_body(
         thesis="Tese",
         definition="Def",
-        intuition="",
-        example="",
         limits="",
         connections=[],
         literature_ref="",
@@ -416,8 +406,6 @@ def test_build_permanent_note_body_with_figures():
     body = build_permanent_note_body(
         thesis="Tese",
         definition="Def",
-        intuition="",
-        example="",
         limits="",
         connections=[],
         literature_ref="[[LIT - @x]]",
@@ -646,7 +634,7 @@ def test_parse_permanent_note_rejects_accepted_without_body():
 
 
 def test_ptbr_guard_roundtrips_the_json_object(monkeypatch, tmp_path):
-    """The guard sends 5 keys as JSON and must get the same object back.
+    """The guard sends 3 keys as JSON and must get the same object back.
 
     The prompt used to ask for "apenas o texto corrigido"; `json.loads` then raised
     and the `except` swallowed it, turning the guard into a silent no-op.
@@ -668,8 +656,6 @@ def test_ptbr_guard_roundtrips_the_json_object(monkeypatch, tmp_path):
         title="T",
         thesis="The model learns from data",
         definition="This definition is in English and should be translated",
-        intuition="Like a student",
-        example="An example",
         limits="Some limits",
     )
 
@@ -681,8 +667,6 @@ def test_ptbr_guard_roundtrips_the_json_object(monkeypatch, tmp_path):
         assert set(payload) == {
             "thesis",
             "definition",
-            "intuition",
-            "example",
             "limits",
         }
         return json.dumps({k: f"[ptbr] {v}" for k, v in payload.items()})
@@ -692,7 +676,7 @@ def test_ptbr_guard_roundtrips_the_json_object(monkeypatch, tmp_path):
 
     assert fixed.thesis == "[ptbr] The model learns from data"
     assert fixed.definition.startswith("[ptbr] ")
-    assert fixed.example == "[ptbr] An example"
+    assert fixed.limits == "[ptbr] Some limits"
     assert "{text}" not in sent["user"]
     assert fixed.ptbr_guard is True
 
@@ -709,18 +693,13 @@ def test_ptbr_guard_reuses_the_sqlite_cache(monkeypatch, tmp_path):
         status="accepted",
         thesis="The model learns from data that it sees",
         definition="This definition is in English and should be translated",
-        intuition="Like a student",
-        example="An example",
         limits="Some limits",
     )
     calls = {"n": 0}
 
     def fake_call_llm(llm, user, system=None, **kwargs):
         calls["n"] += 1
-        return (
-            '{"thesis": "O modelo aprende", "definition": "d",'
-            ' "intuition": "i", "example": "e", "limits": "l"}'
-        )
+        return '{"thesis": "O modelo aprende", "definition": "d", "limits": "l"}'
 
     monkeypatch.setattr("zettel.connector.prompt.call_llm", fake_call_llm)
     db = _CacheDB()

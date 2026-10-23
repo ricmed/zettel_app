@@ -391,8 +391,6 @@ def scaffold_manual_note(
         body = build_permanent_note_body(
             thesis=thesis or "_Preencha a tese._",
             definition="_Preencha a definicao._",
-            intuition="",
-            example="",
             limits="",
             connections=[],
             literature_ref="",

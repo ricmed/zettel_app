@@ -241,9 +241,6 @@ def format_candidate_block(concept: dict, *, index: int, total: int) -> str:
         "Definicao",
         str(cand.get("definition") or "").strip() or "_Sem definicao._",
         "",
-        "Intuicao",
-        str(cand.get("intuition") or "").strip() or "_Sem intuicao._",
-        "",
         "Limites",
         str(cand.get("limits") or "").strip() or "_Sem limites._",
         "",
@@ -307,23 +304,13 @@ def normalize_extract_decision(raw: str) -> str | None:
 
 
 def chunk_has_review_defect(chunk: dict) -> bool:
-    """True when the filter dropped a candidate or a survivor is missing a field.
+    """True when the deterministic filter dropped a candidate in this chunk.
 
-    Those drafts are the ones a threshold would hide: the score already noticed
-    something, and they belong at the front of the queue (#268).
+    Those drafts are the ones a threshold would hide: the filter already noticed
+    a defect alongside the survivors, so they belong at the front of the queue (#268).
     """
     summary = _load_json(chunk.get("summary_json"))
-    if summary.get("rejected_candidates"):
-        return True
-    for cand in summary.get("candidates") or []:
-        if not isinstance(cand, dict):
-            continue
-        if (
-            not str(cand.get("intuition") or "").strip()
-            or not str(cand.get("limits") or "").strip()
-        ):
-            return True
-    return False
+    return bool(summary.get("rejected_candidates"))
 
 
 def review_queue_key(chunk: dict) -> tuple:

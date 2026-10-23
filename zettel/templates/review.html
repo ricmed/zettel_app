@@ -89,8 +89,6 @@
           <h3><a href="/notes/{{ note.note_id }}">{{ note.title }}</a></h3>
           {% if note.thesis %}<p><b>Tese:</b> {{ note.thesis }}</p>{% endif %}
           {% if note.definition %}<p><b>Definição:</b> {{ note.definition }}</p>{% endif %}
-          {% if note.intuition %}<p><b>Intuição:</b> {{ note.intuition }}</p>{% endif %}
-          {% if note.example %}<p><b>Exemplo:</b> {{ note.example }}</p>{% endif %}
           {% if note.limits %}<p><b>Limites:</b> {{ note.limits }}</p>{% endif %}
           {% if note.excerpt %}<p>{{ note.excerpt }}</p>{% endif %}
           {% if note.anchor_quote %}<p class="edge-anchor"><b>Âncora na fonte:</b> “{{ note.anchor_quote }}”</p>{% endif %}
@@ -209,7 +207,6 @@
             <b>{{ concept.thesis }}</b>
             {% if concept.relevance_score %}<span>relevância {{ concept.relevance_score }}/5</span>{% endif %}
             <p>{{ concept.definition }}</p>
-            {% if concept.intuition %}<p><b>Intuição:</b> {{ concept.intuition }}</p>{% endif %}
             {% if concept.limits %}<p><b>Limites:</b> {{ concept.limits }}</p>{% endif %}
             {% if concept.anchor_quote %}<p><b>Âncora:</b> {{ concept.anchor_quote }}</p>{% endif %}
           </div>

@@ -29,7 +29,7 @@ def _seed(db):
         "@S",
         None,
         "Nota Permanente",
-        body="> **Tese**: algo\n\n## Definicao\n\ntexto",
+        body="> **Tese**: algo\n\ntexto",
         frontmatter_json=json.dumps({"type": "permanent", "note_id": "n1", "tags": ["t1", "t2"]}),
     )
     db.upsert_moc(

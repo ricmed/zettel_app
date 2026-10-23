@@ -53,7 +53,7 @@ def _edge_note_detail(
         h2_thesis = h2_section(raw_body, "Tese")
         if h2_thesis:
             thesis = h2_thesis
-    has_structured = any(sections[k] for k in ("definition", "intuition", "example", "limits"))
+    has_structured = any(sections[k] for k in ("definition", "limits"))
     excerpt = ""
     if not has_structured and not raw_body.lstrip().startswith("> **Tese**:"):
         free = note_content(raw_title, raw_body)
@@ -66,8 +66,6 @@ def _edge_note_detail(
         "source_id": source_id or "",
         "thesis": thesis,
         "definition": sections["definition"],
-        "intuition": sections["intuition"],
-        "example": sections["example"],
         "limits": sections["limits"],
         "excerpt": excerpt,
         "citation": str(prov.get("citation") or ""),
@@ -177,7 +175,6 @@ def _draft_page(db, cfg, source_id, confidence, page):
                     "concept_id": concept["concept_id"],
                     "thesis": cand.get("thesis") or "",
                     "definition": cand.get("definition") or "",
-                    "intuition": cand.get("intuition") or "",
                     "limits": cand.get("limits") or "",
                     "relevance_score": cand.get("relevance_score"),
                     "anchor_quote": cand.get("anchor_quote") or "",

@@ -20,8 +20,6 @@ from zettel.vault import read_managed_block
 
 NOTE = """> **Tese**: a mesma ideia
 
-## Definição
-
 o que delimita a ideia
 """
 

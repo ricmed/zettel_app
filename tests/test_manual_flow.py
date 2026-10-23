@@ -324,8 +324,6 @@ def test_permanent_from_literature_with_llm(cfg, db, monkeypatch):
         title="Conectividade e robustez",
         thesis="Conectividade determina robustez estrutural.",
         definition="Um grafo conexo mantem caminhos apos remocoes limitadas.",
-        intuition="",
-        example="",
         limits="",
         connections=[],
         tags=["grafos"],

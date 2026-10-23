@@ -193,13 +193,7 @@ origin: pipeline
 
 > **Tese**: Heurísticas cognitivas são atalhos mentais que o Sistema 1 usa para produzir julgamentos rápidos com mínimo esforço consciente.
 
-## Definição
-
-Heurísticas são regras simplificadas de processamento mental...
-
-## Intuição
-
-Imagine que você vê uma expressão facial irritada...
+Heurísticas são regras simplificadas de processamento mental... Imagine que você vê uma expressão facial irritada...
 
 ## Limites
 
@@ -211,16 +205,16 @@ Heurísticas são adaptativas em contextos familiares, mas falham sistematicamen
 
 Diagrama do Sistema 1 versus Sistema 2 (quando o candidato marca a imagem como essencial).
 
+## Conexões
+
+- [[ZTL - 01HABC... - vieses-cognitivos]] (extends) -- heurísticas como mecanismo gerador de vieses
+- [[ZTL - 01HGHI... - dois-sistemas-de-raciocinio]] (corroborates) -- Outra fonte sustenta a mesma ideia
+
 ## Fonte
 
 - Ref. literatura: [[Kahneman2011ThinkingFast/LIT - Kahneman2011 - p020 - sistema-1-0001|p. 20 — Sistema 1]]
 - Página: 20
 - Localizador: p.20-25 / Capítulo 1
-
-## Conexões
-
-- [[ZTL - 01HABC... - vieses-cognitivos]] (extends) -- heurísticas como mecanismo gerador de vieses
-- [[ZTL - 01HGHI... - dois-sistemas-de-raciocinio]] (corroborates) -- Outra fonte sustenta a mesma ideia
 
 <!-- zettel:auto-backlinks:start -->
 - [[ZTL - 01HDEF... - racionalidade-limitada]]
