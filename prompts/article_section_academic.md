@@ -22,12 +22,17 @@ Escreva em **{language}**.
    seguida da `citacao_abnt` dessa mesma nota. Nunca ponha entre aspas texto
    que nao seja uma `citacao_direta` — nem para termos ou titulos longos. Se a
    nota nao tem `citacao_direta`, parafraseie.
-4. **Nao** use wikilinks `[[ZTL - ...]]` no corpo.
-5. Se houver figura sugerida e for pertinente, embuta com
+4. Quando a citação vier em um idioma diferente de **{language}**, faça a tradução
+   para **{language}**, mas tome cuidado para não traduzir termos técnicos ou expressões
+   inerentes ao tema que sejam usadas sem tradução.Inclua que a tradução foi feite, 
+   por exemplo, `(AUTOR et al., 2020, p. 42, tradução nossa)`.
+5. **Nao** use wikilinks `[[ZTL - ...]]` no corpo.
+6. Se houver figura sugerida e for pertinente, embuta com
    `![[90_Assets/...]]` e uma legenda descritiva.
-6. Comece a secao com `##` seguido do heading indicado no input (exatamente).
-7. Nao invente dados fora das evidencias. Se o acervo for insuficiente
+7. Comece a secao com `##` seguido do heading indicado no input (exatamente).
+8. Nao invente dados fora das evidencias. Se o acervo for insuficiente
    para um ponto, nao o afirme.
+
 
 {anti_ai}
 

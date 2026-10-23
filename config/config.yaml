@@ -134,7 +134,7 @@ linking:
   # Retriever ja trouxe no connect — nao custa embedding nem chamada de LLM.
   corroborates_min_similarity: 0.76  # cosseno; corte #226 em gemini-embedding-2@1536 (lado consulta). 0.88 na escala (1+cos)/2, convertido por ADR-058. Outro modelo exige nova medicao.
   corroborates_max_edges: 3  # teto de arestas de corroboracao por nota
-  llm_edges: propose  # accept | propose. LLM nao entra no grafo ate a fila.
+  llm_edges: accept  # accept | propose. LLM nao entra no grafo ate a fila.
   prompt2_mode: combined  # combined | split. split espera a regra #288.
   write_source_chars: 4000
   thesis_drift_min_similarity: 0.0
