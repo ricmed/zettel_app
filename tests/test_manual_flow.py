@@ -365,6 +365,93 @@ def test_permanent_from_literature_with_llm(cfg, db, monkeypatch):
     assert db.get_concepts_by_status("approved", without_notes=True) == []
 
 
+def test_append_figure_embeds_extends_the_section_once():
+    from zettel.vault import append_figure_embeds
+
+    body = "> **Tese**: x\n\n## Figuras\n\n![[90_Assets/img-aaa.png]]\n\n## Fonte\n\n- ok\n"
+    out = append_figure_embeds(body, ["90_Assets/img-aaa.png", "90_Assets/img-bbb.png"])
+    assert out.count("img-aaa") == 1
+    assert "img-bbb" in out
+    assert out.index("img-bbb") < out.index("## Fonte")
+    assert append_figure_embeds(out, ["90_Assets/img-bbb.png"]) == out
+
+
+def test_permanent_from_literature_keeps_uploaded_image(cfg, db):
+    from zettel.assets import register_note_images, store_manual_images
+
+    idx = FakeVectorIndex()
+    lit = _scaffold_source_and_lit(cfg, db, idx)
+    rel = store_manual_images(cfg.vault_path, [("figura.png", PNG_BYTES)])[0]
+    path, via_llm = create_permanent_from_literature(cfg, db, idx, str(lit), images=[{"path": rel}])
+    assert via_llm is False
+    text = path.read_text(encoding="utf-8")
+    assert f"![[{rel}]]" in text
+    assert "## Figuras" in text
+    assets = [row for row in db.get_assets_for_source("@Diestel2017") if row["path"] == rel]
+    assert len(assets) == 1
+    assert assets[0]["status"] == "pending"
+    register_note_images(cfg, db, "@Diestel2017", path)
+    again = [row for row in db.get_assets_for_source("@Diestel2017") if row["path"] == rel]
+    assert len(again) == 1
+
+
+def test_permanent_from_literature_drops_a_path_outside_assets(cfg, db):
+    idx = FakeVectorIndex()
+    lit = _scaffold_source_and_lit(cfg, db, idx)
+    path, _ = create_permanent_from_literature(
+        cfg, db, idx, str(lit), images=[{"path": "../secrets.png"}]
+    )
+    text = path.read_text(encoding="utf-8")
+    assert "secrets.png" not in text
+    assert "## Figuras" not in text
+
+
+def test_permanent_from_literature_with_llm_appends_uploaded_image(cfg, db, monkeypatch):
+    from zettel.assets import store_manual_images
+    from zettel.connector import prompt, run
+    from zettel.schemas import PermanentNoteLLMOutput
+
+    idx = FakeVectorIndex()
+    lit = _scaffold_source_and_lit(cfg, db, idx)
+    rel = store_manual_images(cfg.vault_path, [("figura.png", PNG_BYTES)])[0]
+    response = PermanentNoteLLMOutput(
+        status="ok",
+        reason="",
+        category="",
+        title="Conectividade e robustez",
+        thesis="Conectividade determina robustez estrutural.",
+        definition="Um grafo conexo mantem caminhos apos remocoes limitadas.",
+        intuition="",
+        example="",
+        limits="",
+        connections=[],
+        tags=["grafos"],
+    ).model_dump_json()
+    monkeypatch.setattr(run, "get_llm", lambda cfg, phase: object())
+    monkeypatch.setattr(prompt, "call_llm", lambda *a, **k: response)
+
+    path, via_llm = create_permanent_from_literature(
+        cfg,
+        db,
+        idx,
+        str(lit),
+        use_llm=True,
+        images=[{"path": rel}, {"path": "../secrets.png"}],
+    )
+    assert via_llm is True
+    meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+    assert f"![[{rel}]]" in body
+    assert "secrets.png" not in body
+    assert body.count(rel) == 1
+    row = db.get_note(meta["note_id"])
+    assert row is not None and rel in row["body"]
+    assert load_provenance(row)["citation"] == "(DIESTEL, 2017, p. 42)"
+    assets = [item for item in db.get_assets_for_source("@Diestel2017") if item["path"] == rel]
+    assert len(assets) == 1
+    assert assets[0]["status"] == "pending"
+    assert calls_to(idx, "upsert_permanent_note") == [meta["note_id"], meta["note_id"]]
+
+
 def test_permanent_from_literature_llm_rejected_surfaces_reason(cfg, db, monkeypatch):
     from zettel.connector import ConnectRejected, prompt, run
     from zettel.schemas import PermanentNoteLLMOutput

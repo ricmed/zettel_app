@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from zettel.markdown import render_markdown, sanitize_html
+from zettel.markdown import render_markdown, render_text_with_math, sanitize_html
 
 
 def test_markdown_keeps_structure_and_internal_links():
@@ -41,3 +41,36 @@ def test_sanitizer_strips_what_the_parser_might_let_through():
     assert "style=" not in clean and "target=" not in clean
     assert '<a href="/notes/01" title="t">c</a>' in clean
     assert "<p>texto</p>" in clean
+
+
+def test_markdown_renders_tex_as_mathml_without_eating_subscripts():
+    html = render_markdown(
+        "série $Z_t$ de grau $d$, com $\\nabla Z_t = Z_t - Z_{t-1}$.\n\n"
+        "$$x = {-b \\pm \\sqrt{b^2-4ac} \\over 2a}$$\n\n"
+        "inline \\(a_n\\) e display \\[e^{i\\pi}+1=0\\].\n\n"
+        "Preço $10 e $20 ficam prosa.\n\n"
+        "```\n$x_1 = y$\n```\n"
+    )
+    assert "<em>" not in html
+    assert "<math" in html
+    assert 'display="inline"' in html
+    assert 'display="block"' in html
+    assert "<msub>" in html
+    assert "$Z_t$" not in html
+    assert "$10" in html and "$20" in html
+    assert "$x_1 = y$" in html
+    assert "<script" not in html
+
+
+def test_markdown_math_does_not_open_a_script_tag():
+    html = render_markdown("$</math><script>alert(1)</script>$")
+    assert "<script" not in html
+    assert "</math><script" not in html
+
+
+def test_plain_text_math_escapes_surrounding_markup():
+    html = render_text_with_math("<b>tese</b> $Z_t$")
+    assert "<b>" not in html
+    assert "&lt;b&gt;tese&lt;/b&gt;" in html
+    assert "<msub>" in html
+    assert "<math" in html

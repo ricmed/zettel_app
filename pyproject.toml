@@ -41,6 +41,7 @@ dependencies = [
     "typesafe-sdk>=0.7.2",
     "nh3>=0.3",
     "joblib>=1.6.0",
+    "latex2mathml>=3.81.0",
 ]
 
 [tool.uv.sources]

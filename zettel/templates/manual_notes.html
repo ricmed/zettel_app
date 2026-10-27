@@ -50,7 +50,7 @@
     <div class="note-rule"><span>01</span><span>preencher</span><i></i><span>02</span><span>indexar</span></div>
   </div>
 
-  <form class="manual-form" method="post" action="/notes/new" id="manual-note-form">
+  <form class="manual-form" method="post" action="/notes/new" id="manual-note-form" enctype="multipart/form-data">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <section class="panel note-type-panel">
       <div class="section-kicker">Escolha o gesto</div>
@@ -180,6 +180,14 @@
           </div>
           <label>Tese desta permanente <textarea name="lit_thesis" rows="3" placeholder="Opcional se a LIT já tiver candidato a permanente ou resumo">{{ form_values.get('lit_thesis', '') }}</textarea><small>Frase ou parágrafo curto que resume a ideia reutilizável. Sem LLM, vira o título da ZTL.</small></label>
           <label class="toggle-row"><input type="checkbox" name="use_llm" value="1" id="use-llm"{% if selected_use_llm %} checked{% endif %}{% if not connect_llm_ready %} disabled data-locked="1"{% endif %}><span><strong>Usar LLM para estruturar a partir da nota de leitura</strong><small>{% if connect_llm_ready %}O ZTL será enfileirado e indexado após o processamento. A SRC precisa já estar no SQLite.{% else %}A fase connect não tem credencial. Configure o provedor em Configuração / saúde para ativar.{% endif %}</small></span></label>
+        </section>
+
+        <section class="panel form-section" data-types="LIT_GRANULAR ZTL_BLANK ZTL_FROM_LIT">
+          <div class="section-heading"><span class="section-number">3</span><div><h2>Imagem</h2><p>Opcional. A figura entra na nota e no acervo.</p></div></div>
+          <label>Imagens
+            <input type="file" name="images" accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,.svg,.tif,.tiff,.avif,image/*" multiple>
+            <small>Até 6 arquivos, 8 MB cada. Ficam em <code>90_Assets/</code> e na seção de figuras da nota. A descrição automática só roda depois, no extract, se as imagens estiverem habilitadas. Uma ZTL em branco precisa de uma fonte já sincronizada.</small>
+          </label>
         </section>
 
         <section class="panel form-section" data-types="LIT_INDEX LIT_GRANULAR ZTL_BLANK ZTL_FROM_LIT">

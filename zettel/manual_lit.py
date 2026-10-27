@@ -393,6 +393,76 @@ def resolve_literature_note(db: StateDB, ref: str) -> tuple[Path, dict[str, Any]
     return path, meta, body, content
 
 
+def _figure_dicts(cfg: AppConfig, images: list[dict[str, Any]] | None) -> list[dict[str, str]]:
+    """Canonical ``90_Assets`` paths from an upload payload. Anything else is dropped."""
+    from zettel.assets import canonical_asset_paths
+
+    raw = [str(img.get("path") or "") for img in (images or []) if isinstance(img, dict)]
+    return [{"path": path} for path in canonical_asset_paths(cfg.vault_path, raw)]
+
+
+def _attach_uploaded_figures(
+    cfg: AppConfig,
+    db: StateDB,
+    idx: VectorIndex | None,
+    note_path: Path,
+    images: list[dict[str, str]],
+    source_id: str,
+) -> None:
+    """Add uploaded figures to a note the connector already wrote, then register them.
+
+    The file and the SQLite body stay in step. The embedding is refreshed only when
+    the embeddable text actually changed, which it does: ``## Figuras`` is not a
+    managed block.
+    """
+    from zettel.assets import register_note_images
+    from zettel.hashing import compute_embedding_input_hash, extract_embeddable_text
+    from zettel.vault import append_figure_embeds, compose_note, parse_frontmatter
+
+    if not images or not note_path.is_file():
+        return
+    meta, body = parse_frontmatter(note_path.read_text(encoding="utf-8"))
+    new_body = append_figure_embeds(body, [img["path"] for img in images])
+    if new_body != body:
+        meta["updated_at"] = now_vault_iso(cfg.vault_timezone)
+        note_path.write_text(compose_note(meta, new_body), encoding="utf-8")
+        note_id = str(meta.get("note_id") or "")
+        row = db.get_note(note_id) if note_id else None
+        if row:
+            embeddable = extract_embeddable_text(new_body)
+            semantic = sha256_hex(normalize_text_for_hash(embeddable))
+            db.upsert_note(
+                note_id=note_id,
+                source_id=row.get("source_id"),
+                path=str(note_path),
+                title=row.get("title") or str(meta.get("title") or ""),
+                note_semantic_checksum=semantic,
+                embedding_model=row.get("embedding_model"),
+                body=new_body,
+                frontmatter_json=json.dumps(meta, ensure_ascii=False),
+                origin=row.get("origin") or "manual",
+                provenance_json=row.get("provenance_json"),
+            )
+            emb_hash = compute_embedding_input_hash(
+                semantic, cfg.embedding.provider, cfg.embedding.model
+            )
+            if idx is not None and row.get("embedding_input_hash") != emb_hash:
+                tags = meta.get("tags") or []
+                if isinstance(tags, str):
+                    tags = [tags]
+                idx.upsert_permanent_note(
+                    note_id,
+                    embeddable,
+                    {
+                        "title": row.get("title") or "",
+                        "source_id": source_id or "",
+                        "tags": ", ".join(str(tag) for tag in tags),
+                    },
+                )
+                db.update_note_embedding(note_id, emb_hash, cfg.embedding.model)
+    register_note_images(cfg, db, source_id, note_path)
+
+
 def create_permanent_from_literature(
     cfg: AppConfig,
     db: StateDB,
@@ -402,6 +472,7 @@ def create_permanent_from_literature(
     use_llm: bool = False,
     thesis: str | None = None,
     force: bool = False,
+    images: list[dict[str, Any]] | None = None,
 ) -> tuple[Path, bool]:
     """Create a permanent note from a literature note. Returns (path, used_llm).
 
@@ -474,7 +545,11 @@ def create_permanent_from_literature(
             # retries it without re-deriving anything.
             raise ConnectRejected(_ztl_llm_rejected_message(""))
         row = db.get_note(note_ids[0]) or {}
-        return Path(row.get("path") or ""), True
+        note_path = Path(row.get("path") or "")
+        figures = _figure_dicts(cfg, images)
+        if figures:
+            _attach_uploaded_figures(cfg, db, idx, note_path, figures, source_id)
+        return note_path, True
 
     # Manual path: a pre-filled scaffold, indexed later by `sync-manual`.
     from ulid import ULID
@@ -498,6 +573,7 @@ def create_permanent_from_literature(
         page=citation.page,
         citation=citation.cite,
         anchor_quote=candidate.anchor_quote,
+        images=_figure_dicts(cfg, images) or None,
     )
     note_body += (
         "\n## Sugestoes de conexao\n\n"
@@ -526,6 +602,10 @@ def create_permanent_from_literature(
     if note_path.exists() and not force:
         raise FileExistsError(f"Arquivo ja existe: {note_path}")
     safe_write_note(note_path, note_meta, note_body)
+    if images:
+        from zettel.assets import register_note_images
+
+        register_note_images(cfg, db, source_id, note_path)
     # Consume extract/review concepts that this scaffold already covers, so a
     # later `zettel connect` cannot mint a duplicate pipeline note.
     claim_concepts_for_note(db, note_id, note_meta, note_body)

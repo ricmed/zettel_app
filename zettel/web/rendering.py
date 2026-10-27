@@ -10,6 +10,7 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from zettel.markdown import render_text_with_math
 from zettel.web.security import session
 from zettel.web_app import WebApplication
 
@@ -28,6 +29,7 @@ def _local_dt_filter(iso_text: str, style: str = "datetime") -> str:
 
 
 templates.env.filters["local_dt"] = _local_dt_filter
+templates.env.filters["with_math"] = render_text_with_math
 
 
 def context(request: Request, **extra: Any) -> dict[str, Any]:

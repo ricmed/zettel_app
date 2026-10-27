@@ -86,7 +86,7 @@ Because manual notes reach `permanent_notes` through `sync._sync_permanent` and 
 
 A related latent bug was fixed alongside this: `literature_chunk_wikilink_for_row` recomputed a note's filename from its database row, which only matches for pipeline-named files. It now prefers `chunks.literature_note_path` whenever that file still exists, so both hand-written and hand-renamed notes get links that resolve. The harvester's literature index was also moved to the flat, title-slugged path every generated wikilink already pointed at.
 
-**Web exposure**: `/notes/new` scaffolds SRC, LIT and ZTL (including `--from-lit`) and is the web counterpart of `zettel new-note`. Layout and JSON pickers are [ADR-039](../WEB/ADR-039-web-as-python-package.md) and [ADR-040](../WEB/ADR-040-json-pickers-progressive-enhancement.md). Image upload is still not a dedicated web page: adoption of pasted Obsidian images remains `sync-manual` ([ADR-031](../ASSETS/ADR-031-vault-first-image-adoption.md)).
+**Web exposure**: `/notes/new` scaffolds SRC, LIT and ZTL (including `--from-lit`) and is the web counterpart of `zettel new-note`. Layout and JSON pickers are [ADR-039](../WEB/ADR-039-web-as-python-package.md) and [ADR-040](../WEB/ADR-040-json-pickers-progressive-enhancement.md). A granular LIT or a ZTL on that form can carry images; they are stored and registered by the same adoption as a pasted embed ([ADR-031](../ASSETS/ADR-031-vault-first-image-adoption.md), issue #337). There is still no separate page for attaching a figure to a note that already exists.
 
 This decision supersedes the DISCARD verdict recorded for "Decision 4: Manual Note Adoption Pattern (Vault-First Design)" in `docs/adrs/SYNC-module-analysis.md`, which scored 42/150 when the pattern was only a folder convention.
 
@@ -113,3 +113,7 @@ Correction to the surrounding docs: an adopted manual LIT does **not** appear in
 ## Addendum (2026-10-20): adopting a generated MOC (issue #300)
 
 **Status:** Accepted amendment. A MOC the garden generated can now become a manual note: `zettel adopt-moc <moc_id>` (or "Adotar MOC" on the web) sets `origin: manual` in the file and in SQLite and clears the routing signature, keeping the body, the `auto-moc-backrefs` blocks and the `topic_index_terms` rows. The next `sync-manual` sees a manual MOC whose checksum differs and syncs it like any hand-edited MOC; no garden pipeline rewrites or purges it again (ADR-061).
+
+## Addendum (2026-10-26): image on `/notes/new` (issue #337)
+
+A granular LIT, a blank ZTL or a ZTL derived from a LIT can include up to six images on the create form. The file is copied into `90_Assets/` and the embed is written into the note. When the source is already in SQLite the asset row is registered in that request (`status='pending'`). The CLI does not grow a flag: pasting the image in Obsidian and running `sync-manual` is unchanged. Details in the [ADR-031 addendum](../ASSETS/ADR-031-vault-first-image-adoption.md).

@@ -1451,6 +1451,74 @@ def test_note_and_moc_details_render_sanitized_markdown(web_client):
     assert "<code>código</code>" in moc.text
 
 
+def test_note_detail_renders_tex_formulas_as_mathml(web_client):
+    client, _ = web_client
+    login(client)
+    db = client.app.state.service.db()
+    try:
+        db.upsert_note(
+            "note-math",
+            None,
+            None,
+            title="Série estacionária",
+            body=(
+                "Para isolar os componentes estocásticos, subtrai-se o efeito "
+                "da série $Z_t$. A primeira diferença é "
+                "$\\nabla Z_t = Z_t - Z_{t-1}$."
+            ),
+        )
+    finally:
+        db.close()
+
+    page = client.get("/notes/note-math")
+    assert page.status_code == 200
+    assert "<math" in page.text
+    assert "<msub>" in page.text
+    assert "<em>" not in page.text
+    assert "$Z_t$" not in page.text
+
+
+def test_review_draft_renders_tex_in_thesis(web_client):
+    client, _ = web_client
+    login(client)
+    db = client.app.state.service.db()
+    try:
+        db.upsert_source("@Book2024", "Book2024", "Livro", ["Autor"], 2024, "h", "/x.md", "md")
+        db.upsert_chapter("@Book2024::ch000", "@Book2024", "Cap", "ch")
+        db.upsert_chunk(
+            "@Book2024::ch000::math",
+            "@Book2024",
+            "@Book2024::ch000",
+            "texto",
+            "ck",
+            status="awaiting_review",
+            chunk_index=0,
+            summary_json=json.dumps({"summary": "A série $Z_t$ é estacionária."}),
+        )
+        db.upsert_concept(
+            "c-math",
+            "@Book2024",
+            "@Book2024::ch000::math",
+            candidate_json=json.dumps(
+                {
+                    "thesis": (
+                        r"A primeira diferença $\nabla Z_t = Z_t - Z_{t-1}$ remove a tendência."
+                    ),
+                    "definition": r"Operador $\nabla$ de grau $d$.",
+                }
+            ),
+            status="awaiting_review",
+        )
+    finally:
+        db.close()
+
+    page = client.get("/review")
+    assert page.status_code == 200
+    assert "<math" in page.text
+    assert "<msub>" in page.text
+    assert "$Z_t$" not in page.text
+
+
 def test_documents_can_queue_full_pipeline(web_client, monkeypatch):
     client, _ = web_client
     csrf = login(client)
@@ -1913,6 +1981,177 @@ def test_manual_lit_granular_writes_body(web_client):
     assert "_Cole o trecho da fonte aqui._" not in content
 
 
+_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4"
+    "890000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082"
+)
+
+
+def _asset_files(tmp_path: Path) -> list[Path]:
+    root = tmp_path / "vault" / "90_Assets"
+    return list(root.glob("img-*")) if root.is_dir() else []
+
+
+def test_manual_note_form_accepts_an_image_file(web_client):
+    client, _ = web_client
+    login(client)
+    page = client.get("/notes/new").text
+    assert 'enctype="multipart/form-data"' in page
+    assert 'name="images"' in page
+    assert "LIT_GRANULAR ZTL_BLANK ZTL_FROM_LIT" in page
+
+
+def test_manual_lit_granular_stores_uploaded_image(web_client):
+    client, tmp_path = web_client
+    csrf = login(client)
+    _seed_source(client)
+    assert client.app.state.service.cfg.images.enabled is False
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "LIT",
+            "title": "Sistema 1",
+            "source_id": "@Kahneman2011",
+            "granular": "1",
+            "chunk_index": "1",
+            "page_number": "20",
+        },
+        files={"images": ("figura.png", _PNG, "image/png")},
+    )
+    assert response.status_code == 201
+    created = list((tmp_path / "vault" / "20_Literature" / "Kahneman2011").glob("*.md"))
+    assert len(created) == 1
+    content = created[0].read_text(encoding="utf-8")
+    assert "## Imagens Relacionadas" in content
+    assert "_Nenhuma._" not in content
+    assert "90_Assets/img-" in content
+    files = _asset_files(tmp_path)
+    assert len(files) == 1
+    assert files[0].read_bytes() == _PNG
+    db = client.app.state.service.db()
+    try:
+        assets = db.get_assets_for_source("@Kahneman2011")
+        assert len(assets) == 1
+        assert assets[0]["status"] == "pending"
+        assert assets[0]["path"] in content
+        from zettel.assets import register_note_images
+
+        register_note_images(client.app.state.service.cfg, db, "@Kahneman2011", created[0])
+        assert len(db.get_assets_for_source("@Kahneman2011")) == 1
+    finally:
+        db.close()
+
+
+def test_manual_ztl_blank_stores_uploaded_image(web_client):
+    client, tmp_path = web_client
+    csrf = login(client)
+    _seed_source(client)
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "ZTL",
+            "title": "Heurísticas como atalhos",
+            "source_id": "@Kahneman2011",
+            "ztl_origin": "blank",
+        },
+        files={"images": ("figura.png", _PNG, "image/png")},
+    )
+    assert response.status_code == 201
+    created = list((tmp_path / "vault" / "30_Permanent").glob("*.md"))
+    assert len(created) == 1
+    content = created[0].read_text(encoding="utf-8")
+    assert "## Figuras" in content
+    assert "![[90_Assets/img-" in content
+    db = client.app.state.service.db()
+    try:
+        assets = db.get_assets_for_source("@Kahneman2011")
+        assert len(assets) == 1
+        assert assets[0]["status"] == "pending"
+    finally:
+        db.close()
+
+
+@pytest.mark.parametrize(
+    ("data", "filename", "body", "snippet"),
+    [
+        (
+            {"note_type": "SRC", "title": "O Capital", "citekey": "Marx2013"},
+            "figura.png",
+            _PNG,
+            "não aceitam imagem",
+        ),
+        (
+            {
+                "note_type": "LIT",
+                "title": "Índice",
+                "source_id": "@Kahneman2011",
+                "granular": "",
+            },
+            "figura.png",
+            _PNG,
+            "não aceitam imagem",
+        ),
+        (
+            {"note_type": "ZTL", "title": "Uma tese", "ztl_origin": "blank"},
+            "figura.png",
+            _PNG,
+            "anexar uma imagem",
+        ),
+        (
+            {
+                "note_type": "LIT",
+                "title": "Sistema 1",
+                "source_id": "@Kahneman2011",
+                "granular": "1",
+            },
+            "notas.txt",
+            b"nao e imagem",
+            "PNG",
+        ),
+    ],
+)
+def test_manual_image_upload_is_refused(web_client, data, filename, body, snippet):
+    client, tmp_path = web_client
+    csrf = login(client)
+    _seed_source(client)
+    response = client.post(
+        "/notes/new",
+        data={"csrf": csrf, **data},
+        files={"images": (filename, body, "application/octet-stream")},
+    )
+    assert response.status_code == 400
+    assert snippet in response.text
+    assert _asset_files(tmp_path) == []
+
+
+def test_manual_image_upload_rejects_too_many_and_empty(web_client):
+    from io import BytesIO
+
+    from zettel.web.manual_images import read_image_uploads
+
+    class _Upload:
+        def __init__(self, name: str, data: bytes):
+            self.filename = name
+            self.file = BytesIO(data)
+
+    class _Form:
+        def __init__(self, items):
+            self._items = items
+
+        def getlist(self, name: str):
+            assert name == "images"
+            return self._items
+
+    with pytest.raises(ValueError, match="no máximo 6"):
+        read_image_uploads(_Form([_Upload(f"f{i}.png", _PNG) for i in range(7)]))
+    with pytest.raises(ValueError, match="vazia"):
+        read_image_uploads(_Form([_Upload("vazia.png", b"")]))
+    with pytest.raises(ValueError, match="8 MB"):
+        read_image_uploads(_Form([_Upload("grande.png", b"x" * (8 * 1024 * 1024 + 1))]))
+
+
 def test_manual_lit_index_collides_without_force(web_client):
     client, _tmp_path = web_client
     csrf = login(client)
@@ -2099,6 +2338,46 @@ def test_from_lit_chunk_id_enqueues(web_client, monkeypatch):
     assert response.status_code == 303
     assert captured["operation"] == "manual-ztl-from-lit"
     assert captured["payload"]["ref"] == chunk_id
+
+
+def test_from_lit_upload_is_stored_and_passed_to_the_job(web_client, monkeypatch):
+    client, tmp_path = web_client
+    csrf = login(client)
+    _seed_source(client)
+    lit_dir = tmp_path / "vault" / "20_Literature" / "Kahneman2011"
+    lit_dir.mkdir(parents=True)
+    path = lit_dir / "LIT - Kahneman2011 - p020 - sistema-1-0001.md"
+    path.write_text(
+        "---\ntype: literature\nchunk_id: '@Kahneman2011::manual::0001'\n"
+        "source_id: '@Kahneman2011'\n---\n## Resumo\n\nHeurísticas guiam o julgamento.\n",
+        encoding="utf-8",
+    )
+    chunk_id = _seed_literature_chunk(client, path=path)
+    captured = {}
+
+    def fake_submit(operation, payload):
+        captured.update(operation=operation, payload=payload)
+        return "from-lit-job"
+
+    monkeypatch.setattr(client.app.state.service, "submit", fake_submit)
+    response = client.post(
+        "/notes/new",
+        data={
+            "csrf": csrf,
+            "note_type": "ZTL",
+            "ztl_origin": "from_lit",
+            "from_lit": chunk_id,
+            "lit_thesis": "Heurísticas guiam o julgamento.",
+        },
+        files={"images": ("figura.png", _PNG, "image/png")},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    paths = captured["payload"]["image_paths"]
+    assert len(paths) == 1
+    assert paths[0].startswith("90_Assets/img-")
+    assert (tmp_path / "vault" / paths[0]).read_bytes() == _PNG
+    assert _PNG not in json.dumps(captured["payload"]).encode()
 
 
 @pytest.mark.parametrize(

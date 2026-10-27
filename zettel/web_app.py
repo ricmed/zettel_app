@@ -1111,15 +1111,30 @@ def _op_manual_ztl_from_lit(ctx: JobContext) -> dict[str, Any]:
     from zettel.manual_lit import create_permanent_from_literature
 
     ref = payload.get("ref") or payload["chunk_id"]
+    kwargs: dict[str, Any] = {
+        "thesis": payload.get("thesis") or None,
+        "use_llm": bool(payload.get("use_llm")),
+        "force": bool(payload.get("force")),
+    }
+    raw_image_paths = payload.get("image_paths") or []
+    raw_paths = (
+        [p for p in raw_image_paths if isinstance(p, str)]
+        if isinstance(raw_image_paths, list)
+        else []
+    )
+    if raw_paths:
+        from zettel.assets import canonical_asset_paths
+
+        safe_paths = canonical_asset_paths(cfg.vault_path, raw_paths)
+        if safe_paths:
+            kwargs["images"] = [{"path": path} for path in safe_paths]
     try:
         result = create_permanent_from_literature(
             cfg,
             db,
             ctx.idx if payload.get("use_llm") else None,
             ref,
-            thesis=payload.get("thesis") or None,
-            use_llm=bool(payload.get("use_llm")),
-            force=bool(payload.get("force")),
+            **kwargs,
         )
     except ConnectRejected as exc:
         raise UserFacingError(str(exc)) from exc

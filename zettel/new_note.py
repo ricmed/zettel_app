@@ -254,6 +254,7 @@ def scaffold_manual_note(
     key_concepts: list[str] | None = None,
     candidates: list[dict[str, Any]] | None = None,
     force: bool = False,
+    images: list[dict[str, Any]] | None = None,
 ) -> NewNoteResult:
     """Create a manual note file in the vault. Does not index into SQLite/Chroma."""
     normalized = normalize_note_type(note_type)
@@ -346,6 +347,7 @@ def scaffold_manual_note(
                 status="approved",
                 origin="manual",
                 vault_timezone=cfg.vault_timezone,
+                images=images,
             )
         else:
             rel_path = literature_index_filename(ck, title)
@@ -398,6 +400,7 @@ def scaffold_manual_note(
             literature_ref="",
             source_ref=source_ref,
             source_locator="",
+            images=images,
         )
         body += (
             "\n## Sugestoes de conexao\n\n"
