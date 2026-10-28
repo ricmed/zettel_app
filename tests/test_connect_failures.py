@@ -119,10 +119,11 @@ def test_invalid_json_is_recorded_and_not_cached(tmp_path, monkeypatch):
     )
     calls = _wire(monkeypatch, "isto nao e json")
     try:
-        assert (
-            run.run_connect(cfg, db, FakeVectorIndex(), run.load_approved_candidates(db)).note_ids
-            == []
-        )
+        outcome = run.run_connect(cfg, db, FakeVectorIndex(), run.load_approved_candidates(db))
+        assert outcome.note_ids == []
+        assert outcome.failed == 1
+        assert outcome.skipped == 0
+        assert outcome.errors
         assert calls["n"] == 1
         assert db.get_concept("c1")["status"] == "approved"
         failures = db.llm_failure_counts()

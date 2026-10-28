@@ -172,7 +172,12 @@ def print_connect_summary(outcome) -> None:
     if outcome.rejected:
         console.print(f"  [yellow]Recusados pelo Prompt 2: {outcome.rejected}[/yellow]")
     if outcome.failed:
-        console.print(f"  [yellow]Sem nota (coberto ou falha de parse): {outcome.failed}[/yellow]")
+        console.print(f"  [red]Falhas: {outcome.failed}[/red]")
+        for msg in getattr(outcome, "errors", None) or []:
+            console.print(f"    {msg}")
+    skipped = int(getattr(outcome, "skipped", 0) or 0)
+    if skipped:
+        console.print(f"  [dim]Já cobertas: {skipped}[/dim]")
     if outcome.edges_by_type:
         parts = [f"{kind} {count}" for kind, count in sorted(outcome.edges_by_type.items())]
         console.print(f"  Arestas: {', '.join(parts)}")

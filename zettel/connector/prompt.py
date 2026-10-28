@@ -40,6 +40,14 @@ class ConnectRejected(RuntimeError):
         self.category = (category or "").strip()
 
 
+class ConnectCandidateFailed(RuntimeError):
+    """Prompt 2 / client error for one candidate; the concept stays ``approved``."""
+
+    def __init__(self, message: str, *, concept_id: str = "") -> None:
+        super().__init__(message)
+        self.concept_id = concept_id
+
+
 @dataclass(frozen=True)
 class Prompt2Payload:
     """Everything Prompt 2 receives besides the candidate itself."""

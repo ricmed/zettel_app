@@ -521,7 +521,7 @@ def create_permanent_from_literature(
             status="approved",
         )
         try:
-            note_ids = run_connect(
+            outcome = run_connect(
                 cfg,
                 db,
                 idx,
@@ -534,15 +534,19 @@ def create_permanent_from_literature(
                     }
                 ],
                 origin="manual",
-            ).note_ids
+            )
         except ConnectRejected as exc:
             raise ConnectRejected(
                 _ztl_llm_rejected_message(exc.reason),
                 reason=exc.reason,
             ) from exc
+        note_ids = outcome.note_ids
         if not note_ids:
             # The concept row survives with status=approved, so a later connect
             # retries it without re-deriving anything.
+            errors = list(getattr(outcome, "errors", None) or [])
+            if errors:
+                raise ConnectRejected(errors[0])
             raise ConnectRejected(_ztl_llm_rejected_message(""))
         row = db.get_note(note_ids[0]) or {}
         note_path = Path(row.get("path") or "")

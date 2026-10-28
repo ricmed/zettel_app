@@ -943,6 +943,76 @@ def test_embedding_search_failure_stops_before_prompt_2(tmp_path, monkeypatch):
         db.close()
 
 
+def test_prompt2_error_is_failed_and_the_batch_continues(tmp_path, monkeypatch):
+    """A Prompt 2 / client exception used to return None and look like a covered concept."""
+    from zettel.connector import prompt
+    from zettel.retrieval import NoteSearchResult, Retriever
+    from zettel.schemas import PermanentNoteCandidate, PermanentNoteLLMOutput
+
+    cfg, db, run, calls = _approved_connect_db(tmp_path, monkeypatch)
+    second = PermanentNoteCandidate(
+        thesis="Segunda tese declarativa sobre um conceito atomico distinto",
+        definition="Definicao autonoma com palavras suficientes para o schema.",
+    )
+    db.upsert_concept(
+        "c2", "@S", "@S::ch000::a", candidate_json=second.model_dump_json(), status="approved"
+    )
+    ok = PermanentNoteLLMOutput(
+        status="ok",
+        title="Conceito retomavel",
+        thesis=second.thesis,
+        definition=second.definition,
+        connections=[],
+    ).model_dump_json()
+
+    def _call(*_a, **_k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("temperature: Extra inputs are not permitted")
+        return ok
+
+    monkeypatch.setattr(prompt, "call_llm", _call)
+    monkeypatch.setattr(
+        Retriever, "search_notes", lambda *_a, **_k: NoteSearchResult(hits=[], candidates=[])
+    )
+
+    class _Obs:
+        def __init__(self):
+            self.messages: list[str] = []
+
+        def update(self, phase, message, **_k):
+            self.messages.append(message)
+
+    observer = _Obs()
+    try:
+        outcome = run.run_connect(
+            cfg, db, FakeVectorIndex(), run.load_approved_candidates(db), observer=observer
+        )
+        assert outcome.failed == 1
+        assert outcome.skipped == 0
+        assert len(outcome.note_ids) == 1
+        assert any("temperature" in err for err in outcome.errors)
+        assert db.get_concept("c1")["status"] == "approved"
+        assert db.get_concept("c2")["status"] == "noted"
+        assert any(msg.startswith("Falha:") for msg in observer.messages)
+        assert calls["n"] == 2
+    finally:
+        db.close()
+
+
+def test_covered_candidate_is_skipped_not_failed(tmp_path, monkeypatch):
+    cfg, db, run, _calls = _approved_connect_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(run, "process_candidate", lambda *_a, **_k: None)
+    try:
+        outcome = run.run_connect(cfg, db, FakeVectorIndex(), run.load_approved_candidates(db))
+        assert outcome.note_ids == []
+        assert outcome.failed == 0
+        assert outcome.skipped == 1
+        assert outcome.errors == []
+    finally:
+        db.close()
+
+
 def test_connect_cli_exits_1_when_the_embedding_is_down(monkeypatch):
     from typer.testing import CliRunner
     from zettel.cli import synthesis

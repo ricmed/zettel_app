@@ -3110,6 +3110,43 @@ def test_job_detail_lists_every_run_and_its_cost(web_client, monkeypatch):
     assert "harvest" in page and "extract" in page
 
 
+def test_failed_connect_job_shows_error_and_result(web_client):
+    """A Prompt 2 failure used to render succeeded with only `{notes: []}`."""
+    client, _ = web_client
+    login(client)
+    job_id = "e" * 32
+    db = client.app.state.service.db()
+    try:
+        assert db.create_web_job(job_id, "connect", {})
+        assert db.claim_web_job(job_id)
+        db.update_web_job(
+            job_id,
+            state="failed",
+            phase="failed",
+            message="1 nota(s) falharam: temperature: Extra inputs are not permitted",
+            result={
+                "kind": "connect",
+                "notes": [],
+                "rejected": 0,
+                "failed": 1,
+                "skipped": 0,
+                "errors": ["temperature: Extra inputs are not permitted"],
+            },
+            error_message="1 nota(s) falharam: temperature: Extra inputs are not permitted",
+            finished=True,
+        )
+    finally:
+        db.close()
+    page = client.get(f"/jobs/{job_id}").text
+    assert "1 nota(s) falharam" in page
+    assert "temperature" in page
+    assert "Falhas" in page
+    assert 'id="job-error"' in page
+    assert 'id="job-result"' in page
+    assert '"kind": "connect"' in page
+    assert "hidden" in page.split('id="job-continue"', 1)[1][:80]
+
+
 def test_run_all_form_names_the_files_it_will_ingest_without_review(web_client):
     """run_all harvests the whole inbox; the form has to say so (#310)."""
     client, tmp_path = web_client

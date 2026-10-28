@@ -201,6 +201,23 @@
   {% endif %}
   {% if result.saved_path %}<p>Salvo em <code>{{ result.saved_path }}</code></p>{% endif %}
 </section>
+{% elif result.kind == 'connect' %}
+<section class="panel">
+  <div class="result-heading">
+    <h2>Notas permanentes</h2>
+  </div>
+  <table class="studio-table">
+    <tbody>
+      <tr><th>Criadas</th><td>{{ (result.notes or [])|length }}</td></tr>
+      <tr><th>Recusadas pelo Prompt 2</th><td>{{ result.rejected or 0 }}</td></tr>
+      <tr><th>Falhas</th><td>{{ result.failed or 0 }}</td></tr>
+      <tr><th>Já cobertas</th><td>{{ result.skipped or 0 }}</td></tr>
+    </tbody>
+  </table>
+  {% if result.errors %}
+  <ul>{% for err in result.errors %}<li>{{ err }}</li>{% endfor %}</ul>
+  {% endif %}
+</section>
 {% endif %}
 
 {% if copy_text %}<textarea id="result-copy" class="copy-source" readonly>{{ copy_text }}</textarea>{% endif %}
@@ -216,7 +233,8 @@
       <span class="copy-status" role="status" aria-live="polite"></span>
     </div>
   </div>
-  <pre id="job-result">{% if job.error_message %}{{ job.error_message }}{% elif job.result %}{{ job.result|tojson(indent=2) }}{% endif %}</pre>
+  {% if job.error_message %}<p id="job-error">{{ job.error_message }}</p>{% endif %}
+  <pre id="job-result">{% if job.result %}{{ job.result|tojson(indent=2) }}{% elif job.error_message %}{{ job.error_message }}{% endif %}</pre>
   {% endif %}
 </section>
 <p id="job-continue" class="panel" {% if not continue_href or job.state != 'succeeded' %}hidden{% endif %}><a id="job-continue-link" href="{{ continue_href or '#' }}">Continuar</a></p>

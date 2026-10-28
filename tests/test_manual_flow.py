@@ -473,6 +473,24 @@ def test_permanent_from_literature_llm_rejected_surfaces_reason(cfg, db, monkeyp
     assert "--llm" not in str(caught.value)
 
 
+def test_permanent_from_literature_llm_client_error_surfaces_the_real_message(cfg, db, monkeypatch):
+    from zettel.connector import ConnectRejected, prompt, run
+
+    idx = FakeVectorIndex()
+    lit = _scaffold_source_and_lit(cfg, db, idx)
+    monkeypatch.setattr(run, "get_llm", lambda cfg, phase: object())
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("temperature: Extra inputs are not permitted")
+
+    monkeypatch.setattr(prompt, "call_llm", _boom)
+
+    with pytest.raises(ConnectRejected, match="temperature") as caught:
+        create_permanent_from_literature(cfg, db, idx, str(lit), use_llm=True)
+    assert "Enriqueça o resumo" not in str(caught.value)
+    assert "O modelo recusou" not in str(caught.value)
+
+
 def test_candidate_theses_strips_pipeline_rendering_metadata():
     """#57/#58: a checklist line rendered by build_literature_chunk_note still
     adopts a clean thesis, in case a pipeline draft is later hand-edited to
@@ -613,6 +631,8 @@ def test_connect_skips_generation_when_manual_ztl_already_covers(cfg, db, monkey
 
     created = run_connect(cfg, db, idx, load_approved_candidates(db))
     assert created.note_ids == []
+    assert created.failed == 0
+    assert created.skipped == 1
     assert list((cfg.vault_path / "30_Permanent").glob("*.md")) == [path]
     row = db.get_concept(leftover_id)
     assert row["status"] == "noted"

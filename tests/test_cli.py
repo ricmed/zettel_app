@@ -30,7 +30,7 @@ import pytest
 import typer
 from typer.testing import CliRunner
 from zettel.cli import app
-from zettel.cli.formatting import fmt_bytes, fmt_embedding_id, fmt_usd
+from zettel.cli.formatting import fmt_bytes, fmt_embedding_id, fmt_usd, print_connect_summary
 from zettel.cli.options import (
     resolve_chunk_dump_dir,
     resolve_duplicate_flags,
@@ -405,3 +405,35 @@ def test_fmt_embedding_id_includes_dimensions_when_set():
         fmt_embedding_id("openai", "text-embedding-3-small", None)
         == "openai/text-embedding-3-small"
     )
+
+
+def test_print_connect_summary_separates_failures_from_covered(monkeypatch):
+    from zettel.cli import formatting
+
+    lines: list[str] = []
+    monkeypatch.setattr(formatting.console, "print", lambda msg, *a, **k: lines.append(str(msg)))
+    print_connect_summary(
+        type(
+            "O",
+            (),
+            {
+                "note_ids": ["n1"],
+                "rejected": 1,
+                "failed": 1,
+                "skipped": 2,
+                "errors": ["temperature: Extra inputs are not permitted"],
+                "edges_by_type": {},
+                "cost_usd": 0,
+                "intra_source": 0,
+                "inter_source": 0,
+                "corroborates": 0,
+                "suggestions": 0,
+            },
+        )()
+    )
+    text = "\n".join(lines)
+    assert "Recusados pelo Prompt 2: 1" in text
+    assert "Falhas: 1" in text
+    assert "temperature" in text
+    assert "Já cobertas: 2" in text
+    assert "coberto ou falha" not in text
