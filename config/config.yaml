@@ -47,11 +47,11 @@ llm:
     temperature: null       # null = herda llm.temperature
     thinking: null
   connect:
-    provider: gemini
-    model: gemini-3.1-flash-lite      # notas permanentes (Prompt 2)
+    provider: anthropic
+    model: claude-haiku-5-5      # notas permanentes (Prompt 2)
     base_url: null
-    temperature: 0.15       # null = herda llm.temperature
-    thinking: false          # Gemini 3 costuma ligar thinking no vendor; false desliga
+    temperature: 0.15       # null = herda llm.temperature; Haiku 5.5 omite no fio (ADR-048)
+    thinking: false          # Haiku 5.5: effort low (nao da para desligar); 4.5: type disabled
   garden:
     provider: openai
     model: gpt-6-luna      # MOCs taxonomicos e hub

@@ -12,7 +12,12 @@ from zettel.config import (
     llm_phase,
     thinking_checksum_token,
 )
-from zettel.llm import _thinking_client_kwargs, get_llm, is_supported_llm_provider
+from zettel.llm import (
+    _anthropic_omits_sampling,
+    _thinking_client_kwargs,
+    get_llm,
+    is_supported_llm_provider,
+)
 
 
 def test_llm_phase_rejects_unknown():
@@ -253,6 +258,42 @@ def test_thinking_client_kwargs_ollama_and_anthropic():
     }
 
 
+def test_anthropic_omits_sampling_by_family():
+    assert _anthropic_omits_sampling("claude-haiku-5-5")
+    assert _anthropic_omits_sampling("claude-haiku-5-5-20261001")
+    assert _anthropic_omits_sampling("Claude-Sonnet-5-5")
+    assert _anthropic_omits_sampling("claude-opus-5-5")
+    assert _anthropic_omits_sampling("claude-opus-4-7")
+    assert _anthropic_omits_sampling("claude-fable-5")
+    assert not _anthropic_omits_sampling("claude-haiku-4-5")
+    assert not _anthropic_omits_sampling("claude-sonnet-4-6")
+    assert not _anthropic_omits_sampling("claude-opus-4-6")
+
+
+def test_thinking_client_kwargs_anthropic_adaptive_family():
+    assert _thinking_client_kwargs("anthropic", False, model="claude-haiku-5-5") == {
+        "output_config": {"effort": "low"}
+    }
+    assert _thinking_client_kwargs("anthropic", True, model="claude-haiku-5-5") == {
+        "thinking": {"type": "adaptive"}
+    }
+    assert _thinking_client_kwargs("anthropic", "high", model="claude-haiku-5-5") == {
+        "thinking": {"type": "adaptive"},
+        "output_config": {"effort": "high"},
+    }
+    assert _thinking_client_kwargs("anthropic", "minimal", model="claude-haiku-5-5") == {
+        "thinking": {"type": "adaptive"},
+        "output_config": {"effort": "low"},
+    }
+    assert _thinking_client_kwargs("anthropic", 3000, model="claude-haiku-5-5") == {
+        "thinking": {"type": "adaptive"},
+        "output_config": {"effort": "medium"},
+    }
+    assert _thinking_client_kwargs("anthropic", False, model="claude-haiku-4-5") == {
+        "thinking": {"type": "disabled"}
+    }
+
+
 def test_get_llm_omits_thinking_when_null(monkeypatch):
     langchain_openai = pytest.importorskip("langchain_openai")
     captured: dict = {}
@@ -359,3 +400,64 @@ def test_get_llm_ollama_thinking_false(monkeypatch):
     get_llm(cfg, "extract")
     assert captured["reasoning"] is False
     assert "max_retries" not in captured
+
+
+def _patch_chat_anthropic(monkeypatch) -> dict:
+    langchain_anthropic = pytest.importorskip("langchain_anthropic")
+    captured: dict = {}
+
+    class FakeChat:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(langchain_anthropic, "ChatAnthropic", FakeChat)
+    return captured
+
+
+def test_get_llm_anthropic_haiku_55_omits_sampling(monkeypatch):
+    captured = _patch_chat_anthropic(monkeypatch)
+    cfg = AppConfig()
+    cfg.llm.temperature = 0.2
+    cfg.llm.top_p = 0.5
+    cfg.llm.connect = LLMPhaseConfig(
+        provider="anthropic",
+        model="claude-haiku-5-5",
+        temperature=0.15,
+        thinking=False,
+    )
+    get_llm(cfg, "connect")
+    assert captured["model"] == "claude-haiku-5-5"
+    assert "temperature" not in captured
+    assert "top_p" not in captured
+    assert captured["output_config"] == {"effort": "low"}
+    assert "thinking" not in captured
+
+
+def test_get_llm_anthropic_haiku_45_keeps_sampling(monkeypatch):
+    captured = _patch_chat_anthropic(monkeypatch)
+    cfg = AppConfig()
+    cfg.llm.top_p = 0.5
+    cfg.llm.connect = LLMPhaseConfig(
+        provider="anthropic",
+        model="claude-haiku-4-5",
+        temperature=0.15,
+        thinking=False,
+    )
+    get_llm(cfg, "connect")
+    assert captured["temperature"] == 0.15
+    assert captured["top_p"] == 0.5
+    assert captured["thinking"] == {"type": "disabled"}
+
+
+def test_get_llm_anthropic_haiku_55_thinking_high(monkeypatch):
+    captured = _patch_chat_anthropic(monkeypatch)
+    cfg = AppConfig()
+    cfg.llm.connect = LLMPhaseConfig(
+        provider="anthropic",
+        model="claude-haiku-5-5",
+        thinking="high",
+    )
+    get_llm(cfg, "connect")
+    assert captured["thinking"] == {"type": "adaptive"}
+    assert captured["output_config"] == {"effort": "high"}
+    assert "temperature" not in captured

@@ -285,10 +285,65 @@ _ANTHROPIC_THINKING_BUDGET = {
     "high": 8192,
 }
 _ANTHROPIC_DEFAULT_BUDGET = 4096
+# Models that reject temperature/top_p/top_k and enabled+budget_tokens thinking
+# (Haiku 5.5 migration, Sonnet 5.5, Opus 5.x, Opus 4.7/4.8, Fable, Mythos).
+# Dated snapshots keep the prefix (claude-haiku-5-5-20261001). Haiku 4.5 /
+# Sonnet 4.6 stay off this list. With anthropic SDK 2.x langchain relocates
+# sampling to extra_body; if an older model also 400s on that payload, widen
+# this tuple.
+_ANTHROPIC_NO_SAMPLING_PREFIXES = (
+    "claude-haiku-5-5",
+    "claude-sonnet-5",
+    "claude-opus-5",
+    "claude-opus-4-7",
+    "claude-opus-4-8",
+    "claude-fable-",
+    "claude-mythos-",
+)
+_ANTHROPIC_EFFORT_FROM_LEVEL = {
+    "minimal": "low",
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+}
 
 
-def _thinking_client_kwargs(provider: str, thinking: Any) -> dict[str, Any]:
-    """Vendor kwargs for ``llm.<phase>.thinking``. ``None`` omits the parameter."""
+def _anthropic_omits_sampling(model: str) -> bool:
+    """True when the Anthropic model rejects sampling params and budget_tokens."""
+    name = (model or "").strip().casefold()
+    return any(name.startswith(prefix) for prefix in _ANTHROPIC_NO_SAMPLING_PREFIXES)
+
+
+def _anthropic_adaptive_thinking_kwargs(thinking: Any) -> dict[str, Any]:
+    """Map ``llm.<phase>.thinking`` onto adaptive thinking + ``output_config.effort``."""
+    if thinking is False or thinking == 0:
+        # Haiku 5.5 / Opus 5.5 reject {type: disabled}; low effort is the
+        # documented stand-in for "Haiku 4.5 without thinking".
+        return {"output_config": {"effort": "low"}}
+    if thinking is True:
+        return {"thinking": {"type": "adaptive"}}
+    if isinstance(thinking, str):
+        effort = _ANTHROPIC_EFFORT_FROM_LEVEL.get(thinking, "medium")
+        return {
+            "thinking": {"type": "adaptive"},
+            "output_config": {"effort": effort},
+        }
+    if isinstance(thinking, int) and thinking > 0:
+        return {
+            "thinking": {"type": "adaptive"},
+            "output_config": {"effort": "medium"},
+        }
+    return {}
+
+
+def _thinking_client_kwargs(
+    provider: str, thinking: Any, *, model: str | None = None
+) -> dict[str, Any]:
+    """Vendor kwargs for ``llm.<phase>.thinking``. ``None`` omits the parameter.
+
+    ``model`` selects the Anthropic adaptive-thinking family (Haiku 5.5+).
+    Without it, Anthropic keeps the legacy ``enabled``/``disabled`` payload.
+    """
     if thinking is None:
         return {}
 
@@ -319,6 +374,8 @@ def _thinking_client_kwargs(provider: str, thinking: Any) -> dict[str, Any]:
         return {"reasoning": not off}
 
     if provider == "anthropic":
+        if model is not None and _anthropic_omits_sampling(model):
+            return _anthropic_adaptive_thinking_kwargs(thinking)
         if off:
             return {"thinking": {"type": "disabled"}}
         tokens = (
@@ -355,7 +412,7 @@ def get_llm(
     provider = normalize_llm_provider(spec.provider)
     base_url = spec.base_url
     top_p = getattr(cfg.llm, "top_p", 1)
-    thinking_kwargs = _thinking_client_kwargs(provider, spec.thinking)
+    thinking_kwargs = _thinking_client_kwargs(provider, spec.thinking, model=spec.model)
 
     try:
         if is_openai_compatible(provider):
@@ -383,13 +440,17 @@ def get_llm(
         if provider == "anthropic":
             from langchain_anthropic import ChatAnthropic
 
-            return ChatAnthropic(
-                model=spec.model,
-                temperature=temp,
-                top_p=top_p,
-                max_retries=retries,
+            anthropic_kwargs: dict[str, Any] = {
+                "model": spec.model,
+                "max_retries": retries,
                 **thinking_kwargs,
-            )
+            }
+            # Do not pass temperature=None: langchain-anthropic relocates a set
+            # sampling field into extra_body, which the 2026-10-21 API rejects.
+            if not _anthropic_omits_sampling(spec.model):
+                anthropic_kwargs["temperature"] = temp
+                anthropic_kwargs["top_p"] = top_p
+            return ChatAnthropic(**anthropic_kwargs)
 
         if provider == "ollama":
             from langchain_ollama import ChatOllama

@@ -470,6 +470,8 @@ Read ADRs:
 
 Debug:
   - Connect usa Gemini 3; thinking costuma vir ligado no vendor
+  - Anthropic Haiku/Sonnet 5.5 e Opus 5.x: get_llm omite temperature/top_p;
+    thinking false vira output_config.effort low (nao {type: disabled})
   - Trocar thinking invalida o cache SQLite daquela chamada
 ```
 
