@@ -287,8 +287,32 @@ def test_permanent_from_literature_without_llm(cfg, db):
     assert "citation" not in meta and "anchor_quote" not in meta
     evidence = read_managed_block(body, "auto-evidence")
     assert evidence is not None and "(DIESTEL, 2017, p. 42)" in evidence
+    assert "## Intuição" in body
+    assert "## Exemplo" in body
+    assert "## Limites" in body
+    assert "Sugestoes de conexao" not in body
+    assert read_managed_block(body, "auto-connections") is not None
     # No approval gate and no concept row on the hand-written path.
     assert db.get_concepts_by_status("approved") == []
+
+
+def test_permanent_from_literature_copies_judgement_frontmatter(cfg, db, monkeypatch):
+    from zettel import manual_lit
+
+    idx = FakeVectorIndex()
+    lit = _scaffold_source_and_lit(cfg, db, idx)
+    original = manual_lit.build_candidate_from_literature
+
+    def with_rules(*args, **kwargs):
+        return original(*args, **kwargs).model_copy(
+            update={"decision_rules": ["Quando o grafo desconecta, isole o corte."]}
+        )
+
+    monkeypatch.setattr(manual_lit, "build_candidate_from_literature", with_rules)
+    path, via_llm = create_permanent_from_literature(cfg, db, idx, str(lit))
+    assert via_llm is False
+    meta, _body = parse_frontmatter(path.read_text(encoding="utf-8"))
+    assert meta["decision_rules"] == ["Quando o grafo desconecta, isole o corte."]
 
 
 def test_permanent_from_literature_accepts_chunk_id(cfg, db):

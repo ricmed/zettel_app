@@ -18,7 +18,11 @@ from zettel.connector.links import (
 from zettel.retrieval import RetrievedNote
 from zettel.schemas import RelationshipResult, RelationType
 from zettel.state import StateDB
-from zettel.vault import build_permanent_note_body, read_managed_block
+from zettel.vault import (
+    build_permanent_note_body,
+    read_managed_block,
+    scaffold_permanent_note_body,
+)
 
 from tests.fakes import FakeVectorIndex
 
@@ -410,6 +414,17 @@ def test_permanent_note_source_section_omits_empty_literature_ref():
     )
     assert "Ref. literatura" not in body
     assert "## Fonte" in body
+
+
+def test_scaffold_permanent_note_body_matches_pipeline_sections():
+    """A blank manual ZTL used to skip Intuição/Exemplo/Limites and add a heading
+    the connect writer never emits."""
+    body = scaffold_permanent_note_body("Tese")
+    for heading in ("## Definição", "## Intuição", "## Exemplo", "## Limites", "## Fonte"):
+        assert heading in body
+    assert "Sugestoes de conexao" not in body
+    assert read_managed_block(body, "auto-connections") is not None
+    assert read_managed_block(body, "auto-backlinks") is None
 
 
 def test_build_permanent_note_body_with_figures():

@@ -220,7 +220,14 @@ def test_scaffold_permanent_note(cfg):
     assert "source_id" not in meta
     assert len(meta["note_id"]) == 26
     assert "> **Tese**:" in body
+    assert "## Definição" in body
+    assert "## Intuição" in body
+    assert "## Exemplo" in body
+    assert "## Limites" in body
+    assert "## Fonte" in body
+    assert "Sugestoes de conexao" not in body
     assert read_managed_block(body, "auto-connections") is not None
+    assert read_managed_block(body, "auto-backlinks") is None
 
 
 def test_scaffold_permanent_note_persists_thesis(cfg):

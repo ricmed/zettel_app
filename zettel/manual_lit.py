@@ -485,9 +485,10 @@ def create_permanent_from_literature(
     from zettel.connector import ConnectRejected, literature_ref_for_chunk, run_connect
     from zettel.new_note import resolve_src_in_vault, source_wikilink
     from zettel.vault import (
-        build_permanent_note_body,
+        judgement_frontmatter,
         note_filename,
         safe_write_note,
+        scaffold_permanent_note_body,
     )
 
     path, meta, body, content = resolve_literature_note(db, ref)
@@ -564,13 +565,11 @@ def create_permanent_from_literature(
     source_ref = source_wikilink(citekey, path=src_path, title=title_src) if citekey else ""
     definition = candidate.definition if candidate.definition != candidate.thesis else ""
     citation = resolve_citation(source, chunk_row, candidate.anchor_quote)
-    note_body = build_permanent_note_body(
+    note_body = scaffold_permanent_note_body(
         thesis=candidate.thesis,
-        definition=definition or "_Preencha a definicao._",
-        intuition="",
-        example="",
-        limits="",
-        connections=[],
+        definition=definition,
+        intuition=candidate.intuition,
+        limits=candidate.limits,
         literature_ref=literature_ref,
         source_ref=source_ref,
         source_locator=candidate.source_locator,
@@ -578,12 +577,6 @@ def create_permanent_from_literature(
         citation=citation.cite,
         anchor_quote=candidate.anchor_quote,
         images=_figure_dicts(cfg, images) or None,
-    )
-    note_body += (
-        "\n## Sugestoes de conexao\n\n"
-        "<!-- zettel:auto-connections:start -->\n"
-        "_Sincronize com sync-manual para sugestoes automaticas._\n"
-        "<!-- zettel:auto-connections:end -->\n"
     )
 
     now = now_vault_iso(cfg.vault_timezone)
@@ -602,6 +595,7 @@ def create_permanent_from_literature(
         "updated_at": now,
     }
     note_meta.update(citation_frontmatter(citation))
+    note_meta.update(judgement_frontmatter(candidate))
     note_path = cfg.vault_path / "30_Permanent" / note_filename("ZTL", note_id, title)
     if note_path.exists() and not force:
         raise FileExistsError(f"Arquivo ja existe: {note_path}")
