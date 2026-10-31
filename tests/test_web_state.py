@@ -166,6 +166,21 @@ class _GardenDB:
         return None
 
 
+def _outcome(*, note_ids=None, rejected=0, failed=0, skipped=0, errors=None):
+    """Stand-in for ``ConnectOutcome``; ``failed=0`` is success even with no notes."""
+    return type(
+        "O",
+        (),
+        {
+            "note_ids": list(note_ids or []),
+            "rejected": rejected,
+            "failed": failed,
+            "skipped": skipped,
+            "errors": list(errors or []),
+        },
+    )()
+
+
 def test_run_all_dispatches_every_phase_in_order(tmp_path: Path, monkeypatch):
     from zettel import connector, extractor, gardener, harvester, index, review
 
@@ -201,7 +216,7 @@ def test_run_all_dispatches_every_phase_in_order(tmp_path: Path, monkeypatch):
         "run_connect",
         lambda cfg, db, idx, candidates, **kwargs: (
             calls.append(("connect", {"candidates": candidates, **kwargs}))
-            or type("O", (), {"note_ids": ["note"]})()
+            or _outcome(note_ids=["note"])
         ),
     )
     monkeypatch.setattr(
@@ -257,6 +272,8 @@ def test_run_all_dispatches_every_phase_in_order(tmp_path: Path, monkeypatch):
         "approved_threshold": 0,
         "notes": ["note"],
         "mocs": ["moc"],
+        "connect_failed": 0,
+        "connect_errors": [],
         "harvest_skipped": [],
     }
 
@@ -287,7 +304,7 @@ def test_run_all_reports_each_file_the_harvest_refused(tmp_path: Path, monkeypat
     monkeypatch.setattr(
         connector,
         "run_connect",
-        lambda cfg, db, idx, candidates, **kwargs: type("O", (), {"note_ids": []})(),
+        lambda cfg, db, idx, candidates, **kwargs: _outcome(),
     )
     monkeypatch.setattr(gardener, "run_garden", lambda cfg, db, idx, **kwargs: [])
 
@@ -328,7 +345,7 @@ def test_run_all_auto_approve_records_the_unvalidated_warning(tmp_path: Path, mo
         lambda cfg, db, idx, **kwargs: {"approved": 2, "pending_review": 0, **kwargs},
     )
     monkeypatch.setattr(connector, "load_approved_candidates", lambda db, source_ids=None: [])
-    monkeypatch.setattr(connector, "run_connect", lambda *a, **k: type("O", (), {"note_ids": []})())
+    monkeypatch.setattr(connector, "run_connect", lambda *a, **k: _outcome())
     monkeypatch.setattr(gardener, "run_garden", lambda *a, **k: [])
 
     class Progress:
@@ -349,6 +366,117 @@ def test_run_all_auto_approve_records_the_unvalidated_warning(tmp_path: Path, mo
     review_messages = [message for message in progress.messages if "Fase 3/5" in message]
     assert review_messages
     assert AUTO_APPROVE_UNVALIDATED_WARNING in review_messages[0]
+
+
+def test_connect_dispatch_succeeds_when_nothing_failed(tmp_path: Path, monkeypatch):
+    """An empty notes list used to be the only payload, and looked like success."""
+    from zettel import connector, index
+
+    monkeypatch.setattr(index, "VectorIndex", lambda **kwargs: object())
+    monkeypatch.setattr(connector, "load_approved_candidates", lambda db: [])
+    monkeypatch.setattr(connector, "run_connect", lambda *a, **k: _outcome())
+
+    class Progress:
+        def emit(self, event):
+            pass
+
+    result = WebWorker._dispatch(
+        AppConfig(chroma_path=tmp_path / "chroma"),
+        object(),
+        Progress(),
+        "connect",
+        {},
+    )
+    assert result == {
+        "kind": "connect",
+        "notes": [],
+        "rejected": 0,
+        "failed": 0,
+        "skipped": 0,
+        "errors": [],
+    }
+
+
+def test_connect_job_with_failures_is_failed_and_keeps_the_notes(tmp_path: Path, monkeypatch):
+    """Prompt 2 errors must not land as succeeded with `{notes: []}`."""
+    from zettel import connector, index
+    from zettel.web_app import ConfigCache
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"state_db_path: {tmp_path / 'state.db'}\n"
+        f"chroma_path: {tmp_path / 'chroma'}\n"
+        f"cache_path: {tmp_path / 'cache'}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(index, "VectorIndex", lambda **kwargs: object())
+    monkeypatch.setattr(connector, "load_approved_candidates", lambda db: [{"candidate": "x"}])
+    monkeypatch.setattr(
+        connector,
+        "run_connect",
+        lambda *a, **k: _outcome(
+            note_ids=["note-1"],
+            failed=1,
+            errors=["temperature: Extra inputs are not permitted"],
+        ),
+    )
+    db = StateDB(tmp_path / "state.db")
+    try:
+        assert db.create_web_job("job", "connect", {})
+    finally:
+        db.close()
+    WebWorker(ConfigCache(config))._execute("job")
+    db = StateDB(tmp_path / "state.db")
+    try:
+        job = db.get_web_job("job")
+        assert job["state"] == "failed"
+        assert "falharam" in job["error_message"]
+        assert "temperature" in job["error_message"]
+        assert job["result"]["kind"] == "connect"
+        assert job["result"]["notes"] == ["note-1"]
+        assert job["result"]["failed"] == 1
+        assert any(event["phase"] == "failed" for event in db.list_web_job_events("job"))
+    finally:
+        db.close()
+
+
+def test_run_all_fails_when_connect_fails_but_keeps_the_garden(tmp_path: Path, monkeypatch):
+    from zettel import connector, extractor, gardener, harvester, index, review
+
+    calls = []
+    monkeypatch.setattr(index, "VectorIndex", lambda **kwargs: object())
+    monkeypatch.setattr(
+        harvester,
+        "run_harvest",
+        lambda cfg, db, idx, **kwargs: harvester.HarvestOutcome(source_ids=["@source"]),
+    )
+    monkeypatch.setattr(extractor, "run_extract", lambda cfg, db, idx, **kwargs: [])
+    monkeypatch.setattr(review, "run_review", lambda cfg, db, idx, **kwargs: {})
+    monkeypatch.setattr(connector, "load_approved_candidates", lambda db, source_ids=None: [])
+    monkeypatch.setattr(
+        connector,
+        "run_connect",
+        lambda *a, **k: _outcome(note_ids=["n"], failed=1, errors=["boom"]),
+    )
+    monkeypatch.setattr(gardener, "run_garden", lambda *a, **k: calls.append("garden") or ["moc"])
+
+    class Progress:
+        def emit(self, event):
+            pass
+
+    with pytest.raises(UserFacingError, match="boom") as caught:
+        WebWorker._dispatch(
+            AppConfig(chroma_path=tmp_path / "chroma"),
+            _GardenDB(),
+            Progress(),
+            "run_all",
+            {"duplicate_action": "skip"},
+        )
+    assert calls == ["garden"]
+    assert caught.value.result["notes"] == ["n"]
+    assert caught.value.result["mocs"] == ["moc"]
+    assert caught.value.result["connect_failed"] == 1
+    assert caught.value.result["connect_errors"] == ["boom"]
 
 
 def test_manual_lit_to_ztl_dispatches_specialized_flow(tmp_path: Path, monkeypatch):

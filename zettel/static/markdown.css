@@ -60,6 +60,18 @@ select {
   margin: 0 0 1em;
 }
 
+.markdown-body math,
+.review-card math {
+  font-size: 1.08em;
+}
+
+.markdown-body math[display="block"] {
+  display: block;
+  margin: 0.85em 0;
+  overflow-x: auto;
+  text-align: center;
+}
+
 .markdown-body ul,
 .markdown-body ol {
   padding-left: 1.5em;
@@ -71,10 +83,10 @@ select {
 
 .markdown-body blockquote {
   margin: 1.2em 0;
-  padding: 0.7em 1em;
-  border-left: 3px solid var(--accent);
-  background: #fffaf8;
-  color: #4c5560;
+  padding: 0.55em 0 0.55em 1em;
+  border-left: 2px solid var(--line);
+  background: transparent;
+  color: var(--muted);
 }
 
 .markdown-body pre {

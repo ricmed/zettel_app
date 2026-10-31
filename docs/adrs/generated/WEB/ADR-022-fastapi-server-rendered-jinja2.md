@@ -86,3 +86,9 @@ A batch job reports item k only once item k is done; a batch that is one call (d
 * The same middleware module refuses a body over 26 MB by its `Content-Length` (413) before the multipart parser reads a byte, and a chunked body (411), which no browser sends for a form. The 25 MB check in the upload handler stays, for the file itself. An upload is written to `.<name>.part` and hard-linked into the inbox, so half a file never sits under its final name and a name taken meanwhile is refused, never overwritten.
 * The second sanitizing pass of `zettel/markdown.py` is `nh3` (ammonia), with the same tags, attributes and URL schemes; `bleach` is deprecated since 2023 and was removed from the dependencies.
 * An error reaches the browser only if its class is in `web_app.KNOWN_ERRORS` (domain errors this codebase words for a reader), with absolute paths removed. Anything else shows a generic message with a correlation id that the log line also carries. The previous blocklist let a `D:\...` path through.
+
+## Addendum (2026-10-26): TeX on LIT/ZTL pages is MathML, not MathJax
+
+**Status:** Accepted. Notes store `$...$` / `$$...$$` (and `\\(...\\)` / `\\[...\\]`). The Markdown parser used to treat `_` inside those delimiters as emphasis, so `$Z_t$` reached the browser as `$Z<em>t</em>$`. MathJax from a CDN ([getting started](https://www.mathjax.org/#gettingstarted)) would fix the typesetting, but it needs a remote `script-src` and injects `<style>` / `style=` attributes, which the CSP above forbids.
+
+`zettel/markdown.py` now parses those delimiters before emphasis and converts the TeX to MathML with `latex2mathml`. The sanitizer allows presentation MathML. Review cards that are not Markdown (tese, definição) go through the same conversion via the Jinja filter `with_math`. No client script, no CSP change.

@@ -13,7 +13,7 @@ from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn
 from zettel.config import AppConfig, llm_phase
 from zettel.connector import context
 from zettel.connector.note import ConnectSession, process_candidate
-from zettel.connector.prompt import ConnectRejected
+from zettel.connector.prompt import ConnectCandidateFailed, ConnectRejected
 from zettel.domain_examples import load_domain_examples, render_for_prompt
 from zettel.hashing import sha256_hex
 from zettel.index import VectorIndex
@@ -36,6 +36,8 @@ class ConnectOutcome:
     note_ids: list[str]
     rejected: int = 0
     failed: int = 0
+    skipped: int = 0
+    errors: list[str] = field(default_factory=list)
     edges_by_type: dict[str, int] = field(default_factory=dict)
     intra_source: int = 0
     inter_source: int = 0
@@ -107,6 +109,8 @@ def run_connect(
     created_ids: list[str] = []
     rejected = 0
     failed = 0
+    skipped = 0
+    errors: list[str] = []
     rejection: ConnectRejected | None = None
 
     try:
@@ -163,11 +167,26 @@ def run_connect(
                     mark_connect_rejected(db, cand_dict, exc)
                     rejected += 1
                     continue
+                except ConnectCandidateFailed as exc:
+                    failed += 1
+                    msg = str(exc).strip() or "falha ao gerar a nota"
+                    if exc.concept_id and exc.concept_id not in msg:
+                        msg = f"{exc.concept_id}: {msg}"
+                    errors.append(msg)
+                    report(
+                        observer,
+                        "connect",
+                        f"Falha: {msg}",
+                        current_item=thesis[:80],
+                        current_index=i,
+                        total_items=total,
+                    )
+                    continue
                 if note_id:
                     created_ids.append(note_id)
                     log_step(logger, "ok", f"ZTL {note_id}")
                 else:
-                    failed += 1
+                    skipped += 1
 
         logger.info("Notas permanentes criadas/atualizadas: %d", len(created_ids))
         refresh_chapter_maps(cfg, db, created_ids)
@@ -181,6 +200,8 @@ def run_connect(
             note_ids=created_ids,
             rejected=rejected,
             failed=failed,
+            skipped=skipped,
+            errors=errors,
             cost_usd=cost,
             **tally,
         )

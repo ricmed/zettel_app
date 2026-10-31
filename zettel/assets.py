@@ -306,6 +306,9 @@ _IMAGE_SUFFIXES = {
     ".tiff",
     ".avif",
 }
+IMAGE_SUFFIXES = _IMAGE_SUFFIXES
+MAX_MANUAL_IMAGES = 6
+MAX_MANUAL_IMAGE_BYTES = 8 * 1024 * 1024
 
 
 def _is_canonical_asset(ref: str) -> bool:
@@ -424,6 +427,105 @@ def adopt_vault_images(
             note_path.name,
         )
     return new_body, adopted
+
+
+def store_manual_images(vault_path: Path, uploads: list[tuple[str, bytes]]) -> list[str]:
+    """Save uploaded image bytes under ``90_Assets/``. Returns canonical relative paths.
+
+    Identical bytes collapse to one file. The caller already checked the suffix
+    and the size; this repeats the suffix check so a second entry point cannot
+    write an arbitrary extension.
+    """
+    paths: list[str] = []
+    seen: set[str] = set()
+    for name, data in uploads:
+        if not data:
+            continue
+        ext = Path(name).suffix.lower()
+        if ext not in _IMAGE_SUFFIXES:
+            raise ValueError("Use uma imagem PNG, JPG, GIF, WEBP, BMP, SVG, TIF ou AVIF.")
+        relpath = _save_image(vault_path, data, ext)
+        if relpath not in seen:
+            seen.add(relpath)
+            paths.append(relpath)
+    return paths
+
+
+def canonical_asset_paths(vault_path: Path, paths: list[str]) -> list[str]:
+    """Keep paths that already name a content-addressed file under ``90_Assets/``."""
+    vault = vault_path.resolve()
+    assets_root = (vault / ASSETS_DIR).resolve()
+    kept: list[str] = []
+    seen: set[str] = set()
+    for raw in paths:
+        rel = str(raw or "").replace("\\", "/").strip().lstrip("./")
+        if not rel.startswith(f"{ASSETS_DIR}/img-") or rel in seen:
+            continue
+        target = (vault / rel).resolve()
+        try:
+            target.relative_to(assets_root)
+        except ValueError:
+            continue
+        if target.is_file():
+            seen.add(rel)
+            kept.append(rel)
+    return kept
+
+
+def embedded_asset_paths(vault_path: Path, body: str) -> list[str]:
+    """Canonical ``90_Assets`` paths already referenced in a note body.
+
+    Reads Obsidian embeds and Markdown image refs; anything that is not an
+    existing content-addressed file under ``90_Assets/`` is dropped.
+    """
+    from urllib.parse import unquote
+
+    refs: list[str] = []
+    for match in _WIKI_IMAGE_RE.finditer(body or ""):
+        refs.append(unquote(match.group(1).strip()))
+    for match in _MD_IMAGE_RE.finditer(body or ""):
+        refs.append(unquote(match.group(1).strip()))
+    return canonical_asset_paths(vault_path, refs)
+
+
+def register_note_images(
+    cfg: AppConfig,
+    db: StateDB,
+    source_id: str,
+    note_path: Path,
+    *,
+    page_in_file: int | None = None,
+) -> str:
+    """Register images already embedded in a note, when the source is in SQLite.
+
+    Returns the body after adoption. A missing source leaves the file untouched:
+    ``assets.source_id`` is NOT NULL, and a later sync adopts the same embeds.
+    """
+    if not source_id or db.get_source(source_id) is None or not note_path.is_file():
+        text = note_path.read_text(encoding="utf-8") if note_path.is_file() else ""
+        from zettel.vault import parse_frontmatter
+
+        return parse_frontmatter(text)[1] if text else ""
+
+    from zettel.manual_lit import ensure_manual_chapter
+    from zettel.vault import compose_note, parse_frontmatter
+
+    meta, body = parse_frontmatter(note_path.read_text(encoding="utf-8"))
+    page = page_in_file
+    if page is None and isinstance(meta.get("page_in_file"), int):
+        page = meta["page_in_file"]
+    new_body, adopted = adopt_vault_images(
+        cfg,
+        db,
+        source_id,
+        ensure_manual_chapter(db, source_id),
+        note_path,
+        body,
+        page_in_file=page,
+    )
+    if adopted and new_body != body:
+        note_path.write_text(compose_note(meta, new_body), encoding="utf-8")
+    return new_body
 
 
 # ── Multimodal description ─────────────────────────────────────────────

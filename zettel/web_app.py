@@ -30,6 +30,10 @@ logger = logging.getLogger(__name__)
 class UserFacingError(RuntimeError):
     """Expected operational failure whose message is safe for the browser."""
 
+    def __init__(self, message: str, *, result: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.result = result
+
 
 class JobParked(Exception):
     """The worker should leave this job in ``awaiting_input`` and move on."""
@@ -799,11 +803,13 @@ class WebWorker:
         except (UserFacingError, LLMUnavailableError) as exc:
             logger.warning("Trabalho web %s falhou: %s", job_id, exc)
             message = safe_error(exc)
+            payload = getattr(exc, "result", None)
             db.update_web_job(
                 job_id,
                 state="failed",
                 phase="failed",
                 message=message,
+                result=payload if isinstance(payload, dict) else None,
                 error_message=message,
                 finished=True,
             )
@@ -1002,7 +1008,7 @@ def _op_run_all(ctx: JobContext) -> dict[str, Any]:
     progress.emit(ProgressEvent("garden", "Fase 5/5 — atualizando mapas de conteúdo."))
     moc_ids = run_garden(cfg, db, idx, observer=progress)
     garden_report = db.latest_garden_report("garden")
-    return {
+    result = {
         "garden_report": garden_report,
         "sources": sources,
         "drafts": len(drafts),
@@ -1011,6 +1017,8 @@ def _op_run_all(ctx: JobContext) -> dict[str, Any]:
         "approved_threshold": int(review_stats.get("approved_threshold") or 0),
         "notes": note_ids,
         "mocs": moc_ids,
+        "connect_failed": int(getattr(outcome, "failed", 0) or 0),
+        "connect_errors": list(getattr(outcome, "errors", None) or []),
         # run_all harvests the whole inbox without a bibliographic review,
         # so a refused file must show up here, with its reason (#310).
         "harvest_skipped": [
@@ -1018,6 +1026,9 @@ def _op_run_all(ctx: JobContext) -> dict[str, Any]:
             for skip in [*harvest.skipped, *harvest.declined]
         ],
     }
+    if getattr(outcome, "failed", 0):
+        raise UserFacingError(_connect_failed_message(outcome), result=result)
+    return result
 
 
 def _op_harvest(ctx: JobContext) -> dict[str, Any]:
@@ -1111,15 +1122,30 @@ def _op_manual_ztl_from_lit(ctx: JobContext) -> dict[str, Any]:
     from zettel.manual_lit import create_permanent_from_literature
 
     ref = payload.get("ref") or payload["chunk_id"]
+    kwargs: dict[str, Any] = {
+        "thesis": payload.get("thesis") or None,
+        "use_llm": bool(payload.get("use_llm")),
+        "force": bool(payload.get("force")),
+    }
+    raw_image_paths = payload.get("image_paths") or []
+    raw_paths = (
+        [p for p in raw_image_paths if isinstance(p, str)]
+        if isinstance(raw_image_paths, list)
+        else []
+    )
+    if raw_paths:
+        from zettel.assets import canonical_asset_paths
+
+        safe_paths = canonical_asset_paths(cfg.vault_path, raw_paths)
+        if safe_paths:
+            kwargs["images"] = [{"path": path} for path in safe_paths]
     try:
         result = create_permanent_from_literature(
             cfg,
             db,
             ctx.idx if payload.get("use_llm") else None,
             ref,
-            thesis=payload.get("thesis") or None,
-            use_llm=bool(payload.get("use_llm")),
-            force=bool(payload.get("force")),
+            **kwargs,
         )
     except ConnectRejected as exc:
         raise UserFacingError(str(exc)) from exc
@@ -1243,6 +1269,30 @@ def _op_review_drafts(ctx: JobContext) -> dict[str, Any]:
     return stats
 
 
+def _connect_job_result(outcome: Any) -> dict[str, Any]:
+    """JSON the connect job stores: notes plus the failures the CLI already prints."""
+    return {
+        "kind": "connect",
+        "notes": list(getattr(outcome, "note_ids", None) or []),
+        "rejected": int(getattr(outcome, "rejected", 0) or 0),
+        "failed": int(getattr(outcome, "failed", 0) or 0),
+        "skipped": int(getattr(outcome, "skipped", 0) or 0),
+        "errors": list(getattr(outcome, "errors", None) or []),
+    }
+
+
+def _connect_failed_message(outcome: Any) -> str:
+    """One line for the job badge when Prompt 2 / the client dropped candidates."""
+    failed = int(getattr(outcome, "failed", 0) or 0)
+    created = len(getattr(outcome, "note_ids", None) or [])
+    rejected = int(getattr(outcome, "rejected", 0) or 0)
+    skipped = int(getattr(outcome, "skipped", 0) or 0)
+    total = created + failed + rejected + skipped
+    head = f"{failed} de {total} notas falharam" if total > failed else f"{failed} nota(s) falharam"
+    first = str((getattr(outcome, "errors", None) or [""])[0]).strip()
+    return f"{head}: {first}" if first else f"{head}."
+
+
 def _op_connect(ctx: JobContext) -> dict[str, Any]:
     """Prompt 2 over the approved concepts."""
     cfg, db, progress, idx = ctx.cfg, ctx.db, ctx.progress, ctx.idx
@@ -1256,7 +1306,11 @@ def _op_connect(ctx: JobContext) -> dict[str, Any]:
             total_items=len(candidates),
         )
     )
-    return {"notes": run_connect(cfg, db, idx, candidates, observer=progress).note_ids}
+    outcome = run_connect(cfg, db, idx, candidates, observer=progress)
+    result = _connect_job_result(outcome)
+    if result["failed"]:
+        raise UserFacingError(_connect_failed_message(outcome), result=result)
+    return result
 
 
 def _op_garden(ctx: JobContext) -> dict[str, Any]:

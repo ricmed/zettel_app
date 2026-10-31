@@ -30,20 +30,16 @@
     const sourceId = fieldValue('source_id');
     const index = parseInt(form.querySelector('[name="chunk_index"]').value || '1', 10);
     const page = form.querySelector('[name="page_number"]').value;
-    const topic = form.querySelector('[name="title"]').value;
+    const topic = fieldValue('title');
     const padded = String(index).padStart(4, '0');
     const pageTok = page ? ('p' + String(page).padStart(3, '0')) : ('c' + padded);
     const citekey = (sourceId || '').replace(/^@/, '') || 'Citekey';
-    preview.textContent = 'Arquivo: LIT - ' + citekey + ' - ' + pageTok + ' - ' + slug(topic) + '-' + padded + '.md · chunk_id: ' + (sourceId || '@Citekey') + '::manual::' + padded;
+    preview.textContent = 'Arquivo: LIT - ' + citekey + ' - ' + pageTok + ' - ' + slug(topic) + '-' + padded + '.md';
   }
   function update() {
     const current = mode();
+    form.dataset.mode = current;
     const type = form.querySelector('input[name="note_type"]:checked').value;
-    const titleLabel = document.getElementById('title-label');
-    if (current === 'ZTL_BLANK') titleLabel.textContent = 'Tese / título da ideia';
-    else if (current === 'LIT_GRANULAR') titleLabel.textContent = 'Tópico / seção deste trecho';
-    else if (current === 'LIT_INDEX') titleLabel.textContent = 'Título do índice';
-    else titleLabel.textContent = 'Título';
     options.forEach(option => option.classList.toggle('selected', option.querySelector('input').value === type));
     for (const el of form.querySelectorAll('[data-types]')) {
       const on = el.dataset.types.split(/\s+/).includes(current);
@@ -62,6 +58,18 @@
         if (input.dataset.requiredFor)
           input.required = on && input.dataset.requiredFor.split(/\s+/).includes(current);
       }
+    }
+    const titleLabel = document.getElementById('title-label');
+    const titleInput = [...form.querySelectorAll('[name="title"]')].find(node => !node.disabled);
+    if (current === 'ZTL_BLANK') {
+      if (titleLabel) titleLabel.textContent = 'Tese / título da ideia';
+      if (titleInput) titleInput.placeholder = 'A ideia em uma frase';
+    } else if (current === 'LIT_INDEX') {
+      if (titleLabel) titleLabel.textContent = 'Título do índice';
+      if (titleInput) titleInput.placeholder = 'Título da página-índice desta fonte';
+    } else if (current !== 'LIT_GRANULAR') {
+      if (titleLabel) titleLabel.textContent = 'Título';
+      if (titleInput) titleInput.placeholder = 'Título da obra, como na capa';
     }
     form.querySelectorAll('.combobox[data-depends-on]').forEach(root => {
       const input = root.querySelector('.combobox-input');

@@ -15,7 +15,6 @@ from zettel.vault import (
     author_year_label,
     build_literature_chunk_note,
     build_literature_index_note,
-    build_permanent_note_body,
     build_source_note,
     literature_chunk_filename,
     literature_index_filename,
@@ -23,6 +22,7 @@ from zettel.vault import (
     note_filename,
     parse_frontmatter,
     safe_write_note,
+    scaffold_permanent_note_body,
     source_note_filename,
     source_note_stem,
 )
@@ -254,6 +254,7 @@ def scaffold_manual_note(
     key_concepts: list[str] | None = None,
     candidates: list[dict[str, Any]] | None = None,
     force: bool = False,
+    images: list[dict[str, Any]] | None = None,
 ) -> NewNoteResult:
     """Create a manual note file in the vault. Does not index into SQLite/Chroma."""
     normalized = normalize_note_type(note_type)
@@ -346,6 +347,7 @@ def scaffold_manual_note(
                 status="approved",
                 origin="manual",
                 vault_timezone=cfg.vault_timezone,
+                images=images,
             )
         else:
             rel_path = literature_index_filename(ck, title)
@@ -388,22 +390,10 @@ def scaffold_manual_note(
                     f"SRC nao encontrada em 10_Sources/ para {sid}; "
                     "wikilink provisorio usado (crie a fonte com new-note src ou harvest)."
                 )
-        body = build_permanent_note_body(
-            thesis=thesis or "_Preencha a tese._",
-            definition="_Preencha a definicao._",
-            intuition="",
-            example="",
-            limits="",
-            connections=[],
-            literature_ref="",
+        body = scaffold_permanent_note_body(
+            thesis=thesis or "",
             source_ref=source_ref,
-            source_locator="",
-        )
-        body += (
-            "\n## Sugestoes de conexao\n\n"
-            "<!-- zettel:auto-connections:start -->\n"
-            "_Sincronize com sync-manual para sugestoes automaticas._\n"
-            "<!-- zettel:auto-connections:end -->\n"
+            images=images,
         )
         _write_scaffold(path, meta, body, force=force)
         return NewNoteResult(

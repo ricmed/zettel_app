@@ -87,11 +87,11 @@
             {% if note.citation %}<span>{{ note.citation }}</span>{% endif %}
           </div>
           <h3><a href="/notes/{{ note.note_id }}">{{ note.title }}</a></h3>
-          {% if note.thesis %}<p><b>Tese:</b> {{ note.thesis }}</p>{% endif %}
-          {% if note.definition %}<p><b>Definição:</b> {{ note.definition }}</p>{% endif %}
-          {% if note.intuition %}<p><b>Intuição:</b> {{ note.intuition }}</p>{% endif %}
-          {% if note.example %}<p><b>Exemplo:</b> {{ note.example }}</p>{% endif %}
-          {% if note.limits %}<p><b>Limites:</b> {{ note.limits }}</p>{% endif %}
+          {% if note.thesis %}<p><b>Tese:</b> {{ note.thesis | with_math | safe }}</p>{% endif %}
+          {% if note.definition %}<p><b>Definição:</b> {{ note.definition | with_math | safe }}</p>{% endif %}
+          {% if note.intuition %}<p><b>Intuição:</b> {{ note.intuition | with_math | safe }}</p>{% endif %}
+          {% if note.example %}<p><b>Exemplo:</b> {{ note.example | with_math | safe }}</p>{% endif %}
+          {% if note.limits %}<p><b>Limites:</b> {{ note.limits | with_math | safe }}</p>{% endif %}
           {% if note.excerpt %}<p>{{ note.excerpt }}</p>{% endif %}
           {% if note.anchor_quote %}<p class="edge-anchor"><b>Âncora na fonte:</b> “{{ note.anchor_quote }}”</p>{% endif %}
         </div>
@@ -165,8 +165,8 @@
           <h2>Rejeitado pelo filtro</h2>
           {% for item in chunk.rejected_candidates %}
           <div class="candidate">
-            <b>{{ item.thesis }}</b>
-            <p>{{ item.anchor_quote }}</p>
+            <b>{{ item.thesis | with_math | safe }}</b>
+            <p>{{ item.anchor_quote | with_math | safe }}</p>
             <p>{{ item.reason }}</p>
           </div>
           {% else %}
@@ -195,23 +195,23 @@
             <span>p. {{ chunk.page_in_book or chunk.page_in_file or '?' }}</span>
             <span class="confidence">{{ '%.2f'|format(chunk.review_confidence or 0) }}</span>
           </div>
-          <h2>{{ chunk.summary or 'Draft sem resumo' }}</h2>
+          <h2>{{ (chunk.summary or 'Draft sem resumo') | with_math | safe }}</h2>
           <p class="muted">Editar a tese ou a âncora no rascunho vale na aprovação. Uma âncora que não está no trecho é recusada.</p>
           {% if chunk.rejected_candidates %}
           <h3>Descartados pelo filtro</h3>
           {% for item in chunk.rejected_candidates %}
-          <div class="candidate"><b>{{ item.thesis }}</b><p>{{ item.reason }}</p></div>
+          <div class="candidate"><b>{{ item.thesis | with_math | safe }}</b><p>{{ item.reason }}</p></div>
           {% endfor %}
           {% endif %}
           {% for concept in chunk.concepts %}
           <div class="candidate">
             <label class="select"><input type="checkbox" name="concept_ids" value="{{ concept.concept_id }}"><span></span></label>
-            <b>{{ concept.thesis }}</b>
+            <b>{{ concept.thesis | with_math | safe }}</b>
             {% if concept.relevance_score %}<span>relevância {{ concept.relevance_score }}/5</span>{% endif %}
-            <p>{{ concept.definition }}</p>
-            {% if concept.intuition %}<p><b>Intuição:</b> {{ concept.intuition }}</p>{% endif %}
-            {% if concept.limits %}<p><b>Limites:</b> {{ concept.limits }}</p>{% endif %}
-            {% if concept.anchor_quote %}<p><b>Âncora:</b> {{ concept.anchor_quote }}</p>{% endif %}
+            <p>{{ concept.definition | with_math | safe }}</p>
+            {% if concept.intuition %}<p><b>Intuição:</b> {{ concept.intuition | with_math | safe }}</p>{% endif %}
+            {% if concept.limits %}<p><b>Limites:</b> {{ concept.limits | with_math | safe }}</p>{% endif %}
+            {% if concept.anchor_quote %}<p><b>Âncora:</b> {{ concept.anchor_quote | with_math | safe }}</p>{% endif %}
           </div>
           {% else %}
           <label class="select"><input type="checkbox" name="chunk_ids" value="{{ chunk.chunk_id }}"><span></span></label>

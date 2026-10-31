@@ -1032,6 +1032,79 @@ def build_permanent_note_body(
     return "\n".join(parts)
 
 
+_MANUAL_CONNECTIONS_PLACEHOLDER = "_Sincronize com sync-manual para sugestoes automaticas._"
+
+
+def scaffold_permanent_note_body(
+    thesis: str,
+    definition: str = "",
+    intuition: str = "",
+    example: str = "",
+    limits: str = "",
+    *,
+    literature_ref: str = "",
+    source_ref: str = "",
+    source_locator: str = "",
+    page: int | None = None,
+    images: list[dict] | None = None,
+    citation: str = "",
+    anchor_quote: str = "",
+    connections: list[dict] | None = None,
+) -> str:
+    """Pipeline ZTL skeleton for a hand-written note.
+
+    Same sections as ``build_permanent_note_body`` (placeholders where the author
+    has not filled a field yet) plus ``auto-connections`` with no extra heading,
+    matching ``write_auto_connections``. Does not invent an empty ``auto-backlinks``.
+    """
+    body = build_permanent_note_body(
+        thesis=thesis or "_Preencha a tese._",
+        definition=definition or "_Preencha a definicao._",
+        intuition=intuition or "_Preencha a intuicao._",
+        example=example or "_Preencha o exemplo._",
+        limits=limits or "_Preencha os limites._",
+        connections=connections,
+        literature_ref=literature_ref,
+        source_ref=source_ref,
+        source_locator=source_locator,
+        page=page,
+        images=images,
+        citation=citation,
+        anchor_quote=anchor_quote,
+    )
+    return upsert_managed_block(body, "auto-connections", _MANUAL_CONNECTIONS_PLACEHOLDER)
+
+
+def append_figure_embeds(body: str, paths: list[str]) -> str:
+    """Insert ``![[path]]`` under ``## Figuras``, skipping a path already embedded.
+
+    A note the connector already wrote keeps its section order: figures stay
+    before ``## Fonte``. A second call with the same paths is a no-op.
+    """
+    fresh: list[str] = []
+    for raw in paths:
+        path = str(raw or "").replace("\\", "/").strip()
+        if path and f"![[{path}]]" not in body:
+            fresh.append(path)
+    if not fresh:
+        return body
+    block = "\n".join(f"![[{path}]]\n" for path in fresh)
+    existing = re.search(r"^##[ \t]+Figuras[ \t]*$", body, re.MULTILINE)
+    if existing:
+        rest_at = existing.end()
+        nxt = re.search(r"^##[ \t]+", body[rest_at:], re.MULTILINE)
+        insert_at = rest_at + nxt.start() if nxt else len(body)
+        suffix = body[insert_at:]
+        if suffix and not suffix.startswith("\n"):
+            suffix = "\n" + suffix
+        return body[:insert_at].rstrip() + "\n\n" + block + suffix
+    fonte = re.search(r"^##[ \t]+Fonte[ \t]*$", body, re.MULTILINE)
+    insertion = f"## Figuras\n\n{block}\n"
+    if fonte:
+        return body[: fonte.start()] + insertion + body[fonte.start() :]
+    return body.rstrip() + "\n\n" + insertion
+
+
 def note_filename(prefix: str, identifier: str, title: str) -> str:
     """Build a standardized filename: PREFIX - ID - slug.md"""
     slug = _slug(title) or "nota"

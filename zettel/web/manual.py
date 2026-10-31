@@ -97,6 +97,24 @@ def _connect_llm_ok(cfg: Any) -> bool:
     return _llm_phase_ready(cfg, "connect")
 
 
+def _store_uploaded_images(
+    request: Request,
+    cfg: Any,
+    uploads: list[tuple[str, bytes]],
+    *,
+    locked: bool = False,
+) -> list[str]:
+    """Write image bytes under ``90_Assets/``. The lock is the caller's when ``locked``."""
+    if not uploads:
+        return []
+    from zettel.assets import store_manual_images
+
+    if locked:
+        return store_manual_images(cfg.vault_path, uploads)
+    with operation_lock(request, "new-note"):
+        return store_manual_images(cfg.vault_path, uploads)
+
+
 def _document_type_options() -> list[dict]:
     from zettel.bibliography import DOCUMENT_TYPE_LABELS
 
@@ -317,6 +335,13 @@ def create_note(request: Request, form: FormData = Depends(read_form)):
             raise ValueError("Selecione uma fonte existente para a nota LIT.")
         if parsed["mode"] == "ZTL_BLANK" and parsed.get("source_id") and not selected["source_id"]:
             raise ValueError("Selecione uma fonte existente para a nota ZTL.")
+        from zettel.web.manual_images import IMAGE_MODES, read_image_uploads
+
+        uploads = read_image_uploads(form)
+        if uploads and parsed["mode"] not in IMAGE_MODES:
+            raise ValueError("SRC e o índice de LIT não aceitam imagem.")
+        if uploads and parsed["mode"] == "ZTL_BLANK" and not selected["source_id"]:
+            raise ValueError("Selecione uma fonte existente para anexar uma imagem à ZTL.")
         if parsed["mode"] == "ZTL_FROM_LIT":
             ref = resolve_from_lit(svc.cfg, db, parsed)
             thesis = preflight_from_lit(
@@ -326,20 +351,17 @@ def create_note(request: Request, form: FormData = Depends(read_form)):
                 ref,
                 llm_ok=_connect_llm_ok(svc.cfg),
             )
-            return post_job(
-                request,
-                "manual-ztl-from-lit",
-                {
-                    "ref": ref,
-                    "chunk_id": ref
-                    if not str(ref).endswith(".md")
-                    else parsed.get("from_lit") or "",
-                    "thesis": thesis,
-                    "use_llm": bool(parsed["use_llm"]),
-                    "force": bool(parsed["force"]) and not parsed["use_llm"],
-                },
-                str(form.get("csrf")),
-            )
+            image_paths = _store_uploaded_images(request, svc.cfg, uploads)
+            payload = {
+                "ref": ref,
+                "chunk_id": ref if not str(ref).endswith(".md") else parsed.get("from_lit") or "",
+                "thesis": thesis,
+                "use_llm": bool(parsed["use_llm"]),
+                "force": bool(parsed["force"]) and not parsed["use_llm"],
+            }
+            if image_paths:
+                payload["image_paths"] = image_paths
+            return post_job(request, "manual-ztl-from-lit", payload, str(form.get("csrf")))
         from zettel.new_note import scaffold_manual_note
 
         note_type = {
@@ -351,6 +373,7 @@ def create_note(request: Request, form: FormData = Depends(read_form)):
         # Writes the vault in the request: it takes the operation lock, like a
         # job, so it never lands while sync or garden walk the same folders (#308).
         with operation_lock(request, "new-note"):
+            image_paths = _store_uploaded_images(request, svc.cfg, uploads, locked=True)
             result = scaffold_manual_note(
                 svc.cfg,
                 note_type=note_type,
@@ -384,7 +407,12 @@ def create_note(request: Request, form: FormData = Depends(read_form)):
                     else None
                 ),
                 force=parsed["force"],
+                images=[{"path": path} for path in image_paths] or None,
             )
+            if image_paths and selected.get("source_id"):
+                from zettel.assets import register_note_images
+
+                register_note_images(svc.cfg, db, selected["source_id"], result.path)
         return _form_page(
             request,
             db,

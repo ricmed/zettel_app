@@ -94,3 +94,13 @@ If a future round adds `attach-image` or a web upload, both should funnel into `
 * `zettel/sync.py` — `_adopt_note_images` for permanent notes
 * `zettel/state/schema.py` — `assets` schema (`source_id` NOT NULL with FK)
 * `tests/test_manual_flow.py` — wiki embed, Markdown ref, remote URL, idempotency
+
+## Addendum (2026-10-26): image on the web create form (issue #337)
+
+**Status:** Accepted amendment. `/notes/new` accepts up to six image files when the note is a granular LIT, a blank ZTL or a ZTL derived from a LIT. This is the same gesture the rejected "web upload page" was waiting for: manual notes now exist on the web, so the file rides on the form that already creates the note. It is not a separate attach page, and the inbox upload still refuses images.
+
+The bytes are stored with `_save_image` (content-addressed under `90_Assets/`). The embed is written into the section the note already has (`## Imagens Relacionadas` on a granular LIT, `## Figuras` on a ZTL). When the source is already in SQLite, `adopt_vault_images` registers the row in the same operation. A path that is not a canonical asset file is dropped. A second pass does not insert another row.
+
+Nothing else about the decision moves. Adoption is still not gated on `images.enabled`. The asset stays `status='pending'`; `extract` and retry assets remain the only description path. A blank ZTL with an image and no source in SQLite is refused, because `assets.source_id` is NOT NULL. SRC, the literature index and the CLI keep the previous gesture: paste the image in Obsidian and run `sync-manual`.
+
+A ZTL created from a granular LIT (`create_permanent_from_literature`, web or `new-note ztl --from-lit`) inherits the canonical `![[90_Assets/…]]` embeds already on that LIT and then appends any images sent on the form, without duplicating a path. The bytes stay where they are; only the embed is copied into `## Figuras`.

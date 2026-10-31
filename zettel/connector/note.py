@@ -18,6 +18,7 @@ from zettel.citation import NoteCitation, citation_frontmatter, note_provenance,
 from zettel.config import AppConfig
 from zettel.connector import context, links
 from zettel.connector.prompt import (
+    ConnectCandidateFailed,
     ConnectRejected,
     Prompt2Payload,
     generate_permanent_note,
@@ -90,11 +91,12 @@ def process_candidate(
 ) -> str | None:
     """Write the permanent note for one candidate. Returns its note_id, or None.
 
-    ``None`` means nothing was written: the concept is already covered by another
-    note, or Prompt 2 failed with a recoverable error (logged; the concept stays
-    ``approved`` for the next run). ``ConnectRejected``, ``LLMUnavailableError``
-    and an embedding outage propagate to ``run_connect``. A concept left
-    ``connecting`` is resumed on the same ``note_id``.
+    ``None`` means nothing was written because another note already covers the
+    concept (it is marked ``noted``). ``ConnectCandidateFailed`` is a recoverable
+    Prompt 2 / client error (logged; the concept stays ``approved``).
+    ``ConnectRejected``, ``LLMUnavailableError`` and an embedding outage
+    propagate to ``run_connect``. A concept left ``connecting`` is resumed on
+    the same ``note_id``.
     """
     if step is not None:
         set_progress(step, total, "nota")
@@ -188,11 +190,11 @@ def _process(
                 force=bool(cand_dict.get("force_connect")),
                 subject_id=concept_id,
             )
-    except (ConnectRejected, LLMUnavailableError):
+    except (ConnectRejected, LLMUnavailableError, ConnectCandidateFailed):
         raise
     except Exception as e:
         logger.error("Erro ao gerar nota permanente para conceito %s: %s", concept_id, e)
-        return None
+        raise ConnectCandidateFailed(str(e), concept_id=concept_id) from e
     usage_after = tracker.summary().as_dict() if tracker else {}
 
     connections = links.assemble_connections(

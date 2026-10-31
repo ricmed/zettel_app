@@ -35,7 +35,10 @@ async function refresh(){
   const out=document.querySelector("#job-result");
   if(out&&(j.result||j.error_message)){
     document.querySelector("#job-outcome").hidden=false;
-    out.textContent=j.error_message||JSON.stringify(j.result,null,2);
+    const err=document.querySelector("#job-error");
+    if(err) err.textContent=j.error_message||"";
+    if(j.result) out.textContent=JSON.stringify(j.result,null,2);
+    else out.textContent=j.error_message||"";
   }
   d.events.forEach(e=>{
     after=Math.max(after,e.event_id);
