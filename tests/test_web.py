@@ -1158,10 +1158,15 @@ def test_manual_source_lists_bibliography_options_before_reference(web_client):
     response = client.get("/notes/new")
     assert response.status_code == 200
     page = response.text
+    assert page.index("<h2>Que tipo de nota de leitura</h2>") < page.index("<h2>O essencial</h2>")
     assert page.index("<h2>O essencial</h2>") < page.index("<h2>Mais dados bibliográficos</h2>")
     assert page.index("<h2>Mais dados bibliográficos</h2>") < page.index("<h2>Referência</h2>")
+    assert page.index('name="document_type"') < page.index('name="title"')
+    assert page.index('name="title"') < page.index('name="citekey"')
+    assert page.index('name="citekey"') < page.index('name="authors"')
+    assert page.index('name="authors"') < page.index('name="year"')
+    assert page.count('name="title"') == 2
     for field in (
-        "title",
         "citekey",
         "authors",
         "year",
@@ -1680,6 +1685,36 @@ def test_manual_form_markup_contract(web_client):
     assert 'name="lit_concepts"' in page.text
     assert 'name="lit_candidate"' in page.text
     assert "Escreva a nota" in page.text
+    assert page.text.index("Que tipo de nota de leitura") < page.text.index("<h2>O essencial</h2>")
+    assert "Nota de um trecho" in page.text
+    assert "página-sumário" in page.text
+    assert "locator-pair" in page.text
+    assert "section_path" not in page.text
+    assert "auto-source-excerpt" not in page.text
+    css = client.get("/static/app.css").text
+    assert ".form-grid.two-col" in css
+    assert ".form-grid.locator-pair" in css
+    assert "Capítulo ou seção" in page.text
+    assert page.text.index("Fonte relacionada") < page.text.index("Capítulo ou seção")
+    assert page.text.index('name="page_number"') < page.text.index('name="chunk_index"')
+    # SRC/LIT keep source order; ZTL reorders only via flex `order`.
+    essencial = page.text.index("<h2>O essencial</h2>")
+    onde = page.text.index("<h2>Onde esta ideia vive</h2>")
+    origem = page.text.index("<h2>Origem da permanente</h2>")
+    assert essencial < onde < origem
+    assert 'data-section="origin"' in page.text
+    assert 'data-section="where"' in page.text
+    assert 'data-section="essencial"' in page.text
+    assert 'data-section="from-lit"' in page.text
+    assert "form.dataset.mode = current" in client.get("/static/manual-notes.js").text
+    assert "form[data-mode^=ZTL] [data-section=origin]{order:1}" in css
+    assert "form[data-mode^=ZTL] [data-section=where]{order:2}" in css
+    assert "form[data-mode^=ZTL] [data-section=essencial]{order:3}" in css
+    assert "título acima" not in page.text
+    ztl = client.get("/notes/new?type=ZTL")
+    assert ztl.status_code == 200
+    assert 'data-mode="ZTL_BLANK"' in ztl.text
+    assert "A tese se escreve abaixo, em O essencial." in ztl.text
 
 
 def test_biblio_enrich_button_follows_harvest_phase(web_client, monkeypatch):
