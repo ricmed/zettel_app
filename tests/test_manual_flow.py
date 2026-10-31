@@ -400,6 +400,49 @@ def test_append_figure_embeds_extends_the_section_once():
     assert append_figure_embeds(out, ["90_Assets/img-bbb.png"]) == out
 
 
+def test_permanent_from_literature_inherits_lit_embed(cfg, db):
+    from zettel.assets import store_manual_images
+
+    idx = FakeVectorIndex()
+    rel = store_manual_images(cfg.vault_path, [("figura.png", PNG_BYTES)])[0]
+    lit = _scaffold_source_and_lit(cfg, db, idx, extra_body=f"\n![[{rel}]]\n")
+    path, via_llm = create_permanent_from_literature(cfg, db, idx, str(lit))
+    assert via_llm is False
+    text = path.read_text(encoding="utf-8")
+    assert f"![[{rel}]]" in text
+    assert "## Figuras" in text
+    assets = [row for row in db.get_assets_for_source("@Diestel2017") if row["path"] == rel]
+    assert len(assets) == 1
+
+
+def test_permanent_from_literature_merges_lit_embed_and_upload(cfg, db):
+    from zettel.assets import store_manual_images
+
+    idx = FakeVectorIndex()
+    inherited = store_manual_images(cfg.vault_path, [("figura.png", PNG_BYTES)])[0]
+    extra = store_manual_images(cfg.vault_path, [("outra.png", PNG_BYTES + b"\x00")])[0]
+    lit = _scaffold_source_and_lit(cfg, db, idx, extra_body=f"\n![[{inherited}]]\n")
+    path, _ = create_permanent_from_literature(
+        cfg, db, idx, str(lit), images=[{"path": extra}, {"path": inherited}]
+    )
+    text = path.read_text(encoding="utf-8")
+    assert text.count(inherited) == 1
+    assert extra in text
+    assert text.index(inherited) < text.index(extra)
+
+
+def test_permanent_from_literature_ignores_non_asset_in_lit_body(cfg, db):
+    idx = FakeVectorIndex()
+    lit = _scaffold_source_and_lit(
+        cfg, db, idx, extra_body="\n![[../secrets.png]]\n![x](https://example.com/a.png)\n"
+    )
+    path, _ = create_permanent_from_literature(cfg, db, idx, str(lit))
+    text = path.read_text(encoding="utf-8")
+    assert "secrets.png" not in text
+    assert "example.com" not in text
+    assert "## Figuras" not in text
+
+
 def test_permanent_from_literature_keeps_uploaded_image(cfg, db):
     from zettel.assets import register_note_images, store_manual_images
 
@@ -428,6 +471,37 @@ def test_permanent_from_literature_drops_a_path_outside_assets(cfg, db):
     text = path.read_text(encoding="utf-8")
     assert "secrets.png" not in text
     assert "## Figuras" not in text
+
+
+def test_permanent_from_literature_llm_inherits_lit_embed(cfg, db, monkeypatch):
+    from zettel.assets import store_manual_images
+    from zettel.connector import prompt, run
+    from zettel.schemas import PermanentNoteLLMOutput
+
+    idx = FakeVectorIndex()
+    rel = store_manual_images(cfg.vault_path, [("figura.png", PNG_BYTES)])[0]
+    lit = _scaffold_source_and_lit(cfg, db, idx, extra_body=f"\n![[{rel}]]\n")
+    response = PermanentNoteLLMOutput(
+        status="ok",
+        reason="",
+        category="",
+        title="Conectividade e robustez",
+        thesis="Conectividade determina robustez estrutural.",
+        definition="Um grafo conexo mantem caminhos apos remocoes limitadas.",
+        intuition="",
+        example="",
+        limits="",
+        connections=[],
+        tags=["grafos"],
+    ).model_dump_json()
+    monkeypatch.setattr(run, "get_llm", lambda cfg, phase: object())
+    monkeypatch.setattr(prompt, "call_llm", lambda *a, **k: response)
+
+    path, via_llm = create_permanent_from_literature(cfg, db, idx, str(lit), use_llm=True)
+    assert via_llm is True
+    body = parse_frontmatter(path.read_text(encoding="utf-8"))[1]
+    assert f"![[{rel}]]" in body
+    assert "## Figuras" in body
 
 
 def test_permanent_from_literature_with_llm_appends_uploaded_image(cfg, db, monkeypatch):

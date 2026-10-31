@@ -401,6 +401,21 @@ def _figure_dicts(cfg: AppConfig, images: list[dict[str, Any]] | None) -> list[d
     return [{"path": path} for path in canonical_asset_paths(cfg.vault_path, raw)]
 
 
+def _merged_figures(
+    cfg: AppConfig, lit_body: str, images: list[dict[str, Any]] | None
+) -> list[dict[str, str]]:
+    """LIT embeds first, then form uploads, without duplicating a path."""
+    from zettel.assets import embedded_asset_paths
+
+    merged = [{"path": path} for path in embedded_asset_paths(cfg.vault_path, lit_body)]
+    seen = {img["path"] for img in merged}
+    for img in _figure_dicts(cfg, images):
+        if img["path"] not in seen:
+            merged.append(img)
+            seen.add(img["path"])
+    return merged
+
+
 def _attach_uploaded_figures(
     cfg: AppConfig,
     db: StateDB,
@@ -494,6 +509,7 @@ def create_permanent_from_literature(
     path, meta, body, content = resolve_literature_note(db, ref)
     chunk_id = str(meta["chunk_id"])
     source_id = str(meta.get("source_id") or "")
+    figures = _merged_figures(cfg, body, images)
 
     if db.get_chunk(chunk_id) is None:
         adopt_manual_literature(cfg, db, idx, path, meta, body)
@@ -551,7 +567,6 @@ def create_permanent_from_literature(
             raise ConnectRejected(_ztl_llm_rejected_message(""))
         row = db.get_note(note_ids[0]) or {}
         note_path = Path(row.get("path") or "")
-        figures = _figure_dicts(cfg, images)
         if figures:
             _attach_uploaded_figures(cfg, db, idx, note_path, figures, source_id)
         return note_path, True
@@ -576,7 +591,7 @@ def create_permanent_from_literature(
         page=citation.page,
         citation=citation.cite,
         anchor_quote=candidate.anchor_quote,
-        images=_figure_dicts(cfg, images) or None,
+        images=figures or None,
     )
 
     now = now_vault_iso(cfg.vault_timezone)
@@ -600,7 +615,7 @@ def create_permanent_from_literature(
     if note_path.exists() and not force:
         raise FileExistsError(f"Arquivo ja existe: {note_path}")
     safe_write_note(note_path, note_meta, note_body)
-    if images:
+    if figures:
         from zettel.assets import register_note_images
 
         register_note_images(cfg, db, source_id, note_path)

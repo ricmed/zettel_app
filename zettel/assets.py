@@ -472,6 +472,22 @@ def canonical_asset_paths(vault_path: Path, paths: list[str]) -> list[str]:
     return kept
 
 
+def embedded_asset_paths(vault_path: Path, body: str) -> list[str]:
+    """Canonical ``90_Assets`` paths already referenced in a note body.
+
+    Reads Obsidian embeds and Markdown image refs; anything that is not an
+    existing content-addressed file under ``90_Assets/`` is dropped.
+    """
+    from urllib.parse import unquote
+
+    refs: list[str] = []
+    for match in _WIKI_IMAGE_RE.finditer(body or ""):
+        refs.append(unquote(match.group(1).strip()))
+    for match in _MD_IMAGE_RE.finditer(body or ""):
+        refs.append(unquote(match.group(1).strip()))
+    return canonical_asset_paths(vault_path, refs)
+
+
 def register_note_images(
     cfg: AppConfig,
     db: StateDB,
