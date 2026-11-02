@@ -583,7 +583,6 @@ def create_permanent_from_literature(
     note_body = scaffold_permanent_note_body(
         thesis=candidate.thesis,
         definition=definition,
-        intuition=candidate.intuition,
         limits=candidate.limits,
         literature_ref=literature_ref,
         source_ref=source_ref,
@@ -630,11 +629,11 @@ _TESE_RE = re.compile(r"^>\s*\*\*Tese\*\*:\s*(.+)$", re.MULTILINE)
 
 def query_from_permanent_body(body: str) -> str:
     """Thesis + definition from a ZTL body — the query connect would use."""
-    thesis = ""
-    match = _TESE_RE.search(body or "")
-    if match:
-        thesis = match.group(1).strip()
-    definition = _section(body, "Definição") or _section(body, "Definicao")
+    from zettel.note_content import note_sections
+
+    sections = note_sections("", body or "")
+    thesis = sections["thesis"]
+    definition = sections["definition"] or _section(body, "Definicao")
     return f"{thesis} {definition}".strip()
 
 

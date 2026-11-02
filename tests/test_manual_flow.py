@@ -287,8 +287,8 @@ def test_permanent_from_literature_without_llm(cfg, db):
     assert "citation" not in meta and "anchor_quote" not in meta
     evidence = read_managed_block(body, "auto-evidence")
     assert evidence is not None and "(DIESTEL, 2017, p. 42)" in evidence
-    assert "## Intuição" in body
-    assert "## Exemplo" in body
+    assert "## Intuição" not in body
+    assert "## Exemplo" not in body
     assert "## Limites" in body
     assert "Sugestoes de conexao" not in body
     assert read_managed_block(body, "auto-connections") is not None
@@ -348,8 +348,6 @@ def test_permanent_from_literature_with_llm(cfg, db, monkeypatch):
         title="Conectividade e robustez",
         thesis="Conectividade determina robustez estrutural.",
         definition="Um grafo conexo mantem caminhos apos remocoes limitadas.",
-        intuition="",
-        example="",
         limits="",
         connections=[],
         tags=["grafos"],
@@ -398,6 +396,18 @@ def test_append_figure_embeds_extends_the_section_once():
     assert "img-bbb" in out
     assert out.index("img-bbb") < out.index("## Fonte")
     assert append_figure_embeds(out, ["90_Assets/img-bbb.png"]) == out
+
+
+def test_append_figure_embeds_creates_the_section_before_connections():
+    from zettel.vault import append_figure_embeds
+
+    body = (
+        "> **Tese**: x\n\nprosa\n\n"
+        "## Conexões\n\n- [[ZTL - B - b]] (supports)\n\n"
+        "## Fonte\n\n- ok\n"
+    )
+    out = append_figure_embeds(body, ["90_Assets/img-aaa.png"])
+    assert out.index("prosa") < out.index("## Figuras") < out.index("## Conexões")
 
 
 def test_permanent_from_literature_inherits_lit_embed(cfg, db):
@@ -488,8 +498,6 @@ def test_permanent_from_literature_llm_inherits_lit_embed(cfg, db, monkeypatch):
         title="Conectividade e robustez",
         thesis="Conectividade determina robustez estrutural.",
         definition="Um grafo conexo mantem caminhos apos remocoes limitadas.",
-        intuition="",
-        example="",
         limits="",
         connections=[],
         tags=["grafos"],
@@ -519,8 +527,6 @@ def test_permanent_from_literature_with_llm_appends_uploaded_image(cfg, db, monk
         title="Conectividade e robustez",
         thesis="Conectividade determina robustez estrutural.",
         definition="Um grafo conexo mantem caminhos apos remocoes limitadas.",
-        intuition="",
-        example="",
         limits="",
         connections=[],
         tags=["grafos"],

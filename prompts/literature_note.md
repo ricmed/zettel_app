@@ -182,21 +182,14 @@ O corte é aplicado depois, pela política do sistema — sua tarefa é pontuar 
 
 - Explicação autossuficiente (3-5 frases)
 - Deve incluir: o quê, por quê, como funciona, quando se aplica
-- Revele o **mecanismo** ou **princípio** subjacente
+- **Não repita a tese na primeira frase**: vá direto ao mecanismo ou princípio subjacente
+- Se o trecho trouxer um exemplo concreto indispensável para compreender o mecanismo, integre-o brevemente na própria prosa (1 frase), sem inventar analogias externas
 - Evite paráfrases superficiais da fonte
-
-### Intuição
-
-- Analogia concreta OU metáfora esclarecedora OU exemplo cotidiano
-- Deve iluminar o conceito para não-especialistas
-- Opcional: pode ser omitida se não houver analogia natural
 
 ### Limites
 
-- Especifique quando a ideia NÃO se aplica
-- Indique exceções, trade-offs ou contextos problemáticos
-- Seja honesto sobre fronteiras do conceito
-- Opcional: pode ser omitida se não houver limites claros na fonte
+- Especifique quando a ideia NÃO se aplica, exceções, trade-offs ou condições de contorno
+- Estritamente condicional: preencha **somente** quando o trecho-fonte enunciar ou implicar diretamente uma fronteira real; caso contrário, devolva string vazia `""` (nunca invente ressalvas genéricas)
 
 {judgement_examples}
 
@@ -277,8 +270,7 @@ simplesmente **não entra** na lista `candidates`; não o inclua marcado como re
     {
       "thesis": "Frase declarativa específica que expressa a ideia principal",
       "definition": "Explicação autônoma, detalhada e compreensível (3-5 frases substantivas)",
-      "intuition": "Analogia, metáfora ou exemplo cotidiano (opcional se não houver)",
-      "limits": "Ressalvas, exceções ou limites de aplicação (opcional se não houver)",
+      "limits": "Ressalvas, exceções ou limites de aplicação (string vazia se o trecho não trouxer)",
       "anchor_quote": "Citação literal de 10-25 palavras extraída do texto-fonte",
       "source_locator": "p.XX / seção Y.Z / cap. N",
       "tags": ["tag1", "tag2", "tag3"],

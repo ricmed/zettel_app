@@ -240,10 +240,10 @@ def test_corroborates_sheet_is_blind(tmp_path):
     assert "Tese A ab" in sheet and "`mesma-ideia`" in reading
 
 
-def _ztl(thesis, definition, intuition=""):
-    body = f"> **Tese**: {thesis}\n\n## Definição\n\n{definition}\n"
-    if intuition:
-        body += f"\n## Intuição\n\n{intuition}\n"
+def _ztl(thesis, definition, limits=""):
+    body = f"> **Tese**: {thesis}\n\n{definition}\n"
+    if limits:
+        body += f"\n## Limites\n\n{limits}\n"
     return body + "\n## Conexões\n\n- corroborado por [[ZTL - 01X]]\n"
 
 
@@ -259,7 +259,7 @@ def test_full_notes_replace_the_excerpts_the_models_saw(tmp_path):
         candidate_json=json.dumps({"thesis": "Tese 1", "definition": "D", "limits": "L"}),
         status="extracted",
     )
-    db.upsert_note("01NEW", "@A", None, title="Nova", body=_ztl("Tese nova", "Def nova", "I"))
+    db.upsert_note("01NEW", "@A", None, title="Nova", body=_ztl("Tese nova", "Def nova", "L_nova"))
     db.upsert_note("01OLD", "@B", None, title="Velha", body=_ztl("Tese velha", "Def velha"))
     db.close()
 
@@ -277,7 +277,7 @@ def test_full_notes_replace_the_excerpts_the_models_saw(tmp_path):
     assert dedupe[0].row["state"]["candidate"].get("limits") is None  # input left untouched
 
     (c,) = with_full_notes(corr, db_path)
-    assert c.row["state"]["note_a"]["intuition"] == "I"
+    assert c.row["state"]["note_a"]["limits"] == "L_nova"
     assert c.row["state"]["note_b"]["thesis"] == "Tese velha"
 
 

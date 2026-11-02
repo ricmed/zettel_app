@@ -14,15 +14,13 @@ português brasileiro (PT-BR).
 
 ## Formato de saída
 
-Responda APENAS com o **mesmo objeto JSON** recebido, com as cinco chaves
+Responda APENAS com o **mesmo objeto JSON** recebido, com as três chaves
 inalteradas e os valores corrigidos para PT-BR:
 
 ```json
 {
   "thesis": "...",
   "definition": "...",
-  "intuition": "...",
-  "example": "...",
   "limits": "..."
 }
 ```

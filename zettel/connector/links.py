@@ -572,6 +572,17 @@ def corroborates_bullets(db: StateDB, note_id: str) -> list[str]:
     return lines
 
 
+def _insert_connections_section(text: str, headings: list[re.Match], bullets: list[str]) -> str:
+    """Add a missing ``## Conexões`` before ``## Fonte`` (the ZTL order), else at the end."""
+    block = "## Conexões\n\n" + "\n".join(bullets) + "\n"
+    fonte = next((match for match in headings if match.group(1) == "Fonte"), None)
+    if fonte is not None:
+        head = text[: fonte.start()].rstrip("\n")
+        return head + "\n\n" + block + "\n" + text[fonte.start() :]
+    sep = "" if text.endswith("\n\n") else ("\n" if text.endswith("\n") else "\n\n")
+    return text + sep + block
+
+
 def rewrite_corroborates_section(text: str, bullets: list[str]) -> str:
     """Replace ``(corroborates)`` lines inside ``## Conexões``; keep every other line.
 
@@ -583,9 +594,7 @@ def rewrite_corroborates_section(text: str, bullets: list[str]) -> str:
     if index is None:
         if not bullets:
             return text
-        block = "## Conexões\n\n" + "\n".join(bullets) + "\n"
-        sep = "" if text.endswith("\n\n") else ("\n" if text.endswith("\n") else "\n\n")
-        return text + sep + block
+        return _insert_connections_section(text, headings, bullets)
 
     start = headings[index].start()
     end = headings[index + 1].start() if index + 1 < len(headings) else len(text)
@@ -616,9 +625,7 @@ def replace_connections_section(text: str, bullets: list[str]) -> str:
     if index is None:
         if not bullets:
             return text
-        block = "## Conexões\n\n" + "\n".join(bullets) + "\n"
-        sep = "" if text.endswith("\n\n") else ("\n" if text.endswith("\n") else "\n\n")
-        return text + sep + block
+        return _insert_connections_section(text, headings, bullets)
 
     start = headings[index].start()
     end = headings[index + 1].start() if index + 1 < len(headings) else len(text)

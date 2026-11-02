@@ -28,12 +28,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_render_candidates_omits_empty_fields():
-    text = render_candidates(
-        [{"thesis": "Uma tese", "definition": "Def", "intuition": "", "limits": None}]
-    )
+    text = render_candidates([{"thesis": "Uma tese", "definition": "Def", "limits": None}])
     assert "Tese: Uma tese" in text
     assert "Definicao: Def" in text
-    assert "Intuicao" not in text and "Limites" not in text
+    assert "Limites" not in text
 
 
 def test_render_candidates_numbers_multiple_notes():

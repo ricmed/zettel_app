@@ -20,8 +20,6 @@ from zettel.vault import read_managed_block
 
 NOTE = """> **Tese**: a mesma ideia
 
-## Definição
-
 o que delimita a ideia
 """
 
@@ -177,6 +175,21 @@ def test_rewrite_keeps_other_relations_and_drops_an_empty_heading():
 
     fenced = "```\n## Conexões\n- [[ZTL - C - nota]] (corroborates)\n```\n"
     assert rewrite_corroborates_section(fenced, []) == fenced
+
+
+def test_missing_connections_section_goes_before_fonte():
+    """A note born without edges gains ``## Conexões`` in the ZTL order, not at the end."""
+    from zettel.connector.links import replace_connections_section
+
+    text = "> **Tese**: x\n\nprosa\n\n## Limites\n\nlimite\n\n## Fonte\n\n- pagina\n"
+    bullet = "- [[ZTL - B - nota]] (supports) -- amplia"
+    for rewrite in (replace_connections_section, rewrite_corroborates_section):
+        out = rewrite(text, [bullet])
+        assert out.index("## Limites") < out.index("## Conexões") < out.index("## Fonte")
+        assert "limite\n\n## Conexões\n\n" + bullet + "\n\n## Fonte\n" in out
+        assert out.endswith("- pagina\n")
+
+    assert replace_connections_section("prosa\n", [bullet]).endswith(bullet + "\n")
 
 
 def test_render_plan_names_the_mode():

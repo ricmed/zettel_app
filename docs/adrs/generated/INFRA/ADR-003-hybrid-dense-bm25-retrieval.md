@@ -199,8 +199,8 @@ therefore covered different text for the same note.
 
 `Retriever._hydrate_notes` now fills `document` for **every** hit from one
 batched SQLite read (`StateDB.get_notes_by_ids`) through
-`note_content.note_content(title, body)`: the labelled thesis, definition,
-intuition, example and limits of a pipeline note. A hand-written note without
+`note_content.note_content(title, body)`: the labelled thesis, definition and
+limits of a pipeline note. A hand-written note without
 those sections keeps its own prose, minus managed blocks and the sections about
 the note (`## Conexões`, `## Fonte`, `## Figuras`). The article's MOC boost and
 extra graph hops use the same function. A hit missing from SQLite keeps what

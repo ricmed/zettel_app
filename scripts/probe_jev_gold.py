@@ -65,7 +65,7 @@ DEFAULT_SHEET = Path("evals/gold/extracao-planilha.csv")
 DEFAULT_NOTES_RUN = Path(".eval-work/prompt1/gemini-t01-a.json")
 KEEP_THRESHOLD = 0.5
 TASKS = ("extract", "reader")
-_NOTE_FIELDS = ("thesis", "definition", "intuition", "limits")
+_NOTE_FIELDS = ("thesis", "definition", "limits")
 
 
 # -- Pure pieces ---------------------------------------------------------
