@@ -957,9 +957,7 @@ def render_evidence_block(citation: str, anchor_quote: str) -> str:
 def build_permanent_note_body(
     thesis: str,
     definition: str,
-    intuition: str,
-    example: str,
-    limits: str,
+    limits: str = "",
     connections: list[dict] | None = None,
     literature_ref: str = "",
     source_ref: str = "",
@@ -970,6 +968,12 @@ def build_permanent_note_body(
     anchor_quote: str = "",
 ) -> str:
     """Build the Markdown body for a Permanent (ZTL) note.
+
+    `definition` sits directly below `> **Tese**:` as fluid prose (no heading),
+    followed optionally by `## Limites` and `## Figuras`.
+
+    `## Conexões` precedes `## Fonte` so the reader can traverse to related
+    notes before scrolling through provenance metadata.
 
     `images` is a list of {"path": ..., "description": ...} for figures deemed
     essential to the concept; rendered as a "## Figuras" section with embeds.
@@ -985,11 +989,7 @@ def build_permanent_note_body(
     """
     parts: list[str] = []
     parts.append(f"> **Tese**: {thesis}\n")
-    parts.append(f"## Definição\n\n{definition}\n")
-    if intuition:
-        parts.append(f"## Intuição\n\n{intuition}\n")
-    if example:
-        parts.append(f"## Exemplo\n\n{example}\n")
+    parts.append(f"{definition}\n")
     if limits:
         parts.append(f"## Limites\n\n{limits}\n")
     if images:
@@ -999,21 +999,6 @@ def build_permanent_note_body(
             desc = img.get("description") or ""
             fig_lines.append(f"{embed}\n\n{desc}\n" if desc else f"{embed}\n")
         parts.append("## Figuras\n\n" + "\n".join(fig_lines))
-    source_lines = ["## Fonte\n"]
-    if literature_ref:
-        source_lines.append(f"- Ref. literatura: {literature_ref}")
-    if source_ref:
-        source_lines.append(f"- Fonte (SRC): {source_ref}")
-    if page is not None:
-        source_lines.append(f"- Página: {page}")
-    if source_locator:
-        source_lines.append(f"- Localizador: {source_locator}")
-    evidence = render_evidence_block(citation, anchor_quote)
-    if evidence:
-        source_lines.append("")
-        source_lines.append(upsert_managed_block("", "auto-evidence", evidence).strip())
-    parts.append("\n".join(source_lines))
-    parts.append("")
     if connections:
         conn_lines: list[str] = []
         for c in connections:
@@ -1029,6 +1014,21 @@ def build_permanent_note_body(
                 line += f" -- {desc}"
             conn_lines.append(line)
         parts.append("## Conexões\n\n" + "\n".join(conn_lines) + "\n")
+    source_lines = ["## Fonte\n"]
+    if literature_ref:
+        source_lines.append(f"- Ref. literatura: {literature_ref}")
+    if source_ref:
+        source_lines.append(f"- Fonte (SRC): {source_ref}")
+    if page is not None:
+        source_lines.append(f"- Página: {page}")
+    if source_locator:
+        source_lines.append(f"- Localizador: {source_locator}")
+    evidence = render_evidence_block(citation, anchor_quote)
+    if evidence:
+        source_lines.append("")
+        source_lines.append(upsert_managed_block("", "auto-evidence", evidence).strip())
+    parts.append("\n".join(source_lines))
+    parts.append("")
     return "\n".join(parts)
 
 
@@ -1038,8 +1038,6 @@ _MANUAL_CONNECTIONS_PLACEHOLDER = "_Sincronize com sync-manual para sugestoes au
 def scaffold_permanent_note_body(
     thesis: str,
     definition: str = "",
-    intuition: str = "",
-    example: str = "",
     limits: str = "",
     *,
     literature_ref: str = "",
@@ -1060,8 +1058,6 @@ def scaffold_permanent_note_body(
     body = build_permanent_note_body(
         thesis=thesis or "_Preencha a tese._",
         definition=definition or "_Preencha a definicao._",
-        intuition=intuition or "_Preencha a intuicao._",
-        example=example or "_Preencha o exemplo._",
         limits=limits or "_Preencha os limites._",
         connections=connections,
         literature_ref=literature_ref,
@@ -1079,7 +1075,8 @@ def append_figure_embeds(body: str, paths: list[str]) -> str:
     """Insert ``![[path]]`` under ``## Figuras``, skipping a path already embedded.
 
     A note the connector already wrote keeps its section order: figures stay
-    before ``## Fonte``. A second call with the same paths is a no-op.
+    before ``## Conexões`` and ``## Fonte``. A second call with the same paths
+    is a no-op.
     """
     fresh: list[str] = []
     for raw in paths:
@@ -1098,10 +1095,10 @@ def append_figure_embeds(body: str, paths: list[str]) -> str:
         if suffix and not suffix.startswith("\n"):
             suffix = "\n" + suffix
         return body[:insert_at].rstrip() + "\n\n" + block + suffix
-    fonte = re.search(r"^##[ \t]+Fonte[ \t]*$", body, re.MULTILINE)
+    after = re.search(r"^##[ \t]+(?:Conexões|Fonte)[ \t]*$", body, re.MULTILINE)
     insertion = f"## Figuras\n\n{block}\n"
-    if fonte:
-        return body[: fonte.start()] + insertion + body[fonte.start() :]
+    if after:
+        return body[: after.start()] + insertion + body[after.start() :]
     return body.rstrip() + "\n\n" + insertion
 
 

@@ -28,7 +28,7 @@ MOCs (portas de entrada) por categoria da taxonomia + clusterização
 
 ### Princípios
 
-- **Atomicidade real**: cada nota permanente = uma tese + explicação autônoma + limites
+- **Atomicidade real**: cada nota permanente = uma tese + explicação autônoma em prosa fluida (+ limites quando aplicável)
 - **Rastreabilidade**: toda nota aponta para sua fonte (literatura + localizador)
 - **Autonomia**: notas permanentes são compreensíveis sem consultar a fonte
 - **Conectividade intencional**: links apenas quando há relação clara

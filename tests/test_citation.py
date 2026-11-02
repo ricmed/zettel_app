@@ -107,8 +107,6 @@ def _body(**kwargs) -> str:
     return build_permanent_note_body(
         thesis="Tese",
         definition="Definicao conceitual.",
-        intuition="",
-        example="",
         limits="",
         connections=[],
         literature_ref="[[LIT - x]]",

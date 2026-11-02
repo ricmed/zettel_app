@@ -246,3 +246,11 @@ A window of 25 words cannot keep both the first and the last five words of a 45-
 **Status:** Accepted. `literature_review.auto_approve_min_confidence` is **0.75** in `config/config.yaml` and in the Pydantic default. The 0.7 cited in the 2026-08-31 text above was the heuristic on that date. #152 moved the default to 0.75, just under the 0.80 a flawless chunk earns at the relevance floor.
 
 The very-low cut stays 0.4 and is still an untuned heuristic. Under the current weights (0.50 relevance, 0.30 integrity, 0.20 completeness) a draft at the relevance floor earns 0.30 from relevance (`_RELEVANCE_FLOOR_CREDIT` 0.6). Integrity is 0.30 times the fraction of candidates the filter kept. With every candidate kept and both depth fields missing, the floor of the score is 0.60. The score is at most 0.4 only when relevance is at the floor, completeness is 0, and at most one candidate of three or more survives (`0.30 + 0.30/n`, which is ≤ 0.4 for `n ≥ 3`). A normal draft does not land in that band. `scripts/calibrate_review_confidence.py` prints the reachability table; this note does not move the cut.
+
+## Addendum (2026-10-23): lean ZTL structure removes the completeness term
+
+**Status:** Accepted amendment.
+
+With the lean ZTL structure (`## Intuição` and `## Exemplo` removed from permanent and literature notes, and `## Limites` strictly conditional on genuine scope boundaries rather than expected on every note), penalizing candidates for omitting optional depth fields would manufacture false review defects on valid foundational or descriptive notes.
+
+`_candidate_completeness` and `_W_COMPLETENESS` are removed from `extractor._score_review_confidence`. The score now uses two terms: **0.50 relevance + 0.50 integrity** (`_RELEVANCE_FLOOR_CREDIT` stays `0.6`). A flawless chunk (`integrity == 1.0`) at the relevance floor still earns `0.50 * 0.6 + 0.50 * 1.0 = 0.80` against the `0.75` threshold, preserving reachability at every accepted relevance level. `review.chunk_has_review_defect` now flags only chunks where `summary.get("rejected_candidates")` is non-empty.

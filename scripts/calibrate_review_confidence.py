@@ -64,7 +64,6 @@ class ChunkScore:
     n_rejected: int
     avg_relevance: float
     avg_definition_words: float
-    completeness: float
     terms: dict[str, float] = field(default_factory=dict)
 
     @property
@@ -140,7 +139,7 @@ def reconstruct_output(raw: dict[str, Any]) -> LiteratureChunkOutput:
 
 def load_scores(state_db: Path, cfg: AppConfig) -> list[ChunkScore]:
     """Rescore every chunk that has a persisted `summary_json`."""
-    from zettel.extractor import _candidate_completeness, _filter_candidates
+    from zettel.extractor import _filter_candidates
 
     con = sqlite3.connect(state_db)
     con.row_factory = sqlite3.Row
@@ -170,7 +169,6 @@ def load_scores(state_db: Path, cfg: AppConfig) -> list[ChunkScore]:
                 avg_definition_words=(
                     sum(len(c.definition.split()) for c in approved) / n if n else 0.0
                 ),
-                completeness=(sum(_candidate_completeness(c) for c in approved) / n) if n else 0.0,
             )
         )
     return scores
@@ -204,7 +202,6 @@ def reachability(cfg: AppConfig, threshold: float) -> list[dict[str, Any]]:
     """
     from zettel.extractor import (
         _RELEVANCE_FLOOR_CREDIT,
-        _W_COMPLETENESS,
         _W_INTEGRITY,
         _W_RELEVANCE,
     )
@@ -215,7 +212,7 @@ def reachability(cfg: AppConfig, threshold: float) -> list[dict[str, Any]]:
     for rel in range(floor, 6):
         above = ((rel - floor) / span) if span > 0 else 1.0
         rel_component = _RELEVANCE_FLOOR_CREDIT + (1.0 - _RELEVANCE_FLOOR_CREDIT) * above
-        ceiling = _W_RELEVANCE * rel_component + _W_INTEGRITY * 1.0 + _W_COMPLETENESS * 1.0
+        ceiling = _W_RELEVANCE * rel_component + _W_INTEGRITY * 1.0
         rows.append(
             {
                 "relevance_score": rel,
@@ -245,7 +242,6 @@ def build_report(scores: list[ChunkScore], cfg: AppConfig, threshold: float) -> 
         "inputs": {
             "relevance": distribution([s.avg_relevance for s in scored]),
             "definition_words": distribution([s.avg_definition_words for s in scored]),
-            "completeness": distribution([s.completeness for s in scored]),
             "integrity": distribution(
                 [s.n_approved / (s.n_approved + s.n_rejected) for s in scored]
             ),
@@ -367,7 +363,6 @@ def gold_signals(score: ChunkScore) -> dict[str, float]:
         "review_confidence": score.current,
         "relevance": score.avg_relevance,
         "integrity": (score.n_approved / total) if total else 1.0,
-        "completeness": score.completeness,
         "legacy_confidence": score.legacy,
         "definition_words": score.avg_definition_words,
     }
@@ -404,7 +399,6 @@ def build_gold_report(scores: list[ChunkScore], gold: dict[str, str]) -> dict[st
         # A saturated term cannot separate anything: it is a constant.
         "saturation": {
             "integrity": saturated("integrity"),
-            "completeness": saturated("completeness"),
         },
         "power": {
             "min_detectable_auc": min_detectable_auc(n_keep, n_discard) if matched else None,
@@ -437,10 +431,7 @@ def render_gold(gold: dict[str, Any]) -> str:
     sat = gold["saturation"]
     out += [
         "",
-        (
-            f"  saturacao (termo ja no maximo): integrity {sat['integrity']:.0%}, "
-            f"completeness {sat['completeness']:.0%}"
-        ),
+        f"  saturacao (termo ja no maximo): integrity {sat['integrity']:.0%}",
     ]
     pw = gold["power"]
     need_70 = pw["items_needed_for_auc_0.70"]
@@ -488,15 +479,13 @@ def render(report: dict[str, Any], scores: list[ChunkScore]) -> str:
         out.append(f"  {t} -> {rate:.0%} aprovados")
     out.append("")
     out.append("por chunk:")
-    out.append(
-        f"  {'idx':>4s} {'legacy':>7s} {'novo':>7s} {'rel':>4s} {'defw':>5s} {'compl':>6s}  secao"
-    )
+    out.append(f"  {'idx':>4s} {'legacy':>7s} {'novo':>7s} {'rel':>4s} {'defw':>5s}  secao")
     for s in scores:
         if not s.scored:
             continue
         out.append(
             f"  {s.chunk_index:>4d} {s.legacy:>7.3f} {s.current:>7.3f} "
-            f"{s.avg_relevance:>4.1f} {s.avg_definition_words:>5.1f} {s.completeness:>6.2f}  "
+            f"{s.avg_relevance:>4.1f} {s.avg_definition_words:>5.1f}  "
             f"{s.section_path[-52:]}"
         )
     return "\n".join(out)

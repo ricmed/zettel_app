@@ -708,28 +708,17 @@ def _images_for_chunk(db: StateDB, chunk_row: dict) -> list[dict[str, Any]]:
     return out
 
 
-# Weights of the three review-confidence terms (issue #152). Relevance leads
-# because it is the only field that judges the *concept*; the other two report
-# how cleanly the chunk was extracted.
+# Weights of the two review-confidence terms (issue #152; completeness dropped
+# when `intuition` was removed and `limits` became strictly conditional).
+# Relevance judges the *concept*; integrity reports whether the deterministic
+# filter dropped any candidate in the chunk.
 _W_RELEVANCE = 0.50
-_W_INTEGRITY = 0.30
-_W_COMPLETENESS = 0.20
+_W_INTEGRITY = 0.50
 
 # Credit a candidate sitting exactly at `min_relevance_score` already earns.
 # It passed the filter, and the prompt's own scale calls that level a valid
 # technical concept ("útil mas não surpreendente") — not a defect.
 _RELEVANCE_FLOOR_CREDIT = 0.6
-
-
-def _candidate_completeness(cand: PermanentNoteCandidate) -> float:
-    """Share of the optional depth fields this candidate actually carries.
-
-    `intuition` and `limits` default to "" in the schema, so their absence is
-    the model declining to elaborate — a structural signal, unlike the word
-    count this term replaced.
-    """
-    present = sum(1 for field in (cand.intuition, cand.limits) if field.strip())
-    return present / 2
 
 
 def _score_review_confidence(
@@ -746,15 +735,7 @@ def _score_review_confidence(
     **is there concrete evidence a human should look at this chunk?** A term
     that cannot name a defect does not belong here.
 
-    The previous version scored *verbosity*: 40% of the weight was the mean
-    `definition` word count. Measured on the corpus (issue #152), that made
-    the gate equivalent to "`relevance_score == 4` **and** definition >= 48
-    words" — a candidate with a 56-word definition failed while a 50-word one
-    passed, because the model had scored it 3 instead of 4. Worse, a chunk at
-    `min_relevance_score` had a mathematical ceiling of 0.70 against a 0.75
-    threshold: no rel-3 chunk could ever auto-approve, however good it was.
-
-    Three terms, none of which is a length:
+    Two terms, neither of which is a length:
       - `rel_component`: mean `relevance_score`, normalized over the filter's
         own floor..5 range. The floor maps to `_RELEVANCE_FLOOR_CREDIT`, not
         to 0: a candidate at `min_relevance_score` already cleared the filter,
@@ -765,15 +746,10 @@ def _score_review_confidence(
       - `integrity`: candidates the deterministic filter kept vs. the chunk's
         total. A chunk where the filter dropped candidates is one where the
         model produced junk alongside signal — worth human eyes.
-      - `completeness`: how many of the optional depth fields (`intuition`,
-        `limits`) the candidates actually carry. Structural presence, not
-        length: a candidate reduced to thesis + definition is thinner than
-        one that also states an intuition and its limits, regardless of how
-        many words either used.
 
     Every failure therefore has a nameable cause — the filter dropped
-    something, the model itself scored the concept at the floor, or the
-    candidates lack the optional depth fields.
+    something, or the model itself scored the concept at the floor alongside
+    a dropped candidate.
     """
     if output.chunk_status == "rejected" and not force:
         return 0.1
@@ -795,11 +771,7 @@ def _score_review_confidence(
     else:
         rel_component = 1.0
 
-    completeness = sum(_candidate_completeness(c) for c in approved) / len(approved)
-
-    confidence = (
-        _W_RELEVANCE * rel_component + _W_INTEGRITY * integrity + _W_COMPLETENESS * completeness
-    )
+    confidence = _W_RELEVANCE * rel_component + _W_INTEGRITY * integrity
     return round(min(1.0, max(0.0, confidence)), 3)
 
 
@@ -1419,9 +1391,9 @@ def _same_source_notes(db: StateDB, notes: list[dict], source_id: str) -> list[d
 def existing_note_contents(db: StateDB, notes: list[dict], max_chars: int) -> list[dict[str, str]]:
     """Same-source hits -> ``{id, title, text}`` with each note's full content (#209).
 
-    The text is what the note claims -- thesis, definition, intuition, example,
-    limits -- read from SQLite, not the embedding document: it never carries
-    managed blocks or ``## Conexões``. ``max_chars`` is a prompt-budget ceiling
+    The text is what the note claims -- thesis, definition, limits -- read
+    from SQLite, not the embedding document: it never carries managed blocks or
+    ``## Conexões``. ``max_chars`` is a prompt-budget ceiling
     (``linking.dedupe_note_chars``) set above any real note, not an excerpt. Until
     #209 the LLM saw the first 200 characters, often not even the whole thesis.
     """

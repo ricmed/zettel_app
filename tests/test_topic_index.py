@@ -43,7 +43,7 @@ def _permanent_note(db: StateDB, tmp_path: Path, note_id: str, title: str, meta:
         source_id=None,
         path=str(path),
         title=title,
-        body=f"> **Tese**: {thesis}\n\n## Definição\n\nTexto.\n",
+        body=f"> **Tese**: {thesis}\n\nTexto.\n",
         frontmatter_json=json.dumps({"title": title, **meta}, ensure_ascii=False),
     )
     return path

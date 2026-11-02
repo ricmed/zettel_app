@@ -17,7 +17,6 @@ def _make_candidate(**overrides) -> PermanentNoteCandidate:
             "na direcao oposta ao gradiente da funcao de perda, e taxas adaptativas "
             "como Adam aceleram a convergencia em superficies nao convexas"
         ),
-        "intuition": "Como descer uma montanha ajustando o tamanho do passo",
         "limits": "Pode divergir com learning rates muito altos",
         "anchor_quote": "adaptive learning rates converge faster in practice than fixed schedules",
         "source_locator": "p.42",
@@ -1400,17 +1399,15 @@ def test_score_review_confidence_floor_relevance_can_reach_the_threshold():
     assert score >= cfg.literature_review.auto_approve_min_confidence
 
 
-def test_score_review_confidence_drops_when_depth_fields_are_missing():
-    """`intuition`/`limits` are optional in the schema; their absence is a signal."""
+def test_score_review_confidence_does_not_penalize_optional_limits():
+    """`limits` is strictly conditional; omitting it does not lower the score."""
     cfg = _make_config()
-    complete = _make_candidate()
-    bare = _make_candidate(intuition="", limits="")
+    with_limits = _make_candidate()
+    without_limits = _make_candidate(limits="")
 
-    full_score = _score_review_confidence(_make_output(candidates=[complete]), cfg)
-    bare_score = _score_review_confidence(_make_output(candidates=[bare]), cfg)
-
-    assert bare_score < full_score
-    assert bare_score < cfg.literature_review.auto_approve_min_confidence
+    assert _score_review_confidence(
+        _make_output(candidates=[with_limits]), cfg
+    ) == _score_review_confidence(_make_output(candidates=[without_limits]), cfg)
 
 
 def test_score_review_confidence_partial_filter_rejection_lowers_score():
@@ -1905,7 +1902,7 @@ def test_dedupe_prompt_shows_each_existing_note_in_full(tmp_path, monkeypatch):
         title="Nota existente",
         body=(
             "> **Tese**: Tese da nota existente\n\n"
-            f"## Definição\n\n{definition}\n\n"
+            f"{definition}\n\n"
             "## Limites\n\nSo vale para X.\n\n"
             "## Conexões\n\n- corroborado por [[ZTL - 01OUTRA]]\n"
         ),

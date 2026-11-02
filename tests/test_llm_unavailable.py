@@ -357,7 +357,6 @@ def test_ptbr_guard_does_not_swallow_an_outage(tmp_path, monkeypatch):
         status="accepted",
         thesis="The model learns from data that it sees",
         definition="This definition is in English and should be translated",
-        intuition="Like a student",
     )
 
     def _boom(*_a, **_k):

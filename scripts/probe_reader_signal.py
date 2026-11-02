@@ -62,7 +62,6 @@ SCORE_RANGE = range(1, 6)
 _CANDIDATE_FIELDS = (
     ("thesis", "Tese"),
     ("definition", "Definicao"),
-    ("intuition", "Intuicao"),
     ("limits", "Limites"),
 )
 

@@ -90,6 +90,6 @@ def test_unknown_prompt_returns_empty_dict():
 def test_query_from_permanent_body():
     from zettel.manual_lit import query_from_permanent_body
 
-    body = "> **Tese**: a mente nao e o corpo\n\n## Definição\n\nSubstâncias distintas.\n"
+    body = "> **Tese**: a mente nao e o corpo\n\nSubstâncias distintas.\n"
     assert "mente" in query_from_permanent_body(body)
     assert "Substâncias" in query_from_permanent_body(body)

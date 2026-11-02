@@ -16,8 +16,6 @@ from zettel.vault import read_managed_block
 
 BODY = """> **Tese**: a tese que ja estava na nota
 
-## Definição
-
 a definicao que nao pode mudar
 
 ## Conexões
@@ -148,13 +146,13 @@ def test_apply_keeps_manual_and_derived_and_clears_old_backlinks(tmp_path):
     text = (root / "30_Permanent" / "ZTL - A - nota.md").read_text(encoding="utf-8")
     assert "a tese que ja estava na nota" in text
     assert "a definicao que nao pode mudar" in text
-    assert "(extends)" not in text
+    assert "(extends)" in text
     assert "(supports)" not in text
     assert "(corroborates)" in text
     keep = (root / "30_Permanent" / "ZTL - KEEP - nota.md").read_text(encoding="utf-8")
     assert "suportado por" not in (read_managed_block(keep, "auto-backlinks") or "")
     new = (root / "30_Permanent" / "ZTL - NEW - nota.md").read_text(encoding="utf-8")
-    assert "estendido por" not in (read_managed_block(new, "auto-backlinks") or "")
+    assert "estendido por" in (read_managed_block(new, "auto-backlinks") or "")
     # A hand-written note is not selected, so it gains no outgoing edge.
     assert db.list_outgoing_connections("HAND") == []
     db.close()

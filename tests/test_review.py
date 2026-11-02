@@ -493,7 +493,6 @@ def test_format_review_item_shows_the_candidate_and_marks_the_anchor():
             {
                 "thesis": "Atencao liga tokens distantes",
                 "definition": "Um mecanismo que pesa outras posicoes da sequencia.",
-                "intuition": "Como consultar o resto da frase.",
                 "limits": "Nao cria informacao nova.",
                 "relevance_score": 4,
                 "anchor_quote": "atencao para ligar tokens distantes",
@@ -503,7 +502,6 @@ def test_format_review_item_shows_the_candidate_and_marks_the_anchor():
     card = format_review_item(chunk, [concept])
     assert "Atencao liga tokens distantes" in card
     assert "Um mecanismo que pesa outras posicoes" in card
-    assert "Como consultar o resto da frase." in card
     assert "Nao cria informacao nova." in card
     assert "relevancia 4/5" in card
     assert ">>>atencao para ligar tokens distantes<<<" in card
