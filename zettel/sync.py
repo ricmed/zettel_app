@@ -7,10 +7,10 @@ bodies into SQLite (retention) and indexes the embeddable ones into ChromaDB.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from pathlib import Path
+from typing import Any
 
 from ulid import ULID
 
@@ -26,8 +26,11 @@ from zettel.retrieval import Retriever
 from zettel.state import StateDB
 from zettel.vault import (
     PIPELINE_ORIGINS,
+    MalformedFrontmatter,
     _block_pattern,
+    frontmatter_json,
     parse_frontmatter,
+    parse_frontmatter_strict,
     permanent_wikilink,
     rewrite_bare_permanent_wikilinks,
     safe_update_managed_blocks,
@@ -43,11 +46,17 @@ _ZTL_WIKILINK = re.compile(r"\[\[ZTL - ([0-9A-HJKMNP-TV-Z]{26})")
 _AUTO_BLOCKS_TO_SKIP = ("auto-connections", "auto-backlinks", "auto-moc-backrefs")
 
 
-def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, int]:
+class NoteRejected(Exception):
+    """A note sync cannot adopt as written. Reported per note; the file is left untouched."""
+
+
+def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, Any]:
     """Scan all four note folders for manual/modified notes and sync them.
 
-    Returns per-type counters plus aggregate new/updated/skipped. Opens a
-    ``sync`` run so the embedding cost of the notes it indexes is recorded (#311).
+    Returns per-type counters, aggregate new/updated/skipped/failed and
+    ``failures`` (``{"path", "reason"}`` per note that could not be adopted). One
+    bad note never stops the others (#342). Opens a ``sync`` run so the embedding
+    cost of the notes it indexes is recorded (#311).
     """
     from zettel.usage import begin_run, finish_pipeline_run
 
@@ -62,16 +71,20 @@ def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, 
     return stats
 
 
-def _sync_all(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, int]:
-    stats = {
+def _sync_all(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, Any]:
+    stats: dict[str, Any] = {
         "new": 0,
         "updated": 0,
         "skipped": 0,
+        "failed": 0,
         "sources": 0,
         "literature": 0,
         "permanent": 0,
         "mocs": 0,
     }
+    failures: list[dict[str, str]] = []
+    # chunk_id -> the granular LIT that claimed it first in this run.
+    claimed_chunks: dict[str, Path] = {}
 
     dirs_to_scan = [
         (cfg.vault_path / "10_Sources", "source", "sources"),
@@ -83,26 +96,42 @@ def _sync_all(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, int]:
     for scan_dir, note_type, counter in dirs_to_scan:
         if not scan_dir.exists():
             continue
-        # Literature may live in citekey subfolders (granular LITs).
+        # Literature may live in citekey subfolders (granular LITs). Sorted so a
+        # duplicate chunk_id is always reported on the same file.
         pattern = "**/*.md" if note_type == "literature" else "*.md"
-        for md_file in scan_dir.glob(pattern):
+        for md_file in sorted(scan_dir.glob(pattern)):
             if not md_file.is_file():
                 continue
-            result = _sync_single_note(cfg, db, idx, md_file, note_type)
-            stats[result] += 1
-            if result in ("new", "updated"):
-                stats[counter] += 1
+            try:
+                result = _sync_single_note(cfg, db, idx, md_file, note_type, claimed_chunks)
+            except NoteRejected as exc:
+                reason = str(exc)
+            except Exception as exc:
+                if _stops_the_run(exc):
+                    raise
+                logger.exception("Sync manual: falha em %s", md_file)
+                reason = f"{type(exc).__name__}: {exc}"
+            else:
+                stats[result] += 1
+                if result in ("new", "updated"):
+                    stats[counter] += 1
+                continue
+            logger.warning("Sync manual: %s nao adotada: %s", md_file, reason)
+            stats["failed"] += 1
+            failures.append({"path": str(md_file), "reason": reason})
 
     repair = repair_permanent_links(db, vault_timezone=cfg.vault_timezone)
     stats.update(repair)
+    stats["failures"] = failures
 
     logger.info(
-        "Sync manual: %d novas, %d atualizadas, %d sem alteração "
+        "Sync manual: %d novas, %d atualizadas, %d sem alteração, %d com falha "
         "(sources=%d, literature=%d, permanent=%d, mocs=%d) "
         "(wikilinks_reparados=%d, backlinks_reconstruidos=%d)",
         stats["new"],
         stats["updated"],
         stats["skipped"],
+        stats["failed"],
         stats["sources"],
         stats["literature"],
         stats["permanent"],
@@ -111,6 +140,15 @@ def _sync_all(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, int]:
         stats.get("backlinks_rebuilt", 0),
     )
     return stats
+
+
+def _stops_the_run(exc: Exception) -> bool:
+    """A provider outage or a database error is not the note's fault: the next note fails too."""
+    import sqlite3
+
+    from zettel.llm import is_llm_unavailable
+
+    return isinstance(exc, sqlite3.Error) or is_llm_unavailable(exc)
 
 
 def repair_permanent_links(
@@ -154,9 +192,7 @@ def repair_permanent_links(
                 title=meta.get("title") or note.get("title") or "",
                 note_semantic_checksum=semantic_checksum,
                 body=body,
-                frontmatter_json=json.dumps(meta, ensure_ascii=False)
-                if meta
-                else note.get("frontmatter_json"),
+                frontmatter_json=frontmatter_json(meta) if meta else note.get("frontmatter_json"),
                 origin=note.get("origin") or "pipeline",
             )
             wikilinks_rewritten += 1
@@ -174,15 +210,22 @@ def _sync_single_note(
     idx: VectorIndex,
     file_path: Path,
     note_type: str,
+    claimed_chunks: dict[str, Path],
 ) -> str:
-    """Sync a single note file. Returns 'new', 'updated', or 'skipped'."""
+    """Sync a single note file. Returns 'new', 'updated', or 'skipped'.
+
+    Raises ``NoteRejected`` when the note cannot be adopted as written.
+    """
     content = file_path.read_text(encoding="utf-8")
-    meta, body = parse_frontmatter(content)
+    try:
+        meta, body = parse_frontmatter_strict(content)
+    except MalformedFrontmatter as exc:
+        raise NoteRejected(str(exc)) from exc
 
     if note_type == "source":
         return _sync_source(cfg, db, idx, file_path, meta, body)
     if note_type == "literature":
-        return _sync_literature(cfg, db, idx, file_path, meta, body)
+        return _sync_literature(cfg, db, idx, file_path, meta, body, claimed_chunks)
     if note_type == "permanent":
         return _sync_permanent(cfg, db, idx, file_path, meta, body)
     if note_type == "moc":
@@ -200,6 +243,14 @@ def _is_pipeline_origin(meta: dict) -> bool:
     return str(meta.get("origin") or "") in PIPELINE_ORIGINS
 
 
+def _author_list(meta: dict) -> list[str]:
+    """``author``/``authors`` as a list: a single string is one author, not a list of letters."""
+    raw = meta.get("author") or meta.get("authors") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    return [str(a).strip() for a in raw if str(a).strip()]
+
+
 def _sync_source(
     cfg: AppConfig,
     db: StateDB,
@@ -211,17 +262,13 @@ def _sync_source(
     """Adopt a hand-created SRC note: register the source in the DB + index."""
     from zettel.harvester.citekey import generate_citekey
 
+    authors = _author_list(meta)
     source_id = meta.get("source_id")
     citekey = None
     if source_id:
         citekey = source_id.lstrip("@")
     else:
-        citekey = generate_citekey(
-            db,
-            meta.get("author") or meta.get("authors") or [],
-            meta.get("year"),
-            meta.get("title", file_path.stem),
-        )
+        citekey = generate_citekey(db, authors, meta.get("year"), meta.get("title", file_path.stem))
         source_id = f"@{citekey}"
         meta["source_id"] = source_id
         meta["type"] = "source"
@@ -233,9 +280,6 @@ def _sync_source(
     if existing:
         return "skipped"
 
-    authors = meta.get("author") or meta.get("authors") or []
-    if isinstance(authors, str):
-        authors = [authors]
     year = meta.get("year")
 
     biblio_payload = {
@@ -281,7 +325,7 @@ def _sync_source(
     if meta.get("title") and "title" not in biblio_payload:
         biblio_payload["title"] = meta["title"]
 
-    biblio_json = json.dumps(biblio_payload, ensure_ascii=False) if biblio_payload else None
+    biblio_json = frontmatter_json(biblio_payload) if biblio_payload else None
 
     db.upsert_source(
         source_id=source_id,
@@ -316,6 +360,7 @@ def _sync_literature(
     file_path: Path,
     meta: dict,
     body: str,
+    claimed_chunks: dict[str, Path],
 ) -> str:
     """Adopt a hand-created LIT note (index or granular chunk).
 
@@ -335,6 +380,11 @@ def _sync_literature(
     # Skip drafts under Review
     if "00_Inbox" in file_path.parts or "Review" in file_path.parts:
         return "skipped"
+
+    chunk_id = str(meta.get("chunk_id") or "")
+    is_granular = note_type == "literature" and bool(chunk_id)
+    origin = str(meta.get("origin") or "manual")
+    _check_literature_note(cfg, file_path, is_granular, chunk_id, origin, claimed_chunks)
 
     source_id = meta.get("source_id")
     citekey = meta.get("citekey")
@@ -362,10 +412,9 @@ def _sync_literature(
         )
 
     # Granular chunk LIT
-    if note_type == "literature" and meta.get("chunk_id"):
-        chunk_id = meta["chunk_id"]
+    if is_granular:
         meta["source_id"] = source_id
-        if _manual_origin(meta) == "manual":
+        if origin == "manual":
             from zettel.manual_lit import adopt_manual_literature
 
             return adopt_manual_literature(cfg, db, idx, file_path, meta, body)
@@ -386,6 +435,35 @@ def _sync_literature(
         return "skipped"
     db.update_source_texts(source_id, lit_body=full)
     return "new" if not (existing and existing.get("lit_body")) else "updated"
+
+
+def _check_literature_note(
+    cfg: AppConfig,
+    file_path: Path,
+    is_granular: bool,
+    chunk_id: str,
+    origin: str,
+    claimed_chunks: dict[str, Path],
+) -> None:
+    """Refuse a LIT note that would be adopted wrongly, before anything is written (#342).
+
+    A note in a source folder without ``chunk_id`` used to fall into the index
+    path and overwrite ``sources.lit_body``; an unknown ``origin`` was skipped in
+    silence; two files with one ``chunk_id`` overwrote the same chunk row.
+    """
+    in_source_folder = len(file_path.relative_to(cfg.vault_path / "20_Literature").parts) > 1
+    if in_source_folder and not is_granular:
+        raise NoteRejected(
+            "LIT dentro da pasta de uma fonte precisa de 'type: literature' e 'chunk_id' "
+            "no frontmatter (ex.: '@Citekey::manual::0001')"
+        )
+    if not is_granular:
+        return
+    if origin != "manual" and origin not in PIPELINE_ORIGINS:
+        raise NoteRejected(f"origin {origin!r} desconhecido numa LIT granular; use 'manual'")
+    first = claimed_chunks.setdefault(chunk_id, file_path)
+    if first != file_path:
+        raise NoteRejected(f"chunk_id {chunk_id!r} repetido; ja usado por {first.name}")
 
 
 def _sync_pipeline_granular_literature(
@@ -464,7 +542,7 @@ def _sync_permanent(
         note_semantic_checksum=semantic_checksum,
         embedding_model=cfg.embedding.model,
         body=body,
-        frontmatter_json=json.dumps(meta, ensure_ascii=False),
+        frontmatter_json=frontmatter_json(meta),
         origin=origin,
     )
 
@@ -567,7 +645,7 @@ def _sync_moc(
         str(file_path),
         semantic_checksum,
         body=body,
-        frontmatter_json=json.dumps(meta, ensure_ascii=False),
+        frontmatter_json=frontmatter_json(meta),
         origin=origin,
     )
     from zettel.moc_backrefs import sync_moc_backrefs

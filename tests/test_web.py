@@ -3181,6 +3181,38 @@ def test_failed_connect_job_shows_error_and_result(web_client):
     assert "hidden" in page.split('id="job-continue"', 1)[1][:80]
 
 
+def test_sync_job_lists_the_notes_it_could_not_adopt(web_client):
+    """#342: a note sync refuses is named with its reason, not buried in raw JSON."""
+    client, _ = web_client
+    login(client)
+    job_id = "f" * 32
+    db = client.app.state.service.db()
+    try:
+        assert db.create_web_job(job_id, "sync", {})
+        assert db.claim_web_job(job_id)
+        db.update_web_job(
+            job_id,
+            state="succeeded",
+            phase="completed",
+            result={
+                "kind": "sync",
+                "new": 2,
+                "updated": 0,
+                "skipped": 5,
+                "failed": 1,
+                "failures": [
+                    {"path": "/v/30_Permanent/ZTL - x.md", "reason": "YAML invalido (linha 3)"}
+                ],
+            },
+            finished=True,
+        )
+    finally:
+        db.close()
+    page = client.get(f"/jobs/{job_id}").text
+    assert "Não adotadas" in page
+    assert "ZTL - x.md" in page and "YAML invalido (linha 3)" in page
+
+
 def test_run_all_form_names_the_files_it_will_ingest_without_review(web_client):
     """run_all harvests the whole inbox; the form has to say so (#310)."""
     client, tmp_path = web_client

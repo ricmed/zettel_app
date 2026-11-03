@@ -427,3 +427,174 @@ def test_repair_permanent_links_rewrites_double_prefix_and_rebuilds_backlinks(cf
     assert "GHOST" not in block
     assert f"ZTL - {_A} - analise-de-series-temporais" in block
     assert "estendido por" in block
+
+
+# -- one bad note never stops the run (#342) ---------------------------------
+
+
+def _failures(stats):
+    return {f["path"].rsplit("/", 1)[-1]: f["reason"] for f in stats["failures"]}
+
+
+def test_invalid_yaml_is_reported_and_the_file_left_untouched(cfg, db):
+    broken = cfg.vault_path / "30_Permanent" / "ZTL - quebrada.md"
+    original = "---\ntitle: Ideia\ntags: [a, b\n---\n\n> **Tese**: algo.\n"
+    broken.write_text(original, encoding="utf-8")
+    good = cfg.vault_path / "30_Permanent" / "ZTL - boa.md"
+    _write(good, {"title": "Boa"}, "> **Tese**: outra coisa.")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert broken.read_text(encoding="utf-8") == original
+    assert "YAML invalido" in _failures(stats)["ZTL - quebrada.md"]
+    assert stats["failed"] == 1
+    assert stats["permanent"] == 1
+    assert db.get_last_run()["status"] == "completed"
+
+
+def test_unclosed_or_non_mapping_frontmatter_is_reported(cfg, db):
+    unclosed = cfg.vault_path / "30_Permanent" / "ZTL - aberta.md"
+    unclosed.write_text("---\ntitle: x\n\nCorpo sem fechar.\n", encoding="utf-8")
+    listing = cfg.vault_path / "40_MOCs" / "MOC - lista.md"
+    listing.write_text("---\n- a\n- b\n---\n\nCorpo.\n", encoding="utf-8")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    reasons = _failures(stats)
+    assert "nunca fechado" in reasons["ZTL - aberta.md"]
+    assert "chave: valor" in reasons["MOC - lista.md"]
+
+
+def test_unquoted_obsidian_dates_do_not_break_the_sync(cfg, db):
+    """Obsidian's Date property writes `created: 2026-11-03`, which YAML reads as a date."""
+    ztl = cfg.vault_path / "30_Permanent" / "ZTL - datada.md"
+    ztl.write_text(
+        "---\ntitle: Datada\ncreated: 2026-11-03\n---\n\n> **Tese**: uma ideia.\n",
+        encoding="utf-8",
+    )
+    moc = cfg.vault_path / "40_MOCs" / "MOC - datado.md"
+    moc.write_text("---\ntopic: Tema\ncreated: 2026-11-03\n---\n\n# Tema\n", encoding="utf-8")
+    src = cfg.vault_path / "10_Sources" / "SRC - site.md"
+    src.write_text(
+        "---\ntitle: Site\nauthor: [Ana Souza]\nyear: 2024\n"
+        "accessed_at: 2026-11-03\n---\n\n# Site\n",
+        encoding="utf-8",
+    )
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert stats["failures"] == []
+    (note,) = db.list_notes()
+    assert yaml.safe_load(note["frontmatter_json"])["created"] == "2026-11-03"
+    (source,) = db.list_sources()
+    assert '"accessed_at": "2026-11-03"' in source["bibliography_json"]
+
+
+def test_a_single_author_string_is_one_author_for_the_citekey(cfg, db):
+    src = cfg.vault_path / "10_Sources" / "SRC - rapido.md"
+    _write(src, {"title": "Rapido e devagar", "author": "Daniel Kahneman", "year": 2011}, "#")
+
+    run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert _frontmatter(src)["source_id"].startswith("@Kahneman2011")
+
+
+def test_unexpected_error_in_one_note_is_reported_and_the_rest_synced(cfg, db, monkeypatch):
+    from zettel import sync
+
+    real = sync._sync_moc
+
+    def explode(cfg, db, idx, file_path, meta, body):
+        if file_path.name.startswith("MOC - ruim"):
+            raise RuntimeError("boom")
+        return real(cfg, db, idx, file_path, meta, body)
+
+    monkeypatch.setattr(sync, "_sync_moc", explode)
+    _write(cfg.vault_path / "40_MOCs" / "MOC - ruim.md", {"topic": "Ruim"}, "# Ruim")
+    _write(cfg.vault_path / "40_MOCs" / "MOC - bom.md", {"topic": "Bom"}, "# Bom")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert _failures(stats) == {"MOC - ruim.md": "RuntimeError: boom"}
+    assert stats["mocs"] == 1
+
+
+def test_a_provider_outage_still_stops_the_run(cfg, db):
+    from zettel.llm import LLMUnavailableError
+
+    _write(cfg.vault_path / "30_Permanent" / "ZTL - a.md", {"title": "A"}, "> **Tese**: a.")
+    idx = FakeVectorIndex(fail_on={"upsert_permanent_note": (1, LLMUnavailableError("down"))})
+
+    with pytest.raises(LLMUnavailableError):
+        run_sync_manual(cfg, db, idx)
+    assert db.get_last_run()["status"] == "failed"
+
+
+def _granular(path, chunk_id, origin="manual"):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    meta = {"type": "literature", "source_id": "@Autor2020", "chunk_id": chunk_id}
+    if origin is not None:
+        meta["origin"] = origin
+    _write(
+        path,
+        meta,
+        "# Topico\n\n## Resumo\n\nUm resumo.\n\n"
+        "<!-- zettel:auto-source-excerpt:start -->\nTrecho.\n"
+        "<!-- zettel:auto-source-excerpt:end -->\n",
+    )
+
+
+def test_literature_in_a_source_folder_without_chunk_id_is_refused(cfg, db):
+    note = cfg.vault_path / "20_Literature" / "Autor2020" / "LIT - Autor2020 - sem-id.md"
+    note.parent.mkdir(parents=True)
+    _write(note, {"type": "literature", "source_id": "@Autor2020"}, "# Sem id")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert "chunk_id" in _failures(stats)["LIT - Autor2020 - sem-id.md"]
+    assert db.get_source("@Autor2020") is None
+
+
+def test_granular_literature_with_unknown_origin_is_refused(cfg, db):
+    note = cfg.vault_path / "20_Literature" / "Autor2020" / "LIT - Autor2020 - c0001.md"
+    _granular(note, "@Autor2020::manual::0001", origin="obsidian")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert "'obsidian'" in _failures(stats)["LIT - Autor2020 - c0001.md"]
+    assert db.get_chunk("@Autor2020::manual::0001") is None
+
+
+def test_granular_literature_without_origin_is_adopted_as_manual(cfg, db):
+    note = cfg.vault_path / "20_Literature" / "Autor2020" / "LIT - Autor2020 - c0001.md"
+    _granular(note, "@Autor2020::manual::0001", origin=None)
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert stats["failures"] == []
+    assert db.get_chunk("@Autor2020::manual::0001")["text"] == "Trecho."
+
+
+def test_two_literature_notes_with_one_chunk_id_report_the_second(cfg, db):
+    folder = cfg.vault_path / "20_Literature" / "Autor2020"
+    _granular(folder / "LIT - a.md", "@Autor2020::manual::0001")
+    _granular(folder / "LIT - b.md", "@Autor2020::manual::0001")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert "LIT - a.md" in _failures(stats)["LIT - b.md"]
+    assert db.get_chunk("@Autor2020::manual::0001")["literature_note_path"].endswith("LIT - a.md")
+
+
+def test_scaffold_placeholders_are_not_embedded(cfg, db):
+    from zettel.vault import scaffold_permanent_note_body
+
+    note = cfg.vault_path / "30_Permanent" / "ZTL - rascunho.md"
+    _write(note, {"title": "Rascunho"}, scaffold_permanent_note_body(thesis="Uma tese real."))
+    idx = FakeVectorIndex()
+
+    run_sync_manual(cfg, db, idx)
+
+    ((text, _meta),) = idx.store["permanent_notes"].values()
+    assert "Uma tese real." in text
+    assert "preencha" not in text.lower()

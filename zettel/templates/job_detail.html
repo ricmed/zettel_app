@@ -201,6 +201,24 @@
   {% endif %}
   {% if result.saved_path %}<p>Salvo em <code>{{ result.saved_path }}</code></p>{% endif %}
 </section>
+{% elif result.kind == 'sync' %}
+<section class="panel">
+  <div class="result-heading">
+    <h2>Sync manual</h2>
+  </div>
+  <table class="studio-table">
+    <tbody>
+      <tr><th>Novas</th><td>{{ result.new or 0 }}</td></tr>
+      <tr><th>Atualizadas</th><td>{{ result.updated or 0 }}</td></tr>
+      <tr><th>Sem alteração</th><td>{{ result.skipped or 0 }}</td></tr>
+      <tr><th>Não adotadas</th><td>{{ result.failed or 0 }}</td></tr>
+    </tbody>
+  </table>
+  {% if result.failures %}
+  <p>Corrija estas notas no vault e rode o sync de novo:</p>
+  <ul>{% for failure in result.failures %}<li><code>{{ failure.path }}</code>: {{ failure.reason }}</li>{% endfor %}</ul>
+  {% endif %}
+</section>
 {% elif result.kind == 'connect' %}
 <section class="panel">
   <div class="result-heading">

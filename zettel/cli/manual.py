@@ -334,7 +334,12 @@ def sync_manual(
     with console.status("[bold blue]Sincronizando notas manuais...", spinner="dots"):
         stats = run_sync_manual(cfg, db, idx)
 
+    failures = stats.pop("failures")
     metrics_table("Sync Manual", stats, key_label="Métrica", capitalize_keys=True)
+    for failure in failures:
+        console.print(f"[red]Nao adotada:[/red] {failure['path']}\n  {failure['reason']}")
+    if failures:
+        console.print("[yellow]Corrija as notas acima e rode sync-manual de novo.[/yellow]")
 
     db.close()
 

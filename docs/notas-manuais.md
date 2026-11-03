@@ -31,7 +31,27 @@ python -m zettel sync-manual
 python -m zettel sync-manual --rebuild-graph   # re-deriva as arestas de todo o vault
 ```
 
-> Nota importante sobre o dispatch: `sync._sync_literature` só encaminha para a adoção completa quando a nota tem `origin: manual`. LITs granulares do pipeline continuam no caminho leve: se o caminho e o `literature_id` já batem com o chunk, a nota é `skipped`; se o arquivo foi movido, só o path no SQLite é atualizado. O `status: approved` do frontmatter **não** é copiado para `chunks.status` — depois do `review` essa linha é `persisted`.
+### Notas que o sync não adota
+
+Cada nota é processada por conta própria (#342). Uma nota que o sync não consegue adotar fica de fora sem impedir as demais. A CLI e a página do job na web listam essas notas como **não adotadas**, com o caminho e o motivo, e o arquivo não é alterado. Os casos são:
+
+| Caso | O que fazer |
+|---|---|
+| Frontmatter com YAML inválido, aberto com `---` e nunca fechado, ou que não é um mapa `chave: valor` | Corrigir o frontmatter. O sync nunca reescreve um frontmatter que não conseguiu ler. |
+| LIT dentro da pasta de uma fonte (`20_Literature/{Citekey}/`) sem `type: literature` e `chunk_id` | Acrescentar `chunk_id: '@Citekey::manual::NNNN'`, ou mover a nota para a raiz de `20_Literature/` se ela for o índice. |
+| LIT granular com `origin` diferente de `manual` (ou sem `origin`) e diferente de `pipeline` | Usar `origin: manual`. |
+| Dois arquivos com o mesmo `chunk_id` | O primeiro em ordem alfabética é adotado; trocar o `chunk_id` do outro. |
+| Qualquer outro erro inesperado numa nota | A mensagem traz o tipo do erro, e o detalhe vai para o log. |
+
+Uma queda do provedor de embedding ou um erro do SQLite não são culpa da nota: esses interrompem o sync inteiro, como antes.
+
+Outras tolerâncias:
+
+- Datas sem aspas, como a propriedade Date do Obsidian grava (`created: 2026-11-03`), são aceitas e gravadas no banco como texto ISO.
+- `author: "Daniel Kahneman"` como texto vale como um autor, e não como uma lista de letras.
+- Os textos de preenchimento do scaffold (`_Preencha a tese._`, `_Preencha a definicao._`, `_Preencha os limites._`, `_Preencha o resumo._`, `_Cole o trecho da fonte aqui._`) não entram no embedding nem no checksum semântico.
+
+> Nota importante sobre o dispatch: `sync._sync_literature` só encaminha para a adoção completa quando a nota tem `origin: manual` (ou não tem `origin`). LITs granulares do pipeline continuam no caminho leve: se o caminho e o `literature_id` já batem com o chunk, a nota é `skipped`; se o arquivo foi movido, só o path no SQLite é atualizado. O `status: approved` do frontmatter **não** é copiado para `chunks.status` — depois do `review` essa linha é `persisted`.
 
 ---
 

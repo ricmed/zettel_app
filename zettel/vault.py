@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 import re
@@ -32,6 +33,48 @@ def parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
         meta = {}
     body = parts[2].lstrip("\n")
     return meta, body
+
+
+class MalformedFrontmatter(ValueError):
+    """A note opens a frontmatter block that cannot be read as a YAML mapping."""
+
+
+def parse_frontmatter_strict(content: str) -> tuple[dict[str, Any], str]:
+    """Like ``parse_frontmatter``, but an unreadable frontmatter raises instead of reading ``{}``.
+
+    A caller that may rewrite the note (``sync-manual``) must not mistake a typo in
+    the YAML for an empty frontmatter: writing ``{}`` plus an id back would erase
+    every property the author wrote (#342). A note with no frontmatter at all is
+    fine and reads as ``{}``.
+    """
+    if not content.startswith("---"):
+        return {}, content
+    parts = content.split("---", 2)
+    if len(parts) < 3:
+        raise MalformedFrontmatter("frontmatter aberto com '---' e nunca fechado")
+    try:
+        meta = yaml.safe_load(parts[1])
+    except yaml.YAMLError as exc:
+        problem = getattr(exc, "problem", None) or exc.__class__.__name__
+        mark = getattr(exc, "problem_mark", None)
+        where = f" (linha {mark.line + 1})" if mark is not None else ""
+        raise MalformedFrontmatter(f"YAML invalido no frontmatter: {problem}{where}") from exc
+    if meta is None:
+        meta = {}
+    if not isinstance(meta, dict):
+        raise MalformedFrontmatter("frontmatter nao e um mapa de propriedades 'chave: valor'")
+    return meta, parts[2].lstrip("\n")
+
+
+def _json_default(value: Any) -> str:
+    if isinstance(value, (datetime.date, datetime.time)):
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def frontmatter_json(meta: dict[str, Any]) -> str:
+    """Serialize frontmatter for SQLite; YAML dates (Obsidian's ``2026-11-03``) become ISO text."""
+    return json.dumps(meta, ensure_ascii=False, default=_json_default)
 
 
 def render_frontmatter(metadata: dict[str, Any]) -> str:

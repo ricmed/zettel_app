@@ -1338,7 +1338,7 @@ def _op_sync(ctx: JobContext) -> dict[str, Any]:
     from zettel.sync import run_sync_manual
 
     progress.emit(ProgressEvent("sync", "Sincronizando notas manuais."))
-    return run_sync_manual(cfg, db, idx)
+    return {"kind": "sync", **run_sync_manual(cfg, db, idx)}
 
 
 def _op_review(ctx: JobContext) -> dict[str, Any]:
