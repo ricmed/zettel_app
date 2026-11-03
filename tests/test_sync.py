@@ -519,15 +519,127 @@ def test_unexpected_error_in_one_note_is_reported_and_the_rest_synced(cfg, db, m
     assert stats["mocs"] == 1
 
 
-def test_a_provider_outage_still_stops_the_run(cfg, db):
+def test_an_embedding_error_that_is_not_an_outage_fails_only_that_note(cfg, db):
+    _write(cfg.vault_path / "30_Permanent" / "ZTL - a.md", {"title": "A"}, "> **Tese**: a.")
+    _write(cfg.vault_path / "30_Permanent" / "ZTL - b.md", {"title": "B"}, "> **Tese**: b.")
+    idx = FakeVectorIndex(fail_on={"upsert_permanent_note": 1})
+
+    stats = run_sync_manual(cfg, db, idx)
+
+    assert "falha injetada" in _failures(stats)["ZTL - a.md"]
+    assert stats["permanent"] == 1
+    assert stats["embedding_pending"] == 0
+
+
+# -- sync without embedding (#343) -------------------------------------------
+
+
+def _offline_vault(cfg):
+    _write(
+        cfg.vault_path / "10_Sources" / "SRC - obra.md",
+        {"title": "Obra", "author": ["Ana Souza"], "year": 2020, "source_id": "@Souza2020Obra"},
+        "# Obra",
+    )
+    b = cfg.vault_path / "30_Permanent" / "ZTL - 01J0000000000000000000000B - b.md"
+    _write(b, {"title": "B", "note_id": "01J0000000000000000000000B"}, "> **Tese**: b.")
+    a = cfg.vault_path / "30_Permanent" / "ZTL - 01J0000000000000000000000A - a.md"
+    _write(
+        a,
+        {"title": "A", "note_id": "01J0000000000000000000000A"},
+        "> **Tese**: a.\n\nVer [[ZTL - 01J0000000000000000000000B - b]].",
+    )
+
+
+def test_without_an_index_notes_reach_sqlite_and_the_graph_with_vectors_pending(cfg, db):
+    _offline_vault(cfg)
+
+    stats = run_sync_manual(cfg, db, None)
+
+    assert stats["failures"] == []
+    assert stats["embedding_pending"] == 3
+    assert stats["embedding_offline"]
+    assert db.get_source("@Souza2020Obra") is not None
+    assert {n["note_id"] for n in db.list_notes()} == {
+        "01J0000000000000000000000A",
+        "01J0000000000000000000000B",
+    }
+    assert db.get_note("01J0000000000000000000000A")["embedding_input_hash"] is None
+    assert db.get_last_run()["status"] == "completed"
+
+
+def test_the_next_sync_with_an_index_writes_the_pending_vectors_without_edits(cfg, db):
+    _offline_vault(cfg)
+    run_sync_manual(cfg, db, None)
+    idx = FakeVectorIndex()
+
+    stats = run_sync_manual(cfg, db, idx)
+
+    assert stats["embedding_pending"] == 0
+    assert stats["updated"] == 3
+    assert calls_to(idx, "upsert_source") == ["@Souza2020Obra"]
+    assert sorted(calls_to(idx, "upsert_permanent_note")) == [
+        "01J0000000000000000000000A",
+        "01J0000000000000000000000B",
+    ]
+    assert db.get_note("01J0000000000000000000000A")["embedding_input_hash"]
+
+    again = run_sync_manual(cfg, db, idx)
+    assert again["updated"] == 0 and again["embedding_pending"] == 0
+    assert len(calls_to(idx, "upsert_permanent_note")) == 2
+
+
+def test_an_outage_mid_run_stops_embedding_but_not_the_sync(cfg, db):
+    """The note that failed used to stay without a vector for good (#343)."""
     from zettel.llm import LLMUnavailableError
 
-    _write(cfg.vault_path / "30_Permanent" / "ZTL - a.md", {"title": "A"}, "> **Tese**: a.")
-    idx = FakeVectorIndex(fail_on={"upsert_permanent_note": (1, LLMUnavailableError("down"))})
+    _offline_vault(cfg)
+    down = FakeVectorIndex(fail_on={"upsert_source": (1, LLMUnavailableError("down"))})
 
-    with pytest.raises(LLMUnavailableError):
-        run_sync_manual(cfg, db, idx)
-    assert db.get_last_run()["status"] == "failed"
+    stats = run_sync_manual(cfg, db, down)
+
+    assert stats["failures"] == []
+    assert stats["embedding_pending"] == 3
+    assert "LLMUnavailableError" in stats["embedding_offline"]
+    assert calls_to(down, "upsert_permanent_note") == []  # no retry per note once offline
+
+    up = FakeVectorIndex()
+    assert run_sync_manual(cfg, db, up)["embedding_pending"] == 0
+    assert len(calls_to(up, "upsert_permanent_note")) == 2
+
+
+def test_without_a_credential_the_index_is_never_opened(cfg, db, monkeypatch):
+    monkeypatch.setattr("zettel.credentials.embedding_ready", lambda _cfg: False)
+    _offline_vault(cfg)
+
+    def must_not_open():
+        raise AssertionError("o indice nao devia ser aberto")
+
+    stats = run_sync_manual(cfg, db, must_not_open)
+
+    assert stats["embedding_offline"] == "sem credencial de embedding"
+    assert stats["embedding_pending"] == 3
+
+
+def test_the_index_opens_only_when_something_needs_a_vector(cfg, db):
+    _write(cfg.vault_path / "40_MOCs" / "MOC - tema.md", {"topic": "Tema"}, "# Tema")
+    opened = []
+
+    stats = run_sync_manual(cfg, db, lambda: opened.append(1) or FakeVectorIndex())
+
+    assert stats["mocs"] == 1
+    assert opened == []
+
+
+def test_notes_pending_embedding_counts_notes_without_a_current_vector(cfg, db):
+    def pending():
+        return db.count_notes_pending_embedding(cfg.embedding.provider, cfg.embedding.model)
+
+    _offline_vault(cfg)
+    run_sync_manual(cfg, db, None)
+    assert pending() == 2
+
+    run_sync_manual(cfg, db, FakeVectorIndex())
+    assert pending() == 0
 
 
 def _granular(path, chunk_id, origin="manual"):

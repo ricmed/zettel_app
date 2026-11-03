@@ -1333,12 +1333,12 @@ def _op_garden(ctx: JobContext) -> dict[str, Any]:
 
 
 def _op_sync(ctx: JobContext) -> dict[str, Any]:
-    """Index the vault's manual edits."""
-    cfg, db, progress, idx = ctx.cfg, ctx.db, ctx.progress, ctx.idx
+    """Index the vault's manual edits. The index opens only if a note needs a vector (#343)."""
+    cfg, db, progress = ctx.cfg, ctx.db, ctx.progress
     from zettel.sync import run_sync_manual
 
     progress.emit(ProgressEvent("sync", "Sincronizando notas manuais."))
-    return {"kind": "sync", **run_sync_manual(cfg, db, idx)}
+    return {"kind": "sync", **run_sync_manual(cfg, db, lambda: ctx.idx)}
 
 
 def _op_review(ctx: JobContext) -> dict[str, Any]:

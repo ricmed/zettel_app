@@ -117,6 +117,21 @@ class NotesMixin(StateBase):
     def list_notes(self) -> list[dict]:
         return self._fetchall("SELECT * FROM notes ORDER BY created_at DESC")
 
+    def count_notes_pending_embedding(self, provider: str, model: str) -> int:
+        """Notes whose vector is missing or built from other content or model (#343).
+
+        The next ``sync-manual`` that reaches the index writes them (``reindex`` too).
+        """
+        from zettel.hashing import compute_embedding_input_hash
+
+        rows = self._fetchall("SELECT note_semantic_checksum, embedding_input_hash FROM notes")
+        return sum(
+            1
+            for row in rows
+            if row["embedding_input_hash"]
+            != compute_embedding_input_hash(row["note_semantic_checksum"], provider, model)
+        )
+
     def get_notes_for_source(self, source_id: str) -> list[dict]:
         return self._fetchall(
             "SELECT * FROM notes WHERE source_id=? ORDER BY created_at ASC", (source_id,)

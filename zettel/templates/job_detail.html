@@ -212,8 +212,12 @@
       <tr><th>Atualizadas</th><td>{{ result.updated or 0 }}</td></tr>
       <tr><th>Sem alteração</th><td>{{ result.skipped or 0 }}</td></tr>
       <tr><th>Não adotadas</th><td>{{ result.failed or 0 }}</td></tr>
+      <tr><th>Vetores pendentes</th><td>{{ result.embedding_pending or 0 }}</td></tr>
     </tbody>
   </table>
+  {% if result.embedding_pending %}
+  <p>As notas já estão no banco, mas sem vetor ({{ result.embedding_offline }}). Rode o sync de novo quando o embedding estiver disponível.</p>
+  {% endif %}
   {% if result.failures %}
   <p>Corrija estas notas no vault e rode o sync de novo:</p>
   <ul>{% for failure in result.failures %}<li><code>{{ failure.path }}</code>: {{ failure.reason }}</li>{% endfor %}</ul>

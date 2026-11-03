@@ -76,6 +76,7 @@ PUBLIC_METHODS = {
     "clear_source_id_on_notes",
     "get_note",
     "list_notes",
+    "count_notes_pending_embedding",
     "get_notes_for_source",
     "get_note_ids_for_source",
     "get_notes_for_chunk",

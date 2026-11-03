@@ -95,3 +95,20 @@ The order is now explicit, first match wins:
 **Status:** Accepted amendment. `Retriever._raise_if_strict` decides that `connect` stops when the embedding search fails while `ask` keeps the BM25 fall-through. Only the strict side ran in a test (`connect` with an index raising `ConnectionError`); the tolerant `return` and the strict re-raise of an error that is not a transport failure were never executed. `tests/test_ask.py` now runs `ask` with the dense search down and a note matching every term at BM25 rank 1: it clears the floor by the lexical bypass and reaches the LLM. `tests/test_retrieval.py` pins that strict mode re-raises a `KeyError` as itself and that tolerant mode returns an empty dense pool. Making `ask` strict, or converting every error into unavailability, each fails a test.
 
 The same path had an `except TypeError` that silently repeated the search without `purpose`. It served test doubles that took no `purpose`; every index double now has the real signature (#327), so it is removed: a `TypeError` from the index is a failure like any other, logged in tolerant mode and re-raised in strict mode, not a second call that hides it.
+
+## Addendum (2026-11-03): sync-manual fails open on embedding (issue #343)
+
+**Status:** Accepted amendment. `sync-manual` is the one path where an embedding outage does not stop the run. It writes manual notes to SQLite and FTS, which are the durable store, before touching the vector index. A note without a vector is still a note the user owns, can search with BM25, can link and can see on the web.
+
+Before this change, the CLI opened the index up front and refused to run without the credential, and the web button required it too. An outage in the middle of the run left the note in SQLite with no vector. The next sync skipped it on its semantic checksum, so the note never got a vector, `auto-connections` or body edges.
+
+- **Lazy index.** `sync._Vectors` opens the index on first use. Without a credential (`credentials.embedding_ready`) it never opens.
+- **Outage mid-run.** An error that `is_llm_unavailable` classifies stops further embeds for the rest of the run. The run itself continues.
+- **Pending notes.** A note or source whose vector was not written is counted in `embedding_pending`, and `embedding_offline` gives the reason.
+- **What still stops the run.** Any other embedding error fails only that note (#342). `sqlite3.Error` still stops the run.
+- **Skipping is by both hashes.** A ZTL is skipped only when its semantic checksum **and** its `embedding_input_hash` are current. A source is skipped only when its vector is in Chroma. The next sync that reaches the index writes what is pending, without the note being edited.
+- **Visibility.** `StateDB.count_notes_pending_embedding` feeds `zettel status` and `zettel doctor`.
+- **Web.** `sync` is no longer in `preconditions._EMBEDDING`.
+
+Every other phase keeps this ADR's fail-fast, including `connect`, whose search is strict.
+

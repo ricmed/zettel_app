@@ -97,6 +97,12 @@ def status(config: ConfigOption = None):
         table.add_row(label, str(val), style=style)
 
     table.add_row("Conexoes (grafo)", str(db.count_note_connections()))
+    pending = db.count_notes_pending_embedding(cfg.embedding.provider, cfg.embedding.model)
+    table.add_row(
+        "Notas sem vetor (rode sync-manual com embedding)",
+        str(pending),
+        style="yellow" if pending else "",
+    )
 
     console.print(table)
 
@@ -371,6 +377,23 @@ def doctor(config: ConfigOption = None):
             embedding_ready(cfg),
             f"{cfg.embedding.provider}: "
             + (" ou ".join(key_envs) if key_envs else "sem credencial (local)"),
+        )
+    )
+
+    pending_db = get_db(cfg)
+    try:
+        pending = pending_db.count_notes_pending_embedding(
+            cfg.embedding.provider, cfg.embedding.model
+        )
+    finally:
+        pending_db.close()
+    checks.append(
+        (
+            "Vetores de notas",
+            pending == 0,
+            f"{pending} nota(s) sem vetor: rode sync-manual com o embedding disponivel"
+            if pending
+            else "todas as notas tem vetor atual",
         )
     )
 

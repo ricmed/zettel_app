@@ -314,10 +314,13 @@ def sync_manual(
     ] = False,
     yes: YesOption = False,
 ):
-    """Sincronizar notas manuais do vault com o índice vetorial."""
+    """Sincronizar notas manuais do vault com o banco e o índice vetorial.
+
+    Funciona sem rede e sem credencial de embedding: as notas entram no SQLite e
+    os vetores ficam pendentes até o próximo sync que alcançar o índice.
+    """
     cfg = load_deps(config)
     db = get_db(cfg)
-    idx = get_idx(cfg, db=db, yes=yes)
 
     from zettel.sync import rebuild_manual_edges, run_sync_manual
 
@@ -332,14 +335,20 @@ def sync_manual(
         )
 
     with console.status("[bold blue]Sincronizando notas manuais...", spinner="dots"):
-        stats = run_sync_manual(cfg, db, idx)
+        stats = run_sync_manual(cfg, db, lambda: get_idx(cfg, db=db, yes=yes))
 
     failures = stats.pop("failures")
+    offline = stats.pop("embedding_offline")
     metrics_table("Sync Manual", stats, key_label="Métrica", capitalize_keys=True)
     for failure in failures:
         console.print(f"[red]Nao adotada:[/red] {failure['path']}\n  {failure['reason']}")
     if failures:
         console.print("[yellow]Corrija as notas acima e rode sync-manual de novo.[/yellow]")
+    if stats["embedding_pending"]:
+        console.print(
+            f"[yellow]{stats['embedding_pending']} vetor(es) pendente(s) ({offline}).[/yellow] "
+            "As notas ja estao no banco; rode sync-manual de novo com o embedding disponivel."
+        )
 
     db.close()
 

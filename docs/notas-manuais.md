@@ -31,6 +31,14 @@ python -m zettel sync-manual
 python -m zettel sync-manual --rebuild-graph   # re-deriva as arestas de todo o vault
 ```
 
+### Sync sem internet e sem embedding
+
+O `sync-manual` funciona offline (#343). Ele grava as notas primeiro no SQLite e no FTS, e é isso que as torna notas do acervo: elas aparecem na busca por texto, nas páginas da web, no grafo (as arestas dos `[[wikilinks]]` do corpo) e nos backrefs de MOC. O índice vetorial só é aberto quando alguma nota precisa de vetor.
+
+Sem credencial de embedding, ou se o provedor cair no meio do run, o sync segue até o fim. A SRC e a ZTL que ficaram sem vetor contam como **vetores pendentes**: a CLI e o job da web mostram quantas são e por quê, e `zettel status` e `zettel doctor` mostram as notas nessa situação. As sugestões em `auto-connections`, que dependem da busca vetorial, ficam para depois.
+
+O próximo `sync-manual` com embedding disponível grava os vetores pendentes e escreve as sugestões. Não é preciso editar as notas. Uma nota só é pulada quando o conteúdo e o vetor estão atuais.
+
 ### Notas que o sync não adota
 
 Cada nota é processada por conta própria (#342). Uma nota que o sync não consegue adotar fica de fora sem impedir as demais. A CLI e a página do job na web listam essas notas como **não adotadas**, com o caminho e o motivo, e o arquivo não é alterado. Os casos são:
@@ -43,7 +51,7 @@ Cada nota é processada por conta própria (#342). Uma nota que o sync não cons
 | Dois arquivos com o mesmo `chunk_id` | O primeiro em ordem alfabética é adotado; trocar o `chunk_id` do outro. |
 | Qualquer outro erro inesperado numa nota | A mensagem traz o tipo do erro, e o detalhe vai para o log. |
 
-Uma queda do provedor de embedding ou um erro do SQLite não são culpa da nota: esses interrompem o sync inteiro, como antes.
+Um erro do SQLite não é culpa da nota e interrompe o sync inteiro. Uma queda do provedor de embedding não interrompe: ela deixa os vetores pendentes (veja acima).
 
 Outras tolerâncias:
 

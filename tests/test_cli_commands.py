@@ -240,6 +240,35 @@ def test_purge_rejected_and_delete_source(harvested):
 # -- manual notes ------------------------------------------------------------
 
 
+def test_sync_manual_without_embedding_credential_leaves_vectors_pending(cli_instance, monkeypatch):
+    """#343: offline, the note reaches SQLite; the next sync with the key embeds it."""
+    cli_instance.run("init")
+    cli_instance.run("new-note", "ztl", "Ideia escrita offline")
+    with monkeypatch.context() as offline:
+        offline.setattr("zettel.credentials.embedding_ready", lambda _cfg: False)
+        output = cli_instance.run("sync-manual")
+
+    assert "1 vetor(es) pendente(s)" in output
+    assert "sem credencial de embedding" in output
+    assert "Notas sem vetor" in cli_instance.run("status")
+    db = cli_instance.db()
+    try:
+        (note,) = db.list_notes()
+        assert note["embedding_input_hash"] is None
+    finally:
+        db.close()
+
+    # The fixture's offline embedding needs no key; say the credential is there.
+    with monkeypatch.context() as online:
+        online.setattr("zettel.credentials.embedding_ready", lambda _cfg: True)
+        assert "pendente" not in cli_instance.run("sync-manual")
+    db = cli_instance.db()
+    try:
+        assert db.get_note(note["note_id"])["embedding_input_hash"]
+    finally:
+        db.close()
+
+
 def test_new_note_then_sync_manual_then_suggest_links(cli_instance):
     cli_instance.run("init")
     cli_instance.run("new-note", "ztl", "Uma ideia escrita a mao")

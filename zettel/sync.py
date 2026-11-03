@@ -7,8 +7,10 @@ bodies into SQLite (retention) and indexes the embeddable ones into ChromaDB.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +40,9 @@ from zettel.vault import (
 
 logger = logging.getLogger(__name__)
 
+# What a caller hands sync: the index, a callable that opens it, or None (no vectors).
+IndexArg = VectorIndex | Callable[[], VectorIndex] | None
+
 # A ZTL wikilink target: ULID is Crockford base32 (no I, L, O, U), 26 chars.
 _ZTL_WIKILINK = re.compile(r"\[\[ZTL - ([0-9A-HJKMNP-TV-Z]{26})")
 
@@ -50,20 +55,75 @@ class NoteRejected(Exception):
     """A note sync cannot adopt as written. Reported per note; the file is left untouched."""
 
 
-def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, Any]:
+class _Vectors:
+    """The vector index for one sync run: optional, opened on first use (#343).
+
+    Sync writes SQLite and FTS first, which is all a note needs to exist. Without
+    an embedding credential the index is never opened; a provider outage in the
+    middle of the run stops further embeds, not the run. A note or source whose
+    vector was not written counts as pending, and the next sync that reaches the
+    index writes it without the note being edited.
+    """
+
+    def __init__(self, cfg: AppConfig, idx: IndexArg) -> None:
+        self.cfg = cfg
+        self._open = idx if callable(idx) else None
+        self._idx = None if callable(idx) else idx
+        self.offline_reason: str | None = None if idx is not None else "indice vetorial nao aberto"
+        self.pending = 0
+
+    def index(self) -> VectorIndex | None:
+        """The open index, or ``None`` once the run is offline."""
+        if self.offline_reason:
+            return None
+        if self._idx is None and self._open is not None:
+            from zettel.credentials import embedding_ready
+
+            if not embedding_ready(self.cfg):
+                self.offline_reason = "sem credencial de embedding"
+                return None
+            self._idx, self._open = self._open(), None
+        return self._idx
+
+    def write(self, embed: Callable[[VectorIndex], object]) -> bool:
+        """Run one embedding write; False (and one more pending) when it could not run."""
+        idx = self.index()
+        if idx is None:
+            self.pending += 1
+            return False
+        try:
+            embed(idx)
+        except Exception as exc:
+            from zettel.llm import is_llm_unavailable
+
+            if not is_llm_unavailable(exc):
+                raise
+            self.offline_reason = f"embedding indisponivel ({type(exc).__name__}: {exc})"
+            logger.warning("Sync manual segue sem embedding: %s", self.offline_reason)
+            self.pending += 1
+            return False
+        return True
+
+
+def run_sync_manual(cfg: AppConfig, db: StateDB, idx: IndexArg) -> dict[str, Any]:
     """Scan all four note folders for manual/modified notes and sync them.
 
-    Returns per-type counters, aggregate new/updated/skipped/failed and
-    ``failures`` (``{"path", "reason"}`` per note that could not be adopted). One
-    bad note never stops the others (#342). Opens a ``sync`` run so the embedding
-    cost of the notes it indexes is recorded (#311).
+    ``idx`` is the vector index, a zero-argument callable that opens it (so a run
+    with nothing to embed, or without a credential, never does), or ``None`` for a
+    SQLite-only run.
+
+    Returns per-type counters, aggregate new/updated/skipped/failed,
+    ``failures`` (``{"path", "reason"}`` per note that could not be adopted; one
+    bad note never stops the others, #342), ``embedding_pending`` and
+    ``embedding_offline`` (why vectors were not written, or ``None``; #343). Opens a
+    ``sync`` run so the embedding cost of the notes it indexes is recorded (#311).
     """
     from zettel.usage import begin_run, finish_pipeline_run
 
     run_id = db.start_run("sync")
     begin_run(run_id)
     try:
-        stats = _sync_all(cfg, db, idx)
+        stats = _sync_all(cfg, db, _Vectors(cfg, idx))
     except Exception:
         finish_pipeline_run(db, run_id, status="failed")
         raise
@@ -71,7 +131,7 @@ def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, 
     return stats
 
 
-def _sync_all(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, Any]:
+def _sync_all(cfg: AppConfig, db: StateDB, vectors: _Vectors) -> dict[str, Any]:
     stats: dict[str, Any] = {
         "new": 0,
         "updated": 0,
@@ -103,7 +163,7 @@ def _sync_all(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, Any]:
             if not md_file.is_file():
                 continue
             try:
-                result = _sync_single_note(cfg, db, idx, md_file, note_type, claimed_chunks)
+                result = _sync_single_note(cfg, db, vectors, md_file, note_type, claimed_chunks)
             except NoteRejected as exc:
                 reason = str(exc)
             except Exception as exc:
@@ -123,6 +183,8 @@ def _sync_all(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, Any]:
     repair = repair_permanent_links(db, vault_timezone=cfg.vault_timezone)
     stats.update(repair)
     stats["failures"] = failures
+    stats["embedding_pending"] = vectors.pending
+    stats["embedding_offline"] = vectors.offline_reason if vectors.pending else None
 
     logger.info(
         "Sync manual: %d novas, %d atualizadas, %d sem alteração, %d com falha "
@@ -207,7 +269,7 @@ def repair_permanent_links(
 def _sync_single_note(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
+    vectors: _Vectors,
     file_path: Path,
     note_type: str,
     claimed_chunks: dict[str, Path],
@@ -223,13 +285,13 @@ def _sync_single_note(
         raise NoteRejected(str(exc)) from exc
 
     if note_type == "source":
-        return _sync_source(cfg, db, idx, file_path, meta, body)
+        return _sync_source(cfg, db, vectors, file_path, meta, body)
     if note_type == "literature":
-        return _sync_literature(cfg, db, idx, file_path, meta, body, claimed_chunks)
+        return _sync_literature(cfg, db, vectors, file_path, meta, body, claimed_chunks)
     if note_type == "permanent":
-        return _sync_permanent(cfg, db, idx, file_path, meta, body)
+        return _sync_permanent(cfg, db, vectors, file_path, meta, body)
     if note_type == "moc":
-        return _sync_moc(cfg, db, idx, file_path, meta, body)
+        return _sync_moc(cfg, db, vectors, file_path, meta, body)
     return "skipped"
 
 
@@ -254,7 +316,7 @@ def _author_list(meta: dict) -> list[str]:
 def _sync_source(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
+    vectors: _Vectors,
     file_path: Path,
     meta: dict,
     body: str,
@@ -278,7 +340,16 @@ def _sync_source(
     existing = db.get_source(source_id)
     origin = _manual_origin(meta)
     if existing:
-        return "skipped"
+        idx = vectors.index()
+        if idx is None or idx.existing_ids("sources", [source_id]):
+            return "skipped"
+        # Adopted while offline: write the vector the earlier run could not.
+        authors = json.loads(existing.get("authors") or "[]")
+        return (
+            "updated"
+            if _embed_source(vectors, source_id, existing["citekey"], existing["title"], authors)
+            else "skipped"
+        )
 
     year = meta.get("year")
 
@@ -341,22 +412,26 @@ def _sync_source(
         bibliography_json=biblio_json,
         abnt_reference=meta.get("abnt_reference"),
     )
-    idx.upsert_source(
-        source_id,
-        f"{meta.get('title', file_path.stem)} -- {', '.join(authors)}",
-        {
-            "citekey": citekey,
-            "title": meta.get("title", file_path.stem),
-            "origin_type": "md",
-        },
-    )
+    _embed_source(vectors, source_id, citekey, meta.get("title", file_path.stem), authors)
     return "new"
+
+
+def _embed_source(
+    vectors: _Vectors, source_id: str, citekey: str, title: str, authors: list[str]
+) -> bool:
+    return vectors.write(
+        lambda idx: idx.upsert_source(
+            source_id,
+            f"{title} -- {', '.join(authors)}",
+            {"citekey": citekey, "title": title, "origin_type": "md"},
+        )
+    )
 
 
 def _sync_literature(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
+    vectors: _Vectors,
     file_path: Path,
     meta: dict,
     body: str,
@@ -417,7 +492,7 @@ def _sync_literature(
         if origin == "manual":
             from zettel.manual_lit import adopt_manual_literature
 
-            return adopt_manual_literature(cfg, db, idx, file_path, meta, body)
+            return adopt_manual_literature(cfg, db, vectors.index(), file_path, meta, body)
         return _sync_pipeline_granular_literature(db, file_path, meta, chunk_id)
 
     # Index / legacy monolithic LIT → lit_body
@@ -500,7 +575,7 @@ def _sync_pipeline_granular_literature(
 def _sync_permanent(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
+    vectors: _Vectors,
     file_path: Path,
     meta: dict,
     body: str,
@@ -524,53 +599,50 @@ def _sync_permanent(
     embeddable = extract_embeddable_text(body)
     semantic_checksum = sha256_hex(normalize_text_for_hash(embeddable))
 
-    existing = db.get_note(note_id)
-    if existing and existing.get("note_semantic_checksum") == semantic_checksum:
-        from zettel.manual_lit import claim_concepts_for_note
+    from zettel.manual_lit import claim_concepts_for_note
 
+    existing = db.get_note(note_id)
+    emb_hash = compute_embedding_input_hash(
+        semantic_checksum, cfg.embedding.provider, cfg.embedding.model
+    )
+    changed = not existing or existing.get("note_semantic_checksum") != semantic_checksum
+    # A note whose vector a past offline run could not write is not skipped:
+    # skipping on the semantic checksum alone left it without a vector for good.
+    needs_vector = not existing or existing.get("embedding_input_hash") != emb_hash
+    if not changed and not needs_vector:
         claim_concepts_for_note(db, note_id, meta, body)
         return "skipped"
 
     title = meta.get("title", file_path.stem)
     source_id = meta.get("source_id")
-    origin = _manual_origin(meta)
-    db.upsert_note(
-        note_id=note_id,
-        source_id=source_id,
-        path=str(file_path),
-        title=title,
-        note_semantic_checksum=semantic_checksum,
-        embedding_model=cfg.embedding.model,
-        body=body,
-        frontmatter_json=frontmatter_json(meta),
-        origin=origin,
-    )
+    if changed:
+        db.upsert_note(
+            note_id=note_id,
+            source_id=source_id,
+            path=str(file_path),
+            title=title,
+            note_semantic_checksum=semantic_checksum,
+            embedding_model=cfg.embedding.model,
+            body=body,
+            frontmatter_json=frontmatter_json(meta),
+            origin=_manual_origin(meta),
+        )
+        _extract_body_edges(db, note_id, body)
 
     tags = meta.get("tags", [])
     if isinstance(tags, str):
         tags = [t.strip() for t in tags.split(",")]
-
-    # Skip re-embedding when semantic content + model are unchanged.
-    emb_hash = compute_embedding_input_hash(
-        semantic_checksum, cfg.embedding.provider, cfg.embedding.model
+    metadata = {"title": title, "source_id": source_id or "", "tags": ", ".join(tags)}
+    embedded = needs_vector and vectors.write(
+        lambda idx: idx.upsert_permanent_note(note_id, embeddable, metadata)
     )
-    if not existing or existing.get("embedding_input_hash") != emb_hash:
-        idx.upsert_permanent_note(
-            note_id,
-            embeddable,
-            {
-                "title": title,
-                "source_id": source_id or "",
-                "tags": ", ".join(tags),
-            },
-        )
+    if embedded:
         db.update_note_embedding(note_id, emb_hash, cfg.embedding.model)
-
-    _extract_body_edges(db, note_id, body)
-    _suggest_connections(cfg, db, idx, note_id, embeddable, file_path)
-    from zettel.manual_lit import claim_concepts_for_note
+        _suggest_connections(cfg, db, vectors.index(), note_id, embeddable, file_path)
 
     claim_concepts_for_note(db, note_id, meta, body)
+    if not changed and not embedded:
+        return "skipped"
     return "new" if not existing else "updated"
 
 
@@ -611,7 +683,7 @@ def _adopt_note_images(
 def _sync_moc(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
+    vectors: _Vectors,
     file_path: Path,
     meta: dict,
     body: str,
