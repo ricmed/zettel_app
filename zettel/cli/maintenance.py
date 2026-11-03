@@ -177,7 +177,7 @@ def reindex(
         str | None,
         typer.Option(
             "--collection",
-            help="Reindexar apenas: sources|chunks|permanent_notes|mocs|chapter_summaries",
+            help="Reindexar apenas: sources|chunks|permanent_notes|chapter_summaries",
         ),
     ] = None,
     force: Annotated[

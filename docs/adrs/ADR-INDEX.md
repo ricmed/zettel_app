@@ -1,7 +1,7 @@
-# zettel_app ADR Index (64 Decisions)
+# zettel_app ADR Index (65 Decisions)
 
-**Last Updated**: 2026-10-22  
-**Status**: Complete — 64 formal ADRs (001–065; 044 unused) across 13 modules
+**Last Updated**: 2026-11-03  
+**Status**: Complete — 65 formal ADRs (001–066; 044 unused) across 13 modules
 
 ---
 
@@ -20,7 +20,7 @@
 | **LLM** | 5 | [024–025, 048, 055, 059](#llm-provider--caching) |
 | **CLI** | 4 | [026, 032, 035, 037](#cli-orchestration) |
 | **QA-WRITING** | 4 | [028–029, 038, 051](#qa-writing--article-pipeline) |
-| **MANUAL** | 1 | [030](#manual-hand-written-notes) |
+| **MANUAL** | 2 | [030, 066](#manual-hand-written-notes) |
 | **ASSETS** | 1 | [031](#assets-images) |
 
 ---
@@ -605,8 +605,21 @@
 
 - **Status**: Accepted
 - **Date**: 2026-09-02
-- **Summary**: A hand-written granular LIT note had no `chunks` row, so it was invisible to SQLite, `literature_notes`, the source index and `connect`. `sync-manual` now synthesizes that row (plus a per-source `::ch000` "Manual" chapter, required by the NOT NULL FK) and reuses the post-approval steps verbatim. Manual notes land as `persisted` and never enter the confidence-band gate, which is hereby scoped to LLM-generated content. `new-note ztl --from-lit [--llm]` derives a candidate from the note's own sections and reuses `connector.run_connect(..., origin="manual")` — same Prompt 2, RAG, relation typing and backlinks. CLI only; web deferred to phase 2.
+- **Summary**: A hand-written granular LIT note had no `chunks` row, so it was invisible to SQLite, `literature_notes`, the source index and `connect`. `sync-manual` now synthesizes that row (plus a per-source `::ch000` "Manual" chapter, required by the NOT NULL FK) and reuses the post-approval steps verbatim. Manual notes land as `persisted` and never enter the confidence-band gate, which is hereby scoped to LLM-generated content. `new-note ztl --from-lit [--llm]` derives a candidate from the note's own sections and reuses `connector.run_connect(..., origin="manual")` — same Prompt 2, RAG, relation typing and backlinks. The web counterpart is `/notes/new` (ADR-039/040); writing notes in Obsidian itself is ADR-066.
 - **Link**: [`ADR-030-manual-notes-adopted-at-sync-without-review-gate.md`](./generated/MANUAL/ADR-030-manual-notes-adopted-at-sync-without-review-gate.md)
+
+### ADR-066: Obsidian as an Offline Authoring Surface
+
+- **Status**: Accepted
+- **Date**: 2026-11-03
+- **Summary**: Notes can be written in Obsidian itself, offline, with the structure `new-note` writes, and `sync-manual` brings them into SQLite.
+  - **Vault safety.** `init` never deletes the vault. `--reset` removes only `origin: pipeline` notes.
+  - **Per-note sync.** Each note is synced on its own, and unreadable frontmatter is refused rather than rewritten.
+  - **Sync fails open on embedding.** This is the exception to ADR-059: SQLite and FTS always get the note, and vectors stay pending until a sync that can reach the embedding.
+  - **Templates from the builders.** The Templater templates are generated from the `new-note` scaffolds by sentinel substitution, checked under Node. They create `PREFIX - ULID - slug` and the next `chunk_id` inside Obsidian.
+  - **Obsidian setup.** `init` installs and configures Templater from a release pinned by sha256. The trigger on file creation stays a per-device choice of the user.
+  - **Edits reach SQLite.** An edited SRC re-syncs its bibliography and the citations that depend on it. The manual graph is derived in a second pass, and a removed link removes its edge. Moved notes follow their file, and deleted ones are reported or pruned (`--prune`).
+- **Link**: [`ADR-066-obsidian-offline-authoring.md`](./generated/MANUAL/ADR-066-obsidian-offline-authoring.md)
 
 ---
 
@@ -625,12 +638,22 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 64 |
-| **Accepted** | 64 |
+| **Total ADRs** | 65 |
+| **Accepted** | 65 |
 | **Needs Input** | 0 |
 | **Modules Covered** | 13 |
 
 The counts in this file are pinned to `docs/adrs/generated/` by `tests/test_docs_adr_references.py`.
+
+---
+
+## Status Update (2026-11-03)
+
+✅ **ADR-066** (Obsidian as an offline authoring surface, epic #340) added. Addenda:
+- **ADR-030:** notes written in Obsidian. The title placeholder `ADR-XXX` was corrected.
+- **ADR-059:** `sync-manual` fails open on embedding.
+
+The ADR-030 summary no longer says the web is deferred, because `/notes/new` exists.
 
 ---
 
@@ -768,6 +791,6 @@ These remain documented in `docs/adrs/potential-adrs/` for later formalization i
 
 ## Next Steps
 
-- Review all 29 formal ADRs in the [generated/ directory](./generated/)
+- Review the formal ADRs in the [generated/ directory](./generated/)
 - Consult the [relationship report](./reports/) for dependency graphs and temporal evolution
 - Use this index as a reference when making changes to architecture-sensitive modules

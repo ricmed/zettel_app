@@ -153,7 +153,7 @@ python -m zettel init            # cria as pastas do vault que faltam; nunca apa
 python -m zettel init --reset    # + apaga State DB, ChromaDB, cache e as notas do pipeline (pede confirmacao)
 ```
 
-`init` nunca apaga o vault (#341). O `--reset` remove apenas as notas cujo frontmatter declara `origin: pipeline` ou `hub_pipeline`, além das subpastas de citekey que ficarem vazias. Ficam preservados:
+`init` nunca apaga o vault (#341) e, com `obsidian.setup_on_init`, grava os templates e configura o Templater no vault ([notas-manuais.md](notas-manuais.md#o-vault-já-sai-pronto-para-o-obsidian)). O `--reset` remove apenas as notas cujo frontmatter declara `origin: pipeline` ou `hub_pipeline`, além das subpastas de citekey que ficarem vazias. Ficam preservados:
 
 - as notas do usuário: `origin: manual`, sem `origin` ou com frontmatter ilegível;
 - as notas `ask` e `article`;

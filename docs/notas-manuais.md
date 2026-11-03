@@ -206,8 +206,8 @@ A adoção completa de uma LIT escrita à mão ([ADR-030](adrs/generated/MANUAL/
 Para ficção, filme ou nota autoral, o caminho é SRC → ZTL à mão — **não** harvest + extract do livro inteiro:
 
 ```bash
-python -m zettel new-note src --citekey Kling2017 --author "Kling, Marc-Uwe" --year 2017 --document-type livro --title "QualityLand"
-python -m zettel new-note ztl --title "Classificacao de cidadaos como condicao de acesso" --source-id @Kling2017
+python -m zettel new-note src "QualityLand" --citekey Kling2017 --author "Marc-Uwe Kling" --year 2017 --document-type livro
+python -m zettel new-note ztl "Classificacao de cidadaos como condicao de acesso" --source-id @Kling2017
 python -m zettel sync-manual
 python -m zettel suggest-links 01HABC00000000000000000000
 ```

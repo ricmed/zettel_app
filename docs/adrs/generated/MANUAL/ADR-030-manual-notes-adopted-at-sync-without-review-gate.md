@@ -1,8 +1,8 @@
-# ADR-XXX: Manual Notes Are Adopted at Sync Time and Bypass the Review Gate
+# ADR-030: Manual Notes Are Adopted at Sync Time and Bypass the Review Gate
 
 **Status:** Accepted
 **Date:** 2026-09-02
-**Depends on:** [ADR-XXX: Granular Per-Chunk Literature Notes with Readable Filenames](../EXTRACT/ADR-015-granular-literature-notes-readable-filenames.md)
+**Depends on:** [ADR-015: Granular Per-Chunk Literature Notes with Readable Filenames](../EXTRACT/ADR-015-granular-literature-notes-readable-filenames.md)
 **Used by:**
 - [ADR-XXX: Vault-First Image Adoption for Manual Notes](../ASSETS/ADR-031-vault-first-image-adoption.md)
 
@@ -117,3 +117,15 @@ Correction to the surrounding docs: an adopted manual LIT does **not** appear in
 ## Addendum (2026-10-26): image on `/notes/new` (issue #337)
 
 A granular LIT, a blank ZTL or a ZTL derived from a LIT can include up to six images on the create form. The file is copied into `90_Assets/` and the embed is written into the note. When the source is already in SQLite the asset row is registered in that request (`status='pending'`). The CLI does not grow a flag: pasting the image in Obsidian and running `sync-manual` is unchanged. Details in the [ADR-031 addendum](../ASSETS/ADR-031-vault-first-image-adoption.md).
+
+## Addendum (2026-11-03): notes written in Obsidian (epic #340)
+
+**Status:** Accepted amendment. The adoption point stays `sync-manual`, and notes can now be written in Obsidian itself, offline, with the structure `new-note` writes. The decision is [ADR-066](./ADR-066-obsidian-offline-authoring.md). Five changes to this ADR's mechanics follow from it:
+
+- **Shared scaffolds.** Templates generated from the same scaffolds as `new-note`.
+- **No vault deletion.** `init` no longer deletes the vault.
+- **Per-note sync.** Each note is synced on its own, and a note that cannot be adopted is reported.
+- **Sync without embedding.** The sync runs without an embedding credential and finishes vectors later.
+- **Vault changes reach SQLite.** An edited SRC is re-synced, the manual graph follows the bodies (second pass, removed links), and moved or deleted notes are tracked (`--prune`).
+
+A granular LIT without `origin` is adopted as manual. One with an unknown `origin` is refused and reported, no longer skipped in silence.
