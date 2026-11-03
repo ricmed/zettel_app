@@ -233,6 +233,13 @@ Essas notas entram no Prompt 2 como o terceiro grupo do RAG (`### Analogias dist
 
 Notas escritas à mão no Obsidian também alimentam o grafo: no `sync-manual`, os `[[wikilinks]]` presentes **no corpo** de uma nota permanente (fora dos blocos gerenciados `auto-connections`, `auto-backlinks` e `auto-moc-backrefs`, que são gerados automaticamente) são persistidos como arestas `related` com `origin=manual`. Uma aresta já tipada nunca é rebaixada. Use `zettel sync-manual --rebuild-graph` para re-derivar essas arestas de todo o vault a partir dos corpos já persistidos no SQLite.
 
+O grafo manual acompanha o que está escrito (#347):
+
+- **Duas passadas.** O sync primeiro adota todas as notas e só depois extrai as arestas. Assim, um link para uma nota que aparece mais adiante na varredura vira aresta no mesmo sync. Antes, esse link se perdia, porque a nota que cita só seria lida de novo se fosse editada.
+- **Nota criada depois.** Uma nota manual que cita uma nota criada mais tarde ganha a aresta no sync em que a nota citada aparece, sem precisar ser editada.
+- **Link apagado.** Apagar um link do corpo remove a aresta `origin=manual` correspondente. Arestas `llm` e `derived` não são tocadas.
+- **Formatos de link.** Uma única regex (`vault.ZTL_LINK_RE`), usada pelas arestas e pelos backrefs de MOC, reconhece `[[ZTL - ID - slug]]`, `[[ZTL - ID]]`, `|apelido`, `#seção` e o prefixo `ZTL -` duplicado.
+
 MOCs manuais ou editados no Obsidian também disparam **`sync_moc_backrefs`**: notas permanentes linkadas no corpo do MOC ganham (ou perdem) entradas no bloco `auto-moc-backrefs`.
 
 ---

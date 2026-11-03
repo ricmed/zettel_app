@@ -27,7 +27,7 @@ Notas criadas à mão no Obsidian são adotadas pelo pipeline com **`zettel sync
 Além disso, o sync:
 
 - Escreve sugestões de conexão num bloco gerenciado `auto-connections` (usando o mesmo `Retriever` do `connect`).
-- Persiste como arestas `related` com `origin=manual` os `[[wikilinks]]` encontrados **no corpo** das notas, fora dos blocos gerenciados — sem nunca rebaixar uma aresta já tipada. O grafo pondera essas arestas como `manual` (0.95), não como `related` (0.5). Veja [recuperacao.md](recuperacao.md#fechando-o-ciclo-do-grafo-notas-manuais).
+- Persiste como arestas `related` com `origin=manual` os `[[wikilinks]]` encontrados **no corpo** das notas, fora dos blocos gerenciados — sem nunca rebaixar uma aresta já tipada. O grafo pondera essas arestas como `manual` (0.95), não como `related` (0.5). As arestas são extraídas depois que todas as notas foram adotadas, então a ordem da varredura não perde links. Apagar um link do corpo remove a aresta manual, e os formatos `|apelido`, `#seção` e `[[ZTL - ID]]` também contam (#347). Veja [recuperacao.md](recuperacao.md#fechando-o-ciclo-do-grafo-notas-manuais).
 - Roda `repair_permanent_links`, que reescreve alvos `[[ZTL - ULID]]` nus ou com prefixo duplicado para o stem atual do arquivo, e reconstrói todo bloco `auto-backlinks` a partir do grafo.
 - Chama `sync_moc_backrefs` para MOCs manuais ou editados à mão.
 - Um MOC gerado pelo `garden` só passa por aqui depois de adotado: `zettel adopt-moc <moc_id>` (ou **Adotar MOC** na web) troca a origem para `manual`, e a partir daí você pode editá-lo à vontade.

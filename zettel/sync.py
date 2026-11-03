@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +28,7 @@ from zettel.retrieval import Retriever
 from zettel.state import StateDB
 from zettel.vault import (
     PIPELINE_ORIGINS,
+    ZTL_LINK_RE,
     MalformedFrontmatter,
     _block_pattern,
     frontmatter_json,
@@ -43,12 +44,21 @@ logger = logging.getLogger(__name__)
 # What a caller hands sync: the index, a callable that opens it, or None (no vectors).
 IndexArg = VectorIndex | Callable[[], VectorIndex] | None
 
-# A ZTL wikilink target: ULID is Crockford base32 (no I, L, O, U), 26 chars.
-_ZTL_WIKILINK = re.compile(r"\[\[ZTL - ([0-9A-HJKMNP-TV-Z]{26})")
 
 # Managed blocks whose wikilinks are auto-generated (suggestions / backlinks) and
 # must NOT be treated as user-accepted connections.
 _AUTO_BLOCKS_TO_SKIP = ("auto-connections", "auto-backlinks", "auto-moc-backrefs")
+
+
+@dataclass
+class _Run:
+    """What one sync run learns as it scans, for the checks and the second pass (#347)."""
+
+    # chunk_id -> the granular LIT that claimed it first in this run.
+    claimed_chunks: dict[str, Path] = field(default_factory=dict)
+    # Permanent notes whose body was stored in this run, and those new to SQLite.
+    changed_notes: set[str] = field(default_factory=set)
+    new_notes: set[str] = field(default_factory=set)
 
 
 class NoteRejected(Exception):
@@ -143,8 +153,7 @@ def _sync_all(cfg: AppConfig, db: StateDB, vectors: _Vectors) -> dict[str, Any]:
         "mocs": 0,
     }
     failures: list[dict[str, str]] = []
-    # chunk_id -> the granular LIT that claimed it first in this run.
-    claimed_chunks: dict[str, Path] = {}
+    run = _Run()
 
     dirs_to_scan = [
         (cfg.vault_path / "10_Sources", "source", "sources"),
@@ -163,7 +172,7 @@ def _sync_all(cfg: AppConfig, db: StateDB, vectors: _Vectors) -> dict[str, Any]:
             if not md_file.is_file():
                 continue
             try:
-                result = _sync_single_note(cfg, db, vectors, md_file, note_type, claimed_chunks)
+                result = _sync_single_note(cfg, db, vectors, md_file, note_type, run)
             except NoteRejected as exc:
                 reason = str(exc)
             except Exception as exc:
@@ -180,6 +189,7 @@ def _sync_all(cfg: AppConfig, db: StateDB, vectors: _Vectors) -> dict[str, Any]:
             stats["failed"] += 1
             failures.append({"path": str(md_file), "reason": reason})
 
+    stats.update(_link_notes(db, run))
     repair = repair_permanent_links(db, vault_timezone=cfg.vault_timezone)
     stats.update(repair)
     stats["failures"] = failures
@@ -272,7 +282,7 @@ def _sync_single_note(
     vectors: _Vectors,
     file_path: Path,
     note_type: str,
-    claimed_chunks: dict[str, Path],
+    run: _Run,
 ) -> str:
     """Sync a single note file. Returns 'new', 'updated', or 'skipped'.
 
@@ -287,9 +297,9 @@ def _sync_single_note(
     if note_type == "source":
         return _sync_source(cfg, db, vectors, file_path, meta, body)
     if note_type == "literature":
-        return _sync_literature(cfg, db, vectors, file_path, meta, body, claimed_chunks)
+        return _sync_literature(cfg, db, vectors, file_path, meta, body, run.claimed_chunks)
     if note_type == "permanent":
-        return _sync_permanent(cfg, db, vectors, file_path, meta, body)
+        return _sync_permanent(cfg, db, vectors, file_path, meta, body, run)
     if note_type == "moc":
         return _sync_moc(cfg, db, vectors, file_path, meta, body)
     return "skipped"
@@ -646,6 +656,7 @@ def _sync_permanent(
     file_path: Path,
     meta: dict,
     body: str,
+    run: _Run,
 ) -> str:
     """Sync a permanent (ZTL) note. Returns 'new', 'updated', or 'skipped'."""
     note_id = meta.get("note_id")
@@ -694,7 +705,10 @@ def _sync_permanent(
             frontmatter_json=frontmatter_json(meta),
             origin=_manual_origin(meta),
         )
-        _extract_body_edges(db, note_id, body)
+        # Edges wait for the second pass, when every note of the vault is known.
+        run.changed_notes.add(note_id)
+        if not existing:
+            run.new_notes.add(note_id)
 
     tags = meta.get("tags", [])
     if isinstance(tags, str):
@@ -857,56 +871,91 @@ def _strip_auto_blocks(body: str) -> str:
     return body
 
 
-def _extract_body_edges(db: StateDB, note_id: str, body: str) -> int:
-    """Persist manual wikilinks in a note body as `related` graph edges.
+def linked_note_ids(body: str) -> set[str]:
+    """Permanent notes a body links to, outside the auto-generated blocks."""
+    return set(ZTL_LINK_RE.findall(_strip_auto_blocks(body or "")))
 
-    This closes the graph loop for hand-written notes: a wikilink the user placed
-    in the body (e.g. under `## Conexoes`) is an *accepted* connection, so it
-    becomes a real edge in note_connections. Auto-generated blocks
-    (`auto-connections` suggestions, `auto-backlinks`) are excluded — a suggestion
-    is not an acceptance. Never downgrades an already-typed edge: an edge is only
-    inserted when the pair has no existing connection in either direction.
 
-    Returns the number of new edges created.
+def _link_notes(db: StateDB, run: _Run) -> dict[str, int]:
+    """Second pass: derive body edges once every note of the vault is in SQLite (#347).
+
+    Covers the notes stored in this run and the hand-written ones whose body
+    links to a note that only now became known: their link pointed at nothing
+    when they were synced, and an unchanged note is not read again.
     """
-    stripped = _strip_auto_blocks(body)
-    targets = {m for m in _ZTL_WIKILINK.findall(stripped) if m != note_id}
+    todo = set(run.changed_notes)
+    if run.new_notes:
+        for note in db.list_notes():
+            if note["note_id"] in todo or note.get("origin") in PIPELINE_ORIGINS:
+                continue
+            if linked_note_ids(note.get("body") or "") & run.new_notes:
+                todo.add(note["note_id"])
+    created = removed = 0
+    for note_id in sorted(todo):
+        row = db.get_note(note_id)
+        if row:
+            added, dropped = _extract_body_edges(db, note_id, row.get("body") or "")
+            created += added
+            removed += dropped
+    return {"edges_created": created, "edges_removed": removed}
+
+
+def _extract_body_edges(db: StateDB, note_id: str, body: str) -> tuple[int, int]:
+    """Make a note's ``origin='manual'`` edges match the links in its body.
+
+    A wikilink the user placed in the body (e.g. under `## Conexoes`) is an
+    *accepted* connection, so it becomes a `related` edge in note_connections.
+    Auto-generated blocks (`auto-connections` suggestions, `auto-backlinks`) are
+    excluded: a suggestion is not an acceptance. An edge is only inserted when the
+    pair has no connection in either direction, so a typed edge is never
+    downgraded (ADR-009). A manual edge whose link left the body is removed;
+    ``llm`` and ``derived`` edges are never touched (#347).
+
+    Returns ``(created, removed)``.
+    """
+    targets = linked_note_ids(body) - {note_id}
+
+    removed = 0
+    for edge in db.list_outgoing_connections(note_id, origin="manual"):
+        if edge["target_note_id"] not in targets:
+            removed += db.delete_note_connection(
+                note_id, edge["target_note_id"], edge["relation_type"], origin="manual"
+            )
     if not targets:
-        return 0
+        return 0, removed
 
-    existing_edges = db.get_note_connections(note_id)
     connected_pairs = {
-        frozenset((e["source_note_id"], e["target_note_id"])) for e in existing_edges
+        frozenset((e["source_note_id"], e["target_note_id"]))
+        for e in db.get_note_connections(note_id)
     }
-
     created = 0
-    for target in targets:
+    for target in sorted(targets):
         if not db.get_note(target):
             continue  # only link to notes the pipeline knows about
         if frozenset((note_id, target)) in connected_pairs:
-            continue  # already connected (any type / direction) — do not downgrade
+            continue  # already connected (any type / direction): do not downgrade
         db.upsert_note_connection(note_id, target, "related", "wikilink manual", origin="manual")
         connected_pairs.add(frozenset((note_id, target)))
         created += 1
-    return created
+    return created, removed
 
 
 def rebuild_manual_edges(db: StateDB) -> dict[str, int]:
-    """Re-derive `related` edges from every note body already stored in SQLite.
+    """Re-derive the manual edges of every note from the bodies already in SQLite.
 
-    Backfills the graph for a vault written before this feature existed, without
-    touching any file (note bodies are persisted in the notes table).
+    Backfills the graph for a vault written before this feature existed, and
+    drops manual edges whose link is gone, without touching any file.
     """
-    notes = db.list_notes()
-    total_edges = 0
-    scanned = 0
-    for note in notes:
+    scanned = created = removed = 0
+    for note in db.list_notes():
         body = note.get("body")
         if not body:
             continue
         scanned += 1
-        total_edges += _extract_body_edges(db, note["note_id"], body)
-    return {"notes_scanned": scanned, "edges_created": total_edges}
+        added, dropped = _extract_body_edges(db, note["note_id"], body)
+        created += added
+        removed += dropped
+    return {"notes_scanned": scanned, "edges_created": created, "edges_removed": removed}
 
 
 def _rewrite_frontmatter(file_path: Path, meta: dict, body: str) -> None:

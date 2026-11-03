@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,6 +14,7 @@ from zettel.config import DEFAULT_RELATION_WEIGHTS, AppConfig, GardenerConfig
 from zettel.index import VectorIndex
 from zettel.state.connections import EdgePolicy, connections_for
 from zettel.taxonomy import category_pillar_pairs, load_moc_taxonomy
+from zettel.vault import ZTL_LINK_RE
 
 if TYPE_CHECKING:
     from zettel.state import StateDB
@@ -46,7 +46,7 @@ class ClusterReport:
     vectors: dict[str, np.ndarray] = field(default_factory=dict, repr=False)
 
 
-NOTE_ID_RE = re.compile(r"\[\[ZTL\s*-\s*(\S+)\s*-\s*[^\]]*\]\]")
+NOTE_ID_RE = ZTL_LINK_RE
 
 
 def extract_note_ids_from_moc_body(body: str) -> set[str]:

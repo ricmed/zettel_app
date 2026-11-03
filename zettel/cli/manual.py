@@ -330,7 +330,8 @@ def sync_manual(
         with console.status("[bold blue]Reconstruindo grafo de conexoes...", spinner="dots"):
             gstats = rebuild_manual_edges(db)
         console.print(
-            f"[green]Grafo:[/green] {gstats['edges_created']} aresta(s) nova(s) "
+            f"[green]Grafo:[/green] {gstats['edges_created']} aresta(s) nova(s), "
+            f"{gstats['edges_removed']} removida(s), "
             f"de {gstats['notes_scanned']} nota(s) com corpo."
         )
 

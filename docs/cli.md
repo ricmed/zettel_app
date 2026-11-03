@@ -515,7 +515,7 @@ python -m zettel sync-manual --rebuild-graph
 
 | Flag | Efeito |
 |---|---|
-| `--rebuild-graph` | Antes do sync, re-deriva arestas `related` a partir dos wikilinks no corpo de **todas** as notas já persistidas no SQLite. |
+| `--rebuild-graph` | Antes do sync, re-deriva as arestas `related` com `origin=manual` a partir dos wikilinks no corpo de **todas** as notas já persistidas no SQLite. Remove as arestas manuais cujo link saiu do corpo. |
 | `--yes` / `-y` | Confirma reprocessamento se o embedding mudou. |
 
 Veja [notas-manuais.md](notas-manuais.md).

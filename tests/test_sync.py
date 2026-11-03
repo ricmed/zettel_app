@@ -280,8 +280,7 @@ def _seed(db, *note_ids):
 def test_body_wikilink_creates_related_edge(db):
     _seed(db, _A, _B)
     body = f"> **Tese**: x\n\n## Conexoes\n\n- [[ZTL - {_B} - nota-b]]: relacionada"
-    created = _extract_body_edges(db, _A, body)
-    assert created == 1
+    assert _extract_body_edges(db, _A, body) == (1, 0)
     edges = db.get_note_connections(_A)
     assert len(edges) == 1
     assert edges[0]["relation_type"] == "related"
@@ -313,10 +312,10 @@ def test_distant_suggestion_is_not_an_edge_until_moved_out_of_block(db):
         f"- [[ZTL - {_C} - nota-c]] (exemplifies) -- analogia distante\n"
         f"<!-- zettel:auto-connections:end -->\n"
     )
-    assert _extract_body_edges(db, _A, body) == 0
+    assert _extract_body_edges(db, _A, body) == (0, 0)
     assert db.get_note_connections(_A) == []
     body_endorsed = body + f"\n\n## Conexoes\n\n- [[ZTL - {_C} - nota-c]]\n"
-    assert _extract_body_edges(db, _A, body_endorsed) == 1
+    assert _extract_body_edges(db, _A, body_endorsed) == (1, 0)
     edges = db.get_note_connections(_A)
     assert edges[0]["origin"] == "manual"
     assert edges[0]["relation_type"] == "related"
@@ -325,22 +324,21 @@ def test_distant_suggestion_is_not_an_edge_until_moved_out_of_block(db):
 def test_self_link_ignored(db):
     _seed(db, _A)
     body = f"- [[ZTL - {_A} - eu-mesmo]]"
-    assert _extract_body_edges(db, _A, body) == 0
+    assert _extract_body_edges(db, _A, body) == (0, 0)
     assert db.get_note_connections(_A) == []
 
 
 def test_link_to_unknown_note_ignored(db):
     _seed(db, _A)  # _B not seeded
     body = f"- [[ZTL - {_B} - fantasma]]"
-    assert _extract_body_edges(db, _A, body) == 0
+    assert _extract_body_edges(db, _A, body) == (0, 0)
 
 
 def test_existing_typed_edge_not_downgraded(db):
     _seed(db, _A, _B)
     db.upsert_note_connection(_A, _B, "contradicts", "tensiona")
     body = f"- [[ZTL - {_B} - nota-b]]"
-    created = _extract_body_edges(db, _A, body)
-    assert created == 0
+    assert _extract_body_edges(db, _A, body) == (0, 0)
     edges = db.get_note_connections(_A)
     assert len(edges) == 1
     assert edges[0]["relation_type"] == "contradicts"  # preserved
@@ -350,7 +348,7 @@ def test_existing_reverse_edge_not_duplicated(db):
     _seed(db, _A, _B)
     db.upsert_note_connection(_B, _A, "extends", "")  # reverse direction
     body = f"- [[ZTL - {_B} - nota-b]]"
-    assert _extract_body_edges(db, _A, body) == 0
+    assert _extract_body_edges(db, _A, body) == (0, 0)
 
 
 def test_rebuild_manual_edges_backfills(db):
@@ -849,3 +847,97 @@ def test_an_src_edited_offline_is_updated_and_its_vector_left_pending(cfg, db):
 
     assert db.get_source("@Souza2020Obra")["title"] == "Obra revista"
     assert stats["embedding_pending"] == 1
+
+
+# -- the manual graph follows the links in the bodies (#347) -------------------
+
+
+def _ztl(cfg, note_id, body):
+    path = cfg.vault_path / "30_Permanent" / f"ZTL - {note_id} - nota.md"
+    _write(path, {"type": "permanent", "note_id": note_id, "title": note_id}, body)
+    return path
+
+
+def _manual_targets(db, note_id):
+    return {e["target_note_id"] for e in db.list_outgoing_connections(note_id, origin="manual")}
+
+
+def test_a_link_to_a_note_scanned_later_becomes_an_edge_in_one_sync(cfg, db):
+    """A sorts before B: its link pointed at nothing when it was read."""
+    _ztl(cfg, _A, f"> **Tese**: a.\n\nVer [[ZTL - {_B} - nota]].")
+    _ztl(cfg, _B, "> **Tese**: b.")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert _manual_targets(db, _A) == {_B}
+    assert stats["edges_created"] == 1
+
+
+def test_a_link_to_a_note_created_later_becomes_an_edge_without_editing(cfg, db):
+    _ztl(cfg, _A, f"> **Tese**: a.\n\nVer [[ZTL - {_B} - nota]].")
+    run_sync_manual(cfg, db, FakeVectorIndex())
+    assert _manual_targets(db, _A) == set()
+
+    _ztl(cfg, _B, "> **Tese**: b.")
+    run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert _manual_targets(db, _A) == {_B}
+
+
+def test_removing_a_link_removes_only_the_manual_edge(cfg, db):
+    idx = FakeVectorIndex()
+    _ztl(cfg, _B, "> **Tese**: b.")
+    _ztl(cfg, _C, "> **Tese**: c.")
+    run_sync_manual(cfg, db, idx)
+    db.upsert_note_connection(_A, _C, "supports", "do modelo", origin="llm")
+    _ztl(cfg, _A, f"> **Tese**: a.\n\n- [[ZTL - {_B} - nota]]\n- [[ZTL - {_C} - nota]]")
+    run_sync_manual(cfg, db, idx)
+    assert _manual_targets(db, _A) == {_B}  # A-C already typed by the LLM
+
+    _ztl(cfg, _A, "> **Tese**: a, agora sem links.")
+    stats = run_sync_manual(cfg, db, idx)
+
+    assert _manual_targets(db, _A) == set()
+    assert stats["edges_removed"] == 1
+    assert [e["target_note_id"] for e in db.list_outgoing_connections(_A, origin="llm")] == [_C]
+
+
+def test_alias_heading_and_bare_links_become_edges(cfg, db):
+    _ztl(cfg, _B, "> **Tese**: b.")
+    _ztl(cfg, _C, "> **Tese**: c.")
+    _ztl(
+        cfg,
+        _A,
+        f"> **Tese**: a.\n\n- [[ZTL - {_B}|a nota B]]\n- [[ZTL - {_C} - nota#Limites]]",
+    )
+
+    run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert _manual_targets(db, _A) == {_B, _C}
+
+
+@pytest.mark.parametrize("link", [f"[[ZTL - {_B}|apelido]]", f"[[ZTL - {_B}]]"])
+def test_a_manual_moc_writes_backrefs_for_alias_and_bare_links(cfg, db, link):
+    from zettel.vault import read_managed_block
+
+    note = _ztl(cfg, _B, "> **Tese**: b.")
+    _write(
+        cfg.vault_path / "40_MOCs" / "MOC - tema.md",
+        {"type": "moc", "moc_id": "01HMMMMMMMMMMMMMMMMMMMMMMM", "topic": "Tema"},
+        f"# Tema\n\n- {link}\n",
+    )
+
+    run_sync_manual(cfg, db, FakeVectorIndex())
+
+    block = read_managed_block(note.read_text(encoding="utf-8"), "auto-moc-backrefs")
+    assert block and "[[MOC - tema]]" in block
+
+
+def test_rebuild_manual_edges_drops_edges_whose_link_is_gone(db):
+    _seed(db, _A, _B)
+    db.upsert_note_connection(_A, _B, "related", "wikilink manual", origin="manual")
+
+    stats = rebuild_manual_edges(db)  # _A's stored body is "corpo": no link
+
+    assert stats["edges_removed"] == 1
+    assert db.get_note_connections(_A) == []

@@ -95,6 +95,12 @@ _ZTL_PREFIX_RE = re.compile(r"^(?:ZTL\s*-\s*)+", re.IGNORECASE)
 # ``[[ZTL - ULID]]`` or ``[[ZTL - ZTL - ULID]]`` with no slug after the id.
 _BARE_PERMANENT_WIKILINK_RE = re.compile(r"\[\[(?:ZTL\s*-\s*)+([0-9A-HJKMNP-TV-Z]{26})\]\]")
 
+# The note id a link to a permanent note points at, in every form Obsidian writes
+# (#347): ``[[ZTL - ID - slug]]``, ``[[ZTL - ID]]``, with ``|alias`` or
+# ``#heading``, and with a doubled ``ZTL -`` prefix. Sync edges and MOC backrefs
+# read links through this one pattern.
+ZTL_LINK_RE = re.compile(r"\[\[(?:ZTL\s*-\s*)+([^\s|#\]]+)(?:\s*-[^\]|#]*)?(?:[|#][^\]]*)?\]\]")
+
 
 def _wikilink_target_matches(target: str, link_targets: set[str]) -> bool:
     norm = target.replace("\\", "/").strip()
