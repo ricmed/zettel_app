@@ -13,6 +13,8 @@ harvested first when they need a source. Nothing here calls a provider:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import yaml
 from zettel import index
@@ -72,6 +74,59 @@ def test_init_creates_the_vault_folders(cli_instance):
     for folder in ("00_Inbox", "10_Sources", "20_Literature", "30_Permanent", "40_MOCs"):
         assert (cli_instance.vault / folder).is_dir()
     assert "Vault" in output
+
+
+def _vault_with_user_and_pipeline_notes(vault: Path) -> dict[str, Path]:
+    notes = {
+        "manual_ztl": vault / "30_Permanent" / "ZTL - 01J0000000000000000000000A - minha.md",
+        "manual_src": vault / "10_Sources" / "SRC - Autor2020 - obra.md",
+        "manual_lit": vault / "20_Literature" / "Autor2020" / "LIT - Autor2020 - p001 - t-0001.md",
+        "manual_moc": vault / "40_MOCs" / "MOC - 01J0000000000000000000000B - tema.md",
+        "pipeline_ztl": vault / "30_Permanent" / "ZTL - 01J0000000000000000000000C - gerada.md",
+        "pipeline_lit": vault / "20_Literature" / "Gerado2021" / "LIT - Gerado2021 - p001.md",
+    }
+    for name, path in notes.items():
+        origin = "pipeline" if name.startswith("pipeline") else "manual"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"---\norigin: {origin}\n---\n\n{name}\n", encoding="utf-8")
+    settings = vault / ".obsidian" / "app.json"
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    settings.write_text('{"livePreview": true}', encoding="utf-8")
+    notes["obsidian"] = settings
+    return notes
+
+
+def test_init_never_deletes_the_vault(cli_instance):
+    """#341: init used to rmtree the vault, taking manual notes and .obsidian with it."""
+    notes = _vault_with_user_and_pipeline_notes(cli_instance.vault)
+
+    cli_instance.run("init")
+
+    for path in notes.values():
+        assert path.is_file(), path
+
+
+def test_init_reset_removes_only_pipeline_notes(cli_instance):
+    cli_instance.run("init")
+    notes = _vault_with_user_and_pipeline_notes(cli_instance.vault)
+
+    output = cli_instance.run("init", "--reset", input="y\n")
+
+    assert "2 nota(s) do pipeline" in output
+    assert "sync-manual" in output
+    for name, path in notes.items():
+        assert path.is_file() == (not name.startswith("pipeline")), name
+    assert not (cli_instance.vault / "20_Literature" / "Gerado2021").exists()
+
+
+def test_init_reset_declined_touches_nothing(cli_instance):
+    cli_instance.run("init")
+    notes = _vault_with_user_and_pipeline_notes(cli_instance.vault)
+
+    assert "Reset cancelado" in cli_instance.run("init", "--reset", input="n\n")
+
+    for path in notes.values():
+        assert path.is_file(), path
 
 
 def test_reindex_and_rebuild_run_on_a_harvested_source(harvested):

@@ -58,21 +58,36 @@ def init(
         bool,
         typer.Option(
             "--reset",
-            help="Apagar e recriar todas as bases de dados",
+            help=(
+                "Apagar e recriar State DB, ChromaDB e cache, e remover do vault as notas "
+                "do pipeline (notas manuais e .obsidian ficam)"
+            ),
         ),
     ] = False,
 ):
-    """Inicializar o vault, banco de dados e índice vetorial."""
+    """Inicializar o vault, banco de dados e índice vetorial.
+
+    Nunca apaga o vault: só cria as pastas que faltam. ``--reset`` remove as notas
+    que o pipeline escreveu e preserva as do usuário (#341).
+    """
     cfg = load_deps(config)
     if vault:
         cfg.vault_path = Path(vault).resolve()
     if inbox:
         cfg.inbox_path = Path(inbox).resolve()
 
+    from zettel.vault import init_vault, partition_vault_notes, remove_pipeline_notes
+
+    kept_notes: list[Path] = []
     if reset:
         import shutil
 
-        confirmed = typer.confirm("Isso vai APAGAR o State DB, ChromaDB e cache. Continuar?")
+        pipeline_notes, kept_notes = partition_vault_notes(cfg.vault_path)
+        confirmed = typer.confirm(
+            "Isso vai APAGAR o State DB, ChromaDB, cache e "
+            f"{len(pipeline_notes)} nota(s) do pipeline no vault. "
+            f"{len(kept_notes)} nota(s) do usuario e .obsidian/ serao preservadas. Continuar?"
+        )
         if not confirmed:
             console.print("[yellow]Reset cancelado.[/yellow]")
             raise typer.Exit(0)
@@ -97,7 +112,8 @@ def init(
             shutil.rmtree(cfg.cache_path)
             console.print(f"[red]Cache removido:[/red] {cfg.cache_path}")
 
-    from zettel.vault import init_vault
+        removed = remove_pipeline_notes(cfg.vault_path, pipeline_notes)
+        console.print(f"[red]Notas do pipeline removidas do vault:[/red] {removed}")
 
     init_vault(cfg.vault_path)
 
@@ -120,7 +136,14 @@ def init(
     if gpu["available"]:
         device_line += f" ({gpu.get('device_name', '?')} — {gpu.get('vram_gb', '?')} GB VRAM)"
 
-    reset_line = "\n[red]Bases de dados recriadas do zero.[/red]" if reset else ""
+    reset_line = ""
+    if reset:
+        reset_line = "\n[red]Bases de dados recriadas do zero.[/red]"
+        if kept_notes:
+            reset_line += (
+                f"\n[yellow]{len(kept_notes)} nota(s) do usuario preservadas no vault; "
+                "rode 'zettel sync-manual' para readota-las.[/yellow]"
+            )
     from rich.panel import Panel
 
     console.print(

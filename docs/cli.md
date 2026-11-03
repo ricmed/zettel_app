@@ -67,10 +67,11 @@ Todos aceitam `--config` / `-c` para apontar um YAML alternativo.
 ## `init`
 
 ```bash
-# Recria o vault vazio (apaga ./vault). State DB, Chroma e cache permanecem
+# Cria as pastas do vault que faltam. Nunca apaga notas nem .obsidian/
 python -m zettel init
 
-# Alem do vault, apaga State DB, ChromaDB e cache (pede confirmacao)
+# Apaga State DB, ChromaDB, cache e as notas origin: pipeline do vault (pede confirmacao).
+# Notas manuais, .obsidian/ e 90_Assets/ ficam; depois rode sync-manual
 python -m zettel init --reset
 
 # Overrides de caminho sem editar o YAML
@@ -79,7 +80,7 @@ python -m zettel init --vault /outro/vault --inbox /outro/inbox
 
 | Flag | Efeito |
 |---|---|
-| `--reset` | Apaga **e** recria State DB, ChromaDB e cache. Pede confirmação. |
+| `--reset` | Apaga **e** recria State DB, ChromaDB e cache, e remove do vault só as notas `origin: pipeline`/`hub_pipeline`. Pede confirmação. |
 | `--vault` | Override do `vault_path` desta execução. |
 | `--inbox` | Override do `inbox_path` desta execução. |
 

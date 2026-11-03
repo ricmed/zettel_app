@@ -25,6 +25,7 @@ from zettel.index import VectorIndex
 from zettel.retrieval import Retriever
 from zettel.state import StateDB
 from zettel.vault import (
+    PIPELINE_ORIGINS,
     _block_pattern,
     parse_frontmatter,
     permanent_wikilink,
@@ -189,9 +190,6 @@ def _sync_single_note(
     return "skipped"
 
 
-_PIPELINE_ORIGINS = frozenset({"pipeline", "hub_pipeline"})
-
-
 def _manual_origin(meta: dict) -> str:
     """A note the pipeline created carries origin: pipeline; anything else is manual."""
     return meta.get("origin", "manual")
@@ -199,7 +197,7 @@ def _manual_origin(meta: dict) -> str:
 
 def _is_pipeline_origin(meta: dict) -> bool:
     """True when frontmatter says the pipeline (or hub garden) authored the note."""
-    return str(meta.get("origin") or "") in _PIPELINE_ORIGINS
+    return str(meta.get("origin") or "") in PIPELINE_ORIGINS
 
 
 def _sync_source(

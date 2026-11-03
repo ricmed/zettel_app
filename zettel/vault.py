@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -284,18 +283,52 @@ VAULT_DIRS = [
 ]
 
 
+# Origins of notes the pipeline (or the hub garden) wrote; any other note is the user's.
+PIPELINE_ORIGINS = frozenset({"pipeline", "hub_pipeline"})
+
+
 def init_vault(vault_path: Path) -> None:
-    """Create the vault directory structure."""
-
-    # First, delete the vault directory if it exists
-    if vault_path.exists():
-        shutil.rmtree(vault_path)
-        logger.info("Vault apagado: %s", vault_path)
-
-    # Then, create the vault directory structure
+    """Create the vault folders that are missing. Never deletes anything (#341)."""
     for d in VAULT_DIRS:
         (vault_path / d).mkdir(parents=True, exist_ok=True)
     logger.info("Vault inicializado em: %s", vault_path)
+
+
+def partition_vault_notes(vault_path: Path) -> tuple[list[Path], list[Path]]:
+    """Split the vault's notes into ``(pipeline, kept)`` by frontmatter ``origin``.
+
+    A note is the pipeline's only when its frontmatter says so. A note with no
+    ``origin``, an unreadable frontmatter or any other origin (``manual``,
+    ``ask``, ``article``) belongs to the user. Hidden folders (``.obsidian``,
+    ``.trash``, ``.claude``) are not notes.
+    """
+    pipeline: list[Path] = []
+    kept: list[Path] = []
+    if not vault_path.is_dir():
+        return pipeline, kept
+    for path in sorted(vault_path.rglob("*.md")):
+        rel = path.relative_to(vault_path)
+        if any(part.startswith(".") for part in rel.parts) or not path.is_file():
+            continue
+        meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+        is_pipeline = isinstance(meta, dict) and str(meta.get("origin") or "") in PIPELINE_ORIGINS
+        (pipeline if is_pipeline else kept).append(path)
+    return pipeline, kept
+
+
+def remove_pipeline_notes(vault_path: Path, notes: list[Path]) -> int:
+    """Delete ``notes`` and the citekey folders they leave empty; return how many went.
+
+    The top-level vault folders stay even when empty: ``init_vault`` owns them.
+    """
+    keep_dirs = {vault_path / d for d in VAULT_DIRS} | {vault_path}
+    for path in notes:
+        path.unlink(missing_ok=True)
+    for parent in sorted({p.parent for p in notes}, key=lambda d: len(d.parts), reverse=True):
+        if parent not in keep_dirs and parent.is_dir() and not any(parent.iterdir()):
+            parent.rmdir()
+    logger.info("Vault: %d nota(s) do pipeline removida(s)", len(notes))
+    return len(notes)
 
 
 _AUTHOR_YEAR = re.compile(r"^([^\W\d_]+\d{4})")
