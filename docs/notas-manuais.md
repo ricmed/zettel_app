@@ -112,6 +112,38 @@ python -m zettel new-note ztl --from-lit "@Kahneman2011ThinkingFast::manual::000
 
 ---
 
+## Criar notas direto no Obsidian (templates)
+
+As notas também podem nascer no Obsidian, sem rede e sem LLM, com a mesma estrutura que o `new-note` grava (#344). O comando abaixo gera os templates e o script em `99_Templates/`:
+
+```bash
+python -m zettel obsidian-templates           # grava o que falta
+python -m zettel obsidian-templates --force   # regrava tudo (depois de atualizar o Zettel)
+```
+
+Os templates não são escritos à mão. `zettel/obsidian.py` chama os mesmos scaffolds do `new-note` (`source_scaffold`, `literature_scaffold`, `permanent_scaffold`, `moc_scaffold`, todos sobre `zettel/vault.py`) com valores-sentinela e traduz cada sentinela para JavaScript. Uma mudança num builder chega aos templates na próxima geração, e um teste roda o script gerado no Node e compara cada nota com a do `new-note`.
+
+O que o script `99_Templates/scripts/zettel.js` faz em cada template:
+
+| Template | Pergunta | Gera | Arquivo |
+|---|---|---|---|
+| `ZTL.md` | título; fonte (opcional, lista as SRC de `10_Sources/`) | ULID | `30_Permanent/ZTL - <ULID> - <slug>.md` |
+| `SRC.md` | título; autores (`Nome Sobrenome; ...`); ano (opcional) | citekey provisório, com sufixo `a`, `b`... se já existir no vault | `10_Sources/SRC - <AutorAno> - <slug>.md` e o índice `20_Literature/LIT - <AutorAno> - <slug>.md` |
+| `LIT - granular.md` | fonte; tópico; página impressa (opcional) | o próximo `chunk_index` da fonte no vault, e com ele `chunk_id` e `literature_id` | `20_Literature/<Citekey>/LIT - <AutorAno> - pNNN - <topico>-NNNN.md` |
+| `LIT - indice.md` | fonte | — | `20_Literature/LIT - <AutorAno> - <slug>.md` |
+| `MOC.md` | tema | ULID | `40_MOCs/MOC - <ULID> - <slug>.md` |
+
+Como o ULID já está no nome, os `[[wikilinks]]` que o Obsidian completa saem no formato `[[ZTL - <ULID> - slug]]` que o `sync-manual` transforma em arestas. As datas vão entre aspas, no fuso do vault (`vault_timezone`), e os valores do frontmatter vão como JSON, então um título com `:` continua sendo um texto só.
+
+Para usar os templates no Obsidian, instale o plugin **Templater** e configure:
+
+- **Template folder location:** `99_Templates`;
+- **Script files folder location:** `99_Templates/scripts`.
+
+Depois, crie a nota com *Templater: Create new note from template*. A configuração automática do plugin, com *folder templates* por pasta, é feita pelo `init` (#345). Para adotar as notas no banco, rode `zettel sync-manual`, que também funciona offline.
+
+O `new-note lit --granular` sem `--chunk-index` usa o mesmo critério: o próximo índice livre entre o vault e o SQLite (`new_note.next_manual_chunk_index`). Antes o padrão era sempre 1, e duas notas escritas offline colidiam. O formulário da web também passou a contar o vault.
+
 ## Por dentro da adoção (`manual_lit.py`)
 
 A adoção completa de uma LIT escrita à mão ([ADR-030](adrs/generated/MANUAL/ADR-030-manual-notes-adopted-at-sync-without-review-gate.md)):

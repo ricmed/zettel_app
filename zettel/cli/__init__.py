@@ -19,6 +19,7 @@ Module map:
 ``synthesis.py``     connect, reconnect, garden
 ``purge.py``         purge-rejected, delete-source
 ``manual.py``        new-note, sync-manual, suggest-links
+``obsidian.py``      obsidian-templates
 ``pipeline.py``      run-all
 ``qa.py``            ask
 ``writing.py``       article
@@ -55,6 +56,7 @@ from zettel.cli import curation  # extract, review, retry-failed, summarize, lin
 from zettel.cli import synthesis  # connect, reconnect, garden
 from zettel.cli import purge  # purge-rejected, delete-source
 from zettel.cli import manual  # new-note, sync-manual, suggest-links
+from zettel.cli import obsidian  # obsidian-templates
 from zettel.cli import pipeline  # run-all
 from zettel.cli import qa  # ask
 from zettel.cli import writing  # article
@@ -73,6 +75,7 @@ COMMAND_MODULES = (
     synthesis,
     purge,
     manual,
+    obsidian,
     pipeline,
     qa,
     writing,

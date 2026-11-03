@@ -185,12 +185,12 @@ def new_note(
         ),
     ] = False,
     chunk_index: Annotated[
-        int,
+        int | None,
         typer.Option(
             "--chunk-index",
-            help="Indice do chunk para LIT granular (padrao: 1)",
+            help="Indice do chunk para LIT granular (padrao: o proximo livre no vault)",
         ),
-    ] = 1,
+    ] = None,
     page: Annotated[
         int | None,
         typer.Option(

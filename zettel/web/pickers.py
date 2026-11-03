@@ -74,13 +74,17 @@ def picker_sources(request: Request, q: str = "", limit: int = _DEFAULT_LIMIT):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     q = (q or "")[:_MAX_Q]
     limit = _clamp_limit(limit)
-    db = service(request).db()
+    from zettel.new_note import next_manual_chunk_index
+
+    svc = service(request)
+    db = svc.db()
     try:
         rows = db.search_sources(q, limit + 1)
         truncated = len(rows) > limit
         items = []
         for row in rows[:limit]:
-            items.append(_source_item(row, db.next_manual_chunk_index(row["source_id"])))
+            index = next_manual_chunk_index(svc.cfg.vault_path, row["source_id"], db)
+            items.append(_source_item(row, index))
     finally:
         db.close()
     return {"items": items, "truncated": truncated}

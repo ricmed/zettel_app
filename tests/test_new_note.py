@@ -363,3 +363,38 @@ def test_force_does_not_overwrite_an_existing_literature_index(cfg):
         force=True,
     )
     assert marker in indexes[0].read_text(encoding="utf-8")
+
+
+def test_granular_literature_without_an_index_takes_the_next_free_one(cfg):
+    """#344: offline notes are in the vault before SQLite; the default was always 1."""
+    first = scaffold_manual_note(cfg, "lit", "Topico A", source_id="@Ana2020Obra", granular=True)
+    second = scaffold_manual_note(cfg, "lit", "Topico B", source_id="@Ana2020Obra", granular=True)
+
+    assert first.meta["chunk_id"] == "@Ana2020Obra::manual::0001"
+    assert second.meta["chunk_id"] == "@Ana2020Obra::manual::0002"
+
+
+def test_next_manual_chunk_index_counts_the_vault_and_sqlite(cfg, tmp_path):
+    from zettel.new_note import next_manual_chunk_index
+    from zettel.state import StateDB
+
+    scaffold_manual_note(
+        cfg, "lit", "Topico", source_id="@Ana2020Obra", granular=True, chunk_index=4
+    )
+    assert next_manual_chunk_index(cfg.vault_path, "@Ana2020Obra") == 5
+
+    db = StateDB(tmp_path / "state.db")
+    try:
+        db.upsert_source("@Ana2020Obra", "Ana2020Obra", "Obra", [], 2020, "", "x", "md")
+        db.upsert_chapter("@Ana2020Obra::ch000", "@Ana2020Obra", "Manual", "c")
+        db.upsert_chunk(
+            "@Ana2020Obra::manual::0009",
+            "@Ana2020Obra",
+            "@Ana2020Obra::ch000",
+            "t",
+            "k",
+            chunk_index=9,
+        )
+        assert next_manual_chunk_index(cfg.vault_path, "@Ana2020Obra", db) == 10
+    finally:
+        db.close()

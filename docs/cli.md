@@ -49,6 +49,7 @@ O `run-all` encadeia `harvest → extract → review → summarize → connect �
 | [`new-note`](#new-note) | Scaffold de notas manuais |
 | [`sync-manual`](#sync-manual) | Adota notas escritas à mão no Obsidian |
 | [`suggest-links`](#suggest-links) | Sugere conexões numa ZTL sem reescrever o texto |
+| [`obsidian-templates`](#obsidian-templates) | Gera os templates do Obsidian (Templater) em `99_Templates/` |
 | [`delete-source`](#delete-source) | Remove uma fonte por completo (irreversível) |
 | [`dump-chunks`](#dump-chunks) | Exporta os chunks persistidos como markdown |
 | [`dump-extraction`](#dump-extraction) | Exporta o Markdown extraído |
@@ -529,6 +530,19 @@ python -m zettel suggest-links 01HABC00000000000000000000
 ```
 
 A nota precisa ter passado por `sync-manual` (ter `note_id` no SQLite). Flags: `--yes` / `-y` confirma se o embedding mudou.
+
+---
+
+## `obsidian-templates`
+
+Grava em `99_Templates/` os templates do Templater (ZTL, SRC, LIT índice, LIT granular, MOC) e o script `scripts/zettel.js`, gerados a partir dos mesmos scaffolds do `new-note`. Funciona sem rede e sem banco.
+
+```bash
+python -m zettel obsidian-templates
+python -m zettel obsidian-templates --force   # regrava templates e script existentes
+```
+
+Sem `--force`, um arquivo que já existe é mantido. Veja [notas-manuais.md](notas-manuais.md#criar-notas-direto-no-obsidian-templates).
 
 ---
 
