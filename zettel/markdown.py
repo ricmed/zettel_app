@@ -12,11 +12,25 @@ from markdown_it import MarkdownIt
 from markdown_it.rules_block.state_block import StateBlock
 from markdown_it.rules_inline import StateInline
 
+from zettel.markdown_fences import iter_fenced_spans, offset_is_fenced
+
 if TYPE_CHECKING:
     from markdown_it.token import Token
     from markdown_it.utils import EnvType, OptionsDict
 
 _MARKDOWN = MarkdownIt("commonmark", {"html": False, "linkify": True}).enable(["table", "linkify"])
+# Vault files keep ``<!-- zettel:auto-*:start/end -->`` so the pipeline can find
+# the block. The parser has html off (CSP), so those lines would otherwise show
+# as prose in the browser. Inner content stays.
+_MANAGED_MARKER_LINE = re.compile(
+    r"^[ \t]*<!--[ \t]*zettel:[a-z0-9-]+:(?:start|end)[ \t]*-->[ \t]*(?:\n|$)",
+    re.MULTILINE | re.IGNORECASE,
+)
+# Written on empty manual ZTLs; after the markers are gone it would show as prose.
+_MANUAL_CONNECTIONS_PLACEHOLDER_LINE = re.compile(
+    r"^[ \t]*_Sincronize com sync-manual para sugestoes automaticas\._[ \t]*(?:\n|$)",
+    re.MULTILINE,
+)
 _ZTL_WIKILINK = re.compile(
     r"\[\[(?P<label>ZTL\s*-\s*(?P<note_id>[A-Za-z0-9_-]+)(?:\s*-\s*[^\]\|]+)?)(?:\|(?P<alias>[^\]]+))?\]\]"
 )
@@ -356,12 +370,33 @@ def render_text_with_math(text: str | None) -> str:
     return "".join(parts)
 
 
+def strip_managed_block_markers(text: str) -> str:
+    """Drop ``<!-- zettel:…:start/end -->`` lines; keep the block's inner text.
+
+    A marker inside a fenced block stays: there it is the fence's content.
+    """
+
+    def drop_outside_fence(pattern: re.Pattern[str], value: str) -> str:
+        spans = iter_fenced_spans(value)
+
+        def repl(match: re.Match[str]) -> str:
+            if offset_is_fenced(match.start(), spans):
+                return match.group(0)
+            return ""
+
+        return pattern.sub(repl, value)
+
+    stripped = drop_outside_fence(_MANAGED_MARKER_LINE, text or "")
+    return drop_outside_fence(_MANUAL_CONNECTIONS_PLACEHOLDER_LINE, stripped)
+
+
 def render_markdown(text: str | None) -> str:
     """Render Markdown while stripping unsafe HTML and URL schemes.
 
     Raw HTML is disabled in the Markdown parser, and the second sanitization
     pass protects the rendered output if the parser or its configuration
     changes later. TeX (``$...$``, ``$$...$$``, ``\\(...\\)``, ``\\[...\\]``)
-    is converted to MathML before emphasis so subscripts survive.
+    is converted to MathML before emphasis so subscripts survive. Managed-block
+    markers are dropped before the parse so they are not shown as escaped prose.
     """
-    return sanitize_html(_MARKDOWN.render(text or ""))
+    return sanitize_html(_MARKDOWN.render(strip_managed_block_markers(text or "")))
