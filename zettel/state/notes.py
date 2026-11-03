@@ -88,6 +88,14 @@ class NotesMixin(StateBase):
         )
         self.conn.commit()
 
+    def update_note_provenance(self, note_id: str, provenance_json: str, body: str) -> None:
+        """Replace a note's provenance and stored body (its citation was recomputed, #346)."""
+        self.conn.execute(
+            "UPDATE notes SET provenance_json=?, body=?, updated_at=? WHERE note_id=?",
+            (provenance_json, body, self._now(), note_id),
+        )
+        self.conn.commit()
+
     def delete_note(self, note_id: str) -> bool:
         """Delete a permanent note row (+ FTS + graph edges). Returns True if removed."""
         if not self.conn.execute("DELETE FROM notes WHERE note_id=?", (note_id,)).rowcount:

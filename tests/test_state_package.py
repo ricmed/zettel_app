@@ -17,6 +17,7 @@ PUBLIC_METHODS = {
     "get_file_by_checksum",
     "upsert_source",
     "update_source_texts",
+    "update_source_bibliography",
     "update_source_paging",
     "update_source_summary",
     "add_source_usage",
@@ -72,6 +73,7 @@ PUBLIC_METHODS = {
     # notes
     "upsert_note",
     "update_note_embedding",
+    "update_note_provenance",
     "delete_note",
     "clear_source_id_on_notes",
     "get_note",

@@ -313,6 +313,63 @@ def _author_list(meta: dict) -> list[str]:
     return [str(a).strip() for a in raw if str(a).strip()]
 
 
+# Frontmatter keys of an SRC that describe the work (sources.bibliography_json).
+_BIBLIO_KEYS = (
+    "document_type",
+    "subtitle",
+    "edition",
+    "place",
+    "publisher",
+    "translator",
+    "isbn",
+    "chapter_authors",
+    "chapter_title",
+    "book_title",
+    "book_editors",
+    "pages",
+    "journal",
+    "volume",
+    "issue",
+    "doi",
+    "url",
+    "accessed_at",
+    "site_name",
+    "published_at",
+    "institution",
+    "course",
+    "discipline",
+    "degree",
+    "advisor",
+    "event_name",
+    "report_number",
+    "title",
+    "authors",
+    "year",
+)
+
+
+def _bibliography(meta: dict, authors: list[str]) -> dict[str, Any]:
+    """The SRC's bibliographic fields, in the JSON form SQLite stores (dates as text)."""
+    payload = {k: meta[k] for k in _BIBLIO_KEYS if k in meta and meta[k] not in (None, "", [])}
+    if authors and "authors" not in payload:
+        payload["authors"] = list(authors)
+    if meta.get("year") is not None and "year" not in payload:
+        payload["year"] = meta["year"]
+    if meta.get("title") and "title" not in payload:
+        payload["title"] = meta["title"]
+    return json.loads(frontmatter_json(payload))
+
+
+def _identifiers(biblio: dict[str, Any]) -> tuple[str | None, str | None]:
+    """DOI and ISBN normalized as harvest stores them (``None`` when absent or invalid)."""
+    from zettel.harvester.biblio_dedupe import normalize_doi, normalize_isbn
+
+    return (
+        normalize_doi(str(biblio.get("doi") or "")) or None,
+        normalize_isbn(str(biblio.get("isbn") or "")) or None,
+    )
+
+
 def _sync_source(
     cfg: AppConfig,
     db: StateDB,
@@ -321,7 +378,7 @@ def _sync_source(
     meta: dict,
     body: str,
 ) -> str:
-    """Adopt a hand-created SRC note: register the source in the DB + index."""
+    """Adopt a hand-created SRC note, or carry an edited one into SQLite (#346)."""
     from zettel.harvester.citekey import generate_citekey
 
     authors = _author_list(meta)
@@ -337,83 +394,93 @@ def _sync_source(
         meta.setdefault("origin", "manual")
         _rewrite_frontmatter(file_path, meta, body)
 
+    title = str(meta.get("title") or file_path.stem)
+    year = meta.get("year") if isinstance(meta.get("year"), int) else None
+    biblio = _bibliography(meta, authors)
     existing = db.get_source(source_id)
-    origin = _manual_origin(meta)
     if existing:
-        idx = vectors.index()
-        if idx is None or idx.existing_ids("sources", [source_id]):
-            return "skipped"
-        # Adopted while offline: write the vector the earlier run could not.
-        authors = json.loads(existing.get("authors") or "[]")
-        return (
-            "updated"
-            if _embed_source(vectors, source_id, existing["citekey"], existing["title"], authors)
-            else "skipped"
-        )
+        return _resync_source(cfg, db, vectors, existing, meta, title, authors, year, biblio)
 
-    year = meta.get("year")
-
-    biblio_payload = {
-        k: meta[k]
-        for k in (
-            "document_type",
-            "subtitle",
-            "edition",
-            "place",
-            "publisher",
-            "translator",
-            "isbn",
-            "chapter_authors",
-            "chapter_title",
-            "book_title",
-            "book_editors",
-            "pages",
-            "journal",
-            "volume",
-            "issue",
-            "doi",
-            "url",
-            "accessed_at",
-            "site_name",
-            "published_at",
-            "institution",
-            "course",
-            "discipline",
-            "degree",
-            "advisor",
-            "event_name",
-            "report_number",
-            "title",
-            "authors",
-            "year",
-        )
-        if k in meta and meta[k] not in (None, "", [])
-    }
-    if authors and "authors" not in biblio_payload:
-        biblio_payload["authors"] = list(authors)
-    if year is not None and "year" not in biblio_payload:
-        biblio_payload["year"] = year
-    if meta.get("title") and "title" not in biblio_payload:
-        biblio_payload["title"] = meta["title"]
-
-    biblio_json = frontmatter_json(biblio_payload) if biblio_payload else None
-
+    doi, isbn = _identifiers(biblio)
     db.upsert_source(
         source_id=source_id,
         citekey=citekey,
-        title=meta.get("title", file_path.stem),
+        title=title,
         authors=list(authors),
-        year=year if isinstance(year, int) else None,
+        year=year,
         file_checksum="",
         origin_path=str(file_path),
         origin_type="md",
-        origin=origin,
+        origin=_manual_origin(meta),
         document_type=meta.get("document_type"),
-        bibliography_json=biblio_json,
+        bibliography_json=json.dumps(biblio, ensure_ascii=False) if biblio else None,
+        doi=doi,
+        isbn=isbn,
         abnt_reference=meta.get("abnt_reference"),
     )
-    _embed_source(vectors, source_id, citekey, meta.get("title", file_path.stem), authors)
+    _embed_source(vectors, source_id, citekey, title, authors)
     return "new"
+
+
+def _resync_source(
+    cfg: AppConfig,
+    db: StateDB,
+    vectors: _Vectors,
+    existing: dict,
+    meta: dict,
+    title: str,
+    authors: list[str],
+    year: int | None,
+    biblio: dict[str, Any],
+) -> str:
+    """Bring an edited SRC's bibliography into SQLite; the pipeline's columns stay.
+
+    A field the user wrote wins (ADR-057) and is recorded ``user`` in
+    ``bibliography_json.provenance``. A minimal source a LIT created before its
+    SRC was synced gets the SRC's authors and title. New authors or year
+    recompute the citation of the notes that cite the source.
+    """
+    from zettel.citation import refresh_source_citations
+
+    source_id = existing["source_id"]
+    stored = json.loads(existing.get("bibliography_json") or "{}")
+    edited = {k: v for k, v in biblio.items() if stored.get(k) != v}
+    stored_authors = json.loads(existing.get("authors") or "[]")
+    renamed = title != existing["title"] or authors != stored_authors
+    recite = authors != stored_authors or year != existing.get("year")
+    other = any(
+        meta.get(key) and meta[key] != existing.get(key)
+        for key in ("document_type", "abnt_reference")
+    )
+    if not (edited or renamed or recite or other):
+        idx = vectors.index()
+        if idx is None or idx.existing_ids("sources", [source_id]):
+            return "skipped"
+        # Adopted while offline: write the vector the earlier run could not (#343).
+        embedded = _embed_source(vectors, source_id, existing["citekey"], title, authors)
+        return "updated" if embedded else "skipped"
+
+    merged = {**stored, **edited}
+    if edited:
+        merged["provenance"] = {**(stored.get("provenance") or {}), **dict.fromkeys(edited, "user")}
+    doi, isbn = _identifiers(biblio)
+    db.update_source_bibliography(
+        source_id,
+        title=title,
+        authors=authors,
+        year=year,
+        document_type=meta.get("document_type"),
+        bibliography_json=json.dumps(merged, ensure_ascii=False),
+        abnt_reference=meta.get("abnt_reference"),
+        doi=doi,
+        isbn=isbn,
+    )
+    idx = vectors.index()
+    if renamed or (idx is not None and not idx.existing_ids("sources", [source_id])):
+        _embed_source(vectors, source_id, existing["citekey"], title, authors)
+    if recite:
+        refresh_source_citations(db, source_id, vault_timezone=cfg.vault_timezone)
+    return "updated"
 
 
 def _embed_source(

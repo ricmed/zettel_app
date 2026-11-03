@@ -710,3 +710,142 @@ def test_scaffold_placeholders_are_not_embedded(cfg, db):
     ((text, _meta),) = idx.store["permanent_notes"].values()
     assert "Uma tese real." in text
     assert "preencha" not in text.lower()
+
+
+# -- an SRC edited in Obsidian reaches SQLite (#346) ---------------------------
+
+
+def _src(cfg, meta, name="SRC - Souza2020 - obra.md"):
+    path = cfg.vault_path / "10_Sources" / name
+    base = {"type": "source", "source_id": "@Souza2020Obra", "title": "Obra", "origin": "manual"}
+    _write(path, {**base, **meta}, "# Obra")
+    return path
+
+
+def test_editing_year_and_doi_of_an_src_updates_the_source(cfg, db):
+    import json
+
+    idx = FakeVectorIndex()
+    _src(cfg, {"author": ["Ana Souza"], "year": 2020})
+    run_sync_manual(cfg, db, idx)
+
+    _src(cfg, {"author": ["Ana Souza"], "year": 2021, "doi": "https://doi.org/10.1000/XYZ.1."})
+    stats = run_sync_manual(cfg, db, idx)
+
+    assert stats["sources"] == 1
+    row = db.get_source("@Souza2020Obra")
+    assert row["year"] == 2021
+    assert row["doi"] == "10.1000/xyz.1"
+    biblio = json.loads(row["bibliography_json"])
+    assert biblio["year"] == 2021
+    assert biblio["provenance"] == {"year": "user", "doi": "user"}
+    assert calls_to(idx, "upsert_source") == ["@Souza2020Obra"]  # title and authors unchanged
+    assert run_sync_manual(cfg, db, idx)["sources"] == 0
+
+
+def test_a_minimal_source_made_by_a_lit_gets_the_src_bibliography(cfg, db):
+    lit = cfg.vault_path / "20_Literature" / "Souza2020Obra" / "LIT - c0001.md"
+    lit.parent.mkdir(parents=True)
+    _write(
+        lit,
+        {
+            "type": "literature",
+            "source_id": "@Souza2020Obra",
+            "chunk_id": "@Souza2020Obra::manual::0001",
+        },
+        "# Topico",
+    )
+    run_sync_manual(cfg, db, FakeVectorIndex())
+    assert db.get_source("@Souza2020Obra")["authors"] == "[]"
+
+    _src(cfg, {"author": ["Ana Souza", "Rui Lima"], "year": 2020, "publisher": "Editora X"})
+    idx = FakeVectorIndex()
+    run_sync_manual(cfg, db, idx)
+
+    row = db.get_source("@Souza2020Obra")
+    assert row["authors"] == '["Ana Souza", "Rui Lima"]'
+    assert row["title"] == "Obra"
+    assert calls_to(idx, "upsert_source") == ["@Souza2020Obra"]
+
+
+def test_pipeline_columns_stay_when_a_pipeline_src_is_edited(cfg, db):
+    import json
+
+    db.upsert_source(
+        source_id="@Souza2020Obra",
+        citekey="Souza2020Obra",
+        title="Obra",
+        authors=["Ana Souza"],
+        year=2020,
+        file_checksum="arquivo",
+        origin_path="/inbox/obra.pdf",
+        origin_type="pdf",
+        extraction_checksum="extracao",
+        bibliography_json=json.dumps(
+            {"title": "Obra", "year": 2020, "provenance": {"title": "llm", "year": "llm"}}
+        ),
+    )
+    _src(cfg, {"author": ["Ana Souza"], "year": 2020, "origin": "pipeline", "place": "Recife"})
+
+    run_sync_manual(cfg, db, FakeVectorIndex())
+
+    row = db.get_source("@Souza2020Obra")
+    assert (row["file_checksum"], row["extraction_checksum"], row["origin"]) == (
+        "arquivo",
+        "extracao",
+        "pipeline",
+    )
+    biblio = json.loads(row["bibliography_json"])
+    assert biblio["place"] == "Recife"
+    assert biblio["provenance"]["place"] == "user"
+    assert biblio["provenance"]["title"] == "llm"
+
+
+def test_a_new_year_recomputes_the_citation_of_the_notes_of_the_source(cfg, db):
+    import json
+
+    from zettel.vault import compose_note, read_managed_block, upsert_managed_block
+
+    _src(cfg, {"author": ["Ana Souza"], "year": 2020})
+    run_sync_manual(cfg, db, FakeVectorIndex())
+    db.upsert_chapter("@Souza2020Obra::ch001", "@Souza2020Obra", "Cap", "c")
+    chunk_id = "@Souza2020Obra::ch001::abc"
+    db.upsert_chunk(
+        chunk_id, "@Souza2020Obra", "@Souza2020Obra::ch001", "texto", "k", page_in_book=5
+    )
+    meta = {"type": "permanent", "note_id": "NOTA1", "chunk_id": chunk_id, "origin": "pipeline"}
+    body = upsert_managed_block(
+        "> **Tese**: x.\n\n## Fonte\n", "auto-evidence", "- Citação: (SOUZA, 2020, p. 5)"
+    )
+    note = cfg.vault_path / "30_Permanent" / "ZTL - NOTA1 - x.md"
+    note.write_text(compose_note(meta, body), encoding="utf-8")
+    db.upsert_note(
+        "NOTA1",
+        "@Souza2020Obra",
+        str(note),
+        title="x",
+        body=body,
+        frontmatter_json=json.dumps(meta),
+        provenance_json=json.dumps({"citation": "(SOUZA, 2020, p. 5)", "anchor_quote": ""}),
+    )
+
+    _src(cfg, {"author": ["Ana Souza"], "year": 2021})
+    run_sync_manual(cfg, db, FakeVectorIndex())
+
+    row = db.get_note("NOTA1")
+    assert json.loads(row["provenance_json"])["citation"] == "(SOUZA, 2021, p. 5)"
+    assert "(SOUZA, 2021, p. 5)" in read_managed_block(
+        note.read_text(encoding="utf-8"), "auto-evidence"
+    )
+    assert "(SOUZA, 2021, p. 5)" in row["body"]
+
+
+def test_an_src_edited_offline_is_updated_and_its_vector_left_pending(cfg, db):
+    _src(cfg, {"author": ["Ana Souza"], "year": 2020})
+    run_sync_manual(cfg, db, FakeVectorIndex())
+
+    _src(cfg, {"title": "Obra revista", "author": ["Ana Souza"], "year": 2020})
+    stats = run_sync_manual(cfg, db, None)
+
+    assert db.get_source("@Souza2020Obra")["title"] == "Obra revista"
+    assert stats["embedding_pending"] == 1
