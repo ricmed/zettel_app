@@ -59,6 +59,16 @@ class _Run:
     # Permanent notes whose body was stored in this run, and those new to SQLite.
     changed_notes: set[str] = field(default_factory=set)
     new_notes: set[str] = field(default_factory=set)
+    # Note and MOC ids found in a file this run, and the rows whose file moved (#348).
+    seen: set[str] = field(default_factory=set)
+    moved: int = 0
+
+    def locate(self, row: dict | None, row_id: str, file_path: Path, update: Callable) -> None:
+        """Record ``row_id`` as present and point its row at ``file_path`` when it moved."""
+        self.seen.add(row_id)
+        if row and row.get("path") and row["path"] != str(file_path):
+            update(row_id, str(file_path))
+            self.moved += 1
 
 
 class NoteRejected(Exception):
@@ -115,7 +125,9 @@ class _Vectors:
         return True
 
 
-def run_sync_manual(cfg: AppConfig, db: StateDB, idx: IndexArg) -> dict[str, Any]:
+def run_sync_manual(
+    cfg: AppConfig, db: StateDB, idx: IndexArg, *, prune: bool = False
+) -> dict[str, Any]:
     """Scan all four note folders for manual/modified notes and sync them.
 
     ``idx`` is the vector index, a zero-argument callable that opens it (so a run
@@ -125,7 +137,9 @@ def run_sync_manual(cfg: AppConfig, db: StateDB, idx: IndexArg) -> dict[str, Any
     Returns per-type counters, aggregate new/updated/skipped/failed,
     ``failures`` (``{"path", "reason"}`` per note that could not be adopted; one
     bad note never stops the others, #342), ``embedding_pending`` and
-    ``embedding_offline`` (why vectors were not written, or ``None``; #343). Opens a
+    ``embedding_offline`` (why vectors were not written, or ``None``; #343),
+    ``moved`` and ``missing`` (notes and MOCs whose file is gone; ``prune``
+    removes the manual ones from SQLite, Chroma and the graph, #348). Opens a
     ``sync`` run so the embedding cost of the notes it indexes is recorded (#311).
     """
     from zettel.usage import begin_run, finish_pipeline_run
@@ -133,7 +147,7 @@ def run_sync_manual(cfg: AppConfig, db: StateDB, idx: IndexArg) -> dict[str, Any
     run_id = db.start_run("sync")
     begin_run(run_id)
     try:
-        stats = _sync_all(cfg, db, _Vectors(cfg, idx))
+        stats = _sync_all(cfg, db, _Vectors(cfg, idx), prune=prune)
     except Exception:
         finish_pipeline_run(db, run_id, status="failed")
         raise
@@ -141,7 +155,7 @@ def run_sync_manual(cfg: AppConfig, db: StateDB, idx: IndexArg) -> dict[str, Any
     return stats
 
 
-def _sync_all(cfg: AppConfig, db: StateDB, vectors: _Vectors) -> dict[str, Any]:
+def _sync_all(cfg: AppConfig, db: StateDB, vectors: _Vectors, *, prune: bool) -> dict[str, Any]:
     stats: dict[str, Any] = {
         "new": 0,
         "updated": 0,
@@ -189,6 +203,8 @@ def _sync_all(cfg: AppConfig, db: StateDB, vectors: _Vectors) -> dict[str, Any]:
             stats["failed"] += 1
             failures.append({"path": str(md_file), "reason": reason})
 
+    stats["moved"] = run.moved
+    stats.update(_missing_notes(cfg, db, vectors, run, prune=prune))
     stats.update(_link_notes(db, run))
     repair = repair_permanent_links(db, vault_timezone=cfg.vault_timezone)
     stats.update(repair)
@@ -301,7 +317,7 @@ def _sync_single_note(
     if note_type == "permanent":
         return _sync_permanent(cfg, db, vectors, file_path, meta, body, run)
     if note_type == "moc":
-        return _sync_moc(cfg, db, vectors, file_path, meta, body)
+        return _sync_moc(cfg, db, vectors, file_path, meta, body, run)
     return "skipped"
 
 
@@ -667,6 +683,9 @@ def _sync_permanent(
         meta.setdefault("origin", "manual")
         _rewrite_frontmatter(file_path, meta, body)
 
+    existing = db.get_note(note_id)
+    run.locate(existing, note_id, file_path, db.update_note_path)
+
     # connect already indexed these; adopting images here rewrites the body,
     # bumps the checksum and re-embeds every pipeline ZTL that cites a figure.
     if _is_pipeline_origin(meta):
@@ -679,7 +698,6 @@ def _sync_permanent(
 
     from zettel.manual_lit import claim_concepts_for_note
 
-    existing = db.get_note(note_id)
     emb_hash = compute_embedding_input_hash(
         semantic_checksum, cfg.embedding.provider, cfg.embedding.model
     )
@@ -768,6 +786,7 @@ def _sync_moc(
     file_path: Path,
     meta: dict,
     body: str,
+    run: _Run,
 ) -> str:
     """Sync a MOC note. Returns 'new', 'updated', or 'skipped'."""
     moc_id = meta.get("moc_id")
@@ -778,6 +797,7 @@ def _sync_moc(
         meta.setdefault("origin", "manual")
         _rewrite_frontmatter(file_path, meta, body)
 
+    run.locate(db.get_moc(moc_id), moc_id, file_path, db.update_moc_path)
     if _is_pipeline_origin(meta):
         return "skipped"
 
@@ -869,6 +889,53 @@ def _strip_auto_blocks(body: str) -> str:
                 break
             body = body[:start] + body[end + len(end_tag) :]
     return body
+
+
+def missing_note_files(db: StateDB, seen: set[str] | frozenset[str] = frozenset()) -> list[dict]:
+    """Notes and MOCs whose file is gone from the vault (``seen`` ids moved, not gone)."""
+    rows = [("nota", n["note_id"], n) for n in db.list_notes()] + [
+        ("moc", m["moc_id"], m) for m in db.list_mocs()
+    ]
+    return [
+        {"kind": kind, "id": row_id, "path": row["path"], "origin": row.get("origin") or ""}
+        for kind, row_id, row in rows
+        if row_id not in seen and row.get("path") and not Path(row["path"]).is_file()
+    ]
+
+
+def _missing_notes(
+    cfg: AppConfig, db: StateDB, vectors: _Vectors, run: _Run, *, prune: bool
+) -> dict[str, Any]:
+    """Report the notes and MOCs deleted from the vault; with ``prune``, drop the manual ones.
+
+    A pipeline note is only reported: ``zettel rebuild`` writes it back from
+    SQLite. A pruned note leaves SQLite, FTS, its edges and Chroma; a pruned MOC
+    first clears its backrefs from the notes it listed. The neighbours'
+    ``auto-backlinks`` are rebuilt by ``repair_permanent_links`` after this.
+    """
+    from zettel.moc_backrefs import clear_moc_backrefs
+    from zettel.topic_index import SCOPE_MOC
+
+    missing = missing_note_files(db, run.seen)
+    pruned = 0
+    if prune:
+        removed_notes: list[str] = []
+        for item in missing:
+            if item["origin"] in PIPELINE_ORIGINS:
+                continue
+            if item["kind"] == "nota":
+                db.delete_note(item["id"])
+                removed_notes.append(item["id"])
+            else:
+                clear_moc_backrefs(db, db.get_moc(item["id"]), vault_timezone=cfg.vault_timezone)
+                db.delete_topic_index_scope(SCOPE_MOC, item["id"])
+                db.delete_mocs([item["id"]])
+            item["pruned"] = True
+            pruned += 1
+        idx = vectors.index()
+        if idx is not None and removed_notes:
+            idx.delete_permanent_notes(removed_notes)
+    return {"missing": missing, "pruned": pruned}
 
 
 def linked_note_ids(body: str) -> set[str]:

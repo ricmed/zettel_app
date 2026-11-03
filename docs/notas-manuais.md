@@ -45,6 +45,20 @@ Sem credencial de embedding, ou se o provedor cair no meio do run, o sync segue 
 
 O próximo `sync-manual` com embedding disponível grava os vetores pendentes e escreve as sugestões. Não é preciso editar as notas. Uma nota só é pulada quando o conteúdo e o vetor estão atuais.
 
+### Notas apagadas ou movidas no Obsidian
+
+O sync acompanha o que acontece com os arquivos (#348):
+
+- **Renomear ou mover** uma ZTL ou um MOC, mantendo o `note_id`/`moc_id` no frontmatter, só atualiza o caminho no banco. A nota não é duplicada, e isso vale também para notas do pipeline. O resultado conta essas notas em **movidas**.
+- **Apagar** uma ZTL ou um MOC deixa a linha no banco. O sync relata a nota como **sem arquivo no vault**, assim como o job da web e o `zettel doctor`.
+- `zettel sync-manual --prune` remove as notas **manuais** apagadas:
+  - da ZTL, saem a linha no SQLite, a busca por texto, as arestas e o vetor no Chroma, e os `auto-backlinks` das vizinhas são reconstruídos;
+  - do MOC, saem os backrefs das notas que ele listava, o índice de tópicos e a linha no banco.
+
+  Uma nota do pipeline apagada é só relatada, porque `zettel rebuild --what vault` a reescreve a partir do banco. O `--prune` fica só na CLI, por ser destrutivo.
+
+Um MOC escrito à mão com nome livre (`MOC - tema.md`) agora também perde o backref de uma nota que sai da lista dele. Antes, esses backrefs nunca eram removidos.
+
 ### Notas que o sync não adota
 
 Cada nota é processada por conta própria (#342). Uma nota que o sync não consegue adotar fica de fora sem impedir as demais. A CLI e a página do job na web listam essas notas como **não adotadas**, com o caminho e o motivo, e o arquivo não é alterado. Os casos são:

@@ -11,7 +11,7 @@ from zettel.sync import (
     run_sync_manual,
 )
 
-from tests.fakes import FakeVectorIndex, calls_to
+from tests.fakes import FakeVectorIndex, calls_to, deleted
 
 
 @pytest.fixture
@@ -502,10 +502,10 @@ def test_unexpected_error_in_one_note_is_reported_and_the_rest_synced(cfg, db, m
 
     real = sync._sync_moc
 
-    def explode(cfg, db, idx, file_path, meta, body):
+    def explode(cfg, db, vectors, file_path, meta, body, run):
         if file_path.name.startswith("MOC - ruim"):
             raise RuntimeError("boom")
-        return real(cfg, db, idx, file_path, meta, body)
+        return real(cfg, db, vectors, file_path, meta, body, run)
 
     monkeypatch.setattr(sync, "_sync_moc", explode)
     _write(cfg.vault_path / "40_MOCs" / "MOC - ruim.md", {"topic": "Ruim"}, "# Ruim")
@@ -941,3 +941,118 @@ def test_rebuild_manual_edges_drops_edges_whose_link_is_gone(db):
 
     assert stats["edges_removed"] == 1
     assert db.get_note_connections(_A) == []
+
+
+# -- notes deleted or moved in the vault (#348) -------------------------------
+
+
+def test_a_renamed_note_keeps_its_row_and_follows_the_file(cfg, db):
+    idx = FakeVectorIndex()
+    old = _ztl(cfg, _A, "> **Tese**: a.")
+    run_sync_manual(cfg, db, idx)
+    new = old.with_name(f"ZTL - {_A} - outro-nome.md")
+    old.rename(new)
+
+    stats = run_sync_manual(cfg, db, idx)
+
+    assert stats["moved"] == 1 and stats["missing"] == []
+    assert [n["path"] for n in db.list_notes()] == [str(new)]
+
+
+def test_a_moved_pipeline_note_and_moc_follow_their_files(cfg, db):
+    note = cfg.vault_path / "30_Permanent" / "ZTL - gerada.md"
+    _write(note, {"type": "permanent", "note_id": _B, "origin": "pipeline"}, "> **Tese**: b.")
+    db.upsert_note(_B, None, "/vault/antigo/ZTL - gerada.md", title="b", body="b")
+    moc = cfg.vault_path / "40_MOCs" / "MOC - tema.md"
+    _write(moc, {"type": "moc", "moc_id": "M1", "topic": "Tema", "origin": "pipeline"}, "# Tema")
+    db.upsert_moc("M1", "Tema", "/vault/antigo/MOC - tema.md", "sig", origin="pipeline")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert stats["moved"] == 2
+    assert db.get_note(_B)["path"] == str(note)
+    assert db.get_moc("M1")["path"] == str(moc)
+
+
+def test_a_deleted_note_is_reported_and_pruned_only_when_asked(cfg, db):
+    from zettel.vault import read_managed_block
+
+    idx = FakeVectorIndex()
+    gone = _ztl(cfg, _A, f"> **Tese**: a.\n\nVer [[ZTL - {_B} - nota]].")
+    neighbour = _ztl(cfg, _B, "> **Tese**: b.")
+    run_sync_manual(cfg, db, idx)
+    assert _A in (read_managed_block(neighbour.read_text(encoding="utf-8"), "auto-backlinks") or "")
+    gone.unlink()
+
+    stats = run_sync_manual(cfg, db, idx)
+    assert stats["missing"] == [{"kind": "nota", "id": _A, "path": str(gone), "origin": "manual"}]
+    assert db.get_note(_A) is not None
+
+    stats = run_sync_manual(cfg, db, idx, prune=True)
+
+    assert stats["pruned"] == 1
+    assert db.get_note(_A) is None
+    assert deleted(idx, "permanent_notes") == [_A]
+    assert db.get_note_connections(_B) == []
+    assert _A not in (
+        read_managed_block(neighbour.read_text(encoding="utf-8"), "auto-backlinks") or ""
+    )
+    assert run_sync_manual(cfg, db, idx)["missing"] == []
+
+
+def test_prune_leaves_a_deleted_pipeline_note_for_rebuild(cfg, db):
+    db.upsert_note(_C, None, str(cfg.vault_path / "30_Permanent" / "ZTL - sumiu.md"), body="c")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex(), prune=True)
+
+    assert stats["pruned"] == 0
+    assert [m["id"] for m in stats["missing"]] == [_C]
+    assert db.get_note(_C) is not None
+
+
+def test_pruning_a_deleted_manual_moc_clears_its_backrefs(cfg, db):
+    from zettel.vault import read_managed_block
+
+    note = _ztl(cfg, _B, "> **Tese**: b.")
+    moc = cfg.vault_path / "40_MOCs" / "MOC - tema.md"
+    _write(moc, {"type": "moc", "moc_id": "M1", "topic": "Tema"}, f"# Tema\n\n- [[ZTL - {_B}]]\n")
+    run_sync_manual(cfg, db, FakeVectorIndex())
+    assert read_managed_block(note.read_text(encoding="utf-8"), "auto-moc-backrefs")
+    moc.unlink()
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex(), prune=True)
+
+    assert stats["pruned"] == 1
+    assert db.get_moc("M1") is None
+    assert not read_managed_block(note.read_text(encoding="utf-8"), "auto-moc-backrefs")
+
+
+def test_cli_sync_manual_reports_and_prunes_missing_notes(cli_instance):
+    cli_instance.run("init")
+    cli_instance.run("new-note", "ztl", "Ideia que vai sumir")
+    (note,) = (cli_instance.vault / "30_Permanent").glob("ZTL - *.md")
+    cli_instance.run("sync-manual")
+    note.unlink()
+
+    assert "sync-manual --prune" in cli_instance.run("sync-manual")
+    assert "Notas sem arquivo" in cli_instance.run("doctor")
+    assert "NOTA removida" in cli_instance.run("sync-manual", "--prune")
+    db = cli_instance.db()
+    try:
+        assert db.list_notes() == []
+    finally:
+        db.close()
+
+
+def test_a_hand_named_moc_that_drops_a_note_removes_its_backref(cfg, db):
+    from zettel.vault import read_managed_block
+
+    note = _ztl(cfg, _B, "> **Tese**: b.")
+    moc = cfg.vault_path / "40_MOCs" / "MOC - tema.md"
+    _write(moc, {"type": "moc", "moc_id": "M1", "topic": "Tema"}, f"# Tema\n\n- [[ZTL - {_B}]]\n")
+    run_sync_manual(cfg, db, FakeVectorIndex())
+    _write(moc, {"type": "moc", "moc_id": "M1", "topic": "Tema"}, "# Tema\n\nNada aqui.\n")
+
+    run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert not read_managed_block(note.read_text(encoding="utf-8"), "auto-moc-backrefs")

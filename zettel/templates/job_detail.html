@@ -213,8 +213,14 @@
       <tr><th>Sem alteração</th><td>{{ result.skipped or 0 }}</td></tr>
       <tr><th>Não adotadas</th><td>{{ result.failed or 0 }}</td></tr>
       <tr><th>Vetores pendentes</th><td>{{ result.embedding_pending or 0 }}</td></tr>
+      <tr><th>Movidas</th><td>{{ result.moved or 0 }}</td></tr>
+      <tr><th>Sem arquivo no vault</th><td>{{ (result.missing or [])|length }}</td></tr>
     </tbody>
   </table>
+  {% if result.missing %}
+  <p>Estas notas sumiram do vault e continuam no banco. Para removê-las, rode <code>zettel sync-manual --prune</code> na CLI (só as manuais; as do pipeline voltam com <code>zettel rebuild</code>):</p>
+  <ul>{% for item in result.missing %}<li><code>{{ item.path }}</code> ({{ item.kind }}, {{ item.origin or 'manual' }})</li>{% endfor %}</ul>
+  {% endif %}
   {% if result.embedding_pending %}
   <p>As notas já estão no banco, mas sem vetor ({{ result.embedding_offline }}). Rode o sync de novo quando o embedding estiver disponível.</p>
   {% endif %}

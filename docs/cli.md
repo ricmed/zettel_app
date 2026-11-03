@@ -516,6 +516,7 @@ python -m zettel sync-manual --rebuild-graph
 | Flag | Efeito |
 |---|---|
 | `--rebuild-graph` | Antes do sync, re-deriva as arestas `related` com `origin=manual` a partir dos wikilinks no corpo de **todas** as notas já persistidas no SQLite. Remove as arestas manuais cujo link saiu do corpo. |
+| `--prune` | Remove do SQLite, do Chroma e do grafo as notas e MOCs **manuais** cujo arquivo foi apagado do vault. Notas do pipeline só são relatadas (`rebuild` as reescreve). |
 | `--yes` / `-y` | Confirma reprocessamento se o embedding mudou. |
 
 Veja [notas-manuais.md](notas-manuais.md).

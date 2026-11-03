@@ -1663,7 +1663,7 @@ def test_adopted_moc_is_left_alone_by_the_garden_and_synced_by_hand(tmp_path, mo
         adopt_moc,
         purge_pipeline_mocs,
     )
-    from zettel.sync import _sync_moc
+    from zettel.sync import _Run, _sync_moc
 
     cfg, db, _calls = _subject_env(tmp_path, monkeypatch, lambda s, u: _generation(u))
     _process_subject(cfg, db, MagicMock(), "Categoria Um", [_cluster("A")], _GardenStats())
@@ -1685,7 +1685,7 @@ def test_adopted_moc_is_left_alone_by_the_garden_and_synced_by_hand(tmp_path, mo
 
     meta = _parse_moc_structure(path)["meta"]
     body = path.read_text(encoding="utf-8").split("---", 2)[2]
-    assert _sync_moc(cfg, db, MagicMock(), path, meta, body) == "updated"
+    assert _sync_moc(cfg, db, MagicMock(), path, meta, body, _Run()) == "updated"
     db.close()
 
 

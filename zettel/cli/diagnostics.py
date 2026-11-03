@@ -390,6 +390,24 @@ def doctor(config: ConfigOption = None):
         )
     finally:
         pending_db.close()
+    from zettel.sync import missing_note_files
+
+    gone_db = get_db(cfg)
+    try:
+        gone = missing_note_files(gone_db)
+    finally:
+        gone_db.close()
+    checks.append(
+        (
+            "Notas sem arquivo",
+            not gone,
+            ", ".join(Path(g["path"]).name for g in gone[:5])
+            + (f" e mais {len(gone) - 5}" if len(gone) > 5 else "")
+            + " (sync-manual --prune para as manuais)"
+            if gone
+            else "toda nota e MOC do banco tem arquivo",
+        )
+    )
     checks.append(
         (
             "Vetores de notas",

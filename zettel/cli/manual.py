@@ -312,6 +312,13 @@ def sync_manual(
             help="Re-deriva arestas 'related' dos wikilinks no corpo de todas as notas",
         ),
     ] = False,
+    prune: Annotated[
+        bool,
+        typer.Option(
+            "--prune",
+            help="Remover do banco, do indice e do grafo as notas manuais apagadas do vault",
+        ),
+    ] = False,
     yes: YesOption = False,
 ):
     """Sincronizar notas manuais do vault com o banco e o índice vetorial.
@@ -336,10 +343,11 @@ def sync_manual(
         )
 
     with console.status("[bold blue]Sincronizando notas manuais...", spinner="dots"):
-        stats = run_sync_manual(cfg, db, lambda: get_idx(cfg, db=db, yes=yes))
+        stats = run_sync_manual(cfg, db, lambda: get_idx(cfg, db=db, yes=yes), prune=prune)
 
     failures = stats.pop("failures")
     offline = stats.pop("embedding_offline")
+    missing = stats.pop("missing")
     metrics_table("Sync Manual", stats, key_label="Métrica", capitalize_keys=True)
     for failure in failures:
         console.print(f"[red]Nao adotada:[/red] {failure['path']}\n  {failure['reason']}")
@@ -350,6 +358,14 @@ def sync_manual(
             f"[yellow]{stats['embedding_pending']} vetor(es) pendente(s) ({offline}).[/yellow] "
             "As notas ja estao no banco; rode sync-manual de novo com o embedding disponivel."
         )
+    for item in missing:
+        status = "removida" if item.get("pruned") else "arquivo ausente"
+        console.print(f"[yellow]{item['kind'].upper()} {status}:[/yellow] {item['path']}")
+    kept = [m for m in missing if not m.get("pruned")]
+    if any(m["origin"] in ("pipeline", "hub_pipeline") for m in kept):
+        console.print("[dim]Notas do pipeline voltam com: zettel rebuild --what vault[/dim]")
+    if any(m["origin"] not in ("pipeline", "hub_pipeline") for m in kept):
+        console.print("[dim]Para tirar as manuais apagadas do banco: sync-manual --prune[/dim]")
 
     db.close()
 

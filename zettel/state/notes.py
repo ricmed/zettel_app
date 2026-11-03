@@ -88,6 +88,13 @@ class NotesMixin(StateBase):
         )
         self.conn.commit()
 
+    def update_note_path(self, note_id: str, path: str) -> None:
+        """Point a note row at the file it moved to (renamed in Obsidian, #348)."""
+        self.conn.execute(
+            "UPDATE notes SET path=?, updated_at=? WHERE note_id=?", (path, self._now(), note_id)
+        )
+        self.conn.commit()
+
     def update_note_provenance(self, note_id: str, provenance_json: str, body: str) -> None:
         """Replace a note's provenance and stored body (its citation was recomputed, #346)."""
         self.conn.execute(
