@@ -329,6 +329,9 @@ VAULT_DIRS = [
 # Origins of notes the pipeline (or the hub garden) wrote; any other note is the user's.
 PIPELINE_ORIGINS = frozenset({"pipeline", "hub_pipeline"})
 
+# Obsidian templates and their script (#344); generated files, not notes.
+TEMPLATES_DIR = "99_Templates"
+
 
 def init_vault(vault_path: Path) -> None:
     """Create the vault folders that are missing. Never deletes anything (#341)."""
@@ -343,7 +346,7 @@ def partition_vault_notes(vault_path: Path) -> tuple[list[Path], list[Path]]:
     A note is the pipeline's only when its frontmatter says so. A note with no
     ``origin``, an unreadable frontmatter or any other origin (``manual``,
     ``ask``, ``article``) belongs to the user. Hidden folders (``.obsidian``,
-    ``.trash``, ``.claude``) are not notes.
+    ``.trash``, ``.claude``) and the templates folder are not notes.
     """
     pipeline: list[Path] = []
     kept: list[Path] = []
@@ -351,7 +354,9 @@ def partition_vault_notes(vault_path: Path) -> tuple[list[Path], list[Path]]:
         return pipeline, kept
     for path in sorted(vault_path.rglob("*.md")):
         rel = path.relative_to(vault_path)
-        if any(part.startswith(".") for part in rel.parts) or not path.is_file():
+        if rel.parts[0] == TEMPLATES_DIR or not path.is_file():
+            continue
+        if any(part.startswith(".") for part in rel.parts):
             continue
         meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
         is_pipeline = isinstance(meta, dict) and str(meta.get("origin") or "") in PIPELINE_ORIGINS

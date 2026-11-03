@@ -233,6 +233,9 @@ def doctor(config: ConfigOption = None):
 
     # Vault
     checks.append(("Vault path", cfg.vault_path.exists(), str(cfg.vault_path)))
+    from zettel.obsidian import obsidian_health
+
+    checks.append(("Obsidian (templates)", *obsidian_health(cfg.vault_path)))
 
     # Managed blocks the pipeline refuses to rewrite until the author fixes them (#321).
     from zettel.vault import vault_notes_with_malformed_blocks

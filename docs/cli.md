@@ -50,6 +50,7 @@ O `run-all` encadeia `harvest → extract → review → summarize → connect �
 | [`sync-manual`](#sync-manual) | Adota notas escritas à mão no Obsidian |
 | [`suggest-links`](#suggest-links) | Sugere conexões numa ZTL sem reescrever o texto |
 | [`obsidian-templates`](#obsidian-templates) | Gera os templates do Obsidian (Templater) em `99_Templates/` |
+| [`obsidian-setup`](#obsidian-setup) | Templates + plugin Templater + configuração do `.obsidian/` (o que o `init` faz) |
 | [`delete-source`](#delete-source) | Remove uma fonte por completo (irreversível) |
 | [`dump-chunks`](#dump-chunks) | Exporta os chunks persistidos como markdown |
 | [`dump-extraction`](#dump-extraction) | Exporta o Markdown extraído |
@@ -68,7 +69,8 @@ Todos aceitam `--config` / `-c` para apontar um YAML alternativo.
 ## `init`
 
 ```bash
-# Cria as pastas do vault que faltam. Nunca apaga notas nem .obsidian/
+# Cria as pastas do vault que faltam e prepara o Obsidian (templates + Templater,
+# obsidian.setup_on_init). Nunca apaga notas nem .obsidian/
 python -m zettel init
 
 # Apaga State DB, ChromaDB, cache e as notas origin: pipeline do vault (pede confirmacao).
@@ -543,6 +545,20 @@ python -m zettel obsidian-templates --force   # regrava templates e script exist
 ```
 
 Sem `--force`, um arquivo que já existe é mantido. Veja [notas-manuais.md](notas-manuais.md#criar-notas-direto-no-obsidian-templates).
+
+---
+
+## `obsidian-setup`
+
+Faz num vault que já existe o que o `init` faz num vault novo. Grava os templates, habilita o Templater em `.obsidian/community-plugins.json`, mescla a configuração dele em `.obsidian/plugins/templater-obsidian/data.json` e instala os arquivos do plugin na versão fixada em `obsidian.templater_version`, conferindo `obsidian.templater_sha256`. Sai com código 1 se o plugin não pôde ser instalado.
+
+```bash
+python -m zettel obsidian-setup
+python -m zettel obsidian-setup --templater-from ./templater   # pasta com main.js, manifest.json, styles.css
+python -m zettel obsidian-setup --force                        # regrava templates e reinstala o plugin
+```
+
+Veja [notas-manuais.md](notas-manuais.md#o-vault-já-sai-pronto-para-o-obsidian).
 
 ---
 

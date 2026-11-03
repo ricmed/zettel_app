@@ -9,6 +9,8 @@ framework-agnostic (ADR-026) — a command formats, the domain computes.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from pathlib import Path
+from typing import Any
 
 from rich.markup import escape
 from rich.table import Table
@@ -254,3 +256,14 @@ def print_garden_report(report: Mapping, *, title: str = "Garden") -> None:
         )
     for warning in rep.warnings:
         console.print(f"[yellow]{escape(warning)}[/yellow]")
+
+
+def print_obsidian_setup(report: Any, vault_path: Path) -> None:
+    """What ``setup_obsidian`` wrote and how the Templater plugin ended up (#345)."""
+    for path in [*report.templates, *report.settings]:
+        console.print(f"[green]Obsidian:[/green] {path.relative_to(vault_path)}")
+    style = "green" if report.plugin_ok else "yellow"
+    console.print(f"[{style}]Templater:[/{style}] {report.plugin}")
+    if report.sha256:
+        pins = ", ".join(f"{name}: {digest}" for name, digest in sorted(report.sha256.items()))
+        console.print(f"[dim]sha256 (obsidian.templater_sha256): {pins}[/dim]")

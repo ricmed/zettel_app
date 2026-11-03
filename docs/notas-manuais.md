@@ -135,12 +135,39 @@ O que o script `99_Templates/scripts/zettel.js` faz em cada template:
 
 Como o ULID já está no nome, os `[[wikilinks]]` que o Obsidian completa saem no formato `[[ZTL - <ULID> - slug]]` que o `sync-manual` transforma em arestas. As datas vão entre aspas, no fuso do vault (`vault_timezone`), e os valores do frontmatter vão como JSON, então um título com `:` continua sendo um texto só.
 
-Para usar os templates no Obsidian, instale o plugin **Templater** e configure:
+### O vault já sai pronto para o Obsidian
 
-- **Template folder location:** `99_Templates`;
-- **Script files folder location:** `99_Templates/scripts`.
+O `zettel init` prepara o vault (#345), e o `zettel obsidian-setup` faz o mesmo num vault que já existe:
 
-Depois, crie a nota com *Templater: Create new note from template*. A configuração automática do plugin, com *folder templates* por pasta, é feita pelo `init` (#345). Para adotar as notas no banco, rode `zettel sync-manual`, que também funciona offline.
+- grava os templates e o script, como o `obsidian-templates`;
+- habilita o plugin **Templater** em `.obsidian/community-plugins.json`, mantendo os outros plugins da lista;
+- configura o Templater em `.obsidian/plugins/templater-obsidian/data.json`:
+  - pasta de templates `99_Templates` e de scripts `99_Templates/scripts`;
+  - *folder templates*: `10_Sources` → SRC, `20_Literature` → LIT granular, `30_Permanent` → ZTL, `40_MOCs` → MOC;
+  - um atalho registrado para cada template.
+
+  As outras configurações e as *folder templates* de outras pastas são preservadas.
+- instala os arquivos do plugin (`main.js`, `manifest.json`, `styles.css`) da versão fixada em `obsidian.templater_version`. O config operacional fixa a 2.26.0, que exige Obsidian 1.13 ou mais novo, com os sha256 em `obsidian.templater_sha256`. A ordem de busca é:
+  1. a pasta indicada em `--templater-from`;
+  2. o cache em `data/cache/obsidian/`;
+  3. o release no GitHub, baixado uma única vez para o cache.
+
+  Um hash que não confere é recusado. Sem rede e sem cache, o resto é gravado mesmo assim, e o comando explica como instalar o plugin pela loja do Obsidian.
+
+```bash
+python -m zettel obsidian-setup                                # vault existente
+python -m zettel obsidian-setup --templater-from ./templater   # maquina sem rede
+python -m zettel obsidian-setup --force                        # regrava templates e reinstala o plugin
+```
+
+Como o vault não é recriado, recriar a base (`init --reset`) não remove o plugin nem as configurações (#341).
+
+Duas ações no próprio Obsidian continuam sendo suas, e o Zettel não as faz por você:
+
+1. **Confiar no vault.** Na primeira abertura, o Obsidian pergunta se você confia no autor do vault e quer habilitar os plugins da comunidade.
+2. **Ligar o gatilho nas pastas, se quiser.** Para que uma nota nova criada numa pasta já saia com o template, ligue *Trigger Templater on new file creation* nas configurações do Templater, **em cada dispositivo**. Desde a 2.x o Templater guarda essa chave fora do `data.json`, de propósito: com ela ligada, ele executa as tags `<% %>` de todo arquivo novo, inclusive o texto de uma fonte que o pipeline grava enquanto o Obsidian está aberto. Sem o gatilho, use *Templater: Create new note from template* (ou o atalho do template). O fluxo move a nota para a pasta certa de qualquer jeito.
+
+Para adotar as notas no banco, rode `zettel sync-manual`, que também funciona offline. O `zettel doctor` mostra se os templates e o Templater estão no vault.
 
 O `new-note lit --granular` sem `--chunk-index` usa o mesmo critério: o próximo índice livre entre o vault e o SQLite (`new_note.next_manual_chunk_index`). Antes o padrão era sempre 1, e duas notas escritas offline colidiam. O formulário da web também passou a contar o vault.
 

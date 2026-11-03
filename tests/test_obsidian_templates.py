@@ -436,3 +436,220 @@ def test_sync_manual_adopts_what_the_templates_write(script, source_note, tmp_pa
         assert note["source_id"] == f"@{citekey}"
     finally:
         db.close()
+
+
+# -- the vault's Obsidian setup (#345) ---------------------------------------
+
+
+def _release(version="2.9.1", plugin_id="templater-obsidian") -> dict[str, bytes]:
+    return {
+        "main.js": f"// templater {version}".encode(),
+        "manifest.json": json.dumps({"id": plugin_id, "version": version}).encode(),
+        "styles.css": b".templater {}",
+    }
+
+
+def _downloader(files: dict[str, bytes], urls: list[str] | None = None):
+    def download(url: str) -> bytes:
+        if urls is not None:
+            urls.append(url)
+        return files[url.rsplit("/", 1)[-1]]
+
+    return download
+
+
+def _offline(url: str) -> bytes:
+    raise OSError("sem rede")
+
+
+def _obsidian_cfg(**overrides):
+    from zettel.config import ObsidianConfig
+
+    return ObsidianConfig(**overrides)
+
+
+def test_templater_settings_keep_the_users_settings_and_folders():
+    from zettel.obsidian import templater_settings
+
+    existing = {
+        "command_timeout": 9,
+        "folder_templates": [
+            {"folder": "Diario", "template": "Templates/Dia.md"},
+            {"folder": "30_Permanent", "template": "Velho.md"},
+            {"folder": "", "template": ""},
+        ],
+        "enabled_templates_hotkeys": ["Templates/Dia.md", ""],
+    }
+
+    merged = templater_settings(existing)
+
+    assert merged["command_timeout"] == 9
+    assert "data_version" not in merged  # an old file is Templater's to migrate
+    assert merged["templates_folder"] == "99_Templates"
+    assert merged["user_scripts_folder"] == "99_Templates/scripts"
+    assert merged["trigger_on_file_creation_mode"] == "folder"
+    assert "trigger_on_file_creation" not in merged  # a per-device switch, not the vault's
+    folders = {e["folder"]: e["template"] for e in merged["folder_templates"]}
+    assert folders == {
+        "Diario": "Templates/Dia.md",
+        "10_Sources": "99_Templates/SRC.md",
+        "20_Literature": "99_Templates/LIT - granular.md",
+        "30_Permanent": "99_Templates/ZTL.md",
+        "40_MOCs": "99_Templates/MOC.md",
+    }
+    assert merged["enabled_templates_hotkeys"][0] == "Templates/Dia.md"
+    assert "99_Templates/ZTL.md" in merged["enabled_templates_hotkeys"]
+
+
+def test_setup_installs_templater_and_merges_the_obsidian_settings(tmp_path):
+    from zettel.obsidian import setup_obsidian
+
+    vault, cache = tmp_path / "vault", tmp_path / "cache"
+    plugins = vault / ".obsidian" / "community-plugins.json"
+    plugins.parent.mkdir(parents=True)
+    plugins.write_text('["dataview"]', encoding="utf-8")
+
+    report = setup_obsidian(vault, cache, _obsidian_cfg(), TZ, download=_downloader(_release()))
+
+    assert report.plugin_ok and "versao 2.9.1" in report.plugin
+    assert json.loads(plugins.read_text(encoding="utf-8")) == ["dataview", "templater-obsidian"]
+    plugin = vault / ".obsidian" / "plugins" / "templater-obsidian"
+    assert (plugin / "main.js").read_bytes() == b"// templater 2.9.1"
+    data = json.loads((plugin / "data.json").read_text(encoding="utf-8"))
+    assert data["data_version"] == 2 and data["templates_folder"] == "99_Templates"
+    assert (vault / SCRIPTS_DIR / SCRIPT_NAME).is_file()
+    assert (cache / "obsidian" / "templater-obsidian" / "2.9.1" / "main.js").is_file()
+    assert set(report.sha256) == {"main.js", "manifest.json", "styles.css"}
+
+    again = setup_obsidian(vault, cache, _obsidian_cfg(), TZ, download=_offline)
+    assert again.plugin == "ja instalado (versao 2.9.1)"
+    assert again.templates == [] and again.settings == []
+
+
+def test_a_second_vault_installs_from_the_cache_without_network(tmp_path):
+    from zettel.obsidian import setup_obsidian
+
+    cache = tmp_path / "cache"
+    setup_obsidian(tmp_path / "a", cache, _obsidian_cfg(), TZ, download=_downloader(_release()))
+
+    report = setup_obsidian(tmp_path / "b", cache, _obsidian_cfg(), TZ, download=_offline)
+
+    assert report.plugin_ok and "cache (2.9.1)" in report.plugin
+
+
+def test_latest_takes_the_highest_cached_version_and_a_tag_downloads_that_tag(tmp_path):
+    from zettel.obsidian import fetch_templater
+
+    cache = tmp_path / "cache"
+    for version in ("2.9.1", "2.10.0"):
+        folder = cache / version
+        folder.mkdir(parents=True)
+        for name, data in _release(version).items():
+            (folder / name).write_bytes(data)
+    assert fetch_templater(cache, "latest", {}, download=_offline)[0].name == "2.10.0"
+
+    urls: list[str] = []
+    fetch_templater(cache, "2.11.0", {}, download=_downloader(_release("2.11.0"), urls))
+    assert urls[0] == "https://github.com/SilentVoid13/Templater/releases/download/2.11.0/main.js"
+
+
+def test_without_network_or_cache_the_plugin_is_reported_and_the_rest_written(tmp_path):
+    from zettel.obsidian import setup_obsidian
+
+    report = setup_obsidian(
+        tmp_path / "vault", tmp_path / "cache", _obsidian_cfg(), TZ, download=_offline
+    )
+
+    assert not report.plugin_ok
+    assert "download de main.js falhou" in report.plugin and "Community plugins" in report.plugin
+    assert (tmp_path / "vault" / TEMPLATES_DIR / "ZTL.md").is_file()
+    assert not list((tmp_path / "cache").rglob("*.js"))
+
+
+def test_a_pinned_hash_that_does_not_match_is_refused(tmp_path):
+    from zettel.obsidian import setup_obsidian
+
+    pinned = _obsidian_cfg(templater_sha256={"main.js": "0" * 64})
+
+    report = setup_obsidian(
+        tmp_path / "vault", tmp_path / "cache", pinned, TZ, download=_downloader(_release())
+    )
+
+    assert not report.plugin_ok and "sha256 de main.js nao confere" in report.plugin
+    assert not (
+        tmp_path / "vault" / ".obsidian" / "plugins" / "templater-obsidian" / "main.js"
+    ).exists()
+
+
+def test_a_release_of_another_plugin_is_refused(tmp_path):
+    from zettel.obsidian import TemplaterUnavailable, fetch_templater
+
+    with pytest.raises(TemplaterUnavailable, match="nao e do Templater"):
+        fetch_templater(tmp_path, "latest", {}, download=_downloader(_release(plugin_id="outro")))
+
+
+def test_templater_from_a_local_folder(tmp_path):
+    from zettel.obsidian import setup_obsidian
+
+    folder = tmp_path / "release"
+    folder.mkdir()
+    for name, data in _release("2.9.4").items():
+        (folder / name).write_bytes(data)
+
+    report = setup_obsidian(
+        tmp_path / "vault",
+        tmp_path / "cache",
+        _obsidian_cfg(),
+        TZ,
+        source=folder,
+        download=_offline,
+    )
+
+    assert report.plugin_ok and f"pasta {folder}" in report.plugin
+
+
+def test_an_unreadable_obsidian_setting_is_never_overwritten(tmp_path):
+    from zettel.obsidian import ObsidianSettingsError, setup_obsidian
+
+    plugins = tmp_path / "vault" / ".obsidian" / "community-plugins.json"
+    plugins.parent.mkdir(parents=True)
+    plugins.write_text("{quebrado", encoding="utf-8")
+
+    with pytest.raises(ObsidianSettingsError, match=r"community-plugins\.json"):
+        setup_obsidian(
+            tmp_path / "vault", tmp_path / "cache", _obsidian_cfg(), TZ, download=_offline
+        )
+    assert plugins.read_text(encoding="utf-8") == "{quebrado"
+
+
+def test_obsidian_health_names_what_is_missing(tmp_path):
+    from zettel.obsidian import obsidian_health, setup_obsidian
+
+    assert obsidian_health(tmp_path)[0] is False
+    setup_obsidian(
+        tmp_path, tmp_path / "cache", _obsidian_cfg(), TZ, download=_downloader(_release())
+    )
+    assert obsidian_health(tmp_path) == (True, "templates em 99_Templates/, Templater 2.9.1")
+
+
+def test_init_prepares_the_vault_for_obsidian(cli_instance):
+    output = cli_instance.run("init")
+
+    assert (cli_instance.vault / TEMPLATES_DIR / "ZTL.md").is_file()
+    data = cli_instance.vault / ".obsidian" / "plugins" / "templater-obsidian" / "data.json"
+    assert json.loads(data.read_text(encoding="utf-8"))["user_scripts_folder"] == SCRIPTS_DIR
+    # The test suite has no network: the plugin is reported, init still succeeds.
+    assert "Templater" in output and "nao instalado" in output
+
+
+def test_obsidian_setup_exits_1_when_the_plugin_could_not_be_installed(cli_instance, tmp_path):
+    output = cli_instance.run("obsidian-setup", code=1)
+    assert "nao instalado" in output
+
+    # The operational config pins the 2.26.0 hashes: a release that differs is refused.
+    folder = tmp_path / "release"
+    folder.mkdir()
+    for name, data in _release().items():
+        (folder / name).write_bytes(data)
+    output = cli_instance.run("obsidian-setup", "--templater-from", str(folder), code=1)
+    assert "sha256 de main.js nao confere" in output

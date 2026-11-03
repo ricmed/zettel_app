@@ -578,6 +578,21 @@ class WebConfig(BaseModel):
     article_pause_ttl_hours: float = Field(default=24, ge=0)
 
 
+class ObsidianConfig(BaseModel):
+    """Vault preparado para o Obsidian pelo init (#345). Catalogo: config.yaml -> obsidian."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # `zettel init` grava os templates e configura o Templater no vault.
+    setup_on_init: bool = True
+    # Release do Templater instalado: uma tag ("2.9.1") ou "latest". Baixado uma
+    # vez para cache_path/obsidian; sem rede, o init usa o cache ou so avisa.
+    templater_version: str = "latest"
+    # sha256 esperado por arquivo do release (main.js, manifest.json, styles.css).
+    # Vazio nao verifica; o init mostra os hashes do que instalou para fixar aqui.
+    templater_sha256: dict[str, str] = Field(default_factory=dict)
+
+
 class SummarizeConfig(BaseModel):
     """Resumo de capitulo e de fonte (ADR-047). Catalogo: config.yaml -> summarize."""
 
@@ -708,6 +723,7 @@ class AppConfig(BaseModel):
     summarize: SummarizeConfig = Field(default_factory=SummarizeConfig)
     decision: DecisionConfig = Field(default_factory=DecisionConfig)
     web: WebConfig = Field(default_factory=WebConfig)
+    obsidian: ObsidianConfig = Field(default_factory=ObsidianConfig)
 
     language: str = "pt-BR"
     vault_timezone: str = "America/Sao_Paulo"

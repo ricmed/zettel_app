@@ -116,6 +116,17 @@ def init(
         console.print(f"[red]Notas do pipeline removidas do vault:[/red] {removed}")
 
     init_vault(cfg.vault_path)
+    if cfg.obsidian.setup_on_init:
+        from zettel.cli.formatting import print_obsidian_setup
+        from zettel.obsidian import ObsidianSettingsError, setup_obsidian
+
+        try:
+            print_obsidian_setup(
+                setup_obsidian(cfg.vault_path, cfg.cache_path, cfg.obsidian, cfg.vault_timezone),
+                cfg.vault_path,
+            )
+        except ObsidianSettingsError as exc:
+            console.print(f"[yellow]Obsidian nao configurado:[/yellow] {exc}")
 
     db = get_db(cfg)
     # Called for the side effect, not the value: constructing VectorIndex is what
