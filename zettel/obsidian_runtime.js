@@ -155,6 +155,19 @@ function frontmatterOf(file) {
   return (app.metadataCache.getFileCache(file) || {}).frontmatter || {};
 }
 
+function authorsOf(fm) {
+  const raw = fm.author ?? fm.authors;
+  if (Array.isArray(raw)) return raw.map((a) => String(a).trim()).filter(Boolean);
+  if (typeof raw === "string" && raw.trim()) return [raw.trim()];
+  return [];
+}
+
+function intOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isInteger(n) ? n : null;
+}
+
 function listSources() {
   return markdownFiles("10_Sources")
     .map((file) => {
@@ -162,10 +175,36 @@ function listSources() {
       const sourceId = String(fm.source_id || "");
       if (!sourceId.startsWith("@")) return null;
       const citekey = String(fm.citekey || sourceId.slice(1));
-      return { source_id: sourceId, citekey, title: String(fm.title || file.basename), stem: file.basename };
+      return {
+        source_id: sourceId,
+        citekey,
+        title: String(fm.title || file.basename),
+        stem: file.basename,
+        authors: authorsOf(fm),
+        year: intOrNull(fm.year),
+      };
     })
     .filter(Boolean)
     .sort((a, b) => a.title.localeCompare(b.title));
+}
+
+function listLiterature(citekey) {
+  return markdownFiles(`20_Literature/${safeComponent(citekey)}`)
+    .map((file) => {
+      const fm = frontmatterOf(file);
+      if (String(fm.type || "") !== "literature" || !fm.chunk_id) return null;
+      return {
+        file,
+        chunk_id: String(fm.chunk_id),
+        section_path: String(fm.section_path || ""),
+        page_in_book: intOrNull(fm.page_in_book),
+        page_in_file: intOrNull(fm.page_in_file),
+        decision_rules: fm.decision_rules,
+        anti_patterns: fm.anti_patterns,
+        named_frameworks: fm.named_frameworks,
+      };
+    })
+    .filter(Boolean);
 }
 
 function nextChunkIndex(citekey) {
@@ -214,19 +253,287 @@ async function pickSource(tp, optional) {
   return choice || null;
 }
 
+function assertFreshTarget(tp) {
+  const path = typeof tp.file.path === "function" ? String(tp.file.path(true) || "") : "";
+  if (!path) return;
+  const file = app.vault.getMarkdownFiles().find((f) => f.path === path);
+  if (!file) return;
+  if (frontmatterOf(file).type) {
+    throw new Error("Zettel: este arquivo ja e uma nota. Use 'Create new note from template', nao Insert.");
+  }
+}
+
+async function pickLiterature(tp, citekey) {
+  const notes = listLiterature(citekey);
+  if (!notes.length) {
+    throw new Error(
+      `Zettel: nenhuma LIT granular em 20_Literature/${safeComponent(citekey)}/. Crie uma com o template LIT - granular.`,
+    );
+  }
+  const labels = notes.map((n) => {
+    const page = n.page_in_book ?? n.page_in_file;
+    const topic = n.section_path || n.file.basename;
+    return page != null ? `p. ${page} — ${topic}` : topic;
+  });
+  const choice = await tp.system.suggester(labels, notes, false, "Nota de literatura");
+  if (!choice) throw new Error("Zettel: escolha a nota de literatura.");
+  return choice;
+}
+
+async function readVault(file) {
+  return String((await app.vault.read(file)) || "");
+}
+
+function fencedSpans(text) {
+  const fenceLine = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+  const spans = [];
+  let openChar = "";
+  let openLen = 0;
+  let start = 0;
+  let pos = 0;
+  for (const line of String(text || "").split(/(?<=\n)/)) {
+    const lineStart = pos;
+    pos += line.length;
+    const m = fenceLine.exec(line.replace(/[\r\n]+$/, ""));
+    if (!m) continue;
+    const marker = m[1];
+    const info = m[2];
+    if (openChar) {
+      if (marker[0] === openChar && marker.length >= openLen && !info.trim()) {
+        spans.push([start, pos]);
+        openChar = "";
+      }
+      continue;
+    }
+    if (marker[0] === "`" && info.includes("`")) continue;
+    openChar = marker[0];
+    openLen = marker.length;
+    start = lineStart;
+  }
+  if (openChar) spans.push([start, String(text || "").length]);
+  return spans;
+}
+
+function h2Section(body, heading) {
+  const text = body || "";
+  const spans = fencedSpans(text);
+  const re = /^##[ \t]+(.+?)[ \t]*$/gm;
+  const matches = [];
+  let m = re.exec(text);
+  while (m) {
+    if (!spans.some(([a, b]) => m.index >= a && m.index < b)) matches.push(m);
+    m = re.exec(text);
+  }
+  for (let i = 0; i < matches.length; i++) {
+    if (matches[i][1] === heading) {
+      const start = matches[i].index + matches[i][0].length;
+      const end = i + 1 < matches.length ? matches[i + 1].index : text.length;
+      return text.slice(start, end).trim();
+    }
+  }
+  return "";
+}
+
+const PLACEHOLDERS = new Set([
+  "_preencha o resumo._",
+  "_preencha a tese._",
+  "_preencha a definicao._",
+  "_preencha os limites._",
+  "_cole o trecho da fonte aqui._",
+  "_trecho nao disponivel._",
+  "_sem resumo._",
+  "_nenhum._",
+  "_nenhum candidato._",
+  "_nenhuma._",
+]);
+
+function realText(text) {
+  const value = String(text || "").trim();
+  return value && !PLACEHOLDERS.has(value.toLowerCase()) ? value : "";
+}
+
+function readManagedBlock(content, name) {
+  const start = `<!-- zettel:${name}:start -->`;
+  const end = `<!-- zettel:${name}:end -->`;
+  const i = content.indexOf(start);
+  const j = content.indexOf(end);
+  if (i < 0 || j < 0 || j < i) return "";
+  return content.slice(i + start.length, j).trim();
+}
+
+function candidateTheses(body) {
+  const raw = realText(h2Section(body, "Candidatos a Nota Permanente"));
+  const theses = [];
+  const re = /^\s*-\s*\[[ xX]\]\s*(.+)$/gm;
+  let m = re.exec(raw);
+  while (m) {
+    const line = m[1].replace(/\s*<sub>.*?<\/sub>\s*$/u, "").trim().replace(/^\*+|\*+$/g, "").trim();
+    if (line) theses.push(line);
+    m = re.exec(raw);
+  }
+  return theses;
+}
+
+function keyConcepts(body) {
+  const raw = realText(h2Section(body, "Conceitos-chave"));
+  return [...raw.matchAll(/#([\w/-]+)/g)].map((m) => m[1]);
+}
+
+function embeddedImages(body) {
+  const paths = [];
+  const wiki = /!\[\[([^\]|]+?)(\|[^\]]*)?\]\]/g;
+  const md = /!\[[^\]]*\]\(([^)]+)\)/g;
+  let m = wiki.exec(body || "");
+  while (m) {
+    paths.push(m[1].trim());
+    m = wiki.exec(body || "");
+  }
+  m = md.exec(body || "");
+  while (m) {
+    paths.push(m[1].trim());
+    m = md.exec(body || "");
+  }
+  return paths.filter(Boolean);
+}
+
+function sectionTopic(sectionPath) {
+  const last = String(sectionPath || "")
+    .split(">")
+    .pop()
+    .trim();
+  return ["documento completo", ""].includes(last.toLowerCase()) ? "" : last;
+}
+
+function literatureChunkTopic(sectionPath, summary, thesis) {
+  if (thesis && String(thesis).trim()) return String(thesis).trim();
+  if (summary && String(summary).trim()) {
+    const words = String(summary).trim().split(/\s+/);
+    return words.length ? words.slice(0, 8).join(" ") : "nota";
+  }
+  return sectionTopic(sectionPath) || "nota";
+}
+
+function formatLocator(pageInBook, sectionPath, pageInFile) {
+  const parts = [];
+  if (pageInBook != null) parts.push(`p.${pageInBook}`);
+  else if (pageInFile != null) parts.push(`p.arquivo.${pageInFile}`);
+  if (sectionPath) parts.push(sectionPath);
+  return parts.join(" / ");
+}
+
+function authorSurname(name) {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  return parts.length ? parts[parts.length - 1].toUpperCase() : "";
+}
+
+function formatAbnt(authors, year, pages) {
+  const cleaned = (authors || []).map((a) => String(a).trim()).filter(Boolean);
+  const yearStr = year != null && year !== "" ? String(year) : "s.d.";
+  if (!cleaned.length) return year != null && year !== "" ? `(${yearStr})` : "";
+  let citeAuthors;
+  if (cleaned.length === 1) citeAuthors = authorSurname(cleaned[0]);
+  else if (cleaned.length === 2) citeAuthors = `${authorSurname(cleaned[0])}; ${authorSurname(cleaned[1])}`;
+  else if (cleaned.length === 3) {
+    citeAuthors = `${authorSurname(cleaned[0])}; ${authorSurname(cleaned[1])}; ${authorSurname(cleaned[2])}`;
+  } else citeAuthors = `${authorSurname(cleaned[0])} et al.`;
+  if (pages && String(pages).trim()) return `(${citeAuthors}, ${yearStr}, ${String(pages).trim()})`;
+  return `(${citeAuthors}, ${yearStr})`;
+}
+
+function literatureRef(file, page, topic) {
+  const rel = String(file.path || "")
+    .replace(/^20_Literature\//, "")
+    .replace(/\.md$/, "");
+  const alias = page != null ? `p. ${page} — ${topic}` : topic;
+  return `[[${rel}|${alias}]]`;
+}
+
+function evidenceBlock(citation, quote) {
+  const lines = [];
+  if (citation) lines.push(`- Citação: ${citation}`);
+  if (quote) {
+    const suffix = citation ? ` ${citation}` : "";
+    lines.push(`\n- Trecho literal:\n\n> "${quote}"${suffix}\n`);
+  }
+  if (!lines.length) return "";
+  return `\n\n<!-- zettel:auto-evidence:start -->\n${lines.join("\n")}\n<!-- zettel:auto-evidence:end -->`;
+}
+
+function figuresSection(paths) {
+  if (!paths.length) return "";
+  return `## Figuras\n\n${paths.map((p) => `![[${p}]]`).join("\n\n")}\n\n`;
+}
+
+function judgementList(raw) {
+  if (!Array.isArray(raw)) return undefined;
+  const values = raw.map((item) => String(item).trim()).filter(Boolean).slice(0, 3);
+  return values.length ? values : undefined;
+}
+
+function deriveCandidate(content, meta, thesisOverride) {
+  const summary = realText(h2Section(content, "Resumo"));
+  const theses = candidateTheses(content);
+  let thesis = String(thesisOverride || "").trim() || theses[0] || "";
+  if (!thesis && summary) thesis = summary.split("\n\n")[0].trim();
+  if (!thesis) {
+    throw new Error(
+      "Nao foi possivel derivar uma tese da nota de literatura: preencha " +
+        "'## Resumo' ou '## Candidatos a Nota Permanente', ou informe --thesis.",
+    );
+  }
+  const quote = realText(readManagedBlock(content, "auto-source-excerpt"));
+  return {
+    thesis,
+    definition: summary || thesis,
+    anchorQuote: quote,
+    tags: keyConcepts(content),
+    sourceLocator: formatLocator(meta.page_in_book, meta.section_path || "", meta.page_in_file),
+  };
+}
+
 // -- note flows: prompt, move the file to its final name, return the content --
 
 async function permanent(tp) {
-  const title = await ask(tp, "Titulo da nota permanente");
-  const source = await pickSource(tp, true);
+  assertFreshTarget(tp);
+  const src = await pickSource(tp, false);
+  const lit = await pickLiterature(tp, src.citekey);
+  const thesisOverride = await ask(tp, "Tese (Enter para derivar da LIT)", false);
+  const content = await readVault(lit.file);
+  const candidate = deriveCandidate(content, lit, thesisOverride);
+  const definition = candidate.definition !== candidate.thesis ? candidate.definition : "";
+  const title = candidate.thesis.slice(0, 100);
+  const page = lit.page_in_book ?? lit.page_in_file;
+  const pages = page != null ? `p. ${page}` : "";
+  const citation = formatAbnt(src.authors, src.year, pages);
+  const topic = literatureChunkTopic(lit.section_path, realText(h2Section(content, "Resumo")), candidate.thesis);
   const id = ulid();
-  const v = { id, title, now: vaultNow() };
-  if (source) Object.assign(v, { citekey: source.citekey, srcStem: source.stem });
+  const v = {
+    id,
+    title,
+    thesis: candidate.thesis,
+    definition: definition || "_Preencha a definicao._",
+    citekey: src.citekey,
+    srcStem: src.stem,
+    literatureRef: literatureRef(lit.file, page, topic),
+    chunkId: lit.chunk_id,
+    tags: candidate.tags,
+    page: page ?? undefined,
+    pageLine: page != null ? `\n- Página: ${page}` : "",
+    pageConfidence: page != null ? "chunk" : undefined,
+    locatorLine: candidate.sourceLocator ? `\n- Localizador: ${candidate.sourceLocator}` : "",
+    evidenceBlock: evidenceBlock(citation, candidate.anchorQuote),
+    figuresSection: figuresSection(embeddedImages(content)),
+    decisionRules: judgementList(lit.decision_rules),
+    antiPatterns: judgementList(lit.anti_patterns),
+    namedFrameworks: judgementList(lit.named_frameworks),
+    now: vaultNow(),
+  };
   await tp.file.move(`30_Permanent/${noteStem("ZTL", id, title)}`);
-  return source ? RENDER.permanentWithSource(v) : RENDER.permanent(v);
+  return RENDER.permanentFromLit(v);
 }
 
 async function source(tp) {
+  assertFreshTarget(tp);
   const title = await ask(tp, "Titulo da obra");
   const authors = (await ask(tp, "Autores, separados por ';' (Nome Sobrenome)", false))
     .split(";")
@@ -259,6 +566,7 @@ async function source(tp) {
 }
 
 async function literatureIndex(tp) {
+  assertFreshTarget(tp);
   const src = await pickSource(tp, false);
   const stem = literatureIndexStem(src.citekey, src.title);
   if (app.vault.getAbstractFileByPath(`20_Literature/${stem}.md`)) {
@@ -270,6 +578,7 @@ async function literatureIndex(tp) {
 }
 
 async function literature(tp) {
+  assertFreshTarget(tp);
   const src = await pickSource(tp, false);
   const topic = await ask(tp, "Topico desta nota de literatura");
   const page = await askInt(tp, "Pagina impressa (opcional)");
@@ -293,6 +602,7 @@ async function literature(tp) {
 }
 
 async function moc(tp) {
+  assertFreshTarget(tp);
   const title = await ask(tp, "Tema do MOC");
   const id = ulid();
   await tp.file.move(`40_MOCs/${noteStem("MOC", id, title)}`);
@@ -311,6 +621,11 @@ const HELPERS = {
   provisionalCitekey,
   disambiguation,
   vaultNow,
+  formatAbnt,
+  formatLocator,
+  literatureChunkTopic,
+  evidenceBlock,
+  figuresSection,
 };
 
 // Templater calls a user script as `tp.user.zettel()`; it must export a function.
