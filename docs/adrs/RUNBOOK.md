@@ -240,6 +240,22 @@ Turning a summary into evidence is OUT OF BOUNDS:
 
 ### Permanent Notes & Graph
 
+#### "Quero escrever notas no Obsidian, sem rede, e sincronizar depois"
+```
+Read ADRs:
+  1. ADR-066 (Obsidian as an offline authoring surface)
+     → templates gerados dos scaffolds, setup do Templater no init, sync sem embedding
+  2. ADR-030 (Manual notes adopted at sync time)
+     → sync-manual e o unico ponto de adocao; notas manuais nao passam pelo portao
+  3. ADR-064 (Managed blocks refuse malformed markers)
+     → nota editada a mao com marcador quebrado e recusada, nunca reescrita
+
+Debug:
+  - `zettel doctor`: "Obsidian (templates)", "Vetores de notas", "Notas sem arquivo"
+  - `zettel sync-manual`: lista "Nao adotada" (motivo por nota) e vetores pendentes
+  - Nota apagada no vault: `zettel sync-manual --prune` (so as manuais)
+```
+
 #### "Permanent notes are not retrievable via hybrid search"
 ```
 Read ADRs:
@@ -639,6 +655,8 @@ Recommended:
 | **cli/** (package) | 026, 032 | Typer/Rich framework (all commands routed through), package layout |
 | **domain_examples.py** | 042 | Leaf loader for few-shots (`domain.examples_path`) |
 | **manual_lit.py** | 030, 043 | Manual LIT adoption; `suggest-links` without Prompt 2 |
+| **sync.py** | 030, 031, 059, 066 | Adoption, images, sync offline (vetores pendentes), grafo manual em duas passadas, notas movidas/apagadas |
+| **obsidian.py, new_note.py** | 030, 066 | Templates do Obsidian gerados dos scaffolds, setup do Templater no `init` |
 
 ---
 

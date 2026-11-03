@@ -51,7 +51,7 @@ MOCs (portas de entrada) por categoria da taxonomia + clusterização
 | [Pipeline](docs/pipeline.md)                    | O que cada fase faz por dentro, incluindo paginação arquivo vs. impressa                 |
 | [Notas geradas](docs/notas.md)                  | Formato de SRC, índice LIT, LIT granular e ZTL; tipos documentais ABNT                   |
 | [Recuperação](docs/recuperacao.md)              | Busca híbrida (vetor + BM25 + RRF), GraphRAG, piso de relevância, `ask` e `article`      |
-| [Notas manuais](docs/notas-manuais.md)          | `new-note`, `sync-manual`, `suggest-links`, adoção de LIT e de imagens, caminho LIT → ZTL |
+| [Notas manuais](docs/notas-manuais.md)          | `new-note`, templates do Obsidian, `sync-manual` offline, `suggest-links`, adoção de LIT e de imagens, caminho LIT → ZTL |
 | [Interface web](docs/interface-web.md)          | Subir a UI, páginas, fila de jobs, o que é exclusivo da CLI                              |
 | [Operação](docs/operacao.md)                    | Retenção, `reindex`/`rebuild`/`rechunk`, dumps, purga, remoção de fonte, backup          |
 | [Solução de problemas](docs/troubleshooting.md) | Sintomas comuns e como sair deles                                                        |
@@ -87,6 +87,8 @@ uv run python -m zettel run-all
 # 5. Abra a pasta ./vault no Obsidian
 ```
 
+O `init` também deixa o vault pronto para escrever notas no próprio Obsidian, sem rede: templates com o Templater geram a nota com o mesmo formato do pipeline, e `zettel sync-manual` a leva para o banco ([notas manuais](docs/notas-manuais.md#criar-notas-direto-no-obsidian-templates), ADR-066).
+
 Passo a passo completo (GPU, provedores locais, dependências opcionais): [docs/instalacao.md](docs/instalacao.md).
 
 Os exemplos abaixo usam `python -m zettel ...`; prefixe com `uv run` se o ambiente não estiver ativado.
@@ -100,7 +102,7 @@ Os exemplos abaixo usam `python -m zettel ...`; prefixe com `uv run` se o ambien
 
 | Comando                           | O que faz                                                                    |
 | --------------------------------- | ---------------------------------------------------------------------------- |
-| `zettel init`                     | Cria o vault e as bases (`--reset` apaga também SQLite/Chroma/cache)         |
+| `zettel init`                     | Cria o vault (sem apagar o que existe), as bases e os templates do Obsidian; `--reset` recria SQLite/Chroma/cache e remove só as notas do pipeline |
 | `zettel harvest`                  | Escaneia o inbox, extrai texto, cria SRC + índice LIT + chunks com página    |
 | `zettel extract`                  | Prompt 1: gera drafts de LIT granular em `00_Inbox/Review`                   |
 | `zettel review`                   | Portão humano: aprova/rejeita os drafts; um chunk recusado pelo extract pode voltar para extração obrigatória |
@@ -110,7 +112,8 @@ Os exemplos abaixo usam `python -m zettel ...`; prefixe com `uv run` se o ambien
 | `zettel article "..."`            | Artigo longo a partir do vault, com outline interativo                       |
 | `zettel skill`                    | Exporta um recorte aprovado do vault como Agent Skill plana                  |
 | `zettel new-note`                 | Scaffold de nota manual (`ztl`/`src`/`lit`/`moc`)                            |
-| `zettel sync-manual`              | Adota notas escritas à mão no Obsidian (índice, grafo, backrefs)             |
+| `zettel sync-manual`              | Adota notas escritas à mão no Obsidian (índice, grafo, backrefs), também sem rede; `--prune` remove as apagadas |
+| `zettel obsidian-setup`           | Templates do Obsidian (Templater) e configuração do `.obsidian/` num vault existente |
 | `zettel suggest-links`            | Sugere conexões (incl. analogias distantes) sem reescrever a ZTL             |
 | `zettel status` / `zettel doctor` | Estatísticas do pipeline / diagnóstico de config e dependências              |
 | `zettel db-report`                | Relatório de tamanho e conteúdo de `state.db` e Chroma                       |

@@ -118,6 +118,13 @@ class MocsMixin(StateBase):
         )
         return {r["hub_note_id"] for r in rows if r["hub_note_id"]}
 
+    def update_moc_path(self, moc_id: str, path: str) -> None:
+        """Point a MOC row at the file it moved to (renamed in Obsidian, #348)."""
+        self.conn.execute(
+            "UPDATE mocs SET path=?, updated_at=? WHERE moc_id=?", (path, self._now(), moc_id)
+        )
+        self.conn.commit()
+
     def delete_mocs(self, moc_ids: list[str]) -> None:
         """Remove MOC rows by id (the caller decides which ones are safe)."""
         if not moc_ids:

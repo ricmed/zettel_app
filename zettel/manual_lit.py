@@ -19,14 +19,19 @@ from pathlib import Path
 from typing import Any
 
 from zettel.config import AppConfig
-from zettel.hashing import normalize_text_for_hash, sha256_hex, short_hash
+from zettel.hashing import (
+    SCAFFOLD_PLACEHOLDERS,
+    normalize_text_for_hash,
+    sha256_hex,
+    short_hash,
+)
 from zettel.index import VectorIndex
 from zettel.markdown_fences import h2_section
 from zettel.note_content import thesis_from_permanent_note
 from zettel.schemas import PermanentNoteCandidate
 from zettel.state import StateDB
 from zettel.time import now_vault_iso
-from zettel.vault import compose_note, read_managed_block
+from zettel.vault import compose_note, frontmatter_json, read_managed_block
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +47,7 @@ def _ztl_llm_rejected_message(reason: str) -> str:
     return f"{head} Enriqueça o resumo ou a tese da LIT e tente de novo, ou crie a ZTL sem o LLM."
 
 
-_PLACEHOLDERS = {
-    "_preencha o resumo._",
-    "_preencha a tese._",
-    "_preencha a definicao._",
-    "_cole o trecho da fonte aqui._",
+_PLACEHOLDERS = SCAFFOLD_PLACEHOLDERS | {
     "_trecho nao disponivel._",
     "_sem resumo._",
     "_nenhum._",
@@ -454,7 +455,7 @@ def _attach_uploaded_figures(
                 note_semantic_checksum=semantic,
                 embedding_model=row.get("embedding_model"),
                 body=new_body,
-                frontmatter_json=json.dumps(meta, ensure_ascii=False),
+                frontmatter_json=frontmatter_json(meta),
                 origin=row.get("origin") or "manual",
                 provenance_json=row.get("provenance_json"),
             )

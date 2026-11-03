@@ -17,8 +17,10 @@ from zettel.vault import (
     normalize_note_id,
     note_filename,
     parse_frontmatter,
+    partition_vault_notes,
     permanent_wikilink,
     read_managed_block,
+    remove_pipeline_notes,
     rewrite_bare_permanent_wikilinks,
     safe_update_managed_blocks,
     source_note_filename,
@@ -527,3 +529,60 @@ def test_rewrite_bare_permanent_wikilinks_uses_file_stem():
     # Already-slugged wikilink is not a "bare" target, so it stays as written.
     assert f"[[ZTL - {ulid} - analise]] (keeps slug form)" in out
     assert "ZTL - ZTL" not in out
+
+
+# -- init_vault / partition_vault_notes (#341) --------------------------------
+
+
+def _note(path, origin=None, text="Corpo."):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    meta = f"origin: {origin}\n" if origin else ""
+    path.write_text(f"---\ntype: permanent\n{meta}---\n\n{text}\n", encoding="utf-8")
+    return path
+
+
+def test_partition_vault_notes_marks_only_pipeline_origins_for_removal(tmp_path):
+    pipeline = _note(tmp_path / "30_Permanent" / "ZTL - A - x.md", "pipeline")
+    hub = _note(tmp_path / "40_MOCs" / "MOC - B - y.md", "hub_pipeline")
+    manual = _note(tmp_path / "30_Permanent" / "ZTL - C - z.md", "manual")
+    no_origin = _note(tmp_path / "30_Permanent" / "Minha ideia.md")
+    ask = _note(tmp_path / "00_Inbox" / "ASK - pergunta.md", "ask")
+    broken = tmp_path / "10_Sources" / "SRC - Quebrada.md"
+    broken.parent.mkdir(parents=True)
+    broken.write_text("---\norigin: pipeline: [\n---\n\nCorpo.\n", encoding="utf-8")
+    hidden = _note(tmp_path / ".obsidian" / "snippets" / "nota.md", "pipeline")
+
+    removable, kept = partition_vault_notes(tmp_path)
+
+    assert removable == sorted([hub, pipeline])
+    assert set(kept) == {manual, no_origin, ask, broken}
+    assert hidden not in removable + kept
+
+
+def test_remove_pipeline_notes_drops_empty_citekey_folders_but_not_vault_folders(tmp_path):
+    from zettel.vault import VAULT_DIRS, init_vault
+
+    init_vault(tmp_path)
+    lit = _note(tmp_path / "20_Literature" / "Autor2020" / "LIT - p001.md", "pipeline")
+    src = _note(tmp_path / "10_Sources" / "SRC - Autor2020.md", "pipeline")
+
+    assert remove_pipeline_notes(tmp_path, [lit, src]) == 2
+
+    assert not lit.exists() and not src.exists()
+    assert not (tmp_path / "20_Literature" / "Autor2020").exists()
+    for folder in VAULT_DIRS:
+        assert (tmp_path / folder).is_dir()
+
+
+def test_init_vault_keeps_what_is_already_there(tmp_path):
+    from zettel.vault import init_vault
+
+    manual = _note(tmp_path / "30_Permanent" / "ZTL - C - z.md", "manual")
+    settings = tmp_path / ".obsidian" / "app.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text("{}", encoding="utf-8")
+
+    init_vault(tmp_path)
+
+    assert manual.read_text(encoding="utf-8").endswith("Corpo.\n")
+    assert settings.read_text(encoding="utf-8") == "{}"

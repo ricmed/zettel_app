@@ -51,14 +51,14 @@ _PRESERVED_FORM_FIELDS = (
 )
 
 
-def _picker_sources(db: Any) -> list[dict]:
+def _picker_sources(cfg: Any, db: Any) -> list[dict]:
     items = []
     for row in db.search_sources("", 50):
         items.append(
             {
                 "id": row["source_id"],
                 "label": source_label(row),
-                "next_chunk_index": db.next_manual_chunk_index(row["source_id"]),
+                "next_chunk_index": _next_chunk_index(cfg, db, row["source_id"]),
             }
         )
     return items
@@ -71,6 +71,12 @@ def _picker_literature(db: Any, source_id: str | None) -> list[dict]:
         {"id": row["chunk_id"], "label": lit_label(row)}
         for row in db.search_literature_chunks("", source_id=source_id, limit=50)
     ]
+
+
+def _next_chunk_index(cfg: Any, db: Any, source_id: str) -> int:
+    from zettel.new_note import next_manual_chunk_index
+
+    return next_manual_chunk_index(cfg.vault_path, source_id, db)
 
 
 def _clean_type(raw: str) -> str:
@@ -139,7 +145,7 @@ def _form_page(
         "manual_notes.html",
         status_code=status_code,
         page="manual-notes",
-        recent_sources=_picker_sources(db),
+        recent_sources=_picker_sources(cfg, db),
         recent_literature=_picker_literature(db, source_id),
         document_types=_document_type_options(),
         selected_document_type=selected.get("document_type") or "",
@@ -159,7 +165,7 @@ def _form_page(
         selected_force=bool(selected.get("force")),
         selected_use_llm=bool(selected.get("use_llm")),
         default_chunk_index=selected.get("chunk_index")
-        or (db.next_manual_chunk_index(source_id) if source_id else 1),
+        or (_next_chunk_index(cfg, db, source_id) if source_id else 1),
     )
 
 
@@ -229,7 +235,7 @@ def new_note(
         if chunk_index.isdigit():
             index = int(chunk_index)
         elif accepted and note_type == "LIT":
-            index = db.next_manual_chunk_index(accepted)
+            index = _next_chunk_index(service(request).cfg, db, accepted)
         granular = "1"
         return _form_page(
             request,

@@ -49,6 +49,8 @@ O `run-all` encadeia `harvest → extract → review → summarize → connect �
 | [`new-note`](#new-note) | Scaffold de notas manuais |
 | [`sync-manual`](#sync-manual) | Adota notas escritas à mão no Obsidian |
 | [`suggest-links`](#suggest-links) | Sugere conexões numa ZTL sem reescrever o texto |
+| [`obsidian-templates`](#obsidian-templates) | Gera os templates do Obsidian (Templater) em `99_Templates/` |
+| [`obsidian-setup`](#obsidian-setup) | Templates + plugin Templater + configuração do `.obsidian/` (o que o `init` faz) |
 | [`delete-source`](#delete-source) | Remove uma fonte por completo (irreversível) |
 | [`dump-chunks`](#dump-chunks) | Exporta os chunks persistidos como markdown |
 | [`dump-extraction`](#dump-extraction) | Exporta o Markdown extraído |
@@ -67,10 +69,12 @@ Todos aceitam `--config` / `-c` para apontar um YAML alternativo.
 ## `init`
 
 ```bash
-# Recria o vault vazio (apaga ./vault). State DB, Chroma e cache permanecem
+# Cria as pastas do vault que faltam e prepara o Obsidian (templates + Templater,
+# obsidian.setup_on_init). Nunca apaga notas nem .obsidian/
 python -m zettel init
 
-# Alem do vault, apaga State DB, ChromaDB e cache (pede confirmacao)
+# Apaga State DB, ChromaDB, cache e as notas origin: pipeline do vault (pede confirmacao).
+# Notas manuais, .obsidian/ e 90_Assets/ ficam; depois rode sync-manual
 python -m zettel init --reset
 
 # Overrides de caminho sem editar o YAML
@@ -79,7 +83,7 @@ python -m zettel init --vault /outro/vault --inbox /outro/inbox
 
 | Flag | Efeito |
 |---|---|
-| `--reset` | Apaga **e** recria State DB, ChromaDB e cache. Pede confirmação. |
+| `--reset` | Apaga **e** recria State DB, ChromaDB e cache, e remove do vault só as notas `origin: pipeline`/`hub_pipeline`. Pede confirmação. |
 | `--vault` | Override do `vault_path` desta execução. |
 | `--inbox` | Override do `inbox_path` desta execução. |
 
@@ -511,7 +515,8 @@ python -m zettel sync-manual --rebuild-graph
 
 | Flag | Efeito |
 |---|---|
-| `--rebuild-graph` | Antes do sync, re-deriva arestas `related` a partir dos wikilinks no corpo de **todas** as notas já persistidas no SQLite. |
+| `--rebuild-graph` | Antes do sync, re-deriva as arestas `related` com `origin=manual` a partir dos wikilinks no corpo de **todas** as notas já persistidas no SQLite. Remove as arestas manuais cujo link saiu do corpo. |
+| `--prune` | Remove do SQLite, do Chroma e do grafo as notas e MOCs **manuais** cujo arquivo foi apagado do vault. Notas do pipeline só são relatadas (`rebuild` as reescreve). |
 | `--yes` / `-y` | Confirma reprocessamento se o embedding mudou. |
 
 Veja [notas-manuais.md](notas-manuais.md).
@@ -528,6 +533,33 @@ python -m zettel suggest-links 01HABC00000000000000000000
 ```
 
 A nota precisa ter passado por `sync-manual` (ter `note_id` no SQLite). Flags: `--yes` / `-y` confirma se o embedding mudou.
+
+---
+
+## `obsidian-templates`
+
+Grava em `99_Templates/` os templates do Templater (ZTL, SRC, LIT índice, LIT granular, MOC) e o script `scripts/zettel.js`, gerados a partir dos mesmos scaffolds do `new-note`. Funciona sem rede e sem banco.
+
+```bash
+python -m zettel obsidian-templates
+python -m zettel obsidian-templates --force   # regrava templates e script existentes
+```
+
+Sem `--force`, um arquivo que já existe é mantido. Veja [notas-manuais.md](notas-manuais.md#criar-notas-direto-no-obsidian-templates).
+
+---
+
+## `obsidian-setup`
+
+Faz num vault que já existe o que o `init` faz num vault novo. Grava os templates, habilita o Templater em `.obsidian/community-plugins.json`, mescla a configuração dele em `.obsidian/plugins/templater-obsidian/data.json` e instala os arquivos do plugin na versão fixada em `obsidian.templater_version`, conferindo `obsidian.templater_sha256`. Sai com código 1 se o plugin não pôde ser instalado.
+
+```bash
+python -m zettel obsidian-setup
+python -m zettel obsidian-setup --templater-from ./templater   # pasta com main.js, manifest.json, styles.css
+python -m zettel obsidian-setup --force                        # regrava templates e reinstala o plugin
+```
+
+Veja [notas-manuais.md](notas-manuais.md#o-vault-já-sai-pronto-para-o-obsidian).
 
 ---
 

@@ -121,3 +121,53 @@ def load_provenance(row: dict[str, Any] | None) -> dict[str, Any]:
     except (TypeError, json.JSONDecodeError):
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def refresh_source_citations(db: Any, source_id: str, *, vault_timezone: str) -> int:
+    """Recompute the citation of every note of ``source_id``; return how many changed (#346).
+
+    Run when an SRC edited by hand changes the authors or the year. The same
+    ``resolve_citation`` connect uses rebuilds the string from the source row, the
+    note's chunk and its stored anchor, so the page stays where connect put it.
+    The note's ``auto-evidence`` block is rewritten where it exists, and
+    ``notes.provenance_json`` and the stored body follow.
+    """
+    from pathlib import Path
+
+    from zettel.vault import (
+        parse_frontmatter,
+        read_managed_block,
+        render_evidence_block,
+        safe_update_managed_blocks,
+    )
+
+    source = db.get_source(source_id)
+    changed = 0
+    for note in db.get_notes_for_source(source_id):
+        provenance = load_provenance(note)
+        if "citation" not in provenance:
+            continue
+        try:
+            meta = json.loads(note.get("frontmatter_json") or "{}")
+        except json.JSONDecodeError:
+            meta = {}
+        chunk_id = meta.get("chunk_id") if isinstance(meta, dict) else None
+        chunk = db.get_chunk(chunk_id) if chunk_id else None
+        anchor = str(provenance.get("anchor_quote") or "")
+        cite = resolve_citation(source, chunk, anchor).cite
+        if not cite or cite == provenance["citation"]:
+            continue
+        provenance["citation"] = cite
+        body = note.get("body") or ""
+        path = Path(note["path"]) if note.get("path") else None
+        if path is not None and path.is_file():
+            if read_managed_block(path.read_text(encoding="utf-8"), "auto-evidence") is not None:
+                safe_update_managed_blocks(
+                    path,
+                    {"auto-evidence": render_evidence_block(cite, anchor)},
+                    vault_timezone=vault_timezone,
+                )
+                body = parse_frontmatter(path.read_text(encoding="utf-8"))[1]
+        db.update_note_provenance(note["note_id"], json.dumps(provenance, ensure_ascii=False), body)
+        changed += 1
+    return changed

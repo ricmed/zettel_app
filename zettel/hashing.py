@@ -180,8 +180,25 @@ def compute_pipeline_signature(config: dict) -> str:
     return sha256_hex(canonical)
 
 
+# Text the manual scaffolds (`new-note`, the web form, the Obsidian templates)
+# leave for the author to replace. Only scaffolds write these, so dropping them
+# never changes a pipeline note's checksum (#342).
+SCAFFOLD_PLACEHOLDERS = frozenset(
+    {
+        "_preencha o resumo._",
+        "_preencha a tese._",
+        "_preencha a definicao._",
+        "_preencha os limites._",
+        "_cole o trecho da fonte aqui._",
+    }
+)
+_SCAFFOLD_PLACEHOLDER_RE = re.compile(
+    "|".join(re.escape(p) for p in sorted(SCAFFOLD_PLACEHOLDERS)), re.IGNORECASE
+)
+
+
 def extract_embeddable_text(markdown_body: str) -> str:
-    """Strip frontmatter and managed blocks, returning only semantic content."""
+    """Strip frontmatter, managed blocks and scaffold placeholders, keeping semantic content."""
     lines = markdown_body.split("\n")
     result_lines: list[str] = []
     in_frontmatter = False
@@ -208,4 +225,5 @@ def extract_embeddable_text(markdown_body: str) -> str:
             continue
         result_lines.append(line)
 
-    return normalize_text_for_hash("\n".join(result_lines))
+    text = _SCAFFOLD_PLACEHOLDER_RE.sub("", "\n".join(result_lines))
+    return normalize_text_for_hash(text)

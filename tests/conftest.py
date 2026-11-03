@@ -35,7 +35,13 @@ def _no_network(monkeypatch):
     Loopback stays open: asyncio's self-pipe on Windows and the web TestClient
     use it. Blocking ``connect`` rather than socket creation is what keeps them
     working; ``create_connection`` and every HTTP client go through ``connect``.
+    The proxy variables go too: a proxy listening on loopback would otherwise
+    carry any HTTP client to the internet (found in #345, where ``urlopen``
+    downloaded a real release through one).
     """
+    for name in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+        monkeypatch.delenv(name.lower(), raising=False)
     real_connect = socket.socket.connect
     real_connect_ex = socket.socket.connect_ex
 

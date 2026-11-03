@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import json
 import logging
-import re
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from ulid import ULID
 
@@ -25,8 +27,13 @@ from zettel.index import VectorIndex
 from zettel.retrieval import Retriever
 from zettel.state import StateDB
 from zettel.vault import (
+    PIPELINE_ORIGINS,
+    ZTL_LINK_RE,
+    MalformedFrontmatter,
     _block_pattern,
+    frontmatter_json,
     parse_frontmatter,
+    parse_frontmatter_strict,
     permanent_wikilink,
     rewrite_bare_permanent_wikilinks,
     safe_update_managed_blocks,
@@ -34,18 +41,105 @@ from zettel.vault import (
 
 logger = logging.getLogger(__name__)
 
-# A ZTL wikilink target: ULID is Crockford base32 (no I, L, O, U), 26 chars.
-_ZTL_WIKILINK = re.compile(r"\[\[ZTL - ([0-9A-HJKMNP-TV-Z]{26})")
+# What a caller hands sync: the index, a callable that opens it, or None (no vectors).
+IndexArg = VectorIndex | Callable[[], VectorIndex] | None
+
 
 # Managed blocks whose wikilinks are auto-generated (suggestions / backlinks) and
 # must NOT be treated as user-accepted connections.
 _AUTO_BLOCKS_TO_SKIP = ("auto-connections", "auto-backlinks", "auto-moc-backrefs")
 
 
-def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, int]:
+@dataclass
+class _Run:
+    """What one sync run learns as it scans, for the checks and the second pass (#347)."""
+
+    # chunk_id -> the granular LIT that claimed it first in this run.
+    claimed_chunks: dict[str, Path] = field(default_factory=dict)
+    # Permanent notes whose body was stored in this run, and those new to SQLite.
+    changed_notes: set[str] = field(default_factory=set)
+    new_notes: set[str] = field(default_factory=set)
+    # Note and MOC ids found in a file this run, and the rows whose file moved (#348).
+    seen: set[str] = field(default_factory=set)
+    moved: int = 0
+
+    def locate(self, row: dict | None, row_id: str, file_path: Path, update: Callable) -> None:
+        """Record ``row_id`` as present and point its row at ``file_path`` when it moved."""
+        self.seen.add(row_id)
+        if row and row.get("path") and row["path"] != str(file_path):
+            update(row_id, str(file_path))
+            self.moved += 1
+
+
+class NoteRejected(Exception):
+    """A note sync cannot adopt as written. Reported per note; the file is left untouched."""
+
+
+class _Vectors:
+    """The vector index for one sync run: optional, opened on first use (#343).
+
+    Sync writes SQLite and FTS first, which is all a note needs to exist. Without
+    an embedding credential the index is never opened; a provider outage in the
+    middle of the run stops further embeds, not the run. A note or source whose
+    vector was not written counts as pending, and the next sync that reaches the
+    index writes it without the note being edited.
+    """
+
+    def __init__(self, cfg: AppConfig, idx: IndexArg) -> None:
+        self.cfg = cfg
+        self._open = idx if callable(idx) else None
+        self._idx = None if callable(idx) else idx
+        self.offline_reason: str | None = None if idx is not None else "indice vetorial nao aberto"
+        self.pending = 0
+
+    def index(self) -> VectorIndex | None:
+        """The open index, or ``None`` once the run is offline."""
+        if self.offline_reason:
+            return None
+        if self._idx is None and self._open is not None:
+            from zettel.credentials import embedding_ready
+
+            if not embedding_ready(self.cfg):
+                self.offline_reason = "sem credencial de embedding"
+                return None
+            self._idx, self._open = self._open(), None
+        return self._idx
+
+    def write(self, embed: Callable[[VectorIndex], object]) -> bool:
+        """Run one embedding write; False (and one more pending) when it could not run."""
+        idx = self.index()
+        if idx is None:
+            self.pending += 1
+            return False
+        try:
+            embed(idx)
+        except Exception as exc:
+            from zettel.llm import is_llm_unavailable
+
+            if not is_llm_unavailable(exc):
+                raise
+            self.offline_reason = f"embedding indisponivel ({type(exc).__name__}: {exc})"
+            logger.warning("Sync manual segue sem embedding: %s", self.offline_reason)
+            self.pending += 1
+            return False
+        return True
+
+
+def run_sync_manual(
+    cfg: AppConfig, db: StateDB, idx: IndexArg, *, prune: bool = False
+) -> dict[str, Any]:
     """Scan all four note folders for manual/modified notes and sync them.
 
-    Returns per-type counters plus aggregate new/updated/skipped. Opens a
+    ``idx`` is the vector index, a zero-argument callable that opens it (so a run
+    with nothing to embed, or without a credential, never does), or ``None`` for a
+    SQLite-only run.
+
+    Returns per-type counters, aggregate new/updated/skipped/failed,
+    ``failures`` (``{"path", "reason"}`` per note that could not be adopted; one
+    bad note never stops the others, #342), ``embedding_pending`` and
+    ``embedding_offline`` (why vectors were not written, or ``None``; #343),
+    ``moved`` and ``missing`` (notes and MOCs whose file is gone; ``prune``
+    removes the manual ones from SQLite, Chroma and the graph, #348). Opens a
     ``sync`` run so the embedding cost of the notes it indexes is recorded (#311).
     """
     from zettel.usage import begin_run, finish_pipeline_run
@@ -53,7 +147,7 @@ def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, 
     run_id = db.start_run("sync")
     begin_run(run_id)
     try:
-        stats = _sync_all(cfg, db, idx)
+        stats = _sync_all(cfg, db, _Vectors(cfg, idx), prune=prune)
     except Exception:
         finish_pipeline_run(db, run_id, status="failed")
         raise
@@ -61,16 +155,19 @@ def run_sync_manual(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, 
     return stats
 
 
-def _sync_all(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, int]:
-    stats = {
+def _sync_all(cfg: AppConfig, db: StateDB, vectors: _Vectors, *, prune: bool) -> dict[str, Any]:
+    stats: dict[str, Any] = {
         "new": 0,
         "updated": 0,
         "skipped": 0,
+        "failed": 0,
         "sources": 0,
         "literature": 0,
         "permanent": 0,
         "mocs": 0,
     }
+    failures: list[dict[str, str]] = []
+    run = _Run()
 
     dirs_to_scan = [
         (cfg.vault_path / "10_Sources", "source", "sources"),
@@ -82,26 +179,47 @@ def _sync_all(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, int]:
     for scan_dir, note_type, counter in dirs_to_scan:
         if not scan_dir.exists():
             continue
-        # Literature may live in citekey subfolders (granular LITs).
+        # Literature may live in citekey subfolders (granular LITs). Sorted so a
+        # duplicate chunk_id is always reported on the same file.
         pattern = "**/*.md" if note_type == "literature" else "*.md"
-        for md_file in scan_dir.glob(pattern):
+        for md_file in sorted(scan_dir.glob(pattern)):
             if not md_file.is_file():
                 continue
-            result = _sync_single_note(cfg, db, idx, md_file, note_type)
-            stats[result] += 1
-            if result in ("new", "updated"):
-                stats[counter] += 1
+            try:
+                result = _sync_single_note(cfg, db, vectors, md_file, note_type, run)
+            except NoteRejected as exc:
+                reason = str(exc)
+            except Exception as exc:
+                if _stops_the_run(exc):
+                    raise
+                logger.exception("Sync manual: falha em %s", md_file)
+                reason = f"{type(exc).__name__}: {exc}"
+            else:
+                stats[result] += 1
+                if result in ("new", "updated"):
+                    stats[counter] += 1
+                continue
+            logger.warning("Sync manual: %s nao adotada: %s", md_file, reason)
+            stats["failed"] += 1
+            failures.append({"path": str(md_file), "reason": reason})
 
+    stats["moved"] = run.moved
+    stats.update(_missing_notes(cfg, db, vectors, run, prune=prune))
+    stats.update(_link_notes(db, run))
     repair = repair_permanent_links(db, vault_timezone=cfg.vault_timezone)
     stats.update(repair)
+    stats["failures"] = failures
+    stats["embedding_pending"] = vectors.pending
+    stats["embedding_offline"] = vectors.offline_reason if vectors.pending else None
 
     logger.info(
-        "Sync manual: %d novas, %d atualizadas, %d sem alteração "
+        "Sync manual: %d novas, %d atualizadas, %d sem alteração, %d com falha "
         "(sources=%d, literature=%d, permanent=%d, mocs=%d) "
         "(wikilinks_reparados=%d, backlinks_reconstruidos=%d)",
         stats["new"],
         stats["updated"],
         stats["skipped"],
+        stats["failed"],
         stats["sources"],
         stats["literature"],
         stats["permanent"],
@@ -110,6 +228,15 @@ def _sync_all(cfg: AppConfig, db: StateDB, idx: VectorIndex) -> dict[str, int]:
         stats.get("backlinks_rebuilt", 0),
     )
     return stats
+
+
+def _stops_the_run(exc: Exception) -> bool:
+    """A provider outage or a database error is not the note's fault: the next note fails too."""
+    import sqlite3
+
+    from zettel.llm import is_llm_unavailable
+
+    return isinstance(exc, sqlite3.Error) or is_llm_unavailable(exc)
 
 
 def repair_permanent_links(
@@ -153,9 +280,7 @@ def repair_permanent_links(
                 title=meta.get("title") or note.get("title") or "",
                 note_semantic_checksum=semantic_checksum,
                 body=body,
-                frontmatter_json=json.dumps(meta, ensure_ascii=False)
-                if meta
-                else note.get("frontmatter_json"),
+                frontmatter_json=frontmatter_json(meta) if meta else note.get("frontmatter_json"),
                 origin=note.get("origin") or "pipeline",
             )
             wikilinks_rewritten += 1
@@ -170,26 +295,30 @@ def repair_permanent_links(
 def _sync_single_note(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
+    vectors: _Vectors,
     file_path: Path,
     note_type: str,
+    run: _Run,
 ) -> str:
-    """Sync a single note file. Returns 'new', 'updated', or 'skipped'."""
+    """Sync a single note file. Returns 'new', 'updated', or 'skipped'.
+
+    Raises ``NoteRejected`` when the note cannot be adopted as written.
+    """
     content = file_path.read_text(encoding="utf-8")
-    meta, body = parse_frontmatter(content)
+    try:
+        meta, body = parse_frontmatter_strict(content)
+    except MalformedFrontmatter as exc:
+        raise NoteRejected(str(exc)) from exc
 
     if note_type == "source":
-        return _sync_source(cfg, db, idx, file_path, meta, body)
+        return _sync_source(cfg, db, vectors, file_path, meta, body)
     if note_type == "literature":
-        return _sync_literature(cfg, db, idx, file_path, meta, body)
+        return _sync_literature(cfg, db, vectors, file_path, meta, body, run.claimed_chunks)
     if note_type == "permanent":
-        return _sync_permanent(cfg, db, idx, file_path, meta, body)
+        return _sync_permanent(cfg, db, vectors, file_path, meta, body, run)
     if note_type == "moc":
-        return _sync_moc(cfg, db, idx, file_path, meta, body)
+        return _sync_moc(cfg, db, vectors, file_path, meta, body, run)
     return "skipped"
-
-
-_PIPELINE_ORIGINS = frozenset({"pipeline", "hub_pipeline"})
 
 
 def _manual_origin(meta: dict) -> str:
@@ -199,125 +328,207 @@ def _manual_origin(meta: dict) -> str:
 
 def _is_pipeline_origin(meta: dict) -> bool:
     """True when frontmatter says the pipeline (or hub garden) authored the note."""
-    return str(meta.get("origin") or "") in _PIPELINE_ORIGINS
+    return str(meta.get("origin") or "") in PIPELINE_ORIGINS
+
+
+def _author_list(meta: dict) -> list[str]:
+    """``author``/``authors`` as a list: a single string is one author, not a list of letters."""
+    raw = meta.get("author") or meta.get("authors") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    return [str(a).strip() for a in raw if str(a).strip()]
+
+
+# Frontmatter keys of an SRC that describe the work (sources.bibliography_json).
+_BIBLIO_KEYS = (
+    "document_type",
+    "subtitle",
+    "edition",
+    "place",
+    "publisher",
+    "translator",
+    "isbn",
+    "chapter_authors",
+    "chapter_title",
+    "book_title",
+    "book_editors",
+    "pages",
+    "journal",
+    "volume",
+    "issue",
+    "doi",
+    "url",
+    "accessed_at",
+    "site_name",
+    "published_at",
+    "institution",
+    "course",
+    "discipline",
+    "degree",
+    "advisor",
+    "event_name",
+    "report_number",
+    "title",
+    "authors",
+    "year",
+)
+
+
+def _bibliography(meta: dict, authors: list[str]) -> dict[str, Any]:
+    """The SRC's bibliographic fields, in the JSON form SQLite stores (dates as text)."""
+    payload = {k: meta[k] for k in _BIBLIO_KEYS if k in meta and meta[k] not in (None, "", [])}
+    if authors and "authors" not in payload:
+        payload["authors"] = list(authors)
+    if meta.get("year") is not None and "year" not in payload:
+        payload["year"] = meta["year"]
+    if meta.get("title") and "title" not in payload:
+        payload["title"] = meta["title"]
+    return json.loads(frontmatter_json(payload))
+
+
+def _identifiers(biblio: dict[str, Any]) -> tuple[str | None, str | None]:
+    """DOI and ISBN normalized as harvest stores them (``None`` when absent or invalid)."""
+    from zettel.harvester.biblio_dedupe import normalize_doi, normalize_isbn
+
+    return (
+        normalize_doi(str(biblio.get("doi") or "")) or None,
+        normalize_isbn(str(biblio.get("isbn") or "")) or None,
+    )
 
 
 def _sync_source(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
+    vectors: _Vectors,
     file_path: Path,
     meta: dict,
     body: str,
 ) -> str:
-    """Adopt a hand-created SRC note: register the source in the DB + index."""
+    """Adopt a hand-created SRC note, or carry an edited one into SQLite (#346)."""
     from zettel.harvester.citekey import generate_citekey
 
+    authors = _author_list(meta)
     source_id = meta.get("source_id")
     citekey = None
     if source_id:
         citekey = source_id.lstrip("@")
     else:
-        citekey = generate_citekey(
-            db,
-            meta.get("author") or meta.get("authors") or [],
-            meta.get("year"),
-            meta.get("title", file_path.stem),
-        )
+        citekey = generate_citekey(db, authors, meta.get("year"), meta.get("title", file_path.stem))
         source_id = f"@{citekey}"
         meta["source_id"] = source_id
         meta["type"] = "source"
         meta.setdefault("origin", "manual")
         _rewrite_frontmatter(file_path, meta, body)
 
+    title = str(meta.get("title") or file_path.stem)
+    year = meta.get("year") if isinstance(meta.get("year"), int) else None
+    biblio = _bibliography(meta, authors)
     existing = db.get_source(source_id)
-    origin = _manual_origin(meta)
     if existing:
-        return "skipped"
+        return _resync_source(cfg, db, vectors, existing, meta, title, authors, year, biblio)
 
-    authors = meta.get("author") or meta.get("authors") or []
-    if isinstance(authors, str):
-        authors = [authors]
-    year = meta.get("year")
-
-    biblio_payload = {
-        k: meta[k]
-        for k in (
-            "document_type",
-            "subtitle",
-            "edition",
-            "place",
-            "publisher",
-            "translator",
-            "isbn",
-            "chapter_authors",
-            "chapter_title",
-            "book_title",
-            "book_editors",
-            "pages",
-            "journal",
-            "volume",
-            "issue",
-            "doi",
-            "url",
-            "accessed_at",
-            "site_name",
-            "published_at",
-            "institution",
-            "course",
-            "discipline",
-            "degree",
-            "advisor",
-            "event_name",
-            "report_number",
-            "title",
-            "authors",
-            "year",
-        )
-        if k in meta and meta[k] not in (None, "", [])
-    }
-    if authors and "authors" not in biblio_payload:
-        biblio_payload["authors"] = list(authors)
-    if year is not None and "year" not in biblio_payload:
-        biblio_payload["year"] = year
-    if meta.get("title") and "title" not in biblio_payload:
-        biblio_payload["title"] = meta["title"]
-
-    biblio_json = json.dumps(biblio_payload, ensure_ascii=False) if biblio_payload else None
-
+    doi, isbn = _identifiers(biblio)
     db.upsert_source(
         source_id=source_id,
         citekey=citekey,
-        title=meta.get("title", file_path.stem),
+        title=title,
         authors=list(authors),
-        year=year if isinstance(year, int) else None,
+        year=year,
         file_checksum="",
         origin_path=str(file_path),
         origin_type="md",
-        origin=origin,
+        origin=_manual_origin(meta),
         document_type=meta.get("document_type"),
-        bibliography_json=biblio_json,
+        bibliography_json=json.dumps(biblio, ensure_ascii=False) if biblio else None,
+        doi=doi,
+        isbn=isbn,
         abnt_reference=meta.get("abnt_reference"),
     )
-    idx.upsert_source(
-        source_id,
-        f"{meta.get('title', file_path.stem)} -- {', '.join(authors)}",
-        {
-            "citekey": citekey,
-            "title": meta.get("title", file_path.stem),
-            "origin_type": "md",
-        },
-    )
+    _embed_source(vectors, source_id, citekey, title, authors)
     return "new"
+
+
+def _resync_source(
+    cfg: AppConfig,
+    db: StateDB,
+    vectors: _Vectors,
+    existing: dict,
+    meta: dict,
+    title: str,
+    authors: list[str],
+    year: int | None,
+    biblio: dict[str, Any],
+) -> str:
+    """Bring an edited SRC's bibliography into SQLite; the pipeline's columns stay.
+
+    A field the user wrote wins (ADR-057) and is recorded ``user`` in
+    ``bibliography_json.provenance``. A minimal source a LIT created before its
+    SRC was synced gets the SRC's authors and title. New authors or year
+    recompute the citation of the notes that cite the source.
+    """
+    from zettel.citation import refresh_source_citations
+
+    source_id = existing["source_id"]
+    stored = json.loads(existing.get("bibliography_json") or "{}")
+    edited = {k: v for k, v in biblio.items() if stored.get(k) != v}
+    stored_authors = json.loads(existing.get("authors") or "[]")
+    renamed = title != existing["title"] or authors != stored_authors
+    recite = authors != stored_authors or year != existing.get("year")
+    other = any(
+        meta.get(key) and meta[key] != existing.get(key)
+        for key in ("document_type", "abnt_reference")
+    )
+    if not (edited or renamed or recite or other):
+        idx = vectors.index()
+        if idx is None or idx.existing_ids("sources", [source_id]):
+            return "skipped"
+        # Adopted while offline: write the vector the earlier run could not (#343).
+        embedded = _embed_source(vectors, source_id, existing["citekey"], title, authors)
+        return "updated" if embedded else "skipped"
+
+    merged = {**stored, **edited}
+    if edited:
+        merged["provenance"] = {**(stored.get("provenance") or {}), **dict.fromkeys(edited, "user")}
+    doi, isbn = _identifiers(biblio)
+    db.update_source_bibliography(
+        source_id,
+        title=title,
+        authors=authors,
+        year=year,
+        document_type=meta.get("document_type"),
+        bibliography_json=json.dumps(merged, ensure_ascii=False),
+        abnt_reference=meta.get("abnt_reference"),
+        doi=doi,
+        isbn=isbn,
+    )
+    idx = vectors.index()
+    if renamed or (idx is not None and not idx.existing_ids("sources", [source_id])):
+        _embed_source(vectors, source_id, existing["citekey"], title, authors)
+    if recite:
+        refresh_source_citations(db, source_id, vault_timezone=cfg.vault_timezone)
+    return "updated"
+
+
+def _embed_source(
+    vectors: _Vectors, source_id: str, citekey: str, title: str, authors: list[str]
+) -> bool:
+    return vectors.write(
+        lambda idx: idx.upsert_source(
+            source_id,
+            f"{title} -- {', '.join(authors)}",
+            {"citekey": citekey, "title": title, "origin_type": "md"},
+        )
+    )
 
 
 def _sync_literature(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
+    vectors: _Vectors,
     file_path: Path,
     meta: dict,
     body: str,
+    claimed_chunks: dict[str, Path],
 ) -> str:
     """Adopt a hand-created LIT note (index or granular chunk).
 
@@ -337,6 +548,11 @@ def _sync_literature(
     # Skip drafts under Review
     if "00_Inbox" in file_path.parts or "Review" in file_path.parts:
         return "skipped"
+
+    chunk_id = str(meta.get("chunk_id") or "")
+    is_granular = note_type == "literature" and bool(chunk_id)
+    origin = str(meta.get("origin") or "manual")
+    _check_literature_note(cfg, file_path, is_granular, chunk_id, origin, claimed_chunks)
 
     source_id = meta.get("source_id")
     citekey = meta.get("citekey")
@@ -364,13 +580,12 @@ def _sync_literature(
         )
 
     # Granular chunk LIT
-    if note_type == "literature" and meta.get("chunk_id"):
-        chunk_id = meta["chunk_id"]
+    if is_granular:
         meta["source_id"] = source_id
-        if _manual_origin(meta) == "manual":
+        if origin == "manual":
             from zettel.manual_lit import adopt_manual_literature
 
-            return adopt_manual_literature(cfg, db, idx, file_path, meta, body)
+            return adopt_manual_literature(cfg, db, vectors.index(), file_path, meta, body)
         return _sync_pipeline_granular_literature(db, file_path, meta, chunk_id)
 
     # Index / legacy monolithic LIT → lit_body
@@ -388,6 +603,35 @@ def _sync_literature(
         return "skipped"
     db.update_source_texts(source_id, lit_body=full)
     return "new" if not (existing and existing.get("lit_body")) else "updated"
+
+
+def _check_literature_note(
+    cfg: AppConfig,
+    file_path: Path,
+    is_granular: bool,
+    chunk_id: str,
+    origin: str,
+    claimed_chunks: dict[str, Path],
+) -> None:
+    """Refuse a LIT note that would be adopted wrongly, before anything is written (#342).
+
+    A note in a source folder without ``chunk_id`` used to fall into the index
+    path and overwrite ``sources.lit_body``; an unknown ``origin`` was skipped in
+    silence; two files with one ``chunk_id`` overwrote the same chunk row.
+    """
+    in_source_folder = len(file_path.relative_to(cfg.vault_path / "20_Literature").parts) > 1
+    if in_source_folder and not is_granular:
+        raise NoteRejected(
+            "LIT dentro da pasta de uma fonte precisa de 'type: literature' e 'chunk_id' "
+            "no frontmatter (ex.: '@Citekey::manual::0001')"
+        )
+    if not is_granular:
+        return
+    if origin != "manual" and origin not in PIPELINE_ORIGINS:
+        raise NoteRejected(f"origin {origin!r} desconhecido numa LIT granular; use 'manual'")
+    first = claimed_chunks.setdefault(chunk_id, file_path)
+    if first != file_path:
+        raise NoteRejected(f"chunk_id {chunk_id!r} repetido; ja usado por {first.name}")
 
 
 def _sync_pipeline_granular_literature(
@@ -424,10 +668,11 @@ def _sync_pipeline_granular_literature(
 def _sync_permanent(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
+    vectors: _Vectors,
     file_path: Path,
     meta: dict,
     body: str,
+    run: _Run,
 ) -> str:
     """Sync a permanent (ZTL) note. Returns 'new', 'updated', or 'skipped'."""
     note_id = meta.get("note_id")
@@ -437,6 +682,9 @@ def _sync_permanent(
         meta["type"] = "permanent"
         meta.setdefault("origin", "manual")
         _rewrite_frontmatter(file_path, meta, body)
+
+    existing = db.get_note(note_id)
+    run.locate(existing, note_id, file_path, db.update_note_path)
 
     # connect already indexed these; adopting images here rewrites the body,
     # bumps the checksum and re-embeds every pipeline ZTL that cites a figure.
@@ -448,53 +696,52 @@ def _sync_permanent(
     embeddable = extract_embeddable_text(body)
     semantic_checksum = sha256_hex(normalize_text_for_hash(embeddable))
 
-    existing = db.get_note(note_id)
-    if existing and existing.get("note_semantic_checksum") == semantic_checksum:
-        from zettel.manual_lit import claim_concepts_for_note
+    from zettel.manual_lit import claim_concepts_for_note
 
+    emb_hash = compute_embedding_input_hash(
+        semantic_checksum, cfg.embedding.provider, cfg.embedding.model
+    )
+    changed = not existing or existing.get("note_semantic_checksum") != semantic_checksum
+    # A note whose vector a past offline run could not write is not skipped:
+    # skipping on the semantic checksum alone left it without a vector for good.
+    needs_vector = not existing or existing.get("embedding_input_hash") != emb_hash
+    if not changed and not needs_vector:
         claim_concepts_for_note(db, note_id, meta, body)
         return "skipped"
 
     title = meta.get("title", file_path.stem)
     source_id = meta.get("source_id")
-    origin = _manual_origin(meta)
-    db.upsert_note(
-        note_id=note_id,
-        source_id=source_id,
-        path=str(file_path),
-        title=title,
-        note_semantic_checksum=semantic_checksum,
-        embedding_model=cfg.embedding.model,
-        body=body,
-        frontmatter_json=json.dumps(meta, ensure_ascii=False),
-        origin=origin,
-    )
+    if changed:
+        db.upsert_note(
+            note_id=note_id,
+            source_id=source_id,
+            path=str(file_path),
+            title=title,
+            note_semantic_checksum=semantic_checksum,
+            embedding_model=cfg.embedding.model,
+            body=body,
+            frontmatter_json=frontmatter_json(meta),
+            origin=_manual_origin(meta),
+        )
+        # Edges wait for the second pass, when every note of the vault is known.
+        run.changed_notes.add(note_id)
+        if not existing:
+            run.new_notes.add(note_id)
 
     tags = meta.get("tags", [])
     if isinstance(tags, str):
         tags = [t.strip() for t in tags.split(",")]
-
-    # Skip re-embedding when semantic content + model are unchanged.
-    emb_hash = compute_embedding_input_hash(
-        semantic_checksum, cfg.embedding.provider, cfg.embedding.model
+    metadata = {"title": title, "source_id": source_id or "", "tags": ", ".join(tags)}
+    embedded = needs_vector and vectors.write(
+        lambda idx: idx.upsert_permanent_note(note_id, embeddable, metadata)
     )
-    if not existing or existing.get("embedding_input_hash") != emb_hash:
-        idx.upsert_permanent_note(
-            note_id,
-            embeddable,
-            {
-                "title": title,
-                "source_id": source_id or "",
-                "tags": ", ".join(tags),
-            },
-        )
+    if embedded:
         db.update_note_embedding(note_id, emb_hash, cfg.embedding.model)
-
-    _extract_body_edges(db, note_id, body)
-    _suggest_connections(cfg, db, idx, note_id, embeddable, file_path)
-    from zettel.manual_lit import claim_concepts_for_note
+        _suggest_connections(cfg, db, vectors.index(), note_id, embeddable, file_path)
 
     claim_concepts_for_note(db, note_id, meta, body)
+    if not changed and not embedded:
+        return "skipped"
     return "new" if not existing else "updated"
 
 
@@ -535,10 +782,11 @@ def _adopt_note_images(
 def _sync_moc(
     cfg: AppConfig,
     db: StateDB,
-    idx: VectorIndex,
+    vectors: _Vectors,
     file_path: Path,
     meta: dict,
     body: str,
+    run: _Run,
 ) -> str:
     """Sync a MOC note. Returns 'new', 'updated', or 'skipped'."""
     moc_id = meta.get("moc_id")
@@ -549,6 +797,7 @@ def _sync_moc(
         meta.setdefault("origin", "manual")
         _rewrite_frontmatter(file_path, meta, body)
 
+    run.locate(db.get_moc(moc_id), moc_id, file_path, db.update_moc_path)
     if _is_pipeline_origin(meta):
         return "skipped"
 
@@ -569,7 +818,7 @@ def _sync_moc(
         str(file_path),
         semantic_checksum,
         body=body,
-        frontmatter_json=json.dumps(meta, ensure_ascii=False),
+        frontmatter_json=frontmatter_json(meta),
         origin=origin,
     )
     from zettel.moc_backrefs import sync_moc_backrefs
@@ -642,56 +891,138 @@ def _strip_auto_blocks(body: str) -> str:
     return body
 
 
-def _extract_body_edges(db: StateDB, note_id: str, body: str) -> int:
-    """Persist manual wikilinks in a note body as `related` graph edges.
+def missing_note_files(db: StateDB, seen: set[str] | frozenset[str] = frozenset()) -> list[dict]:
+    """Notes and MOCs whose file is gone from the vault (``seen`` ids moved, not gone)."""
+    rows = [("nota", n["note_id"], n) for n in db.list_notes()] + [
+        ("moc", m["moc_id"], m) for m in db.list_mocs()
+    ]
+    return [
+        {"kind": kind, "id": row_id, "path": row["path"], "origin": row.get("origin") or ""}
+        for kind, row_id, row in rows
+        if row_id not in seen and row.get("path") and not Path(row["path"]).is_file()
+    ]
 
-    This closes the graph loop for hand-written notes: a wikilink the user placed
-    in the body (e.g. under `## Conexoes`) is an *accepted* connection, so it
-    becomes a real edge in note_connections. Auto-generated blocks
-    (`auto-connections` suggestions, `auto-backlinks`) are excluded — a suggestion
-    is not an acceptance. Never downgrades an already-typed edge: an edge is only
-    inserted when the pair has no existing connection in either direction.
 
-    Returns the number of new edges created.
+def _missing_notes(
+    cfg: AppConfig, db: StateDB, vectors: _Vectors, run: _Run, *, prune: bool
+) -> dict[str, Any]:
+    """Report the notes and MOCs deleted from the vault; with ``prune``, drop the manual ones.
+
+    A pipeline note is only reported: ``zettel rebuild`` writes it back from
+    SQLite. A pruned note leaves SQLite, FTS, its edges and Chroma; a pruned MOC
+    first clears its backrefs from the notes it listed. The neighbours'
+    ``auto-backlinks`` are rebuilt by ``repair_permanent_links`` after this.
     """
-    stripped = _strip_auto_blocks(body)
-    targets = {m for m in _ZTL_WIKILINK.findall(stripped) if m != note_id}
+    from zettel.moc_backrefs import clear_moc_backrefs
+    from zettel.topic_index import SCOPE_MOC
+
+    missing = missing_note_files(db, run.seen)
+    pruned = 0
+    if prune:
+        removed_notes: list[str] = []
+        for item in missing:
+            if item["origin"] in PIPELINE_ORIGINS:
+                continue
+            if item["kind"] == "nota":
+                db.delete_note(item["id"])
+                removed_notes.append(item["id"])
+            else:
+                clear_moc_backrefs(db, db.get_moc(item["id"]), vault_timezone=cfg.vault_timezone)
+                db.delete_topic_index_scope(SCOPE_MOC, item["id"])
+                db.delete_mocs([item["id"]])
+            item["pruned"] = True
+            pruned += 1
+        idx = vectors.index()
+        if idx is not None and removed_notes:
+            idx.delete_permanent_notes(removed_notes)
+    return {"missing": missing, "pruned": pruned}
+
+
+def linked_note_ids(body: str) -> set[str]:
+    """Permanent notes a body links to, outside the auto-generated blocks."""
+    return set(ZTL_LINK_RE.findall(_strip_auto_blocks(body or "")))
+
+
+def _link_notes(db: StateDB, run: _Run) -> dict[str, int]:
+    """Second pass: derive body edges once every note of the vault is in SQLite (#347).
+
+    Covers the notes stored in this run and the hand-written ones whose body
+    links to a note that only now became known: their link pointed at nothing
+    when they were synced, and an unchanged note is not read again.
+    """
+    todo = set(run.changed_notes)
+    if run.new_notes:
+        for note in db.list_notes():
+            if note["note_id"] in todo or note.get("origin") in PIPELINE_ORIGINS:
+                continue
+            if linked_note_ids(note.get("body") or "") & run.new_notes:
+                todo.add(note["note_id"])
+    created = removed = 0
+    for note_id in sorted(todo):
+        row = db.get_note(note_id)
+        if row:
+            added, dropped = _extract_body_edges(db, note_id, row.get("body") or "")
+            created += added
+            removed += dropped
+    return {"edges_created": created, "edges_removed": removed}
+
+
+def _extract_body_edges(db: StateDB, note_id: str, body: str) -> tuple[int, int]:
+    """Make a note's ``origin='manual'`` edges match the links in its body.
+
+    A wikilink the user placed in the body (e.g. under `## Conexoes`) is an
+    *accepted* connection, so it becomes a `related` edge in note_connections.
+    Auto-generated blocks (`auto-connections` suggestions, `auto-backlinks`) are
+    excluded: a suggestion is not an acceptance. An edge is only inserted when the
+    pair has no connection in either direction, so a typed edge is never
+    downgraded (ADR-009). A manual edge whose link left the body is removed;
+    ``llm`` and ``derived`` edges are never touched (#347).
+
+    Returns ``(created, removed)``.
+    """
+    targets = linked_note_ids(body) - {note_id}
+
+    removed = 0
+    for edge in db.list_outgoing_connections(note_id, origin="manual"):
+        if edge["target_note_id"] not in targets:
+            removed += db.delete_note_connection(
+                note_id, edge["target_note_id"], edge["relation_type"], origin="manual"
+            )
     if not targets:
-        return 0
+        return 0, removed
 
-    existing_edges = db.get_note_connections(note_id)
     connected_pairs = {
-        frozenset((e["source_note_id"], e["target_note_id"])) for e in existing_edges
+        frozenset((e["source_note_id"], e["target_note_id"]))
+        for e in db.get_note_connections(note_id)
     }
-
     created = 0
-    for target in targets:
+    for target in sorted(targets):
         if not db.get_note(target):
             continue  # only link to notes the pipeline knows about
         if frozenset((note_id, target)) in connected_pairs:
-            continue  # already connected (any type / direction) — do not downgrade
+            continue  # already connected (any type / direction): do not downgrade
         db.upsert_note_connection(note_id, target, "related", "wikilink manual", origin="manual")
         connected_pairs.add(frozenset((note_id, target)))
         created += 1
-    return created
+    return created, removed
 
 
 def rebuild_manual_edges(db: StateDB) -> dict[str, int]:
-    """Re-derive `related` edges from every note body already stored in SQLite.
+    """Re-derive the manual edges of every note from the bodies already in SQLite.
 
-    Backfills the graph for a vault written before this feature existed, without
-    touching any file (note bodies are persisted in the notes table).
+    Backfills the graph for a vault written before this feature existed, and
+    drops manual edges whose link is gone, without touching any file.
     """
-    notes = db.list_notes()
-    total_edges = 0
-    scanned = 0
-    for note in notes:
+    scanned = created = removed = 0
+    for note in db.list_notes():
         body = note.get("body")
         if not body:
             continue
         scanned += 1
-        total_edges += _extract_body_edges(db, note["note_id"], body)
-    return {"notes_scanned": scanned, "edges_created": total_edges}
+        added, dropped = _extract_body_edges(db, note["note_id"], body)
+        created += added
+        removed += dropped
+    return {"notes_scanned": scanned, "edges_created": created, "edges_removed": removed}
 
 
 def _rewrite_frontmatter(file_path: Path, meta: dict, body: str) -> None:

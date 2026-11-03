@@ -201,6 +201,34 @@
   {% endif %}
   {% if result.saved_path %}<p>Salvo em <code>{{ result.saved_path }}</code></p>{% endif %}
 </section>
+{% elif result.kind == 'sync' %}
+<section class="panel">
+  <div class="result-heading">
+    <h2>Sync manual</h2>
+  </div>
+  <table class="studio-table">
+    <tbody>
+      <tr><th>Novas</th><td>{{ result.new or 0 }}</td></tr>
+      <tr><th>Atualizadas</th><td>{{ result.updated or 0 }}</td></tr>
+      <tr><th>Sem alteração</th><td>{{ result.skipped or 0 }}</td></tr>
+      <tr><th>Não adotadas</th><td>{{ result.failed or 0 }}</td></tr>
+      <tr><th>Vetores pendentes</th><td>{{ result.embedding_pending or 0 }}</td></tr>
+      <tr><th>Movidas</th><td>{{ result.moved or 0 }}</td></tr>
+      <tr><th>Sem arquivo no vault</th><td>{{ (result.missing or [])|length }}</td></tr>
+    </tbody>
+  </table>
+  {% if result.missing %}
+  <p>Estas notas sumiram do vault e continuam no banco. Para removê-las, rode <code>zettel sync-manual --prune</code> na CLI (só as manuais; as do pipeline voltam com <code>zettel rebuild</code>):</p>
+  <ul>{% for item in result.missing %}<li><code>{{ item.path }}</code> ({{ item.kind }}, {{ item.origin or 'manual' }})</li>{% endfor %}</ul>
+  {% endif %}
+  {% if result.embedding_pending %}
+  <p>As notas já estão no banco, mas sem vetor ({{ result.embedding_offline }}). Rode o sync de novo quando o embedding estiver disponível.</p>
+  {% endif %}
+  {% if result.failures %}
+  <p>Corrija estas notas no vault e rode o sync de novo:</p>
+  <ul>{% for failure in result.failures %}<li><code>{{ failure.path }}</code>: {{ failure.reason }}</li>{% endfor %}</ul>
+  {% endif %}
+</section>
 {% elif result.kind == 'connect' %}
 <section class="panel">
   <div class="result-heading">

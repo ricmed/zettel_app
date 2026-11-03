@@ -165,6 +165,50 @@ class SourcesMixin(StateBase):
         )
         self.conn.commit()
 
+    def update_source_bibliography(
+        self,
+        source_id: str,
+        *,
+        title: str,
+        authors: list[str],
+        year: int | None,
+        document_type: str | None,
+        bibliography_json: str | None,
+        abnt_reference: str | None,
+        doi: str | None,
+        isbn: str | None,
+    ) -> None:
+        """Rewrite only the bibliographic columns of a source (an SRC edited by hand, #346).
+
+        Extraction, paging, chapters, the literature index snapshot and costs are
+        the pipeline's and stay as they are. An absent DOI, ISBN, document type or
+        ABNT reference keeps the stored one.
+        """
+        self.conn.execute(
+            """UPDATE sources SET
+                 title=?, authors=?, year=?,
+                 document_type=COALESCE(?, document_type),
+                 bibliography_json=COALESCE(?, bibliography_json),
+                 abnt_reference=COALESCE(?, abnt_reference),
+                 doi=COALESCE(?, doi),
+                 isbn=COALESCE(?, isbn),
+                 updated_at=?
+               WHERE source_id=?""",
+            (
+                title,
+                json.dumps(authors),
+                year,
+                document_type,
+                bibliography_json,
+                abnt_reference,
+                doi,
+                isbn,
+                self._now(),
+                source_id,
+            ),
+        )
+        self.conn.commit()
+
     def update_source_texts(
         self,
         source_id: str,

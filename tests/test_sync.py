@@ -11,7 +11,7 @@ from zettel.sync import (
     run_sync_manual,
 )
 
-from tests.fakes import FakeVectorIndex, calls_to
+from tests.fakes import FakeVectorIndex, calls_to, deleted
 
 
 @pytest.fixture
@@ -280,8 +280,7 @@ def _seed(db, *note_ids):
 def test_body_wikilink_creates_related_edge(db):
     _seed(db, _A, _B)
     body = f"> **Tese**: x\n\n## Conexoes\n\n- [[ZTL - {_B} - nota-b]]: relacionada"
-    created = _extract_body_edges(db, _A, body)
-    assert created == 1
+    assert _extract_body_edges(db, _A, body) == (1, 0)
     edges = db.get_note_connections(_A)
     assert len(edges) == 1
     assert edges[0]["relation_type"] == "related"
@@ -313,10 +312,10 @@ def test_distant_suggestion_is_not_an_edge_until_moved_out_of_block(db):
         f"- [[ZTL - {_C} - nota-c]] (exemplifies) -- analogia distante\n"
         f"<!-- zettel:auto-connections:end -->\n"
     )
-    assert _extract_body_edges(db, _A, body) == 0
+    assert _extract_body_edges(db, _A, body) == (0, 0)
     assert db.get_note_connections(_A) == []
     body_endorsed = body + f"\n\n## Conexoes\n\n- [[ZTL - {_C} - nota-c]]\n"
-    assert _extract_body_edges(db, _A, body_endorsed) == 1
+    assert _extract_body_edges(db, _A, body_endorsed) == (1, 0)
     edges = db.get_note_connections(_A)
     assert edges[0]["origin"] == "manual"
     assert edges[0]["relation_type"] == "related"
@@ -325,22 +324,21 @@ def test_distant_suggestion_is_not_an_edge_until_moved_out_of_block(db):
 def test_self_link_ignored(db):
     _seed(db, _A)
     body = f"- [[ZTL - {_A} - eu-mesmo]]"
-    assert _extract_body_edges(db, _A, body) == 0
+    assert _extract_body_edges(db, _A, body) == (0, 0)
     assert db.get_note_connections(_A) == []
 
 
 def test_link_to_unknown_note_ignored(db):
     _seed(db, _A)  # _B not seeded
     body = f"- [[ZTL - {_B} - fantasma]]"
-    assert _extract_body_edges(db, _A, body) == 0
+    assert _extract_body_edges(db, _A, body) == (0, 0)
 
 
 def test_existing_typed_edge_not_downgraded(db):
     _seed(db, _A, _B)
     db.upsert_note_connection(_A, _B, "contradicts", "tensiona")
     body = f"- [[ZTL - {_B} - nota-b]]"
-    created = _extract_body_edges(db, _A, body)
-    assert created == 0
+    assert _extract_body_edges(db, _A, body) == (0, 0)
     edges = db.get_note_connections(_A)
     assert len(edges) == 1
     assert edges[0]["relation_type"] == "contradicts"  # preserved
@@ -350,7 +348,7 @@ def test_existing_reverse_edge_not_duplicated(db):
     _seed(db, _A, _B)
     db.upsert_note_connection(_B, _A, "extends", "")  # reverse direction
     body = f"- [[ZTL - {_B} - nota-b]]"
-    assert _extract_body_edges(db, _A, body) == 0
+    assert _extract_body_edges(db, _A, body) == (0, 0)
 
 
 def test_rebuild_manual_edges_backfills(db):
@@ -427,3 +425,634 @@ def test_repair_permanent_links_rewrites_double_prefix_and_rebuilds_backlinks(cf
     assert "GHOST" not in block
     assert f"ZTL - {_A} - analise-de-series-temporais" in block
     assert "estendido por" in block
+
+
+# -- one bad note never stops the run (#342) ---------------------------------
+
+
+def _failures(stats):
+    return {f["path"].rsplit("/", 1)[-1]: f["reason"] for f in stats["failures"]}
+
+
+def test_invalid_yaml_is_reported_and_the_file_left_untouched(cfg, db):
+    broken = cfg.vault_path / "30_Permanent" / "ZTL - quebrada.md"
+    original = "---\ntitle: Ideia\ntags: [a, b\n---\n\n> **Tese**: algo.\n"
+    broken.write_text(original, encoding="utf-8")
+    good = cfg.vault_path / "30_Permanent" / "ZTL - boa.md"
+    _write(good, {"title": "Boa"}, "> **Tese**: outra coisa.")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert broken.read_text(encoding="utf-8") == original
+    assert "YAML invalido" in _failures(stats)["ZTL - quebrada.md"]
+    assert stats["failed"] == 1
+    assert stats["permanent"] == 1
+    assert db.get_last_run()["status"] == "completed"
+
+
+def test_unclosed_or_non_mapping_frontmatter_is_reported(cfg, db):
+    unclosed = cfg.vault_path / "30_Permanent" / "ZTL - aberta.md"
+    unclosed.write_text("---\ntitle: x\n\nCorpo sem fechar.\n", encoding="utf-8")
+    listing = cfg.vault_path / "40_MOCs" / "MOC - lista.md"
+    listing.write_text("---\n- a\n- b\n---\n\nCorpo.\n", encoding="utf-8")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    reasons = _failures(stats)
+    assert "nunca fechado" in reasons["ZTL - aberta.md"]
+    assert "chave: valor" in reasons["MOC - lista.md"]
+
+
+def test_unquoted_obsidian_dates_do_not_break_the_sync(cfg, db):
+    """Obsidian's Date property writes `created: 2026-11-03`, which YAML reads as a date."""
+    ztl = cfg.vault_path / "30_Permanent" / "ZTL - datada.md"
+    ztl.write_text(
+        "---\ntitle: Datada\ncreated: 2026-11-03\n---\n\n> **Tese**: uma ideia.\n",
+        encoding="utf-8",
+    )
+    moc = cfg.vault_path / "40_MOCs" / "MOC - datado.md"
+    moc.write_text("---\ntopic: Tema\ncreated: 2026-11-03\n---\n\n# Tema\n", encoding="utf-8")
+    src = cfg.vault_path / "10_Sources" / "SRC - site.md"
+    src.write_text(
+        "---\ntitle: Site\nauthor: [Ana Souza]\nyear: 2024\n"
+        "accessed_at: 2026-11-03\n---\n\n# Site\n",
+        encoding="utf-8",
+    )
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert stats["failures"] == []
+    (note,) = db.list_notes()
+    assert yaml.safe_load(note["frontmatter_json"])["created"] == "2026-11-03"
+    (source,) = db.list_sources()
+    assert '"accessed_at": "2026-11-03"' in source["bibliography_json"]
+
+
+def test_a_single_author_string_is_one_author_for_the_citekey(cfg, db):
+    src = cfg.vault_path / "10_Sources" / "SRC - rapido.md"
+    _write(src, {"title": "Rapido e devagar", "author": "Daniel Kahneman", "year": 2011}, "#")
+
+    run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert _frontmatter(src)["source_id"].startswith("@Kahneman2011")
+
+
+def test_unexpected_error_in_one_note_is_reported_and_the_rest_synced(cfg, db, monkeypatch):
+    from zettel import sync
+
+    real = sync._sync_moc
+
+    def explode(cfg, db, vectors, file_path, meta, body, run):
+        if file_path.name.startswith("MOC - ruim"):
+            raise RuntimeError("boom")
+        return real(cfg, db, vectors, file_path, meta, body, run)
+
+    monkeypatch.setattr(sync, "_sync_moc", explode)
+    _write(cfg.vault_path / "40_MOCs" / "MOC - ruim.md", {"topic": "Ruim"}, "# Ruim")
+    _write(cfg.vault_path / "40_MOCs" / "MOC - bom.md", {"topic": "Bom"}, "# Bom")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert _failures(stats) == {"MOC - ruim.md": "RuntimeError: boom"}
+    assert stats["mocs"] == 1
+
+
+def test_an_embedding_error_that_is_not_an_outage_fails_only_that_note(cfg, db):
+    _write(cfg.vault_path / "30_Permanent" / "ZTL - a.md", {"title": "A"}, "> **Tese**: a.")
+    _write(cfg.vault_path / "30_Permanent" / "ZTL - b.md", {"title": "B"}, "> **Tese**: b.")
+    idx = FakeVectorIndex(fail_on={"upsert_permanent_note": 1})
+
+    stats = run_sync_manual(cfg, db, idx)
+
+    assert "falha injetada" in _failures(stats)["ZTL - a.md"]
+    assert stats["permanent"] == 1
+    assert stats["embedding_pending"] == 0
+
+
+# -- sync without embedding (#343) -------------------------------------------
+
+
+def _offline_vault(cfg):
+    _write(
+        cfg.vault_path / "10_Sources" / "SRC - obra.md",
+        {"title": "Obra", "author": ["Ana Souza"], "year": 2020, "source_id": "@Souza2020Obra"},
+        "# Obra",
+    )
+    b = cfg.vault_path / "30_Permanent" / "ZTL - 01J0000000000000000000000B - b.md"
+    _write(b, {"title": "B", "note_id": "01J0000000000000000000000B"}, "> **Tese**: b.")
+    a = cfg.vault_path / "30_Permanent" / "ZTL - 01J0000000000000000000000A - a.md"
+    _write(
+        a,
+        {"title": "A", "note_id": "01J0000000000000000000000A"},
+        "> **Tese**: a.\n\nVer [[ZTL - 01J0000000000000000000000B - b]].",
+    )
+
+
+def test_without_an_index_notes_reach_sqlite_and_the_graph_with_vectors_pending(cfg, db):
+    _offline_vault(cfg)
+
+    stats = run_sync_manual(cfg, db, None)
+
+    assert stats["failures"] == []
+    assert stats["embedding_pending"] == 3
+    assert stats["embedding_offline"]
+    assert db.get_source("@Souza2020Obra") is not None
+    assert {n["note_id"] for n in db.list_notes()} == {
+        "01J0000000000000000000000A",
+        "01J0000000000000000000000B",
+    }
+    assert db.get_note("01J0000000000000000000000A")["embedding_input_hash"] is None
+    assert db.get_last_run()["status"] == "completed"
+
+
+def test_the_next_sync_with_an_index_writes_the_pending_vectors_without_edits(cfg, db):
+    _offline_vault(cfg)
+    run_sync_manual(cfg, db, None)
+    idx = FakeVectorIndex()
+
+    stats = run_sync_manual(cfg, db, idx)
+
+    assert stats["embedding_pending"] == 0
+    assert stats["updated"] == 3
+    assert calls_to(idx, "upsert_source") == ["@Souza2020Obra"]
+    assert sorted(calls_to(idx, "upsert_permanent_note")) == [
+        "01J0000000000000000000000A",
+        "01J0000000000000000000000B",
+    ]
+    assert db.get_note("01J0000000000000000000000A")["embedding_input_hash"]
+
+    again = run_sync_manual(cfg, db, idx)
+    assert again["updated"] == 0 and again["embedding_pending"] == 0
+    assert len(calls_to(idx, "upsert_permanent_note")) == 2
+
+
+def test_an_outage_mid_run_stops_embedding_but_not_the_sync(cfg, db):
+    """The note that failed used to stay without a vector for good (#343)."""
+    from zettel.llm import LLMUnavailableError
+
+    _offline_vault(cfg)
+    down = FakeVectorIndex(fail_on={"upsert_source": (1, LLMUnavailableError("down"))})
+
+    stats = run_sync_manual(cfg, db, down)
+
+    assert stats["failures"] == []
+    assert stats["embedding_pending"] == 3
+    assert "LLMUnavailableError" in stats["embedding_offline"]
+    assert calls_to(down, "upsert_permanent_note") == []  # no retry per note once offline
+
+    up = FakeVectorIndex()
+    assert run_sync_manual(cfg, db, up)["embedding_pending"] == 0
+    assert len(calls_to(up, "upsert_permanent_note")) == 2
+
+
+def test_without_a_credential_the_index_is_never_opened(cfg, db, monkeypatch):
+    monkeypatch.setattr("zettel.credentials.embedding_ready", lambda _cfg: False)
+    _offline_vault(cfg)
+
+    def must_not_open():
+        raise AssertionError("o indice nao devia ser aberto")
+
+    stats = run_sync_manual(cfg, db, must_not_open)
+
+    assert stats["embedding_offline"] == "sem credencial de embedding"
+    assert stats["embedding_pending"] == 3
+
+
+def test_the_index_opens_only_when_something_needs_a_vector(cfg, db):
+    _write(cfg.vault_path / "40_MOCs" / "MOC - tema.md", {"topic": "Tema"}, "# Tema")
+    opened = []
+
+    stats = run_sync_manual(cfg, db, lambda: opened.append(1) or FakeVectorIndex())
+
+    assert stats["mocs"] == 1
+    assert opened == []
+
+
+def test_notes_pending_embedding_counts_notes_without_a_current_vector(cfg, db):
+    def pending():
+        return db.count_notes_pending_embedding(cfg.embedding.provider, cfg.embedding.model)
+
+    _offline_vault(cfg)
+    run_sync_manual(cfg, db, None)
+    assert pending() == 2
+
+    run_sync_manual(cfg, db, FakeVectorIndex())
+    assert pending() == 0
+
+
+def _granular(path, chunk_id, origin="manual"):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    meta = {"type": "literature", "source_id": "@Autor2020", "chunk_id": chunk_id}
+    if origin is not None:
+        meta["origin"] = origin
+    _write(
+        path,
+        meta,
+        "# Topico\n\n## Resumo\n\nUm resumo.\n\n"
+        "<!-- zettel:auto-source-excerpt:start -->\nTrecho.\n"
+        "<!-- zettel:auto-source-excerpt:end -->\n",
+    )
+
+
+def test_literature_in_a_source_folder_without_chunk_id_is_refused(cfg, db):
+    note = cfg.vault_path / "20_Literature" / "Autor2020" / "LIT - Autor2020 - sem-id.md"
+    note.parent.mkdir(parents=True)
+    _write(note, {"type": "literature", "source_id": "@Autor2020"}, "# Sem id")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert "chunk_id" in _failures(stats)["LIT - Autor2020 - sem-id.md"]
+    assert db.get_source("@Autor2020") is None
+
+
+def test_granular_literature_with_unknown_origin_is_refused(cfg, db):
+    note = cfg.vault_path / "20_Literature" / "Autor2020" / "LIT - Autor2020 - c0001.md"
+    _granular(note, "@Autor2020::manual::0001", origin="obsidian")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert "'obsidian'" in _failures(stats)["LIT - Autor2020 - c0001.md"]
+    assert db.get_chunk("@Autor2020::manual::0001") is None
+
+
+def test_granular_literature_without_origin_is_adopted_as_manual(cfg, db):
+    note = cfg.vault_path / "20_Literature" / "Autor2020" / "LIT - Autor2020 - c0001.md"
+    _granular(note, "@Autor2020::manual::0001", origin=None)
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert stats["failures"] == []
+    assert db.get_chunk("@Autor2020::manual::0001")["text"] == "Trecho."
+
+
+def test_two_literature_notes_with_one_chunk_id_report_the_second(cfg, db):
+    folder = cfg.vault_path / "20_Literature" / "Autor2020"
+    _granular(folder / "LIT - a.md", "@Autor2020::manual::0001")
+    _granular(folder / "LIT - b.md", "@Autor2020::manual::0001")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert "LIT - a.md" in _failures(stats)["LIT - b.md"]
+    assert db.get_chunk("@Autor2020::manual::0001")["literature_note_path"].endswith("LIT - a.md")
+
+
+def test_scaffold_placeholders_are_not_embedded(cfg, db):
+    from zettel.vault import scaffold_permanent_note_body
+
+    note = cfg.vault_path / "30_Permanent" / "ZTL - rascunho.md"
+    _write(note, {"title": "Rascunho"}, scaffold_permanent_note_body(thesis="Uma tese real."))
+    idx = FakeVectorIndex()
+
+    run_sync_manual(cfg, db, idx)
+
+    ((text, _meta),) = idx.store["permanent_notes"].values()
+    assert "Uma tese real." in text
+    assert "preencha" not in text.lower()
+
+
+# -- an SRC edited in Obsidian reaches SQLite (#346) ---------------------------
+
+
+def _src(cfg, meta, name="SRC - Souza2020 - obra.md"):
+    path = cfg.vault_path / "10_Sources" / name
+    base = {"type": "source", "source_id": "@Souza2020Obra", "title": "Obra", "origin": "manual"}
+    _write(path, {**base, **meta}, "# Obra")
+    return path
+
+
+def test_editing_year_and_doi_of_an_src_updates_the_source(cfg, db):
+    import json
+
+    idx = FakeVectorIndex()
+    _src(cfg, {"author": ["Ana Souza"], "year": 2020})
+    run_sync_manual(cfg, db, idx)
+
+    _src(cfg, {"author": ["Ana Souza"], "year": 2021, "doi": "https://doi.org/10.1000/XYZ.1."})
+    stats = run_sync_manual(cfg, db, idx)
+
+    assert stats["sources"] == 1
+    row = db.get_source("@Souza2020Obra")
+    assert row["year"] == 2021
+    assert row["doi"] == "10.1000/xyz.1"
+    biblio = json.loads(row["bibliography_json"])
+    assert biblio["year"] == 2021
+    assert biblio["provenance"] == {"year": "user", "doi": "user"}
+    assert calls_to(idx, "upsert_source") == ["@Souza2020Obra"]  # title and authors unchanged
+    assert run_sync_manual(cfg, db, idx)["sources"] == 0
+
+
+def test_a_minimal_source_made_by_a_lit_gets_the_src_bibliography(cfg, db):
+    lit = cfg.vault_path / "20_Literature" / "Souza2020Obra" / "LIT - c0001.md"
+    lit.parent.mkdir(parents=True)
+    _write(
+        lit,
+        {
+            "type": "literature",
+            "source_id": "@Souza2020Obra",
+            "chunk_id": "@Souza2020Obra::manual::0001",
+        },
+        "# Topico",
+    )
+    run_sync_manual(cfg, db, FakeVectorIndex())
+    assert db.get_source("@Souza2020Obra")["authors"] == "[]"
+
+    _src(cfg, {"author": ["Ana Souza", "Rui Lima"], "year": 2020, "publisher": "Editora X"})
+    idx = FakeVectorIndex()
+    run_sync_manual(cfg, db, idx)
+
+    row = db.get_source("@Souza2020Obra")
+    assert row["authors"] == '["Ana Souza", "Rui Lima"]'
+    assert row["title"] == "Obra"
+    assert calls_to(idx, "upsert_source") == ["@Souza2020Obra"]
+
+
+def test_pipeline_columns_stay_when_a_pipeline_src_is_edited(cfg, db):
+    import json
+
+    db.upsert_source(
+        source_id="@Souza2020Obra",
+        citekey="Souza2020Obra",
+        title="Obra",
+        authors=["Ana Souza"],
+        year=2020,
+        file_checksum="arquivo",
+        origin_path="/inbox/obra.pdf",
+        origin_type="pdf",
+        extraction_checksum="extracao",
+        bibliography_json=json.dumps(
+            {"title": "Obra", "year": 2020, "provenance": {"title": "llm", "year": "llm"}}
+        ),
+    )
+    _src(cfg, {"author": ["Ana Souza"], "year": 2020, "origin": "pipeline", "place": "Recife"})
+
+    run_sync_manual(cfg, db, FakeVectorIndex())
+
+    row = db.get_source("@Souza2020Obra")
+    assert (row["file_checksum"], row["extraction_checksum"], row["origin"]) == (
+        "arquivo",
+        "extracao",
+        "pipeline",
+    )
+    biblio = json.loads(row["bibliography_json"])
+    assert biblio["place"] == "Recife"
+    assert biblio["provenance"]["place"] == "user"
+    assert biblio["provenance"]["title"] == "llm"
+
+
+def test_a_new_year_recomputes_the_citation_of_the_notes_of_the_source(cfg, db):
+    import json
+
+    from zettel.vault import compose_note, read_managed_block, upsert_managed_block
+
+    _src(cfg, {"author": ["Ana Souza"], "year": 2020})
+    run_sync_manual(cfg, db, FakeVectorIndex())
+    db.upsert_chapter("@Souza2020Obra::ch001", "@Souza2020Obra", "Cap", "c")
+    chunk_id = "@Souza2020Obra::ch001::abc"
+    db.upsert_chunk(
+        chunk_id, "@Souza2020Obra", "@Souza2020Obra::ch001", "texto", "k", page_in_book=5
+    )
+    meta = {"type": "permanent", "note_id": "NOTA1", "chunk_id": chunk_id, "origin": "pipeline"}
+    body = upsert_managed_block(
+        "> **Tese**: x.\n\n## Fonte\n", "auto-evidence", "- Citação: (SOUZA, 2020, p. 5)"
+    )
+    note = cfg.vault_path / "30_Permanent" / "ZTL - NOTA1 - x.md"
+    note.write_text(compose_note(meta, body), encoding="utf-8")
+    db.upsert_note(
+        "NOTA1",
+        "@Souza2020Obra",
+        str(note),
+        title="x",
+        body=body,
+        frontmatter_json=json.dumps(meta),
+        provenance_json=json.dumps({"citation": "(SOUZA, 2020, p. 5)", "anchor_quote": ""}),
+    )
+
+    _src(cfg, {"author": ["Ana Souza"], "year": 2021})
+    run_sync_manual(cfg, db, FakeVectorIndex())
+
+    row = db.get_note("NOTA1")
+    assert json.loads(row["provenance_json"])["citation"] == "(SOUZA, 2021, p. 5)"
+    assert "(SOUZA, 2021, p. 5)" in read_managed_block(
+        note.read_text(encoding="utf-8"), "auto-evidence"
+    )
+    assert "(SOUZA, 2021, p. 5)" in row["body"]
+
+
+def test_an_src_edited_offline_is_updated_and_its_vector_left_pending(cfg, db):
+    _src(cfg, {"author": ["Ana Souza"], "year": 2020})
+    run_sync_manual(cfg, db, FakeVectorIndex())
+
+    _src(cfg, {"title": "Obra revista", "author": ["Ana Souza"], "year": 2020})
+    stats = run_sync_manual(cfg, db, None)
+
+    assert db.get_source("@Souza2020Obra")["title"] == "Obra revista"
+    assert stats["embedding_pending"] == 1
+
+
+# -- the manual graph follows the links in the bodies (#347) -------------------
+
+
+def _ztl(cfg, note_id, body):
+    path = cfg.vault_path / "30_Permanent" / f"ZTL - {note_id} - nota.md"
+    _write(path, {"type": "permanent", "note_id": note_id, "title": note_id}, body)
+    return path
+
+
+def _manual_targets(db, note_id):
+    return {e["target_note_id"] for e in db.list_outgoing_connections(note_id, origin="manual")}
+
+
+def test_a_link_to_a_note_scanned_later_becomes_an_edge_in_one_sync(cfg, db):
+    """A sorts before B: its link pointed at nothing when it was read."""
+    _ztl(cfg, _A, f"> **Tese**: a.\n\nVer [[ZTL - {_B} - nota]].")
+    _ztl(cfg, _B, "> **Tese**: b.")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert _manual_targets(db, _A) == {_B}
+    assert stats["edges_created"] == 1
+
+
+def test_a_link_to_a_note_created_later_becomes_an_edge_without_editing(cfg, db):
+    _ztl(cfg, _A, f"> **Tese**: a.\n\nVer [[ZTL - {_B} - nota]].")
+    run_sync_manual(cfg, db, FakeVectorIndex())
+    assert _manual_targets(db, _A) == set()
+
+    _ztl(cfg, _B, "> **Tese**: b.")
+    run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert _manual_targets(db, _A) == {_B}
+
+
+def test_removing_a_link_removes_only_the_manual_edge(cfg, db):
+    idx = FakeVectorIndex()
+    _ztl(cfg, _B, "> **Tese**: b.")
+    _ztl(cfg, _C, "> **Tese**: c.")
+    run_sync_manual(cfg, db, idx)
+    db.upsert_note_connection(_A, _C, "supports", "do modelo", origin="llm")
+    _ztl(cfg, _A, f"> **Tese**: a.\n\n- [[ZTL - {_B} - nota]]\n- [[ZTL - {_C} - nota]]")
+    run_sync_manual(cfg, db, idx)
+    assert _manual_targets(db, _A) == {_B}  # A-C already typed by the LLM
+
+    _ztl(cfg, _A, "> **Tese**: a, agora sem links.")
+    stats = run_sync_manual(cfg, db, idx)
+
+    assert _manual_targets(db, _A) == set()
+    assert stats["edges_removed"] == 1
+    assert [e["target_note_id"] for e in db.list_outgoing_connections(_A, origin="llm")] == [_C]
+
+
+def test_alias_heading_and_bare_links_become_edges(cfg, db):
+    _ztl(cfg, _B, "> **Tese**: b.")
+    _ztl(cfg, _C, "> **Tese**: c.")
+    _ztl(
+        cfg,
+        _A,
+        f"> **Tese**: a.\n\n- [[ZTL - {_B}|a nota B]]\n- [[ZTL - {_C} - nota#Limites]]",
+    )
+
+    run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert _manual_targets(db, _A) == {_B, _C}
+
+
+@pytest.mark.parametrize("link", [f"[[ZTL - {_B}|apelido]]", f"[[ZTL - {_B}]]"])
+def test_a_manual_moc_writes_backrefs_for_alias_and_bare_links(cfg, db, link):
+    from zettel.vault import read_managed_block
+
+    note = _ztl(cfg, _B, "> **Tese**: b.")
+    _write(
+        cfg.vault_path / "40_MOCs" / "MOC - tema.md",
+        {"type": "moc", "moc_id": "01HMMMMMMMMMMMMMMMMMMMMMMM", "topic": "Tema"},
+        f"# Tema\n\n- {link}\n",
+    )
+
+    run_sync_manual(cfg, db, FakeVectorIndex())
+
+    block = read_managed_block(note.read_text(encoding="utf-8"), "auto-moc-backrefs")
+    assert block and "[[MOC - tema]]" in block
+
+
+def test_rebuild_manual_edges_drops_edges_whose_link_is_gone(db):
+    _seed(db, _A, _B)
+    db.upsert_note_connection(_A, _B, "related", "wikilink manual", origin="manual")
+
+    stats = rebuild_manual_edges(db)  # _A's stored body is "corpo": no link
+
+    assert stats["edges_removed"] == 1
+    assert db.get_note_connections(_A) == []
+
+
+# -- notes deleted or moved in the vault (#348) -------------------------------
+
+
+def test_a_renamed_note_keeps_its_row_and_follows_the_file(cfg, db):
+    idx = FakeVectorIndex()
+    old = _ztl(cfg, _A, "> **Tese**: a.")
+    run_sync_manual(cfg, db, idx)
+    new = old.with_name(f"ZTL - {_A} - outro-nome.md")
+    old.rename(new)
+
+    stats = run_sync_manual(cfg, db, idx)
+
+    assert stats["moved"] == 1 and stats["missing"] == []
+    assert [n["path"] for n in db.list_notes()] == [str(new)]
+
+
+def test_a_moved_pipeline_note_and_moc_follow_their_files(cfg, db):
+    note = cfg.vault_path / "30_Permanent" / "ZTL - gerada.md"
+    _write(note, {"type": "permanent", "note_id": _B, "origin": "pipeline"}, "> **Tese**: b.")
+    db.upsert_note(_B, None, "/vault/antigo/ZTL - gerada.md", title="b", body="b")
+    moc = cfg.vault_path / "40_MOCs" / "MOC - tema.md"
+    _write(moc, {"type": "moc", "moc_id": "M1", "topic": "Tema", "origin": "pipeline"}, "# Tema")
+    db.upsert_moc("M1", "Tema", "/vault/antigo/MOC - tema.md", "sig", origin="pipeline")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert stats["moved"] == 2
+    assert db.get_note(_B)["path"] == str(note)
+    assert db.get_moc("M1")["path"] == str(moc)
+
+
+def test_a_deleted_note_is_reported_and_pruned_only_when_asked(cfg, db):
+    from zettel.vault import read_managed_block
+
+    idx = FakeVectorIndex()
+    gone = _ztl(cfg, _A, f"> **Tese**: a.\n\nVer [[ZTL - {_B} - nota]].")
+    neighbour = _ztl(cfg, _B, "> **Tese**: b.")
+    run_sync_manual(cfg, db, idx)
+    assert _A in (read_managed_block(neighbour.read_text(encoding="utf-8"), "auto-backlinks") or "")
+    gone.unlink()
+
+    stats = run_sync_manual(cfg, db, idx)
+    assert stats["missing"] == [{"kind": "nota", "id": _A, "path": str(gone), "origin": "manual"}]
+    assert db.get_note(_A) is not None
+
+    stats = run_sync_manual(cfg, db, idx, prune=True)
+
+    assert stats["pruned"] == 1
+    assert db.get_note(_A) is None
+    assert deleted(idx, "permanent_notes") == [_A]
+    assert db.get_note_connections(_B) == []
+    assert _A not in (
+        read_managed_block(neighbour.read_text(encoding="utf-8"), "auto-backlinks") or ""
+    )
+    assert run_sync_manual(cfg, db, idx)["missing"] == []
+
+
+def test_prune_leaves_a_deleted_pipeline_note_for_rebuild(cfg, db):
+    db.upsert_note(_C, None, str(cfg.vault_path / "30_Permanent" / "ZTL - sumiu.md"), body="c")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex(), prune=True)
+
+    assert stats["pruned"] == 0
+    assert [m["id"] for m in stats["missing"]] == [_C]
+    assert db.get_note(_C) is not None
+
+
+def test_pruning_a_deleted_manual_moc_clears_its_backrefs(cfg, db):
+    from zettel.vault import read_managed_block
+
+    note = _ztl(cfg, _B, "> **Tese**: b.")
+    moc = cfg.vault_path / "40_MOCs" / "MOC - tema.md"
+    _write(moc, {"type": "moc", "moc_id": "M1", "topic": "Tema"}, f"# Tema\n\n- [[ZTL - {_B}]]\n")
+    run_sync_manual(cfg, db, FakeVectorIndex())
+    assert read_managed_block(note.read_text(encoding="utf-8"), "auto-moc-backrefs")
+    moc.unlink()
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex(), prune=True)
+
+    assert stats["pruned"] == 1
+    assert db.get_moc("M1") is None
+    assert not read_managed_block(note.read_text(encoding="utf-8"), "auto-moc-backrefs")
+
+
+def test_cli_sync_manual_reports_and_prunes_missing_notes(cli_instance):
+    cli_instance.run("init")
+    cli_instance.run("new-note", "ztl", "Ideia que vai sumir")
+    (note,) = (cli_instance.vault / "30_Permanent").glob("ZTL - *.md")
+    cli_instance.run("sync-manual")
+    note.unlink()
+
+    assert "sync-manual --prune" in cli_instance.run("sync-manual")
+    assert "Notas sem arquivo" in cli_instance.run("doctor")
+    assert "NOTA removida" in cli_instance.run("sync-manual", "--prune")
+    db = cli_instance.db()
+    try:
+        assert db.list_notes() == []
+    finally:
+        db.close()
+
+
+def test_a_hand_named_moc_that_drops_a_note_removes_its_backref(cfg, db):
+    from zettel.vault import read_managed_block
+
+    note = _ztl(cfg, _B, "> **Tese**: b.")
+    moc = cfg.vault_path / "40_MOCs" / "MOC - tema.md"
+    _write(moc, {"type": "moc", "moc_id": "M1", "topic": "Tema"}, f"# Tema\n\n- [[ZTL - {_B}]]\n")
+    run_sync_manual(cfg, db, FakeVectorIndex())
+    _write(moc, {"type": "moc", "moc_id": "M1", "topic": "Tema"}, "# Tema\n\nNada aqui.\n")
+
+    run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert not read_managed_block(note.read_text(encoding="utf-8"), "auto-moc-backrefs")

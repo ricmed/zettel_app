@@ -97,6 +97,12 @@ def status(config: ConfigOption = None):
         table.add_row(label, str(val), style=style)
 
     table.add_row("Conexoes (grafo)", str(db.count_note_connections()))
+    pending = db.count_notes_pending_embedding(cfg.embedding.provider, cfg.embedding.model)
+    table.add_row(
+        "Notas sem vetor (rode sync-manual com embedding)",
+        str(pending),
+        style="yellow" if pending else "",
+    )
 
     console.print(table)
 
@@ -227,6 +233,9 @@ def doctor(config: ConfigOption = None):
 
     # Vault
     checks.append(("Vault path", cfg.vault_path.exists(), str(cfg.vault_path)))
+    from zettel.obsidian import obsidian_health
+
+    checks.append(("Obsidian (templates)", *obsidian_health(cfg.vault_path)))
 
     # Managed blocks the pipeline refuses to rewrite until the author fixes them (#321).
     from zettel.vault import vault_notes_with_malformed_blocks
@@ -371,6 +380,41 @@ def doctor(config: ConfigOption = None):
             embedding_ready(cfg),
             f"{cfg.embedding.provider}: "
             + (" ou ".join(key_envs) if key_envs else "sem credencial (local)"),
+        )
+    )
+
+    pending_db = get_db(cfg)
+    try:
+        pending = pending_db.count_notes_pending_embedding(
+            cfg.embedding.provider, cfg.embedding.model
+        )
+    finally:
+        pending_db.close()
+    from zettel.sync import missing_note_files
+
+    gone_db = get_db(cfg)
+    try:
+        gone = missing_note_files(gone_db)
+    finally:
+        gone_db.close()
+    checks.append(
+        (
+            "Notas sem arquivo",
+            not gone,
+            ", ".join(Path(g["path"]).name for g in gone[:5])
+            + (f" e mais {len(gone) - 5}" if len(gone) > 5 else "")
+            + " (sync-manual --prune para as manuais)"
+            if gone
+            else "toda nota e MOC do banco tem arquivo",
+        )
+    )
+    checks.append(
+        (
+            "Vetores de notas",
+            pending == 0,
+            f"{pending} nota(s) sem vetor: rode sync-manual com o embedding disponivel"
+            if pending
+            else "todas as notas tem vetor atual",
         )
     )
 

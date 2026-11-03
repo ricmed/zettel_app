@@ -13,6 +13,8 @@ harvested first when they need a source. Nothing here calls a provider:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import yaml
 from zettel import index
@@ -72,6 +74,59 @@ def test_init_creates_the_vault_folders(cli_instance):
     for folder in ("00_Inbox", "10_Sources", "20_Literature", "30_Permanent", "40_MOCs"):
         assert (cli_instance.vault / folder).is_dir()
     assert "Vault" in output
+
+
+def _vault_with_user_and_pipeline_notes(vault: Path) -> dict[str, Path]:
+    notes = {
+        "manual_ztl": vault / "30_Permanent" / "ZTL - 01J0000000000000000000000A - minha.md",
+        "manual_src": vault / "10_Sources" / "SRC - Autor2020 - obra.md",
+        "manual_lit": vault / "20_Literature" / "Autor2020" / "LIT - Autor2020 - p001 - t-0001.md",
+        "manual_moc": vault / "40_MOCs" / "MOC - 01J0000000000000000000000B - tema.md",
+        "pipeline_ztl": vault / "30_Permanent" / "ZTL - 01J0000000000000000000000C - gerada.md",
+        "pipeline_lit": vault / "20_Literature" / "Gerado2021" / "LIT - Gerado2021 - p001.md",
+    }
+    for name, path in notes.items():
+        origin = "pipeline" if name.startswith("pipeline") else "manual"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"---\norigin: {origin}\n---\n\n{name}\n", encoding="utf-8")
+    settings = vault / ".obsidian" / "app.json"
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    settings.write_text('{"livePreview": true}', encoding="utf-8")
+    notes["obsidian"] = settings
+    return notes
+
+
+def test_init_never_deletes_the_vault(cli_instance):
+    """#341: init used to rmtree the vault, taking manual notes and .obsidian with it."""
+    notes = _vault_with_user_and_pipeline_notes(cli_instance.vault)
+
+    cli_instance.run("init")
+
+    for path in notes.values():
+        assert path.is_file(), path
+
+
+def test_init_reset_removes_only_pipeline_notes(cli_instance):
+    cli_instance.run("init")
+    notes = _vault_with_user_and_pipeline_notes(cli_instance.vault)
+
+    output = cli_instance.run("init", "--reset", input="y\n")
+
+    assert "2 nota(s) do pipeline" in output
+    assert "sync-manual" in output
+    for name, path in notes.items():
+        assert path.is_file() == (not name.startswith("pipeline")), name
+    assert not (cli_instance.vault / "20_Literature" / "Gerado2021").exists()
+
+
+def test_init_reset_declined_touches_nothing(cli_instance):
+    cli_instance.run("init")
+    notes = _vault_with_user_and_pipeline_notes(cli_instance.vault)
+
+    assert "Reset cancelado" in cli_instance.run("init", "--reset", input="n\n")
+
+    for path in notes.values():
+        assert path.is_file(), path
 
 
 def test_reindex_and_rebuild_run_on_a_harvested_source(harvested):
@@ -183,6 +238,35 @@ def test_purge_rejected_and_delete_source(harvested):
 
 
 # -- manual notes ------------------------------------------------------------
+
+
+def test_sync_manual_without_embedding_credential_leaves_vectors_pending(cli_instance, monkeypatch):
+    """#343: offline, the note reaches SQLite; the next sync with the key embeds it."""
+    cli_instance.run("init")
+    cli_instance.run("new-note", "ztl", "Ideia escrita offline")
+    with monkeypatch.context() as offline:
+        offline.setattr("zettel.credentials.embedding_ready", lambda _cfg: False)
+        output = cli_instance.run("sync-manual")
+
+    assert "1 vetor(es) pendente(s)" in output
+    assert "sem credencial de embedding" in output
+    assert "Notas sem vetor" in cli_instance.run("status")
+    db = cli_instance.db()
+    try:
+        (note,) = db.list_notes()
+        assert note["embedding_input_hash"] is None
+    finally:
+        db.close()
+
+    # The fixture's offline embedding needs no key; say the credential is there.
+    with monkeypatch.context() as online:
+        online.setattr("zettel.credentials.embedding_ready", lambda _cfg: True)
+        assert "pendente" not in cli_instance.run("sync-manual")
+    db = cli_instance.db()
+    try:
+        assert db.get_note(note["note_id"])["embedding_input_hash"]
+    finally:
+        db.close()
 
 
 def test_new_note_then_sync_manual_then_suggest_links(cli_instance):

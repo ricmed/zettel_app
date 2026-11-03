@@ -149,11 +149,20 @@ Por padrão roda **`VACUUM`** em `state.db` e `chroma.sqlite3` após a exclusão
 ## `init --reset`
 
 ```bash
-python -m zettel init            # recria so o vault vazio (apaga ./vault)
-python -m zettel init --reset    # + apaga State DB, ChromaDB e cache (pede confirmacao)
+python -m zettel init            # cria as pastas do vault que faltam; nunca apaga nada
+python -m zettel init --reset    # + apaga State DB, ChromaDB, cache e as notas do pipeline (pede confirmacao)
 ```
 
-`init --reset` é o único comando que descarta a fonte de verdade. Depois dele, só o reprocessamento completo dos arquivos originais (com custo de LLM) recupera o acervo.
+`init` nunca apaga o vault (#341) e, com `obsidian.setup_on_init`, grava os templates e configura o Templater no vault ([notas-manuais.md](notas-manuais.md#o-vault-já-sai-pronto-para-o-obsidian)). O `--reset` remove apenas as notas cujo frontmatter declara `origin: pipeline` ou `hub_pipeline`, além das subpastas de citekey que ficarem vazias. Ficam preservados:
+
+- as notas do usuário: `origin: manual`, sem `origin` ou com frontmatter ilegível;
+- as notas `ask` e `article`;
+- `.obsidian/` e as demais pastas ocultas;
+- `90_Assets/`.
+
+A confirmação informa quantas notas de cada grupo existem. Depois do reset, rode `zettel sync-manual` para readotar as notas manuais.
+
+`init --reset` é o único comando que descarta a fonte de verdade. Depois dele, só o reprocessamento completo dos arquivos originais (com custo de LLM) recupera o acervo do pipeline.
 
 ---
 

@@ -55,8 +55,9 @@ def _note_path_from_db(db: StateDB, note_id: str) -> Path | None:
     return path if path.is_file() else None
 
 
-def _link_references_moc(line: str, moc_id: str) -> bool:
-    return moc_id in line
+def _link_references_moc(line: str, moc_id: str, stem: str | None = None) -> bool:
+    """A backref line points at this MOC by id or, for a MOC named by hand, by file stem."""
+    return moc_id in line or bool(stem and f"[[{stem}]]" in line)
 
 
 def _add_moc_link_to_note(note_path: Path, link_line: str, *, vault_timezone: str) -> None:
@@ -70,7 +71,9 @@ def _add_moc_link_to_note(note_path: Path, link_line: str, *, vault_timezone: st
     )
 
 
-def _remove_moc_link_from_note(note_path: Path, moc_id: str, *, vault_timezone: str) -> None:
+def _remove_moc_link_from_note(
+    note_path: Path, moc_id: str, *, vault_timezone: str, stem: str | None = None
+) -> None:
     content = note_path.read_text(encoding="utf-8")
     existing = read_managed_block(content, MOC_BACKREFS_BLOCK)
     if not existing:
@@ -78,7 +81,7 @@ def _remove_moc_link_from_note(note_path: Path, moc_id: str, *, vault_timezone: 
     lines = [
         line
         for line in existing.splitlines()
-        if line.strip() and not _link_references_moc(line, moc_id)
+        if line.strip() and not _link_references_moc(line, moc_id, stem)
     ]
     safe_update_managed_blocks(
         note_path, {MOC_BACKREFS_BLOCK: "\n".join(lines)}, vault_timezone=vault_timezone
@@ -109,7 +112,9 @@ def sync_moc_backrefs(
     for note_id in old_ids - new_ids:
         note_path = _note_path_from_db(db, note_id)
         if note_path:
-            _remove_moc_link_from_note(note_path, moc_id, vault_timezone=vault_timezone)
+            _remove_moc_link_from_note(
+                note_path, moc_id, vault_timezone=vault_timezone, stem=path.stem
+            )
 
     for note_id in new_ids - old_ids:
         note_path = _note_path_from_db(db, note_id)
@@ -153,10 +158,11 @@ def clear_moc_backrefs(
     if not moc_id:
         return
 
+    stem = Path(moc["path"]).stem if moc.get("path") else None
     for note_id in extract_note_ids_from_moc_body(body):
         note_path = _note_path_from_db(db, note_id)
         if note_path:
-            _remove_moc_link_from_note(note_path, moc_id, vault_timezone=vault_timezone)
+            _remove_moc_link_from_note(note_path, moc_id, vault_timezone=vault_timezone, stem=stem)
 
     from zettel.topic_index import SCOPE_MOC
 

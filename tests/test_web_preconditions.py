@@ -120,6 +120,18 @@ def test_extract_does_not_need_the_article_credential(web_client, monkeypatch, a
     assert accepted_jobs == ["extract"]
 
 
+def test_sync_runs_without_any_credential(web_client, monkeypatch, accepted_jobs):
+    """#343: sync writes SQLite first and leaves vectors pending, so nothing blocks it."""
+    client, _ = web_client
+    csrf = login(client)
+    _credentials(monkeypatch, frozenset(), embedding=False)
+
+    assert _buttons(client.get("/pipeline").text)["sync"]
+    response = client.post("/pipeline/sync", data={"csrf": csrf}, follow_redirects=False)
+    assert response.status_code == 303
+    assert accepted_jobs == ["sync"]
+
+
 def test_without_embedding_connect_and_ask_say_why(web_client, monkeypatch, accepted_jobs):
     client, _ = web_client
     csrf = login(client)

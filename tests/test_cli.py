@@ -82,6 +82,9 @@ EXPECTED_COMMANDS = [
     "sync-manual",
     "suggest-links",
     "adopt-moc",
+    # obsidian.py — writing notes in Obsidian
+    "obsidian-templates",
+    "obsidian-setup",
     # pipeline.py / qa.py / writing.py / export.py
     "run-all",
     "ask",

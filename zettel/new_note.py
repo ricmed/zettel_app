@@ -226,6 +226,142 @@ def _write_literature_index(
     return path
 
 
+def next_manual_chunk_index(vault_path: Path, source_id: str, db: Any = None) -> int:
+    """Next ``chunk_index`` for a manual granular LIT: past the vault and SQLite.
+
+    A note written offline is in the vault before any sync, so SQLite alone hands
+    out an index a file already uses; the Obsidian template counts the same way.
+    """
+    highest = 0
+    folder = vault_path / "20_Literature" / literature_source_dirname(source_id.lstrip("@"))
+    if folder.is_dir():
+        for path in folder.glob("*.md"):
+            meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+            value = meta.get("chunk_index") if isinstance(meta, dict) else None
+            if isinstance(value, int) and not isinstance(value, bool):
+                highest = max(highest, value)
+    if db is not None:
+        highest = max(highest, db.next_manual_chunk_index(source_id) - 1)
+    return highest + 1
+
+
+def source_scaffold(
+    *,
+    source_id: str,
+    citekey: str,
+    title: str,
+    authors: list[str],
+    year: int | None,
+    note_path: Path,
+    document_type: str | None = None,
+    biblio_fields: dict[str, Any] | None = None,
+    abnt_reference: str | None = None,
+    vault_timezone: str,
+) -> tuple[dict[str, Any], str]:
+    """Frontmatter and body of a manual SRC; ``new-note`` and the Obsidian templates share it."""
+    meta, body = build_source_note(
+        source_id=source_id,
+        citekey=citekey,
+        title=title,
+        authors=authors,
+        year=year,
+        origin_path=str(note_path),
+        origin_type="md",
+        checksum="",
+        origin="manual",
+        document_type=document_type,
+        biblio_fields=biblio_fields or None,
+        abnt_reference=abnt_reference,
+        vault_timezone=vault_timezone,
+    )
+    meta["citekey"] = citekey
+    body = _append_src_ztl_hints(
+        body, source_id=source_id, citekey=citekey, title=title, path=note_path
+    )
+    return meta, body
+
+
+def literature_scaffold(
+    *,
+    source_id: str,
+    citekey: str,
+    source_title: str,
+    topic: str,
+    chunk_index: int,
+    page: int | None,
+    summary: str | None = None,
+    source_text: str | None = None,
+    key_concepts: list[str] | None = None,
+    candidates: list[dict[str, Any]] | None = None,
+    images: list[dict[str, Any]] | None = None,
+    vault_timezone: str,
+) -> tuple[dict[str, Any], str]:
+    """Frontmatter and body of a manual granular LIT (``chunk_id`` ``@ck::manual::NNNN``)."""
+    return build_literature_chunk_note(
+        source_id=source_id,
+        citekey=citekey,
+        title=source_title,
+        chunk_id=f"{source_id}::manual::{int(chunk_index):04d}",
+        chunk_index=chunk_index,
+        literature_id=f"{source_id}::manual-{int(chunk_index):04d}",
+        summary=(summary or "").strip() or "_Preencha o resumo._",
+        key_concepts=list(key_concepts or []),
+        candidates=list(candidates or []),
+        section_path=topic,
+        source_text=(source_text or "").strip() or "_Cole o trecho da fonte aqui._",
+        page_in_book=page,
+        status="approved",
+        origin="manual",
+        vault_timezone=vault_timezone,
+        images=images,
+    )
+
+
+def permanent_scaffold(
+    *,
+    note_id: str,
+    title: str,
+    now: str,
+    source_id: str | None = None,
+    source_ref: str = "",
+    thesis: str | None = None,
+    images: list[dict[str, Any]] | None = None,
+) -> tuple[dict[str, Any], str]:
+    """Frontmatter and body of a manual ZTL; ``source_id`` only when a source is named."""
+    meta: dict[str, Any] = {
+        "type": "permanent",
+        "note_id": note_id,
+        "title": title,
+        "tags": [],
+        "origin": "manual",
+        "created_at": now,
+        "updated_at": now,
+    }
+    if source_id:
+        meta["source_id"] = source_id
+    body = scaffold_permanent_note_body(thesis=thesis or "", source_ref=source_ref, images=images)
+    return meta, body
+
+
+def moc_scaffold(*, moc_id: str, title: str, now: str) -> tuple[dict[str, Any], str]:
+    """Frontmatter and body of a manual MOC."""
+    meta = {
+        "type": "moc",
+        "moc_id": moc_id,
+        "topic": title,
+        "origin": "manual",
+        "created_at": now,
+        "updated_at": now,
+    }
+    body = (
+        f"# {title}\n\n"
+        "_Resumo do mapa de conteudo._\n\n"
+        "## Secao\n\n"
+        "_Adicione links para notas permanentes aqui._\n"
+    )
+    return meta, body
+
+
 def scaffold_manual_note(
     cfg: AppConfig,
     note_type: str,
@@ -247,7 +383,7 @@ def scaffold_manual_note(
     pages: str | None = None,
     thesis: str | None = None,
     granular: bool = False,
-    chunk_index: int = 1,
+    chunk_index: int | None = None,
     page: int | None = None,
     summary: str | None = None,
     source_text: str | None = None,
@@ -280,28 +416,17 @@ def scaffold_manual_note(
             institution=institution,
             pages=pages,
         )
-        meta, body = build_source_note(
+        meta, body = source_scaffold(
             source_id=sid,
             citekey=ck,
             title=title,
             authors=author_list,
             year=year,
-            origin_path=str(path),
-            origin_type="md",
-            checksum="",
-            origin="manual",
+            note_path=path,
             document_type=document_type,
-            biblio_fields=biblio_fields or None,
+            biblio_fields=biblio_fields,
             abnt_reference=abnt_reference,
             vault_timezone=cfg.vault_timezone,
-        )
-        meta["citekey"] = ck
-        body = _append_src_ztl_hints(
-            body,
-            source_id=sid,
-            citekey=ck,
-            title=title,
-            path=path,
         )
         _write_scaffold(path, meta, body, force=force)
         # Never overwrite an index that already carries the chapter map maintained
@@ -318,11 +443,11 @@ def scaffold_manual_note(
             sid = f"@{ck}"
         source_id = sid
         if granular:
-            lit_id = f"{source_id}::manual-{int(chunk_index):04d}"
-            chunk_id = f"{source_id}::manual::{int(chunk_index):04d}"
+            if chunk_index is None:
+                chunk_index = next_manual_chunk_index(cfg.vault_path, source_id)
             # `title` here is the topic of this note; the source's own title drives
             # the backlink to the literature index, so recover it from the SRC note.
-            src_path, src_meta = resolve_src_in_vault(cfg, source_id)
+            _src_path, src_meta = resolve_src_in_vault(cfg, source_id)
             source_title = str((src_meta or {}).get("title") or "") or title
             filename = literature_chunk_filename(
                 ck,
@@ -331,23 +456,19 @@ def scaffold_manual_note(
                 section_path=title,
             )
             path = cfg.vault_path / "20_Literature" / literature_source_dirname(ck) / filename
-            meta, body = build_literature_chunk_note(
+            meta, body = literature_scaffold(
                 source_id=source_id,
                 citekey=ck,
-                title=source_title,
-                chunk_id=chunk_id,
+                source_title=source_title,
+                topic=title,
                 chunk_index=chunk_index,
-                literature_id=lit_id,
-                summary=(summary or "").strip() or "_Preencha o resumo._",
-                key_concepts=list(key_concepts or []),
-                candidates=list(candidates or []),
-                section_path=title,
-                source_text=(source_text or "").strip() or "_Cole o trecho da fonte aqui._",
-                page_in_book=page,
-                status="approved",
-                origin="manual",
-                vault_timezone=cfg.vault_timezone,
+                page=page,
+                summary=summary,
+                source_text=source_text,
+                key_concepts=key_concepts,
+                candidates=candidates,
                 images=images,
+                vault_timezone=cfg.vault_timezone,
             )
         else:
             rel_path = literature_index_filename(ck, title)
@@ -365,21 +486,12 @@ def scaffold_manual_note(
     if normalized == "permanent":
         note_id = str(ULID())
         path = cfg.vault_path / "30_Permanent" / note_filename("ZTL", note_id, title)
-        meta: dict[str, Any] = {
-            "type": "permanent",
-            "note_id": note_id,
-            "title": title,
-            "tags": [],
-            "origin": "manual",
-            "created_at": now,
-            "updated_at": now,
-        }
         warnings: list[str] = []
         source_ref = ""
+        sid = None
         raw_source = source_id or citekey
         if raw_source:
             sid = normalize_source_id(raw_source)
-            meta["source_id"] = sid
             src_path, _src_meta = resolve_src_in_vault(cfg, sid)
             ck = sid.lstrip("@")
             if src_path is not None:
@@ -390,9 +502,13 @@ def scaffold_manual_note(
                     f"SRC nao encontrada em 10_Sources/ para {sid}; "
                     "wikilink provisorio usado (crie a fonte com new-note src ou harvest)."
                 )
-        body = scaffold_permanent_note_body(
-            thesis=thesis or "",
+        meta, body = permanent_scaffold(
+            note_id=note_id,
+            title=title,
+            now=now,
+            source_id=sid,
             source_ref=source_ref,
+            thesis=thesis,
             images=images,
         )
         _write_scaffold(path, meta, body, force=force)
@@ -406,20 +522,7 @@ def scaffold_manual_note(
     if normalized == "moc":
         moc_id = str(ULID())
         path = cfg.vault_path / "40_MOCs" / note_filename("MOC", moc_id, title)
-        meta = {
-            "type": "moc",
-            "moc_id": moc_id,
-            "topic": title,
-            "origin": "manual",
-            "created_at": now,
-            "updated_at": now,
-        }
-        body = (
-            f"# {title}\n\n"
-            "_Resumo do mapa de conteudo._\n\n"
-            "## Secao\n\n"
-            "_Adicione links para notas permanentes aqui._\n"
-        )
+        meta, body = moc_scaffold(moc_id=moc_id, title=title, now=now)
         _write_scaffold(path, meta, body, force=force)
         return NewNoteResult(path=path, note_type=normalized, meta=meta)
 

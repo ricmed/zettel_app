@@ -442,6 +442,15 @@ web:
   job_retention_days: 90       # jobs encerrados mais antigos saem na subida; 0 guarda todos
   article_pause_ttl_hours: 24  # pausa de artigo sem decisão é liberada depois disto; 0 nunca expira
 
+# ── Obsidian (#345): templates e Templater gravados pelo init ──────────
+obsidian:
+  setup_on_init: true          # init grava 99_Templates/ e configura o Templater no vault
+  templater_version: "2.26.0"  # tag do release do Templater (exige Obsidian >= 1.13) ou "latest"
+  templater_sha256:            # hashes do release 2.26.0; trocar junto com a versao (vazio nao verifica)
+    main.js: 0acd45cfdb3a7337e2bef511699bc1f819dc64645ad3480df33579d42d2dcbaa
+    manifest.json: 91c9fa8510082fffa0b3d022aac4986e3b392295b1126e847ead7ed7289169b8
+    styles.css: 67a6dd2d1d6dedca1287c334ca884ec4196433f71ca47388a0bd3eac14cf8b5f
+
 # ── Idioma dos prompts / texto gerado ──────────────────────────────────
 language: pt-BR
 
