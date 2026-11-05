@@ -9,9 +9,9 @@ replaced by the JavaScript expression that computes it inside Obsidian. A change
 to a builder reaches the templates the next time they are generated.
 
 Inside Obsidian the Templater plugin runs ``99_Templates/scripts/zettel.js``:
-it prompts for the title (and the source), generates the ULID or the next
-``chunk_index``, moves the file to ``PREFIX - ID - slug.md`` and returns the
-content. Each template file is one line that calls it.
+it prompts for the source (and, for a ZTL, the granular LIT), generates the
+ULID or the next ``chunk_index``, moves the file to ``PREFIX - ID - slug.md``
+and returns the content. Each template file is one line that calls it.
 
 Pure: no SQLite, Chroma, LLM or network.
 """
@@ -26,10 +26,14 @@ from typing import Any
 from zettel.new_note import (
     literature_scaffold,
     moc_scaffold,
-    permanent_scaffold,
     source_scaffold,
 )
-from zettel.vault import TEMPLATES_DIR, build_literature_index_note, source_note_filename
+from zettel.vault import (
+    TEMPLATES_DIR,
+    build_literature_index_note,
+    scaffold_permanent_note_body,
+    source_note_filename,
+)
 
 SCRIPTS_DIR = f"{TEMPLATES_DIR}/scripts"
 SCRIPT_NAME = "zettel.js"
@@ -57,6 +61,18 @@ _AUTHOR = "Zsentauthor"
 _NOTE_ID = "Zsentnoteid"
 _SRC_STEM = "Zsentsrcstem"
 _PATH = "Zsentpath"
+_THESIS = "Zsentthesis"
+_DEFINITION = "Zsentdefinition"
+_LITREF = "Zsentlitref"
+_CHUNK_ID = "Zsentchunkid"
+_LOCATOR = "Zsentlocator"
+_CITE = "Zsentcite"
+_QUOTE = "Zsentquote"
+_IMAGE = "Zsentimg"
+_TAG = "Zsenttag"
+_RULE = "Zsentrule"
+_ANTI = "Zsentanti"
+_FRAMEWORK = "Zsentfw"
 _YEAR = 2999
 _PAGE = 2998
 _CHUNK_INDEX = 9997
@@ -142,16 +158,56 @@ def _renders(vault_timezone: str) -> list[_Render]:
         page=_PAGE,
         vault_timezone=vault_timezone,
     )
-    ztl_meta, ztl_body = permanent_scaffold(note_id=_NOTE_ID, title=_TITLE, now="")
-    ztl_src_meta, ztl_src_body = permanent_scaffold(
-        note_id=_NOTE_ID,
-        title=_TITLE,
-        now="",
-        source_id=source_id,
+    ztl_body = scaffold_permanent_note_body(
+        thesis=_THESIS,
+        definition=_DEFINITION,
+        literature_ref=_LITREF,
         source_ref=f"[[{_SRC_STEM}]]",
+        source_locator=_LOCATOR,
+        page=_PAGE,
+        citation=_CITE,
+        anchor_quote=_QUOTE,
+        images=[{"path": _IMAGE}],
     )
+    evidence = (
+        "\n\n<!-- zettel:auto-evidence:start -->\n"
+        f"- Citação: {_CITE}\n\n"
+        f'- Trecho literal:\n\n> "{_QUOTE}" {_CITE}\n\n'
+        "<!-- zettel:auto-evidence:end -->"
+    )
+    ztl_meta = {
+        "type": "permanent",
+        "note_id": _NOTE_ID,
+        "title": _THESIS,
+        "source_id": source_id,
+        "literature_ref": _LITREF,
+        "chunk_id": _CHUNK_ID,
+        "tags": [_TAG],
+        "origin": "manual",
+        "created_at": "",
+        "updated_at": "",
+        "page": _PAGE,
+        "citation_page_confidence": "chunk",
+        "decision_rules": [_RULE],
+        "anti_patterns": [_ANTI],
+        "named_frameworks": [_FRAMEWORK],
+    }
     moc_meta, moc_body = moc_scaffold(moc_id=_NOTE_ID, title=_TITLE, now="")
     ztl_tokens = ((_NOTE_ID, "v.id"), (_TITLE, "v.title"))
+    from_lit_tokens = (
+        (evidence, "v.evidenceBlock"),
+        (f"## Figuras\n\n![[{_IMAGE}]]\n\n", "v.figuresSection"),
+        (f"\n- Página: {_PAGE}", "v.pageLine"),
+        (f"\n- Localizador: {_LOCATOR}", "v.locatorLine"),
+        (_LITREF, "v.literatureRef"),
+        (_DEFINITION, "v.definition"),
+        (_THESIS, "v.thesis"),
+        (_CHUNK_ID, "v.chunkId"),
+        (_SRC_STEM, "v.srcStem"),
+        (_CITEKEY, "v.citekey"),
+        (_LABEL, "v.label"),
+        (_NOTE_ID, "v.id"),
+    )
     return [
         _Render(
             "source",
@@ -181,12 +237,20 @@ def _renders(vault_timezone: str) -> list[_Render]:
             ),
             ((_CHUNK_INDEX, "v.chunkIndex"), (_PAGE, "v.page")),
         ),
-        _Render("permanent", ztl_meta, ztl_body, ztl_tokens),
         _Render(
-            "permanentWithSource",
-            ztl_src_meta,
-            ztl_src_body,
-            (*ztl_tokens, *citekey_tokens, (_SRC_STEM, "v.srcStem")),
+            "permanentFromLit",
+            ztl_meta,
+            ztl_body,
+            from_lit_tokens,
+            (
+                (_THESIS, "v.title"),
+                (_PAGE, "v.page"),
+                ("chunk", "v.pageConfidence"),
+                ([_TAG], "v.tags"),
+                ([_RULE], "v.decisionRules"),
+                ([_ANTI], "v.antiPatterns"),
+                ([_FRAMEWORK], "v.namedFrameworks"),
+            ),
         ),
         _Render("moc", moc_meta, moc_body, ztl_tokens),
     ]

@@ -16,12 +16,13 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
+from zettel.bibliography import format_abnt_in_text
 from zettel.config import AppConfig
 from zettel.harvester.citekey import _disambiguation_suffix
+from zettel.manual_lit import create_permanent_from_literature
 from zettel.new_note import (
     literature_scaffold,
     moc_scaffold,
-    permanent_scaffold,
     provisional_citekey,
     source_scaffold,
 )
@@ -59,6 +60,7 @@ const files = (scenario.files || []).map((f) => ({
   path: f.path,
   basename: f.path.split("/").pop().replace(/\.md$/, ""),
   fm: f.frontmatter || {},
+  content: f.content || "",
 }));
 const folders = new Set(scenario.folders || []);
 const created = [];
@@ -68,17 +70,27 @@ global.app = {
     getAbstractFileByPath: (p) => (folders.has(p) || files.some((f) => f.path === p) ? {} : null),
     createFolder: async (p) => { folders.add(p); created.push({ folder: p }); },
     create: async (p, content) => { created.push({ path: p, content }); },
+    read: async (file) => {
+      const path = typeof file === "string" ? file : file.path;
+      const found = files.find((f) => f.path === path);
+      if (!found) throw new Error("not found: " + path);
+      return found.content || "";
+    },
   },
   metadataCache: { getFileCache: (f) => ({ frontmatter: f.fm }) },
 };
 const answers = [...(scenario.prompts || [])];
+const choices = [...(scenario.choices || [scenario.choice ?? 0])];
 let moved = null;
 const tp = {
   system: {
     prompt: async () => answers.shift(),
-    suggester: async (labels, items) => items[scenario.choice ?? 0],
+    suggester: async (labels, items) => items[choices.shift() ?? 0],
   },
-  file: { move: async (p) => { moved = p; } },
+  file: {
+    move: async (p) => { moved = p; },
+    path: () => scenario.targetPath || "",
+  },
 };
 const z = require(scriptPath)();
 (async () => {
@@ -135,7 +147,21 @@ def _expect(content: str, meta: dict, body: str, *, now: str) -> None:
 
 
 def _file(path: str, content: str) -> dict:
-    return {"path": path, "frontmatter": _parse(content)[0]}
+    return {"path": path, "frontmatter": _parse(content)[0], "content": content}
+
+
+def _node_error(script: Path, scenario: dict) -> str:
+    result = subprocess.run(
+        [NODE, str(script.with_name("harness.js")), str(script), json.dumps(scenario)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=60,
+        check=True,
+    )
+    out = json.loads(result.stdout)
+    assert "error" in out, out
+    return out["error"]
 
 
 # -- generation ---------------------------------------------------------------
@@ -199,6 +225,13 @@ _CHUNKS = [
     ("Souza2020Obra", 12, None, "Documento completo"),
     ("Souza2020Obra", 1, 7, ""),
 ]
+_ABNT = [
+    (["Daniel Kahneman"], 2011, "p. 42"),
+    (["Ana Souza", "Rui Lima"], 2020, None),
+    (["A", "B", "C", "D"], 1999, "p. 1"),
+    ([], 2020, None),
+    ([], None, None),
+]
 
 
 @pytest.mark.slow
@@ -211,6 +244,7 @@ def test_js_helpers_match_the_python_functions(script):
         + [["provisionalCitekey", list(case)] for case in _PROVISIONAL]
         + [["literatureChunkStem", list(case)] for case in _CHUNKS]
         + [["disambiguation", [n]] for n in (1, 26, 27, 52, 703)]
+        + [["formatAbnt", list(case)] for case in _ABNT]
     )
     expected = (
         [_slug(t) for t in _SLUGS]
@@ -222,6 +256,7 @@ def test_js_helpers_match_the_python_functions(script):
             for ck, i, p, t in _CHUNKS
         ]
         + [_disambiguation_suffix(n) for n in (1, 26, 27, 52, 703)]
+        + [format_abnt_in_text(*case) for case in _ABNT]
     )
     assert _node(script, {"helpers": calls}) == expected
 
@@ -280,6 +315,7 @@ def test_source_flow_writes_the_new_note_source_and_its_index(source_note):
         note_path=Path(f"10_Sources/{stem}.md"),
         vault_timezone=TZ,
     )
+    want_meta["origin_path"] = want_meta["origin_path"].replace("\\", "/")
     _expect(source_note["content"], want_meta, want_body, now=meta["created_at"])
 
     (index,) = [c for c in source_note["created"] if "path" in c]
@@ -359,32 +395,139 @@ def test_literature_flow_without_a_source_refuses(script):
     assert "nenhuma SRC" in json.loads(out.stdout)["error"]
 
 
+def _filled_lit(source_note, *, topic="Escassez", page=42, **kwargs):
+    src_meta = _parse(source_note["content"])[0]
+    citekey = src_meta["citekey"]
+    defaults = {
+        "summary": "A escassez define o valor relativo dos bens.",
+        "source_text": "O valor nasce da escassez relativa.",
+        "key_concepts": ["escassez", "valor"],
+        "candidates": [{"thesis": "Escassez gera valor."}],
+        **kwargs,
+    }
+    meta, body = literature_scaffold(
+        source_id=src_meta["source_id"],
+        citekey=citekey,
+        source_title=src_meta["title"],
+        topic=topic,
+        chunk_index=1,
+        page=page,
+        vault_timezone=TZ,
+        **defaults,
+    )
+    content = compose_note(meta, body)
+    filename = literature_chunk_filename(
+        citekey, chunk_index=1, page_in_book=page, section_path=topic
+    )
+    path = f"20_Literature/{citekey}/{filename}"
+    return path, content
+
+
 @pytest.mark.slow
 @needs_node
-@pytest.mark.parametrize("with_source", [True, False])
-def test_permanent_flow_matches_new_note(script, source_note, with_source):
-    src_meta = _parse(source_note["content"])[0]
+def test_permanent_flow_matches_from_lit_without_llm(script, source_note, tmp_path):
+    lit_path, lit_content = _filled_lit(source_note)
+    files = [*_source_files(source_note), _file(lit_path, lit_content)]
+    out = _node(
+        script,
+        {"flow": "permanent", "prompts": [""], "files": files, "choices": [0, 0]},
+    )
+    got_meta, got_body = _parse(out["content"])
+    assert (
+        out["moved"]
+        == "30_Permanent/" + note_filename("ZTL", got_meta["note_id"], got_meta["title"])[:-3]
+    )
+
+    vault = tmp_path / "vault"
+    notes = {
+        source_note["moved"]: source_note["content"],
+        **{c["path"][:-3]: c["content"] for c in source_note["created"] if "path" in c},
+        lit_path[:-3]: lit_content,
+    }
+    for rel, content in notes.items():
+        path = vault / f"{rel}.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    cfg = AppConfig(vault_path=vault)
+    db = StateDB(tmp_path / "state.db")
+    try:
+        run_sync_manual(cfg, db, FakeVectorIndex())
+        want_path, via_llm = create_permanent_from_literature(
+            cfg, db, FakeVectorIndex(), str(vault / lit_path)
+        )
+        assert via_llm is False
+        want_meta, want_body = _parse(want_path.read_text(encoding="utf-8"))
+    finally:
+        db.close()
+
+    for key in ("note_id", "created_at", "updated_at"):
+        want_meta[key] = got_meta[key]
+    assert got_meta == want_meta
+    assert got_body == want_body
+
+
+@pytest.mark.slow
+@needs_node
+def test_permanent_flow_uses_the_thesis_override(script, source_note):
+    lit_path, lit_content = _filled_lit(source_note)
+    files = [*_source_files(source_note), _file(lit_path, lit_content)]
     out = _node(
         script,
         {
             "flow": "permanent",
-            "prompts": ["Escassez gera valor: uma tese"],
-            "files": _source_files(source_note),
-            "choice": 1 if with_source else 0,
+            "prompts": ["Tese escrita na mao"],
+            "files": files,
+            "choices": [0, 0],
         },
     )
-    meta = _parse(out["content"])[0]
-    note_id = meta["note_id"]
-    assert out["moved"] == "30_Permanent/" + note_filename("ZTL", note_id, meta["title"])[:-3]
-    stem = source_note["moved"].split("/")[-1]
-    want_meta, want_body = permanent_scaffold(
-        note_id=note_id,
-        title="Escassez gera valor: uma tese",
-        now=meta["created_at"],
-        source_id=src_meta["source_id"] if with_source else None,
-        source_ref=f"[[{stem}]]" if with_source else "",
+    meta, body = _parse(out["content"])
+    assert meta["title"] == "Tese escrita na mao"
+    assert "> **Tese**: Tese escrita na mao" in body
+
+
+@pytest.mark.slow
+@needs_node
+def test_permanent_flow_refuses_a_placeholder_lit(script, source_note):
+    lit = _node(
+        script,
+        {"flow": "literature", "prompts": ["Escassez", ""], "files": _source_files(source_note)},
     )
-    _expect(out["content"], want_meta, want_body, now=meta["created_at"])
+    files = [*_source_files(source_note), _file(lit["moved"] + ".md", lit["content"])]
+    error = _node_error(
+        script,
+        {"flow": "permanent", "prompts": [""], "files": files, "choices": [0, 0]},
+    )
+    assert "Nao foi possivel derivar uma tese" in error
+
+
+@pytest.mark.slow
+@needs_node
+def test_permanent_flow_refuses_without_a_source(script):
+    error = _node_error(script, {"flow": "permanent", "prompts": [""]})
+    assert "nenhuma SRC" in error
+
+
+@pytest.mark.slow
+@needs_node
+def test_permanent_flow_refuses_insert_on_an_existing_note(script, source_note):
+    lit_path, lit_content = _filled_lit(source_note)
+    existing = "30_Permanent/ZTL - already.md"
+    files = [
+        *_source_files(source_note),
+        _file(lit_path, lit_content),
+        _file(existing, "---\ntype: permanent\nnote_id: x\n---\n"),
+    ]
+    error = _node_error(
+        script,
+        {
+            "flow": "permanent",
+            "prompts": [""],
+            "files": files,
+            "choices": [0, 0],
+            "targetPath": existing,
+        },
+    )
+    assert "Create new note from template" in error
 
 
 @pytest.mark.slow
@@ -407,18 +550,16 @@ def test_sync_manual_adopts_what_the_templates_write(script, source_note, tmp_pa
     vault = tmp_path / "vault"
     files = _source_files(source_note)
     citekey = files[0]["frontmatter"]["citekey"]
-    lit = _node(
-        script,
-        {"flow": "literature", "prompts": ["Escassez", ""], "files": files, "choice": 0},
-    )
+    lit_path, lit_content = _filled_lit(source_note)
+    files = [*files, _file(lit_path, lit_content)]
     ztl = _node(
         script,
-        {"flow": "permanent", "prompts": ["Uma tese"], "files": files, "choice": 1},
+        {"flow": "permanent", "prompts": [""], "files": files, "choices": [0, 0]},
     )
     notes = {
         source_note["moved"]: source_note["content"],
         **{c["path"][:-3]: c["content"] for c in source_note["created"] if "path" in c},
-        lit["moved"]: lit["content"],
+        lit_path[:-3]: lit_content,
         ztl["moved"]: ztl["content"],
     }
     for rel, content in notes.items():

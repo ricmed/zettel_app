@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from zettel.markdown import render_markdown, render_text_with_math, sanitize_html
+from zettel.markdown import (
+    render_markdown,
+    render_text_with_math,
+    sanitize_html,
+    strip_managed_block_markers,
+)
 
 
 def test_markdown_keeps_structure_and_internal_links():
@@ -74,3 +79,51 @@ def test_plain_text_math_escapes_surrounding_markup():
     assert "&lt;b&gt;tese&lt;/b&gt;" in html
     assert "<msub>" in html
     assert "<math" in html
+
+
+def test_strip_managed_block_markers_keeps_inner_text():
+    stripped = strip_managed_block_markers(
+        "<!-- zettel:auto-connections:start -->\n"
+        "- [[ZTL - X]]\n"
+        "<!-- zettel:auto-connections:end -->\n"
+    )
+    assert "zettel:auto-connections" not in stripped
+    assert "[[ZTL - X]]" in stripped
+    hidden = strip_managed_block_markers(
+        "<!-- zettel:auto-connections:start -->\n"
+        "_Sincronize com sync-manual para sugestoes automaticas._\n"
+        "<!-- zettel:auto-connections:end -->\n"
+    )
+    assert "Sincronize com sync-manual" not in hidden
+
+
+def test_strip_managed_block_markers_keeps_a_fenced_marker():
+    fenced = (
+        "```\n"
+        "<!-- zettel:auto-connections:start -->\n"
+        "- keep\n"
+        "<!-- zettel:auto-connections:end -->\n"
+        "```\n"
+    )
+    assert strip_managed_block_markers(fenced) == fenced
+
+
+def test_markdown_hides_managed_block_markers_and_keeps_inner_content():
+    html = render_markdown(
+        "## Fonte\n\n"
+        "<!-- zettel:auto-evidence:start -->\n"
+        "- Citação: (KAHNEMAN, 2011, p. 45)\n\n"
+        "- Trecho literal:\n\n"
+        '> "O sistema 1 é automático." (KAHNEMAN, 2011, p. 45)\n'
+        "<!-- zettel:auto-evidence:end -->\n\n"
+        "<!-- zettel:auto-connections:start -->\n"
+        "_Sincronize com sync-manual para sugestoes automaticas._\n"
+        "<!-- zettel:auto-connections:end -->\n"
+    )
+    assert "zettel:auto-" not in html
+    assert "&lt;!--" not in html
+    assert "KAHNEMAN, 2011, p. 45" in html
+    assert "O sistema 1 é automático." in html
+    assert "Sincronize com sync-manual" not in html
+    fenced = render_markdown("```\n<!-- zettel:auto-connections:start -->\n```\n")
+    assert "zettel:auto-connections:start" in fenced

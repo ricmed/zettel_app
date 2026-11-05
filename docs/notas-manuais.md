@@ -141,17 +141,21 @@ python -m zettel obsidian-templates           # grava o que falta
 python -m zettel obsidian-templates --force   # regrava tudo (depois de atualizar o Zettel)
 ```
 
-Os templates não são escritos à mão. `zettel/obsidian.py` chama os mesmos scaffolds do `new-note` (`source_scaffold`, `literature_scaffold`, `permanent_scaffold`, `moc_scaffold`, todos sobre `zettel/vault.py`) com valores-sentinela e traduz cada sentinela para JavaScript. Uma mudança num builder chega aos templates na próxima geração, e um teste roda o script gerado no Node e compara cada nota com a do `new-note`.
+Os templates não são escritos à mão. `zettel/obsidian.py` chama os mesmos scaffolds do `new-note` (`source_scaffold`, `literature_scaffold`, `moc_scaffold`, e para o ZTL o corpo de `--from-lit` via `scaffold_permanent_note_body`, todos sobre `zettel/vault.py`) com valores-sentinela e traduz cada sentinela para JavaScript. Uma mudança num builder chega aos templates na próxima geração, e um teste roda o script gerado no Node e compara cada nota com a do `new-note`.
 
 O que o script `99_Templates/scripts/zettel.js` faz em cada template:
 
 | Template | Pergunta | Gera | Arquivo |
 |---|---|---|---|
-| `ZTL.md` | título; fonte (opcional, lista as SRC de `10_Sources/`) | ULID | `30_Permanent/ZTL - <ULID> - <slug>.md` |
+| `ZTL.md` | fonte; LIT granular dessa fonte; tese (Enter deriva da LIT, como `--thesis`) | ULID, `literature_ref`, `chunk_id`, citação ABNT no `auto-evidence` — o scaffold de `new-note ztl --from-lit` **sem** `--llm` | `30_Permanent/ZTL - <ULID> - <slug>.md` |
 | `SRC.md` | título; autores (`Nome Sobrenome; ...`); ano (opcional) | citekey provisório, com sufixo `a`, `b`... se já existir no vault | `10_Sources/SRC - <AutorAno> - <slug>.md` e o índice `20_Literature/LIT - <AutorAno> - <slug>.md` |
 | `LIT - granular.md` | fonte; tópico; página impressa (opcional) | o próximo `chunk_index` da fonte no vault, e com ele `chunk_id` e `literature_id` | `20_Literature/<Citekey>/LIT - <AutorAno> - pNNN - <topico>-NNNN.md` |
 | `LIT - indice.md` | fonte | — | `20_Literature/LIT - <AutorAno> - <slug>.md` |
 | `MOC.md` | tema | ULID | `40_MOCs/MOC - <ULID> - <slug>.md` |
+
+O ZTL do Templater exige uma LIT já preenchida (`## Resumo` ou `## Candidatos a Nota Permanente`, e de preferência o trecho em `auto-source-excerpt`). Placeholders do scaffold não derivam tese. O Prompt 2 (`--llm`) continua só na CLI e na web: `zettel new-note ztl --from-lit … --llm`. ZTL em branco (só título, sem LIT) também: `zettel new-note ztl` ou `/notes/new`.
+
+Use **Templater: Create new note from template** (ou o atalho *Create* do template). *Insert template* e o ícone da faixa escrevem na nota aberta: o fluxo move esse arquivo, e um ZTL já gerado seria reescrito.
 
 Como o ULID já está no nome, os `[[wikilinks]]` que o Obsidian completa saem no formato `[[ZTL - <ULID> - slug]]` que o `sync-manual` transforma em arestas. As datas vão entre aspas, no fuso do vault (`vault_timezone`), e os valores do frontmatter vão como JSON, então um título com `:` continua sendo um texto só.
 
