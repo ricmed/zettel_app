@@ -316,9 +316,25 @@ def test_anthropic_omits_sampling_by_family():
     assert not anthropic_omits_sampling("claude-opus-4-6")
 
 
+def test_thinking_false_turns_thinking_off_where_the_model_allows_it():
+    """Haiku 5.5 accepts {type: disabled} at low effort; Opus 5.5 / Sonnet 5.5 / Fable never."""
+    off = {"thinking": {"type": "disabled"}, "output_config": {"effort": "low"}}
+    effort_only = {"output_config": {"effort": "low"}}
+    for model in ("claude-haiku-5-5", "claude-opus-5", "claude-opus-4-8", "claude-sonnet-5"):
+        assert _thinking_client_kwargs("anthropic", False, model=model) == off, model
+    for model in ("claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1", "claude-mythos-5-1"):
+        assert _thinking_client_kwargs("anthropic", False, model=model) == effort_only, model
+    # "low" keeps thinking on at low effort: the wire the connect phase had before.
+    assert _thinking_client_kwargs("anthropic", "low", model="claude-haiku-5-5") == {
+        "thinking": {"type": "adaptive"},
+        "output_config": {"effort": "low"},
+    }
+
+
 def test_thinking_client_kwargs_anthropic_adaptive_family():
     assert _thinking_client_kwargs("anthropic", False, model="claude-haiku-5-5") == {
-        "output_config": {"effort": "low"}
+        "thinking": {"type": "disabled"},
+        "output_config": {"effort": "low"},
     }
     assert _thinking_client_kwargs("anthropic", True, model="claude-haiku-5-5") == {
         "thinking": {"type": "adaptive"}
@@ -494,7 +510,7 @@ def test_get_llm_anthropic_haiku_55_omits_sampling(monkeypatch):
     assert "temperature" not in captured
     assert "top_p" not in captured
     assert captured["output_config"] == {"effort": "low"}
-    assert "thinking" not in captured
+    assert captured["thinking"] == {"type": "disabled"}
 
 
 def test_get_llm_anthropic_haiku_45_keeps_sampling(monkeypatch):

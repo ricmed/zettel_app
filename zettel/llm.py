@@ -293,12 +293,25 @@ _ANTHROPIC_EFFORT_FROM_LEVEL = {
 }
 
 
-def _anthropic_adaptive_thinking_kwargs(thinking: Any) -> dict[str, Any]:
+# Adaptive-family models that reject ``thinking: {type: disabled}`` at every
+# effort. The others (Haiku 5.5, Sonnet 5, Opus 5, Opus 4.7/4.8) accept it at
+# effort high or below, which is what ``false`` sends them.
+_ANTHROPIC_NO_DISABLE_PREFIXES = (
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-fable-",
+    "claude-mythos-",
+)
+
+
+def _anthropic_adaptive_thinking_kwargs(thinking: Any, model: str) -> dict[str, Any]:
     """Map ``llm.<phase>.thinking`` onto adaptive thinking + ``output_config.effort``."""
     if thinking is False or thinking == 0:
-        # Haiku 5.5 / Opus 5.5 reject {type: disabled}; low effort is the
-        # documented stand-in for "Haiku 4.5 without thinking".
-        return {"output_config": {"effort": "low"}}
+        name = (model or "").strip().casefold()
+        if name.startswith(_ANTHROPIC_NO_DISABLE_PREFIXES):
+            # Thinking cannot be turned off here; low effort is the closest.
+            return {"output_config": {"effort": "low"}}
+        return {"thinking": {"type": "disabled"}, "output_config": {"effort": "low"}}
     if thinking is True:
         return {"thinking": {"type": "adaptive"}}
     if isinstance(thinking, str):
@@ -356,7 +369,7 @@ def _thinking_client_kwargs(
         from zettel.config import anthropic_omits_sampling
 
         if model is not None and anthropic_omits_sampling(model):
-            return _anthropic_adaptive_thinking_kwargs(thinking)
+            return _anthropic_adaptive_thinking_kwargs(thinking, model)
         if off:
             return {"thinking": {"type": "disabled"}}
         tokens = (
