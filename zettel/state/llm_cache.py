@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from zettel.state.base import StateBase, placeholders
 
 
@@ -12,12 +14,30 @@ class LlmCacheMixin(StateBase):
         )
         return row["response_json"] if row else None
 
-    def cache_llm_response(self, call_checksum: str, request_json: str, response_json: str) -> None:
+    def cache_llm_response(
+        self,
+        call_checksum: str,
+        response_json: str,
+        *,
+        phase: str,
+        model: str,
+        prompt_checksum: str = "",
+    ) -> None:
+        """Store one response under its key.
+
+        ``request_json`` holds only what identifies the call, never the prompt:
+        nothing reads the request back, and the full system prompt repeated on
+        every row was over half of ``state.db``.
+        """
+        meta = json.dumps(
+            {"phase": phase, "model": model, "prompt_checksum": prompt_checksum},
+            ensure_ascii=False,
+        )
         self.conn.execute(
             """INSERT OR REPLACE INTO llm_cache
                (call_checksum, request_json, response_json, created_at)
                VALUES (?, ?, ?, ?)""",
-            (call_checksum, request_json, response_json, self._now()),
+            (call_checksum, meta, response_json, self._now()),
         )
         self.conn.commit()
 

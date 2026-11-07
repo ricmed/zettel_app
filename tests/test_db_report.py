@@ -44,11 +44,11 @@ def test_heavy_columns_cover_the_known_payloads():
 
 def test_inspect_sqlite_counts_and_payload_length(db: StateDB):
     extracted = "texto extraido conhecido"
-    request = '{"prompt": "x"}'
     response = '{"result": "ok-payload"}'
     db.upsert_source("@S", "S", "Source", [], None, "h", "/p", "md")
     db.update_source_texts("@S", extracted_text=extracted)
-    db.cache_llm_response("call1", request, response)
+    db.cache_llm_response("call1", response, phase="extract", model="m")
+    request = db.conn.execute("SELECT request_json FROM llm_cache").fetchone()[0]
 
     report = inspect_sqlite(db.conn, Path(db.db_path), heavy_columns=HEAVY_COLUMNS)
 
@@ -140,7 +140,7 @@ def test_collect_db_report_combines_state_and_chroma_disk(tmp_path: Path):
     try:
         database.upsert_source("@S", "S", "Source", [], None, "h", "/p", "md")
         database.update_source_texts("@S", extracted_text="payload-state")
-        database.cache_llm_response("c1", "{}", '{"ok": 1}')
+        database.cache_llm_response("c1", '{"ok": 1}', phase="extract", model="m")
         cfg = AppConfig(state_db_path=state_path, chroma_path=chroma)
         report = collect_db_report(cfg, database)
     finally:

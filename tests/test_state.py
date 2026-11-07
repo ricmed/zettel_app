@@ -1,5 +1,7 @@
 """Tests for SQLite state management."""
 
+import json
+
 import pytest
 from zettel.search_terms import fts_match_expr
 from zettel.state import StateDB
@@ -59,11 +61,25 @@ def test_upsert_note(db):
 
 
 def test_llm_cache(db):
-    db.cache_llm_response("call1", '{"prompt": "test"}', '{"result": "ok"}')
+    db.cache_llm_response("call1", '{"result": "ok"}', phase="connect", model="m")
     cached = db.get_cached_llm_response("call1")
     assert cached == '{"result": "ok"}'
 
     assert db.get_cached_llm_response("nonexistent") is None
+
+
+def test_llm_cache_stores_only_call_metadata(db):
+    """The prompt is never stored: nothing reads it, and it dominated the file."""
+    db.cache_llm_response(
+        "call1", "resposta", phase="connect", model="claude-haiku-5-5", prompt_checksum="p" * 64
+    )
+    raw = db.conn.execute("SELECT request_json FROM llm_cache").fetchone()[0]
+    assert json.loads(raw) == {
+        "phase": "connect",
+        "model": "claude-haiku-5-5",
+        "prompt_checksum": "p" * 64,
+    }
+    assert len(raw) < 200
 
 
 def test_reset_rejected_chunks_drops_extract_cache(db):
@@ -73,9 +89,9 @@ def test_reset_rejected_chunks_drops_extract_cache(db):
     db.upsert_chunk("@S::ch000::def", "@S", "@S::ch000", "other", "ck_other")
     db.update_chunk_status("@S::ch000::abc", "rejected", llm_call_checksum="extract-abc")
     db.update_chunk_status("@S::ch000::def", "rejected", llm_call_checksum="extract-def")
-    db.cache_llm_response("extract-abc", "{}", '{"chunk_status": "rejected"}')
-    db.cache_llm_response("extract-def", "{}", '{"chunk_status": "rejected"}')
-    db.cache_llm_response("unrelated", "{}", "keep")
+    db.cache_llm_response("extract-abc", '{"chunk_status": "rejected"}', phase="extract", model="m")
+    db.cache_llm_response("extract-def", '{"chunk_status": "rejected"}', phase="extract", model="m")
+    db.cache_llm_response("unrelated", "keep", phase="extract", model="m")
 
     moved = db.reset_chunks_to_pending("rejected", source_id="@S", drop_llm_cache=True)
     assert moved == 2
@@ -91,7 +107,7 @@ def test_reset_failed_chunks_keeps_cache_by_default(db):
     db.upsert_chapter("@S::ch000", "@S", "Ch1", "ch_hash")
     db.upsert_chunk("@S::ch000::abc", "@S", "@S::ch000", "text here", "ck_hash")
     db.update_chunk_status("@S::ch000::abc", "failed", llm_call_checksum="extract-abc")
-    db.cache_llm_response("extract-abc", "{}", "payload")
+    db.cache_llm_response("extract-abc", "payload", phase="extract", model="m")
 
     moved = db.reset_chunks_to_pending("failed", source_id="@S")
     assert moved == 1

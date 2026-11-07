@@ -691,7 +691,13 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB, *, observer=None) -> in
                 prompt_cache=cfg.llm.prompt_cache,
             )
             last_llm_call_at = time.monotonic()
-            db.cache_llm_response(call_checksum, "(image)", description)
+            db.cache_llm_response(
+                call_checksum,
+                description,
+                phase="images",
+                model=spec.model,
+                prompt_checksum=prompt_hash,
+            )
             db.update_asset_description(asset["asset_id"], description, call_checksum)
             described += 1
             consecutive_exhausted = 0

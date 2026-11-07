@@ -984,8 +984,10 @@ def enrich_with_llm(
             )
             db.cache_llm_response(
                 call_checksum,
-                json.dumps({"system": system, "user": user}, ensure_ascii=False),
                 response_text,
+                phase="harvest",
+                model=spec.model,
+                prompt_checksum=prompt_hash,
             )
         except LLMUnavailableError:
             raise

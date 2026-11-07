@@ -790,8 +790,10 @@ def cached_call_llm(
     )
     db.cache_llm_response(
         checksum,
-        json.dumps({"system": system, "user": user}, ensure_ascii=False),
         response,
+        phase=phase,
+        model=spec.model,
+        prompt_checksum=sha256_hex(prompt_template),
     )
     return response, False
 
