@@ -98,3 +98,21 @@ def test_cached_call_llm_stores_on_miss_and_skips_client_on_hit(tmp_path):
         assert len(calls) == 3
     finally:
         db.close()
+
+
+def test_call_llm_records_the_call_latency(monkeypatch):
+    """The model call's wall time reaches the event, the tracker and the log line."""
+    import itertools
+
+    from zettel import llm as llm_module
+    from zettel.logfmt import llm_extra
+
+    clock = itertools.chain([10.0, 12.5], itertools.repeat(12.5))
+    monkeypatch.setattr(llm_module.time, "perf_counter", lambda: next(clock))
+    begin_run(99)
+    call_llm(_FakeLLM(), "hello", label="unit")
+    tracker = get_tracker()
+    assert tracker.events[-1].latency_ms == 2500
+    assert tracker.snapshot()["llm_latency_ms"] == 2500
+    assert llm_extra(cache_local_hit=False, latency_ms=2500) == "cache local miss  2.5s"
+    assert llm_extra(cache_local_hit=True) == "cache local hit"

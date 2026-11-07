@@ -138,8 +138,9 @@ def llm_extra(
     cache_local_hit: bool | None = None,
     cache_read_tokens: int = 0,
     cache_write_tokens: int = 0,
+    latency_ms: int = 0,
 ) -> str:
-    """SQLite cache and provider prefix cache, never mixed into one word."""
+    """SQLite cache and provider prefix cache, never mixed into one word; then the call time."""
     parts: list[str] = []
     if cache_local_hit is True:
         parts.append("cache local hit")
@@ -149,6 +150,8 @@ def llm_extra(
         parts.append(f"prefixo {fmt_tokens(cache_read_tokens, compact=True)}")
     if cache_write_tokens:
         parts.append(f"grava {fmt_tokens(cache_write_tokens, compact=True)}")
+    if latency_ms:
+        parts.append(f"{latency_ms / 1000:.1f}s")
     return "  ".join(parts)
 
 

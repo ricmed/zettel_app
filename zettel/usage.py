@@ -41,6 +41,8 @@ class UsageEvent:
     # Provider prompt-prefix cache (not SQLite llm_cache hits).
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+    # Wall time of the model call (llm events only; 0 for a cache hit).
+    latency_ms: int = 0
 
 
 @dataclass
@@ -251,6 +253,8 @@ class CostTracker:
     _by_model: dict[tuple[str, str, str], ModelUsage] = field(default_factory=dict)
     _total: UsageSummary = field(default_factory=UsageSummary)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    # Summed wall time of the LLM calls; per-run only (not part of source totals).
+    llm_latency_ms: int = 0
 
     def _model_bucket(self, kind: str, provider: str, model: str) -> ModelUsage:
         key = (kind, provider, model)
@@ -274,6 +278,7 @@ class CostTracker:
         cache_read_tokens: int = 0,
         cache_write_tokens: int = 0,
         provider: str = "",
+        latency_ms: int = 0,
     ) -> UsageEvent:
         sid = source_id if source_id is not None else get_source_id()
         prog = _progress_tag(step, total, kind)
@@ -289,6 +294,7 @@ class CostTracker:
             progress=prog,
             cache_read_tokens=cache_read_tokens,
             cache_write_tokens=cache_write_tokens,
+            latency_ms=latency_ms,
         )
         with self._lock:
             self._add_llm(event)
@@ -302,6 +308,7 @@ class CostTracker:
                 cache_local_hit=False,
                 cache_read_tokens=cache_read_tokens,
                 cache_write_tokens=cache_write_tokens,
+                latency_ms=latency_ms,
             ),
             progress=prog,
         )
@@ -324,6 +331,7 @@ class CostTracker:
     def _add_llm(self, event: UsageEvent) -> None:
         """Account one LLM event. The caller holds ``_lock``."""
         self.events.append(event)
+        self.llm_latency_ms += event.latency_ms
         buckets = [self._total]
         if event.source_id:
             buckets.append(self._by_source.setdefault(event.source_id, UsageSummary()))
@@ -481,6 +489,11 @@ class CostTracker:
     def summary(self) -> UsageSummary:
         return self._total
 
+    def snapshot(self) -> dict[str, Any]:
+        """``summary()`` plus the summed LLM latency, for a before/after delta."""
+        with self._lock:
+            return {**self._total.as_dict(), "llm_latency_ms": self.llm_latency_ms}
+
     def model_usage(self) -> list[dict[str, Any]]:
         """Per ``(kind, provider, model)`` totals: the rows ``run_usage`` stores."""
         with self._lock:
@@ -580,6 +593,7 @@ def record_llm(
     cache_read_tokens: int = 0,
     cache_write_tokens: int = 0,
     provider: str = "",
+    latency_ms: int = 0,
 ) -> None:
     require_tracker().record_llm(
         model=model,
@@ -594,6 +608,7 @@ def record_llm(
         cache_read_tokens=cache_read_tokens,
         cache_write_tokens=cache_write_tokens,
         provider=provider,
+        latency_ms=latency_ms,
     )
 
 

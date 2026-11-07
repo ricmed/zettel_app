@@ -80,6 +80,7 @@ class _Model:
                 tokens_in=1000,
                 tokens_out=200,
                 cost_usd=0.001,
+                latency_ms=1500,
             )
             return json.dumps(
                 {
@@ -151,6 +152,7 @@ def test_worker_usage_reaches_the_run_and_each_note(tmp_path, monkeypatch):
             provenance = json.loads(db.get_note(note_id)["provenance_json"])
             assert provenance["llm_tokens_prompt"] == 1000
             assert provenance["llm_tokens_completion"] == 200
+            assert provenance["llm_latency_ms"] == 1500
     finally:
         db.close()
 

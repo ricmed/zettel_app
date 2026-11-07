@@ -245,7 +245,7 @@ def finish_candidate(
     similar, distant = prepared.similar, prepared.distant
 
     tracker = get_tracker()
-    usage_before = tracker.summary().as_dict() if tracker else {}
+    usage_before = tracker.snapshot() if tracker else {}
     thesis_similarity: float | None = None
     try:
         if cfg.linking.prompt2_mode == "split":
@@ -281,7 +281,7 @@ def finish_candidate(
     except Exception as e:
         logger.error("Erro ao gerar nota permanente para conceito %s: %s", concept_id, e)
         raise ConnectCandidateFailed(str(e), concept_id=concept_id) from e
-    usage_after = tracker.summary().as_dict() if tracker else {}
+    usage_after = tracker.snapshot() if tracker else {}
 
     connections = links.assemble_connections(
         cfg,
@@ -405,6 +405,7 @@ def _usage_delta(before: dict, after: dict) -> dict[str, Any]:
         "llm_cost_usd": round(diff("cost_usd_llm"), 6),
         "llm_tokens_prompt": int(diff("tokens_prompt")),
         "llm_tokens_completion": int(diff("tokens_completion")),
+        "llm_latency_ms": int(diff("llm_latency_ms")),
     }
 
 

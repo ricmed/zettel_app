@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -704,6 +705,7 @@ def call_llm(
         enabled=prompt_cache,
     )
 
+    started = time.perf_counter()
     try:
         response = llm.invoke(messages, **invoke_kwargs)
     except LLMUnavailableError:
@@ -712,6 +714,7 @@ def call_llm(
         if is_llm_unavailable(e):
             _raise_unavailable(e)
         raise
+    latency_ms = int((time.perf_counter() - started) * 1000)
     content = _message_text(response.content)
 
     model_name = _resolve_model_name(llm, model)
@@ -735,6 +738,7 @@ def call_llm(
         cache_read_tokens=usage.cache_read_tokens,
         cache_write_tokens=usage.cache_write_tokens,
         provider=provider or "",
+        latency_ms=latency_ms,
     )
     return content
 
