@@ -133,7 +133,7 @@ def compute_llm_call_checksum(
     prompt_hash: str,
     chunk_checksum: str,
     model: str,
-    temperature: float,
+    temperature: float | None,
     language: str,
     rag_context_checksum: str = "",
     provider: str = "",
@@ -148,12 +148,15 @@ def compute_llm_call_checksum(
     and each of those knobs is forwarded to the client -- any one differing
     means the call is not the same, even if every other field matches.
     ``thinking`` is the canonical token from ``thinking_checksum_token``
-    (empty = vendor default). ``variant`` distinguishes a call whose user text
+    (empty = vendor default). ``temperature`` / ``top_p`` are ``None`` for a model
+    that is sent no sampling (``config.checksum_sampling``), so a knob that never
+    reaches the wire cannot split the cache. ``variant`` distinguishes a call whose user text
     changed without a new prompt file (a forced extract). Empty leaves the
     historical key unchanged.
     """
     parts = (
-        f"{prompt_hash}|{chunk_checksum}|{model}|{temperature}|{language}|"
+        f"{prompt_hash}|{chunk_checksum}|{model}|"
+        f"{temperature if temperature is not None else ''}|{language}|"
         f"{rag_context_checksum}|{provider}|{top_p if top_p is not None else ''}|"
         f"{thinking}"
     )

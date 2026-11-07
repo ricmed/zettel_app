@@ -23,6 +23,9 @@ prompts_path: ./prompts             # templates .md dos prompts
 # e thinking (sem heranca de um modelo unico). Embedding continua no bloco `embedding:`.
 # Providers: openai | anthropic | ollama | gemini | openrouter | opencode | deepseek
 # thinking: null = default do vendor; false/0/none = off; true | minimal|low|medium|high | budget (tokens)
+#   gemini: so nivel (false -> minimal); budget em tokens e recusado (400 nos proximos modelos)
+# Gemini 3+ e Claude Haiku 5.5/Sonnet 5/Opus 5/Opus 4.7+ nao recebem temperature/top_p
+# (a API ignora ou recusa); nessas fases temperature fica null e nao entra na chave do cache.
 llm:
   temperature: 0.20         # 0 = mais deterministico; >0 aumenta variacao
   top_p: 0.5                # nucleus sampling encaminhado a get_llm (LangChain)
@@ -38,7 +41,7 @@ llm:
     provider: gemini
     model: gemini-3.5-flash-lite  # notas de literatura (Prompt 1); escolhido contra o gold set humano (ADR-050)
     base_url: null
-    temperature: 0.1        # extracao estruturada: contrato fechado, cache determinístico
+    temperature: null       # Gemini 3+ ignora amostragem; nao e enviada
     thinking: null          # default do vendor: e a condicao medida no ADR-050
   review:
     provider: openai
@@ -50,8 +53,9 @@ llm:
     provider: anthropic
     model: claude-haiku-5-5      # notas permanentes (Prompt 2)
     base_url: null
-    temperature: 0.15       # null = herda llm.temperature; Haiku 5.5 omite no fio (ADR-048)
-    thinking: false          # Haiku 5.5: effort low (nao da para desligar); 4.5: type disabled
+    temperature: null       # Haiku 5.5 recusa amostragem; nao e enviada (ADR-048)
+    thinking: low            # adaptive + effort low (o fio de antes). false desliga de fato no
+                             # Haiku 5.5; troca so apos evals/preregistration/355-connect-thinking.md
   garden:
     provider: openai
     model: gpt-6-luna      # MOCs taxonomicos e hub
@@ -142,6 +146,9 @@ linking:
   # Ligar espera a regra em evals/preregistration/285-connect-rag-diversidade.md.
   seed_same_source_max: 0
   graph_hub_repeat_limit: 0  # vizinha repetida em N contextos recentes sai; 0 = desligado
+  # Fontes cujo Prompt 2 roda em paralelo no connect; dentro de uma fonte a ordem
+  # e sequencial (as arestas ligam sobretudo notas vizinhas). 1 = sequencial.
+  connect_parallel_sources: 4
   # Bloco do connect (linking.graph_expansion). O ask le retrieval.graph_expansion.
   # Os numeros copiam o ask ate evals/preregistration/285-connect-rag-diversidade.md.
   graph_expansion:

@@ -88,6 +88,16 @@ A future web pre-flight can reuse the same estimators and render them into the j
 
 If a hard budget cap is ever wanted, it belongs on top of `PreflightEstimate`, not inside it: the estimator should keep answering "how much" without also deciding "whether".
 
+## Addendum (2026-11-07): history of the current model, cache discount, per-request pricing
+
+Measured on the two-book run of 2026-11-06. Connect was estimated at $3.09 and billed at $2.46 by Anthropic. Its pre-flight output mean was 1,691 tokens per call against 2,550 real ones. Three causes:
+
+1. **The provider prompt cache was priced as plain input.** 7.79M of 15.49M connect input tokens were cache reads (10% of the input price). `pricing.estimate_llm_cost` now takes `cache_read_tokens` / `cache_write_tokens` and passes them to `litellm.cost_per_token`. Recomputed per call from the run's own counts, it gives $2.457.
+2. **Typed-decision calls were LLM calls.** The 644 Jev shadow calls of connect entered `runs.llm_calls` and diluted the mean. They are now `CostTracker.record_decision`: billed in `cost_usd_total`, outside the LLM counters.
+3. **The history had no model.** `run_usage(run_id, kind, provider, model, ...)` stores what each run spent per model. `preflight.phase_history` reads it for the phase's current model only and replaces the `chars // 4` input (which under-counted Claude in PT by ~45%: 27,003 chars were 12,366 tokens), the output target and the uncounted cache with measured means. Without that history, the old heuristic and its caveats stay.
+
+A fourth issue appeared during the recomputation. Pricing a run's total tokens as one request puts it in the >100k-token tier that Haiku 5.5 and Gemini price higher. That inflated the same estimate to $12.28. `preflight.price_calls` prices the mean request and multiplies by the number of calls.
+
 ## References
 
 * `zettel/preflight.py` — `PreflightEstimate`, `estimate_extract`, `estimate_connect`, `estimate_article`, `RAG_CHARS_PER_NOTE`

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -211,6 +212,22 @@ def coerce_llm_connections(raw: Any) -> list[RelationshipResult]:
     return kept
 
 
+_FORCED_NOTE = "\n\nEsta chamada foi forcada: nao recuse o conceito. Escreva a nota."
+
+
+def permanent_note_messages(
+    cfg: AppConfig,
+    prompt_parts: PromptParts,
+    cand: PermanentNoteCandidate,
+    payload: Prompt2Payload,
+    *,
+    force: bool = False,
+) -> tuple[str, str]:
+    """The ``(system, user)`` of the combined Prompt 2 call, forced or not."""
+    system, user = prompt2_messages(cfg, prompt_parts, cand, payload)
+    return system, (user + _FORCED_NOTE) if force else user
+
+
 def generate_permanent_note(
     cfg: AppConfig,
     db: StateDB,
@@ -224,16 +241,17 @@ def generate_permanent_note(
     total: int | None = None,
     force: bool = False,
     subject_id: str = "",
+    call: Callable[..., str] | None = None,
 ) -> tuple[PermanentNoteLLMOutput, bool]:
     """Run Prompt 2 through the SQLite response cache. Returns ``(output, cache_hit)``.
 
     Raises ``ConnectRejected`` when the model declines the concept. A response
     that does not parse is removed from the cache and recorded in ``llm_failures``.
-    The PT-BR guard runs on accepted output that slipped into English.
+    The PT-BR guard runs on accepted output that slipped into English. ``call``
+    stands in for the model call (the parallel connect hands in an answer a
+    worker already fetched); ``None`` is this module's ``call_llm``.
     """
-    system, user = prompt2_messages(cfg, prompt_parts, cand, payload)
-    if force:
-        user += "\n\nEsta chamada foi forcada: nao recuse o conceito. Escreva a nota."
+    system, user = permanent_note_messages(cfg, prompt_parts, cand, payload, force=force)
     slot: dict[str, str] = {}
     response_text, cache_hit = cached_call_llm(
         cfg,
@@ -243,7 +261,7 @@ def generate_permanent_note(
         system,
         user,
         get_client=lambda: llm,
-        call=call_llm,
+        call=call or call_llm,
         label=label,
         step=step,
         total=total,

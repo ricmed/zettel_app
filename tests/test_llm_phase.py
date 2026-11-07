@@ -8,12 +8,14 @@ from zettel.config import (
     AppConfig,
     LLMConfig,
     LLMPhaseConfig,
+    anthropic_omits_sampling,
+    checksum_sampling,
     effective_temperature,
+    gemini_omits_sampling,
     llm_phase,
     thinking_checksum_token,
 )
 from zettel.llm import (
-    _anthropic_omits_sampling,
     _thinking_client_kwargs,
     get_llm,
     is_supported_llm_provider,
@@ -227,12 +229,56 @@ def test_thinking_client_kwargs_null_omits():
     assert _thinking_client_kwargs("anthropic", None) == {}
 
 
-def test_thinking_client_kwargs_gemini():
-    assert _thinking_client_kwargs("gemini", False) == {"thinking_budget": 0}
-    assert _thinking_client_kwargs("gemini", 0) == {"thinking_budget": 0}
+def test_thinking_client_kwargs_gemini_uses_only_thinking_level():
+    assert _thinking_client_kwargs("gemini", False) == {"thinking_level": "minimal"}
+    assert _thinking_client_kwargs("gemini", 0) == {"thinking_level": "minimal"}
     assert _thinking_client_kwargs("gemini", True) == {}
-    assert _thinking_client_kwargs("gemini", "high") == {"reasoning_effort": "high"}
-    assert _thinking_client_kwargs("gemini", 1024) == {"thinking_budget": 1024}
+    assert _thinking_client_kwargs("gemini", "high") == {"thinking_level": "high"}
+
+
+def test_gemini_thinking_budget_is_refused_at_config_load():
+    with pytest.raises(ValidationError, match="orcamento"):
+        LLMPhaseConfig(provider="gemini", model="gemini-3.8-flash", thinking=1024)
+    # Zero is "off", not a budget; other providers keep the budget.
+    assert LLMPhaseConfig(provider="gemini", model="gemini-3.8-flash", thinking=0).thinking == 0
+    assert LLMPhaseConfig(provider="anthropic", model="claude-haiku-4-5", thinking=1024)
+
+
+def test_gemini_omits_sampling_from_version_3():
+    assert gemini_omits_sampling("gemini-3.5-flash-lite")
+    assert gemini_omits_sampling("models/gemini-3.8-flash")
+    assert gemini_omits_sampling("gemini-10-pro")
+    assert not gemini_omits_sampling("gemini-2.5-flash")
+    assert not gemini_omits_sampling("gpt-4o-mini")
+
+
+def test_checksum_sampling_is_empty_when_no_sampling_is_sent():
+    cfg = AppConfig()
+    cfg.llm.temperature = 0.2
+    cfg.llm.top_p = 0.5
+    cfg.llm.extract = LLMPhaseConfig(
+        provider="gemini", model="gemini-3.5-flash-lite", temperature=0.1
+    )
+    cfg.llm.connect = LLMPhaseConfig(provider="anthropic", model="claude-haiku-5-5")
+    cfg.llm.review = LLMPhaseConfig(provider="openai", model="gpt-4o-mini")
+    assert checksum_sampling(cfg, llm_phase(cfg, "extract")) == (None, None)
+    assert checksum_sampling(cfg, llm_phase(cfg, "connect"), 0.7) == (None, None)
+    assert checksum_sampling(cfg, llm_phase(cfg, "review")) == (0.2, 0.5)
+    assert checksum_sampling(cfg, llm_phase(cfg, "review"), 0.7) == (0.7, 0.5)
+
+
+def test_cache_key_ignores_temperature_of_a_model_without_sampling():
+    from zettel.extractor import prompt1_call_checksum
+
+    cfg = AppConfig()
+    cfg.llm.extract = LLMPhaseConfig(
+        provider="gemini", model="gemini-3.5-flash-lite", temperature=0.1
+    )
+    chunk = {"chunk_checksum": "abc"}
+    before = prompt1_call_checksum(cfg, "prompt", chunk, "")
+    cfg.llm.extract.temperature = 0.9
+    cfg.llm.top_p = 0.3
+    assert prompt1_call_checksum(cfg, "prompt", chunk, "") == before
 
 
 def test_thinking_client_kwargs_openai_compat():
@@ -259,20 +305,36 @@ def test_thinking_client_kwargs_ollama_and_anthropic():
 
 
 def test_anthropic_omits_sampling_by_family():
-    assert _anthropic_omits_sampling("claude-haiku-5-5")
-    assert _anthropic_omits_sampling("claude-haiku-5-5-20261001")
-    assert _anthropic_omits_sampling("Claude-Sonnet-5-5")
-    assert _anthropic_omits_sampling("claude-opus-5-5")
-    assert _anthropic_omits_sampling("claude-opus-4-7")
-    assert _anthropic_omits_sampling("claude-fable-5")
-    assert not _anthropic_omits_sampling("claude-haiku-4-5")
-    assert not _anthropic_omits_sampling("claude-sonnet-4-6")
-    assert not _anthropic_omits_sampling("claude-opus-4-6")
+    assert anthropic_omits_sampling("claude-haiku-5-5")
+    assert anthropic_omits_sampling("claude-haiku-5-5-20261001")
+    assert anthropic_omits_sampling("Claude-Sonnet-5-5")
+    assert anthropic_omits_sampling("claude-opus-5-5")
+    assert anthropic_omits_sampling("claude-opus-4-7")
+    assert anthropic_omits_sampling("claude-fable-5")
+    assert not anthropic_omits_sampling("claude-haiku-4-5")
+    assert not anthropic_omits_sampling("claude-sonnet-4-6")
+    assert not anthropic_omits_sampling("claude-opus-4-6")
+
+
+def test_thinking_false_turns_thinking_off_where_the_model_allows_it():
+    """Haiku 5.5 accepts {type: disabled} at low effort; Opus 5.5 / Sonnet 5.5 / Fable never."""
+    off = {"thinking": {"type": "disabled"}, "output_config": {"effort": "low"}}
+    effort_only = {"output_config": {"effort": "low"}}
+    for model in ("claude-haiku-5-5", "claude-opus-5", "claude-opus-4-8", "claude-sonnet-5"):
+        assert _thinking_client_kwargs("anthropic", False, model=model) == off, model
+    for model in ("claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1", "claude-mythos-5-1"):
+        assert _thinking_client_kwargs("anthropic", False, model=model) == effort_only, model
+    # "low" keeps thinking on at low effort: the wire the connect phase had before.
+    assert _thinking_client_kwargs("anthropic", "low", model="claude-haiku-5-5") == {
+        "thinking": {"type": "adaptive"},
+        "output_config": {"effort": "low"},
+    }
 
 
 def test_thinking_client_kwargs_anthropic_adaptive_family():
     assert _thinking_client_kwargs("anthropic", False, model="claude-haiku-5-5") == {
-        "output_config": {"effort": "low"}
+        "thinking": {"type": "disabled"},
+        "output_config": {"effort": "low"},
     }
     assert _thinking_client_kwargs("anthropic", True, model="claude-haiku-5-5") == {
         "thinking": {"type": "adaptive"}
@@ -359,7 +421,8 @@ def test_get_llm_gemini_thinking_false(monkeypatch):
         provider="gemini", model="gemini-3.1-flash-lite", thinking=False
     )
     get_llm(cfg, "connect")
-    assert captured["thinking_budget"] == 0
+    assert captured["thinking_level"] == "minimal"
+    assert "thinking_budget" not in captured
     assert "include_thoughts" not in captured
 
 
@@ -377,8 +440,25 @@ def test_get_llm_gemini_thinking_level(monkeypatch):
         provider="gemini", model="gemini-3.1-flash-lite", thinking="high"
     )
     get_llm(cfg, "connect")
-    assert captured["reasoning_effort"] == "high"
+    assert captured["thinking_level"] == "high"
     assert "thinking_budget" not in captured
+
+
+def test_get_llm_gemini_3_sends_no_sampling(monkeypatch):
+    langchain_google_genai = pytest.importorskip("langchain_google_genai")
+    captured: dict = {}
+
+    class FakeChat:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(langchain_google_genai, "ChatGoogleGenerativeAI", FakeChat)
+    cfg = AppConfig()
+    cfg.llm.top_p = 0.5
+    cfg.llm.extract = LLMPhaseConfig(provider="gemini", model="gemini-3.8-flash", temperature=0.1)
+    get_llm(cfg, "extract")
+    for knob in ("temperature", "top_p", "top_k", "thinking_budget"):
+        assert knob not in captured
 
 
 def test_get_llm_ollama_thinking_false(monkeypatch):
@@ -430,7 +510,7 @@ def test_get_llm_anthropic_haiku_55_omits_sampling(monkeypatch):
     assert "temperature" not in captured
     assert "top_p" not in captured
     assert captured["output_config"] == {"effort": "low"}
-    assert "thinking" not in captured
+    assert captured["thinking"] == {"type": "disabled"}
 
 
 def test_get_llm_anthropic_haiku_45_keeps_sampling(monkeypatch):

@@ -57,6 +57,7 @@ import csv
 import json
 import random
 import sys
+import time
 from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -638,6 +639,27 @@ def _eligible_rows(db: Any) -> list[dict[str, Any]]:
     ]
 
 
+def parse_thinking(raw: str, spec: Any) -> Any:
+    """``@THINKING`` text as an ``llm.<phase>.thinking`` value, validated by the schema."""
+    text = raw.strip().lower()
+    value: Any = {"true": True, "false": False, "null": None}.get(text, text)
+    if isinstance(value, str) and value.isdigit():
+        value = int(value)
+    return type(spec)(provider=spec.provider, model=spec.model, thinking=value).thinking
+
+
+def usage_summary(usage: dict[str, list[dict[str, int]]]) -> dict[str, Any]:
+    """Mean output tokens and latency per call of the recorded answers that carry usage."""
+    calls = [call for item in usage.values() for call in item]
+    if not calls:
+        return {"calls": 0}
+    return {
+        "calls": len(calls),
+        "mean_output_tokens": round(sum(c["output_tokens"] for c in calls) / len(calls), 1),
+        "mean_latency_ms": round(sum(c["latency_ms"] for c in calls) / len(calls)),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
     parser.add_argument("--state-db", type=Path, default=Path("data/state.db"))
@@ -673,8 +695,11 @@ def main(argv: list[str] | None = None) -> int:
         "--prompt",
         action="append",
         default=[],
-        metavar="NOME=CAMINHO",
-        help="Versao do Prompt 2 (repetivel). Padrao: current=<prompt de producao>",
+        metavar="NOME=CAMINHO[@THINKING]",
+        help=(
+            "Versao do Prompt 2 (repetivel). Padrao: current=<prompt de producao>. "
+            "@THINKING (false|low|medium|high|...) troca llm.connect.thinking so nessa versao"
+        ),
     )
     parser.add_argument(
         "--runs", default=",".join(RUNS), help=f"Rodadas, separadas por virgula ({','.join(RUNS)})"
@@ -703,7 +728,12 @@ def main(argv: list[str] | None = None) -> int:
     from dotenv import load_dotenv
 
     load_dotenv()
-    from zettel.config import effective_temperature, llm_phase, load_config
+    from zettel.config import (
+        effective_temperature,
+        llm_phase,
+        load_config,
+        thinking_checksum_token,
+    )
     from zettel.connector.prompt import Prompt2Payload, prompt2_messages
     from zettel.domain_examples import load_domain_examples, render_for_prompt
     from zettel.hashing import sha256_hex
@@ -747,13 +777,28 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     prompt_args = []
+    # An optional "@THINKING" overrides llm.connect.thinking for that variant only,
+    # so two variants with the same prompt compare thinking modes in one run.
+    thinking_of: dict[str, Any] = {}
     for value in args.prompt:
-        name, sep, path = value.partition("=")
+        name, sep, rest = value.partition("=")
+        path, at, thinking_raw = rest.rpartition("@") if "@" in rest else (rest, "", "")
         if not sep or not name or not path or ":" in name:
-            parser.error(f"--prompt espera NOME=CAMINHO, recebeu {value!r}")
+            parser.error(f"--prompt espera NOME=CAMINHO[@THINKING], recebeu {value!r}")
+        if at:
+            try:
+                thinking_of[name] = parse_thinking(thinking_raw, spec)
+            except ValueError as exc:
+                parser.error(f"--prompt {name}: thinking invalido ({exc})")
         prompt_args.append((name, Path(path)))
     prompt_args = prompt_args or [("current", cfg.prompts_path / "permanent_note.md")]
     prompts = {name: load_prompt_parts(path) for name, path in prompt_args}
+    variant_specs = {
+        name: spec.model_copy(update={"thinking": thinking_of[name]})
+        if name in thinking_of
+        else spec
+        for name in prompts
+    }
     examples = render_for_prompt(load_domain_examples(cfg.domain.examples_path), "permanent_note")
 
     def build(
@@ -771,28 +816,34 @@ def main(argv: list[str] | None = None) -> int:
         cand = PermanentNoteCandidate.model_validate(item["candidate"])
         return prompt2_messages(cfg, parts, cand, payload)
 
-    llm = None
+    llms: dict[str, Any] = {}
     if args.yes:
         from zettel.llm import get_llm
 
-        llm = get_llm(cfg, "connect")
+        for name, vspec in variant_specs.items():
+            vcfg = cfg.model_copy(update={"llm": cfg.llm.model_copy(update={"connect": vspec})})
+            llms[name] = get_llm(vcfg, "connect")
 
     runs: dict[str, dict[str, dict[str, Any]]] = {}
     run_meta: dict[str, Any] = {}
     for result_id in result_ids(list(prompts), run_names):
         name, _, run = result_id.rpartition(":")
-        parts = prompts[name or next(iter(prompts))]
+        variant = name or next(iter(prompts))
+        parts = prompts[variant]
+        vspec = variant_specs[variant]
+        # Recordings made before @THINKING existed keep their key.
+        thinking_key = (
+            f"|thinking={thinking_checksum_token(vspec.thinking)}" if variant in thinking_of else ""
+        )
         run_key = sha256_hex(
             f"{run}|{CONTEXT_CHARS[condition_of(run)]}|{parts.full_template}|"
             f"{spec.provider}/{spec.model}@{temperature}|"
-            f"shuffle={args.shuffle_context}|perm={args.permutations}"
+            f"shuffle={args.shuffle_context}|perm={args.permutations}{thinking_key}"
         )[:12]
         record_path = args.record_dir / f"{run}-{run_key}.json"
-        recorded = (
-            json.loads(record_path.read_text(encoding="utf-8"))["answers"]
-            if record_path.exists()
-            else {}
-        )
+        stored = json.loads(record_path.read_text(encoding="utf-8")) if record_path.exists() else {}
+        recorded = stored.get("answers", {})
+        usage = stored.get("usage", {})
         missing = [item for item in snapshot if item["item_key"] not in recorded]
         chars = sum(len("".join(build(run, item, parts))) for item in missing)
         print(
@@ -805,6 +856,9 @@ def main(argv: list[str] | None = None) -> int:
         }
         if missing and args.yes:
             from zettel.llm import call_llm
+            from zettel.usage import begin_run, get_tracker
+
+            begin_run()
 
             for item in missing:
                 keys = order_keys(
@@ -813,15 +867,23 @@ def main(argv: list[str] | None = None) -> int:
                     permutations=args.permutations,
                 )
                 answers = []
+                calls_usage = []
                 for key in keys:
                     system, user = build(run, item, parts, order_key=key)
+                    started = time.perf_counter()
                     text = call_llm(
-                        llm,
+                        llms[variant],
                         user,
                         system=system or None,
                         provider=spec.provider,
                         prompt_cache=cfg.llm.prompt_cache,
                         label=f"probe-connect:{result_id}",
+                    )
+                    calls_usage.append(
+                        {
+                            "output_tokens": get_tracker().events[-1].tokens_out,
+                            "latency_ms": int((time.perf_counter() - started) * 1000),
+                        }
                     )
                     entry = parse_answer(
                         text, {n["note_id"] for n in item["similar"] + item["distant"]}
@@ -836,6 +898,7 @@ def main(argv: list[str] | None = None) -> int:
                 recorded[item["item_key"]] = (
                     answers[0] if len(answers) == 1 else aggregate_edges(answers)
                 )
+                usage[item["item_key"]] = calls_usage
                 record_path.parent.mkdir(parents=True, exist_ok=True)
                 record_path.write_text(
                     json.dumps(
@@ -843,7 +906,9 @@ def main(argv: list[str] | None = None) -> int:
                             "run": run,
                             "model": f"{spec.provider}/{spec.model}",
                             "temperature": temperature,
+                            "thinking": thinking_checksum_token(vspec.thinking),
                             "answers": recorded,
+                            "usage": usage,
                         },
                         ensure_ascii=False,
                         indent=2,
@@ -853,6 +918,7 @@ def main(argv: list[str] | None = None) -> int:
                     encoding="utf-8",
                 )
         runs[result_id] = recorded
+        run_meta[result_id]["usage"] = usage_summary(usage)
 
     comparisons = [("trunc-a", "full-a")] if {"trunc-a", "full-a"} <= set(runs) else []
     names = list(prompts)
@@ -867,6 +933,10 @@ def main(argv: list[str] | None = None) -> int:
     summary["temperature"] = temperature
     summary["note_chars"] = CONTEXT_CHARS
     summary["prompts"] = {name: str(path) for name, path in prompt_args}
+    summary["thinking"] = {
+        name: thinking_checksum_token(vspec.thinking) for name, vspec in variant_specs.items()
+    }
+    summary["usage"] = {rid: meta["usage"] for rid, meta in run_meta.items()}
     if args.score_key and args.labels:
         from score_decision_gold import relations_detail, score_conditions
 

@@ -17,7 +17,7 @@ from typing import Any
 from pydantic import ValidationError
 from ulid import ULID
 
-from zettel.config import AppConfig, effective_temperature, llm_phase, thinking_checksum_token
+from zettel.config import AppConfig, checksum_sampling, llm_phase, thinking_checksum_token
 from zettel.decision.shadow import shadow_dedupe
 from zettel.hashing import (
     compute_llm_call_checksum,
@@ -267,15 +267,16 @@ def prompt1_call_checksum(
         sha256_hex(normalize_text_for_hash(images_context)) if images_context else ""
     )
     spec = llm_phase(cfg, "extract")
+    sampling_temp, sampling_top_p = checksum_sampling(cfg, spec)
     return compute_llm_call_checksum(
         prompt_hash,
         chunk_row["chunk_checksum"],
         spec.model,
-        effective_temperature(cfg, spec),
+        sampling_temp,
         cfg.language,
         rag_context_checksum=images_ctx_checksum,
         provider=spec.provider,
-        top_p=cfg.llm.top_p,
+        top_p=sampling_top_p,
         thinking=thinking_checksum_token(spec.thinking),
         variant="force_extract" if force_extract else "",
     )
@@ -356,7 +357,6 @@ def _process_chunk(
         cfg, prompt_hash, chunk_row, images_context, force_extract=force_extract
     )
     cached = db.get_cached_llm_response(call_checksum)
-    request_payload_json: str | None = None
     if cached:
         logger.debug("Cache hit para chunk %s", chunk_id)
         from zettel.usage import record_cache_hit
@@ -373,7 +373,6 @@ def _process_chunk(
             images_context,
             force_extract=force_extract,
         )
-        request_payload_json = json.dumps({"system": system, "user": user}, ensure_ascii=False)
 
         try:
             response_text = call_llm(
@@ -458,7 +457,13 @@ def _process_chunk(
     # Cache only the response that actually parsed -- reached here means `output`
     # is valid, whether from the first attempt or the repair retry above.
     if not cached:
-        db.cache_llm_response(call_checksum, request_payload_json or "{}", response_text)
+        db.cache_llm_response(
+            call_checksum,
+            response_text,
+            phase="extract",
+            model=spec.model,
+            prompt_checksum=prompt_hash,
+        )
 
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
     confidence = _score_review_confidence(output, cfg, chunk_text, force=force_extract)

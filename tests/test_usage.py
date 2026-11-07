@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from zettel.usage import (
     begin_run,
+    finish_pipeline_run,
     get_tracker,
     record_cache_hit,
+    record_decision,
     record_embed,
     record_llm,
     reset,
@@ -232,3 +234,83 @@ def testfmt_prompt_cache_ratio():
         tokens_prompt=5000, prompt_cache_read_tokens=4800, prompt_cache_write_tokens=0
     )
     assert fmt_prompt_cache_ratio(with_cache) == "4800r/0w (96%)"
+
+
+def test_decision_calls_are_billed_but_are_not_llm_calls():
+    """A Jev shadow call must not dilute a phase's call count or token means."""
+    begin_run(1)
+    set_source("@A")
+    record_llm(model="claude-haiku-5-5", tokens_in=12_000, tokens_out=2500, cost_usd=0.002)
+    record_decision(
+        model="jev-1.13.0", provider="typesafe", tokens_in=1000, cost_usd=0.00001, label="jev:x"
+    )
+    tracker = get_tracker()
+    assert tracker is not None
+    total = tracker.summary()
+    assert (total.llm_calls, total.tokens_prompt, total.tokens_completion) == (1, 12_000, 2500)
+    assert abs(total.cost_usd_llm - 0.002) < 1e-12
+    assert abs(total.cost_usd_total - 0.00201) < 1e-12
+    assert abs(tracker.summary_for_source("@A").cost_usd_total - 0.00201) < 1e-12
+
+
+def test_model_usage_groups_by_kind_provider_and_model():
+    begin_run(1)
+    record_llm(
+        model="claude-haiku-5-5",
+        provider="anthropic",
+        tokens_in=100,
+        tokens_out=10,
+        cost_usd=0.1,
+        cache_read_tokens=60,
+    )
+    record_llm(
+        model="claude-haiku-5-5", provider="anthropic", tokens_in=50, tokens_out=5, cost_usd=0.05
+    )
+    record_embed(model="gemini-embedding-2", provider="gemini", tokens=40, cost_usd=0.01)
+    record_decision(model="jev-1.13.0", provider="typesafe", tokens_in=7, cost_usd=0.001)
+    tracker = get_tracker()
+    assert tracker is not None
+    rows = {(r["kind"], r["provider"], r["model"]): r for r in tracker.model_usage()}
+    llm = rows[("llm", "anthropic", "claude-haiku-5-5")]
+    assert (llm["calls"], llm["tokens_prompt"], llm["tokens_completion"]) == (2, 150, 15)
+    assert llm["cache_read_tokens"] == 60
+    assert rows[("embed", "gemini", "gemini-embedding-2")]["tokens_embedding"] == 40
+    assert rows[("decision", "typesafe", "jev-1.13.0")]["calls"] == 1
+
+
+def test_finish_pipeline_run_stores_usage_per_model(tmp_path):
+    from zettel.state import StateDB
+
+    db = StateDB(tmp_path / "state.db")
+    try:
+        run_id = db.start_run("connect")
+        begin_run(run_id)
+        record_llm(
+            model="claude-haiku-5-5", provider="anthropic", tokens_in=10, tokens_out=2, cost_usd=0.3
+        )
+        record_decision(model="jev-1.13.0", provider="typesafe", tokens_in=5, cost_usd=0.1)
+        finish_pipeline_run(db, run_id)
+        by_provider = {r["provider"]: r for r in db.usage_by_provider([run_id])}
+        assert set(by_provider) == {"anthropic", "typesafe"}
+        assert abs(by_provider["anthropic"]["cost_usd"] - 0.3) < 1e-9
+        assert db.get_run(run_id)["llm_calls"] == 1
+        assert db.usage_by_provider([]) == []
+    finally:
+        db.close()
+
+
+def test_tracker_is_safe_across_threads():
+    from concurrent.futures import ThreadPoolExecutor
+
+    begin_run(1)
+    tracker = get_tracker()
+    assert tracker is not None
+
+    def work(_):
+        for _ in range(200):
+            tracker.record_llm(model="m", tokens_in=1, tokens_out=1, cost_usd=0.0, provider="p")
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(work, range(8)))
+    assert tracker.summary().llm_calls == 1600
+    assert tracker.model_usage()[0]["calls"] == 1600

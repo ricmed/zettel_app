@@ -36,7 +36,7 @@ class _CacheDB:
     def get_cached_llm_response(self, checksum: str) -> str | None:
         return self.store.get(checksum)
 
-    def cache_llm_response(self, checksum: str, _request: str, response: str) -> None:
+    def cache_llm_response(self, checksum: str, response: str, **_meta: str) -> None:
         self.store[checksum] = response
 
 

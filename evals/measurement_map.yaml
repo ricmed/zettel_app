@@ -53,6 +53,7 @@ measurements:
       - evals/preregistration/231-prompt-relacoes.md
       - evals/preregistration/285-connect-rag-diversidade.md
       - evals/preregistration/286-ordem-contexto-prompt2.md
+      - evals/preregistration/355-connect-thinking.md
     commands:
       - git show main:prompts/permanent_note.md > .eval-work/prompts/permanent-current.md
       - .venv/Scripts/python.exe scripts/probe_connect_context.py --sample 40 --seed 0 --yes --runs trunc-a,trunc-b --prompt current=.eval-work/prompts/permanent-current.md --prompt new=prompts/permanent_note.md --score-key evals/gold/relacoes-r2-GABARITO-NAO-ABRIR.json --labels evals/gold/relacoes-r2-rotulos.json

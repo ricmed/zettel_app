@@ -166,6 +166,49 @@ def print_cost_by_phase(db, *, title: str = "Custo por fase") -> None:
     )
 
 
+def print_cost_by_provider(db, *, title: str = "Custo por provedor") -> None:
+    """Estimated cost per provider and model: the last pipeline session, then every run.
+
+    The unit a vendor panel bills, so the two can be compared side by side.
+    Runs finished before ``run_usage`` existed are not in these rows.
+    """
+    from zettel.usage import latest_pipeline_session
+
+    session_ids = [int(r["run_id"]) for r in latest_pipeline_session(db.get_recent_runs())]
+    for label, rows in (
+        ("ultima execucao do pipeline", db.usage_by_provider(session_ids)),
+        ("todas as execucoes", db.usage_by_provider()),
+    ):
+        if not rows:
+            continue
+        table = Table(title=f"{title} ({label})")
+        table.add_column("Provedor", style="bold")
+        table.add_column("Modelo")
+        table.add_column("Tipo")
+        table.add_column("Chamadas", justify="right")
+        table.add_column("Tokens entrada", justify="right")
+        table.add_column("Lidos do cache", justify="right")
+        table.add_column("Tokens saida", justify="right")
+        table.add_column("USD", justify="right")
+        total = 0.0
+        for row in rows:
+            cost = float(row.get("cost_usd") or 0)
+            total += cost
+            is_embed = row.get("kind") == "embed"
+            table.add_row(
+                row.get("provider") or "-",
+                row.get("model") or "-",
+                str(row.get("kind") or "-"),
+                str(row.get("calls") or 0),
+                str(row.get("tokens_embedding") if is_embed else row.get("tokens_prompt") or 0),
+                str(row.get("cache_read_tokens") or 0),
+                str(row.get("tokens_completion") or 0),
+                fmt_usd(cost),
+            )
+        table.add_row("Total", "", "", "", "", "", "", fmt_usd(total), style="bold")
+        console.print(table)
+
+
 def print_connect_summary(outcome) -> None:
     """What one connect run wrote: notes, edges by type, source mix, cost."""
     console.print(f"[green]Notas permanentes criadas: {len(outcome.note_ids)}[/green]")

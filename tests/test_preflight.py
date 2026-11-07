@@ -17,6 +17,7 @@ from zettel.preflight import (
     estimate_connect,
     estimate_extract,
     estimate_tokens,
+    phase_history,
     rag_note_chars,
 )
 from zettel.schemas import PermanentNoteCandidate
@@ -118,14 +119,57 @@ def test_extract_counts_pending_chunks_and_prompt_overhead(cfg, db):
     assert est.output_tokens == 3 * cfg.extraction.preflight_output_tokens_per_chunk
 
 
-def test_extract_output_uses_the_historical_mean(cfg, db):
-    run_id = db.start_run("extract")
-    db.finish_run(run_id, "completed", {"tokens_completion": 834, "llm_calls": 2})
+def _past_run(db, phase, rows, status="completed"):
+    run_id = db.start_run(phase)
+    db.finish_run(run_id, status, {"llm_calls": 1})
+    db.record_run_usage(run_id, rows)
+
+
+def _usage_row(model, *, calls, prompt, out, cache_read=0, kind="llm", provider="openai"):
+    return {
+        "kind": kind,
+        "provider": provider,
+        "model": model,
+        "calls": calls,
+        "tokens_prompt": prompt,
+        "tokens_completion": out,
+        "cache_read_tokens": cache_read,
+    }
+
+
+def test_extract_uses_the_history_of_the_current_model(cfg, db):
+    model = cfg.llm.extract.model
+    _past_run(db, "extract", [_usage_row(model, calls=2, prompt=6000, out=834, cache_read=3000)])
     _pending_chunks(db, 1, chars=4)
     est = estimate_extract(cfg, db)
+    assert est.input_tokens == 3000
     assert est.output_tokens == 417
-    assert any("media" in caveat for caveat in est.caveats)
-    assert any("modelo" in caveat for caveat in est.caveats)
+    assert any("media de 2 chamada" in caveat and "50%" in caveat for caveat in est.caveats)
+    assert not any("thinking nao entram" in caveat for caveat in est.caveats)
+
+
+def test_history_ignores_other_models_and_decision_calls(cfg, db):
+    """A Jev shadow call or another model must not dilute the phase's means."""
+    model = cfg.llm.connect.model
+    _past_run(
+        db,
+        "connect",
+        [
+            _usage_row("outro-modelo", calls=10, prompt=10, out=10),
+            _usage_row("jev-1.13.0", calls=644, prompt=600_000, out=0, kind="decision"),
+        ],
+    )
+    assert phase_history(cfg, db, "connect") is None
+    _past_run(db, "connect", [_usage_row(model, calls=4, prompt=48_000, out=10_000)])
+    history = phase_history(cfg, db, "connect")
+    assert (history.calls, history.prompt_per_call, history.output_per_call) == (4, 12_000, 2500)
+
+
+def test_reconnect_reads_reconnect_runs_with_the_connect_model(cfg, db):
+    model = cfg.llm.connect.model
+    _past_run(db, "reconnect", [_usage_row(model, calls=1, prompt=100, out=50)])
+    assert phase_history(cfg, db, "connect") is None
+    assert phase_history(cfg, db, "connect", run_name="reconnect").output_per_call == 50
 
 
 def test_extract_overhead_includes_the_filled_system(cfg, db):
@@ -296,3 +340,19 @@ def test_gate_does_not_block_a_non_tty(cfg, db, monkeypatch):
     )
     _pending_chunks(db, 1)
     preflight_gate(estimate_extract(cfg, db), yes=False)
+
+
+def test_price_calls_prices_each_request_not_the_run_total(monkeypatch):
+    """A tiered price (more above 100k prompt tokens) applies per request."""
+    from zettel import preflight
+
+    seen: list[int] = []
+
+    def fake_cost(model, prompt, completion, *, cache_read_tokens=0, provider=None):
+        seen.append(prompt)
+        return 1.0 if prompt <= 100_000 else 5.0
+
+    monkeypatch.setattr(preflight, "estimate_llm_cost", fake_cost)
+    assert preflight.price_calls("m", "p", 1000, 12_000_000, 2_000_000) == 1000.0
+    assert seen == [12_000]
+    assert preflight.price_calls("m", "p", 0, 10, 10) == 0.0

@@ -14,12 +14,14 @@ from probe_connect_context import (
     mean_position_rates,
     order_keys,
     parse_answer,
+    parse_thinking,
     pick_concepts,
     rag_context_for,
     result_ids,
     sample_pairs,
     stratum_of,
     summarize_runs,
+    usage_summary,
     write_export,
     write_revision,
 )
@@ -245,3 +247,32 @@ def test_permutation_aggregate_keeps_a_majority_edge_and_its_majority_type():
 
 def test_position_rates_average_only_the_positions_that_exist():
     assert mean_position_rates([[1.0, 0.0, 0.0], [1.0, 1.0]]) == [1.0, 0.5, 0.0]
+
+
+def test_parse_thinking_validates_against_the_phase_schema():
+    import pytest
+    from zettel.config import LLMPhaseConfig
+
+    spec = LLMPhaseConfig(provider="anthropic", model="claude-haiku-5-5", thinking="low")
+    assert parse_thinking("false", spec) is False
+    assert parse_thinking("none", spec) is False
+    assert parse_thinking("LOW", spec) == "low"
+    assert parse_thinking("2048", spec) == 2048
+    with pytest.raises(ValueError):
+        parse_thinking("muito", spec)
+
+
+def test_usage_summary_means_output_and_latency_per_call():
+    usage = {
+        "a": [{"output_tokens": 1000, "latency_ms": 10_000}],
+        "b": [
+            {"output_tokens": 3000, "latency_ms": 30_000},
+            {"output_tokens": 2000, "latency_ms": 20_000},
+        ],
+    }
+    assert usage_summary(usage) == {
+        "calls": 3,
+        "mean_output_tokens": 2000.0,
+        "mean_latency_ms": 20_000,
+    }
+    assert usage_summary({}) == {"calls": 0}

@@ -112,3 +112,17 @@ The client is built through a `get_client` factory, so a cache hit never constru
 
 `prompts/note_write.md` and `prompts/note_link.md` exist, with `note_write_messages` and `note_link_messages`. `linking.prompt2_mode` defaults to `combined`, so `generate_permanent_note` is still the call `connect` and `reconnect` make. `split` writes from the approved candidate, the clipped chunk text and the anchor quote, then links the written thesis. `corroborates` is absent from both templates. `thesis_drift_min_similarity` stays 0: a rewritten thesis is stored and not flagged. Whether `split` becomes the default is the rule in `evals/preregistration/288-escrita-ligacao.md`, which has not been executed.
 * `tests/test_connector_package.py`, `tests/test_connector.py`, `tests/test_prompts.py`
+
+## Addendum (2026-11-07): sources in parallel, sequential inside a source
+
+The two-book connect of 2026-11-06 wrote 1,216 notes in 9h25. It ran at ~27 s per note, flat from the first note to the last, so there is no quadratic cost: the time is one Claude call at a time. The loop is sequential on purpose, because each note's RAG context is every note written before it. Edge locality on that run (3,120 LLM edges, by creation order): 17% point to the previous note, 27% to one of the two before, 38% within four, 48% within eight, and 4.9% to another source. Running neighbouring notes of one source concurrently would hide most of those targets.
+
+Decision: `linking.connect_parallel_sources` (default 4) overlaps **different sources** only.
+
+- `note.process_candidate` splits into `prepare_candidate` (target note, RAG search, filled prompt, cache key; main thread, no LLM call) and `finish_candidate` (Prompt 2 through the cache, writes, edges, `noted`).
+- `parallel.connect_by_source` keeps one call in flight per source. Only `invoke_prompt2`, the HTTP call, runs on a worker. `finish_candidate(call=replay(future))` hands its answer to the same `cached_call_llm`, so caching, parsing failures, the PT-BR guard and error classification are unchanged.
+- Each worker records usage on a private tracker. The main thread merges it when it finishes the note (`CostTracker.absorb`), so per-note costs and `run_usage` stay exact.
+- `1`, a single source, the `manual` origin and `split` mode keep the sequential loop.
+
+The expected gain is the number of sources in the run (2x on that run). The only behaviour change is which notes of another source a note can see. In the sequential order, the 153 cross-source edges could only point from the second book to the first.
+

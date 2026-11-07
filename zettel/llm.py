@@ -285,21 +285,6 @@ _ANTHROPIC_THINKING_BUDGET = {
     "high": 8192,
 }
 _ANTHROPIC_DEFAULT_BUDGET = 4096
-# Models that reject temperature/top_p/top_k and enabled+budget_tokens thinking
-# (Haiku 5.5 migration, Sonnet 5.5, Opus 5.x, Opus 4.7/4.8, Fable, Mythos).
-# Dated snapshots keep the prefix (claude-haiku-5-5-20261001). Haiku 4.5 /
-# Sonnet 4.6 stay off this list. With anthropic SDK 2.x langchain relocates
-# sampling to extra_body; if an older model also 400s on that payload, widen
-# this tuple.
-_ANTHROPIC_NO_SAMPLING_PREFIXES = (
-    "claude-haiku-5-5",
-    "claude-sonnet-5",
-    "claude-opus-5",
-    "claude-opus-4-7",
-    "claude-opus-4-8",
-    "claude-fable-",
-    "claude-mythos-",
-)
 _ANTHROPIC_EFFORT_FROM_LEVEL = {
     "minimal": "low",
     "low": "low",
@@ -308,18 +293,25 @@ _ANTHROPIC_EFFORT_FROM_LEVEL = {
 }
 
 
-def _anthropic_omits_sampling(model: str) -> bool:
-    """True when the Anthropic model rejects sampling params and budget_tokens."""
-    name = (model or "").strip().casefold()
-    return any(name.startswith(prefix) for prefix in _ANTHROPIC_NO_SAMPLING_PREFIXES)
+# Adaptive-family models that reject ``thinking: {type: disabled}`` at every
+# effort. The others (Haiku 5.5, Sonnet 5, Opus 5, Opus 4.7/4.8) accept it at
+# effort high or below, which is what ``false`` sends them.
+_ANTHROPIC_NO_DISABLE_PREFIXES = (
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-fable-",
+    "claude-mythos-",
+)
 
 
-def _anthropic_adaptive_thinking_kwargs(thinking: Any) -> dict[str, Any]:
+def _anthropic_adaptive_thinking_kwargs(thinking: Any, model: str) -> dict[str, Any]:
     """Map ``llm.<phase>.thinking`` onto adaptive thinking + ``output_config.effort``."""
     if thinking is False or thinking == 0:
-        # Haiku 5.5 / Opus 5.5 reject {type: disabled}; low effort is the
-        # documented stand-in for "Haiku 4.5 without thinking".
-        return {"output_config": {"effort": "low"}}
+        name = (model or "").strip().casefold()
+        if name.startswith(_ANTHROPIC_NO_DISABLE_PREFIXES):
+            # Thinking cannot be turned off here; low effort is the closest.
+            return {"output_config": {"effort": "low"}}
+        return {"thinking": {"type": "disabled"}, "output_config": {"effort": "low"}}
     if thinking is True:
         return {"thinking": {"type": "adaptive"}}
     if isinstance(thinking, str):
@@ -353,12 +345,12 @@ def _thinking_client_kwargs(
     budget = thinking if is_budget else None
 
     if provider == "gemini":
+        # Gemini 3+ takes only thinking_level; thinking_budget 400s on the next
+        # models (a budget is refused when the config loads).
         if off:
-            return {"thinking_budget": 0}
+            return {"thinking_level": "minimal"}
         if level:
-            return {"reasoning_effort": level}
-        if budget:
-            return {"thinking_budget": budget}
+            return {"thinking_level": level}
         return {}
 
     if is_openai_compatible(provider):
@@ -374,8 +366,10 @@ def _thinking_client_kwargs(
         return {"reasoning": not off}
 
     if provider == "anthropic":
-        if model is not None and _anthropic_omits_sampling(model):
-            return _anthropic_adaptive_thinking_kwargs(thinking)
+        from zettel.config import anthropic_omits_sampling
+
+        if model is not None and anthropic_omits_sampling(model):
+            return _anthropic_adaptive_thinking_kwargs(thinking, model)
         if off:
             return {"thinking": {"type": "disabled"}}
         tokens = (
@@ -404,7 +398,12 @@ def get_llm(
     (lower priority than the explicit kwarg, higher than the global default).
     ``thinking: null`` is omitted so the vendor default applies.
     """
-    from zettel.config import effective_temperature, llm_phase
+    from zettel.config import (
+        anthropic_omits_sampling,
+        effective_temperature,
+        gemini_omits_sampling,
+        llm_phase,
+    )
 
     spec = llm_phase(cfg, phase)
     temp = effective_temperature(cfg, spec) if temperature is None else temperature
@@ -447,7 +446,7 @@ def get_llm(
             }
             # Do not pass temperature=None: langchain-anthropic relocates a set
             # sampling field into extra_body, which the 2026-10-21 API rejects.
-            if not _anthropic_omits_sampling(spec.model):
+            if not anthropic_omits_sampling(spec.model):
                 anthropic_kwargs["temperature"] = temp
                 anthropic_kwargs["top_p"] = top_p
             return ChatAnthropic(**anthropic_kwargs)
@@ -469,13 +468,16 @@ def get_llm(
         if provider == "gemini":
             from langchain_google_genai import ChatGoogleGenerativeAI
 
-            return ChatGoogleGenerativeAI(
-                model=spec.model,
-                temperature=temp,
-                top_p=top_p,
-                max_retries=retries,
+            gemini_kwargs: dict[str, Any] = {
+                "model": spec.model,
+                "max_retries": retries,
                 **thinking_kwargs,
-            )
+            }
+            # Gemini 3+ ignores sampling and the next models reject it.
+            if not gemini_omits_sampling(spec.model):
+                gemini_kwargs["temperature"] = temp
+                gemini_kwargs["top_p"] = top_p
+            return ChatGoogleGenerativeAI(**gemini_kwargs)
     except LLMUnavailableError:
         raise
     except ImportError as e:
@@ -718,6 +720,8 @@ def call_llm(
         model_name,
         usage.prompt_tokens,
         usage.completion_tokens,
+        cache_read_tokens=usage.cache_read_tokens,
+        cache_write_tokens=usage.cache_write_tokens,
         provider=provider,
     )
     record_llm(
@@ -730,8 +734,37 @@ def call_llm(
         total=total,
         cache_read_tokens=usage.cache_read_tokens,
         cache_write_tokens=usage.cache_write_tokens,
+        provider=provider or "",
     )
     return content
+
+
+def llm_call_checksum(
+    cfg: Any,
+    phase: str,
+    prompt_template: str,
+    system: str,
+    user: str,
+    *,
+    temperature: float | None = None,
+) -> str:
+    """The ``llm_cache`` key ``cached_call_llm`` uses for this filled prompt."""
+    from zettel.config import checksum_sampling, llm_phase, thinking_checksum_token
+    from zettel.hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
+
+    spec = llm_phase(cfg, phase)
+    sampling_temp, sampling_top_p = checksum_sampling(cfg, spec, temperature)
+    filled = f"{system}\n{user}" if system else user
+    return compute_llm_call_checksum(
+        sha256_hex(prompt_template),
+        sha256_hex(normalize_text_for_hash(filled)),
+        spec.model,
+        sampling_temp,
+        cfg.language,
+        provider=spec.provider,
+        top_p=sampling_top_p,
+        thinking=thinking_checksum_token(spec.thinking),
+    )
 
 
 def cached_call_llm(
@@ -763,22 +796,12 @@ def cached_call_llm(
     ``temperature`` overrides the phase temperature in the key only -- the caller
     must build the client with the same value.
     """
-    from zettel.config import effective_temperature, llm_phase, thinking_checksum_token
-    from zettel.hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
+    from zettel.config import llm_phase
+    from zettel.hashing import sha256_hex
     from zettel.usage import record_cache_hit
 
     spec = llm_phase(cfg, phase)
-    filled = f"{system}\n{user}" if system else user
-    checksum = compute_llm_call_checksum(
-        sha256_hex(prompt_template),
-        sha256_hex(normalize_text_for_hash(filled)),
-        spec.model,
-        effective_temperature(cfg, spec) if temperature is None else temperature,
-        cfg.language,
-        provider=spec.provider,
-        top_p=cfg.llm.top_p,
-        thinking=thinking_checksum_token(spec.thinking),
-    )
+    checksum = llm_call_checksum(cfg, phase, prompt_template, system, user, temperature=temperature)
     cached = db.get_cached_llm_response(checksum)
     if cache_slot is not None:
         cache_slot["checksum"] = checksum
@@ -800,8 +823,10 @@ def cached_call_llm(
     )
     db.cache_llm_response(
         checksum,
-        json.dumps({"system": system, "user": user}, ensure_ascii=False),
         response,
+        phase=phase,
+        model=spec.model,
+        prompt_checksum=sha256_hex(prompt_template),
     )
     return response, False
 

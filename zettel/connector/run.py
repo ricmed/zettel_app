@@ -13,6 +13,7 @@ from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn
 from zettel.config import AppConfig, llm_phase
 from zettel.connector import context
 from zettel.connector.note import ConnectSession, process_candidate
+from zettel.connector.parallel import PENDING, connect_by_source, source_groups
 from zettel.connector.prompt import ConnectCandidateFailed, ConnectRejected
 from zettel.domain_examples import load_domain_examples, render_for_prompt
 from zettel.hashing import sha256_hex
@@ -106,12 +107,6 @@ def run_connect(
     run_id = db.start_run("connect")
     begin_run(run_id)
     run_status = "completed"
-    created_ids: list[str] = []
-    rejected = 0
-    failed = 0
-    skipped = 0
-    errors: list[str] = []
-    rejection: ConnectRejected | None = None
 
     try:
         prompt_parts = load_prompt_parts(cfg.prompts_path / "permanent_note.md")
@@ -135,6 +130,7 @@ def run_connect(
 
         total = len(candidates)
         report(observer, "connect", f"{total} candidato(s) aprovado(s).", total_items=total)
+        outcomes = _Outcomes()
 
         with Progress(
             SpinnerColumn(),
@@ -144,9 +140,9 @@ def run_connect(
             transient=True,
         ) as progress:
             task = progress.add_task("notas", total=total)
-            for i, cand_dict in enumerate(candidates, 1):
+
+            def announce(cand_dict: dict, i: int) -> None:
                 thesis = cand_dict["candidate"].thesis
-                set_source(cand_dict.get("source_id"))
                 progress.update(task, description=f"nota {i}/{total}", advance=1)
                 report(
                     observer,
@@ -158,50 +154,42 @@ def run_connect(
                 )
                 logger.debug("Gerando nota %d/%d: %s", i, total, thesis[:50])
 
-                try:
-                    note_id = process_candidate(session, cand_dict, step=i, total=total)
-                except ConnectRejected as exc:
-                    if origin == "manual":
-                        rejection = exc
-                        break
-                    mark_connect_rejected(db, cand_dict, exc)
-                    rejected += 1
-                    continue
-                except ConnectCandidateFailed as exc:
-                    failed += 1
-                    msg = str(exc).strip() or "falha ao gerar a nota"
-                    if exc.concept_id and exc.concept_id not in msg:
-                        msg = f"{exc.concept_id}: {msg}"
-                    errors.append(msg)
-                    report(
-                        observer,
-                        "connect",
-                        f"Falha: {msg}",
-                        current_item=thesis[:80],
-                        current_index=i,
-                        total_items=total,
-                    )
-                    continue
-                if note_id:
-                    created_ids.append(note_id)
-                    log_step(logger, "ok", f"ZTL {note_id}")
-                else:
-                    skipped += 1
+            def settle(cand_dict: dict, i: int, work) -> None:
+                _settle(db, outcomes, cand_dict, i, total, work, observer=observer, origin=origin)
 
+            workers = min(cfg.linking.connect_parallel_sources, len(source_groups(candidates)))
+            if workers > 1 and origin == "pipeline" and cfg.linking.prompt2_mode != "split":
+                logger.info("Connect com %d fonte(s) em paralelo", workers)
+                connect_by_source(
+                    session, candidates, workers=workers, announce=announce, settle=settle
+                )
+            else:
+                for i, cand_dict in enumerate(candidates, 1):
+                    set_source(cand_dict.get("source_id"))
+                    announce(cand_dict, i)
+                    settle(
+                        cand_dict,
+                        i,
+                        lambda c=cand_dict, n=i: process_candidate(session, c, step=n, total=total),
+                    )
+                    if outcomes.rejection:
+                        break
+
+        created_ids = outcomes.created_ids
         logger.info("Notas permanentes criadas/atualizadas: %d", len(created_ids))
         refresh_chapter_maps(cfg, db, created_ids)
         refresh_lit_permanent_links(cfg, db, candidates, created_ids)
-        if rejection:
-            raise rejection
+        if outcomes.rejection:
+            raise outcomes.rejection
         tally = tally_connect_notes(db, created_ids)
         tracker = get_tracker()
         cost = float((tracker.summary().as_dict() if tracker else {}).get("cost_usd_llm") or 0)
         return ConnectOutcome(
             note_ids=created_ids,
-            rejected=rejected,
-            failed=failed,
-            skipped=skipped,
-            errors=errors,
+            rejected=outcomes.rejected,
+            failed=outcomes.failed,
+            skipped=outcomes.skipped,
+            errors=outcomes.errors,
             cost_usd=cost,
             **tally,
         )
@@ -212,6 +200,70 @@ def run_connect(
         set_source(None)
         _record_source_costs(cfg, db)
         finish_pipeline_run(db, run_id, run_status)
+
+
+@dataclass
+class _Outcomes:
+    """Running tally of one connect run, filled by ``_settle``."""
+
+    created_ids: list[str] = field(default_factory=list)
+    rejected: int = 0
+    failed: int = 0
+    skipped: int = 0
+    errors: list[str] = field(default_factory=list)
+    rejection: ConnectRejected | None = None
+
+
+def _settle(
+    db: StateDB,
+    outcomes: _Outcomes,
+    cand_dict: dict,
+    i: int,
+    total: int,
+    work,
+    *,
+    observer,
+    origin: str,
+) -> None:
+    """Run one candidate's ``work`` and file its outcome.
+
+    ``work`` returns the note id, ``None`` (another note covers the concept) or
+    ``PENDING`` (its Prompt 2 call went to a worker; settled again later). A
+    rejection stops a manual run and marks a pipeline concept; a failed
+    candidate is counted and reported. Anything else propagates.
+    """
+    thesis = cand_dict["candidate"].thesis
+    try:
+        note_id = work()
+    except ConnectRejected as exc:
+        if origin == "manual":
+            outcomes.rejection = exc
+            return
+        mark_connect_rejected(db, cand_dict, exc)
+        outcomes.rejected += 1
+        return
+    except ConnectCandidateFailed as exc:
+        outcomes.failed += 1
+        msg = str(exc).strip() or "falha ao gerar a nota"
+        if exc.concept_id and exc.concept_id not in msg:
+            msg = f"{exc.concept_id}: {msg}"
+        outcomes.errors.append(msg)
+        report(
+            observer,
+            "connect",
+            f"Falha: {msg}",
+            current_item=thesis[:80],
+            current_index=i,
+            total_items=total,
+        )
+        return
+    if note_id is PENDING:
+        return
+    if note_id:
+        outcomes.created_ids.append(note_id)
+        log_step(logger, "ok", f"ZTL {note_id}")
+    else:
+        outcomes.skipped += 1
 
 
 def _record_source_costs(cfg: AppConfig, db: StateDB) -> None:
