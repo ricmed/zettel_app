@@ -113,7 +113,8 @@ Os exemplos abaixo usam `python -m zettel ...`; prefixe com `uv run` se o ambien
 | `zettel skill`                    | Exporta um recorte aprovado do vault como Agent Skill plana                  |
 | `zettel new-note`                 | Scaffold de nota manual (`ztl`/`src`/`lit`/`moc`)                            |
 | `zettel sync-manual`              | Adota notas escritas à mão no Obsidian (índice, grafo, backrefs), também sem rede; `--prune` remove as apagadas |
-| `zettel obsidian-setup`           | Templates do Obsidian (Templater) e configuração do `.obsidian/` num vault existente |
+| `zettel obsidian-templates`       | Gera `99_Templates/` a partir dos scaffolds do `new-note`; `--force` regrava |
+| `zettel obsidian-setup`           | Templates, plugin Templater e `.obsidian/` num vault existente |
 | `zettel suggest-links`            | Sugere conexões (incl. analogias distantes) sem reescrever a ZTL             |
 | `zettel status` / `zettel doctor` | Estatísticas do pipeline / diagnóstico de config e dependências              |
 | `zettel db-report`                | Relatório de tamanho e conteúdo de `state.db` e Chroma                       |
@@ -158,10 +159,20 @@ vault/
 ├── 20_Literature/           # Indice LIT (raiz) + {Citekey}/ com as LIT granulares
 ├── 30_Permanent/            # Notas permanentes (ZTL)
 ├── 40_MOCs/                 # Mapas de Conteudo
-└── 90_Assets/               # Imagens extraidas de PDFs/Markdown (nome por hash)
+├── 90_Assets/               # Imagens extraidas de PDFs/Markdown (nome por hash)
+├── 99_Templates/            # Templates Templater (gerados; sync-manual nao varre)
+│   ├── SRC.md
+│   ├── LIT - indice.md
+│   ├── LIT - granular.md
+│   ├── ZTL.md               # LIT granular preenchida → ZTL (sem --llm)
+│   ├── MOC.md
+│   └── scripts/zettel.js    # ULID, citekey, LIT→ZTL; nao editar
+└── .obsidian/               # Plugin Templater e folder templates (init)
 ```
 
 Nomes seguem `PREFIXO - IDENTIFICADOR - slug.md` (SRC/LIT usam `AuthorYear`; ZTL/MOC usam ULID). O `@` vive em `source_id` e na CLI, nunca em caminhos.
+
+`99_Templates/` nasce no `init` (ou em `zettel obsidian-templates` / `obsidian-setup`). Os templates usam os mesmos scaffolds do `new-note`; o ZTL do Templater pede uma LIT granular já preenchida (`--llm` só na CLI/web). No Obsidian use **Create new note from template**, não Insert. Depois de atualizar o Zettel, `zettel obsidian-templates --force` regrava a pasta. Detalhes: [notas manuais](docs/notas-manuais.md#criar-notas-direto-no-obsidian-templates).
 
 Mapa dos módulos, blocos gerenciados e camadas anti-drift: [docs/arquitetura.md](docs/arquitetura.md). Exemplos completos de cada nota: [docs/notas.md](docs/notas.md).
 
