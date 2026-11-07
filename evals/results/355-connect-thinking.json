@@ -1,0 +1,197 @@
+{
+  "agreement": {
+    "low:trunc-a x off:trunc-a": {
+      "agreement": 0.8425,
+      "pairs": 584
+    }
+  },
+  "items": 40,
+  "labelled": {
+    "conditions": {
+      "low:trunc-a": {
+        "accuracy": 0.3043,
+        "accuracy_ci95": [
+          0.2085,
+          0.4208
+        ],
+        "accuracy_weighted": 0.3088,
+        "by_stratum": {
+          "both": {
+            "accuracy": 0.2667,
+            "n": 15
+          },
+          "current_only": {
+            "accuracy": 0.3,
+            "n": 20
+          },
+          "neither": {
+            "accuracy": 0.3125,
+            "n": 16
+          },
+          "new_only": {
+            "accuracy": 0.3333,
+            "n": 18
+          }
+        },
+        "confusion_human_to_model": {
+          "contradicts->nenhuma": 1,
+          "extends->depends_on": 3,
+          "extends->exemplifies": 1,
+          "extends->extends": 4,
+          "extends->nenhuma": 20,
+          "extends->related": 3,
+          "extends->supports": 2,
+          "nenhuma->nenhuma": 13,
+          "nenhuma->related": 1,
+          "related->exemplifies": 1,
+          "related->extends": 1,
+          "related->nenhuma": 11,
+          "related->related": 4,
+          "supports->nenhuma": 4
+        },
+        "correct": 21,
+        "n": 69
+      },
+      "off:trunc-a": {
+        "accuracy": 0.3188,
+        "accuracy_ci95": [
+          0.2209,
+          0.4358
+        ],
+        "accuracy_weighted": 0.3535,
+        "by_stratum": {
+          "both": {
+            "accuracy": 0.1333,
+            "n": 15
+          },
+          "current_only": {
+            "accuracy": 0.3,
+            "n": 20
+          },
+          "neither": {
+            "accuracy": 0.375,
+            "n": 16
+          },
+          "new_only": {
+            "accuracy": 0.4444,
+            "n": 18
+          }
+        },
+        "confusion_human_to_model": {
+          "contradicts->nenhuma": 1,
+          "extends->depends_on": 4,
+          "extends->extends": 7,
+          "extends->nenhuma": 22,
+          "nenhuma->extends": 1,
+          "nenhuma->nenhuma": 13,
+          "related->contradicts": 1,
+          "related->exemplifies": 1,
+          "related->extends": 1,
+          "related->nenhuma": 12,
+          "related->related": 2,
+          "supports->extends": 1,
+          "supports->nenhuma": 3
+        },
+        "correct": 22,
+        "n": 69
+      }
+    },
+    "detail": {
+      "human_edges": 55,
+      "low:trunc-a": {
+        "edge_presence": {
+          "accuracy": 0.4638,
+          "n": 69
+        },
+        "edges_proposed": 20,
+        "type_on_shared_edges": {
+          "accuracy": 0.4211,
+          "n": 19
+        }
+      },
+      "off:trunc-a": {
+        "edge_presence": {
+          "accuracy": 0.4348,
+          "n": 69
+        },
+        "edges_proposed": 18,
+        "type_on_shared_edges": {
+          "accuracy": 0.5294,
+          "n": 17
+        }
+      }
+    },
+    "pairs": {
+      "low:trunc-a:off:trunc-a": {
+        "mcnemar_p": 1.0,
+        "mid_p": 0.7744,
+        "n": 69,
+        "only_a_right": 5,
+        "only_b_right": 6
+      }
+    }
+  },
+  "model": "anthropic/claude-haiku-5-5",
+  "note_chars": {
+    "full": 6000,
+    "trunc": 150
+  },
+  "prompts": {
+    "low": "prompts\\permanent_note.md",
+    "off": "prompts\\permanent_note.md"
+  },
+  "runs": {
+    "low:trunc-a": {
+      "answered": 40,
+      "edges_per_note": 2.967,
+      "invalid_or_missing": 0,
+      "invalid_share": 0.0,
+      "max_edges": 4,
+      "rejected": 10,
+      "relations": {
+        "contradicts": 4,
+        "depends_on": 13,
+        "exemplifies": 5,
+        "extends": 33,
+        "related": 25,
+        "supports": 9
+      },
+      "share_at_most_4_edges": 1.0
+    },
+    "off:trunc-a": {
+      "answered": 40,
+      "edges_per_note": 3.2,
+      "invalid_or_missing": 0,
+      "invalid_share": 0.0,
+      "max_edges": 4,
+      "rejected": 5,
+      "relations": {
+        "contradicts": 10,
+        "depends_on": 20,
+        "exemplifies": 9,
+        "extends": 49,
+        "related": 16,
+        "supports": 8
+      },
+      "share_at_most_4_edges": 1.0
+    }
+  },
+  "stability": {},
+  "temperature": 0.2,
+  "thinking": {
+    "low": "low",
+    "off": "false"
+  },
+  "usage": {
+    "low:trunc-a": {
+      "calls": 40,
+      "mean_latency_ms": 9800,
+      "mean_output_tokens": 2041.2
+    },
+    "off:trunc-a": {
+      "calls": 40,
+      "mean_latency_ms": 4365,
+      "mean_output_tokens": 971.1
+    }
+  }
+}

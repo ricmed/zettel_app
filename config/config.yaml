@@ -54,8 +54,8 @@ llm:
     model: claude-haiku-5-5      # notas permanentes (Prompt 2)
     base_url: null
     temperature: null       # Haiku 5.5 recusa amostragem; nao e enviada (ADR-048)
-    thinking: low            # adaptive + effort low (o fio de antes). false desliga de fato no
-                             # Haiku 5.5; troca so apos evals/preregistration/355-connect-thinking.md
+    thinking: false          # thinking desligado + effort low. #355: 22/69 vs 21/69 do low, saida
+                             # -52%, latencia -55%; rodada inconclusiva, mantido por decisao explicita
   garden:
     provider: openai
     model: gpt-6-luna      # MOCs taxonomicos e hub
