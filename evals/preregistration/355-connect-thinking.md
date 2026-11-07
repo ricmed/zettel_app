@@ -1,4 +1,4 @@
-# Pré-registro: thinking desligado no Prompt 2 do connect (Claude Haiku 5.5)
+# Pré-registro — #355: thinking desligado no Prompt 2 do connect (Claude Haiku 5.5)
 
 Registrado em 2026-11-07, **antes** de qualquer chamada com o thinking desligado. Neste commit já existem:
 - os rótulos humanos da validação da #231 (`evals/gold/relacoes-r2-rotulos.json`, gabarito `relacoes-r2-GABARITO-NAO-ABRIR.json`, snapshot `n40-s1`);
@@ -71,5 +71,5 @@ Trocar `llm.connect.thinking` de `low` para `false` **se, e somente se**:
 ```
 
 ```bash
-.venv/Scripts/python.exe scripts/probe_connect_context.py --sample 40 --seed 1 --runs trunc-a --prompt low=prompts/permanent_note.md@low --prompt off=prompts/permanent_note.md@false --score-key evals/gold/relacoes-r2-GABARITO-NAO-ABRIR.json --labels evals/gold/relacoes-r2-rotulos.json --out evals/results/connect-thinking.json
+.venv/Scripts/python.exe scripts/probe_connect_context.py --sample 40 --seed 1 --runs trunc-a --prompt low=prompts/permanent_note.md@low --prompt off=prompts/permanent_note.md@false --score-key evals/gold/relacoes-r2-GABARITO-NAO-ABRIR.json --labels evals/gold/relacoes-r2-rotulos.json --out evals/results/355-connect-thinking.json
 ```

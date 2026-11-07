@@ -55,7 +55,7 @@ llm:
     base_url: null
     temperature: null       # Haiku 5.5 recusa amostragem; nao e enviada (ADR-048)
     thinking: low            # adaptive + effort low (o fio de antes). false desliga de fato no
-                             # Haiku 5.5; troca so apos evals/preregistration/connect-thinking.md
+                             # Haiku 5.5; troca so apos evals/preregistration/355-connect-thinking.md
   garden:
     provider: openai
     model: gpt-6-luna      # MOCs taxonomicos e hub
