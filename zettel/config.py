@@ -277,6 +277,10 @@ class LinkingConfig(BaseModel):
     # Vizinha de grafo que ja entrou em N contextos recentes do connect sai do
     # proximo. 0 = desligado. Nao afeta o ask.
     graph_hub_repeat_limit: int = 0
+    # Fontes diferentes cujo Prompt 2 roda ao mesmo tempo no connect. Dentro de
+    # uma fonte a ordem continua sequencial (38% das arestas ligam notas a ate 4
+    # posicoes; 4,9% cruzam fontes). 1 = connect sequencial.
+    connect_parallel_sources: int = Field(default=4, ge=1)
     # Expansao do connect, separada da do ask (`retrieval.graph_expansion`).
     # Os numeros copiam o ask ate a regra em evals/preregistration/285-*.md.
     graph_expansion: GraphExpansionConfig = Field(

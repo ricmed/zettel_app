@@ -739,6 +739,34 @@ def call_llm(
     return content
 
 
+def llm_call_checksum(
+    cfg: Any,
+    phase: str,
+    prompt_template: str,
+    system: str,
+    user: str,
+    *,
+    temperature: float | None = None,
+) -> str:
+    """The ``llm_cache`` key ``cached_call_llm`` uses for this filled prompt."""
+    from zettel.config import checksum_sampling, llm_phase, thinking_checksum_token
+    from zettel.hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
+
+    spec = llm_phase(cfg, phase)
+    sampling_temp, sampling_top_p = checksum_sampling(cfg, spec, temperature)
+    filled = f"{system}\n{user}" if system else user
+    return compute_llm_call_checksum(
+        sha256_hex(prompt_template),
+        sha256_hex(normalize_text_for_hash(filled)),
+        spec.model,
+        sampling_temp,
+        cfg.language,
+        provider=spec.provider,
+        top_p=sampling_top_p,
+        thinking=thinking_checksum_token(spec.thinking),
+    )
+
+
 def cached_call_llm(
     cfg: Any,
     db: Any,
@@ -768,23 +796,12 @@ def cached_call_llm(
     ``temperature`` overrides the phase temperature in the key only -- the caller
     must build the client with the same value.
     """
-    from zettel.config import checksum_sampling, llm_phase, thinking_checksum_token
-    from zettel.hashing import compute_llm_call_checksum, normalize_text_for_hash, sha256_hex
+    from zettel.config import llm_phase
+    from zettel.hashing import sha256_hex
     from zettel.usage import record_cache_hit
 
     spec = llm_phase(cfg, phase)
-    sampling_temp, sampling_top_p = checksum_sampling(cfg, spec, temperature)
-    filled = f"{system}\n{user}" if system else user
-    checksum = compute_llm_call_checksum(
-        sha256_hex(prompt_template),
-        sha256_hex(normalize_text_for_hash(filled)),
-        spec.model,
-        sampling_temp,
-        cfg.language,
-        provider=spec.provider,
-        top_p=sampling_top_p,
-        thinking=thinking_checksum_token(spec.thinking),
-    )
+    checksum = llm_call_checksum(cfg, phase, prompt_template, system, user, temperature=temperature)
     cached = db.get_cached_llm_response(checksum)
     if cache_slot is not None:
         cache_slot["checksum"] = checksum

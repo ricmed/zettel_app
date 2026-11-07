@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,6 +24,7 @@ from zettel.connector.prompt import (
     Prompt2Payload,
     generate_permanent_note,
     generate_split_note,
+    permanent_note_messages,
 )
 from zettel.decision.shadow import shadow_corroborates
 from zettel.hashing import (
@@ -32,7 +34,7 @@ from zettel.hashing import (
     sha256_hex,
 )
 from zettel.index import VectorIndex
-from zettel.llm import LLMUnavailableError, PromptParts
+from zettel.llm import LLMUnavailableError, PromptParts, llm_call_checksum
 from zettel.retrieval import Retriever
 from zettel.schemas import PermanentNoteCandidate, PermanentNoteLLMOutput, RelationType
 from zettel.state import StateDB
@@ -101,14 +103,43 @@ def process_candidate(
     if step is not None:
         set_progress(step, total, "nota")
     try:
-        return _process(session, cand_dict, step=step, total=total)
+        prepared = prepare_candidate(session, cand_dict)
+        if prepared is None:
+            return None
+        return finish_candidate(session, prepared, step=step, total=total)
     finally:
         clear_progress()
 
 
-def _process(
-    session: ConnectSession, cand_dict: dict, *, step: int | None, total: int | None
-) -> str | None:
+@dataclass(frozen=True)
+class PreparedNote:
+    """One candidate with its target note and Prompt 2 context, before the call.
+
+    ``system`` / ``user`` are the filled combined Prompt 2 (empty in ``split``
+    mode, whose two calls stay sequential). ``checksum`` is their ``llm_cache``
+    key, so a caller can tell a cache hit from a call that has to go out.
+    """
+
+    cand_dict: dict
+    note_id: str
+    chunk_row: dict | None
+    literature_ref: str
+    citation: NoteCitation
+    similar: list
+    distant: list
+    payload: Prompt2Payload
+    system: str = ""
+    user: str = ""
+    checksum: str = ""
+
+
+def prepare_candidate(session: ConnectSession, cand_dict: dict) -> PreparedNote | None:
+    """Decide the target note and gather the Prompt 2 context. No LLM call.
+
+    Reads SQLite and the vector index (the RAG search embeds the query), so it
+    runs on the thread that owns them. ``None``: the concept was already refused,
+    or another note covers it.
+    """
     cfg, db = session.cfg, session.db
     cand: PermanentNoteCandidate = cand_dict["candidate"]
     source_id = cand_dict["source_id"]
@@ -158,6 +189,55 @@ def _process(
         images_context=context.images_context(db, cand.relevant_image_ids),
         examples=session.example_fields,
     )
+    system = user = checksum = ""
+    if cfg.linking.prompt2_mode != "split":
+        system, user = permanent_note_messages(
+            cfg,
+            session.prompt_parts,
+            cand,
+            payload,
+            force=bool(cand_dict.get("force_connect")),
+        )
+        checksum = llm_call_checksum(
+            cfg, "connect", session.prompt_parts.full_template, system, user
+        )
+    return PreparedNote(
+        cand_dict=cand_dict,
+        note_id=note_id,
+        chunk_row=chunk_row,
+        literature_ref=literature_ref,
+        citation=citation,
+        similar=similar,
+        distant=distant,
+        payload=payload,
+        system=system,
+        user=user,
+        checksum=checksum,
+    )
+
+
+def finish_candidate(
+    session: ConnectSession,
+    prepared: PreparedNote,
+    *,
+    step: int | None,
+    total: int | None,
+    call: Callable[..., str] | None = None,
+) -> str:
+    """Run Prompt 2 and write the note, its edges and the concept status.
+
+    ``call`` replaces the model call: the parallel connect passes the answer a
+    worker thread already fetched, so this step does no network round trip for
+    the LLM and the cache, parsing and writes stay on the main thread.
+    """
+    cfg, db = session.cfg, session.db
+    cand_dict = prepared.cand_dict
+    cand: PermanentNoteCandidate = cand_dict["candidate"]
+    source_id = cand_dict["source_id"]
+    concept_id = cand_dict["concept_id"]
+    chunk_id = cand_dict.get("chunk_id") or ""
+    note_id = prepared.note_id
+    similar, distant = prepared.similar, prepared.distant
 
     tracker = get_tracker()
     usage_before = tracker.summary().as_dict() if tracker else {}
@@ -169,8 +249,8 @@ def _process(
                 db,
                 session.llm,
                 cand,
-                payload,
-                source_text=(chunk_row or {}).get("text") or "",
+                prepared.payload,
+                source_text=(prepared.chunk_row or {}).get("text") or "",
                 anchor_quote=cand.anchor_quote or "",
                 step=step,
                 total=total,
@@ -183,12 +263,13 @@ def _process(
                 session.llm,
                 session.prompt_parts,
                 cand,
-                payload,
+                prepared.payload,
                 label=f"connect:{concept_id}",
                 step=step,
                 total=total,
                 force=bool(cand_dict.get("force_connect")),
                 subject_id=concept_id,
+                call=call,
             )
     except (ConnectRejected, LLMUnavailableError, ConnectCandidateFailed):
         raise
@@ -238,8 +319,8 @@ def _process(
         note_output=note_output,
         edges=hard,
         suggestions=suggestions + proposed,
-        literature_ref=literature_ref,
-        citation=citation,
+        literature_ref=prepared.literature_ref,
+        citation=prepared.citation,
         provenance_extra={
             **_usage_delta(usage_before, usage_after),
             "llm_cache_hit": cache_hit,

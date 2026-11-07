@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
 
@@ -277,44 +277,21 @@ class CostTracker:
     ) -> UsageEvent:
         sid = source_id if source_id is not None else get_source_id()
         prog = _progress_tag(step, total, kind)
+        event = UsageEvent(
+            kind="llm",
+            model=model,
+            provider=provider,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_usd=cost_usd,
+            label=label,
+            source_id=sid,
+            progress=prog,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+        )
         with self._lock:
-            event = UsageEvent(
-                kind="llm",
-                model=model,
-                provider=provider,
-                tokens_in=tokens_in,
-                tokens_out=tokens_out,
-                cost_usd=cost_usd,
-                label=label,
-                source_id=sid,
-                progress=prog,
-                cache_read_tokens=cache_read_tokens,
-                cache_write_tokens=cache_write_tokens,
-            )
-            self.events.append(event)
-            self._total.llm_calls += 1
-            self._total.tokens_prompt += tokens_in
-            self._total.tokens_completion += tokens_out
-            self._total.prompt_cache_read_tokens += cache_read_tokens
-            self._total.prompt_cache_write_tokens += cache_write_tokens
-            self._total.cost_usd_llm += cost_usd
-            self._total.cost_usd_total += cost_usd
-            if sid:
-                bucket = self._by_source.setdefault(sid, UsageSummary())
-                bucket.llm_calls += 1
-                bucket.tokens_prompt += tokens_in
-                bucket.tokens_completion += tokens_out
-                bucket.prompt_cache_read_tokens += cache_read_tokens
-                bucket.prompt_cache_write_tokens += cache_write_tokens
-                bucket.cost_usd_llm += cost_usd
-                bucket.cost_usd_total += cost_usd
-            per_model = self._model_bucket("llm", provider, model)
-            per_model.calls += 1
-            per_model.tokens_prompt += tokens_in
-            per_model.tokens_completion += tokens_out
-            per_model.cache_read_tokens += cache_read_tokens
-            per_model.cache_write_tokens += cache_write_tokens
-            per_model.cost_usd += cost_usd
+            self._add_llm(event)
         log_step(
             logger,
             "llm",
@@ -329,6 +306,42 @@ class CostTracker:
             progress=prog,
         )
         return event
+
+    def absorb(self, events: list[UsageEvent]) -> None:
+        """Add LLM events recorded on another tracker, under this context's source.
+
+        The connect worker threads call the model with a private tracker, so a
+        note's usage reaches the run only when the main thread finishes that
+        note; the per-note cost delta then measures exactly that note. Already
+        logged by the worker, so nothing is logged again.
+        """
+        sid = get_source_id()
+        with self._lock:
+            for src in events:
+                if src.kind == "llm":
+                    self._add_llm(replace(src, source_id=sid))
+
+    def _add_llm(self, event: UsageEvent) -> None:
+        """Account one LLM event. The caller holds ``_lock``."""
+        self.events.append(event)
+        buckets = [self._total]
+        if event.source_id:
+            buckets.append(self._by_source.setdefault(event.source_id, UsageSummary()))
+        for bucket in buckets:
+            bucket.llm_calls += 1
+            bucket.tokens_prompt += event.tokens_in
+            bucket.tokens_completion += event.tokens_out
+            bucket.prompt_cache_read_tokens += event.cache_read_tokens
+            bucket.prompt_cache_write_tokens += event.cache_write_tokens
+            bucket.cost_usd_llm += event.cost_usd
+            bucket.cost_usd_total += event.cost_usd
+        per_model = self._model_bucket("llm", event.provider, event.model)
+        per_model.calls += 1
+        per_model.tokens_prompt += event.tokens_in
+        per_model.tokens_completion += event.tokens_out
+        per_model.cache_read_tokens += event.cache_read_tokens
+        per_model.cache_write_tokens += event.cache_write_tokens
+        per_model.cost_usd += event.cost_usd
 
     def record_decision(
         self,

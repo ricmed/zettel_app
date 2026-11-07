@@ -146,6 +146,9 @@ linking:
   # Ligar espera a regra em evals/preregistration/285-connect-rag-diversidade.md.
   seed_same_source_max: 0
   graph_hub_repeat_limit: 0  # vizinha repetida em N contextos recentes sai; 0 = desligado
+  # Fontes cujo Prompt 2 roda em paralelo no connect; dentro de uma fonte a ordem
+  # e sequencial (as arestas ligam sobretudo notas vizinhas). 1 = sequencial.
+  connect_parallel_sources: 4
   # Bloco do connect (linking.graph_expansion). O ask le retrieval.graph_expansion.
   # Os numeros copiam o ask ate evals/preregistration/285-connect-rag-diversidade.md.
   graph_expansion:
