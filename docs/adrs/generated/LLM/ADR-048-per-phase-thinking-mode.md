@@ -54,6 +54,23 @@ Google notified the project that requests carried `thinking_budget`, `temperatur
 
 The Interactions API that Google recommends for new projects is not adopted: `generateContent` stays fully supported and the project reaches Gemini through `langchain-google-genai`.
 
+## Addendum (2026-11-07): connect runs with thinking off (#355, explicit decision)
+
+The round pre-registered in `evals/preregistration/355-connect-thinking.md` compared `claude-haiku-5-5` with the production prompt and context. The `low` arm ran adaptive thinking at effort `low`. The `false` arm ran `{type: disabled}` plus effort `low`. Both were scored on the 69 labelled pairs of the #231 validation (`evals/results/355-connect-thinking.json`):
+
+| | `low` | `false` |
+|---|---|---|
+| exact relations | 21/69 (30%, Wilson 21–42%) | 22/69 (32%, 22–44%) |
+| right only here | 5 | 6 (McNemar exact p = 1.0, mid-p 0.77) |
+| output tokens per call | 2,041 | 971 (−52%) |
+| latency per call | 9.8 s | 4.4 s (−55%) |
+| invalid answers | 0 | 0 |
+| concepts refused by Prompt 2 | 10/40 | 5/40 |
+
+Rules 1 (non-inferiority) and 2 (at least 25% fewer output tokens) were met. Rule 3 was not. Both arms put 75–78% of their edges on pairs outside the labelled set, above the registered 20%, so the round is **inconclusive as registered**. That limit was badly chosen: the #231 sheet samples at most 20 pairs per stratum, so almost every round lands above it. The rule is not changed after the fact. The supplementary blind sheet `relacoes-r3` (80 pairs, key `evals/gold/relacoes-r3-GABARITO-NAO-ABRIR.json`, frozen before labelling) is exported for a later round.
+
+**Decision.** `llm.connect.thinking` is `false` by explicit decision of the owner, the same pattern as the #218 and #231 prompt decisions. The measured accuracy did not drop, and the call costs half the output and half the time. Reopen it if the r3 labels show a loss.
+
 ## References
 
 * `zettel/config.py` (`LLMPhaseConfig.thinking`, `thinking_checksum_token`, `checksum_sampling`, `anthropic_omits_sampling`, `gemini_omits_sampling`)
