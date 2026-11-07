@@ -418,10 +418,18 @@ class VectorIndex:
         self._ensure_collections()
 
     def close(self) -> None:
-        """Release the PersistentClient so chroma.sqlite3 can be VACUUMed on Windows."""
+        """Release the PersistentClient so chroma.sqlite3 can be VACUUMed or deleted on Windows.
+
+        Dropping the reference is not enough: Chroma caches one ``System`` per path
+        for the whole process and keeps its SQLite connection open until the last
+        client calls ``close()``.
+        """
+        if self.client is not None:
+            self.client.close()
         self.sources = None  # type: ignore[assignment]
         self.chunks = None  # type: ignore[assignment]
         self.permanent = None  # type: ignore[assignment]
+        self.chapter_summaries = None  # type: ignore[assignment]
         self.client = None  # type: ignore[assignment]
         self.embedding_fn = None  # type: ignore[assignment]
 

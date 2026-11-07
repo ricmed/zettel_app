@@ -1,5 +1,7 @@
 """Tests for manual sync across all vault folders + provenance — Fase 4."""
 
+from pathlib import Path
+
 import pytest
 import yaml
 from zettel.config import AppConfig
@@ -431,7 +433,7 @@ def test_repair_permanent_links_rewrites_double_prefix_and_rebuilds_backlinks(cf
 
 
 def _failures(stats):
-    return {f["path"].rsplit("/", 1)[-1]: f["reason"] for f in stats["failures"]}
+    return {Path(f["path"]).name: f["reason"] for f in stats["failures"]}
 
 
 def test_invalid_yaml_is_reported_and_the_file_left_untouched(cfg, db):

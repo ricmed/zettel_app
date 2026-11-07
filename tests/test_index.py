@@ -64,6 +64,23 @@ def test_existing_ids_dedupes_duplicate_query_ids(tmp_path, token_hash_embedding
     assert found == {"cid-a"}
 
 
+def test_close_stops_the_shared_chroma_system(tmp_path, token_hash_embedding):
+    """Chroma caches one System per path; close() must stop it so the store can be deleted."""
+    import shutil
+
+    from chromadb.api.shared_system_client import SharedSystemClient
+
+    idx = VectorIndex(tmp_path / "chroma", token_hash_embedding, "m")
+    idx.upsert_chunk("cid-a", "texto a", {"source_id": "@S"})
+    identifier = idx.client._identifier
+
+    idx.close()
+    idx.close()
+
+    assert identifier not in SharedSystemClient._identifier_to_system
+    shutil.rmtree(tmp_path / "chroma")  # PermissionError on Windows while it is open
+
+
 def test_chroma_cosine_space_distance_is_one_minus_cosine():
     """A real ephemeral collection in the declared space: d = 1 - cos (#267)."""
     import chromadb
