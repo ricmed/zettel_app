@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from zettel.config import AppConfig, effective_temperature, llm_phase, thinking_checksum_token
+from zettel.config import AppConfig, checksum_sampling, llm_phase, thinking_checksum_token
 from zettel.hashing import (
     compute_llm_call_checksum,
     normalize_text_for_hash,
@@ -648,15 +648,16 @@ def describe_pending_assets(cfg: AppConfig, db: StateDB, *, observer=None) -> in
             continue
 
         context = asset.get("context_snippet", "")
+        sampling_temp, sampling_top_p = checksum_sampling(cfg, spec)
         call_checksum = compute_llm_call_checksum(
             prompt_hash,
             asset["image_checksum"],
             model,
-            effective_temperature(cfg, spec),
+            sampling_temp,
             cfg.language,
             rag_context_checksum=(sha256_hex(normalize_text_for_hash(context)) if context else ""),
             provider=spec.provider,
-            top_p=cfg.llm.top_p,
+            top_p=sampling_top_p,
             thinking=thinking_checksum_token(spec.thinking),
         )
         cached = db.get_cached_llm_response(call_checksum)

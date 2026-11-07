@@ -7,13 +7,14 @@ os Field defaults usados como fallback (YAML ausente, chave omitida, testes).
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 from dotenv import load_dotenv
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +140,22 @@ class LLMPhaseConfig(BaseModel):
             "llm.<fase>.thinking deve ser null, true, false, none, "
             "minimal|low|medium|high, ou um inteiro >= 0"
         )
+
+    @model_validator(mode="after")
+    def _gemini_has_no_budget(self) -> LLMPhaseConfig:
+        # Gemini 3+ only takes thinking_level; a budget is rejected by the next models.
+        budget = self.thinking
+        if (
+            self.provider.strip().lower() == "gemini"
+            and isinstance(budget, int)
+            and not isinstance(budget, bool)
+            and budget > 0
+        ):
+            raise ValueError(
+                "llm.<fase>.thinking com provider gemini nao aceita orcamento em tokens; "
+                "use um nivel (minimal|low|medium|high), false ou null"
+            )
+        return self
 
 
 class LLMConfig(BaseModel):
@@ -816,6 +833,54 @@ def llm_phase(cfg: Any, phase: str) -> LLMPhaseConfig:
 def effective_temperature(cfg: Any, spec: LLMPhaseConfig) -> float:
     """Resolve the sampling temperature for a phase: its own override, else the global default."""
     return cfg.llm.temperature if spec.temperature is None else spec.temperature
+
+
+# Models whose API rejects or ignores temperature/top_p/top_k: the client sends
+# none, and the cache key must not depend on a knob that never reaches the wire.
+# Anthropic: Haiku 5.5, Sonnet 5.x, Opus 5.x, Opus 4.7/4.8, Fable, Mythos (dated
+# snapshots keep the prefix). Gemini: every 3.x and later model.
+ANTHROPIC_NO_SAMPLING_PREFIXES = (
+    "claude-haiku-5-5",
+    "claude-sonnet-5",
+    "claude-opus-5",
+    "claude-opus-4-7",
+    "claude-opus-4-8",
+    "claude-fable-",
+    "claude-mythos-",
+)
+_GEMINI_MAJOR_RE = re.compile(r"gemini-(\d+)")
+
+
+def anthropic_omits_sampling(model: str) -> bool:
+    """True when the Anthropic model rejects sampling params and budget_tokens."""
+    name = (model or "").strip().casefold()
+    return any(name.startswith(prefix) for prefix in ANTHROPIC_NO_SAMPLING_PREFIXES)
+
+
+def gemini_omits_sampling(model: str) -> bool:
+    """True for Gemini 3 and later, which ignore and will reject sampling params."""
+    match = _GEMINI_MAJOR_RE.search((model or "").strip().casefold())
+    return bool(match) and int(match.group(1)) >= 3
+
+
+def omits_sampling(provider: str, model: str) -> bool:
+    """True when ``get_llm`` sends no temperature/top_p for this provider + model."""
+    name = (provider or "").strip().lower()
+    if name == "anthropic":
+        return anthropic_omits_sampling(model)
+    if name == "gemini":
+        return gemini_omits_sampling(model)
+    return False
+
+
+def checksum_sampling(
+    cfg: Any, spec: LLMPhaseConfig, temperature: float | None = None
+) -> tuple[float | None, float | None]:
+    """``(temperature, top_p)`` for an LLM cache key; ``(None, None)`` when none is sent."""
+    if omits_sampling(spec.provider, spec.model):
+        return None, None
+    temp = effective_temperature(cfg, spec) if temperature is None else temperature
+    return temp, cfg.llm.top_p
 
 
 def thinking_checksum_token(thinking: ThinkingValue) -> str:
