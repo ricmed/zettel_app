@@ -31,7 +31,14 @@ class _FakeLLM:
 def test_call_llm_records_usage_and_cost():
     begin_run(99)
 
-    def fake_cost(model, prompt_tokens, completion_tokens, provider=None):
+    def fake_cost(
+        model,
+        prompt_tokens,
+        completion_tokens,
+        cache_read_tokens=0,
+        cache_write_tokens=0,
+        provider=None,
+    ):
         assert model == "gpt-4o-mini"
         assert prompt_tokens == 12
         assert completion_tokens == 3

@@ -1087,6 +1087,7 @@ class VectorIndex:
             kind=kind,
             purpose=purpose,
             count=count,
+            provider=self.embedding_provider,
         )
 
     # ── Utility ────────────────────────────────────────────────────────

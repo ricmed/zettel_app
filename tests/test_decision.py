@@ -262,7 +262,9 @@ def test_client_returns_answers_and_records_usage(monkeypatch):
     assert result.answers == {"n": {"type": "noul", "noul": 0.75}}
     event = get_tracker().events[-1]
     assert event.label == "jev:dedupe"
+    assert event.kind == "decision"
     assert event.cost_usd == pytest.approx(0.042)
+    assert get_tracker().summary().llm_calls == 0
 
 
 # ── shadow ───────────────────────────────────────────────────────────────

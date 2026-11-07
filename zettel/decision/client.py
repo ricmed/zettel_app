@@ -121,14 +121,15 @@ def _elapsed_ms(started: float) -> int:
 
 
 def _record_usage(dcfg: DecisionConfig, model: str, input_tokens: int, label: str) -> None:
-    from zettel.usage import record_llm
+    from zettel.usage import record_decision
 
     # Output tokens are free on this model; the price comes from config because
-    # LiteLLM does not know it and would report $0.
-    record_llm(
+    # LiteLLM does not know it and would report $0. Recorded as a decision, not
+    # an LLM call, so it never dilutes a phase's call count or token means.
+    record_decision(
         model=model,
+        provider=dcfg.provider,
         tokens_in=input_tokens,
-        tokens_out=0,
         cost_usd=input_tokens * dcfg.input_price_per_mtok / 1_000_000,
         label=f"jev:{label}",
     )

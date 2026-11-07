@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -28,8 +29,9 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class UsageEvent:
-    kind: str  # llm | embed | cache_hit
+    kind: str  # llm | embed | decision | cache_hit
     model: str = ""
+    provider: str = ""
     tokens_in: int = 0
     tokens_out: int = 0
     cost_usd: float = 0.0
@@ -82,6 +84,36 @@ class UsageSummary:
         self.embed_calls += other.embed_calls
         self.prompt_cache_read_tokens += other.prompt_cache_read_tokens
         self.prompt_cache_write_tokens += other.prompt_cache_write_tokens
+
+
+@dataclass
+class ModelUsage:
+    """What one run spent on one ``(kind, provider, model)``: the unit a provider bills."""
+
+    kind: str
+    provider: str
+    model: str
+    calls: int = 0
+    tokens_prompt: int = 0
+    tokens_completion: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    tokens_embedding: int = 0
+    cost_usd: float = 0.0
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "provider": self.provider,
+            "model": self.model,
+            "calls": self.calls,
+            "tokens_prompt": self.tokens_prompt,
+            "tokens_completion": self.tokens_completion,
+            "cache_read_tokens": self.cache_read_tokens,
+            "cache_write_tokens": self.cache_write_tokens,
+            "tokens_embedding": self.tokens_embedding,
+            "cost_usd": round(self.cost_usd, 6),
+        }
 
 
 def pipeline_phase_name(signature: str | None) -> str:
@@ -211,10 +243,21 @@ def _progress_tag(
 
 @dataclass
 class CostTracker:
+    """Usage of one run. ``record_*`` may be called from worker threads (connect)."""
+
     run_id: int | None = None
     events: list[UsageEvent] = field(default_factory=list)
     _by_source: dict[str, UsageSummary] = field(default_factory=dict)
+    _by_model: dict[tuple[str, str, str], ModelUsage] = field(default_factory=dict)
     _total: UsageSummary = field(default_factory=UsageSummary)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def _model_bucket(self, kind: str, provider: str, model: str) -> ModelUsage:
+        key = (kind, provider, model)
+        bucket = self._by_model.get(key)
+        if bucket is None:
+            bucket = self._by_model[key] = ModelUsage(kind=kind, provider=provider, model=model)
+        return bucket
 
     def record_llm(
         self,
@@ -230,38 +273,48 @@ class CostTracker:
         kind: str | None = None,
         cache_read_tokens: int = 0,
         cache_write_tokens: int = 0,
+        provider: str = "",
     ) -> UsageEvent:
         sid = source_id if source_id is not None else get_source_id()
         prog = _progress_tag(step, total, kind)
-        event = UsageEvent(
-            kind="llm",
-            model=model,
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
-            cost_usd=cost_usd,
-            label=label,
-            source_id=sid,
-            progress=prog,
-            cache_read_tokens=cache_read_tokens,
-            cache_write_tokens=cache_write_tokens,
-        )
-        self.events.append(event)
-        self._total.llm_calls += 1
-        self._total.tokens_prompt += tokens_in
-        self._total.tokens_completion += tokens_out
-        self._total.prompt_cache_read_tokens += cache_read_tokens
-        self._total.prompt_cache_write_tokens += cache_write_tokens
-        self._total.cost_usd_llm += cost_usd
-        self._total.cost_usd_total += cost_usd
-        if sid:
-            bucket = self._by_source.setdefault(sid, UsageSummary())
-            bucket.llm_calls += 1
-            bucket.tokens_prompt += tokens_in
-            bucket.tokens_completion += tokens_out
-            bucket.prompt_cache_read_tokens += cache_read_tokens
-            bucket.prompt_cache_write_tokens += cache_write_tokens
-            bucket.cost_usd_llm += cost_usd
-            bucket.cost_usd_total += cost_usd
+        with self._lock:
+            event = UsageEvent(
+                kind="llm",
+                model=model,
+                provider=provider,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                cost_usd=cost_usd,
+                label=label,
+                source_id=sid,
+                progress=prog,
+                cache_read_tokens=cache_read_tokens,
+                cache_write_tokens=cache_write_tokens,
+            )
+            self.events.append(event)
+            self._total.llm_calls += 1
+            self._total.tokens_prompt += tokens_in
+            self._total.tokens_completion += tokens_out
+            self._total.prompt_cache_read_tokens += cache_read_tokens
+            self._total.prompt_cache_write_tokens += cache_write_tokens
+            self._total.cost_usd_llm += cost_usd
+            self._total.cost_usd_total += cost_usd
+            if sid:
+                bucket = self._by_source.setdefault(sid, UsageSummary())
+                bucket.llm_calls += 1
+                bucket.tokens_prompt += tokens_in
+                bucket.tokens_completion += tokens_out
+                bucket.prompt_cache_read_tokens += cache_read_tokens
+                bucket.prompt_cache_write_tokens += cache_write_tokens
+                bucket.cost_usd_llm += cost_usd
+                bucket.cost_usd_total += cost_usd
+            per_model = self._model_bucket("llm", provider, model)
+            per_model.calls += 1
+            per_model.tokens_prompt += tokens_in
+            per_model.tokens_completion += tokens_out
+            per_model.cache_read_tokens += cache_read_tokens
+            per_model.cache_write_tokens += cache_write_tokens
+            per_model.cost_usd += cost_usd
         log_step(
             logger,
             "llm",
@@ -274,6 +327,50 @@ class CostTracker:
                 cache_write_tokens=cache_write_tokens,
             ),
             progress=prog,
+        )
+        return event
+
+    def record_decision(
+        self,
+        *,
+        model: str,
+        provider: str,
+        tokens_in: int,
+        cost_usd: float,
+        label: str = "",
+        source_id: str | None = None,
+    ) -> UsageEvent:
+        """A typed-decision call (Jev): billed, but not an LLM phase call.
+
+        It counts in ``cost_usd_total`` and in the per-model rows, never in
+        ``llm_calls`` / ``tokens_*`` / ``cost_usd_llm``, so a shadow decision
+        does not dilute the phase means the pre-flight reads.
+        """
+        sid = source_id if source_id is not None else get_source_id()
+        with self._lock:
+            event = UsageEvent(
+                kind="decision",
+                model=model,
+                provider=provider,
+                tokens_in=tokens_in,
+                cost_usd=cost_usd,
+                label=label,
+                source_id=sid,
+            )
+            self.events.append(event)
+            self._total.cost_usd_total += cost_usd
+            if sid:
+                self._by_source.setdefault(sid, UsageSummary()).cost_usd_total += cost_usd
+            per_model = self._model_bucket("decision", provider, model)
+            per_model.calls += 1
+            per_model.tokens_prompt += tokens_in
+            per_model.cost_usd += cost_usd
+        log_step(
+            logger,
+            "decisao",
+            label or model,
+            tokens=fmt_tokens(tokens_in),
+            cost=fmt_money(cost_usd),
         )
         return event
 
@@ -290,30 +387,37 @@ class CostTracker:
         kind: str | None = None,
         purpose: str = "",
         count: int | None = None,
+        provider: str = "",
     ) -> UsageEvent:
         sid = source_id if source_id is not None else get_source_id()
         prog = _progress_tag(step, total, kind)
-        event = UsageEvent(
-            kind="embed",
-            model=model,
-            tokens_in=tokens,
-            tokens_out=0,
-            cost_usd=cost_usd,
-            label=label,
-            source_id=sid,
-            progress=prog,
-        )
-        self.events.append(event)
-        self._total.embed_calls += 1
-        self._total.tokens_embedding += tokens
-        self._total.cost_usd_embedding += cost_usd
-        self._total.cost_usd_total += cost_usd
-        if sid:
-            bucket = self._by_source.setdefault(sid, UsageSummary())
-            bucket.embed_calls += 1
-            bucket.tokens_embedding += tokens
-            bucket.cost_usd_embedding += cost_usd
-            bucket.cost_usd_total += cost_usd
+        with self._lock:
+            event = UsageEvent(
+                kind="embed",
+                model=model,
+                provider=provider,
+                tokens_in=tokens,
+                tokens_out=0,
+                cost_usd=cost_usd,
+                label=label,
+                source_id=sid,
+                progress=prog,
+            )
+            self.events.append(event)
+            self._total.embed_calls += 1
+            self._total.tokens_embedding += tokens
+            self._total.cost_usd_embedding += cost_usd
+            self._total.cost_usd_total += cost_usd
+            if sid:
+                bucket = self._by_source.setdefault(sid, UsageSummary())
+                bucket.embed_calls += 1
+                bucket.tokens_embedding += tokens
+                bucket.cost_usd_embedding += cost_usd
+                bucket.cost_usd_total += cost_usd
+            per_model = self._model_bucket("embed", provider, model)
+            per_model.calls += 1
+            per_model.tokens_embedding += tokens
+            per_model.cost_usd += cost_usd
         verb, detail = embed_step(purpose, label, count)
         log_step(
             logger,
@@ -338,18 +442,19 @@ class CostTracker:
     ) -> UsageEvent:
         sid = source_id if source_id is not None else get_source_id()
         prog = _progress_tag(step, total, kind)
-        event = UsageEvent(
-            kind="cache_hit",
-            model=model,
-            cost_usd=0.0,
-            label=label,
-            source_id=sid,
-            progress=prog,
-        )
-        self.events.append(event)
-        self._total.cache_hits += 1
-        if sid:
-            self._by_source.setdefault(sid, UsageSummary()).cache_hits += 1
+        with self._lock:
+            event = UsageEvent(
+                kind="cache_hit",
+                model=model,
+                cost_usd=0.0,
+                label=label,
+                source_id=sid,
+                progress=prog,
+            )
+            self.events.append(event)
+            self._total.cache_hits += 1
+            if sid:
+                self._by_source.setdefault(sid, UsageSummary()).cache_hits += 1
         log_step(
             logger,
             "llm",
@@ -362,6 +467,11 @@ class CostTracker:
 
     def summary(self) -> UsageSummary:
         return self._total
+
+    def model_usage(self) -> list[dict[str, Any]]:
+        """Per ``(kind, provider, model)`` totals: the rows ``run_usage`` stores."""
+        with self._lock:
+            return [bucket.as_dict() for _, bucket in sorted(self._by_model.items())]
 
     def summary_for_source(self, source_id: str) -> UsageSummary:
         return self._by_source.get(source_id, UsageSummary())
@@ -456,6 +566,7 @@ def record_llm(
     kind: str | None = None,
     cache_read_tokens: int = 0,
     cache_write_tokens: int = 0,
+    provider: str = "",
 ) -> None:
     require_tracker().record_llm(
         model=model,
@@ -469,6 +580,20 @@ def record_llm(
         kind=kind,
         cache_read_tokens=cache_read_tokens,
         cache_write_tokens=cache_write_tokens,
+        provider=provider,
+    )
+
+
+def record_decision(
+    *,
+    model: str,
+    provider: str,
+    tokens_in: int,
+    cost_usd: float,
+    label: str = "",
+) -> None:
+    require_tracker().record_decision(
+        model=model, provider=provider, tokens_in=tokens_in, cost_usd=cost_usd, label=label
     )
 
 
@@ -484,6 +609,7 @@ def record_embed(
     kind: str | None = None,
     purpose: str = "",
     count: int | None = None,
+    provider: str = "",
 ) -> None:
     require_tracker().record_embed(
         model=model,
@@ -496,6 +622,7 @@ def record_embed(
         kind=kind,
         purpose=purpose,
         count=count,
+        provider=provider,
     )
 
 
@@ -548,6 +675,8 @@ def finish_pipeline_run(db: Any, run_id: int, status: str = "completed") -> dict
     tracker = get_tracker()
     usage = tracker.summary().as_dict() if tracker else {}
     db.finish_run(run_id, status, usage or None)
+    if tracker:
+        db.record_run_usage(run_id, tracker.model_usage())
     log_run_summary()
     reset()
     return usage

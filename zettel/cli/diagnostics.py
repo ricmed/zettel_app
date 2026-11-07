@@ -41,7 +41,12 @@ from rich.table import Table
 
 from zettel.cli.app import app, console
 from zettel.cli.deps import get_db, load_deps
-from zettel.cli.formatting import fmt_bytes, fmt_embedding_id, print_cost_by_phase
+from zettel.cli.formatting import (
+    fmt_bytes,
+    fmt_embedding_id,
+    print_cost_by_phase,
+    print_cost_by_provider,
+)
 from zettel.cli.options import ConfigOption
 
 
@@ -214,6 +219,7 @@ def status(config: ConfigOption = None):
         console.print(dup_table)
 
     print_cost_by_phase(db)
+    print_cost_by_provider(db)
 
     db.close()
 

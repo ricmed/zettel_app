@@ -844,6 +844,8 @@ def _describe_one(
         model_name,
         usage.prompt_tokens,
         usage.completion_tokens,
+        cache_read_tokens=usage.cache_read_tokens,
+        cache_write_tokens=usage.cache_write_tokens,
         provider=provider,
     )
     record_llm(
@@ -857,5 +859,6 @@ def _describe_one(
         kind="imagem" if step is not None else None,
         cache_read_tokens=usage.cache_read_tokens,
         cache_write_tokens=usage.cache_write_tokens,
+        provider=provider or "",
     )
     return content.strip()

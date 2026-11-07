@@ -6,11 +6,15 @@ read SQLite and config, never call an LLM, and never prompt. The CLI renders the
 estimate and asks; the web worker and any test calling `run_*` directly are
 unaffected.
 
-Every number here is an estimate. Tokens are ``chars // 4`` (the estimator the
-cost layer already uses) and the price comes from LiteLLM's public map, so an
-unknown or local model reports $0 — the same convention as the rest of the app.
-The SQLite response cache is deliberately **not** discounted: a hit is free, so
-the estimate is an upper bound rather than a promise.
+Every number here is an estimate. When earlier runs of the phase used the
+phase's **current model**, the per-call input, output (thinking included) and
+provider prompt-cache share come from ``run_usage``: the provider's own token
+counts, priced with the cache-read discount. Without that history, tokens are
+``chars // 4`` and the output is the config target. The price comes from
+LiteLLM's public map, so an unknown or local model reports $0 — the same
+convention as the rest of the app. The SQLite response cache is deliberately
+**not** discounted: a hit is free, so the estimate is an upper bound rather
+than a promise.
 """
 
 from __future__ import annotations
@@ -57,11 +61,48 @@ class PreflightEstimate:
         return self.items > 0
 
 
-_UNCOUNTED = (
-    "Hits do cache SQLite nao estao descontados.",
+_SQLITE_CACHE_NOTE = "Hits do cache SQLite nao estao descontados."
+_NO_HISTORY_NOTES = (
     "Cache de prompt do provedor nao esta descontado.",
     "Tokens de thinking nao entram nesta conta.",
 )
+
+
+@dataclass(frozen=True)
+class PhaseHistory:
+    """Per-call means of finished runs of one phase with one model (``run_usage``)."""
+
+    model: str
+    calls: int
+    prompt_per_call: int
+    output_per_call: int
+    cache_read_share: float
+
+
+def phase_history(
+    cfg: AppConfig, db: StateDB, phase: str, *, run_name: str | None = None
+) -> PhaseHistory | None:
+    """History of LLM phase ``phase`` with its current model, or ``None`` when there is none.
+
+    ``run_name`` is the ``runs.pipeline_signature`` to read when the command is
+    not named after the phase (``reconnect`` runs the ``connect`` model).
+
+    A run of another model says nothing about this one (tokenizer, thinking and
+    verbosity differ), so it is not mixed in.
+    """
+    model = llm_phase(cfg, phase).model
+    row = db.phase_model_usage(run_name or phase, model)
+    calls = int(row.get("calls") or 0)
+    if calls <= 0:
+        return None
+    prompt = int(row.get("tokens_prompt") or 0)
+    return PhaseHistory(
+        model=model,
+        calls=calls,
+        prompt_per_call=prompt // calls,
+        output_per_call=int(row.get("tokens_completion") or 0) // calls,
+        cache_read_share=(int(row.get("cache_read_tokens") or 0) / prompt) if prompt else 0.0,
+    )
 
 
 def _filled_overhead(cfg: AppConfig, filename: str, extra: dict[str, str] | None = None) -> int:
@@ -98,45 +139,68 @@ def _example_fields(cfg: AppConfig, prompt_name: str) -> dict[str, str]:
         return {}
 
 
-def _output_tokens_per_call(db: StateDB, phase: str, fallback: int) -> tuple[int, str]:
-    """Mean completion tokens of past runs of ``phase``, else the config target.
+def price_calls(
+    model: str,
+    provider: str,
+    calls: int,
+    input_tokens: int,
+    output_tokens: int,
+    cache_read_tokens: int = 0,
+) -> float:
+    """Price ``calls`` requests that together carry these tokens, one request at a time.
 
-    ``runs`` has no model column, so the mean is every finished run of the phase
-    in this database. The note says so instead of pretending to filter.
+    Providers price per request, and some by its size (Claude Haiku 5.5 and
+    Gemini bill more above 100k prompt tokens), so the run's total priced as one
+    request would land in the wrong tier.
     """
-    from zettel.usage import pipeline_phase_name
-
-    total_out = 0
-    total_calls = 0
-    for row in db.get_recent_runs(limit=200):
-        if pipeline_phase_name(row.get("pipeline_signature")) != phase:
-            continue
-        if row.get("status") not in ("completed", "failed"):
-            continue
-        calls = int(row.get("llm_calls") or 0)
-        if calls <= 0:
-            continue
-        total_out += int(row.get("tokens_completion") or 0)
-        total_calls += calls
-    if not total_calls:
-        return fallback, "Saida: alvo do config (sem execucoes anteriores desta fase)."
-    mean = max(1, total_out // total_calls)
-    return mean, (
-        "Saida: media das execucoes anteriores desta fase. O registro de runs nao guarda o modelo."
+    if calls <= 0:
+        return 0.0
+    return calls * estimate_llm_cost(
+        model,
+        input_tokens // calls,
+        output_tokens // calls,
+        cache_read_tokens=cache_read_tokens // calls,
+        provider=provider,
     )
 
 
 def _build(
     cfg: AppConfig,
+    db: StateDB,
     phase: str,
     *,
     items: int,
     item_label: str,
+    calls: int,
     input_tokens: int,
-    output_tokens: int,
+    output_per_call: int,
     caveats: list[str] | None = None,
+    history_phase: str | None = None,
 ) -> PreflightEstimate:
+    """Price ``calls`` calls: from the model's history when it has one, else the heuristic.
+
+    ``input_tokens`` / ``output_per_call`` are the ``chars // 4`` estimate and the
+    config target. ``history_phase`` names the run whose history applies when it
+    differs from ``phase`` (reconnect reads connect).
+    """
     spec = llm_phase(cfg, phase)
+    history = phase_history(cfg, db, phase, run_name=history_phase) if calls else None
+    notes = list(caveats or [])
+    cache_read = 0
+    if history is not None:
+        input_tokens = calls * history.prompt_per_call
+        output_tokens = calls * history.output_per_call
+        cache_read = int(input_tokens * history.cache_read_share)
+        notes.append(
+            f"Entrada, saida (com thinking) e cache de prompt: media de {history.calls} "
+            f"chamada(s) anterior(es) de {history.model}; "
+            f"{history.cache_read_share:.0%} da entrada lida do cache do provedor."
+        )
+    else:
+        output_tokens = calls * output_per_call
+        notes.append("Saida: alvo do config (sem execucoes anteriores deste modelo).")
+        notes.extend(_NO_HISTORY_NOTES)
+    notes.append(_SQLITE_CACHE_NOTE)
     return PreflightEstimate(
         phase=phase,
         provider=spec.provider,
@@ -145,13 +209,10 @@ def _build(
         item_label=item_label,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
-        cost_usd=estimate_llm_cost(
-            spec.model,
-            input_tokens,
-            output_tokens,
-            provider=spec.provider,
+        cost_usd=price_calls(
+            spec.model, spec.provider, calls, input_tokens, output_tokens, cache_read
         ),
-        caveats=caveats or [],
+        caveats=notes,
     )
 
 
@@ -164,21 +225,16 @@ def estimate_extract(cfg: AppConfig, db: StateDB) -> PreflightEstimate:
     overhead = _filled_overhead(cfg, "literature_note.md", _example_fields(cfg, "literature_note"))
     input_tokens = sum(estimate_tokens(c.get("text") or "") for c in chunks)
     input_tokens += overhead * len(chunks)
-    per_call, output_note = _output_tokens_per_call(
-        db, "extract", cfg.extraction.preflight_output_tokens_per_chunk
-    )
     return _build(
         cfg,
+        db,
         "extract",
         items=len(chunks),
         item_label="chunk(s) pendente(s)",
+        calls=len(chunks),
         input_tokens=input_tokens,
-        output_tokens=len(chunks) * per_call,
-        caveats=[
-            "Imagens pendentes (llm.images) nao entram nesta conta.",
-            output_note,
-            *_UNCOUNTED,
-        ],
+        output_per_call=cfg.extraction.preflight_output_tokens_per_chunk,
+        caveats=["Imagens pendentes (llm.images) nao entram nesta conta."],
     )
 
 
@@ -203,7 +259,7 @@ def estimate_reconnect(cfg: AppConfig, db: StateDB, notes: list[dict]) -> Prefli
     candidates = [
         {"candidate": cand} for note in notes if (cand := candidate_from_note(note)) is not None
     ]
-    estimate = estimate_connect(cfg, db, candidates)
+    estimate = estimate_connect(cfg, db, candidates, history_phase="reconnect")
     return replace(
         estimate,
         phase="reconnect",
@@ -215,6 +271,8 @@ def estimate_connect(
     cfg: AppConfig,
     db: StateDB,
     candidates: list[dict],
+    *,
+    history_phase: str = "connect",
 ) -> PreflightEstimate:
     """One Prompt 2 call per approved candidate, or two when ``prompt2_mode`` is split."""
     graph_cfg = cfg.linking.graph_expansion
@@ -239,29 +297,27 @@ def estimate_connect(
         text = " ".join(
             str(getattr(cand, attr, "") or "") for attr in ("thesis", "definition", "limits")
         )
-        input_tokens += estimate_tokens(text) + context_tokens + overhead
-    per_call, output_note = _output_tokens_per_call(
-        db, "connect", cfg.linking.preflight_output_tokens_per_note
-    )
+        input_tokens += (estimate_tokens(text) + context_tokens + overhead) * calls
     caveats = [
         (
             f"Contexto RAG estimado em {context_notes} nota(s) por conceito "
             f"(topk + grafo + analogias distantes)."
         ),
         "O guard PT-BR nao entra nesta conta.",
-        output_note,
-        *_UNCOUNTED,
     ]
     if calls == 2:
         caveats.insert(0, "Modo split: uma chamada de escrita e uma de ligacao por conceito.")
     return _build(
         cfg,
+        db,
         "connect",
         items=len(candidates),
         item_label="conceito(s) aprovado(s)",
+        calls=len(candidates) * calls,
         input_tokens=input_tokens,
-        output_tokens=len(candidates) * per_call * calls,
+        output_per_call=cfg.linking.preflight_output_tokens_per_note,
         caveats=caveats,
+        history_phase=history_phase,
     )
 
 
@@ -306,23 +362,18 @@ def estimate_summarize(
             input_tokens += reduce_overhead + n * per_chapter_summary
         calls += len(source_ids)
 
-    caveats = [
-        "Capitulo com resumo atualizado (checksum igual) nao entra na conta.",
-        *_UNCOUNTED,
-    ]
+    caveats = ["Capitulo com resumo atualizado (checksum igual) nao entra na conta."]
     if map_reduced:
         caveats.append(f"{map_reduced} capitulo(s) acima do orcamento: vao por map-reduce.")
-    per_call, output_note = _output_tokens_per_call(
-        db, "summarize", cfg.summarize.preflight_output_tokens_per_chapter
-    )
-    caveats.append(output_note)
     return _build(
         cfg,
+        db,
         "summarize",
         items=calls,
         item_label="chamada(s)",
+        calls=calls,
         input_tokens=input_tokens,
-        output_tokens=calls * per_call,
+        output_per_call=cfg.summarize.preflight_output_tokens_per_chapter,
         caveats=caveats,
     )
 
@@ -380,21 +431,21 @@ def estimate_garden(cfg: AppConfig, db: StateDB, report: Any) -> PreflightEstima
         elif item.action == "moc_of_mocs":
             calls += 1
             input_tokens += summary_overhead
-    per_call, output_note = _output_tokens_per_call(db, "garden", GARDEN_OUTPUT_TOKENS_FALLBACK)
     return _build(
         cfg,
+        db,
         "garden",
         items=calls,
         item_label="chamada(s)",
+        calls=calls,
         input_tokens=input_tokens,
-        output_tokens=calls * per_call,
+        output_per_call=GARDEN_OUTPUT_TOKENS_FALLBACK,
         caveats=[
             "A camada de decisao em shadow (Jev) e o embedding dos rotulos nao entram na conta.",
             (
                 "Cada chamada conta ate max_entries_per_moc notas; um cluster que o MOC da "
                 "categoria nao aceitar vira sub-MOC e custa uma segunda chamada."
             ),
-            output_note,
         ],
     )
 
@@ -413,17 +464,21 @@ def estimate_article(cfg: AppConfig) -> PreflightEstimate:
     input_tokens = context_tokens + art.max_sections * (context_tokens // 2)
     input_tokens += art.max_judge_iterations * section_tokens * art.max_sections
     output_tokens = art.max_sections * section_tokens + art.max_judge_iterations * 500
-    return _build(
-        cfg,
-        "article",
+    spec = llm_phase(cfg, "article")
+    return PreflightEstimate(
+        phase="article",
+        provider=spec.provider,
+        model=spec.model,
         items=calls,
         item_label="chamada(s) (piso)",
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        cost_usd=price_calls(spec.model, spec.provider, calls, input_tokens, output_tokens),
         caveats=[
             "Piso: revisoes no HITL e ciclos do juiz podem aumentar.",
             "A reescrita de personalidade nao entra (depende do perfil escolhido).",
             "O piso nao inclui o texto dos prompts de artigo.",
-            *_UNCOUNTED,
+            *_NO_HISTORY_NOTES,
+            _SQLITE_CACHE_NOTE,
         ],
     )

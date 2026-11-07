@@ -47,15 +47,27 @@ def estimate_llm_cost(
     prompt_tokens: int,
     completion_tokens: int,
     *,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
     provider: str | None = None,
 ) -> float:
-    """USD cost for a chat completion from LiteLLM pricing; 0 if unknown/local."""
+    """USD cost for a chat completion from LiteLLM pricing; 0 if unknown/local.
+
+    ``prompt_tokens`` includes the cached part, as LangChain reports it for
+    Anthropic and Gemini. ``cache_read_tokens`` are billed at the provider's
+    cache-read price and ``cache_write_tokens`` at its cache-creation price;
+    pricing them as plain input overstated a cached run (connect: +29%).
+    """
     if provider in ("ollama",) or _is_local_model(model):
         return 0.0
     prompt_tokens = max(0, int(prompt_tokens or 0))
     completion_tokens = max(0, int(completion_tokens or 0))
     if prompt_tokens == 0 and completion_tokens == 0:
         return 0.0
+    cache_read_tokens = min(prompt_tokens, max(0, int(cache_read_tokens or 0)))
+    cache_write_tokens = min(
+        prompt_tokens - cache_read_tokens, max(0, int(cache_write_tokens or 0))
+    )
 
     name = _normalize_model(model)
     try:
@@ -65,6 +77,8 @@ def estimate_llm_cost(
             model=name,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            cache_read_input_tokens=cache_read_tokens,
+            cache_creation_input_tokens=cache_write_tokens,
         )
         return float(prompt_cost or 0.0) + float(completion_cost or 0.0)
     except Exception as exc:

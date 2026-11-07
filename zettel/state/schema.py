@@ -256,6 +256,24 @@ CREATE TABLE IF NOT EXISTS runs (
     prompt_cache_write_tokens  INTEGER NOT NULL DEFAULT 0
 );
 
+-- What one run spent per (kind, provider, model): llm | embed | decision.
+-- The unit a provider bills, so a run can be compared with a vendor panel,
+-- and what the pre-flight reads to estimate a phase with its current model.
+CREATE TABLE IF NOT EXISTS run_usage (
+    run_id              INTEGER NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    kind                TEXT NOT NULL,
+    provider            TEXT NOT NULL DEFAULT '',
+    model               TEXT NOT NULL DEFAULT '',
+    calls               INTEGER NOT NULL DEFAULT 0,
+    tokens_prompt       INTEGER NOT NULL DEFAULT 0,
+    tokens_completion   INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens   INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens  INTEGER NOT NULL DEFAULT 0,
+    tokens_embedding    INTEGER NOT NULL DEFAULT 0,
+    cost_usd            REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (run_id, kind, provider, model)
+);
+
 -- What one garden run did and how far its entry points reach (#298).
 CREATE TABLE IF NOT EXISTS garden_reports (
     run_id      INTEGER PRIMARY KEY REFERENCES runs(run_id) ON DELETE CASCADE,
