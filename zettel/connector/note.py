@@ -73,6 +73,11 @@ class ConnectSession:
     model: str = ""
 
 
+def candidate_query_text(cand: PermanentNoteCandidate) -> str:
+    """What the connect searches embed for a candidate: its thesis and definition."""
+    return f"{cand.thesis} {cand.definition}"
+
+
 def literature_ref_for_chunk(citekey: str, title_src: str, chunk: dict[str, Any] | None) -> str:
     """Wikilink to the approved granular LIT for this chunk (fallback: index).
 
@@ -168,7 +173,7 @@ def prepare_candidate(session: ConnectSession, cand_dict: dict) -> PreparedNote 
     if not cand.relevant_image_ids:
         cand.relevant_image_ids = context.fallback_image_ids(db, source_id, chunk_row)
 
-    query_text = f"{cand.thesis} {cand.definition}"
+    query_text = candidate_query_text(cand)
     similar = session.retriever.search_notes(
         query_text,
         topk=cfg.linking.topk,
@@ -240,7 +245,7 @@ def finish_candidate(
     similar, distant = prepared.similar, prepared.distant
 
     tracker = get_tracker()
-    usage_before = tracker.summary().as_dict() if tracker else {}
+    usage_before = tracker.snapshot() if tracker else {}
     thesis_similarity: float | None = None
     try:
         if cfg.linking.prompt2_mode == "split":
@@ -276,7 +281,7 @@ def finish_candidate(
     except Exception as e:
         logger.error("Erro ao gerar nota permanente para conceito %s: %s", concept_id, e)
         raise ConnectCandidateFailed(str(e), concept_id=concept_id) from e
-    usage_after = tracker.summary().as_dict() if tracker else {}
+    usage_after = tracker.snapshot() if tracker else {}
 
     connections = links.assemble_connections(
         cfg,
@@ -400,6 +405,7 @@ def _usage_delta(before: dict, after: dict) -> dict[str, Any]:
         "llm_cost_usd": round(diff("cost_usd_llm"), 6),
         "llm_tokens_prompt": int(diff("tokens_prompt")),
         "llm_tokens_completion": int(diff("tokens_completion")),
+        "llm_latency_ms": int(diff("llm_latency_ms")),
     }
 
 

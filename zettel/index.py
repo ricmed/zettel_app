@@ -126,6 +126,10 @@ class _LangChainChromaEF:
             return []
         return self._vectors([self._with_retry(self._emb.embed_query, t) for t in input])
 
+    def embed_queries(self, input: Any) -> Any:
+        """Query-side vectors of many texts. One request per text unless overridden."""
+        return self.embed_query(input)
+
     def is_legacy(self) -> bool:
         return False
 
@@ -216,6 +220,17 @@ class _GeminiChromaEF(_LangChainChromaEF):
                 return True
             seen = seen.__cause__
         return False
+
+    def embed_queries(self, input: Any) -> Any:
+        """Query-side vectors in batches of 100: the same ``RETRIEVAL_QUERY`` config
+        ``embed_query`` sends, so each vector equals the one-text call."""
+        if not input:
+            return []
+
+        def batch(texts: list[str]) -> list[list[float]]:
+            return self._emb.embed_documents(texts, task_type="RETRIEVAL_QUERY")
+
+        return self._vectors(self._with_retry(batch, list(input)))
 
     @classmethod
     def _client(cls, config: dict[str, Any]) -> _GeminiChromaEF:
@@ -391,6 +406,9 @@ class VectorIndex:
         )
 
         self.embedding_fn = self._build_embedding_fn(embedding_provider, embedding_model)
+        # Vectors computed ahead by ``prime_query_embeddings``, keyed by text.
+        self._query_vectors: dict[str, list[float]] = {}
+        self._document_vectors: dict[str, list[float]] = {}
 
         stored = self.get_stored_embedding_identity()
         if not self.embedding_space_matches(stored):
@@ -864,13 +882,16 @@ class VectorIndex:
             clip_text(query_text),
         )
         query_kwargs: dict[str, Any] = {
-            "query_texts": [query_text],
+            **self._query_input(query_text),
             "n_results": min(n_results + (1 if exclude_id else 0), self.permanent.count() or 1),
         }
         if where:
             query_kwargs["where"] = where
         results = self.permanent.query(**query_kwargs)
-        self._record_embed_usage(query_text, label="query_notes", purpose=purpose, count=n_results)
+        if "query_texts" in query_kwargs:
+            self._record_embed_usage(
+                query_text, label="query_notes", purpose=purpose, count=n_results
+            )
         output: list[dict] = []
         if not results or not results["ids"] or not results["ids"][0]:
             return output
@@ -912,17 +933,15 @@ class VectorIndex:
             len(note_ids),
             clip_text(query_text),
         )
-        results = self.permanent.query(
-            query_texts=[query_text],
-            ids=note_ids,
-            n_results=len(note_ids),
-        )
-        self._record_embed_usage(
-            query_text,
-            label="query_notes_by_ids",
-            purpose=purpose,
-            count=len(note_ids),
-        )
+        query_input = self._query_input(query_text)
+        results = self.permanent.query(**query_input, ids=note_ids, n_results=len(note_ids))
+        if "query_texts" in query_input:
+            self._record_embed_usage(
+                query_text,
+                label="query_notes_by_ids",
+                purpose=purpose,
+                count=len(note_ids),
+            )
         output: list[dict] = []
         if not results or not results["ids"] or not results["ids"][0]:
             return output
@@ -1122,10 +1141,57 @@ class VectorIndex:
             return []
         if self.embedding_fn is None:
             raise RuntimeError("Embedding function not configured")
-        vectors = self.embedding_fn(texts)
-        for text in texts:
+        missing = [t for t in dict.fromkeys(texts) if t not in self._document_vectors]
+        fresh = dict(zip(missing, self.embedding_fn(missing), strict=True)) if missing else {}
+        for text in missing:
             self._record_embed_usage(text, label=label)
-        return [list(v) for v in vectors]
+        return [list(fresh[t]) if t in fresh else list(self._document_vectors[t]) for t in texts]
+
+    def prime_query_embeddings(self, texts: list[str], *, documents: bool = True) -> None:
+        """Embed ``texts`` ahead, in batches, for the searches that will run them.
+
+        The query side feeds ``query_similar_notes`` / ``query_notes_by_ids``;
+        with ``documents`` the document side feeds ``embed_texts``. A vector
+        equals the one the per-call path computes (same text, model, task type
+        and normalisation), so results do not change; only the requests do.
+        Usage is recorded here, once per text and side.
+        """
+        if self.embedding_fn is None:
+            raise RuntimeError("Embedding function not configured")
+        wanted = [t for t in dict.fromkeys(texts) if t]
+        queries = [t for t in wanted if t not in self._query_vectors]
+        if queries:
+            embed = (
+                getattr(self.embedding_fn, "embed_queries", None) or self.embedding_fn.embed_query
+            )
+            for text, vector in zip(queries, embed(queries), strict=True):
+                self._query_vectors[text] = [float(x) for x in vector]
+            self._record_embed_usage(
+                "\n".join(queries),
+                label="consultas",
+                purpose=f"consultas em lote ({len(queries)} textos, lado consulta)",
+            )
+        docs = [t for t in wanted if t not in self._document_vectors] if documents else []
+        if docs:
+            for text, vector in zip(docs, self.embedding_fn(docs), strict=True):
+                self._document_vectors[text] = list(vector)
+            self._record_embed_usage(
+                "\n".join(docs),
+                label="consultas (documento)",
+                purpose=f"consultas em lote ({len(docs)} textos, lado documento)",
+            )
+
+    def clear_query_embeddings(self) -> None:
+        """Drop the vectors ``prime_query_embeddings`` computed."""
+        self._query_vectors.clear()
+        self._document_vectors.clear()
+
+    def _query_input(self, query_text: str) -> dict[str, Any]:
+        """Chroma query input: the primed vector when there is one, else the text."""
+        vector = self._query_vectors.get(query_text)
+        if vector is not None:
+            return {"query_embeddings": [vector]}
+        return {"query_texts": [query_text]}
 
 
 # Provider name (``embedding.provider``) -> builder. Adding a provider is one

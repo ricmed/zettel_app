@@ -240,6 +240,12 @@ class FakeVectorIndex:
         self._record("embed_texts", list(texts))
         return [list(self.vectors.get(t) or unit_token_hash(t)) for t in texts]
 
+    def prime_query_embeddings(self, texts: list[str], *, documents: bool = True) -> None:
+        self._record("prime_query_embeddings", list(texts))
+
+    def clear_query_embeddings(self) -> None:
+        self._record("clear_query_embeddings")
+
     def get_all_permanent_embeddings(self) -> tuple[list[str], list[list[float]]]:
         ids = list(self.store["permanent_notes"])
         return ids, self.embed_texts([self.store["permanent_notes"][i][0] for i in ids])

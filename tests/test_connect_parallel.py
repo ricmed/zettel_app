@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from zettel.config import AppConfig
 from zettel.connector import prompt, run
+from zettel.connector.note import candidate_query_text
 from zettel.connector.parallel import source_groups
 from zettel.llm import LLMUnavailableError
 from zettel.retrieval import NoteSearchResult, RetrievedNote, Retriever
@@ -79,6 +80,7 @@ class _Model:
                 tokens_in=1000,
                 tokens_out=200,
                 cost_usd=0.001,
+                latency_ms=1500,
             )
             return json.dumps(
                 {
@@ -150,6 +152,7 @@ def test_worker_usage_reaches_the_run_and_each_note(tmp_path, monkeypatch):
             provenance = json.loads(db.get_note(note_id)["provenance_json"])
             assert provenance["llm_tokens_prompt"] == 1000
             assert provenance["llm_tokens_completion"] == 200
+            assert provenance["llm_latency_ms"] == 1500
     finally:
         db.close()
 
@@ -176,3 +179,37 @@ def test_source_groups_keep_queue_order():
     assert list(groups) == ["@A", "@B", "@C"]
     assert [c["n"] for c in groups["@A"]] == [0, 2]
     assert [c["n"] for c in groups["@B"]] == [1, 4]
+
+
+def test_connect_primes_every_query_once_and_clears_it(tmp_path, monkeypatch):
+    from tests.fakes import calls_to
+
+    cfg = _cfg(tmp_path, 1)
+    db = StateDB(tmp_path / "state.db")
+    _seed(db)
+    _wire(monkeypatch, db, _Model())
+    idx = FakeVectorIndex()
+    try:
+        candidates = run.load_approved_candidates(db)
+        run.run_connect(cfg, db, idx, candidates)
+        [primed] = calls_to(idx, "prime_query_embeddings")
+        assert primed == [candidate_query_text(c["candidate"]) for c in candidates]
+        assert len(calls_to(idx, "clear_query_embeddings")) == 1
+    finally:
+        db.close()
+
+
+def test_queries_are_cleared_when_the_run_fails(tmp_path, monkeypatch):
+    from tests.fakes import calls_to
+
+    cfg = _cfg(tmp_path, 1)
+    db = StateDB(tmp_path / "state.db")
+    _seed(db)
+    _wire(monkeypatch, db, _Model(fail_on="numero 0 da fonte @A"))
+    idx = FakeVectorIndex()
+    try:
+        with pytest.raises(LLMUnavailableError):
+            run.run_connect(cfg, db, idx, run.load_approved_candidates(db))
+        assert len(calls_to(idx, "clear_query_embeddings")) == 1
+    finally:
+        db.close()

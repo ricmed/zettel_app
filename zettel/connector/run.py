@@ -12,7 +12,7 @@ from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn
 
 from zettel.config import AppConfig, llm_phase
 from zettel.connector import context
-from zettel.connector.note import ConnectSession, process_candidate
+from zettel.connector.note import ConnectSession, candidate_query_text, process_candidate
 from zettel.connector.parallel import PENDING, connect_by_source, source_groups
 from zettel.connector.prompt import ConnectCandidateFailed, ConnectRejected
 from zettel.domain_examples import load_domain_examples, render_for_prompt
@@ -131,6 +131,7 @@ def run_connect(
         total = len(candidates)
         report(observer, "connect", f"{total} candidato(s) aprovado(s).", total_items=total)
         outcomes = _Outcomes()
+        _prime_query_embeddings(cfg, idx, session, candidates)
 
         with Progress(
             SpinnerColumn(),
@@ -197,9 +198,36 @@ def run_connect(
         run_status = "failed"
         raise
     finally:
+        idx.clear_query_embeddings()
         set_source(None)
         _record_source_costs(cfg, db)
         finish_pipeline_run(db, run_id, run_status)
+
+
+def _prime_query_embeddings(
+    cfg: AppConfig, idx: VectorIndex, session: ConnectSession, candidates: list[dict]
+) -> None:
+    """Embed every candidate's search text up front, in batches.
+
+    The text does not depend on the notes written before it, only the search
+    results do, so the vectors can be computed once instead of three to five
+    times per note (dense search, topic-index boost, distant analogies). The
+    document side is only needed to place the candidate in a taxonomy bucket.
+    A provider outage stops the run here, as the first search would; another
+    error leaves the per-call path in place.
+    """
+    texts = [candidate_query_text(c["candidate"]) for c in candidates]
+    if not texts:
+        return
+    documents = cfg.linking.distant_analogy_topk > 0 and bool(session.taxonomy[0])
+    try:
+        idx.prime_query_embeddings(texts, documents=documents)
+    except Exception as exc:
+        from zettel.llm import _raise_unavailable, is_llm_unavailable
+
+        if is_llm_unavailable(exc):
+            _raise_unavailable(exc, phase="embedding")
+        logger.warning("Embeddings de consulta em lote falharam; seguindo por chamada: %s", exc)
 
 
 @dataclass

@@ -835,7 +835,9 @@ def _describe_one(
         messages,
         enabled=prompt_cache,
     )
+    started = time.perf_counter()
     response = llm.invoke(messages, **invoke_kwargs)
+    latency_ms = int((time.perf_counter() - started) * 1000)
     content = _message_text(response.content)
 
     model_name = _resolve_model_name(llm, None)
@@ -860,5 +862,6 @@ def _describe_one(
         cache_read_tokens=usage.cache_read_tokens,
         cache_write_tokens=usage.cache_write_tokens,
         provider=provider or "",
+        latency_ms=latency_ms,
     )
     return content.strip()
