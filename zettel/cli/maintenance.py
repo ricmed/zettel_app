@@ -132,7 +132,7 @@ def init(
     # Called for the side effect, not the value: constructing VectorIndex is what
     # creates the Chroma collections and stamps them with the embedding
     # identity. Without this, the store only appears on the first pipeline run.
-    get_idx(cfg, db=db, yes=False)
+    get_idx(cfg, db=db, yes=False).close()
     db.close()
 
     # Ensure directories
