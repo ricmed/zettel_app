@@ -57,6 +57,15 @@ def test_citation_uses_the_page_where_the_anchor_sits():
     )
 
 
+def test_citation_uses_the_printed_map_when_the_quote_page_has_one():
+    """File p.4 would be printed p.2 by the offset; the map says that page is 10."""
+    source = {**SOURCE, "printed_pages": [None, None, 1, 10]}
+    citation = resolve_citation(source, CHUNK, QUOTE)
+    assert citation.page == 10
+    assert citation.cite == "(KAHNEMAN, 2011, p. 10)"
+    assert citation.page_confidence == "quote"
+
+
 def test_citation_falls_back_to_chunk_page_when_anchor_not_found():
     citation = resolve_citation(SOURCE, CHUNK, "frase que nao existe em lugar nenhum do texto")
     assert citation.page == 1

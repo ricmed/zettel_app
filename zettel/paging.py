@@ -9,8 +9,12 @@ Three layers for ``page_in_file``:
    native Markdown sources, which have no pages) — confidence ``fuzzy``
 3. Interpolation between neighbouring anchored pages — confidence ``inferred``
 
-Book/journal pages use content-start bounds:
+Book/journal pages use content-start bounds when the text layer has no locked
+series:
   ``page_in_book = page_in_file - content_start_file_page + content_start_book_page``
+When header, footer or a copyright line yield a stable run of printed numbers,
+that reading is the printed page. A PDF that omits a blank verso keeps the
+number printed on the next page instead of sliding every later citation.
 
 Docling ``prov.page_no`` is the PDF *file* index (1-based), not the printed
 number. The persisted map is one numbered marker per file page, including
@@ -91,6 +95,8 @@ class ContentPaging:
     content_start_file_page: int = 1
     content_start_book_page: int = 1
     confidence: str = "skipped"  # labels | confirmed | heuristic | skipped
+    # One entry per file page (index 0 = file page 1). None where no series locked.
+    printed_pages: tuple[int | None, ...] | None = None
 
     @property
     def page_offset(self) -> int:
@@ -187,10 +193,12 @@ def compute_page_in_book(
     page_in_file: int | None,
     content_start_file_page: int | None,
     content_start_book_page: int | None,
+    printed_pages: Sequence[int | None] | None = None,
 ) -> int | None:
-    """Map file page to printed book page using content-start bounds.
+    """Map file page to printed book page.
 
-    ``page_in_book = page_in_file - start_file + start_book``
+    A locked text-layer reading wins. Otherwise
+    ``page_in_book = page_in_file - start_file + start_book``.
     Pages before ``start_file`` return ``None`` (caller should skip them).
     """
     if page_in_file is None:
@@ -199,7 +207,28 @@ def compute_page_in_book(
     start_book = int(content_start_book_page or 1)
     if page_in_file < start_file:
         return None
+    read = printed_page_at(printed_pages, page_in_file)
+    if read is not None:
+        return read
     return page_in_file - start_file + start_book
+
+
+def printed_page_at(printed_pages: Sequence[int | None] | None, file_page: int) -> int | None:
+    """Printed number stored for one 1-based file page, or None when that page has none."""
+    if not printed_pages or file_page < 1 or file_page > len(printed_pages):
+        return None
+    value = printed_pages[file_page - 1]
+    if value is None:
+        return None
+    return int(value)
+
+
+def max_printed_page(printed_pages: Sequence[int | None] | None) -> int | None:
+    """Largest printed number in a map, or None when the map read nothing."""
+    if not printed_pages:
+        return None
+    found = [int(page) for page in printed_pages if page is not None]
+    return max(found) if found else None
 
 
 def page_marker(page_no: int) -> str:
@@ -399,18 +428,210 @@ def content_start_from_page_labels(labels: Sequence[str]) -> dict[str, Any] | No
 
 def read_pdf_page_labels(file_path: Path) -> list[str]:
     """One label per PDF page. ``[]`` when pdfium cannot open the file."""
+    labels, _candidates = read_pdf_page_signals(file_path)
+    return labels
+
+
+# Running header/footer sit about 40pt from the edge. Chapter-opener copyright
+# lines sit a little lower, so the copyright scan uses a taller footer band and
+# keeps only lines that actually carry a ©.
+_BAND_PT = 50.0
+_COPYRIGHT_BAND_PT = 110.0
+_MAX_OMITTED = 3
+_LOCK_ANCHORS = 3
+_MAX_LOOKAHEAD = 8
+_YEAR_RE = re.compile(r"(?:19|20)\d{2}")
+_INT_RE = re.compile(r"\d{1,4}")
+
+
+def printed_page_candidates(header: str, footer: str, opener: str = "") -> list[int]:
+    """Integers that might be the printed page of one file page.
+
+    Header and footer bands contribute every integer. A copyright line
+    contributes its integers except the publication year, so ``© … 2020 125``
+    yields 125. The series filter, not this list, decides which integer is real.
+    """
+    found: list[int] = []
+
+    def add(number: int) -> None:
+        if 1 <= number <= 9999 and number not in found:
+            found.append(number)
+
+    for text in (header, footer):
+        for match in _INT_RE.findall(text or ""):
+            add(int(match))
+    for text in (header, footer, opener):
+        for line in (text or "").splitlines():
+            if "©" not in line and "(c)" not in line.lower():
+                continue
+            years = set(_YEAR_RE.findall(line))
+            for match in _INT_RE.findall(line):
+                if match in years:
+                    continue
+                add(int(match))
+    return found
+
+
+def _normalized_candidates(candidates: Sequence[Sequence[int]]) -> list[list[int]]:
+    pages: list[list[int]] = []
+    for raw in candidates:
+        found: list[int] = []
+        for number in raw or []:
+            try:
+                value = int(number)
+            except (TypeError, ValueError):
+                continue
+            if 1 <= value <= 9999 and value not in found:
+                found.append(value)
+        pages.append(found)
+    return pages
+
+
+def _best_jump(pages: Sequence[Sequence[int]], start: int, printed: int) -> tuple[int, int] | None:
+    """Next anchored file page continuing ``printed`` within the omitted-blank budget.
+
+    Prefers the smallest number of omitted blanks, then the nearest file page.
+    """
+    best: tuple[tuple[int, int], int, int] | None = None
+    limit = min(len(pages), start + 1 + _MAX_LOOKAHEAD)
+    for index in range(start + 1, limit):
+        file_steps = index - start
+        for number in pages[index]:
+            extra = (number - printed) - file_steps
+            if extra < 0 or extra > _MAX_OMITTED:
+                continue
+            key = (extra, file_steps)
+            if best is None or key < best[0]:
+                best = (key, index, number)
+    if best is None:
+        return None
+    return best[1], best[2]
+
+
+def _paint_jump(
+    start: int, printed: int, end: int, end_printed: int
+) -> list[tuple[int, int, bool]]:
+    """File pages after ``start`` up to ``end``. Middles take the next printed numbers in order.
+
+    Surplus printed numbers (blanks the PDF omitted) fall just before ``end``,
+    which keeps the number that was actually read there.
+    """
+    painted: list[tuple[int, int, bool]] = []
+    for step, index in enumerate(range(start + 1, end), start=1):
+        painted.append((index, printed + step, False))
+    painted.append((end, end_printed, True))
+    return painted
+
+
+def assemble_printed_pages(candidates: Sequence[Sequence[int]]) -> list[int | None]:
+    """File-page order of printed numbers, None where no series locked.
+
+    A series locks only after three pages whose numbers continue each other
+    (each step adds 1 to 4, so up to three omitted blanks fit between two file
+    pages). A page with no number between the two anchors receives the
+    intermediate printed numbers in order. A number that does not continue the
+    series is ignored, which drops a table or chapter number sitting in the
+    same band. When the series stops, a later run of three pages opens another
+    segment, so a preface that restarts at 1 does not get swallowed by the body.
+    """
+    pages = _normalized_candidates(candidates)
+    assigned: list[int | None] = [None] * len(pages)
+    index = 0
+    while index < len(pages):
+        if assigned[index] is not None or not pages[index]:
+            index += 1
+            continue
+        best_chain: list[tuple[int, int, bool]] | None = None
+        best_key: tuple[int, int] | None = None
+        for seed in pages[index]:
+            chain = [(index, seed, True)]
+            anchors = 1
+            cursor, printed = index, seed
+            while anchors < _LOCK_ANCHORS:
+                jump = _best_jump(pages, cursor, printed)
+                if jump is None:
+                    break
+                end, end_printed = jump
+                chain.extend(_paint_jump(cursor, printed, end, end_printed))
+                anchors += 1
+                cursor, printed = end, end_printed
+            if anchors < _LOCK_ANCHORS:
+                continue
+            extras = 0
+            prev_index, prev_printed = chain[0][0], chain[0][1]
+            for page_index, page_printed, is_anchor in chain[1:]:
+                if not is_anchor:
+                    continue
+                extras += (page_printed - prev_printed) - (page_index - prev_index)
+                prev_index, prev_printed = page_index, page_printed
+            key = (extras, -len(chain))
+            if best_key is None or key < best_key:
+                best_key = key
+                best_chain = chain
+        if best_chain is None:
+            index += 1
+            continue
+        for page_index, page_printed, _is_anchor in best_chain:
+            assigned[page_index] = page_printed
+        cursor, printed = best_chain[-1][0], best_chain[-1][1]
+        while True:
+            jump = _best_jump(pages, cursor, printed)
+            if jump is None:
+                break
+            end, end_printed = jump
+            for page_index, page_printed, _is_anchor in _paint_jump(
+                cursor, printed, end, end_printed
+            ):
+                assigned[page_index] = page_printed
+            cursor, printed = end, end_printed
+        index = cursor + 1
+    return assigned
+
+
+def read_printed_page_candidates(file_path: Path) -> list[list[int]]:
+    """One candidate list per PDF page, from the text layer. ``[]`` when pdfium cannot open it."""
+    _labels, candidates = read_pdf_page_signals(file_path)
+    return candidates
+
+
+def read_pdf_page_signals(file_path: Path) -> tuple[list[str], list[list[int]]]:
+    """Page labels and printed-number candidates, from one pdfium open.
+
+    ``([], [])`` when the file cannot be opened. Labels stay the ``/PageLabels``
+    strings (often empty). Candidates come from the header band, the footer band
+    and copyright lines — the text layer, not OCR.
+    """
     try:
         import pypdfium2 as pdfium
     except ImportError:
         logger.debug("pdfium indisponivel; rotulos de pagina ignorados.")
-        return []
+        return [], []
     try:
         document = pdfium.PdfDocument(str(file_path))
     except Exception as exc:
         logger.debug("pdfium nao abriu %s para rotulos (%s).", file_path.name, exc)
-        return []
+        return [], []
     try:
-        return [str(document.get_page_label(index) or "") for index in range(len(document))]
+        labels: list[str] = []
+        candidates: list[list[int]] = []
+        for index in range(len(document)):
+            page = document[index]
+            labels.append(str(document.get_page_label(index) or ""))
+            try:
+                width, height = page.get_size()
+                text_page = page.get_textpage()
+                header = text_page.get_text_bounded(0, height - _BAND_PT, width, height) or ""
+                footer = text_page.get_text_bounded(0, 0, width, _BAND_PT) or ""
+                opener = text_page.get_text_bounded(0, 0, width, _COPYRIGHT_BAND_PT) or ""
+                text_page.close()
+                found = printed_page_candidates(header, footer, opener)
+            except Exception:
+                logger.debug("Texto da pagina %d de %s indisponivel.", index + 1, file_path.name)
+                found = []
+            finally:
+                page.close()
+            candidates.append(found)
+        return labels, candidates
     finally:
         document.close()
 

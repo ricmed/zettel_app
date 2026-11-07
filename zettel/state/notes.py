@@ -88,6 +88,28 @@ class NotesMixin(StateBase):
         )
         self.conn.commit()
 
+    def update_note_citation_text(
+        self,
+        note_id: str,
+        *,
+        body: str,
+        frontmatter_json: str,
+        provenance_json: str,
+    ) -> None:
+        """Rewrite citation text on a note without touching its semantic or embedding hashes.
+
+        The page line lives outside the managed block, so a new checksum would
+        mark the note as needing an embedding the pipeline sync never writes.
+        """
+        self.conn.execute(
+            """UPDATE notes
+                  SET body=?, frontmatter_json=?, provenance_json=?, updated_at=?
+                WHERE note_id=?""",
+            (body, frontmatter_json, provenance_json, self._now(), note_id),
+        )
+        self._fts_index_note(note_id)
+        self.conn.commit()
+
     def update_note_path(self, note_id: str, path: str) -> None:
         """Point a note row at the file it moved to (renamed in Obsidian, #348)."""
         self.conn.execute(

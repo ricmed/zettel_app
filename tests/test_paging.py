@@ -8,6 +8,7 @@ from zettel.paging import (
     PageHint,
     PageIndex,
     apply_page_inference,
+    assemble_printed_pages,
     compute_docling_config_hash,
     compute_page_in_book,
     content_start_from_page_labels,
@@ -20,7 +21,9 @@ from zettel.paging import (
     page_map_is_complete,
     page_marker,
     parse_biblio_start_page,
+    printed_page_candidates,
     read_pdf_page_labels,
+    read_printed_page_candidates,
     render_page_marked_markdown,
     strip_page_break_markers,
     suggest_content_start,
@@ -485,3 +488,74 @@ def test_locate_quote_without_page_map_or_match():
     assert locate_quote_pages(_marked("a", "b"), _QUOTE, 1) is None
     assert locate_quote_pages(_marked("a", _QUOTE), "", 1) is None
     assert locate_quote_pages(_marked("a", _QUOTE), _QUOTE, None) is None
+
+
+def test_copyright_line_keeps_the_page_and_drops_the_year():
+    assert printed_page_candidates("", "", "© The Author(s) 2020 125") == [125]
+    assert printed_page_candidates("4 5 6", "") == [4, 5, 6]
+
+
+def test_footer_band_is_a_candidate_source():
+    found = printed_page_candidates("", "433\n11 Problem Loan Management")
+    assert found[0] == 433
+    assert 11 in found
+
+
+def test_assemble_locks_only_after_three_continuing_pages():
+    assert assemble_printed_pages([[8], [100], [3]]) == [None, None, None]
+    assert assemble_printed_pages([[8], [3], [4], [5]]) == [None, 3, 4, 5]
+
+
+def test_assemble_rejects_a_table_number_that_does_not_continue():
+    assert assemble_printed_pages([[10], [11], [4, 12], [13]]) == [10, 11, 12, 13]
+
+
+def test_assemble_fills_the_middle_of_a_jump_and_accepts_three_omitted():
+    """A blank file page between 100 and 103 takes 101; 102 is the omitted blank."""
+    jumped = assemble_printed_pages([[100], [], [103], [104], [105]])
+    assert jumped == [100, 101, 103, 104, 105]
+    assert assemble_printed_pages([[10], [14], [15], [16]]) == [10, 14, 15, 16]
+
+
+def test_assemble_restarts_numbering_as_a_new_segment():
+    assert assemble_printed_pages([[1], [2], [3], [], [1], [2], [3]]) == [
+        1,
+        2,
+        3,
+        None,
+        1,
+        2,
+        3,
+    ]
+
+
+def test_assemble_yhip_series_reads_file_450_as_printed_433():
+    """Five omitted blanks shrink file 450 from the opening offset (428) to 433."""
+    pages: list[list[int]] = [[] for _ in range(450)]
+    printed = 3
+    pages[24] = [printed]
+    jumps = {145, 294, 370, 401, 438}
+    for file_page in range(26, 451):
+        printed += 2 if file_page in jumps else 1
+        pages[file_page - 1] = [printed]
+    real = pages[167][0]
+    pages[167] = [4, real]
+    assembled = assemble_printed_pages(pages)
+    assert assembled[24] == 3
+    assert assembled[449] == 433
+    assert assembled[167] == real
+    assert printed == 433
+
+
+def test_compute_page_in_book_uses_the_map_and_falls_back_per_page():
+    mapped = [None] * 449 + [433]
+    assert compute_page_in_book(450, 25, 3, mapped) == 433
+    assert compute_page_in_book(450, 25, 3) == 428
+    assert compute_page_in_book(10, 25, 3, mapped) is None
+    partial = assemble_printed_pages([[], [], [3], [4], [5]])
+    assert compute_page_in_book(2, 1, 1, partial) == 2
+    assert compute_page_in_book(3, 1, 1, partial) == 3
+
+
+def test_printed_candidates_of_a_missing_file_are_empty(tmp_path):
+    assert read_printed_page_candidates(tmp_path / "ausente.pdf") == []

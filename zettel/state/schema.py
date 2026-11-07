@@ -63,6 +63,15 @@ CREATE TABLE IF NOT EXISTS sources (
     updated_at           TEXT NOT NULL
 );
 
+-- Printed page read from the PDF text layer, one JSON array per source
+-- (index 0 = file page 1, null where no series locked). A new table, so an
+-- existing state.db picks it up on the next open without init --reset.
+CREATE TABLE IF NOT EXISTS source_printed_pages (
+    source_id  TEXT PRIMARY KEY,
+    pages_json TEXT NOT NULL,
+    FOREIGN KEY (source_id) REFERENCES sources(source_id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS chapters (
     chapter_id       TEXT PRIMARY KEY,
     source_id        TEXT NOT NULL,
