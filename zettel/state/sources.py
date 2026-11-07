@@ -279,6 +279,52 @@ class SourcesMixin(StateBase):
         )
         self.conn.commit()
 
+    def save_printed_pages(self, source_id: str, pages: list[int | None]) -> None:
+        """Replace the text-layer printed-page map. An empty reading deletes the row."""
+        if not any(page is not None for page in pages):
+            self.delete_printed_pages(source_id)
+            return
+        payload = json.dumps(pages, separators=(",", ":"))
+        self.conn.execute(
+            """INSERT INTO source_printed_pages (source_id, pages_json)
+               VALUES (?, ?)
+               ON CONFLICT(source_id) DO UPDATE SET pages_json=excluded.pages_json""",
+            (source_id, payload),
+        )
+        self.conn.commit()
+
+    def delete_printed_pages(self, source_id: str) -> None:
+        """Drop a stored printed-page map so the linear offset is the citation again."""
+        self.conn.execute("DELETE FROM source_printed_pages WHERE source_id=?", (source_id,))
+        self.conn.commit()
+
+    def get_printed_pages(self, source_id: str) -> list[int | None] | None:
+        """Printed number per file page, or None when this source has no map."""
+        row = self._fetchone(
+            "SELECT pages_json FROM source_printed_pages WHERE source_id=?",
+            (source_id,),
+        )
+        if not row or not row.get("pages_json"):
+            return None
+        try:
+            raw = json.loads(row["pages_json"])
+        except (TypeError, json.JSONDecodeError):
+            return None
+        if not isinstance(raw, list):
+            return None
+        pages: list[int | None] = []
+        for item in raw:
+            if item is None:
+                pages.append(None)
+            else:
+                try:
+                    pages.append(int(item))
+                except (TypeError, ValueError):
+                    pages.append(None)
+        if not any(page is not None for page in pages):
+            return None
+        return pages
+
     def update_source_summary(
         self,
         source_id: str,
@@ -352,10 +398,20 @@ class SourcesMixin(StateBase):
         return {"chunks": removed_chunks, **removed}
 
     def get_source(self, source_id: str) -> dict | None:
-        return self._fetchone("SELECT * FROM sources WHERE source_id=?", (source_id,))
+        row = self._fetchone("SELECT * FROM sources WHERE source_id=?", (source_id,))
+        return self._with_printed_pages(row)
 
     def get_source_by_citekey(self, citekey: str) -> dict | None:
-        return self._fetchone("SELECT * FROM sources WHERE citekey=?", (citekey,))
+        row = self._fetchone("SELECT * FROM sources WHERE citekey=?", (citekey,))
+        return self._with_printed_pages(row)
+
+    def _with_printed_pages(self, row: dict | None) -> dict | None:
+        if row is None:
+            return None
+        pages = self.get_printed_pages(row["source_id"])
+        if pages is not None:
+            row["printed_pages"] = pages
+        return row
 
     def get_source_by_extraction_checksum(
         self, extraction_checksum: str, exclude_source_id: str | None = None

@@ -104,6 +104,7 @@ Os exemplos abaixo usam `python -m zettel ...`; prefixe com `uv run` se o ambien
 | --------------------------------- | ---------------------------------------------------------------------------- |
 | `zettel init`                     | Cria o vault (sem apagar o que existe), as bases e os templates do Obsidian; `--reset` recria SQLite/Chroma/cache e remove só as notas do pipeline |
 | `zettel harvest`                  | Escaneia o inbox, extrai texto, cria SRC + índice LIT + chunks com página    |
+| `zettel set-paging`               | Corrige a página impressa de um PDF já harvestado, sem LLM (`--from-pdf` lê o número no arquivo) |
 | `zettel extract`                  | Prompt 1: gera drafts de LIT granular em `00_Inbox/Review`                   |
 | `zettel review`                   | Portão humano: aprova/rejeita os drafts; um chunk recusado pelo extract pode voltar para extração obrigatória |
 | `zettel connect`                  | Prompt 2: gera notas permanentes (ZTL) com links e backlinks                 |
@@ -132,6 +133,8 @@ python -m zettel garden       # atualiza os mapas de conteúdo
 ```
 
 Todas as flags de cada comando: [docs/cli.md](docs/cli.md).
+
+A página da citação é a **impressa**, não o índice do PDF. No harvest, o número é lido na camada de texto (cabeçalho, rodapé ou linha de copyright). Onde essa série não trava, vale o deslocamento do início do conteúdo (`arquivo − início do arquivo + página impressa do início`). Markdown não tem página. Uma fonte já processada se corrige com `zettel set-paging --source-id @Citekey --from-pdf`, sem nova chamada de modelo. O detalhe está em [Paginação](docs/pipeline.md#paginação-arquivo-vs-impressa).
 
 > **Pré-voo de custo.** Antes de gastar LLM, `extract`, `connect` e `article` mostram um painel com o modelo da fase, a contagem de itens, os tokens estimados e o custo em USD, e pedem confirmação. `--yes` ou stdin sem TTY (scripts, CI) seguem direto; recusar aborta **antes** de qualquer chamada. É estimativa e limite de ordem de grandeza, não teto de orçamento: o cache de respostas do SQLite não é descontado, então o número é um limite superior. Quando já houve execuções da fase com o **mesmo modelo**, entrada, saída (com thinking) e cache de prompt vêm das contagens reais do provedor (`run_usage`), com desconto de cache e preço por requisição. `zettel status` mostra o **custo por provedor e modelo**, para comparar com o painel de cada provedor. Detalhes em [ADR-037](docs/adrs/generated/CLI/ADR-037-llm-cost-preflight-estimate.md).
 

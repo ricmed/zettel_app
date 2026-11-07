@@ -93,7 +93,11 @@ Chunking híbrido ([ADR-014](adrs/generated/HARVEST/ADR-014-hybrid-structural-ch
 
 ## Paginação: arquivo vs impressa
 
-O número que o leitor vê no livro/revista (`page_in_book`) é o que vai para LIT/ZTL, para os nomes `pNNN` e para a citação ABNT. O índice do PDF (`page_in_file`) é só o deslocamento interno. Fórmula:
+O número que o leitor vê no livro/revista (`page_in_book`) é o que vai para LIT/ZTL, para os nomes `pNNN` e para a citação ABNT. O índice do PDF (`page_in_file`) é só o deslocamento interno.
+
+Quando a camada de texto do PDF tem uma série estável (número no cabeçalho, no rodapé ou na linha `© … ano N`, lida com pdfium — não é OCR), essa leitura é a página impressa. A série só trava depois de três páginas que se continuam, aceita até três folhas omitidas entre duas páginas do arquivo, e um recomeço de numeração abre outro trecho. Um número que não continua a série (capítulo, "Table 4.6") é descartado. O mapa fica em `source_printed_pages`. `total_pages_book` passa a ser o maior número lido.
+
+Onde a página não tem leitura, e quando o PDF não tem série nenhuma, vale o deslocamento do início:
 
 `page_in_book = page_in_file - content_start_file + content_start_book`
 
@@ -114,13 +118,14 @@ Como o início é resolvido ([ADR-013](adrs/generated/HARVEST/ADR-013-three-laye
 
 O mapa de `page_in_file` vem do **Docling**, uma fatia por página do arquivo (`export_to_markdown(page_no=)`, o `prov.page_no`), inclusive páginas sem texto. O texto persistido leva um marcador numerado `<!-- zettel:page N -->` por página. O mapa só é usado quando cobre `1..total_pages_file`; se divergir, o harvest registra o erro e não rotula nenhuma página como exata. A página do chunk é o deslocamento do início do texto nesse mapa (`exact` se a sonda está numa só página, `fuzzy` se o cabeçalho se repete ou só há interseção de palavras, `inferred` por interpolação). `set-paging` preserva o rótulo. O marcador antigo `<!-- zettel:page-break -->` não é mapa — um re-harvest é necessário. O `prov.page_no` é o índice do arquivo, não o número impresso. Docling é obrigatório — não há fallback para outro extrator ([ADR-012](adrs/generated/HARVEST/ADR-012-docling-pdf-extraction-pymupdf-fallback.md), [ADR-013](adrs/generated/HARVEST/ADR-013-three-layer-page-inference-strategy.md)). Regex no corpo do chunk só roda quando não há mapa e a fonte não é Markdown.
 
-Para corrigir uma fonte já harvestada:
+Para corrigir uma fonte já harvestada, sem chamar o LLM e sem regravar o embedding:
 
 ```bash
+python -m zettel set-paging --source-id @Citekey --from-pdf
 python -m zettel set-paging --source-id @Citekey --content-start-file 35 --content-start-book 10
 ```
 
-Isso recalcula o número impresso sem chamar o LLM. Se `page_in_file` estiver errado ou vazio (harvest antigo, ou texto ainda com `<!-- zettel:page-break -->`), reprocesse o PDF (`zettel harvest`). `zettel rechunk` só reconstrói o mapa se o `extracted_text` já tiver os marcadores numerados `<!-- zettel:page N -->`.
+`--from-pdf` lê o mapa na camada de texto e mantém o início de conteúdo já confirmado. O par arquivo/impressa recalcula o deslocamento linear e apaga um mapa gravado. Os dois reescrevem `page_in_book`, o nome da LIT, os wikilinks, o frontmatter `page` e o bloco `auto-evidence`. Se `page_in_file` estiver errado ou vazio (harvest antigo, ou texto ainda com `<!-- zettel:page-break -->`), reprocesse o PDF (`zettel harvest`). `zettel rechunk` só reconstrói o mapa se o `extracted_text` já tiver os marcadores numerados `<!-- zettel:page N -->`.
 
 Um harvest interrompido fica com `processing_status=in_progress`. A passada seguinte retoma: o `chapter_checksum` só vale quando os chunks daquele capítulo foram commitados na mesma transação. O índice Chroma de chunks é refeito a partir do SQLite.
 

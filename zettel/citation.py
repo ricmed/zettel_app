@@ -70,8 +70,9 @@ def resolve_citation(
         if located:
             start_file = source.get("content_start_file_page")
             start_book = source.get("content_start_book_page")
-            first = compute_page_in_book(located[0], start_file, start_book)
-            last = compute_page_in_book(located[1], start_file, start_book)
+            printed = source.get("printed_pages")
+            first = compute_page_in_book(located[0], start_file, start_book, printed)
+            last = compute_page_in_book(located[1], start_file, start_book, printed)
             if first is not None:
                 confidence = "quote"
     if first is None and chunk and chunk.get("page_in_book") is not None:

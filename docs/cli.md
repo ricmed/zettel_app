@@ -129,9 +129,10 @@ python -m zettel harvest --dump-extraction --dump-extraction-dir ./tmp/extractio
 
 ## `set-paging`
 
-Corrige a paginação de uma fonte **já harvestada**, recalculando o número impresso sem re-chamar o LLM. Renomeia as LIT granulares quando o token `pNNN` muda. Só vale para PDF: uma fonte em Markdown não tem páginas (o localizador é o caminho de seções) e o comando recusa com código de saída 1.
+Corrige a paginação de uma fonte **já harvestada** sem re-chamar o LLM e sem regravar o embedding. Renomeia as LIT granulares quando o token `pNNN` muda e reescreve, nas ZTL, o wikilink, a linha de página e o bloco `auto-evidence`. Só vale para PDF: uma fonte em Markdown não tem páginas (o localizador é o caminho de seções) e o comando recusa com código de saída 1.
 
 ```bash
+python -m zettel set-paging --source-id @Citekey --from-pdf
 python -m zettel set-paging --source-id @Citekey --content-start-file 35 --content-start-book 10
 python -m zettel set-paging --source-id @Citekey --content-start-file 1 --content-start-book 200 --drop-before-start
 ```
@@ -139,10 +140,13 @@ python -m zettel set-paging --source-id @Citekey --content-start-file 1 --conten
 | Flag | Efeito |
 |---|---|
 | `--source-id` (obrigatória) | Fonte a corrigir (ex.: `@Citekey`). |
-| `--content-start-file` (obrigatória) | Página do arquivo onde o conteúdo começa. |
-| `--content-start-book` | Número impresso nessa página (default `1`). |
+| `--from-pdf` | Lê a página impressa na camada de texto do PDF e grava o mapa. Mantém o início de conteúdo já confirmado. |
+| `--content-start-file` | Página do arquivo onde o conteúdo começa. Obrigatória sem `--from-pdf`. |
+| `--content-start-book` | Número impresso nessa página (default `1` no modo linear). |
 | `--drop-before-start` | Também remove chunks `awaiting_review`/aprovados anteriores ao início (por padrão só os `pending` são descartados). |
 | `--yes` / `-y` | Confirma reprocessamento de embedding, se necessário. |
+
+Sem `--from-pdf`, o par arquivo/impressa recalcula o deslocamento linear e apaga um mapa já gravado.
 
 ---
 

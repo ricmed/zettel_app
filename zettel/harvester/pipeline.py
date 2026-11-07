@@ -19,7 +19,9 @@ from zettel.index import VectorIndex
 from zettel.llm import LLMUnavailableError
 from zettel.paging import (
     ContentPaging,
+    assemble_printed_pages,
     compute_docling_config_hash,
+    max_printed_page,
     resolve_content_paging,
 )
 from zettel.state import StateDB
@@ -259,11 +261,7 @@ def run_rechunk(
             stats["skipped"] += 1
             continue
         chapters = chunking.split_into_chapters(text, src["origin_type"])
-        paging = ContentPaging(
-            content_start_file_page=int(src.get("content_start_file_page") or 1),
-            content_start_book_page=int(src.get("content_start_book_page") or 1),
-            confidence=src.get("page_offset_confidence") or "skipped",
-        )
+        paging = _paging_from_source(db, src)
         page_map = extract.page_map_for_source(src)
         db.update_source_paging(sid, processing_status="in_progress")
         n = chunking.chunk_and_persist(
@@ -686,6 +684,7 @@ def _process_file(
         biblio_pages=getattr(biblio, "pages", None),
         page_labels=metadata.get("_page_labels"),
     )
+    paging = _paging_with_printed(paging, metadata.get("_printed_candidates") or [])
     logger.info(
         "[SOURCE=%s] Paginacao: arquivo p.%d = impressa p.%d (offset derivado=%d, %s)",
         source_id,
@@ -727,6 +726,10 @@ def _process_file(
         docling_config_hash=config_hash,
     )
     db.update_source_texts(source_id, extracted_text=text)
+    if paging.printed_pages:
+        db.save_printed_pages(source_id, list(paging.printed_pages))
+    else:
+        db.delete_printed_pages(source_id)
     _maybe_dump_extraction(cfg, db, source_id, extraction_dump_dir)
 
     logger.info(
@@ -796,12 +799,7 @@ def _process_file(
     )
     _finalize_source_chunking(db, idx, source_id, chapters)
 
-    total_pages_book = None
-    if total_pages_file is not None:
-        total_pages_book = max(
-            1,
-            total_pages_file - paging.content_start_file_page + paging.content_start_book_page,
-        )
+    total_pages_book = _total_pages_book(paging, total_pages_file)
 
     db.update_source_paging(
         source_id,
@@ -902,6 +900,64 @@ def _maybe_dump_extraction(
     dump_source_extraction(cfg, db, source_id, dump_dir)
 
 
+def _paging_with_printed(
+    paging: ContentPaging, candidates: list[list[int]] | None
+) -> ContentPaging:
+    """Attach a locked text-layer map. An empty reading leaves the offset in charge."""
+    printed = assemble_printed_pages(candidates or [])
+    if max_printed_page(printed) is None:
+        if candidates:
+            logger.info(
+                "Nenhuma serie de pagina impressa na camada de texto; o offset linear vale."
+            )
+        return paging
+    mapped = sum(page is not None for page in printed)
+    logger.info(
+        "Pagina impressa lida na camada de texto: %d paginas, maior p.%s.",
+        mapped,
+        max_printed_page(printed),
+    )
+    start = paging.content_start_file_page
+    missing = sum(
+        1 for index, page in enumerate(printed, start=1) if index >= start and page is None
+    )
+    if missing:
+        logger.info(
+            "%d paginas a partir do inicio do conteudo sem leitura; essas citacoes usam o offset.",
+            missing,
+        )
+    return ContentPaging(
+        paging.content_start_file_page,
+        paging.content_start_book_page,
+        paging.confidence,
+        tuple(printed),
+    )
+
+
+def _paging_from_source(db: StateDB, src: dict[str, Any]) -> ContentPaging:
+    """Content-start stored on the source, plus its printed-page map when one was saved."""
+    pages = db.get_printed_pages(src["source_id"])
+    return ContentPaging(
+        content_start_file_page=int(src.get("content_start_file_page") or 1),
+        content_start_book_page=int(src.get("content_start_book_page") or 1),
+        confidence=src.get("page_offset_confidence") or "skipped",
+        printed_pages=tuple(pages) if pages else None,
+    )
+
+
+def _total_pages_book(paging: ContentPaging, total_pages_file: int | None) -> int | None:
+    """Largest printed number read, else the linear offset on the last file page."""
+    read = max_printed_page(paging.printed_pages)
+    if read is not None:
+        return read
+    if total_pages_file is None:
+        return None
+    return max(
+        1,
+        int(total_pages_file) - paging.content_start_file_page + paging.content_start_book_page,
+    )
+
+
 def _finalize_source_chunking(
     db: StateDB,
     idx: VectorIndex,
@@ -940,11 +996,7 @@ def _complete_incomplete_source(
         return None, {}
 
     chapters = chunking.split_into_chapters(src["extracted_text"], src["origin_type"])
-    paging = ContentPaging(
-        content_start_file_page=int(src.get("content_start_file_page") or 1),
-        content_start_book_page=int(src.get("content_start_book_page") or 1),
-        confidence=src.get("page_offset_confidence") or "skipped",
-    )
+    paging = _paging_from_source(db, src)
     page_map = extract.page_map_for_source(src)
 
     logger.info(
@@ -965,12 +1017,7 @@ def _complete_incomplete_source(
     _finalize_source_chunking(db, idx, source_id, chapters)
 
     total_pages_file = src.get("total_pages_file")
-    total_pages_book = None
-    if total_pages_file is not None:
-        total_pages_book = max(
-            1,
-            total_pages_file - paging.content_start_file_page + paging.content_start_book_page,
-        )
+    total_pages_book = _total_pages_book(paging, total_pages_file)
 
     db.update_source_paging(
         source_id,

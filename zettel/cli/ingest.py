@@ -334,24 +334,34 @@ def set_paging_cmd(
         ),
     ],
     content_start_file: Annotated[
-        int,
+        int | None,
         typer.Option(
             "--content-start-file",
-            help="Pagina do arquivo (PDF) onde o conteudo comeca (1-based)",
+            help=(
+                "Pagina do arquivo (PDF) onde o conteudo comeca (1-based). "
+                "Obrigatorio sem --from-pdf."
+            ),
         ),
-    ],
+    ] = None,
     content_start_book: Annotated[
-        int,
+        int | None,
         typer.Option(
             "--content-start-book",
             help="Numero impresso nessa primeira pagina de conteudo",
         ),
-    ] = 1,
+    ] = None,
     drop_before_start: Annotated[
         bool,
         typer.Option(
             "--drop-before-start",
             help="Tambem remove chunks awaiting_review/aprovados antes do inicio",
+        ),
+    ] = False,
+    from_pdf: Annotated[
+        bool,
+        typer.Option(
+            "--from-pdf",
+            help="Ler a pagina impressa na camada de texto do PDF (cabeçalho, rodapé, copyright)",
         ),
     ] = False,
     config: ConfigOption = None,
@@ -380,17 +390,22 @@ def set_paging_cmd(
             content_start_file=content_start_file,
             content_start_book=content_start_book,
             drop_before_start=drop_before_start,
+            from_pdf=from_pdf,
         )
     except ValueError as e:
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1)
 
+    if from_pdf and content_start_file is None:
+        bounds = "pagina impressa lida no PDF"
+    else:
+        bounds = f"arquivo p.{content_start_file} = impressa p.{content_start_book or 1}"
     console.print(
-        f"[green]Paginacao atualizada para {source_id}:[/green] "
-        f"arquivo p.{content_start_file} = impressa p.{content_start_book}\n"
+        f"[green]Paginacao atualizada para {source_id}:[/green] {bounds}\n"
         f"  chunks atualizados: {stats['updated']}\n"
         f"  pending removidos (antes do inicio): {stats['dropped_pending']}\n"
         f"  outros removidos (--drop-before-start): {stats['dropped_other']}\n"
-        f"  notas LIT patchadas: {stats['notes_patched']}"
+        f"  notas LIT patchadas: {stats['notes_patched']}\n"
+        f"  notas permanentes patchadas: {stats['permanent_patched']}"
     )
     db.close()

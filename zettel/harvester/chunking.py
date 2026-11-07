@@ -718,7 +718,9 @@ def chunk_and_persist(
             if page_file is not None and page_file < start_file:
                 skipped_front += 1
                 continue
-            spec["page_in_book"] = compute_page_in_book(page_file, start_file, start_book)
+            spec["page_in_book"] = compute_page_in_book(
+                page_file, start_file, start_book, paging.printed_pages
+            )
             kept.append(spec)
         kept_ids = {spec["chunk_id"] for spec in kept}
         stored_ids = {row["chunk_id"] for row in db.get_chunks_for_chapter(group["chapter_id"])}
