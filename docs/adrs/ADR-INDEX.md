@@ -647,6 +647,15 @@ The counts in this file are pinned to `docs/adrs/generated/` by `tests/test_docs
 
 ---
 
+## Status Update (2026-11-07)
+
+✅ Addenda from the analysis of the two-book run of 2026-11-06:
+- **ADR-048**: Gemini gets only `thinking_level`, and Gemini 3+ gets no sampling parameters; the cache key leaves out sampling that is never sent; `thinking: false` disables Anthropic thinking where the model allows it.
+- **ADR-037**: the pre-flight uses the `run_usage` history of the current model, discounts the prompt cache and prices each request separately.
+- **ADR-053**: connect runs sources in parallel and keeps the order inside each source sequential.
+
+---
+
 ## Status Update (2026-11-03)
 
 ✅ **ADR-066** (Obsidian as an offline authoring surface, epic #340) added. Addenda:
