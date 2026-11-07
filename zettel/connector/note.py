@@ -73,6 +73,11 @@ class ConnectSession:
     model: str = ""
 
 
+def candidate_query_text(cand: PermanentNoteCandidate) -> str:
+    """What the connect searches embed for a candidate: its thesis and definition."""
+    return f"{cand.thesis} {cand.definition}"
+
+
 def literature_ref_for_chunk(citekey: str, title_src: str, chunk: dict[str, Any] | None) -> str:
     """Wikilink to the approved granular LIT for this chunk (fallback: index).
 
@@ -168,7 +173,7 @@ def prepare_candidate(session: ConnectSession, cand_dict: dict) -> PreparedNote 
     if not cand.relevant_image_ids:
         cand.relevant_image_ids = context.fallback_image_ids(db, source_id, chunk_row)
 
-    query_text = f"{cand.thesis} {cand.definition}"
+    query_text = candidate_query_text(cand)
     similar = session.retriever.search_notes(
         query_text,
         topk=cfg.linking.topk,

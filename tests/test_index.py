@@ -495,3 +495,77 @@ def test_embed_texts_records_its_own_embedding_usage(tmp_path, token_hash_embedd
         reset()
     assert summary.embed_calls == 2
     assert summary.tokens_embedding > 0
+
+
+def _counting(idx):
+    """Count calls reaching the embedding client, per side."""
+    emb = idx.embedding_fn._emb
+    counts = {"documents": 0, "query": 0}
+    real_docs, real_query = emb.embed_documents, emb.embed_query
+
+    def docs(texts, **kwargs):
+        counts["documents"] += 1
+        return real_docs(texts)
+
+    def query(text, **kwargs):
+        counts["query"] += 1
+        return real_query(text)
+
+    emb.embed_documents, emb.embed_query = docs, query
+    return counts
+
+
+def test_primed_queries_return_the_same_hits_without_embedding_again(
+    tmp_path, token_hash_embedding
+):
+    idx = VectorIndex(tmp_path / "chroma", token_hash_embedding, "m")
+    try:
+        for i, text in enumerate(
+            ["risco de credito e garantia", "liquidez de mercado", "risco operacional"]
+        ):
+            idx.upsert_permanent_note(f"N{i}", text, {"source_id": "@S"})
+        query = "risco de credito"
+        plain = idx.query_similar_notes(query, n_results=3)
+        by_ids = idx.query_notes_by_ids(query, ["N0", "N2"])
+        doc_vec = idx.embed_texts([query])
+
+        counts = _counting(idx)
+        idx.prime_query_embeddings([query, query, "outra consulta"])
+        primed_calls = dict(counts)
+        assert idx.query_similar_notes(query, n_results=3) == plain
+        assert idx.query_notes_by_ids(query, ["N0", "N2"]) == by_ids
+        assert idx.embed_texts([query]) == doc_vec
+        # Everything after the prime is served from it.
+        assert counts == primed_calls
+        idx.clear_query_embeddings()
+        idx.query_similar_notes(query, n_results=3)
+        assert counts["query"] == primed_calls["query"] + 1
+    finally:
+        idx.close()
+
+
+def test_prime_without_documents_skips_the_document_side(tmp_path, token_hash_embedding):
+    idx = VectorIndex(tmp_path / "chroma", token_hash_embedding, "m")
+    try:
+        counts = _counting(idx)
+        idx.prime_query_embeddings(["a b", "c d"], documents=False)
+        assert counts["documents"] == 0
+        idx.embed_texts(["a b"])
+        assert counts["documents"] == 1
+    finally:
+        idx.close()
+
+
+def test_gemini_queries_go_out_in_one_batch_with_the_query_task_type():
+    from zettel.index import _GeminiChromaEF
+
+    sent: list[tuple[list[str], str]] = []
+
+    class _Emb:
+        def embed_documents(self, texts, *, task_type=None):
+            sent.append((list(texts), task_type))
+            return [[1.0, 0.0] for _ in texts]
+
+    vectors = _GeminiChromaEF(_Emb(), model="gemini-embedding-2").embed_queries(["a", "b", "c"])
+    assert sent == [(["a", "b", "c"], "RETRIEVAL_QUERY")]
+    assert len(vectors) == 3
