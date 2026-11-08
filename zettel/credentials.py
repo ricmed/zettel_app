@@ -51,6 +51,19 @@ def has_credential(required: tuple[str, ...] | None) -> bool:
     return required is None or any(os.getenv(name) for name in required)
 
 
+def llm_phase_credential_env(cfg: Any, phase: str) -> tuple[str, ...] | None:
+    """Env vars that can hold ``phase``'s LLM key, or None when its provider needs none."""
+    from zettel.config import llm_phase
+    from zettel.llm import normalize_llm_provider
+
+    return LLM_PROVIDER_ENV.get(normalize_llm_provider(llm_phase(cfg, phase).provider))
+
+
+def llm_phase_ready(cfg: Any, phase: str) -> bool:
+    """True when the configured provider for ``phase`` has a credential (or needs none)."""
+    return has_credential(llm_phase_credential_env(cfg, phase))
+
+
 def embedding_credential_env(cfg: Any) -> tuple[str, ...] | None:
     """Env vars that can hold the embedding provider's key, or None when it needs none."""
     return EMBEDDING_PROVIDER_ENV.get(cfg.embedding.provider)

@@ -780,6 +780,11 @@ def config_file_path(path: Path | str | None = None) -> Path:
     return Path(path).resolve() if path else _DEFAULT_CONFIG_PATH
 
 
+def env_file_path(path: Path | str | None = None) -> Path:
+    """The ``.env`` that ``load_config`` reads for the config at ``path``."""
+    return _project_root_for_config(config_file_path(path)) / ".env"
+
+
 def load_config(path: Path | str | None = None) -> AppConfig:
     """Carrega config/config.yaml (ou ``path``) e valida em AppConfig.
 
@@ -794,7 +799,7 @@ def load_config(path: Path | str | None = None) -> AppConfig:
     config_path = config_file_path(path)
     project_root = _project_root_for_config(config_path)
 
-    env_path = project_root / ".env"
+    env_path = env_file_path(config_path)
     if env_path.exists():
         load_dotenv(env_path, override=False)
         logger.info("Variaveis de ambiente carregadas de .env")

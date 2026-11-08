@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 from rich.table import Table
 
@@ -224,6 +225,50 @@ def status(config: ConfigOption = None):
     db.close()
 
 
+def llm_phase_checks(cfg: Any) -> list[tuple[str, bool, str]]:
+    """One doctor row per LLM phase: provider supported and its key present.
+
+    The key rule is ``credentials.llm_phase_credential_env``, the one the web uses to
+    enable each button. A missing key for ``images`` while ``images.enabled`` is off
+    does not fail, since nothing calls that phase.
+    """
+    from zettel.config import LLM_PHASES, llm_phase
+    from zettel.credentials import has_credential, llm_phase_credential_env
+    from zettel.llm import is_supported_llm_provider
+
+    rows: list[tuple[str, bool, str]] = []
+    for phase in LLM_PHASES:
+        spec = llm_phase(cfg, phase)
+        detail = f"{spec.provider} / {spec.model}"
+        if not is_supported_llm_provider(spec.provider):
+            rows.append((f"LLM {phase}", False, f"provider nao suportado: {detail}"))
+            continue
+        envs = llm_phase_credential_env(cfg, phase)
+        if has_credential(envs):
+            rows.append((f"LLM {phase}", True, detail))
+            continue
+        missing = f"{detail}: falta {' ou '.join(envs or ())} no .env"
+        if phase == "images" and not cfg.images.enabled:
+            rows.append((f"LLM {phase}", True, f"{missing} (images.enabled: false)"))
+        else:
+            rows.append((f"LLM {phase}", False, missing))
+    return rows
+
+
+def env_file_check(config: str | None) -> tuple[str, bool, str]:
+    """Where the secrets come from: informative, since a container passes them as env vars."""
+    from zettel.config import env_file_path
+
+    env_path = env_file_path(config)
+    if env_path.exists():
+        return (".env", True, str(env_path))
+    return (
+        ".env",
+        True,
+        f"ausente em {env_path}: as chaves vem so do ambiente do processo (cp .env.example .env)",
+    )
+
+
 @app.command()
 def doctor(config: ConfigOption = None):
     """Verificar configuração, dependências e integridade."""
@@ -236,6 +281,7 @@ def doctor(config: ConfigOption = None):
     # Config file
     config_path = Path(config) if config else Path("config/config.yaml")
     checks.append(("Config file", config_path.exists(), str(config_path)))
+    checks.append(env_file_check(config))
 
     # Vault
     checks.append(("Vault path", cfg.vault_path.exists(), str(cfg.vault_path)))
@@ -366,16 +412,7 @@ def doctor(config: ConfigOption = None):
 
     checks.append(("Device config", True, f"device: {cfg.device}"))
 
-    from zettel.config import LLM_PHASES, llm_phase
-    from zettel.llm import is_supported_llm_provider
-
-    for phase in LLM_PHASES:
-        spec = llm_phase(cfg, phase)
-        ok = is_supported_llm_provider(spec.provider)
-        detail = f"{spec.provider} / {spec.model}"
-        if not ok:
-            detail = f"provider nao suportado: {detail}"
-        checks.append((f"LLM {phase}", ok, detail))
+    checks.extend(llm_phase_checks(cfg))
 
     from zettel.credentials import embedding_credential_env, embedding_ready
 
