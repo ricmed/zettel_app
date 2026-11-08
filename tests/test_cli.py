@@ -180,6 +180,7 @@ def test_run_all_connects_only_the_harvest_sources_and_asks_before(monkeypatch):
     harvest = type("H", (), {"source_ids": ["@Ana2024"], "skipped": []})()
     summary = type("S", (), {"chapters_summarized": 0, "chapters_skipped": 0})()
     summary.sources_summarized = 0
+    summary.skipped = []
 
     def load_candidates(_db, source_ids=None):
         events.append(("load", source_ids))

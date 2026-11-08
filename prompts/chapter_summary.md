@@ -21,6 +21,8 @@ permanente ou ao trecho da fonte. Portanto:
 
 ## 2. Forma do resumo
 
+- O resumo é o valor do campo `summary` do JSON (seção 5), nunca um texto
+  solto antes dele.
 - De 3 a 6 frases, em prosa contínua. Sem bullets, sem títulos, sem markdown.
 - Comece pelo assunto central do capítulo, direto, sem preâmbulo. Nunca escreva
   "Este capítulo trata de..." nem "O autor discute...". Vá ao conteúdo.
@@ -49,7 +51,8 @@ técnicos e nomes próprios.
 ## 5. Saída
 
 Responda **somente** com um objeto JSON válido, sem cercas de código e sem
-comentários:
+comentários. A resposta começa com `{` e termina com `}`: nenhum texto antes
+ou depois, e o resumo não é escrito fora do campo `summary`.
 
 ```
 {"summary": "...", "key_topics": ["...", "..."]}

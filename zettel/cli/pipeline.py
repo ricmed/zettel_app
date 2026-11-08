@@ -180,6 +180,8 @@ def _run_all_phases(
         f"(inalterados: {summary_outcome.chapters_skipped}) | "
         f"resumos gerais: {summary_outcome.sources_summarized}"
     )
+    for msg in summary_outcome.skipped:
+        console.print(f"  [yellow]{msg}[/yellow]")
 
     # Phase 3: Connect — same harvest sources as review (#274 / #289).
     console.rule("[bold blue]Fase 3 — Connect")

@@ -23,6 +23,8 @@ citado como prova de uma afirmação.
 
 ## 3. Forma
 
+- O resumo é o valor do campo `summary` do JSON (seção 6), nunca um texto
+  solto antes dele.
 - De 4 a 8 frases, em prosa contínua. Sem bullets, sem títulos, sem markdown.
 - Cubra, quando os resumos sustentarem: o assunto central da obra, como ela se
   organiza (progressão, partes, mudança de registro), os conceitos que
@@ -46,7 +48,8 @@ próprios na língua original.
 ## 6. Saída
 
 Responda **somente** com um objeto JSON válido, sem cercas de código e sem
-comentários:
+comentários. A resposta começa com `{` e termina com `}`: nenhum texto antes
+ou depois, e o resumo não é escrito fora do campo `summary`.
 
 ```
 {"summary": "...", "key_topics": ["...", "..."]}

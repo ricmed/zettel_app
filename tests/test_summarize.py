@@ -69,7 +69,7 @@ def _seed(db: StateDB, *, chapters=2, chunks_per_chapter=2) -> None:
 def _fake_llm(monkeypatch, calls: list[str]):
     """Stub the one seam every summary call goes through."""
 
-    def fake(cfg, db, prompt_name, mapping, label):
+    def fake(cfg, db, prompt_name, mapping, label, slot=None):
         calls.append(prompt_name)
         payload = {
             "summary": f"Resumo de {mapping.get('chapter_title', TITLE)}.",
@@ -222,6 +222,72 @@ def test_oversized_chapter_still_yields_one_summary(cfg, db, monkeypatch):
     # Several map calls plus a reduce, but exactly one stored summary.
     assert calls.count("chapter_summary.md") > 2
     assert db.get_chapter(f"{SOURCE_ID}::ch000")["summary"]
+
+
+# ── An answer that breaks the JSON contract ────────────────────────────
+
+# What gpt-6-luna returned for one chapter: prose, then a JSON with no summary.
+_BROKEN_ANSWER = 'A visualizacao de dados serve para explorar. {"key_topics": ["matplotlib"]}'
+
+
+def _failures(db: StateDB) -> list[dict]:
+    return db._fetchall("SELECT * FROM llm_failures WHERE phase='summarize'")
+
+
+def test_invalid_chapter_answer_skips_that_chapter_and_is_retried(cfg, db, monkeypatch):
+    """A bad answer fails one chapter, not the run, and is never served from cache."""
+    _seed(db)
+    broken = {"on": True}
+    calls: list[str] = []
+
+    def fake_call(_client, user, **_kw):
+        calls.append(user)
+        if broken["on"] and "Capitulo 0" in user:  # the title; the text says "capitulo 0"
+            return _BROKEN_ANSWER
+        return json.dumps({"summary": "Resumo valido.", "key_topics": ["alfa"]})
+
+    monkeypatch.setattr("zettel.llm.get_llm", lambda *_a, **_k: object())
+    monkeypatch.setattr("zettel.llm.call_llm", fake_call)
+    idx = FakeVectorIndex()
+
+    first = generate_summaries(cfg, db, idx, SOURCE_ID)
+    assert first.chapters_summarized == 1
+    assert not db.get_chapter(f"{SOURCE_ID}::ch000")["summary"]
+    assert db.get_chapter(f"{SOURCE_ID}::ch001")["summary"] == "Resumo valido."
+    assert any("Capitulo 0" in msg for msg in first.skipped)
+    # The source reduce waits for the missing chapter instead of paying twice.
+    assert not db.get_source(SOURCE_ID)["summary"]
+    [failure] = _failures(db)
+    assert failure["raw_response"] == _BROKEN_ANSWER
+    assert failure["subject_id"] == f"{SOURCE_ID}::ch000"
+    assert db.get_cached_llm_response(failure["call_checksum"]) is None
+
+    broken["on"] = False
+    calls.clear()
+    second = generate_summaries(cfg, db, idx, SOURCE_ID)
+    assert second.chapters_summarized == 1
+    assert second.chapters_skipped == 1
+    assert len(calls) == 2  # the evicted chapter + the source reduce
+    assert db.get_chapter(f"{SOURCE_ID}::ch000")["summary"] == "Resumo valido."
+    assert db.get_source(SOURCE_ID)["summary"]
+
+
+def test_invalid_source_answer_keeps_the_chapter_summaries(cfg, db, monkeypatch):
+    _seed(db)
+
+    def fake(cfg, db, prompt_name, mapping, label, slot=None):
+        if prompt_name == "source_summary.md":
+            return "[]", False
+        return json.dumps({"summary": "Resumo.", "key_topics": []}), False
+
+    monkeypatch.setattr("zettel.summarize._call_summary_llm", fake)
+
+    outcome = generate_summaries(cfg, db, FakeVectorIndex(), SOURCE_ID)
+    assert outcome.chapters_summarized == 2
+    assert outcome.sources_summarized == 0
+    assert not db.get_source(SOURCE_ID)["summary"]
+    assert any(CITEKEY in msg for msg in outcome.skipped)
+    assert _failures(db)[0]["subject_id"] == SOURCE_ID
 
 
 # ── The note count and the chapter map ─────────────────────────────────

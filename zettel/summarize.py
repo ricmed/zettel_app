@@ -32,6 +32,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
+
 from zettel.config import AppConfig
 from zettel.hashing import sha256_hex
 from zettel.index import VectorIndex
@@ -130,10 +132,11 @@ def _call_summary_llm(
     prompt_name: str,
     mapping: dict[str, str],
     label: str,
+    slot: dict[str, str] | None = None,
 ) -> tuple[str, bool]:
     """Run one summary prompt through the deterministic LLM cache.
 
-    Returns ``(response_text, was_cache_hit)``.
+    Returns ``(response_text, was_cache_hit)``; ``slot`` receives the cache key.
     """
     from zettel.llm import cached_call_llm, fill_template, get_llm, load_prompt_parts
 
@@ -149,19 +152,49 @@ def _call_summary_llm(
         user,
         get_client=lambda: get_llm(cfg, "summarize"),
         label=label,
+        cache_slot=slot,
     )
 
 
-def _parse_chapter_summary(text: str) -> ChapterSummaryOutput:
+def _summary_output[T: BaseModel](
+    cfg: AppConfig,
+    db: StateDB,
+    prompt_name: str,
+    mapping: dict[str, str],
+    label: str,
+    schema: type[T],
+    outcome: SummarizeOutcome,
+    *,
+    subject_id: str,
+) -> T | None:
+    """One summary call parsed into ``schema``, or ``None`` for a bad answer.
+
+    An answer that breaks the JSON contract is kept in ``llm_failures`` with its
+    raw text and removed from the cache, so the next run asks the model again
+    instead of failing on the same cached text.
+    """
     from zettel.llm import parse_llm_json
 
-    return ChapterSummaryOutput(**parse_llm_json(text))
-
-
-def _parse_source_summary(text: str) -> SourceSummaryOutput:
-    from zettel.llm import parse_llm_json
-
-    return SourceSummaryOutput(**parse_llm_json(text))
+    slot: dict[str, str] = {}
+    response, hit = _call_summary_llm(cfg, db, prompt_name, mapping, label, slot)
+    outcome.cache_hits += int(hit)
+    outcome.llm_calls += int(not hit)
+    try:
+        return schema.model_validate(parse_llm_json(response))
+    except ValueError as exc:
+        checksum = slot.get("checksum") or ""
+        if checksum:
+            db.delete_llm_cache([checksum])
+        db.record_llm_failure(
+            "summarize",
+            str(exc),
+            response,
+            subject_id=subject_id,
+            call_checksum=checksum,
+            model=slot.get("model") or "",
+        )
+        logger.warning("Resposta invalida do LLM (%s): %s", label, exc)
+        return None
 
 
 def _split_for_map_reduce(text: str, budget: int) -> list[str]:
@@ -185,20 +218,22 @@ def _summarize_chapter_text(
     cfg: AppConfig,
     db: StateDB,
     source_title: str,
+    chapter_id: str,
     chapter_title: str,
     text: str,
     outcome: SummarizeOutcome,
-) -> ChapterSummaryOutput:
+) -> ChapterSummaryOutput | None:
     """One chapter summary, map-reducing when the text exceeds the budget.
 
     The reduce step feeds the partial summaries back through the same
     ``chapter_summary`` prompt: the partials are a condensed form of the same
     chapter, so the prompt's contract still holds and no third prompt file is
-    needed.
+    needed. ``None`` when any call answered outside the contract: a missing
+    partial would make the reduce summarize part of the chapter.
     """
     budget = cfg.summarize.max_input_chars
 
-    def run(chapter_text: str, title: str, label: str) -> ChapterSummaryOutput:
+    def run(chapter_text: str, title: str, label: str) -> ChapterSummaryOutput | None:
         mapping = {
             "language": cfg.language,
             "domain": cfg.domain.name,
@@ -207,10 +242,16 @@ def _summarize_chapter_text(
             "chapter_title": title,
             "chapter_text": chapter_text,
         }
-        response, hit = _call_summary_llm(cfg, db, "chapter_summary.md", mapping, label)
-        outcome.cache_hits += int(hit)
-        outcome.llm_calls += int(not hit)
-        return _parse_chapter_summary(response)
+        return _summary_output(
+            cfg,
+            db,
+            "chapter_summary.md",
+            mapping,
+            label,
+            ChapterSummaryOutput,
+            outcome,
+            subject_id=chapter_id,
+        )
 
     if len(text) <= budget:
         return run(text, chapter_title, f"resumo capitulo: {chapter_title}")
@@ -225,13 +266,14 @@ def _summarize_chapter_text(
     )
     partials: list[ChapterSummaryOutput] = []
     for i, group in enumerate(groups, start=1):
-        partials.append(
-            run(
-                group,
-                f"{chapter_title} (parte {i}/{len(groups)})",
-                f"resumo parcial {i}/{len(groups)}: {chapter_title}",
-            )
+        partial = run(
+            group,
+            f"{chapter_title} (parte {i}/{len(groups)})",
+            f"resumo parcial {i}/{len(groups)}: {chapter_title}",
         )
+        if partial is None:
+            return None
+        partials.append(partial)
     merged = "\n\n".join(p.summary for p in partials)
     return run(merged, chapter_title, f"reduce capitulo: {chapter_title}")
 
@@ -272,6 +314,7 @@ def generate_summaries(
 
         outcome.source_ids.append(sid)
         set_source(sid)
+        failed_chapters: list[str] = []
         for chapter in chapters:
             fresh = (
                 chapter.get("summary")
@@ -294,8 +337,17 @@ def generate_summaries(
                 current_item=chapter["chapter_id"],
             )
             output = _summarize_chapter_text(
-                cfg, db, src["title"], chapter.get("title") or "", text, outcome
+                cfg,
+                db,
+                src["title"],
+                chapter["chapter_id"],
+                chapter.get("title") or "",
+                text,
+                outcome,
             )
+            if output is None:
+                failed_chapters.append(chapter.get("title") or chapter["chapter_id"])
+                continue
             topics = [t.strip() for t in output.key_topics if t.strip()][: cfg.summarize.max_topics]
             db.update_chapter_summary(
                 chapter["chapter_id"],
@@ -312,7 +364,19 @@ def generate_summaries(
             )
             outcome.chapters_summarized += 1
 
-        _summarize_source(cfg, db, src, outcome)
+        if failed_chapters:
+            # The reduce would describe the source without these chapters and
+            # be paid again once they are summarized.
+            outcome.skipped.extend(
+                f"{src['citekey']}: resposta invalida no resumo do capitulo '{title}' "
+                "(guardada em llm_failures); rode `zettel summarize` de novo"
+                for title in failed_chapters
+            )
+            outcome.skipped.append(
+                f"{src['citekey']}: resumo geral adiado ate todos os capitulos terem resumo"
+            )
+        else:
+            _summarize_source(cfg, db, src, outcome)
         refresh_chapter_map(cfg, db, sid)
 
     set_source(None)
@@ -347,12 +411,22 @@ def _summarize_source(cfg: AppConfig, db: StateDB, src: dict, outcome: Summarize
         "source_authors": authors,
         "chapter_summaries": rendered,
     }
-    response, hit = _call_summary_llm(
-        cfg, db, "source_summary.md", mapping, f"resumo geral: {src['citekey']}"
+    output = _summary_output(
+        cfg,
+        db,
+        "source_summary.md",
+        mapping,
+        f"resumo geral: {src['citekey']}",
+        SourceSummaryOutput,
+        outcome,
+        subject_id=src["source_id"],
     )
-    outcome.cache_hits += int(hit)
-    outcome.llm_calls += int(not hit)
-    output = _parse_source_summary(response)
+    if output is None:
+        outcome.skipped.append(
+            f"{src['citekey']}: resposta invalida no resumo geral "
+            "(guardada em llm_failures); rode `zettel summarize` de novo"
+        )
+        return
     topics = [t.strip() for t in output.key_topics if t.strip()][: cfg.summarize.max_topics]
     db.update_source_summary(
         src["source_id"],

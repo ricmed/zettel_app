@@ -1550,6 +1550,7 @@ def test_run_all_leaves_drafts_unless_auto_approve(monkeypatch):
         chapters_summarized = 0
         chapters_skipped = 0
         sources_summarized = 0
+        skipped = ()
 
     monkeypatch.setattr("zettel.harvester.run_harvest", harvest)
     monkeypatch.setattr("zettel.extractor.run_extract", lambda *_a, **_k: [])
