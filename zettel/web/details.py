@@ -54,26 +54,13 @@ def _markdown_response(request: Request, row: dict | None, folder: str, download
     return Response(content=content, media_type="text/markdown; charset=utf-8", headers=headers)
 
 
-# Edge direction as the reader sees it from the open note. The inverse labels are
-# the ones ``auto-backlinks`` writes (``connector.links.INVERSE_RELATION``).
-_RELATION_LABELS = {
-    "supports": "sustenta",
-    "contradicts": "contradiz",
-    "extends": "estende",
-    "depends_on": "depende de",
-    "exemplifies": "exemplifica",
-    "related": "relacionada a",
-    "corroborates": "corrobora",
-}
-
-
 def _connection_groups(db: Any, note_id: str) -> dict[str, list[dict]]:
     """Outgoing and incoming edges of a note, grouped by relation; rejected ones hidden.
 
     Each group is ``{"label", "relation_type", "edges"}`` with the related
     note's title and whether it still exists, read in one query.
     """
-    from zettel.connector.links import inverse_relation
+    from zettel.connector.links import inverse_relation, relation_label
 
     edges = [e for e in db.get_note_connections(note_id) if e.get("status") != "rejected"]
     related_ids = [
@@ -86,7 +73,7 @@ def _connection_groups(db: Any, note_id: str) -> dict[str, list[dict]]:
         relation = edge.get("relation_type") or "related"
         outgoing = edge["source_note_id"] == note_id
         direction = "outgoing" if outgoing else "incoming"
-        label = _RELATION_LABELS.get(relation, relation) if outgoing else inverse_relation(relation)
+        label = relation_label(relation) if outgoing else inverse_relation(relation)
         group = groups[direction].setdefault(
             relation, {"label": label, "relation_type": relation, "edges": []}
         )

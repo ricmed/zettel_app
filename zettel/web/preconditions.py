@@ -37,8 +37,9 @@ _PHASES = {
 }
 
 # Search (connect's strict Retriever, ask, article, catalog, the notes search by
-# meaning), summary upserts (summarize) and the garden's label embeddings. Not
-# sync: it writes SQLite first and leaves vectors pending without a credential (#343).
+# meaning, a desk section's search), summary upserts (summarize) and the garden's
+# label embeddings. Not sync: it writes SQLite first and leaves vectors pending
+# without a credential (#343).
 _EMBEDDING = {
     "connect",
     "garden",
@@ -48,6 +49,7 @@ _EMBEDDING = {
     "summarize",
     "catalog",
     "semantic_search",
+    "desk_search",
 }
 
 # Operation -> (state key that must be positive, message when it is not).

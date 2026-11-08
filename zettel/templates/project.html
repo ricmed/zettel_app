@@ -9,6 +9,7 @@
 <form method="post" action="/projetos/{{ project.project_id }}">{{ item_fields('remover', section, block) }}<button class="button desk-icon" type="submit" title="Tirar da mesa" aria-label="Tirar da mesa">✕</button></form>
 {% endmacro %}
 {% macro new_text(section, after='') %}<details class="desk-add-text"><summary>Escrever texto aqui</summary><form method="post" action="/projetos/{{ project.project_id }}">{{ item_fields('texto-novo', section, after) }}<textarea name="texto" rows="4" maxlength="20000" required placeholder="A ponte entre as notas, a introdução da seção, um argumento seu…"></textarea><button class="button" type="submit">Inserir</button></form></details>{% endmacro %}
+{% macro add_here(note_id, preferred=None) %}{% if targets %}<form method="post" action="/projetos/{{ project.project_id }}" class="desk-add-here"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="acao" value="itens"><input type="hidden" name="note_ids" value="{{ note_id }}"><select name="secao" aria-label="Seção">{% for target in targets %}<option value="{{ target.index }}"{% if target.index == preferred %} selected{% endif %}>{{ target.title }}</option>{% endfor %}</select><button class="button" type="submit">+ seção</button></form>{% endif %}{% endmacro %}
 {% block content %}
 <a href="/projetos" class="back">← Mesas</a>
 <div class="page-heading">
@@ -67,10 +68,26 @@
     </section>
   </div>
   <aside class="desk-side">
-    <section class="panel">
-      <h2>Como usar</h2>
-      <p class="muted">Adicione notas pela busca em <a href="/notes">Notas</a>, pelo detalhe de uma nota, por um MOC ou pelo Acervo: elas chegam em "Para organizar". Ordene com as setas ou arrastando, escreva as pontes entre os cartões e exporte o manuscrito.</p>
+    <section class="panel desk-talk">
+      <h2>Conversa</h2>
+      <p class="muted">O que o grafo de conexões diz sobre a mesa. Sem LLM: são as arestas aceitas, derivadas ou suas.</p>
+      {% if talk.tensions %}<h3>Tensões</h3><ul>{% for t in talk.tensions %}<li><a href="/notes/{{ t.desk_note }}">{{ t.desk_title }}</a> <b>{{ t.label }}</b> <a href="/notes/{{ t.other_note }}">{{ t.other_title }}</a>{% if t.description %}<small>{{ t.description }}</small>{% endif %}{% if t.other_note not in project.body.note_ids() %}{{ add_here(t.other_note) }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+      {% if talk.frontier %}<h3>Fronteira do argumento</h3><ul>{% for n in talk.frontier %}<li><a href="/notes/{{ n.other_note }}">{{ n.other_title }}</a>{% if n.other_thesis and n.other_thesis != n.other_title %}<small>{{ n.other_thesis }}</small>{% endif %}<small>«{{ n.desk_title }}» {{ n.label }} esta nota{% if n.links > 1 %} · ligada a {{ n.links }} cartões{% endif %}{% if n.description %} — {{ n.description }}{% endif %}</small>{{ add_here(n.other_note) }}</li>{% endfor %}</ul>{% endif %}
+      {% if talk.corroborations %}<h3>Outras fontes dizem o mesmo</h3><ul>{% for c in talk.corroborations %}<li><a href="/notes/{{ c.other_note }}">{{ c.other_title }}</a><small>corrobora «{{ c.desk_title }}»</small>{{ add_here(c.other_note) }}</li>{% endfor %}</ul>{% endif %}
+      {% if talk.isolated %}<h3>Cartões sem ligação na seção</h3><ul>{% for i in talk.isolated %}<li><a href="/notes/{{ i.note_id }}">{{ i.title }}</a><small>{{ i.section }}: nenhuma aresta com os outros cartões. Sua ponte vai precisar explicar a ligação.</small></li>{% endfor %}</ul>{% endif %}
+      {% if talk.single_source %}<h3>Seções de uma fonte só</h3><ul>{% for s in talk.single_source %}<li>{{ s.section }} <small>tudo vem de <code>{{ s.source_id }}</code></small></li>{% endfor %}</ul>{% endif %}
+      {% if talk.empty and not talk.single_source %}<div class="empty">Sem sugestões ainda. Adicione cartões: a conversa parte das conexões deles.</div>{% endif %}
     </section>
+    {% if targets %}<section class="panel desk-talk">
+      <h2>Buscar para uma seção</h2>
+      <form method="post" action="/projetos/{{ project.project_id }}/buscar" class="desk-search">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <select name="secao" aria-label="Seção">{% for target in targets %}<option value="{{ target.index }}"{% if section_search and section_search.section == target.index %} selected{% endif %}>{{ target.title }}</option>{% endfor %}</select>
+        <button class="button" type="submit"{% if search_blocker %} disabled title="{{ search_blocker }}"{% endif %}>Buscar</button>
+      </form>
+      <small class="muted">{{ search_blocker or 'Usa o título da seção e as teses dos cartões dela; custa um embedding.' }}</small>
+      {% if section_search %}<h3>Para «{{ section_search.title }}»</h3>{% if section_search.hits %}<ul>{% for hit in section_search.hits %}<li><a href="/notes/{{ hit.note_id }}">{{ hit.title }}</a>{% if hit.thesis and hit.thesis != hit.title %}<small>{{ hit.thesis }}</small>{% endif %}{{ add_here(hit.note_id, section_search.section) }}</li>{% endfor %}</ul>{% else %}<div class="empty">Nada novo passou o piso de relevância.</div>{% endif %}{% endif %}
+    </section>{% endif %}
   </aside>
 </div>
 {% endblock %}

@@ -292,11 +292,54 @@ def _desk_view(cfg: Any, db: Any, project: Any) -> list[dict]:
     return sections
 
 
-@router.get("/projetos/{project_id}", response_class=HTMLResponse)
-def project_detail(request: Request, project_id: str):
-    if not authenticated(request):
-        return redirect_login()
+def _talk_view(talk: Any, section_titles: dict[int, str]) -> dict:
+    """The conversation with titles resolved, ready for the side panel."""
+
+    def link(item: Any) -> dict:
+        return {
+            "desk_note": item.desk_note,
+            "desk_title": talk.titles.get(item.desk_note, item.desk_note),
+            "other_note": item.other_note,
+            "other_title": talk.titles.get(item.other_note, item.other_note),
+            "other_thesis": talk.theses.get(item.other_note, ""),
+            "label": item.label,
+            "relation_type": item.relation_type,
+            "description": item.description,
+        }
+
+    return {
+        "tensions": [link(t) for t in talk.tensions],
+        "frontier": [
+            {**link(n.best), "links": len(n.links), "weight": n.weight} for n in talk.frontier
+        ],
+        "corroborations": [link(c) for c in talk.corroborations],
+        "isolated": [
+            {
+                "section": section_titles.get(i, ""),
+                "note_id": nid,
+                "title": talk.titles.get(nid, nid),
+            }
+            for i, nid in talk.isolated
+        ],
+        "single_source": [
+            {"section": section_titles.get(i, ""), "source_id": sid}
+            for i, sid in talk.single_source
+        ],
+        "empty": talk.empty,
+    }
+
+
+def _desk_page(
+    request: Request,
+    project_id: str,
+    *,
+    status_code: int = 200,
+    section_search: dict | None = None,
+    error: str | None = None,
+):
+    from zettel.project_suggest import converse
     from zettel.projects import ProjectNotFound, load_project
+    from zettel.web.preconditions import blocker
 
     cfg = service(request).cfg
     try:
@@ -306,13 +349,78 @@ def project_detail(request: Request, project_id: str):
     db = service(request).db()
     try:
         sections = _desk_view(cfg, db, project)
+        talk = converse(cfg, db, project.body)
     finally:
         db.close()
+    targets = [s for s in sections if not s["intro"]]
     return render(
         request,
         "project.html",
+        status_code=status_code,
         page="projects",
         project=project,
         sections=sections,
-        targets=[s for s in sections if not s["intro"]],
+        targets=targets,
+        talk=_talk_view(talk, {s["index"]: s["title"] for s in targets}),
+        section_search=section_search,
+        search_blocker=blocker(cfg, "desk_search"),
+        error=error,
     )
+
+
+@router.get("/projetos/{project_id}", response_class=HTMLResponse)
+def project_detail(request: Request, project_id: str):
+    if not authenticated(request):
+        return redirect_login()
+    return _desk_page(request, project_id)
+
+
+@router.post("/projetos/{project_id}/buscar", response_class=HTMLResponse)
+def project_section_search(
+    request: Request, project_id: str, csrf: str = Form(""), secao: str = Form("")
+):
+    """Notes that fit a section and are not on the desk yet (one query embedding)."""
+    if not authenticated(request):
+        return redirect_login()
+    if not csrf_ok(request, csrf):
+        return error_page(request, 403, "CSRF inválido")
+    from zettel.index import VectorIndex, index_kwargs
+    from zettel.oplock import LockBusy
+    from zettel.project_suggest import section_query
+    from zettel.projects import ProjectNotFound, card_views, load_project
+    from zettel.retrieval import Retriever
+    from zettel.web.preconditions import blocker
+
+    cfg = service(request).cfg
+    reason = blocker(cfg, "desk_search")
+    if reason:
+        return _desk_page(request, project_id, status_code=409, error=reason)
+    try:
+        project = load_project(cfg, project_id)
+    except ProjectNotFound:
+        return error_page(request, 404, "Mesa não encontrada.")
+    section = _int(secao)
+    if section is None or not 0 < section < len(project.body.sections):
+        return error_page(request, 400, "Escolha uma seção.")
+    try:
+        lock = operation_lock(request, "desk_search")
+    except LockBusy as busy:
+        message = f"O índice está em uso. {busy} Tente de novo quando ela terminar."
+        return _desk_page(request, project_id, status_code=409, error=message)
+    db = service(request).db()
+    try:
+        desk = project.body.note_ids()
+        theses = {nid: view.thesis for nid, view in card_views(cfg, db, desk).items()}
+        query = section_query(project.body, section, theses, project.title)
+        result = Retriever(cfg, db, VectorIndex(**index_kwargs(cfg))).search_notes(query)
+        found = [hit.note_id for hit in result.hits if hit.note_id not in set(desk)]
+        views = card_views(cfg, db, found)
+    finally:
+        db.close()
+        lock.release()
+    search = {
+        "section": section,
+        "title": project.body.sections[section].title,
+        "hits": [views[nid] for nid in found if views[nid].exists],
+    }
+    return _desk_page(request, project_id, section_search=search)

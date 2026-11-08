@@ -68,6 +68,7 @@ EXPECTED_ROUTES = [
     ("POST", "/projetos/adicionar"),
     ("POST", "/projetos/{project_id}"),
     ("GET", "/projetos/{project_id}"),
+    ("POST", "/projetos/{project_id}/buscar"),
     ("GET", "/notes/{note_id}/markdown"),
     ("GET", "/mocs/{moc_id}/markdown"),
     ("POST", "/mocs/{moc_id}/adopt"),

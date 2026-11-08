@@ -57,9 +57,27 @@ INVERSE_RELATION: dict[str, str] = {
 }
 
 
+# The same relations read forward ("this note extends that one"), for pages that
+# show an edge from its source side.
+RELATION_LABEL: dict[str, str] = {
+    "supports": "sustenta",
+    "contradicts": "contradiz",
+    "extends": "estende",
+    "depends_on": "depende de",
+    "exemplifies": "exemplifica",
+    "related": "relacionada a",
+    "corroborates": "corrobora",
+}
+
+
 def inverse_relation(relation_type: str) -> str:
     """Return the inverse relation label in PT-BR."""
     return INVERSE_RELATION.get(relation_type, "relacionado")
+
+
+def relation_label(relation_type: str) -> str:
+    """Return the forward relation label in PT-BR."""
+    return RELATION_LABEL.get(relation_type, relation_type)
 
 
 def relation_type_value(relation_type: Any) -> str:

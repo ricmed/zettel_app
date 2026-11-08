@@ -169,3 +169,51 @@ def test_a_card_whose_note_is_gone_is_shown_as_missing(web_client):
     assert len(list_projects(_cfg(client))) == 1
     assert client.get("/projetos/01JZZZZZZZZZZZZZZZZZZZZZZZ").status_code == 404
     assert client.get("/projetos/..%2F..%2Fstate").status_code == 404
+
+
+def test_the_desk_converses_and_searches_a_section(web_client, monkeypatch):
+    from zettel.retrieval import NoteSearchResult, RetrievedNote
+
+    client, _ = web_client
+    _seed_notes(client)
+    csrf = login(client)
+    project_id = _create(client, csrf)
+    client.post("/projetos/adicionar", data={"csrf": csrf, "projeto": project_id, "note_ids": [N1]})
+    db = client.app.state.service.db()
+    try:
+        db.upsert_note_connection(N3, N1, "contradicts", "o viés anula o ganho", origin="manual")
+    finally:
+        db.close()
+    page = client.get(f"/projetos/{project_id}").text
+    assert "Tensões" in page and "o viés anula o ganho" in page and "contradiz" in page
+
+    monkeypatch.setattr("zettel.web.preconditions.embedding_ready", lambda cfg: True)
+    monkeypatch.setattr("zettel.index.VectorIndex", lambda **kwargs: object())
+    queries = []
+
+    class FakeRetriever:
+        def __init__(self, cfg, db, idx):
+            pass
+
+        def search_notes(self, query):
+            queries.append(query)
+            return NoteSearchResult(
+                hits=[RetrievedNote(N1, 0.03), RetrievedNote(N2, 0.02)], candidates=[]
+            )
+
+    monkeypatch.setattr("zettel.retrieval.Retriever", FakeRetriever)
+    project = load_project(_cfg(client), project_id)
+    inbox = next(i for i, s in enumerate(project.body.sections) if s.title == "Para organizar")
+    found = client.post(f"/projetos/{project_id}/buscar", data={"csrf": csrf, "secao": inbox})
+    assert found.status_code == 200
+    assert queries == ["Para organizar tese de Boosting em crédito."]
+    results = found.text.split("Para «Para organizar»")[1]
+    # The note already on the desk is not suggested again.
+    assert "Regressão logística" in results and f'value="{N1}"' not in results
+    added = client.post(
+        f"/projetos/{project_id}",
+        data={"csrf": csrf, "acao": "itens", "secao": inbox, "note_ids": N2},
+        follow_redirects=False,
+    )
+    assert added.status_code == 303
+    assert load_project(_cfg(client), project_id).body.note_ids() == [N1, N2]
