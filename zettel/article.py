@@ -11,14 +11,14 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from zettel.citation import load_provenance
 from zettel.time import now_filename_ts, now_vault_iso
 
-from .bibliography import display_author_natural, format_abnt_in_text
+from .bibliography import display_author_natural, format_abnt_in_text, reference_entries
 from .citation import stored_authors
 from .hashing import fold_for_match
 from .llm import (
@@ -395,22 +395,11 @@ def assemble_article(
                 cited_source_ids.append(src.source_id)
         lines.append("")
     else:
-        lines.append("## Referencias")
+        lines.append("## Referências")
         lines.append("")
-        refs = []
-        for sid in cited_source_ids:
-            src = catalog.sources.get(sid)
-            if not src:
-                continue
-            ref = (src.abnt_reference or "").strip()
-            if not ref:
-                # fallback minimal
-                author = src.author_natural or "Autor desconhecido"
-                title = src.title or sid
-                year = src.year or "s.d."
-                ref = f"{author}. {title}. {year}."
-            refs.append(ref)
-        refs.sort(key=lambda r: r.upper())
+        refs, _bare = reference_entries(
+            [asdict(catalog.sources[sid]) for sid in cited_source_ids if sid in catalog.sources]
+        )
         if refs:
             for ref in refs:
                 lines.append(ref)

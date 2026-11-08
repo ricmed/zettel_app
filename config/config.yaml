@@ -458,6 +458,14 @@ obsidian:
     manifest.json: 91c9fa8510082fffa0b3d022aac4986e3b392295b1126e847ead7ed7289169b8
     styles.css: 67a6dd2d1d6dedca1287c334ca884ec4196433f71ca47388a0bd3eac14cf8b5f
 
+# ── Exportacao da Mesa (ADR-067) ───────────────────────────────────────
+manuscript:
+  docx_reference_path:   # vazio: zettel/resources/manuscript-reference.docx (estilo "Complementar")
+  placeholders: true     # [Complementar] onde falta texto do autor (introducao, transicoes, conclusao)
+  quotes: false          # trecho literal de cada cartao, com a citacao
+  limits: false          # "Ressalva:" com os limites de cada cartao
+  appendix: false        # apendice com a nota completa de cada cartao
+
 # ── Idioma dos prompts / texto gerado ──────────────────────────────────
 language: pt-BR
 

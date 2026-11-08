@@ -65,7 +65,7 @@ def version_of(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()[:16]
 
 
-def _read(path: Path) -> Project | None:
+def read_project(path: Path) -> Project | None:
     try:
         raw = path.read_bytes()
     except OSError:
@@ -82,7 +82,7 @@ def list_projects(cfg: Any) -> list[Project]:
     folder = projects_dir(cfg)
     if not folder.is_dir():
         return []
-    found = [p for p in (_read(path) for path in sorted(folder.glob("*.md"))) if p]
+    found = [p for p in (read_project(path) for path in sorted(folder.glob("*.md"))) if p]
     return sorted(found, key=lambda p: str(p.meta.get("updated_at") or ""), reverse=True)
 
 
@@ -91,7 +91,7 @@ def load_project(cfg: Any, project_id: str) -> Project:
         raise ProjectNotFound(project_id)
     folder = projects_dir(cfg)
     for path in sorted(folder.glob(f"{PROJECT_PREFIX} - {project_id}*.md")):
-        project = _read(path)
+        project = read_project(path)
         if project and project.project_id == project_id:
             return project
     # A file renamed in Obsidian keeps its id in the frontmatter.

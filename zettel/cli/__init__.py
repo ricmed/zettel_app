@@ -23,7 +23,7 @@ Module map:
 ``pipeline.py``      run-all
 ``qa.py``            ask
 ``writing.py``       article
-``export.py``        skill
+``export.py``        skill, manuscript
 ``diagnostics.py``   status, doctor, db-report
 ===================  =========================================================
 
@@ -60,7 +60,7 @@ from zettel.cli import obsidian  # obsidian-templates, obsidian-setup
 from zettel.cli import pipeline  # run-all
 from zettel.cli import qa  # ask
 from zettel.cli import writing  # article
-from zettel.cli import export  # skill
+from zettel.cli import export  # skill, manuscript
 from zettel.cli import diagnostics  # status, doctor
 # isort: on
 

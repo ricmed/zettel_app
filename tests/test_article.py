@@ -227,7 +227,7 @@ def test_assemble_academic_with_cites_and_figure(seeded):
     )
     _meta, body, cited, _warnings = assemble_article(outline, [section], catalog, seeded)
     assert "Grafos e LLMs" in body
-    assert "## Referencias" in body
+    assert "## Referências" in body
     assert "NEGRO, Alessandro" in body
     assert "**Figura 1**" in body
     assert "@Negro2026KnowledgeGraphs" in cited

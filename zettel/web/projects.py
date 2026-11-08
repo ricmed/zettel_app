@@ -292,11 +292,17 @@ def _desk_view(cfg: Any, db: Any, project: Any) -> list[dict]:
     return sections
 
 
-def _talk_view(talk: Any, section_titles: dict[int, str]) -> dict:
+def _talk_view(talk: Any, section_titles: dict[int, str], body: Any) -> dict:
     """The conversation with titles resolved, ready for the side panel."""
+
+    section_of = {
+        card.note_id: index for index, section in enumerate(body.sections) for card in section.cards
+    }
 
     def link(item: Any) -> dict:
         return {
+            # A suggestion joins, by default, the section of the card it is linked to.
+            "section": section_of.get(item.desk_note),
             "desk_note": item.desk_note,
             "desk_title": talk.titles.get(item.desk_note, item.desk_note),
             "other_note": item.other_note,
@@ -352,7 +358,10 @@ def _desk_page(
         talk = converse(cfg, db, project.body)
     finally:
         db.close()
+    from zettel.manuscript_export import canvas_path
+
     targets = [s for s in sections if not s["intro"]]
+    canvas = canvas_path(project)
     return render(
         request,
         "project.html",
@@ -361,10 +370,12 @@ def _desk_page(
         project=project,
         sections=sections,
         targets=targets,
-        talk=_talk_view(talk, {s["index"]: s["title"] for s in targets}),
+        talk=_talk_view(talk, {s["index"]: s["title"] for s in targets}, project.body),
         section_search=section_search,
         search_blocker=blocker(cfg, "desk_search"),
         error=error,
+        config_manuscript=cfg.manuscript,
+        canvas_name=canvas.name if canvas.is_file() else None,
     )
 
 
@@ -424,3 +435,144 @@ def project_section_search(
         "hits": [views[nid] for nid in found if views[nid].exists],
     }
     return _desk_page(request, project_id, section_search=search)
+
+
+def _export_options(cfg: Any, params: Any) -> dict[str, Any]:
+    """Export switches from the query string; absent on first view means the config's."""
+    defaults = cfg.manuscript
+    if not params.get("enviado"):
+        return {
+            "style": None,
+            "placeholders": defaults.placeholders,
+            "quotes": defaults.quotes,
+            "limits": defaults.limits,
+            "appendix": defaults.appendix,
+        }
+    style = str(params.get("estilo") or "")
+    return {
+        "style": style if style in {"academic", "blog"} else None,
+        "placeholders": params.get("marcadores") == "1",
+        "quotes": params.get("trechos") == "1",
+        "limits": params.get("limites") == "1",
+        "appendix": params.get("apendice") == "1",
+    }
+
+
+def _manuscript(request: Request, project_id: str):
+    from zettel.manuscript import build_manuscript
+    from zettel.projects import ProjectNotFound, load_project
+
+    cfg = service(request).cfg
+    try:
+        project = load_project(cfg, project_id)
+    except ProjectNotFound:
+        return None, None, None
+    options = _export_options(cfg, request.query_params)
+    db = service(request).db()
+    try:
+        manuscript = build_manuscript(cfg, db, project, **options)
+    finally:
+        db.close()
+    return project, manuscript, options
+
+
+@router.get("/projetos/{project_id}/manuscrito", response_class=HTMLResponse)
+def project_manuscript_preview(request: Request, project_id: str):
+    """The manuscript as it will be exported, with what the export warns about."""
+    if not authenticated(request):
+        return redirect_login()
+    import re
+
+    from zettel.manuscript import FIGURES_DIR, PLACEHOLDER_STYLE
+
+    project, manuscript, options = _manuscript(request, project_id)
+    if project is None:
+        return error_page(request, 404, "Mesa não encontrada.")
+    text = manuscript.markdown
+    gap = re.compile(
+        r'^::: \{custom-style="' + re.escape(PLACEHOLDER_STYLE) + r'"\}\n(.*?)\n:::$', re.M | re.S
+    )
+    text = gap.sub(lambda m: "> " + m.group(1), text)
+    for figure in manuscript.figures:
+        vault_link = f"(90_Assets/{figure.vault_path.name})"
+        text = text.replace(f"({FIGURES_DIR}/{figure.name})", vault_link)
+    return render(
+        request,
+        "project_manuscript.html",
+        page="projects",
+        project=project,
+        manuscript=manuscript,
+        options=options,
+        preview_html=render_markdown(text),
+    )
+
+
+@router.get("/projetos/{project_id}/exportar")
+def project_export(request: Request, project_id: str, formato: str = "docx"):
+    """Download the manuscript: ``docx`` or ``zip`` (Markdown, figures, BibTeX)."""
+    if not authenticated(request):
+        return redirect_login()
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
+
+    from zettel.manuscript_export import reference_doc, to_docx, write_bundle, zip_bundle
+    from zettel.vault import _slug
+
+    if formato not in {"docx", "zip"}:
+        return error_page(request, 400, "Formato desconhecido: use docx ou zip.")
+    project, manuscript, _options = _manuscript(request, project_id)
+    if project is None:
+        return error_page(request, 404, "Mesa não encontrada.")
+    cfg = service(request).cfg
+    work = Path(tempfile.mkdtemp(prefix="zettel-mesa-"))
+    cleanup = BackgroundTask(shutil.rmtree, work, ignore_errors=True)
+    name = _slug(project.title, max_len=60) or "manuscrito"
+    db = service(request).db()
+    try:
+        bundle = write_bundle(manuscript, db, work / name)
+    finally:
+        db.close()
+    if formato == "zip":
+        output = zip_bundle(bundle, work / f"{name}.zip")
+        media = "application/zip"
+    else:
+        try:
+            output = to_docx(bundle, work / f"{name}.docx", reference_doc(cfg))
+        except (OSError, RuntimeError) as exc:
+            shutil.rmtree(work, ignore_errors=True)
+            return error_page(request, 500, f"O Pandoc não converteu o manuscrito: {exc}")
+        media = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return FileResponse(output, media_type=media, filename=output.name, background=cleanup)
+
+
+@router.post("/projetos/{project_id}/canvas")
+def project_canvas(request: Request, project_id: str, csrf: str = Form("")):
+    """Write ``PRJ - … .canvas`` beside the desk for Obsidian's Canvas (one way)."""
+    if not authenticated(request):
+        return redirect_login()
+    if not csrf_ok(request, csrf):
+        return error_page(request, 403, "CSRF inválido")
+    from zettel.manuscript_export import write_canvas
+    from zettel.oplock import LockBusy
+    from zettel.projects import ProjectNotFound, load_project
+
+    cfg = service(request).cfg
+    try:
+        project = load_project(cfg, project_id)
+    except ProjectNotFound:
+        return error_page(request, 404, "Mesa não encontrada.")
+    try:
+        lock = operation_lock(request, "mesa")
+    except LockBusy as busy:
+        return error_page(request, 409, f"O vault está em uso. {busy}")
+    db = service(request).db()
+    try:
+        write_canvas(cfg, db, project)
+    finally:
+        db.close()
+        lock.release()
+    return _redirect(project.project_id, "exportar")

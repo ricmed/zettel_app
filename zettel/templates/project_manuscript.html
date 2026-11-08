@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Manuscrito · {{ project.title }}{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/project.css">{% endblock %}
+{% block content %}
+<a href="/projetos/{{ project.project_id }}#exportar" class="back">← Mesa</a>
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">pré-visualização do manuscrito · {{ 'acadêmico' if manuscript.style == 'academic' else 'blog' }}</div>
+    <h1>{{ manuscript.title }}</h1>
+    <p class="muted">{{ manuscript.figures|length }} figura(s) · {{ manuscript.source_ids|length }} fonte(s) nas referências. Os trechos em destaque são o que falta você escrever.</p>
+  </div>
+</div>
+{% if manuscript.warnings %}<section class="panel"><h2>Avisos</h2><ul>{% for warning in manuscript.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></section>{% endif %}
+<section class="panel markdown-body manuscript-preview">{{ preview_html|safe }}</section>
+{% endblock %}

@@ -255,6 +255,22 @@ def llm_phase_checks(cfg: Any) -> list[tuple[str, bool, str]]:
     return rows
 
 
+def pandoc_health(cfg) -> tuple[bool, str]:
+    """The Pandoc that ``pypandoc-binary`` ships, and the DOCX reference it will use."""
+    from zettel.manuscript_export import reference_doc
+
+    try:
+        import pypandoc
+
+        version = pypandoc.get_pandoc_version()
+    except (ImportError, OSError, RuntimeError) as exc:
+        return False, f"indisponivel: {exc}"
+    reference = reference_doc(cfg)
+    if not reference.is_file():
+        return False, f"pandoc {version}; reference-doc ausente: {reference}"
+    return True, f"pandoc {version}; estilos: {reference.name}"
+
+
 def env_file_check(config: str | None) -> tuple[str, bool, str]:
     """Where the secrets come from: informative, since a container passes them as env vars."""
     from zettel.config import env_file_path
@@ -370,6 +386,8 @@ def doctor(config: ConfigOption = None):
             checks.append((f"Dep: {package}", True, "instalado"))
         except ImportError:
             checks.append((f"Dep: {package}", False, "NÃO instalado"))
+
+    checks.append(("Pandoc (Mesa -> .docx)", *pandoc_health(cfg)))
 
     # Optional deps
     opt_deps = [

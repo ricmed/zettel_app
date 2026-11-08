@@ -121,3 +121,107 @@ def _skill_md_tokens(pack_dir: Path) -> int:
 
     skill_md = pack_dir / "SKILL.md"
     return estimate_tokens(skill_md.read_text(encoding="utf-8")) if skill_md.is_file() else 0
+
+
+@app.command()
+def manuscript(
+    project: Annotated[str, typer.Argument(help="Mesa: o ULID (project_id) ou o arquivo PRJ")],
+    config: ConfigOption = None,
+    fmt: Annotated[
+        str,
+        typer.Option("--format", help="docx | md (pasta com figuras e .bib) | zip | canvas"),
+    ] = "docx",
+    out: Annotated[
+        str | None,
+        typer.Option(
+            "--out",
+            help="Diretorio de saida (default: o atual; canvas: ao lado da mesa no vault)",
+        ),
+    ] = None,
+    style: Annotated[
+        str | None,
+        typer.Option("--style", help="academic | blog (default: o da mesa)"),
+    ] = None,
+    placeholders: Annotated[
+        bool | None,
+        typer.Option(
+            "--placeholders/--no-placeholders",
+            help="Marcar o que falta escrever [Complementar] (default: config manuscript)",
+        ),
+    ] = None,
+    quotes: Annotated[
+        bool | None, typer.Option("--quotes/--no-quotes", help="Trecho literal de cada nota")
+    ] = None,
+    limits: Annotated[
+        bool | None, typer.Option("--limits/--no-limits", help="Limites de cada nota")
+    ] = None,
+    appendix: Annotated[
+        bool | None,
+        typer.Option("--appendix/--no-appendix", help="Apendice com as notas completas"),
+    ] = None,
+):
+    """Exportar uma Mesa como manuscrito (DOCX, Markdown com figuras, canvas). Sem LLM."""
+    cfg = load_deps(config)
+    if fmt not in {"docx", "md", "zip", "canvas"}:
+        console.print("[red]--format deve ser docx, md, zip ou canvas.[/red]")
+        raise typer.Exit(1)
+
+    from zettel.manuscript import build_manuscript
+    from zettel.manuscript_export import (
+        reference_doc,
+        to_docx,
+        write_bundle,
+        write_canvas,
+        zip_bundle,
+    )
+    from zettel.projects import ProjectNotFound, load_project, read_project
+    from zettel.vault import _slug
+
+    path = Path(project).expanduser()
+    found = read_project(path) if path.is_file() else None
+    if found is None:
+        try:
+            found = load_project(cfg, project)
+        except ProjectNotFound:
+            console.print(f"[red]Mesa nao encontrada: {project}[/red]")
+            raise typer.Exit(1) from None
+    db = get_db(cfg)
+    target = Path(out).expanduser().resolve() if out else None
+    try:
+        if fmt == "canvas":
+            written = write_canvas(
+                cfg,
+                db,
+                found,
+                (target / found.path.with_suffix(".canvas").name) if target else None,
+            )
+            console.print(f"[green]Canvas gravado em:[/green] {written}")
+            return
+        defaults = cfg.manuscript
+        result = build_manuscript(
+            cfg,
+            db,
+            found,
+            style=style,
+            placeholders=defaults.placeholders if placeholders is None else placeholders,
+            quotes=defaults.quotes if quotes is None else quotes,
+            limits=defaults.limits if limits is None else limits,
+            appendix=defaults.appendix if appendix is None else appendix,
+        )
+        base = target or Path.cwd()
+        name = _slug(found.title, max_len=60) or "manuscrito"
+        bundle = write_bundle(result, db, base / name)
+    finally:
+        db.close()
+    if fmt == "zip":
+        written = zip_bundle(bundle, base / f"{name}.zip")
+    elif fmt == "docx":
+        written = to_docx(bundle, base / f"{name}.docx", reference_doc(cfg))
+    else:
+        written = bundle
+    for warning in result.warnings:
+        console.print(f"[yellow]Aviso:[/yellow] {warning}")
+    console.print(f"[green]Manuscrito gravado em:[/green] {written}")
+    console.print(
+        f"{len(result.figures)} figura(s), {len(result.source_ids)} fonte(s) em Referencias."
+    )

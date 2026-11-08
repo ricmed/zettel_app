@@ -452,6 +452,58 @@ def format_abnt(meta: BibliographicMetadata) -> str:
     return handlers[meta.document_type](meta)
 
 
+def source_reference(source: dict[str, Any]) -> tuple[str, bool]:
+    """The ABNT reference of a ``sources`` row, and whether it is a full one.
+
+    ``abnt_reference`` first (written at harvest), then the reference rebuilt
+    from ``bibliography_json``; only when neither exists, a bare
+    ``AUTOR. Título. Ano.`` that the caller should report as incomplete.
+    """
+    stored = str(source.get("abnt_reference") or "").strip()
+    if stored:
+        return stored, True
+    try:
+        record = json.loads(source.get("bibliography_json") or "{}")
+        rebuilt = format_abnt(BibliographicMetadata.model_validate(record)).strip()
+    except (TypeError, ValueError):
+        rebuilt = ""
+    if rebuilt:
+        return rebuilt, True
+    raw_authors = source.get("authors") or []
+    if isinstance(raw_authors, str):
+        try:
+            raw_authors = json.loads(raw_authors)
+        except ValueError:
+            raw_authors = []
+    authors = format_authors_abnt([str(a) for a in raw_authors]) or "AUTOR DESCONHECIDO"
+    title = source.get("title") or source.get("source_id") or "Sem título"
+    year = f"{source['year']}." if source.get("year") else "s.d."
+    return f"{authors}. {title}. {year}", False
+
+
+def reference_entries(sources: list[dict[str, Any]]) -> tuple[list[str], list[str]]:
+    """``## Referências``: each source once, alphabetical (accents and case folded).
+
+    Returns the entries and the ``source_id`` of every source that only got
+    the bare fallback. Two rows with the same reference text count once.
+    """
+    from zettel.search_terms import fold
+
+    by_text: dict[str, str] = {}
+    bare: list[str] = []
+    seen: set[str] = set()
+    for source in sources:
+        source_id = str(source.get("source_id") or "")
+        if source_id and source_id in seen:
+            continue
+        seen.add(source_id)
+        text, complete = source_reference(source)
+        if not complete:
+            bare.append(source_id)
+        by_text.setdefault(fold(text), text)
+    return [by_text[key] for key in sorted(by_text)], bare
+
+
 def _title_with_subtitle(title: str | None, subtitle: str | None) -> str:
     t = (title or "").strip()
     if subtitle and subtitle.strip():

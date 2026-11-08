@@ -91,6 +91,7 @@ EXPECTED_COMMANDS = [
     "catalog",
     "article",
     "skill",
+    "manuscript",
     # diagnostics.py — read-only inspection
     "status",
     "doctor",

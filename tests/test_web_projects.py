@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+import pytest
 from zettel.projects import list_projects, load_project
 from zettel.vault import partition_vault_notes
 
@@ -18,7 +19,7 @@ def _seed_notes(client):
     db = client.app.state.service.db()
     try:
         db.upsert_source(
-            "@Thomas2017", "Thomas2017", "Credit Scoring", ["Thomas, L."], 2017, "f", "x", "pdf"
+            "@Thomas2017", "Thomas2017", "Credit Scoring", ["Lyn Thomas"], 2017, "f", "x", "pdf"
         )
         for note_id, title in (
             (N1, "Boosting em crédito"),
@@ -217,3 +218,59 @@ def test_the_desk_converses_and_searches_a_section(web_client, monkeypatch):
     )
     assert added.status_code == 303
     assert load_project(_cfg(client), project_id).body.note_ids() == [N1, N2]
+
+
+def test_the_desk_exports_a_preview_a_zip_a_canvas(web_client):
+    import io
+    import zipfile
+
+    client, _ = web_client
+    _seed_notes(client)
+    csrf = login(client)
+    project_id = _create(client, csrf)
+    client.post(
+        "/projetos/adicionar", data={"csrf": csrf, "projeto": project_id, "note_ids": [N1, N2]}
+    )
+    page = client.get(f"/projetos/{project_id}").text
+    assert "Baixar .docx" in page and "Gerar canvas no vault" in page
+
+    preview = client.get(f"/projetos/{project_id}/manuscrito", params={"enviado": "1"})
+    assert preview.status_code == 200
+    assert "tese de Boosting em crédito (THOMAS, 2017)." in preview.text
+    assert "Complementar" not in preview.text  # unticked on a submitted form
+    assert "Referências" in preview.text and "THOMAS" in preview.text
+
+    archive = client.get(
+        f"/projetos/{project_id}/exportar", params={"formato": "zip", "marcadores": "1"}
+    )
+    assert archive.status_code == 200
+    assert archive.headers["content-type"] == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(archive.content)) as z:
+        text = z.read("manuscrito.md").decode("utf-8")
+        assert "[Complementar:" in text and "\r" not in text
+        assert text.split("## Referências")[1].count("THOMAS") == 1
+        assert "@misc{Thomas2017," in z.read("referencias.bib").decode("utf-8")
+    assert (
+        client.get(f"/projetos/{project_id}/exportar", params={"formato": "pdf"}).status_code == 400
+    )
+
+    canvas = client.post(
+        f"/projetos/{project_id}/canvas", data={"csrf": csrf}, follow_redirects=False
+    )
+    assert canvas.status_code == 303
+    written = load_project(_cfg(client), project_id).path.with_suffix(".canvas")
+    assert written.is_file() and '"type": "group"' in written.read_text(encoding="utf-8")
+    assert written.name in client.get(f"/projetos/{project_id}").text
+
+
+@pytest.mark.slow
+def test_the_desk_downloads_a_docx(web_client):
+    client, _ = web_client
+    _seed_notes(client)
+    csrf = login(client)
+    project_id = _create(client, csrf)
+    client.post("/projetos/adicionar", data={"csrf": csrf, "projeto": project_id, "note_ids": [N1]})
+    response = client.get(f"/projetos/{project_id}/exportar", params={"formato": "docx"})
+    assert response.status_code == 200
+    assert response.content[:2] == b"PK"
+    assert response.headers["content-disposition"].endswith('.docx"')

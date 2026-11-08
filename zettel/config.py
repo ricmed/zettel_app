@@ -68,6 +68,14 @@ def _anchor_relative_paths(data: dict[str, Any], base: Path) -> dict[str, Any]:
         domain["examples_path"] = _anchor_path_value(domain["examples_path"], base)
         out["domain"] = domain
 
+    manuscript = out.get("manuscript")
+    if isinstance(manuscript, dict) and manuscript.get("docx_reference_path"):
+        manuscript = dict(manuscript)
+        manuscript["docx_reference_path"] = _anchor_path_value(
+            manuscript["docx_reference_path"], base
+        )
+        out["manuscript"] = manuscript
+
     retrieval = out.get("retrieval")
     if isinstance(retrieval, dict):
         article = retrieval.get("article")
@@ -614,6 +622,22 @@ class ObsidianConfig(BaseModel):
     templater_sha256: dict[str, str] = Field(default_factory=dict)
 
 
+class ManuscriptConfig(BaseModel):
+    """Exportacao da Mesa (ADR-067). Catalogo: config.yaml -> manuscript."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Documento de estilos do DOCX (--reference-doc do Pandoc). Vazio usa o
+    # que vem com o app (zettel/resources/manuscript-reference.docx), que ja
+    # define o estilo "Complementar" das lacunas.
+    docx_reference_path: Path | None = None
+    # Valores iniciais do formulario de exportacao (e do CLI sem flag).
+    placeholders: bool = True  # marcadores [Complementar] onde falta texto do autor
+    quotes: bool = False  # trecho literal (anchor_quote) de cada cartao
+    limits: bool = False  # "Ressalva:" com os limites de cada cartao
+    appendix: bool = False  # apendice com a nota completa de cada cartao
+
+
 class SummarizeConfig(BaseModel):
     """Resumo de capitulo e de fonte (ADR-047). Catalogo: config.yaml -> summarize."""
 
@@ -745,6 +769,7 @@ class AppConfig(BaseModel):
     decision: DecisionConfig = Field(default_factory=DecisionConfig)
     web: WebConfig = Field(default_factory=WebConfig)
     obsidian: ObsidianConfig = Field(default_factory=ObsidianConfig)
+    manuscript: ManuscriptConfig = Field(default_factory=ManuscriptConfig)
 
     language: str = "pt-BR"
     vault_timezone: str = "America/Sao_Paulo"

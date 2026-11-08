@@ -446,3 +446,28 @@ def test_article_prints_and_saves_what_the_graph_wrote(cli_instance, monkeypatch
     output = cli_instance.run("article", "valor", "--yes", "--save-to", str(target))
     assert "Sobre o valor" in output
     assert target.is_file()
+
+
+def test_manuscript_exports_a_desk_file_to_markdown_and_canvas(pipelined, tmp_path):
+    db = pipelined.db()
+    try:
+        notes = [row["note_id"] for row in db.list_notes() if "30_Permanent" in (row["path"] or "")]
+    finally:
+        db.close()
+    desk = tmp_path / "PRJ - 01JDESK0000000000000000000 - mesa.md"
+    links = "\n".join(f"- [[ZTL - {note_id}]]" for note_id in notes)
+    desk.write_text(
+        "---\ntype: project\nproject_id: 01JDESK0000000000000000000\ntitle: Mesa de teste\n"
+        f"style: academic\norigin: manual\n---\n## Capital\n{links}\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "saida"
+    output = pipelined.run("manuscript", str(desk), "--format", "md", "--out", str(out))
+    assert "Manuscrito gravado" in output
+    text = (out / "mesa-de-teste" / "manuscrito.md").read_text(encoding="utf-8")
+    assert text.startswith("# Mesa de teste") and "## Referências" in text
+    assert (out / "mesa-de-teste" / "referencias.bib").is_file()
+    pipelined.run("manuscript", str(desk), "--format", "canvas", "--out", str(out))
+    assert (out / desk.with_suffix(".canvas").name).is_file()
+    pipelined.run("manuscript", str(desk), "--format", "pdf", code=1)
+    pipelined.run("manuscript", "01JNOPE000000000000000000Z", code=1)

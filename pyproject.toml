@@ -36,6 +36,7 @@ dependencies = [
     "joblib>=1.6.0",
     "latex2mathml>=3.81.0",
     "langchain-anthropic>=1.7.7",
+    "pypandoc-binary>=1.15",
 ]
 
 # torch comes in through Docling; the extra only picks the build. `uv sync --extra cpu`
