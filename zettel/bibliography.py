@@ -504,6 +504,32 @@ def reference_entries(sources: list[dict[str, Any]]) -> tuple[list[str], list[st
     return [by_text[key] for key in sorted(by_text)], bare
 
 
+def _period(text: str) -> str:
+    """Close an ABNT element with a period, unless it already ends in punctuation.
+
+    An author list can end in an initial (``ALAGHEBAND, Bijan M. D.``) or in
+    ``et al.``, an edition in ``ed.``, a title in ``?``: appending a period
+    blindly wrote ``D..`` and ``1. ed..`` into the stored references.
+    """
+    clean = text.strip()
+    return clean if clean.endswith((".", "?", "!")) else f"{clean}."
+
+
+_EDITION = re.compile(
+    r"^(\d+)\s*(?:ª|º|a|o|st|nd|rd|th)?\.?\s*(?:ed(?:i[cç][aã]o|ition)?\.?)?$",
+    re.IGNORECASE,
+)
+
+
+def _edition(raw: str) -> str:
+    """``1``, ``1 ed``, ``1. ed.``, ``2ª edição``, ``3rd edition`` -> ``N. ed.``.
+
+    Anything else (``ed. rev. e ampl.``) is kept and closed with a period.
+    """
+    match = _EDITION.match(raw.strip())
+    return f"{match.group(1)}. ed." if match else _period(raw)
+
+
 def _title_with_subtitle(title: str | None, subtitle: str | None) -> str:
     t = (title or "").strip()
     if subtitle and subtitle.strip():
@@ -515,17 +541,14 @@ def _abnt_livro(meta: BibliographicMetadata) -> str:
     parts: list[str] = []
     authors = format_authors_abnt(meta.authors)
     if authors:
-        parts.append(f"{authors}.")
+        parts.append(_period(authors))
     title = _title_with_subtitle(meta.title, meta.subtitle)
     if title:
-        parts.append(f"{title}.")
+        parts.append(_period(title))
     if meta.translator:
-        parts.append(f"Traducao: {meta.translator}.")
+        parts.append(_period(f"Traducao: {meta.translator}"))
     if meta.edition:
-        ed = meta.edition.strip()
-        if not ed.lower().endswith("ed.") and not ed.lower().endswith("ed"):
-            ed = f"{ed} ed."
-        parts.append(f"{ed}.")
+        parts.append(_edition(meta.edition))
     loc = []
     if meta.place:
         loc.append(meta.place)
@@ -544,17 +567,17 @@ def _abnt_capitulo(meta: BibliographicMetadata) -> str:
     parts: list[str] = []
     authors = format_authors_abnt(meta.chapter_authors or meta.authors)
     if authors:
-        parts.append(f"{authors}.")
+        parts.append(_period(authors))
     if meta.chapter_title:
-        parts.append(f"{meta.chapter_title}.")
+        parts.append(_period(meta.chapter_title))
     editors = format_authors_abnt(meta.book_editors) if meta.book_editors else ""
     book = meta.book_title or ""
     if editors and book:
-        parts.append(f"In: {editors} (org.). {book}.")
+        parts.append(_period(f"In: {editors} (org.). {book}"))
     elif book:
-        parts.append(f"In: {book}.")
+        parts.append(_period(f"In: {book}"))
     if meta.edition:
-        parts.append(f"{meta.edition}.")
+        parts.append(_edition(meta.edition))
     loc = []
     if meta.place:
         loc.append(meta.place)
@@ -576,9 +599,9 @@ def _abnt_artigo_periodico(meta: BibliographicMetadata) -> str:
     parts: list[str] = []
     authors = format_authors_abnt(meta.authors)
     if authors:
-        parts.append(f"{authors}.")
+        parts.append(_period(authors))
     if meta.title:
-        parts.append(f"{meta.title}.")
+        parts.append(_period(meta.title))
     if meta.journal:
         parts.append(f"{meta.journal},")
     mid: list[str] = []
@@ -599,16 +622,16 @@ def _abnt_artigo_periodico(meta: BibliographicMetadata) -> str:
         parts.append(f"{meta.year}.")
     if meta.doi:
         parts.append(f"DOI: {meta.doi}.")
-    return " ".join(parts).replace(" ,", ",").replace("..", ".")
+    return " ".join(parts).replace(" ,", ",")
 
 
 def _abnt_artigo_internet(meta: BibliographicMetadata) -> str:
     parts: list[str] = []
     authors = format_authors_abnt(meta.authors)
     if authors:
-        parts.append(f"{authors}.")
+        parts.append(_period(authors))
     if meta.title:
-        parts.append(f"{meta.title}.")
+        parts.append(_period(meta.title))
     if meta.site_name:
         parts.append(f"{meta.site_name},")
     if meta.year:
@@ -626,9 +649,9 @@ def _abnt_material_curso(meta: BibliographicMetadata) -> str:
     parts: list[str] = []
     authors = format_authors_abnt(meta.authors)
     if authors:
-        parts.append(f"{authors}.")
+        parts.append(_period(authors))
     if meta.title:
-        parts.append(f"{meta.title}.")
+        parts.append(_period(meta.title))
     detail: list[str] = []
     if meta.discipline:
         detail.append(meta.discipline)
@@ -654,9 +677,9 @@ def _abnt_tese(meta: BibliographicMetadata) -> str:
     parts: list[str] = []
     authors = format_authors_abnt(meta.authors)
     if authors:
-        parts.append(f"{authors}.")
+        parts.append(_period(authors))
     if meta.title:
-        parts.append(f"{meta.title}.")
+        parts.append(_period(meta.title))
     degree = (meta.degree or "Tese").strip()
     year = meta.year or ""
     place = meta.place or ""
@@ -673,7 +696,7 @@ def _abnt_tese(meta: BibliographicMetadata) -> str:
     else:
         parts.append(f"{degree}.")
     if meta.advisor:
-        parts.append(f"Orientacao: {meta.advisor}.")
+        parts.append(_period(f"Orientacao: {meta.advisor}"))
     if meta.pages:
         parts.append(f"{meta.pages} p.")
     return " ".join(p for p in parts if p)
@@ -683,9 +706,9 @@ def _abnt_anais(meta: BibliographicMetadata) -> str:
     parts: list[str] = []
     authors = format_authors_abnt(meta.authors)
     if authors:
-        parts.append(f"{authors}.")
+        parts.append(_period(authors))
     if meta.title:
-        parts.append(f"{meta.title}.")
+        parts.append(_period(meta.title))
     if meta.event_name:
         parts.append(f"In: {meta.event_name},")
     mid: list[str] = []
@@ -711,9 +734,9 @@ def _abnt_relatorio(meta: BibliographicMetadata) -> str:
     parts: list[str] = []
     authors = format_authors_abnt(meta.authors)
     if authors:
-        parts.append(f"{authors}.")
+        parts.append(_period(authors))
     if meta.title:
-        parts.append(f"{meta.title}.")
+        parts.append(_period(meta.title))
     if meta.report_number:
         parts.append(f"Relatorio {meta.report_number}.")
     loc = []

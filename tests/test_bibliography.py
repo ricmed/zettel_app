@@ -88,8 +88,57 @@ def test_format_abnt_livro():
     assert ref.startswith("MARX, Karl.")
     assert "O Capital: Critica da economia politica." in ref
     assert "Traducao: Rubens Enderle." in ref
-    assert "2 ed." in ref
-    assert "Sao Paulo: Boitempo, 2013." in ref
+    assert "Rubens Enderle. 2. ed. Sao Paulo: Boitempo, 2013." in ref
+    assert ".." not in ref
+
+
+@pytest.mark.parametrize(
+    ("edition", "expected"),
+    [
+        ("1", "1. ed."),
+        ("1 ed", "1. ed."),
+        ("1. ed.", "1. ed."),
+        ("2ª edição", "2. ed."),
+        ("3rd edition", "3. ed."),
+        ("ed. rev. e ampl.", "ed. rev. e ampl."),
+    ],
+)
+def test_edition_is_written_the_abnt_way_with_one_period(edition, expected):
+    meta = BibliographicMetadata(
+        document_type="livro", authors=["Ana Lima"], title="Obra", edition=edition, year=2020
+    )
+    assert format_abnt(meta) == f"LIMA, Ana. Obra. {expected} 2020."
+
+
+def test_an_author_list_ending_in_a_period_gets_no_second_one():
+    """An initial (``Bijan M. D.``) or ``et al.`` already closes the element."""
+    initials = BibliographicMetadata(
+        document_type="livro",
+        authors=["Terence M. Yhip", "Bijan M. D. Alagheband"],
+        title="The Practice of Lending",
+        year=2020,
+    )
+    assert format_abnt(initials).startswith(
+        "YHIP, Terence M.; ALAGHEBAND, Bijan M. D. The Practice of Lending. 2020."
+    )
+    many = BibliographicMetadata(
+        document_type="relatorio",
+        authors=["Ana Lima", "Bia Souza", "Caio Reis", "Davi Melo"],
+        title="Relatório anual?",
+        year=2021,
+    )
+    assert format_abnt(many) == "LIMA, Ana et al. Relatório anual? 2021."
+
+
+def test_a_journal_title_keeps_its_ellipsis():
+    meta = BibliographicMetadata(
+        document_type="artigo_periodico",
+        authors=["Ana Lima"],
+        title="Crédito... e risco",
+        journal="Revista",
+        year=2019,
+    )
+    assert "Crédito... e risco." in format_abnt(meta)
 
 
 def test_metadata_from_manual_seed_does_not_guess_document_type():
