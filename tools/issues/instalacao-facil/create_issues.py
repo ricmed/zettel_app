@@ -10,6 +10,7 @@ title, so re-running after a partial failure only fills in what is missing.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -77,7 +78,11 @@ def add(body_file: str, title: str, extra: list[str], parent: list[str]) -> dict
         *parent,
         *extra,
     ]
-    proc = subprocess.run(args, check=True, text=True, encoding="utf-8", capture_output=True)  # noqa: S603 - fixed argv, no shell
+    # The child prints accented titles; on Windows its stdout would be cp1252.
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        args, check=True, text=True, encoding="utf-8", capture_output=True, env=env
+    )
     sys.stderr.write(proc.stderr)
     return json.loads(proc.stdout)
 
