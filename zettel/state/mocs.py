@@ -96,6 +96,14 @@ class MocsMixin(StateBase):
             (parent_moc_id,),
         )
 
+    def list_mocs_listing_note(self, note_id: str) -> list[dict]:
+        """MOCs whose body links ``note_id`` (an entry or a hub door), by topic."""
+        return self._fetchall(
+            "SELECT moc_id, topic, origin, parent_moc_id FROM mocs "
+            "WHERE instr(body, ?) > 0 ORDER BY topic, moc_id",
+            (note_id,),
+        )
+
     def find_moc_by_hub_note_id(self, hub_note_id: str) -> dict | None:
         """Newest hub_pipeline MOC anchored on ``hub_note_id``."""
         return self._fetchone(

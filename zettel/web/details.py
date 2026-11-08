@@ -53,27 +53,74 @@ def _markdown_response(request: Request, row: dict | None, folder: str, download
     return Response(content=content, media_type="text/markdown; charset=utf-8", headers=headers)
 
 
-def _decorate_connections(db: Any, note_id: str) -> list[dict]:
-    """Add the related note title and existence flag for the detail template."""
-    decorated = []
-    for edge in db.get_note_connections(note_id):
-        related_id = (
-            edge["target_note_id"] if edge["source_note_id"] == note_id else edge["source_note_id"]
+# Edge direction as the reader sees it from the open note. The inverse labels are
+# the ones ``auto-backlinks`` writes (``connector.links.INVERSE_RELATION``).
+_RELATION_LABELS = {
+    "supports": "sustenta",
+    "contradicts": "contradiz",
+    "extends": "estende",
+    "depends_on": "depende de",
+    "exemplifies": "exemplifica",
+    "related": "relacionada a",
+    "corroborates": "corrobora",
+}
+
+
+def _connection_groups(db: Any, note_id: str) -> dict[str, list[dict]]:
+    """Outgoing and incoming edges of a note, grouped by relation; rejected ones hidden.
+
+    Each group is ``{"label", "relation_type", "edges"}`` with the related
+    note's title and whether it still exists, read in one query.
+    """
+    from zettel.connector.links import inverse_relation
+
+    edges = [e for e in db.get_note_connections(note_id) if e.get("status") != "rejected"]
+    related_ids = [
+        e["target_note_id"] if e["source_note_id"] == note_id else e["source_note_id"]
+        for e in edges
+    ]
+    related = db.get_notes_by_ids(related_ids)
+    groups: dict[str, dict[str, dict]] = {"outgoing": {}, "incoming": {}}
+    for edge, related_id in zip(edges, related_ids, strict=True):
+        relation = edge.get("relation_type") or "related"
+        outgoing = edge["source_note_id"] == note_id
+        direction = "outgoing" if outgoing else "incoming"
+        label = _RELATION_LABELS.get(relation, relation) if outgoing else inverse_relation(relation)
+        group = groups[direction].setdefault(
+            relation, {"label": label, "relation_type": relation, "edges": []}
         )
-        related_note = db.get_note(related_id)
-        decorated.append(
+        row = related.get(related_id)
+        group["edges"].append(
             {
                 **edge,
                 "related_note_id": related_id,
-                "related_title": (
-                    related_note.get("title") or "Nota sem título"
-                    if related_note
-                    else "Nota não encontrada"
-                ),
-                "related_note_exists": related_note is not None,
+                "related_title": (row.get("title") or "Nota sem título")
+                if row
+                else "Nota não encontrada",
+                "related_note_exists": row is not None,
             }
         )
-    return decorated
+    return {
+        direction: sorted(by_relation.values(), key=lambda g: g["label"])
+        for direction, by_relation in groups.items()
+    }
+
+
+def _note_source(db: Any, note: dict) -> dict | None:
+    """The note's source, its ABNT reference and the note's own citation (ADR-051)."""
+    from zettel.citation import load_provenance
+
+    source = db.get_source(note["source_id"]) if note.get("source_id") else None
+    provenance = load_provenance(note)
+    if not source and not provenance.get("citation"):
+        return None
+    return {
+        "source_id": note.get("source_id"),
+        "title": (source or {}).get("title"),
+        "reference": (source or {}).get("abnt_reference"),
+        "citation": provenance.get("citation"),
+        "anchor_quote": provenance.get("anchor_quote"),
+    }
 
 
 @router.get("/notes/{note_id}/markdown")
@@ -128,7 +175,10 @@ def note_detail(request: Request, note_id: str):
     db = service(request).db()
     try:
         note = db.get_note(note_id)
-        connections = _decorate_connections(db, note_id) if note else []
+        if note:
+            connections = _connection_groups(db, note_id)
+            source = _note_source(db, note)
+            mocs = db.list_mocs_listing_note(note_id)
     finally:
         db.close()
     if not note:
@@ -140,6 +190,8 @@ def note_detail(request: Request, note_id: str):
         note=note,
         rendered_body=render_markdown(note.get("body")),
         connections=connections,
+        source=source,
+        mocs=mocs,
     )
 
 

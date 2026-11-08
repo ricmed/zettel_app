@@ -72,7 +72,7 @@
         {% endif %}
         {% for src in catalog.sources %}
         <div class="catalog-source">
-          <h3>{{ src.title }}</h3>
+          <h3><a href="/sources/{{ src.source_id }}">{{ src.title }}</a></h3>
           <p class="muted">{{ src.citekey }} · {{ src.total_notes }} nota(s) permanente(s)</p>
           <table class="studio-table">
             <thead><tr><th>Capítulo</th><th>Páginas</th><th class="num">Notas</th><th>Achado por</th></tr></thead>
@@ -84,6 +84,7 @@
                 <td class="num">{{ ch.note_count }}</td>
                 <td>{{ ch.origin_label }}</td>
               </tr>
+              {% if ch.via_notes %}<tr class="catalog-notes"><td colspan="4">{% for nid in ch.via_notes %}<a href="/notes/{{ nid }}">{{ catalog_notes.get(nid) or nid }}</a>{% if not loop.last %} · {% endif %}{% endfor %}</td></tr>{% endif %}
             {% endfor %}
             </tbody>
           </table>

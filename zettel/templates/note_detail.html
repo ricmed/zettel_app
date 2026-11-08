@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Nota · Zettelkasten{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/notes.css">{% endblock %}
+{% macro connection_group(group) %}<div class="connection-group"><h3>{{ group.label }} <span class="muted">· {{ group.edges|length }}</span></h3>{% for edge in group.edges %}<div class="funnel-row connection-row"><div class="connection-target">{% if edge.related_note_exists %}<a href="/notes/{{ edge.related_note_id }}" class="connection-link">{{ edge.related_title }}</a>{% else %}<span class="muted">{{ edge.related_title }}</span>{% endif %}{% if edge.status == 'proposed' %}<span class="connection-status">proposta</span>{% endif %}{% if edge.origin == 'manual' %}<span class="connection-status">manual</span>{% endif %}{% if edge.description %}<small class="muted">{{ edge.description }}</small>{% endif %}</div></div>{% endfor %}</div>{% endmacro %}
 {% block content %}
 <a href="/notes" class="back">← Notas / MOCs</a>
 <div class="page-heading"><div><div class="eyebrow">nota permanente</div><h1>{{ note.title or 'Nota sem título' }}</h1><p class="muted">{{ note.origin }} · atualizada em {{ note.updated_at | local_dt('date') }}</p></div></div>
@@ -9,7 +10,16 @@
   <a class="button" href="/notes/{{ note.note_id }}/markdown?download=1" download>Baixar .md</a>
   <span class="copy-status" role="status" aria-live="polite"></span>
 </div>
+{% if source or mocs %}<section class="panel note-context">
+  {% if source %}<div><h2>Fonte</h2>{% if source.citation %}<p><strong>{{ source.citation }}</strong></p>{% endif %}{% if source.reference %}<p>{{ source.reference }}</p>{% elif source.title %}<p>{{ source.title }}</p>{% endif %}{% if source.source_id %}<p><a href="/sources/{{ source.source_id }}"><code>{{ source.source_id }}</code></a></p>{% endif %}</div>{% endif %}
+  {% if mocs %}<div><h2>Nos MOCs</h2><ul class="note-mocs">{% for moc in mocs %}<li><a href="/mocs/{{ moc.moc_id }}">{{ moc.topic }}</a></li>{% endfor %}</ul></div>{% endif %}
+</section>{% endif %}
 <section class="panel markdown-body">{{ rendered_body|safe }}</section>
-<section class="panel"><h2>Conexões</h2>{% if connections %}{% for edge in connections %}<div class="funnel-row connection-row"><span class="connection-type">{{ edge.relation_type }}</span><div class="connection-target">{% if edge.related_note_exists %}<a href="/notes/{{ edge.related_note_id }}" class="connection-link">{{ edge.related_title }}</a>{% else %}<span class="muted">{{ edge.related_title }}</span>{% endif %}<code>{{ edge.related_note_id }}</code>{% if edge.description %}<small class="muted">{{ edge.description }}</small>{% endif %}</div></div>{% endfor %}{% else %}<div class="empty">Nota isolada — ainda não há conexões.</div>{% endif %}</section>
+<section class="panel"><h2>Conexões</h2>
+{% if connections.outgoing or connections.incoming %}
+  {% if connections.outgoing %}<h3 class="connection-direction">Saídas: esta nota…</h3>{% for group in connections.outgoing %}{{ connection_group(group) }}{% endfor %}{% endif %}
+  {% if connections.incoming %}<h3 class="connection-direction">Entradas: esta nota é…</h3>{% for group in connections.incoming %}{{ connection_group(group) }}{% endfor %}{% endif %}
+{% else %}<div class="empty">Nota isolada — ainda não há conexões.</div>{% endif %}
+</section>
 {% endblock %}
 {% block scripts %}<script src="/static/notes-export.js" defer></script>{% endblock %}

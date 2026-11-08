@@ -22,6 +22,26 @@ def test_markdown_keeps_structure_and_internal_links():
     assert '<a href="https://example.org">https://example.org</a>' in html
 
 
+def test_markdown_renders_vault_images_and_moc_links_only():
+    html = render_markdown(
+        "![[90_Assets/img-0123456789abcdef.png]] ![x](90_Assets/img-0123456789abcdef.png) "
+        "![fora](https://e.org/a.png) ![[outra.png]] ![[90_Assets/img-0123456789abcdef.svg]] "
+        "[[MOC - 01M6 - tema|Tema]]"
+    )
+    assert html.count('<img src="/assets/img-0123456789abcdef.png"') == 2
+    assert "e.org" not in html and "fora" in html
+    assert "![[outra.png]]" in html and ".svg]]" in html
+    assert '<a href="/mocs/01M6">Tema</a>' in html
+
+
+def test_sanitizer_keeps_an_image_only_for_a_vault_asset():
+    clean = sanitize_html(
+        '<img src="/assets/img-0123456789abcdef.png" alt="a" loading="lazy">'
+        '<img src="/assets/../state.db"><img src="https://e.org/x.png">'
+    )
+    assert clean == '<img src="/assets/img-0123456789abcdef.png" alt="a" loading="lazy">'
+
+
 def test_markdown_escapes_raw_html_and_drops_script_links():
     html = render_markdown("<script>alert(1)</script>\n\n[x](javascript:alert(1)) <img onerror=x>")
     assert "<script" not in html

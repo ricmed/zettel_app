@@ -115,6 +115,7 @@ PUBLIC_METHODS = {
     "list_mocs",
     "find_moc_by_topic",
     "list_child_mocs",
+    "list_mocs_listing_note",
     "find_moc_by_hub_note_id",
     "list_orphan_hub_mocs",
     "list_hub_anchor_note_ids",

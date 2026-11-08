@@ -212,12 +212,15 @@ def _catalog(request: Request, subject: str, show_context: bool):
     try:
         idx = VectorIndex(**index_kwargs(cfg))
         result = run_catalog(cfg, db, idx, subject)
+        found = [nid for src in result.sources for ch in src.chapters for nid in ch.via_notes]
+        note_titles = {nid: row.get("title") for nid, row in db.get_notes_by_ids(found).items()}
     finally:
         db.close()
         lock.release()
     return _page(
         request,
         catalog=result,
+        catalog_notes=note_titles,
         catalog_subject=subject,
         catalog_show_context=show_context,
         catalog_copy=catalog_copy_text(result, show_context=show_context),

@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import re
 from typing import TYPE_CHECKING
+from urllib.parse import unquote
 
 import nh3
 from latex2mathml.converter import convert
@@ -31,9 +32,20 @@ _MANUAL_CONNECTIONS_PLACEHOLDER_LINE = re.compile(
     r"^[ \t]*_Sincronize com sync-manual para sugestoes automaticas\._[ \t]*(?:\n|$)",
     re.MULTILINE,
 )
-_ZTL_WIKILINK = re.compile(
-    r"\[\[(?P<label>ZTL\s*-\s*(?P<note_id>[A-Za-z0-9_-]+)(?:\s*-\s*[^\]\|]+)?)(?:\|(?P<alias>[^\]]+))?\]\]"
+_VAULT_WIKILINK = re.compile(
+    r"\[\[(?P<label>(?P<kind>ZTL|MOC)\s*-\s*(?P<note_id>[A-Za-z0-9_-]+)(?:\s*-\s*[^\]\|]+)?)"
+    r"(?:\|(?P<alias>[^\]]+))?\]\]"
 )
+_WIKILINK_ROUTES = {"ZTL": "/notes/", "MOC": "/mocs/"}
+# A content-addressed vault image (``assets._asset_relpath``). Raster formats
+# only: an SVG opened directly is a document that can carry script.
+ASSET_NAME_RE = re.compile(r"img-[0-9a-f]{16}\.(?:png|jpe?g|gif|webp|bmp|avif)", re.IGNORECASE)
+ASSET_URL_PREFIX = "/assets/"
+# ``assets.ASSETS_DIR``; repeated here so the web never imports the asset module
+# (it pulls the LLM client). tests/test_web_assets.py pins the two together.
+ASSETS_FOLDER = "90_Assets"
+_ASSET_REF = re.compile(rf"(?:{ASSETS_FOLDER}/)?(?P<name>[^/]+)")
+_WIKI_EMBED = re.compile(r"!\[\[(?P<ref>[^\]|]+?)(?:\|(?P<alt>[^\]]*))?\]\]")
 _MAX_TEX_CHARS = 4000
 
 # MathJax-style delimiters, converted to MathML on the server. A CDN script
@@ -124,22 +136,61 @@ _MATH_ATTRIBUTES = {
 }
 
 
+def asset_url(ref: str | None) -> str | None:
+    """The web URL of a ``90_Assets`` image reference, or ``None`` for anything else."""
+    norm = unquote(str(ref or "")).replace("\\", "/").strip().lstrip("./")
+    match = _ASSET_REF.fullmatch(norm)
+    if not match or not ASSET_NAME_RE.fullmatch(match.group("name")):
+        return None
+    return ASSET_URL_PREFIX + match.group("name")
+
+
+def _image_html(src: str, alt: str) -> str:
+    return f'<img src="{html.escape(src)}" alt="{html.escape(alt)}" loading="lazy">'
+
+
+def _render_vault_embed(state: StateInline, silent: bool) -> bool:
+    """Render an Obsidian image embed (``![[90_Assets/img-….png]]``) as an image."""
+    if state.src[state.pos : state.pos + 3] != "![[":
+        return False
+    match = _WIKI_EMBED.match(state.src, state.pos)
+    if not match:
+        return False
+    src = asset_url(match.group("ref"))
+    if src is None:
+        return False
+    if silent:
+        return True
+    token = state.push("vault_image", "img", 0)
+    token.content = _image_html(src, (match.group("alt") or "").strip())
+    state.pos = match.end()
+    return True
+
+
+def _render_image(tokens: list[Token], idx: int, options: OptionsDict, env: EnvType) -> str:
+    """A Markdown image renders only when it points at a vault asset; else its alt text."""
+    token = tokens[idx]
+    alt = "".join(child.content for child in token.children or [])
+    src = asset_url(str(token.attrGet("src") or ""))
+    return _image_html(src, alt) if src else html.escape(alt)
+
+
 def _render_ztl_wikilink(state: StateInline, silent: bool) -> bool:
-    """Render Obsidian permanent-note links as internal web links."""
+    """Render Obsidian permanent-note and MOC links as internal web links."""
 
     if state.src[state.pos : state.pos + 2] != "[[":
         return False
     if state.pos > 0 and state.src[state.pos - 1] == "!":
         return False
 
-    match = _ZTL_WIKILINK.match(state.src, state.pos)
+    match = _VAULT_WIKILINK.match(state.src, state.pos)
     if not match:
         return False
     if silent:
         return True
 
     link_open = state.push("link_open", "a", 1)
-    link_open.attrSet("href", f"/notes/{match.group('note_id')}")
+    link_open.attrSet("href", _WIKILINK_ROUTES[match.group("kind")] + match.group("note_id"))
     text = state.push("text", "", 0)
     text.content = (match.group("alias") or match.group("label")).strip()
     state.push("link_close", "a", -1)
@@ -273,15 +324,18 @@ def _math_block(state: StateBlock, start_line: int, end_line: int, silent: bool)
     return True
 
 
-def _render_math(tokens: list[Token], idx: int, options: OptionsDict, env: EnvType) -> str:
+def _render_prebuilt(tokens: list[Token], idx: int, options: OptionsDict, env: EnvType) -> str:
     return tokens[idx].content
 
 
 _MARKDOWN.inline.ruler.before("link", "ztl_wikilink", _render_ztl_wikilink)
+_MARKDOWN.inline.ruler.before("image", "vault_embed", _render_vault_embed)
 _MARKDOWN.inline.ruler.before("escape", "texmath", _math_inline)
 _MARKDOWN.block.ruler.before("fence", "texmath_block", _math_block)
-_MARKDOWN.renderer.rules["math_inline"] = _render_math
-_MARKDOWN.renderer.rules["math_block"] = _render_math
+_MARKDOWN.renderer.rules["math_inline"] = _render_prebuilt
+_MARKDOWN.renderer.rules["math_block"] = _render_prebuilt
+_MARKDOWN.renderer.rules["vault_image"] = _render_prebuilt
+_MARKDOWN.renderer.rules["image"] = _render_image
 # What Markdown renders, and nothing else: the inline set bleach allowed plus
 # block structure. nh3 (ammonia) replaces bleach, deprecated since 2023 (#315).
 _ALLOWED_TAGS = {
@@ -301,6 +355,7 @@ _ALLOWED_TAGS = {
     "h6",
     "hr",
     "i",
+    "img",
     "li",
     "ol",
     "p",
@@ -318,26 +373,38 @@ _ALLOWED_TAGS = {
 _ALLOWED_ATTRIBUTES = {
     "a": {"href", "title"},
     "code": {"class"},
+    "img": {"src", "alt", "loading"},
     "th": {"align"},
     "td": {"align"},
     **{tag: set(_MATH_ATTRIBUTES) for tag in _MATH_TAGS},
 }
 _ALLOWED_PROTOCOLS = {"http", "https", "mailto"}
+# An image survives only as a vault asset served by ``/assets`` (img-src 'self').
+_SRCLESS_IMG = re.compile(r"<img(?![^>]*\ssrc=)[^>]*>")
+
+
+def _filter_attribute(tag: str, attribute: str, value: str) -> str | None:
+    if tag == "img" and attribute == "src":
+        return value if asset_url(value.removeprefix(ASSET_URL_PREFIX)) == value else None
+    return value
 
 
 def sanitize_html(html: str) -> str:
     """Keep only the tags, attributes and URL schemes Markdown output needs.
 
     A disallowed tag is dropped and its text kept; ``script`` and ``style``
-    lose their content too. ``link_rel=None`` adds no ``rel`` to links.
+    lose their content too. ``link_rel=None`` adds no ``rel`` to links. An
+    ``img`` whose ``src`` is not a ``/assets/`` vault image is removed whole.
     """
-    return nh3.clean(
+    cleaned = nh3.clean(
         html,
         tags=_ALLOWED_TAGS,
         attributes=_ALLOWED_ATTRIBUTES,
         url_schemes=_ALLOWED_PROTOCOLS,
         link_rel=None,
+        attribute_filter=_filter_attribute,
     )
+    return _SRCLESS_IMG.sub("", cleaned)
 
 
 def render_text_with_math(text: str | None) -> str:

@@ -67,7 +67,7 @@
       <tbody>
       {% for note in result.notes or [] %}
         <tr>
-          <td>{{ note.title or note.note_id }}</td>
+          <td><a href="/notes/{{ note.note_id }}">{{ note.title or note.note_id }}</a></td>
           <td class="num">{{ '%.4f'|format(note.score or 0) }}</td>
           <td class="num">{{ note.hop }}</td>
           <td>{{ note.source_id or '-' }}</td>
@@ -113,7 +113,7 @@
     <tbody>
     {% for src in result.candidates %}
       <tr class="{% if not src.passed_floor %}dim{% endif %}">
-        <td>{{ src.title or src.note_id }}</td>
+        <td><a href="/notes/{{ src.note_id }}">{{ src.title or src.note_id }}</a></td>
         <td class="num">{{ '%.4f'|format(src.rrf_score or 0) }}</td>
         <td class="num">{% if src.vector_similarity is not none %}{{ '%.2f'|format(src.vector_similarity) }}{% else %}-{% endif %}</td>
         <td class="num">{{ src.bm25_rank if src.bm25_rank is not none else '-' }}</td>
