@@ -9,7 +9,8 @@
 <form method="post" action="/projetos/{{ project.project_id }}">{{ item_fields('remover', section, block) }}<button class="button desk-icon" type="submit" title="Tirar da mesa" aria-label="Tirar da mesa">✕</button></form>
 {% endmacro %}
 {% macro new_text(section, after='') %}<details class="desk-add-text"><summary>Escrever texto aqui</summary><form method="post" action="/projetos/{{ project.project_id }}">{{ item_fields('texto-novo', section, after) }}<textarea name="texto" rows="4" maxlength="20000" required placeholder="A ponte entre as notas, a introdução da seção, um argumento seu…"></textarea><button class="button" type="submit">Inserir</button></form></details>{% endmacro %}
-{% macro add_here(note_id, preferred=None) %}{% if targets %}<form method="post" action="/projetos/{{ project.project_id }}" class="desk-add-here"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="acao" value="itens"><input type="hidden" name="note_ids" value="{{ note_id }}"><select name="secao" aria-label="Seção">{% for target in targets %}<option value="{{ target.index }}"{% if target.index == preferred %} selected{% endif %}>{{ target.title }}</option>{% endfor %}</select><button class="button" type="submit">+ seção</button></form>{% endif %}{% endmacro %}
+{% macro add_here(note_id, preferred=None, origin='') %}{% if targets %}<form method="post" action="/projetos/{{ project.project_id }}" class="desk-add-here"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="acao" value="itens"><input type="hidden" name="note_ids" value="{{ note_id }}">{% if origin %}<input type="hidden" name="origem" value="{{ origin }}">{% endif %}<select name="secao" aria-label="Seção">{% for target in targets %}<option value="{{ target.index }}"{% if target.index == preferred %} selected{% endif %}>{{ target.title }}</option>{% endfor %}</select><button class="button" type="submit">+ seção</button></form>{% endif %}{% endmacro %}
+{% macro search_hit(hit, link) %}<li><a href="/notes/{{ hit.note_id }}">{{ hit.title }}</a>{% if hit.thesis and hit.thesis != hit.title %}<small>{{ hit.thesis }}</small>{% endif %}{% if link %}<small class="desk-via">via «{{ link.from_title }}» · {{ link.relation }} · salto {{ link.hop }}</small>{% endif %}{% if hit.note_id in project.body.note_ids() %}<small class="desk-on-desk">Já está na mesa.</small>{% else %}{{ add_here(hit.note_id, section_search.section, 'busca') }}{% endif %}</li>{% endmacro %}
 {% block content %}
 <a href="/projetos" class="back">← Mesas</a>
 <div class="page-heading">
@@ -21,6 +22,62 @@
 </div>
 <form method="post" action="/projetos/{{ project.project_id }}" id="desk-move" class="desk-hidden" data-desk-move>{{ item_fields('mover', '', '') }}<input type="hidden" name="destino" value=""><input type="hidden" name="antes" value=""></form>
 <div class="desk">
+  <section class="panel desk-band" id="exportar">
+    <h2>Exportar</h2>
+    <form method="get" action="/projetos/{{ project.project_id }}/exportar" class="desk-export">
+      <input type="hidden" name="enviado" value="1">
+      <label class="desk-style">Estilo <select name="estilo"><option value="academic"{% if project.style == 'academic' %} selected{% endif %}>Acadêmico (ABNT, com página)</option><option value="blog"{% if project.style == 'blog' %} selected{% endif %}>Blog (menção à fonte)</option></select></label>
+      <div class="desk-checks">
+        <label class="desk-check"><input type="checkbox" name="marcadores" value="1"{% if config_manuscript.placeholders %} checked{% endif %}> Marcar o que falta escrever [Complementar]</label>
+        <label class="desk-check"><input type="checkbox" name="trechos" value="1"{% if config_manuscript.quotes %} checked{% endif %}> Incluir o trecho literal de cada nota</label>
+        <label class="desk-check"><input type="checkbox" name="limites" value="1"{% if config_manuscript.limits %} checked{% endif %}> Incluir os limites (ressalvas)</label>
+        <label class="desk-check"><input type="checkbox" name="apendice" value="1"{% if config_manuscript.appendix %} checked{% endif %}> Apêndice com as notas completas</label>
+      </div>
+      <div class="desk-export-buttons">
+        <button class="primary" type="submit" name="formato" value="docx">Baixar .docx</button>
+        <button class="button" type="submit" name="formato" value="zip">Baixar .zip (Markdown)</button>
+        <button class="button" type="submit" formaction="/projetos/{{ project.project_id }}/manuscrito">Pré-visualizar</button>
+      </div>
+    </form>
+    <small class="muted">Sempre termina em "Referências": cada obra uma vez, em ordem alfabética. O .zip traz <code>manuscrito.md</code>, <code>figuras/</code> e <code>referencias.bib</code>.</small>
+    <div class="desk-canvas">
+      <form method="post" action="/projetos/{{ project.project_id }}/canvas">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="button" type="submit">Gerar canvas no vault</button>
+      </form>
+      <small class="muted">{% if canvas_name %}<code>{{ canvas_name }}</code> está no vault; abra no Canvas do Obsidian. Gerar de novo substitui o arquivo.{% else %}Cria um <code>.canvas</code> ao lado da mesa: seções como grupos, cartões como notas, conexões como setas. Abra no Obsidian.{% endif %}</small>
+    </div>
+  </section>
+  {% if targets %}<section class="panel desk-band desk-talk" id="buscar">
+    <div class="desk-search-bar">
+      <h2>Buscar para uma seção</h2>
+      <form method="post" action="/projetos/{{ project.project_id }}/buscar" class="desk-search">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <select name="secao" aria-label="Seção">{% for target in targets %}<option value="{{ target.index }}"{% if search_form.section == target.index %} selected{% endif %}>{{ target.title }}</option>{% endfor %}</select>
+        <input type="search" name="foco" value="{{ search_form.focus }}" maxlength="500" aria-label="O que procurar nesta seção" placeholder="O que procurar (opcional): ex. gradient boosting para PD em varejo">
+        <button class="button" type="submit"{% if search_blocker %} disabled title="{{ search_blocker }}"{% endif %}>Buscar</button>
+        <label class="desk-check desk-search-graph"><input type="checkbox" name="vizinhos" value="1"{% if search_form.neighbours %} checked{% endif %}> Incluir vizinhas do grafo</label>
+      </form>
+    </div>
+    <small class="muted">{{ search_blocker or 'Com texto, busca o que você escreveu mais o título da seção. Sem texto, usa o título e as teses dos cartões dela. Custa um embedding. As vizinhas são notas ligadas às encontradas, listadas à parte.' }}</small>
+    {% if section_search %}<div class="desk-results-head">
+      <div>
+        <h3>Para «{{ section_search.title }}»{% if section_search.focus %}: {{ section_search.focus }}{% endif %}</h3>
+        <small class="muted">A lista fica aqui até você fechar, para incluir mais de uma nota.</small>
+      </div>
+      <form method="post" action="/projetos/{{ project.project_id }}/busca/fechar">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="button" type="submit">Fechar resultados</button>
+      </form>
+    </div>
+    {% set links = section_search.links or {} %}
+    {% set seeds = section_search.hits | rejectattr('note_id', 'in', links) | list %}
+    {% set neighbours = section_search.hits | selectattr('note_id', 'in', links) | list %}
+    {% if seeds %}<h4 class="desk-results-group">Encontradas pela busca · {{ seeds|length }}</h4><ul>{% for hit in seeds %}{{ search_hit(hit, none) }}{% endfor %}</ul>{% else %}<div class="empty">Nada novo passou o piso de relevância.</div>{% endif %}
+    {% if neighbours %}<h4 class="desk-results-group">Ligadas a elas pelo grafo · {{ neighbours|length }}</h4><ul>{% for hit in neighbours %}{{ search_hit(hit, links[hit.note_id]) }}{% endfor %}</ul>{% endif %}
+    {% endif %}
+  </section>{% endif %}
+  <div class="desk-work">
   <div class="desk-outline">
     {% for section in sections %}
     <section class="panel desk-section" id="secao-{{ section.index }}" data-section="{{ section.index }}">
@@ -68,28 +125,6 @@
     </section>
   </div>
   <aside class="desk-side">
-    <section class="panel desk-talk" id="exportar">
-      <h2>Exportar</h2>
-      <form method="get" action="/projetos/{{ project.project_id }}/exportar" class="desk-export">
-        <input type="hidden" name="enviado" value="1">
-        <label>Estilo <select name="estilo"><option value="academic"{% if project.style == 'academic' %} selected{% endif %}>Acadêmico (ABNT, com página)</option><option value="blog"{% if project.style == 'blog' %} selected{% endif %}>Blog (menção à fonte)</option></select></label>
-        <label class="desk-check"><input type="checkbox" name="marcadores" value="1"{% if config_manuscript.placeholders %} checked{% endif %}> Marcar o que falta escrever [Complementar]</label>
-        <label class="desk-check"><input type="checkbox" name="trechos" value="1"{% if config_manuscript.quotes %} checked{% endif %}> Incluir o trecho literal de cada nota</label>
-        <label class="desk-check"><input type="checkbox" name="limites" value="1"{% if config_manuscript.limits %} checked{% endif %}> Incluir os limites (ressalvas)</label>
-        <label class="desk-check"><input type="checkbox" name="apendice" value="1"{% if config_manuscript.appendix %} checked{% endif %}> Apêndice com as notas completas</label>
-        <div class="desk-export-buttons">
-          <button class="primary" type="submit" name="formato" value="docx">Baixar .docx</button>
-          <button class="button" type="submit" name="formato" value="zip">Baixar .zip (Markdown)</button>
-          <button class="button" type="submit" formaction="/projetos/{{ project.project_id }}/manuscrito">Pré-visualizar</button>
-        </div>
-      </form>
-      <small class="muted">Sempre termina em "Referências": cada obra uma vez, em ordem alfabética. O .zip traz <code>manuscrito.md</code>, <code>figuras/</code> e <code>referencias.bib</code>.</small>
-      <form method="post" action="/projetos/{{ project.project_id }}/canvas" class="desk-export-buttons">
-        <input type="hidden" name="csrf" value="{{ csrf }}">
-        <button class="button" type="submit">Gerar canvas no vault</button>
-      </form>
-      <small class="muted">{% if canvas_name %}<code>{{ canvas_name }}</code> está no vault; abra no Canvas do Obsidian. Gerar de novo substitui o arquivo.{% else %}Cria um <code>.canvas</code> ao lado da mesa: seções como grupos, cartões como notas, conexões como setas. Abra no Obsidian.{% endif %}</small>
-    </section>
     <section class="panel desk-talk">
       <h2>Conversa</h2>
       <p class="muted">O que o grafo de conexões diz sobre a mesa. Sem LLM: são as arestas aceitas, derivadas ou suas.</p>
@@ -100,17 +135,8 @@
       {% if talk.single_source %}<h3>Seções de uma fonte só</h3><ul>{% for s in talk.single_source %}<li>{{ s.section }} <small>tudo vem de <code>{{ s.source_id }}</code></small></li>{% endfor %}</ul>{% endif %}
       {% if talk.empty and not talk.single_source %}<div class="empty">Sem sugestões ainda. Adicione cartões: a conversa parte das conexões deles.</div>{% endif %}
     </section>
-    {% if targets %}<section class="panel desk-talk">
-      <h2>Buscar para uma seção</h2>
-      <form method="post" action="/projetos/{{ project.project_id }}/buscar" class="desk-search">
-        <input type="hidden" name="csrf" value="{{ csrf }}">
-        <select name="secao" aria-label="Seção">{% for target in targets %}<option value="{{ target.index }}"{% if section_search and section_search.section == target.index %} selected{% endif %}>{{ target.title }}</option>{% endfor %}</select>
-        <button class="button" type="submit"{% if search_blocker %} disabled title="{{ search_blocker }}"{% endif %}>Buscar</button>
-      </form>
-      <small class="muted">{{ search_blocker or 'Usa o título da seção e as teses dos cartões dela; custa um embedding.' }}</small>
-      {% if section_search %}<h3>Para «{{ section_search.title }}»</h3>{% if section_search.hits %}<ul>{% for hit in section_search.hits %}<li><a href="/notes/{{ hit.note_id }}">{{ hit.title }}</a>{% if hit.thesis and hit.thesis != hit.title %}<small>{{ hit.thesis }}</small>{% endif %}{{ add_here(hit.note_id, section_search.section) }}</li>{% endfor %}</ul>{% else %}<div class="empty">Nada novo passou o piso de relevância.</div>{% endif %}{% endif %}
-    </section>{% endif %}
   </aside>
+  </div>
 </div>
 {% endblock %}
 {% block scripts %}<script src="/static/project-board.js" defer></script>{% endblock %}

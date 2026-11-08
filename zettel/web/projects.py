@@ -7,6 +7,7 @@ in Obsidian meanwhile is never overwritten (409 instead).
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -17,13 +18,15 @@ from zettel.markdown import render_markdown
 from zettel.web.enqueue import operation_lock
 from zettel.web.forms import read_form
 from zettel.web.rendering import error_page, render, service
-from zettel.web.security import authenticated, csrf_ok, redirect_login
+from zettel.web.security import authenticated, csrf_ok, redirect_login, session
 
 router = APIRouter()
 
 _MAX_NOTES_PER_ADD = 200
 _MAX_TEXT = 20_000
 _MAX_FOCUS = 500
+_MAX_KEPT_SEARCHES = 24
+_SEARCHES_LOCK = threading.Lock()
 
 
 def _int(value: Any) -> int | None:
@@ -34,6 +37,90 @@ def _int(value: Any) -> int | None:
 def _note_ids(form: FormData) -> list[str]:
     ids = [str(v).strip() for v in form.getlist("note_ids") if str(v).strip()]
     return list(dict.fromkeys(ids))[:_MAX_NOTES_PER_ADD]
+
+
+def _search_store(request: Request) -> dict[tuple[str, str], dict[str, Any]]:
+    state = request.app.state
+    store = getattr(state, "desk_searches", None)
+    if store is None:
+        store = {}
+        state.desk_searches = store
+    return store
+
+
+def _search_key(request: Request, project_id: str) -> tuple[str, str] | None:
+    current = session(request)
+    if not current:
+        return None
+    return (str(current.get("csrf") or ""), project_id)
+
+
+def _remember_search(request: Request, project_id: str, search: dict[str, Any]) -> None:
+    """Keep the hit list for this desk until the author closes it.
+
+    The page reloads when a note is added. Re-running the search would spend
+    another embedding and drop the list the author is still picking from.
+    """
+    key = _search_key(request, project_id)
+    if key is None:
+        return
+    record = {
+        "section": search["section"],
+        "title": search["title"],
+        "focus": search["focus"],
+        "neighbours": search["neighbours"],
+        "note_ids": [hit.note_id for hit in search["hits"]],
+        "links": search["links"],
+    }
+    with _SEARCHES_LOCK:
+        store = _search_store(request)
+        store.pop(key, None)
+        store[key] = record
+        while len(store) > _MAX_KEPT_SEARCHES:
+            store.pop(next(iter(store)))
+
+
+def _forget_search(request: Request, project_id: str) -> None:
+    key = _search_key(request, project_id)
+    if key is None:
+        return
+    with _SEARCHES_LOCK:
+        _search_store(request).pop(key, None)
+
+
+def _kept_search(request: Request, project_id: str) -> dict[str, Any] | None:
+    key = _search_key(request, project_id)
+    if key is None:
+        return None
+    with _SEARCHES_LOCK:
+        record = _search_store(request).get(key)
+        return dict(record) if record else None
+
+
+def _match_section(body: Any, section: int, title: str) -> tuple[int, str] | None:
+    sections = body.sections
+    if 0 < section < len(sections) and sections[section].title == title:
+        return section, title
+    for index, item in enumerate(sections):
+        if index > 0 and item.title == title:
+            return index, item.title
+    return None
+
+
+def _materialize_search(cfg: Any, db: Any, project: Any, kept: dict[str, Any]) -> dict[str, Any]:
+    from zettel.projects import card_views
+
+    matched = _match_section(project.body, int(kept["section"]), str(kept["title"]))
+    note_ids = [str(note_id) for note_id in kept["note_ids"]]
+    views = card_views(cfg, db, note_ids)
+    return {
+        "section": matched[0] if matched else None,
+        "title": matched[1] if matched else str(kept["title"]),
+        "focus": str(kept["focus"]),
+        "neighbours": bool(kept["neighbours"]),
+        "hits": [views[note_id] for note_id in note_ids if views[note_id].exists],
+        "links": dict(kept["links"]),
+    }
 
 
 def _redirect(project_id: str, anchor: str = "") -> RedirectResponse:
@@ -249,7 +336,15 @@ def project_edit(request: Request, project_id: str, form: FormData = Depends(rea
     # Adding cards only appends, so it needs no version: a suggestion stays
     # usable after another tab edited the desk.
     version = None if action == "itens" else str(form.get("versao") or "")
-    return _edit(request, project_id, version, change)
+    response = _edit(request, project_id, version, change)
+    # Back to the result list, which stays open so another note can be added.
+    if (
+        action == "itens"
+        and str(form.get("origem") or "") == "busca"
+        and getattr(response, "status_code", None) == 303
+    ):
+        response.headers["location"] = f"/projetos/{project_id}#buscar"
+    return response
 
 
 def _desk_view(cfg: Any, db: Any, project: Any) -> list[dict]:
@@ -358,6 +453,16 @@ def _desk_page(
     try:
         sections = _desk_view(cfg, db, project)
         talk = converse(cfg, db, project.body)
+        if section_search is None:
+            kept = _kept_search(request, project_id)
+            if kept is not None:
+                section_search = _materialize_search(cfg, db, project, kept)
+                if search_form is None:
+                    search_form = {
+                        "section": section_search["section"],
+                        "focus": kept["focus"],
+                        "neighbours": kept["neighbours"],
+                    }
     finally:
         db.close()
     from zettel.manuscript_export import canvas_path
@@ -374,7 +479,7 @@ def _desk_page(
         targets=targets,
         talk=_talk_view(talk, {s["index"]: s["title"] for s in targets}, project.body),
         section_search=section_search,
-        search_form=search_form or {"section": None, "focus": ""},
+        search_form=search_form or {"section": None, "focus": "", "neighbours": False},
         search_blocker=blocker(cfg, "desk_search"),
         error=error,
         config_manuscript=cfg.manuscript,
@@ -389,6 +494,25 @@ def project_detail(request: Request, project_id: str):
     return _desk_page(request, project_id)
 
 
+def _neighbour_links(db: Any, hits: list[Any]) -> dict[str, dict[str, Any]]:
+    """``note_id -> {hop, from, from_title, relation}`` for the graph neighbours.
+
+    The walk is undirected, so the relation is named as stored, without a
+    direction. Seeds (``hop == 0``) are not in the map.
+    """
+    steps = {hit.note_id: (hit.hop, hit.via[-1]) for hit in hits if hit.hop and hit.via}
+    titles = db.get_notes_by_ids([step["from"] for _hop, step in steps.values()])
+    return {
+        note_id: {
+            "hop": hop,
+            "from": step["from"],
+            "from_title": (titles.get(step["from"]) or {}).get("title") or step["from"],
+            "relation": step.get("relation_type") or "related",
+        }
+        for note_id, (hop, step) in steps.items()
+    }
+
+
 @router.post("/projetos/{project_id}/buscar", response_class=HTMLResponse)
 def project_section_search(
     request: Request,
@@ -396,11 +520,14 @@ def project_section_search(
     csrf: str = Form(""),
     secao: str = Form(""),
     foco: str = Form(""),
+    vizinhos: str = Form(""),
 ):
     """Notes that fit a section and are not on the desk yet (one query embedding).
 
     ``foco`` is what the author wants to find there (#387); empty, the title
-    and the cards' theses are the query.
+    and the cards' theses are the query. The search keeps
+    ``retrieval.browse_topk`` seeds; ``vizinhos`` adds their graph neighbours,
+    listed apart with the note and the relation that brought each one.
     """
     if not authenticated(request):
         return redirect_login()
@@ -415,7 +542,8 @@ def project_section_search(
 
     cfg = service(request).cfg
     focus = " ".join(foco.split())[:_MAX_FOCUS]
-    form = {"section": _int(secao), "focus": focus}
+    neighbours = vizinhos in {"1", "on", "true"}
+    form = {"section": _int(secao), "focus": focus, "neighbours": neighbours}
     reason = blocker(cfg, "desk_search")
     if reason:
         return _desk_page(request, project_id, status_code=409, error=reason, search_form=form)
@@ -436,9 +564,13 @@ def project_section_search(
         desk = project.body.note_ids()
         theses = {nid: view.thesis for nid, view in card_views(cfg, db, desk).items()}
         query = section_query(project.body, section, theses, project.title, focus)
-        result = Retriever(cfg, db, VectorIndex(**index_kwargs(cfg))).search_notes(query)
-        found = [hit.note_id for hit in result.hits if hit.note_id not in set(desk)]
+        result = Retriever(cfg, db, VectorIndex(**index_kwargs(cfg))).search_notes(
+            query, topk=cfg.retrieval.browse_topk, expand_graph=neighbours
+        )
+        hits = [hit for hit in result.hits if hit.note_id not in set(desk)]
+        found = [hit.note_id for hit in hits]
         views = card_views(cfg, db, found)
+        links = _neighbour_links(db, hits)
     finally:
         db.close()
         lock.release()
@@ -446,9 +578,23 @@ def project_section_search(
         "section": section,
         "title": project.body.sections[section].title,
         "focus": focus,
+        "neighbours": neighbours,
         "hits": [views[nid] for nid in found if views[nid].exists],
+        "links": links,
     }
+    _remember_search(request, project_id, search)
     return _desk_page(request, project_id, section_search=search, search_form=form)
+
+
+@router.post("/projetos/{project_id}/busca/fechar")
+def project_search_close(request: Request, project_id: str, csrf: str = Form("")):
+    """Drop the kept result list. The author closes it; adding a note does not."""
+    if not authenticated(request):
+        return redirect_login()
+    if not csrf_ok(request, csrf):
+        return error_page(request, 403, "CSRF inválido")
+    _forget_search(request, project_id)
+    return _redirect(project_id, "buscar")
 
 
 def _export_options(cfg: Any, params: Any) -> dict[str, Any]:

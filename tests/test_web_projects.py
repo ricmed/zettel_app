@@ -191,15 +191,23 @@ def test_the_desk_converses_and_searches_a_section(web_client, monkeypatch):
     monkeypatch.setattr("zettel.web.preconditions.embedding_ready", lambda cfg: True)
     monkeypatch.setattr("zettel.index.VectorIndex", lambda **kwargs: object())
     queries = []
+    calls = []
 
     class FakeRetriever:
         def __init__(self, cfg, db, idx):
             pass
 
-        def search_notes(self, query):
+        def search_notes(self, query, topk=None, expand_graph=None):
             queries.append(query)
+            calls.append((topk, expand_graph))
+            # With the graph on, N3 is not a seed but a neighbour of N2.
+            n3 = (
+                RetrievedNote(N3, 0.01, hop=1, via=[{"from": N2, "relation_type": "contradicts"}])
+                if expand_graph
+                else RetrievedNote(N3, 0.01)
+            )
             return NoteSearchResult(
-                hits=[RetrievedNote(N1, 0.03), RetrievedNote(N2, 0.02)], candidates=[]
+                hits=[RetrievedNote(N1, 0.03), RetrievedNote(N2, 0.02), n3], candidates=[]
             )
 
     monkeypatch.setattr("zettel.retrieval.Retriever", FakeRetriever)
@@ -208,6 +216,9 @@ def test_the_desk_converses_and_searches_a_section(web_client, monkeypatch):
     found = client.post(f"/projetos/{project_id}/buscar", data={"csrf": csrf, "secao": inbox})
     assert found.status_code == 200
     assert queries == ["Para organizar tese de Boosting em crédito."]
+    # Its own number of seeds, and no graph neighbours unless asked.
+    assert calls == [(_cfg(client).retrieval.browse_topk, False)]
+    assert "Ligadas a elas pelo grafo" not in found.text
     results = found.text.split("Para «Para organizar»")[1]
     # The note already on the desk is not suggested again.
     assert "Regressão logística" in results and f'value="{N1}"' not in results
@@ -219,13 +230,43 @@ def test_the_desk_converses_and_searches_a_section(web_client, monkeypatch):
     assert queries[-1] == "redes neurais para PD Para organizar"
     assert "Para «Para organizar»: redes neurais para PD" in focused.text
     assert 'name="foco" value="redes neurais para PD"' in focused.text
+    restored = client.get(f"/projetos/{project_id}")
+    assert 'name="foco" value="redes neurais para PD"' in restored.text
+    assert len(queries) == 2
+    other = _create(client, csrf, title="Outra mesa")
+    assert "Fechar resultados" not in client.get(f"/projetos/{other}").text
     added = client.post(
         f"/projetos/{project_id}",
-        data={"csrf": csrf, "acao": "itens", "secao": inbox, "note_ids": N2},
+        data={"csrf": csrf, "acao": "itens", "secao": inbox, "note_ids": N2, "origem": "busca"},
         follow_redirects=False,
     )
-    assert added.status_code == 303
+    assert added.status_code == 303 and added.headers["location"].endswith("#buscar")
     assert load_project(_cfg(client), project_id).body.note_ids() == [N1, N2]
+    kept = client.get(f"/projetos/{project_id}").text
+    results = kept.split("Para «Para organizar»: redes neurais para PD", 1)[1].split(
+        "desk-work", 1
+    )[0]
+    assert "Regressão logística" in results and "Já está na mesa" in results
+    assert f'value="{N3}"' in results and f'value="{N2}"' not in results
+    assert len(queries) == 2
+    closed = client.post(
+        f"/projetos/{project_id}/busca/fechar", data={"csrf": csrf}, follow_redirects=False
+    )
+    assert closed.status_code == 303 and closed.headers["location"].endswith("#buscar")
+    page = client.get(f"/projetos/{project_id}").text
+    assert "Fechar resultados" not in page and "redes neurais para PD" not in page
+
+    walked = client.post(
+        f"/projetos/{project_id}/buscar", data={"csrf": csrf, "secao": inbox, "vizinhos": "1"}
+    )
+    assert calls[-1] == (_cfg(client).retrieval.browse_topk, True)
+    assert 'name="vizinhos" value="1" checked' in walked.text
+    neighbours = walked.text.split("Ligadas a elas pelo grafo · 1", 1)[1].split("desk-work", 1)[0]
+    assert "Viés" in neighbours
+    assert "via «Regressão logística» · contradicts · salto 1" in neighbours
+    # The kept list keeps the split after a reload.
+    again = client.get(f"/projetos/{project_id}").text
+    assert "Ligadas a elas pelo grafo · 1" in again and 'value="1" checked' in again
 
 
 def test_the_desk_exports_a_preview_a_zip_a_canvas(web_client):

@@ -1,6 +1,25 @@
-.desk{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:22px;align-items:start}
+.desk{display:flex;flex-direction:column;gap:18px}
+.desk>.panel{margin-bottom:0}
+.desk-work{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,400px);gap:22px;align-items:start}
 .desk-outline{min-width:0}
-.desk-side{position:sticky;top:18px;min-width:0}
+.desk-side{position:sticky;top:18px;max-height:calc(100vh - 36px);overflow:auto;min-width:0}
+.desk-side>.panel{margin-bottom:0}
+.desk-band h2{margin:0 0 12px}
+.desk-search-bar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px 20px}
+.desk-search-bar h2{margin:0;flex:0 1 auto}
+.desk-search-bar .desk-search{flex:1 1 320px;margin-top:0;align-items:center}
+.desk-search-bar .desk-search select{padding:8px 10px;font-size:14px}
+.desk-band>small{display:block;margin-top:10px;font-size:12px}
+.desk-results-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px 18px;flex-wrap:wrap;margin-top:16px}
+.desk-talk .desk-results-head h3{margin:0}
+.desk-results-head form{margin:0}
+.desk-results-head small{display:block;margin-top:3px;font-size:12px}
+.desk-on-desk{color:var(--green)}
+#buscar ul{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:0 22px;max-height:min(480px,55vh);overflow:auto;align-content:start}
+.desk-checks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 18px}
+.desk-canvas{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.desk-canvas form{margin:0}
+.desk-canvas small{flex:1 1 280px;margin:0;font-size:12px}
 .desk-hidden{display:none}
 .desk-create{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px}
 .desk-create label{flex:1 1 220px}
@@ -36,7 +55,8 @@
 .desk-drop{margin:8px 0}
 .desk-side h2{font-size:16px}
 .desk-side p{font-size:13px}
-@media(max-width:1000px){.desk{grid-template-columns:1fr}.desk-side{position:static}}
+@media(max-width:1000px){.desk-work{grid-template-columns:1fr}.desk-side{position:static;max-height:none;overflow:visible}}
+@media(max-width:720px){.desk-export{grid-template-columns:1fr}.desk-checks{grid-template-columns:1fr}}
 @media(max-width:560px){.desk-card{flex-direction:column}.desk-thumb{width:100%;height:140px}}
 .desk-talk h3{font-size:13px;margin:16px 0 6px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
 .desk-talk ul{list-style:none;margin:0;padding:0}
@@ -46,9 +66,14 @@
 .desk-add-here,.desk-search{display:flex;gap:6px;margin-top:6px}
 .desk-add-here select,.desk-search select{flex:1;min-width:0;padding:4px 6px;font-size:12px;border:1px solid var(--field-line);border-radius:6px;background:var(--surface-input);color:var(--ink)}
 .desk-add-here .button{padding:4px 9px;font-size:12px}
-.desk-export{display:flex;flex-direction:column;gap:8px}
+.desk-export{display:grid;grid-template-columns:minmax(200px,280px) minmax(0,1fr);gap:12px 22px;align-items:start}
 .desk-export select{padding:6px 8px;font-size:13px;border:1px solid var(--field-line);border-radius:6px;background:var(--surface-input);color:var(--ink)}
-.desk-check{flex-direction:row;align-items:center;font-weight:400;font-size:13px}
-.desk-export-buttons{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 4px}
+.desk-check{flex-direction:row;align-items:flex-start;font-weight:400;font-size:13px}
+.desk-check input{margin-top:3px;flex:none}
+.desk-export-buttons{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:8px;margin:0}
 .manuscript-preview blockquote{background:var(--surface-warm);border-left-color:var(--yellow)}
 .manuscript-preview img{max-width:100%}
+.desk-search-bar .desk-search input[type=search]{flex:2 1 260px;min-width:0;padding:8px 10px;font:inherit;font-size:14px;border:1px solid var(--field-line);border-radius:6px;background:var(--surface-input);color:var(--ink)}
+.desk-search-graph{flex:0 0 auto;margin:0;font-size:13px}
+.desk-results-group{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:16px 0 4px}
+.desk-via{color:var(--accent-dark)}
