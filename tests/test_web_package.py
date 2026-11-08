@@ -45,6 +45,7 @@ EXPECTED_ROUTES = [
     ("POST", "/review/links/batch"),
     ("POST", "/review/links"),
     ("GET", "/notes"),
+    ("POST", "/notes/semantica"),
     ("GET", "/notes/new"),
     ("POST", "/notes/new/biblio-preview"),
     ("POST", "/notes/new"),

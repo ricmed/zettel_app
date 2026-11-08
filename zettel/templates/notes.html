@@ -50,6 +50,10 @@
         {% endfor %}
       </select>
     </label>
+    <label for="library-tag">Tag
+      <input id="library-tag" name="tag" type="search" list="library-tags" value="{{ filters.tag }}" placeholder="Qualquer tag">
+      <datalist id="library-tags">{% for value in facets.tags %}<option value="{{ value }}">{% endfor %}</datalist>
+    </label>
     <label for="library-sort">Ordenar
       <select id="library-sort" name="sort">
         <option value=""{% if not filters.sort %} selected{% endif %}>Relevância na busca, senão mais recentes</option>
@@ -60,11 +64,59 @@
     </label>
   </div>
   <div class="library-filter-footer">
-    <span class="muted">Fonte e autor filtram ZTLs vinculadas; MOCs não têm fonte ou autor direto.</span>
+    <span class="muted">Fonte, autor e tag filtram ZTLs; MOCs não têm fonte, autor ou tag.</span>
     <div class="library-filter-actions"><a href="/notes">Limpar filtros</a><button class="button" type="submit">Aplicar filtros</button></div>
   </div>
 </form>
 
+<form method="post" action="/notes/semantica" class="panel library-filters library-semantic" role="search">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <div class="library-search-row">
+    <label for="library-semantic">Pesquisar pelo sentido (híbrida: vetores + termos, com piso de relevância)
+      <input id="library-semantic" name="q" type="search" value="{{ semantic_query }}" maxlength="500" placeholder="Ex.: machine learning aplicado a credit score">
+    </label>
+    <button class="primary" type="submit"{% if semantic_blocker %} disabled title="{{ semantic_blocker }}"{% endif %}>Pesquisar pelo sentido</button>
+  </div>
+  <label class="library-check"><input type="checkbox" name="graph" value="1"{% if semantic_graph %} checked{% endif %}> Incluir vizinhos do grafo das notas encontradas</label>
+  {% if semantic_blocker %}<small class="muted">{{ semantic_blocker }}</small>{% else %}<small class="muted">Custa um embedding de consulta. Encontra sinônimos e fontes em outra língua que a busca por termos não alcança.</small>{% endif %}
+</form>
+
+{% if error %}<div class="alert error" role="alert">{{ error }}</div>{% endif %}
+
+{% if semantic %}
+<section class="library-results" aria-label="Resultados por sentido">
+  <div class="library-results-heading">
+    <div><span class="eyebrow">por sentido</span><h2>{{ semantic.hits|length }} {% if semantic.hits|length == 1 %}nota encontrada{% else %}notas encontradas{% endif %}</h2></div>
+  </div>
+  {% if semantic.hits %}
+  <div class="library-list">
+    {% for hit in semantic.hits %}
+    <article class="panel library-item">
+      <div class="library-item-body">
+        <span class="library-badge">ZTL{% if hit.hop %} · vizinha (salto {{ hit.hop }}){% endif %}</span>
+        <h3><a href="/notes/{{ hit.note_id }}">{{ hit.title }}</a></h3>
+        {% if hit.thesis %}<p class="library-excerpt">{{ hit.thesis }}</p>{% endif %}
+        <p class="library-meta">
+          {% if hit.source_id %}<span>Fonte: {{ hit.source_title or hit.source_id }}</span>{% endif %}
+          {% if hit.similarity is not none %}<span>similaridade {{ '%.2f'|format(hit.similarity) }}</span>{% endif %}
+          {% if hit.bm25_rank is not none %}<span>termos: posição {{ hit.bm25_rank }}</span>{% endif %}
+          {% for step in hit.via %}<span>via {{ step.relation_type }}</span>{% endfor %}
+        </p>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty library-empty">Nenhuma nota passou o piso de relevância para essa busca.</div>
+  {% endif %}
+  {% if semantic.below %}
+  <details class="panel library-below">
+    <summary>{{ semantic.below|length }} candidata(s) abaixo do piso de relevância</summary>
+    <ul>{% for hit in semantic.below %}<li><a href="/notes/{{ hit.note_id }}">{{ hit.title }}</a> <small class="muted">{{ hit.floor_reason }}</small></li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+</section>
+{% else %}
 <section class="library-results" aria-label="Resultados">
   <div class="library-results-heading">
     <div><span class="eyebrow">resultados</span><h2>{{ total }} {% if total == 1 %}item encontrado{% else %}itens encontrados{% endif %}</h2></div>
@@ -95,7 +147,7 @@
     {% endfor %}
   </div>
   {% else %}
-  <div class="empty library-empty">{% if filters.q or filters.kind or filters.source_id or filters.author or filters.origin %}Nenhuma nota corresponde à busca ou aos filtros. Tente outros termos ou <a href="/notes">limpe os filtros</a>.{% else %}Ainda não há ZTLs ou MOCs indexados. Crie notas e execute a sincronização manual no Pipeline para encontrá-los aqui.{% endif %}</div>
+  <div class="empty library-empty">{% if filters.q or filters.kind or filters.source_id or filters.author or filters.origin or filters.tag %}Nenhuma nota corresponde à busca ou aos filtros. Tente outros termos ou <a href="/notes">limpe os filtros</a>.{% else %}Ainda não há ZTLs ou MOCs indexados. Crie notas e execute a sincronização manual no Pipeline para encontrá-los aqui.{% endif %}</div>
   {% endif %}
   {% if pages > 1 %}
   <nav class="library-pagination" aria-label="Paginação dos resultados">
@@ -105,5 +157,6 @@
   </nav>
   {% endif %}
 </section>
+{% endif %}
 {% endblock %}
 {% block scripts %}<script src="/static/notes-export.js" defer></script>{% endblock %}

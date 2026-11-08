@@ -50,3 +50,9 @@
 .connection-group h3{font-size:14px;margin:10px 0 4px}
 .connection-status{font:700 10px/1.6 ui-monospace,SFMono-Regular,monospace;letter-spacing:.05em;text-transform:uppercase;color:var(--accent-dark);border:1px solid var(--line);border-radius:4px;padding:0 5px}
 .markdown-body img{display:block;max-width:100%;height:auto;margin:12px 0;border-radius:6px}
+.library-semantic{margin-top:-14px}
+.library-semantic small{display:block;margin-top:8px;font-size:12px}
+.library-check{flex-direction:row;align-items:center;font-weight:400;margin-top:4px}
+.library-below{padding:16px 22px;margin-top:14px;font-size:13px}
+.library-below summary{cursor:pointer;font-weight:600}
+.library-below ul{margin:10px 0 0;padding-left:18px}

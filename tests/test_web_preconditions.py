@@ -179,6 +179,7 @@ def test_retry_assets_refuses_when_nothing_failed(web_client, monkeypatch, accep
         ("article", {"article"}),
         ("summarize", {"summarize"}),
         ("catalog", set()),
+        ("semantic_search", set()),
     ],
 )
 def test_each_operation_names_only_the_phases_it_calls(web_client, operation, expected):

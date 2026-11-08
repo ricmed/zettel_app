@@ -11,6 +11,10 @@ from zettel.state.sources import escape_like
 # A note is permanent when its vault path sits under 30_Permanent/. The folder
 # name has no slash in it, so the test is independent of the path's slash style.
 _PERMANENT_PATH = "instr(path, '30_Permanent') > 0"
+# A note's frontmatter as JSON json_each can read; a broken row reads as empty.
+_FRONTMATTER = "CASE WHEN json_valid(n.frontmatter_json) THEN n.frontmatter_json ELSE '{}' END"
+# Tags are free text and run to thousands; the filter offers the most used.
+_TAG_FACET_LIMIT = 300
 
 
 class NotesMixin(StateBase):
@@ -263,10 +267,17 @@ class NotesMixin(StateBase):
         origins = self._fetchall(
             "SELECT origin FROM notes UNION SELECT origin FROM mocs ORDER BY origin"
         )
+        tags = self._fetchall(
+            f"""SELECT j.value AS tag, COUNT(*) AS notes
+               FROM notes n, json_each({_FRONTMATTER}, '$.tags') j
+               WHERE j.type='text' GROUP BY j.value
+               ORDER BY notes DESC, j.value LIMIT {_TAG_FACET_LIMIT}"""
+        )
         return {
             "sources": source_rows,
             "authors": sorted(authors, key=fold),
             "origins": [row["origin"] for row in origins],
+            "tags": [row["tag"] for row in tags],
         }
 
     def search_catalog(
@@ -277,6 +288,7 @@ class NotesMixin(StateBase):
         source_id: str = "",
         author: str = "",
         origin: str = "",
+        tag: str = "",
         sort: str = "relevance",
         page: int = 1,
         per_page: int = 12,
@@ -287,7 +299,8 @@ class NotesMixin(StateBase):
         never by a Python fold over every body (#312). MOCs are few (one per
         subject), so they keep a folded ``LIKE`` over topic and body and rank
         first: a MOC on the subject is the door to it. ``sort='relevance'``
-        without a query is ``recent``.
+        without a query is ``recent``. ``tag`` keeps the notes whose frontmatter
+        ``tags`` list holds it exactly; MOCs have no tags.
         """
         query = query[:200].strip()
         params: list[str] = []
@@ -317,11 +330,11 @@ class NotesMixin(StateBase):
             WITH catalog AS (
               SELECT 'ZTL' AS kind, n.note_id AS item_id, n.title, n.body, n.path,
                      n.origin, n.updated_at, n.source_id, s.title AS source_title,
-                     s.authors, {note_score} AS score
+                     s.authors, {_FRONTMATTER} AS fm, {note_score} AS score
                 {note_rows}
               UNION ALL
               SELECT 'MOC', m.moc_id, m.topic, m.body, m.path, m.origin,
-                     m.updated_at, NULL, NULL, NULL, NULL
+                     m.updated_at, NULL, NULL, NULL, '{{}}', NULL
                 FROM mocs m {moc_where}
             )
         """
@@ -342,6 +355,9 @@ class NotesMixin(StateBase):
         if origin:
             clauses.append("origin=?")
             params.append(origin)
+        if tag:
+            clauses.append("EXISTS (SELECT 1 FROM json_each(fm, '$.tags') WHERE value=?)")
+            params.append(tag)
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         total = self._count(catalog + "SELECT COUNT(*) FROM catalog" + where, tuple(params))
         orders = {
