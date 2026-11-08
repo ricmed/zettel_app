@@ -4,7 +4,7 @@
 
 Todos os comandos do `zettel`, com as flags reais do pacote [`zettel/cli/`](../zettel/cli/) e o que cada uma faz. A CLI é construída com Typer + Rich ([ADR-026](adrs/generated/CLI/ADR-026-typer-rich-cli-framework.md)) e está organizada em módulos por fase do pipeline ([ADR-032](adrs/generated/CLI/ADR-032-cli-as-python-package.md)).
 
-Os exemplos usam `python -m zettel ...`; prefixe com `uv run` se o ambiente não estiver ativado.
+Os exemplos usam `python -m zettel ...`; prefixe com `uv run --no-sync` se o ambiente não estiver ativado.
 
 Um comando que altera dados (harvest, extract, review, connect, garden, sync-manual, reindex e afins) toma a trava `data/zettel.lock`, a mesma da interface web. Se outro comando ou um job da web estiver rodando, ele sai com código 1 e diz quem está com a trava. Os comandos de leitura (`status`, `doctor`, `ask`, `catalog`, `article`, `skill`, os dumps) não precisam dela.
 

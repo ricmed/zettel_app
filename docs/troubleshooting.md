@@ -18,8 +18,36 @@ O `doctor` valida configuração, dependências, disponibilidade de FTS5, cobert
 Docling é obrigatório para harvest de PDF — não há extrator alternativo ([ADR-012](adrs/generated/HARVEST/ADR-012-docling-pdf-extraction-pymupdf-fallback.md); o PyMuPDF foi removido por licenciamento AGPL-3.0). A falha é intencionalmente ruidosa (`harvester.extract.PdfExtractionError`), sem degradação silenciosa para texto puro.
 
 ```bash
-uv sync
+uv sync --extra cpu      # ou --extra cu126 com GPU NVIDIA
 ```
+
+---
+
+## "Sem API key para embeddings Gemini" / `init` sem índice vetorial
+
+O embedding padrão é Gemini (`embedding.provider: gemini`) e precisa de `GOOGLE_API_KEY` (ou `GEMINI_API_KEY`) no `.env`. Sem a chave, o `init` cria o vault e o SQLite, avisa e pula o Chroma, e os comandos que buscam ou indexam param com essa mensagem. Preencha a chave e rode `python -m zettel init` de novo. Para não depender do Google, troque o `embedding` no `config.yaml` (Ollama local não pede chave) e rode `zettel reindex --force`. Veja [configuração](configuracao.md).
+
+---
+
+## `doctor` marca `LLM <fase>` como FALHA
+
+A linha nomeia a variável que falta (`anthropic / claude-haiku-5-5: falta ANTHROPIC_API_KEY no .env`). O `config.yaml` padrão usa quatro provedores; a tabela de fases e chaves está em [instalação](instalacao.md#chaves-de-api). Você pode preencher a chave ou trocar `llm.<fase>.provider` para um provedor cuja chave já existe.
+
+---
+
+## O torch virou CPU (ou baixou CUDA) depois de um `uv run`
+
+O torch é instalado por um extra (`uv sync --extra cpu` ou `--extra cu126`). Um `uv run` **sem** `--no-sync` ressincroniza o ambiente sem o extra e põe no lugar o torch do PyPI: só CPU no Windows, com as bibliotecas CUDA 13 no Linux. Para voltar:
+
+```bash
+uv sync --extra cu126    # ou --extra cpu
+```
+
+Depois use `uv run --no-sync ...`, ative o `.venv` ou exporte `UV_NO_SYNC=1`. O `doctor` mostra a versão do torch (`+cu126` ou `+cpu`) e se a GPU foi vista.
+
+## Instalei o torch CUDA numa máquina sem GPU
+
+Não quebra nada (`device: auto` cai para CPU), mas ocupa cerca de 2,5 GB. Troque com `uv sync --extra cpu`.
 
 ---
 

@@ -8,7 +8,7 @@
 
 | Guia | O que responde |
 |---|---|
-| [Instalação](instalacao.md) | Pré-requisitos, `uv sync`, `.env`, GPU, `init`, testes |
+| [Instalação](instalacao.md) | uv, script de setup, torch CPU/CUDA, chaves por fase, Docker, `init`, testes |
 | [Configuração](configuracao.md) | Catálogo completo do `config.yaml`, provedores de LLM e embedding, caches, troca de modelo |
 | [Comandos (CLI)](cli.md) | Referência de todos os comandos e flags |
 

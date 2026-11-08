@@ -185,10 +185,10 @@ Ou seja: um backup de `data/state.db` + arquivos originais + notas manuais recon
 ## Testes
 
 ```bash
-uv run pytest tests/ -v
-uv run pytest tests/test_hashing.py -v
-uv run pytest tests/test_hashing.py::test_normalize_collapses_whitespace -v
-uv run pytest tests/test_web.py tests/test_web_state.py -v
+uv run --no-sync pytest tests/ -v
+uv run --no-sync pytest tests/test_hashing.py -v
+uv run --no-sync pytest tests/test_hashing.py::test_normalize_collapses_whitespace -v
+uv run --no-sync pytest tests/test_web.py tests/test_web_state.py -v
 ```
 
 ---
