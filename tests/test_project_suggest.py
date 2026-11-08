@@ -70,3 +70,10 @@ def test_section_query_reads_the_title_and_the_cards_theses():
     body = parse_body(_desk())
     query = section_query(body, 1, {A: "boosting supera", C: "viés amostral"}, "Mesa")
     assert query == "Modelos boosting supera viés amostral"
+
+
+def test_the_authors_focus_replaces_the_theses_in_the_section_query():
+    body = parse_body(_desk())
+    theses = {A: "boosting supera", C: "viés amostral"}
+    query = section_query(body, 1, theses, "Mesa", "  redes neurais   para PD  ")
+    assert query == "redes neurais para PD Modelos"

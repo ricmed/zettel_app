@@ -23,6 +23,7 @@ router = APIRouter()
 
 _MAX_NOTES_PER_ADD = 200
 _MAX_TEXT = 20_000
+_MAX_FOCUS = 500
 
 
 def _int(value: Any) -> int | None:
@@ -341,6 +342,7 @@ def _desk_page(
     *,
     status_code: int = 200,
     section_search: dict | None = None,
+    search_form: dict | None = None,
     error: str | None = None,
 ):
     from zettel.project_suggest import converse
@@ -372,6 +374,7 @@ def _desk_page(
         targets=targets,
         talk=_talk_view(talk, {s["index"]: s["title"] for s in targets}, project.body),
         section_search=section_search,
+        search_form=search_form or {"section": None, "focus": ""},
         search_blocker=blocker(cfg, "desk_search"),
         error=error,
         config_manuscript=cfg.manuscript,
@@ -388,9 +391,17 @@ def project_detail(request: Request, project_id: str):
 
 @router.post("/projetos/{project_id}/buscar", response_class=HTMLResponse)
 def project_section_search(
-    request: Request, project_id: str, csrf: str = Form(""), secao: str = Form("")
+    request: Request,
+    project_id: str,
+    csrf: str = Form(""),
+    secao: str = Form(""),
+    foco: str = Form(""),
 ):
-    """Notes that fit a section and are not on the desk yet (one query embedding)."""
+    """Notes that fit a section and are not on the desk yet (one query embedding).
+
+    ``foco`` is what the author wants to find there (#387); empty, the title
+    and the cards' theses are the query.
+    """
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, csrf):
@@ -403,9 +414,11 @@ def project_section_search(
     from zettel.web.preconditions import blocker
 
     cfg = service(request).cfg
+    focus = " ".join(foco.split())[:_MAX_FOCUS]
+    form = {"section": _int(secao), "focus": focus}
     reason = blocker(cfg, "desk_search")
     if reason:
-        return _desk_page(request, project_id, status_code=409, error=reason)
+        return _desk_page(request, project_id, status_code=409, error=reason, search_form=form)
     try:
         project = load_project(cfg, project_id)
     except ProjectNotFound:
@@ -417,12 +430,12 @@ def project_section_search(
         lock = operation_lock(request, "desk_search")
     except LockBusy as busy:
         message = f"O índice está em uso. {busy} Tente de novo quando ela terminar."
-        return _desk_page(request, project_id, status_code=409, error=message)
+        return _desk_page(request, project_id, status_code=409, error=message, search_form=form)
     db = service(request).db()
     try:
         desk = project.body.note_ids()
         theses = {nid: view.thesis for nid, view in card_views(cfg, db, desk).items()}
-        query = section_query(project.body, section, theses, project.title)
+        query = section_query(project.body, section, theses, project.title, focus)
         result = Retriever(cfg, db, VectorIndex(**index_kwargs(cfg))).search_notes(query)
         found = [hit.note_id for hit in result.hits if hit.note_id not in set(desk)]
         views = card_views(cfg, db, found)
@@ -432,9 +445,10 @@ def project_section_search(
     search = {
         "section": section,
         "title": project.body.sections[section].title,
+        "focus": focus,
         "hits": [views[nid] for nid in found if views[nid].exists],
     }
-    return _desk_page(request, project_id, section_search=search)
+    return _desk_page(request, project_id, section_search=search, search_form=form)
 
 
 def _export_options(cfg: Any, params: Any) -> dict[str, Any]:

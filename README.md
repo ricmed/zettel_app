@@ -219,7 +219,7 @@ O método de Luhmann não termina na nota. Para escrever, ele tirava as fichas d
    - cartões sem ligação com o resto da seção;
    - seções apoiadas numa fonte só.
 
-   **Buscar para uma seção** procura notas novas pelo título e pelas teses dela.
+   **Buscar para uma seção** procura notas novas para a seção. Você pode escrever o que procura; sem texto, a busca usa o título e as teses dos cartões dela.
 4. **Exportar.** O manuscrito segue a sua ordem. Cada cartão vira a tese com a citação ABNT (com página), a definição e, se você quiser, o trecho literal e os limites. As figuras saem numeradas, com legenda e fonte. `[Complementar]` marca o que falta você escrever. No fim vem `## Referências`, com cada obra uma vez, em ordem alfabética. Os formatos são:
    - **.docx**, gerado pelo Pandoc embutido, com equações nativas do Word e o estilo "Complementar" para achar as lacunas;
    - **.zip**, com `manuscrito.md`, `figuras/` e `referencias.bib`;

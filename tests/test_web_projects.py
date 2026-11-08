@@ -211,6 +211,14 @@ def test_the_desk_converses_and_searches_a_section(web_client, monkeypatch):
     results = found.text.split("Para «Para organizar»")[1]
     # The note already on the desk is not suggested again.
     assert "Regressão logística" in results and f'value="{N1}"' not in results
+    focused = client.post(
+        f"/projetos/{project_id}/buscar",
+        data={"csrf": csrf, "secao": inbox, "foco": "redes neurais para PD"},
+    )
+    assert focused.status_code == 200
+    assert queries[-1] == "redes neurais para PD Para organizar"
+    assert "Para «Para organizar»: redes neurais para PD" in focused.text
+    assert 'name="foco" value="redes neurais para PD"' in focused.text
     added = client.post(
         f"/projetos/{project_id}",
         data={"csrf": csrf, "acao": "itens", "secao": inbox, "note_ids": N2},

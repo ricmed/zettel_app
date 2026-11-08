@@ -146,9 +146,20 @@ def converse(cfg: Any, db: Any, body: ProjectBody) -> Conversation:
     )
 
 
-def section_query(body: ProjectBody, section: int, theses: dict[str, str], title: str) -> str:
-    """What "search for this section" asks: its title and its cards' theses."""
+def section_query(
+    body: ProjectBody, section: int, theses: dict[str, str], title: str, focus: str = ""
+) -> str:
+    """What "search for this section" asks.
+
+    With the author's ``focus`` (#387), that text and the section title: the
+    cards' theses are left out, since they would dilute the focus in the
+    embedding and in the BM25 coverage. Without it, the title and the theses.
+    """
     target = body.sections[section]
-    parts = [target.title or title]
+    heading = target.title or title
+    wanted = " ".join(focus.split())
+    if wanted:
+        return f"{wanted} {heading}"[:1000]
+    parts = [heading]
     parts.extend(theses.get(card.note_id, "") for card in target.cards)
     return " ".join(p for p in parts if p)[:1000]
