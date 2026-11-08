@@ -10,6 +10,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
 from zettel.web.enqueue import operation_lock
+from zettel.web.mesa import desk_choices
 from zettel.web.rendering import error_page, render, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login
 
@@ -217,4 +218,4 @@ def notes_semantic(
     finally:
         db.close()
         lock.release()
-    return _page(request, semantic=semantic, facets=facets, **keep)
+    return _page(request, semantic=semantic, facets=facets, desks=desk_choices(request), **keep)

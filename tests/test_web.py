@@ -3517,7 +3517,8 @@ def test_a_failed_job_shows_a_reference_the_log_also_has(web_client, monkeypatch
         assert wait_for_job(client, job_id)["job"]["state"] == "failed"
     job = client.app.state.service.job(job_id)
     page = client.get(f"/jobs/{job_id}").text
-    assert "projetos" not in job["error_message"] and "projetos" not in page
+    leaked = "zettel_app"
+    assert leaked not in job["error_message"] and leaked not in page
     ref = re.search(r"ref\. ([0-9a-f]{8})", job["error_message"]).group(1)
     assert any(ref in record.getMessage() for record in caplog.records)
 

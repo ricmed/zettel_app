@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Execução {{ job.operation }} · Zettelkasten{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/studio.css">{% endblock %}
+{% from "_mesa.html" import mesa_add with context %}
 {% block content %}
 <div class="page-heading">
   <div>
@@ -108,12 +109,13 @@
   {% endif %}
   {% if result.candidates %}
   <h3>Notas recuperadas</h3>
+  {{ mesa_add(desks, 'mesa-ask', [], 'Adicionar as marcadas à mesa') }}
   <table class="studio-table">
     <thead><tr><th>Nota</th><th class="num">RRF</th><th class="num">Sim.</th><th class="num">BM25</th><th class="num">Salto</th><th>Usada?</th><th>Motivo</th><th>Origem</th></tr></thead>
     <tbody>
     {% for src in result.candidates %}
       <tr class="{% if not src.passed_floor %}dim{% endif %}">
-        <td><a href="/notes/{{ src.note_id }}">{{ src.title or src.note_id }}</a></td>
+        <td><input type="checkbox" name="note_ids" value="{{ src.note_id }}" form="mesa-ask" class="mesa-pick"{% if src.passed_floor %} checked{% endif %} aria-label="Marcar para a mesa"><a href="/notes/{{ src.note_id }}">{{ src.title or src.note_id }}</a></td>
         <td class="num">{{ '%.4f'|format(src.rrf_score or 0) }}</td>
         <td class="num">{% if src.vector_similarity is not none %}{{ '%.2f'|format(src.vector_similarity) }}{% else %}-{% endif %}</td>
         <td class="num">{{ src.bm25_rank if src.bm25_rank is not none else '-' }}</td>

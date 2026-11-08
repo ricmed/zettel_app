@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Acervo · Zettelkasten{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/studio.css">{% endblock %}
+{% from "_mesa.html" import mesa_add with context %}
 {% block content %}
 <div class="page-heading">
   <div>
@@ -70,6 +71,7 @@
         {% if not catalog.sources %}
         <p>Nenhuma fonte do acervo trata desse assunto com evidência suficiente.</p>
         {% endif %}
+        {% if catalog.sources %}{{ mesa_add(desks, 'mesa-catalog', [], 'Adicionar as notas marcadas à mesa') }}{% endif %}
         {% for src in catalog.sources %}
         <div class="catalog-source">
           <h3><a href="/sources/{{ src.source_id }}">{{ src.title }}</a></h3>
@@ -84,7 +86,7 @@
                 <td class="num">{{ ch.note_count }}</td>
                 <td>{{ ch.origin_label }}</td>
               </tr>
-              {% if ch.via_notes %}<tr class="catalog-notes"><td colspan="4">{% for nid in ch.via_notes %}<a href="/notes/{{ nid }}">{{ catalog_notes.get(nid) or nid }}</a>{% if not loop.last %} · {% endif %}{% endfor %}</td></tr>{% endif %}
+              {% if ch.via_notes %}<tr class="catalog-notes"><td colspan="4">{% for nid in ch.via_notes %}<input type="checkbox" name="note_ids" value="{{ nid }}" form="mesa-catalog" class="mesa-pick" aria-label="Marcar para a mesa"><a href="/notes/{{ nid }}">{{ catalog_notes.get(nid) or nid }}</a>{% if not loop.last %} · {% endif %}{% endfor %}</td></tr>{% endif %}
             {% endfor %}
             </tbody>
           </table>

@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from zettel.markdown import render_markdown
 from zettel.web.enqueue import post_job
+from zettel.web.mesa import desk_choices
 from zettel.web.rendering import error_page, render, service
 from zettel.web.security import authenticated, redirect_login
 
@@ -192,6 +193,7 @@ def note_detail(request: Request, note_id: str):
         connections=connections,
         source=source,
         mocs=mocs,
+        desks=desk_choices(request),
     )
 
 
@@ -206,10 +208,15 @@ def moc_detail(request: Request, moc_id: str):
         db.close()
     if not moc:
         return error_page(request, 404, "MOC não encontrado")
+    from zettel.vault import ZTL_LINK_RE
+
+    entries = list(dict.fromkeys(ZTL_LINK_RE.findall(moc.get("body") or "")))
     return render(
         request,
         "moc_detail.html",
         page="notes",
         moc=moc,
         rendered_body=render_markdown(moc.get("body")),
+        entries=entries,
+        desks=desk_choices(request),
     )

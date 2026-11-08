@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Mesas · Zettelkasten{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/project.css">{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">escrita</div>
+    <h1>Mesas</h1>
+    <p class="muted">Uma mesa reúne ZTLs para um texto: você escolhe as notas, ordena em seções, escreve as pontes entre elas e exporta o manuscrito. Cada mesa é uma nota em <code>50_Projetos/</code> no vault e também pode ser editada no Obsidian.</p>
+  </div>
+</div>
+<section class="panel">
+  <h2>Nova mesa</h2>
+  <form method="post" action="/projetos" class="desk-create">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Título <input type="text" name="title" maxlength="200" required placeholder="Ex.: Machine learning em credit score"></label>
+    <label>Estilo
+      <select name="style"><option value="academic">Acadêmico (ABNT com página)</option><option value="blog">Blog (menção leve à fonte)</option></select>
+    </label>
+    <button class="primary" type="submit">Criar mesa</button>
+  </form>
+</section>
+<section class="panel">
+  <h2>Suas mesas</h2>
+  {% if desks %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Mesa</th><th>Estilo</th><th class="num">Seções</th><th class="num">Cartões</th><th>Atualizada</th></tr></thead>
+    <tbody>{% for desk in desks %}<tr><td><a href="/projetos/{{ desk.project_id }}">{{ desk.title }}</a></td><td>{{ 'acadêmico' if desk.style == 'academic' else 'blog' }}</td><td class="num">{{ desk.sections }}</td><td class="num">{{ desk.cards }}</td><td>{{ desk.updated_at | local_dt('date') if desk.updated_at else '—' }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<div class="empty">Nenhuma mesa ainda. Crie uma acima e adicione notas pela busca, pelo detalhe de uma nota, por um MOC ou pelo Acervo.</div>{% endif %}
+</section>
+{% endblock %}

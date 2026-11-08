@@ -328,6 +328,7 @@ VAULT_DIRS = [
     "20_Literature",
     "30_Permanent",
     "40_MOCs",
+    "50_Projetos",
     "90_Assets",
 ]
 
@@ -337,6 +338,8 @@ PIPELINE_ORIGINS = frozenset({"pipeline", "hub_pipeline"})
 
 # Obsidian templates and their script (#344); generated files, not notes.
 TEMPLATES_DIR = "99_Templates"
+# Writing projects (Mesa, ADR-067): the author's, kept by ``init --reset``.
+PROJECTS_DIR = "50_Projetos"
 
 
 def init_vault(vault_path: Path) -> None:

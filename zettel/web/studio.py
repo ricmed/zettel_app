@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 
 from zettel.web.enqueue import lock_busy_message, operation_lock, post_job
 from zettel.web.labels import md_cell
+from zettel.web.mesa import desk_choices
 from zettel.web.rendering import error_page, render, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login
 
@@ -221,6 +222,7 @@ def _catalog(request: Request, subject: str, show_context: bool):
         request,
         catalog=result,
         catalog_notes=note_titles,
+        desks=desk_choices(request),
         catalog_subject=subject,
         catalog_show_context=show_context,
         catalog_copy=catalog_copy_text(result, show_context=show_context),

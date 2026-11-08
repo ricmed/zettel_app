@@ -1,0 +1,14 @@
+{# "+ Mesa" (ADR-067): import with context so the CSRF token is in scope. A bulk
+   list ticks checkboxes that name this form through their form= attribute. #}
+{% macro mesa_add(desks, form_id, note_ids=[], label='Adicionar à mesa') %}
+<form method="post" action="/projetos/adicionar" id="{{ form_id }}" class="mesa-add">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  {% for note_id in note_ids %}<input type="hidden" name="note_ids" value="{{ note_id }}">{% endfor %}
+  {% if desks %}
+  <select name="projeto" aria-label="Mesa">{% for desk in desks %}<option value="{{ desk.project_id }}">{{ desk.title }}</option>{% endfor %}</select>
+  <button class="button" type="submit">{{ label }}</button>
+  {% else %}
+  <span class="muted"><a href="/projetos">Crie uma mesa</a> para reunir notas para um texto.</span>
+  {% endif %}
+</form>
+{% endmacro %}

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from zettel.web.labels import md_cell
+from zettel.web.mesa import desk_choices
 from zettel.web.rendering import error_page, render, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login
 from zettel.web_app import UserFacingError
@@ -176,6 +177,7 @@ def job_detail(request: Request, job_id: str):
         prose_html=view["prose_html"],
         preview_html=view["preview_html"],
         copy_text=result_copy_text(job.get("result") or {}),
+        desks=desk_choices(request) if job.get("operation") == "ask" else [],
     )
 
 

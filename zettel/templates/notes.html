@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Notas e MOCs · Zettelkasten{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/notes.css">{% endblock %}
+{% from "_mesa.html" import mesa_add with context %}
 {% block content %}
 <div class="page-heading library-heading">
   <div>
@@ -81,18 +82,18 @@
   {% if semantic_blocker %}<small class="muted">{{ semantic_blocker }}</small>{% else %}<small class="muted">Custa um embedding de consulta. Encontra sinônimos e fontes em outra língua que a busca por termos não alcança.</small>{% endif %}
 </form>
 
-{% if error %}<div class="alert error" role="alert">{{ error }}</div>{% endif %}
-
 {% if semantic %}
 <section class="library-results" aria-label="Resultados por sentido">
   <div class="library-results-heading">
     <div><span class="eyebrow">por sentido</span><h2>{{ semantic.hits|length }} {% if semantic.hits|length == 1 %}nota encontrada{% else %}notas encontradas{% endif %}</h2></div>
   </div>
   {% if semantic.hits %}
+  {{ mesa_add(desks, 'mesa-add', [], 'Adicionar as marcadas à mesa') }}
   <div class="library-list">
     {% for hit in semantic.hits %}
     <article class="panel library-item">
       <div class="library-item-body">
+        <label class="library-check"><input type="checkbox" name="note_ids" value="{{ hit.note_id }}" form="mesa-add" class="mesa-pick" checked> marcar</label>
         <span class="library-badge">ZTL{% if hit.hop %} · vizinha (salto {{ hit.hop }}){% endif %}</span>
         <h3><a href="/notes/{{ hit.note_id }}">{{ hit.title }}</a></h3>
         {% if hit.thesis %}<p class="library-excerpt">{{ hit.thesis }}</p>{% endif %}

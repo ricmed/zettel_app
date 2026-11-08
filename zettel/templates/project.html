@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}{{ project.title }} · Mesa{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/project.css">{% endblock %}
+{% macro item_fields(action, section, block='') %}<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="versao" value="{{ project.version }}"><input type="hidden" name="acao" value="{{ action }}"><input type="hidden" name="secao" value="{{ section }}"><input type="hidden" name="bloco" value="{{ block }}">{% endmacro %}
+{% macro move_controls(section, block) %}
+<form method="post" action="/projetos/{{ project.project_id }}">{{ item_fields('mover', section, block) }}<input type="hidden" name="direcao" value="up"><button class="button desk-icon" type="submit" title="Subir" aria-label="Subir">↑</button></form>
+<form method="post" action="/projetos/{{ project.project_id }}">{{ item_fields('mover', section, block) }}<input type="hidden" name="direcao" value="down"><button class="button desk-icon" type="submit" title="Descer" aria-label="Descer">↓</button></form>
+{% if targets|length > 1 %}<form method="post" action="/projetos/{{ project.project_id }}" class="desk-move-to">{{ item_fields('mover', section, block) }}<select name="destino" aria-label="Mover para a seção">{% for target in targets %}<option value="{{ target.index }}"{% if target.index == section %} selected{% endif %}>{{ target.title }}</option>{% endfor %}</select><button class="button" type="submit">Mover</button></form>{% endif %}
+<form method="post" action="/projetos/{{ project.project_id }}">{{ item_fields('remover', section, block) }}<button class="button desk-icon" type="submit" title="Tirar da mesa" aria-label="Tirar da mesa">✕</button></form>
+{% endmacro %}
+{% macro new_text(section, after='') %}<details class="desk-add-text"><summary>Escrever texto aqui</summary><form method="post" action="/projetos/{{ project.project_id }}">{{ item_fields('texto-novo', section, after) }}<textarea name="texto" rows="4" maxlength="20000" required placeholder="A ponte entre as notas, a introdução da seção, um argumento seu…"></textarea><button class="button" type="submit">Inserir</button></form></details>{% endmacro %}
+{% block content %}
+<a href="/projetos" class="back">← Mesas</a>
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">mesa · {{ 'acadêmico' if project.style == 'academic' else 'blog' }}</div>
+    <h1>{{ project.title }}</h1>
+    <p class="muted">{{ project.body.note_ids()|length }} cartão(ões). Arquivo: <code>{{ project.path.name }}</code></p>
+  </div>
+</div>
+<form method="post" action="/projetos/{{ project.project_id }}" id="desk-move" class="desk-hidden" data-desk-move>{{ item_fields('mover', '', '') }}<input type="hidden" name="destino" value=""><input type="hidden" name="antes" value=""></form>
+<div class="desk">
+  <div class="desk-outline">
+    {% for section in sections %}
+    <section class="panel desk-section" id="secao-{{ section.index }}" data-section="{{ section.index }}">
+      <header class="desk-section-head">
+        <h2>{% if section.intro %}Antes da primeira seção{% else %}{{ section.title }}{% endif %}</h2>
+        {% if not section.intro %}<div class="desk-controls">
+          <form method="post" action="/projetos/{{ project.project_id }}">{{ item_fields('secao-subir', section.index) }}<button class="button desk-icon" type="submit" title="Subir seção" aria-label="Subir seção">↑</button></form>
+          <form method="post" action="/projetos/{{ project.project_id }}">{{ item_fields('secao-descer', section.index) }}<button class="button desk-icon" type="submit" title="Descer seção" aria-label="Descer seção">↓</button></form>
+          <details class="desk-inline"><summary>Renomear</summary><form method="post" action="/projetos/{{ project.project_id }}">{{ item_fields('secao-renomear', section.index) }}<input type="text" name="titulo" value="{{ section.title }}" maxlength="200" required><button class="button" type="submit">Salvar</button></form></details>
+          <form method="post" action="/projetos/{{ project.project_id }}">{{ item_fields('secao-excluir', section.index) }}<button class="button" type="submit" title="O conteúdo vai para a seção de cima">Excluir seção</button></form>
+        </div>{% endif %}
+      </header>
+      {% for block in section.blocks %}
+        {% if block.kind == 'card' %}{% set note = block.note %}
+        <article class="desk-card{% if not note.exists %} missing{% endif %}" draggable="true" data-section="{{ section.index }}" data-block="{{ block.index }}">
+          {% if note.figure_url %}<img class="desk-thumb" src="{{ note.figure_url }}" alt="" loading="lazy">{% endif %}
+          <div class="desk-card-body">
+            {% if note.exists %}<h3><a href="/notes/{{ note.note_id }}">{{ note.title }}</a></h3>{% if note.thesis and note.thesis != note.title %}<p class="desk-thesis">{{ note.thesis }}</p>{% endif %}
+            <p class="desk-meta">{% if note.citation %}<span>{{ note.citation }}</span>{% endif %}{% if note.source_title %}<span>{{ note.source_title }}</span>{% endif %}</p>
+            {% else %}<h3>Nota ausente</h3><p class="desk-meta"><code>{{ note.note_id }}</code> não está mais no acervo.</p>{% endif %}
+            {% if block.annotation %}<p class="desk-annotation">{{ block.annotation }}</p>{% endif %}
+            <div class="desk-controls">{{ move_controls(section.index, block.index) }}
+              <details class="desk-inline"><summary>Anotação</summary><form method="post" action="/projetos/{{ project.project_id }}">{{ item_fields('anotacao', section.index, block.index) }}<textarea name="texto" rows="2" maxlength="20000" placeholder="Para que esta nota serve aqui">{{ block.annotation }}</textarea><button class="button" type="submit">Salvar</button></form></details>
+              {{ new_text(section.index, block.index) }}
+            </div>
+          </div>
+        </article>
+        {% else %}
+        <div class="desk-text" draggable="true" data-section="{{ section.index }}" data-block="{{ block.index }}">
+          <div class="markdown-body">{{ block.html|safe }}</div>
+          <div class="desk-controls">{{ move_controls(section.index, block.index) }}
+            <details class="desk-inline"><summary>Editar</summary><form method="post" action="/projetos/{{ project.project_id }}">{{ item_fields('texto', section.index, block.index) }}<textarea name="texto" rows="5" maxlength="20000">{{ block.content }}</textarea><button class="button" type="submit">Salvar</button></form></details>
+          </div>
+        </div>
+        {% endif %}
+      {% else %}
+      <div class="empty desk-drop">Seção vazia. Arraste um cartão para cá ou use "Mover".</div>
+      {% endfor %}
+      {{ new_text(section.index) }}
+    </section>
+    {% endfor %}
+    <section class="panel">
+      <h2>Nova seção</h2>
+      <form method="post" action="/projetos/{{ project.project_id }}" class="desk-create">{{ item_fields('secao-criar', '') }}<input type="text" name="titulo" maxlength="200" required placeholder="Título da seção"><button class="button" type="submit">Criar seção</button></form>
+    </section>
+  </div>
+  <aside class="desk-side">
+    <section class="panel">
+      <h2>Como usar</h2>
+      <p class="muted">Adicione notas pela busca em <a href="/notes">Notas</a>, pelo detalhe de uma nota, por um MOC ou pelo Acervo: elas chegam em "Para organizar". Ordene com as setas ou arrastando, escreva as pontes entre os cartões e exporte o manuscrito.</p>
+    </section>
+  </aside>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/project-board.js" defer></script>{% endblock %}
