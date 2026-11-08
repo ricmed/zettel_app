@@ -1,0 +1,26 @@
+# Ambiente e dados locais: o container monta data/ e vault/ como volumes.
+.venv
+.env
+data
+vault
+.eval-work
+
+# Versionamento, CI e ferramentas de desenvolvimento.
+.git
+.github
+.claude
+.cursor
+tools
+tests
+docs_project
+
+# Caches e saidas de teste.
+**/__pycache__
+*.py[oc]
+.pytest_cache
+.ruff_cache
+.hypothesis
+.coverage
+.coverage.*
+coverage.xml
+htmlcov

@@ -121,7 +121,7 @@ def test_get_llm_deepseek_fails_without_key(monkeypatch):
 
 
 def test_llm_phase_ready_deepseek_requires_own_key(monkeypatch):
-    from zettel.web.health import llm_phase_ready
+    from zettel.credentials import llm_phase_ready
 
     cfg = AppConfig()
     cfg.llm.ask = LLMPhaseConfig(provider="deepseek", model="deepseek-v4-flash")

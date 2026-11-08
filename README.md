@@ -44,7 +44,7 @@ MOCs (portas de entrada) por categoria da taxonomia + clusterização
 
 | Guia                                            | O que você encontra                                                                      |
 | ----------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| [Instalação](docs/instalacao.md)                | Pré-requisitos, `uv sync`, `.env`, GPU, `init`, testes                                   |
+| [Instalação](docs/instalacao.md)                | uv, script de setup, torch CPU/CUDA, chaves por fase, Docker, `init`, testes            |
 | [Configuração](docs/configuracao.md)            | Catálogo completo do `config.yaml`, provedores de LLM/embedding, caches, troca de modelo |
 | [Comandos (CLI)](docs/cli.md)                   | Referência de **todos** os comandos e flags                                              |
 | [Arquitetura](docs/arquitetura.md)              | Mapa dos módulos, estrutura do vault, anti-drift, IDs estáveis, custos                   |
@@ -68,30 +68,40 @@ MOCs (portas de entrada) por categoria da taxonomia + clusterização
 
 ## Início rápido
 
-Requisitos: **Python 3.12+** e **[uv](https://docs.astral.sh/uv/)**.
+O único requisito é o **[uv](https://docs.astral.sh/uv/)**: ele baixa o Python 3.12 sozinho.
 
 ```bash
-# 1. Dependências (cria .venv, resolve uv.lock, instala torch com CUDA quando aplicável)
-uv sync
-
-# 2. Chave de API
-cp .env.example .env        # edite: OPENAI_API_KEY=sk-...
-
-# 3. Vault + bases
-uv run python -m zettel init
-
-# 4. Ingestão
-cp meu_artigo.pdf data/inbox/
-uv run python -m zettel run-all
-
-# 5. Abra a pasta ./vault no Obsidian
+# Linux / macOS: instale o uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
+
+```powershell
+# Windows: instale o uv
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Depois, dentro do clone, rode o setup. Ele escolhe o torch (CUDA se houver `nvidia-smi`, senão CPU), cria o `.env` com um `SESSION_SECRET` gerado e roda `init` e `doctor`:
+
+```bash
+scripts/setup.sh                                          # Linux / macOS
+powershell -ExecutionPolicy Bypass -File scripts\setup.ps1  # Windows
+```
+
+**Chaves de API.** O `config/config.yaml` padrão usa **quatro provedores**: OpenAI, Google Gemini (extract e embedding), Anthropic (connect) e DeepSeek (ask e article). Preencha no `.env` as chaves que o `doctor` marcar como FALHA; ele nomeia a variável de cada fase. Para usar menos provedores, troque `llm.<fase>.provider` no `config.yaml`. A tabela de fases e chaves está em [Chaves de API](docs/instalacao.md#chaves-de-api).
+
+```bash
+cp meu_artigo.pdf data/inbox/
+uv run --no-sync python -m zettel run-all
+# depois abra a pasta ./vault no Obsidian
+```
+
+> Use `uv run --no-sync` (ou ative o `.venv`). O setup instala o torch por um extra do uv (`cpu` ou `cu126`), e um `uv run` simples ressincroniza sem o extra, trocando o torch.
+
+Para fazer à mão (`uv sync --extra cpu|cu126`, `.env`, `init`, `doctor`) ou rodar em **Docker** (`docker compose up`), veja [docs/instalacao.md](docs/instalacao.md).
 
 O `init` também deixa o vault pronto para escrever notas no próprio Obsidian, sem rede: templates com o Templater geram a nota com o mesmo formato do pipeline, e `zettel sync-manual` a leva para o banco ([notas manuais](docs/notas-manuais.md#criar-notas-direto-no-obsidian-templates), ADR-066).
 
-Passo a passo completo (GPU, provedores locais, dependências opcionais): [docs/instalacao.md](docs/instalacao.md).
-
-Os exemplos abaixo usam `python -m zettel ...`; prefixe com `uv run` se o ambiente não estiver ativado.
+Os exemplos abaixo usam `python -m zettel ...`; prefixe com `uv run --no-sync` se o ambiente não estiver ativado.
 
 ---
 
@@ -230,30 +240,30 @@ Catálogo completo, provedores suportados e o procedimento de troca de embedding
 
 ```bash
 # Suíte completa, como o CI (testes lentos incluídos)
-uv run pytest
+uv run --no-sync pytest
 
 # Ciclo de edição: sem os testes lentos (UMAP, Docling, scikit-learn, subprocessos), em paralelo
-uv run pytest -m "not slow" -n auto
+uv run --no-sync pytest -m "not slow" -n auto
 
 # Cobertura, como o CI roda (falha abaixo do piso em [tool.coverage.report])
-uv run pytest -n auto --cov
+uv run --no-sync pytest -n auto --cov
 
 # Um arquivo / uma função
-uv run pytest tests/test_hashing.py -v
-uv run pytest tests/test_hashing.py::test_normalize_collapses_whitespace -v
+uv run --no-sync pytest tests/test_hashing.py -v
+uv run --no-sync pytest tests/test_hashing.py::test_normalize_collapses_whitespace -v
 
 # Interface web: seleção por nome (todo tests/test_web_*.py e os testes que citam a web)
-uv run pytest tests/ -k web
+uv run --no-sync pytest tests/ -k web
 
 # Contrato entre as fases: run-all sobre um Markdown, LLM fixo, embedding local
-uv run pytest tests/test_pipeline_smoke.py -v
+uv run --no-sync pytest tests/test_pipeline_smoke.py -v
 
 # Avaliação offline: replay do ask, estatística dos gold sets, mapa de medições (sem LLM, sem rede)
-uv run pytest tests/evals/ -v
-uv run python -m zettel.evals.replay evals/configs/current-ask.yaml
+uv run --no-sync pytest tests/evals/ -v
+uv run --no-sync python -m zettel.evals.replay evals/configs/current-ask.yaml
 
 # Repetir a ordem aleatória de uma execução (a semente aparece no cabeçalho)
-uv run pytest --randomly-seed=N
+uv run --no-sync pytest --randomly-seed=N
 ```
 
 O CI ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)) roda `ruff check`, `ruff format --check` e a suíte completa com cobertura a cada push na `main` e em todo PR, sem segredos: um teste que chegue a um provedor falha lá. Em PR, ele também comenta quais medições do gold set cobrem um prompt, limiar ou modelo alterado ([evals/README.md](evals/README.md#qual-medição-cobre-uma-mudança-333)). A estratégia de testes está no [ADR-065](docs/adrs/generated/INFRA/ADR-065-test-strategy.md).

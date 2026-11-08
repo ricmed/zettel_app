@@ -129,6 +129,66 @@ def test_init_reset_declined_touches_nothing(cli_instance):
         assert path.is_file(), path
 
 
+_GEMINI_KEYS = ("GOOGLE_API_KEY", "GEMINI_API_KEY")
+
+
+def test_init_without_the_embedding_key_creates_everything_but_chroma(cli_instance, monkeypatch):
+    """A first init before the .env is filled leaves a usable vault, not a traceback."""
+    for name in _GEMINI_KEYS:
+        monkeypatch.delenv(name, raising=False)
+
+    output = cli_instance.run("init")
+
+    assert (cli_instance.vault / "30_Permanent").is_dir()
+    assert (cli_instance.root / "data" / "state.db").is_file()
+    assert not (cli_instance.root / "data" / "chroma").exists()
+    assert "GOOGLE_API_KEY" in output
+    assert "zettel init" in output
+
+
+def test_init_with_the_embedding_key_creates_chroma(cli_instance, monkeypatch):
+    monkeypatch.setenv("GOOGLE_API_KEY", "chave-teste")
+
+    cli_instance.run("init")
+
+    assert (cli_instance.root / "data" / "chroma").is_dir()
+
+
+def test_doctor_names_the_missing_key_of_a_phase(monkeypatch):
+    from zettel.cli.diagnostics import llm_phase_checks
+    from zettel.config import AppConfig, LLMPhaseConfig
+
+    cfg = AppConfig()
+    cfg.llm.connect = LLMPhaseConfig(provider="anthropic", model="claude-haiku-5-5")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    rows = {name: (ok, detail) for name, ok, detail in llm_phase_checks(cfg)}
+    assert rows["LLM connect"][0] is False
+    assert "ANTHROPIC_API_KEY" in rows["LLM connect"][1]
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "chave-teste")
+    rows = {name: ok for name, ok, _ in llm_phase_checks(cfg)}
+    assert rows["LLM connect"] is True
+
+
+def test_doctor_does_not_fail_images_while_images_are_off(monkeypatch):
+    from zettel.cli.diagnostics import llm_phase_checks
+    from zettel.config import AppConfig, LLMPhaseConfig
+
+    cfg = AppConfig()
+    cfg.llm.images = LLMPhaseConfig(provider="openai", model="gpt-6-luna")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    cfg.images.enabled = False
+    ((ok, detail),) = [(ok, d) for name, ok, d in llm_phase_checks(cfg) if name == "LLM images"]
+    assert ok is True
+    assert "OPENAI_API_KEY" in detail
+
+    cfg.images.enabled = True
+    ((ok, _),) = [(ok, d) for name, ok, d in llm_phase_checks(cfg) if name == "LLM images"]
+    assert ok is False
+
+
 def test_reindex_and_rebuild_run_on_a_harvested_source(harvested):
     instance, _sid = harvested
     assert "sources" in instance.run("reindex", "--yes")

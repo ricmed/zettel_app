@@ -128,11 +128,23 @@ def init(
         except ObsidianSettingsError as exc:
             console.print(f"[yellow]Obsidian nao configurado:[/yellow] {exc}")
 
+    from zettel.credentials import embedding_credential_env, embedding_ready
+
     db = get_db(cfg)
-    # Called for the side effect, not the value: constructing VectorIndex is what
-    # creates the Chroma collections and stamps them with the embedding
-    # identity. Without this, the store only appears on the first pipeline run.
-    get_idx(cfg, db=db, yes=False).close()
+    index_line = f"[green]ChromaDB:[/green] {cfg.chroma_path}"
+    if embedding_ready(cfg):
+        # Called for the side effect, not the value: constructing VectorIndex is what
+        # creates the Chroma collections and stamps them with the embedding
+        # identity. Without this, the store only appears on the first pipeline run.
+        get_idx(cfg, db=db, yes=False).close()
+    else:
+        # The vault, SQLite and the templates need no key; the first command that
+        # embeds asks for it again, and a second init creates the collections.
+        envs = " ou ".join(embedding_credential_env(cfg) or ())
+        index_line = (
+            f"[yellow]ChromaDB:[/yellow] nao criado, falta {envs} no .env "
+            f"(embedding {cfg.embedding.provider}). Defina e rode 'zettel init' de novo."
+        )
     db.close()
 
     # Ensure directories
@@ -162,7 +174,7 @@ def init(
             f"[green]Vault inicializado em:[/green] {cfg.vault_path}\n"
             f"[green]Inbox:[/green] {cfg.inbox_path}\n"
             f"[green]State DB:[/green] {cfg.state_db_path}\n"
-            f"[green]ChromaDB:[/green] {cfg.chroma_path}\n"
+            f"{index_line}\n"
             f"{device_line}{reset_line}",
             title="Zettelkasten -- Init",
             border_style="green",

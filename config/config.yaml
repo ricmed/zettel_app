@@ -468,4 +468,4 @@ vault_timezone: America/Sao_Paulo
 log_level: INFO
 
 # ── Dispositivo (Docling + sentence-transformers) ──────────────────────
-device: cuda                 # auto | cpu | cuda
+device: auto                 # auto | cpu | cuda (auto usa a GPU quando o torch CUDA a encontra)

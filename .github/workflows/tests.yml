@@ -21,14 +21,16 @@ jobs:
           python-version: "3.12"
           enable-cache: true
 
+      # CPU torch (pyproject extra). Later steps run with --no-sync: a plain
+      # `uv run` would re-sync without the extra and swap in Docling's PyPI torch.
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --extra cpu
 
       - name: Lint
-        run: uv run ruff check zettel tests
+        run: uv run --no-sync ruff check zettel tests
 
       - name: Format
-        run: uv run ruff format --check zettel tests
+        run: uv run --no-sync ruff format --check zettel tests
 
       # No secrets and no network: tests/conftest.py refuses every connection
       # outside loopback, pins LiteLLM to its bundled price map and offers an
@@ -36,7 +38,7 @@ jobs:
       # The whole suite, slow tests included, in parallel and in random order;
       # fails under the coverage floor in pyproject.toml ([tool.coverage.report]).
       - name: Tests
-        run: uv run pytest -q -n auto --cov --cov-report=term --cov-report=xml
+        run: uv run --no-sync pytest -q -n auto --cov --cov-report=term --cov-report=xml
 
       - name: Coverage report
         if: always()

@@ -1,0 +1,28 @@
+# Web UI em http://localhost:5000; a CLI roda no mesmo container:
+#   docker compose run --rm zettel python -m zettel init
+#   docker compose run --rm zettel python -m zettel run-all
+# Segredos vem do .env (cp .env.example .env). Veja docs/instalacao.md#docker.
+services:
+  zettel:
+    build:
+      context: .
+      args:
+        TORCH_EXTRA: ${TORCH_EXTRA:-cpu}
+    image: zettel-app
+    env_file: .env
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data:/app/data            # state.db, chroma, inbox, cache
+      - ./vault:/app/vault          # abra esta pasta no Obsidian
+      - ./config:/app/config:ro     # config.yaml editavel sem rebuild
+      - model-cache:/home/zettel/.cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/login')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  model-cache:

@@ -2,7 +2,13 @@
 
 [← Voltar ao README](../README.md)
 
-Como sair do zero até o primeiro `harvest`: pré-requisitos, dependências via **uv**, chaves de API e inicialização do vault.
+Este guia leva do clone ao primeiro `harvest`. São três caminhos:
+
+- **script de setup** (recomendado);
+- **passo a passo manual**;
+- **Docker**.
+
+Os três terminam no `zettel doctor`, que lista o que ainda falta.
 
 ---
 
@@ -10,142 +16,231 @@ Como sair do zero até o primeiro `harvest`: pré-requisitos, dependências via 
 
 | Requisito | Detalhe |
 |---|---|
-| **Python 3.12+** | Declarado em [`pyproject.toml`](../pyproject.toml) (`requires-python = ">=3.12"`). Versões anteriores não são suportadas. |
-| **[uv](https://docs.astral.sh/uv/)** | Gerenciador de dependências e ambiente do projeto. Todo o lockfile ([`uv.lock`](../uv.lock)) é mantido por ele. |
-| **Chave de API de LLM** | OpenAI por padrão. Também dá para rodar 100% local com Ollama — veja [configuracao.md](configuracao.md#provedores-de-llm-suportados). |
-| **GPU NVIDIA** (opcional) | Acelera Docling (OCR/layout de PDF) e embeddings locais. O projeto já fixa o índice CUDA 12.6 do PyTorch. |
+| **[uv](https://docs.astral.sh/uv/)** | Gerencia o ambiente, as dependências ([`uv.lock`](../uv.lock)) e o próprio Python. É o único requisito obrigatório. |
+| **Python 3.12** | Não é preciso instalar à mão: o uv lê o [`.python-version`](../.python-version) e baixa o 3.12 se ele faltar. |
+| **Chaves de API** | O [`config/config.yaml`](../config/config.yaml) padrão usa **quatro provedores**. Veja [Chaves de API](#chaves-de-api). |
+| **GPU NVIDIA** (opcional) | Acelera o Docling (layout e tabelas de PDF) e os embeddings locais. Sem GPU tudo roda em CPU. |
+| **Git** | Para clonar o repositório. |
 
-> O projeto é gerenciado exclusivamente por **uv**. Não use `pip install` na raiz do projeto: o ambiente e as versões vêm do `pyproject.toml` + `uv.lock`.
+Opcionais, só para certos usos:
+
+| Ferramenta | Para quê |
+|---|---|
+| [Obsidian](https://obsidian.md/) | Ler e editar o vault. O `init` instala o plugin Templater; o gatilho de criação de nota precisa ser ligado **em cada dispositivo** ([notas manuais](notas-manuais.md#criar-notas-direto-no-obsidian-templates)). |
+| [`ocrmypdf`](https://ocrmypdf.readthedocs.io/) | PDF escaneado: o `harvest` recusa um arquivo sem camada de texto e sugere `ocrmypdf entrada.pdf saida.pdf`. |
+| [Ollama](https://ollama.com/) | LLM ou embedding locais, sem chave ([configuração](configuracao.md#provedores-de-llm-suportados)). |
+| Node.js | Só para os testes que executam o script dos templates do Obsidian. Sem Node esses testes são pulados. |
+| Docker | O [caminho com container](#docker). |
+
+> O projeto é gerenciado exclusivamente por **uv**. Não use `pip install` na raiz: o ambiente e as versões vêm do `pyproject.toml` + `uv.lock`.
 
 ---
 
-## Passo a passo
-
-### 1. Clone o repositório
+## Instalar o uv
 
 ```bash
-git clone <repo-url>
+# Linux / macOS
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+```powershell
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Depois clone o repositório:
+
+```bash
+git clone https://github.com/ricmed/zettel_app.git
 cd zettel_app
 ```
 
-### 2. Instale as dependências
+---
+
+## Caminho 1: script de setup
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
+```
 
 ```bash
-uv sync
+# Linux / macOS
+scripts/setup.sh
 ```
 
-O `uv sync` cria o ambiente virtual em `.venv/`, resolve o `uv.lock` e instala tudo — inclusive `torch`/`torchvision` a partir do índice CUDA declarado no próprio `pyproject.toml`:
+O script executa, em ordem:
 
-```toml
-[[tool.uv.index]]
-name = "pytorch-cu126"
-url = "https://download.pytorch.org/whl/cu126"
-explicit = true
+1. **Instala as dependências.** Com `nvidia-smi` no sistema escolhe o torch CUDA; sem ele, o torch CPU. `-Cpu`/`-Cuda` (PowerShell) ou `--cpu`/`--cuda` (bash) forçam a escolha.
+2. **Prepara o `.env`.** Copia o `.env.example` quando o `.env` não existe e gera um `SESSION_SECRET` quando ele está vazio.
+3. **Roda `zettel init` e `zettel doctor`.**
+
+Rodar de novo não estraga nada: o `.env` e o segredo já gravados ficam como estão. Depois:
+
+1. Preencha no `.env` as chaves que o `doctor` marcou como **FALHA** (veja [Chaves de API](#chaves-de-api)).
+2. Se a chave do embedding (`GOOGLE_API_KEY`) faltava, rode `init` de novo para criar o índice vetorial.
+3. Siga para [Rodar o pipeline](#rodar-o-pipeline).
+
+---
+
+## Caminho 2: passo a passo
+
+### 1. Dependências: escolha o torch
+
+O torch entra como dependência do Docling. O extra só escolhe qual build instalar:
+
+```bash
+uv sync --extra cpu      # sem GPU NVIDIA (~200 MB de torch)
+uv sync --extra cu126    # GPU NVIDIA com driver para CUDA 12.6 (~2,5 GB)
 ```
 
-Ou seja: **não é preciso instalar o PyTorch à mão**. Em Linux/Windows o build CUDA 12.6 é usado automaticamente; em outras plataformas o marcador de ambiente do `pyproject.toml` simplesmente não instala o torch.
+No macOS não há extra: `uv sync` instala o torch do PyPI.
 
-Se você não tem GPU (ou não quer usá-la), deixe a instalação como está e ajuste apenas a configuração:
+Os dois extras são exclusivos, e o `pyproject.toml` declara o conflito. Sem extra, entra o torch do PyPI. Ele funciona, mas no Windows é só CPU e no Linux traz as bibliotecas CUDA 13.
 
-```yaml
-# config/config.yaml
-device: cpu     # auto | cpu | cuda
-```
+> **Depois de um `uv sync --extra ...`, rode os comandos com `uv run --no-sync`** (ou ative o `.venv`). Um `uv run` simples sincroniza o ambiente **sem** o extra e troca o torch pelo do PyPI. O uv ainda não tem um "extra padrão". Para não repetir a flag, exporte `UV_NO_SYNC=1` no shell.
 
-### 3. Configure as chaves de API
+### 2. Chaves de API
 
 ```bash
 cp .env.example .env
 ```
 
-Edite o `.env` na raiz do projeto:
+Preencha o `.env` (veja [Chaves de API](#chaves-de-api)) e gere o segredo da interface web:
 
-```env
-OPENAI_API_KEY=sk-sua-chave-aqui
+```bash
+uv run --no-sync python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-Variáveis reconhecidas:
+Cole o resultado em `SESSION_SECRET=`. O sistema carrega o `.env` da raiz ao iniciar (via `python-dotenv`), então não é preciso exportar nada no shell.
 
-| Variável | Quando é necessária |
+### 3. Vault e bases
+
+```bash
+uv run --no-sync python -m zettel init
+```
+
+O `init` cria:
+
+- as pastas do vault (`00_Inbox/` a `90_Assets/`, mais `99_Templates/`);
+- o SQLite (`data/state.db`);
+- o índice vetorial (`data/chroma/`).
+
+Também configura o Templater no `.obsidian/`. Ele **nunca apaga** o vault: só cria o que falta. `zettel init --reset` recria SQLite, Chroma e cache e remove do vault apenas as notas do pipeline, preservando as suas e o `.obsidian/`.
+
+Sem a chave do embedding, o `init` cria o vault e o SQLite, pula o índice vetorial e avisa qual variável definir. Depois de preencher a chave, rode `init` de novo.
+
+### 4. Diagnóstico
+
+```bash
+uv run --no-sync python -m zettel doctor
+```
+
+O `doctor` mostra uma linha por fase LLM (`LLM extract`, `LLM connect`...), com o provedor e o modelo, e nomeia a variável que falta (`falta ANTHROPIC_API_KEY no .env`). Também verifica:
+
+- a chave do embedding;
+- Docling, torch e GPU;
+- FTS5 no SQLite;
+- os prompts e a taxonomia;
+- o espaço de embedding ativo.
+
+---
+
+## Chaves de API
+
+O `config/config.yaml` padrão escolhe um modelo por fase, medido contra os gold sets (ADR-050 e seguintes). Isso significa quatro provedores:
+
+| Variável | Fases no config padrão | Sem ela |
+|---|---|---|
+| `OPENAI_API_KEY` | harvest (bibliografia), review (dedupe), garden, images, summarize | Essas fases param |
+| `GOOGLE_API_KEY` (ou `GEMINI_API_KEY`) | extract e **embedding** | Sem extract; o `init` não cria o índice vetorial; busca, connect e garden param |
+| `ANTHROPIC_API_KEY` | connect | Sem notas permanentes |
+| `DEEPSEEK_API_KEY` | ask, article | Sem `ask` e `article` |
+| `SESSION_SECRET` | interface web | Sem login. Use 32+ caracteres gerados; `doctor` e `/settings` avisam quando é curto |
+| `TYPESAFE_API_KEY` | camada de decisão em shadow (opcional) | O pipeline segue igual |
+| `OPENROUTER_API_KEY`, `CHROMA_OPENAI_API_KEY` | só se o `config.yaml` usar esses provedores | — |
+| `ZETTEL_CONFIG` | opcional: YAML alternativo para a web | — |
+
+**Para usar menos provedores**, troque `llm.<fase>.provider`/`model` e `embedding.*` no `config/config.yaml`; por exemplo, tudo em `openai`, ou embedding `ollama` local. A troca muda resultados que foram medidos, e mudar o embedding exige `zettel reindex --force` ([configuração](configuracao.md#provedores-de-llm-suportados)).
+
+Segredos nunca vão no `config.yaml`.
+
+---
+
+## Docker
+
+O container roda a interface web e a CLI sem instalar Python, uv ou torch no host.
+
+```bash
+cp .env.example .env            # preencha as chaves e o SESSION_SECRET
+mkdir -p data vault             # no Linux, para as pastas ficarem com o seu usuario
+docker compose build            # torch CPU; TORCH_EXTRA=cu126 docker compose build para GPU
+docker compose run --rm zettel python -m zettel init
+docker compose up -d            # web em http://localhost:5000
+```
+
+A CLI roda no mesmo container: `docker compose run --rm zettel python -m zettel run-all`.
+
+| Montagem | Conteúdo |
 |---|---|
-| `OPENAI_API_KEY` | `provider: openai` e gateways OpenAI-compatible (OpenRouter, OpenCode, vLLM, LM Studio…) |
-| `ANTHROPIC_API_KEY` | `provider: anthropic` |
-| `GOOGLE_API_KEY` | `provider: gemini` |
-| `DEEPSEEK_API_KEY` | `provider: deepseek` |
-| `SESSION_SECRET` | Login da [interface web](interface-web.md). Lido do ambiente do processo (`os.environ`), **não** do `config.yaml`. Use pelo menos 32 caracteres gerados: `python -c "import secrets; print(secrets.token_urlsafe(32))"` (o `doctor` e a página de configuração avisam quando é curto) |
-| `ZETTEL_CONFIG` | Opcional: aponta `create_app()` / `WebApplication` para um YAML alternativo (usado nos testes) |
+| `./data` | `state.db`, Chroma, inbox, cache |
+| `./vault` | o vault: abra esta pasta no Obsidian do host |
+| `./config` (somente leitura) | `config.yaml` e taxonomia, editáveis sem rebuild |
+| volume `model-cache` | cache do HuggingFace, onde o Docling guarda os modelos de PDF |
 
-O sistema carrega o `.env` automaticamente ao iniciar (via `python-dotenv`) — **não** é preciso exportar as variáveis no shell. Segredos nunca vão para o `config.yaml`.
+O container roda como o usuário `zettel` (uid 1000). No Linux, `data/` e `vault/` precisam ser graváveis por esse uid: crie as pastas antes do primeiro `run`, para que não nasçam como root. A imagem GPU (`TORCH_EXTRA=cu126`) precisa do [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/) e de `gpus: all` no serviço.
 
-### 4. Inicialize o sistema
+---
 
-```bash
-uv run python -m zettel init
-```
-
-Cria a estrutura do vault (`00_Inbox/`, `10_Sources/`, `20_Literature/`, `30_Permanent/`, `40_MOCs/`, `90_Assets/`), o SQLite (`data/state.db`) e o diretório do ChromaDB (`data/chroma/`).
-
-> `zettel init` **recria o vault vazio** e apaga `./vault`. State DB, Chroma e cache são preservados. Para zerar tudo (inclusive banco e índice), use `zettel init --reset`, que pede confirmação.
-
-### 5. Verifique a instalação
-
-```bash
-uv run python -m zettel doctor
-```
-
-O `doctor` valida configuração, dependências (Docling, clustering, FTS5), cobertura de capítulos e o espaço de embedding ativo — é a forma mais rápida de descobrir que faltou uma chave de API ou que o SQLite foi compilado sem FTS5.
-
-### 6. Rode o pipeline
+## Rodar o pipeline
 
 ```bash
 cp meu_artigo.pdf data/inbox/
-uv run python -m zettel run-all
+uv run --no-sync python -m zettel run-all
 ```
 
-Depois aponte o Obsidian para a pasta `./vault`. A referência completa de comandos está em [cli.md](cli.md).
+Depois abra a pasta `./vault` no Obsidian. A referência completa de comandos está em [cli.md](cli.md).
+
+No **primeiro harvest de PDF**, o Docling baixa do HuggingFace os modelos de layout e de tabelas. Eles ficam no cache do HF (`HF_HOME`, por padrão `~/.cache/huggingface`) e não são baixados de novo. Numa máquina sem rede, rode esse primeiro harvest antes de desconectar.
 
 ---
 
 ## Executando os comandos
 
-Todos os comandos passam pelo módulo `zettel`. Duas formas equivalentes:
+Todos os comandos passam pelo módulo `zettel`. Três formas equivalentes:
 
 ```bash
-# Via uv (recomendado — não exige ativar o venv)
-uv run python -m zettel <comando>
+# Via uv, sem ressincronizar o ambiente (recomendado)
+uv run --no-sync python -m zettel <comando>
 
-# Via interpretador do venv (Windows)
-.venv/Scripts/python.exe -m zettel <comando>
+# Com o ambiente ativado: .venv\Scripts\Activate.ps1 (Windows) ou source .venv/bin/activate
+python -m zettel <comando>
 
-# Via interpretador do venv (Linux/macOS)
-.venv/bin/python -m zettel <comando>
+# Pelo interpretador do venv
+.venv/Scripts/python.exe -m zettel <comando>   # Windows
+.venv/bin/python -m zettel <comando>           # Linux/macOS
 ```
 
-Os exemplos da documentação usam `python -m zettel <comando>` de forma abreviada; prefixe com `uv run` se o ambiente não estiver ativado.
+Os exemplos da documentação abreviam para `python -m zettel <comando>`.
 
 ---
 
-## Dependências opcionais
+## Dependências
 
-A maior parte do que antes era opcional já entra no `uv sync`, porque é usada pelo caminho padrão do pipeline:
+Tudo o que o pipeline usa já entra no `uv sync`:
 
-| Pacote | Situação | Para quê |
-|---|---|---|
-| `docling` | **Obrigatório** (pinado em `2.123.1`) | Única via de extração de PDF — sem fallback ([ADR-012](adrs/generated/HARVEST/ADR-012-docling-pdf-extraction-pymupdf-fallback.md)) |
-| `umap-learn`, `hdbscan` | **Já instalados** | Clusterização densa dos MOCs (`zettel garden`) |
-| `langchain-ollama` | **Já instalado** | LLM e embeddings locais via Ollama |
-| `langchain-google-genai` | **Já instalado** | Provider `gemini` |
-| `langgraph` | **Já instalado** | Orquestração do `zettel article` |
-| `litellm` | **Já instalado** | Apenas mapa de preços (`cost_per_token`); não é cliente de LLM |
-| `langchain-anthropic` | **Opcional** — adicione se for usar Claude | Provider `anthropic` |
+| Pacote | Para quê |
+|---|---|
+| `docling` (pinado em `2.123.1`) | Única via de extração de PDF, sem fallback ([ADR-012](adrs/generated/HARVEST/ADR-012-docling-pdf-extraction-pymupdf-fallback.md)). Traz o torch |
+| `chromadb`, `langchain-*` | Índice vetorial e clientes de LLM de todos os provedores suportados (OpenAI, Anthropic, Gemini, Ollama, DeepSeek) |
+| `umap-learn`, `hdbscan`, `scikit-learn` | Clusterização dos MOCs (`zettel garden`) |
+| `langgraph` | Orquestração do `zettel article` |
+| `litellm` | Só o mapa de preços (`cost_per_token`); não é cliente de LLM |
+| `fastapi`, `uvicorn`, `jinja2` | Interface web |
 
-Para adicionar o provider Anthropic:
+O grupo `dev` (`pytest`, `ruff`, `hypothesis` e plugins) também é instalado pelo `uv sync`. `uv sync --no-dev` o deixa de fora, como faz a imagem Docker.
 
-```bash
-uv add langchain-anthropic
-```
-
-Para usar **Ollama** (LLM ou embeddings locais), o pacote Python já está instalado, mas o servidor precisa estar rodando e o modelo puxado:
+Para usar o **Ollama** (LLM ou embeddings locais), o pacote Python já está instalado; o servidor precisa estar rodando e o modelo puxado:
 
 ```bash
 ollama pull qwen3-embedding
@@ -157,41 +252,52 @@ ollama pull qwen3-embedding
 
 ```bash
 # Suíte completa, como o CI (testes lentos incluídos)
-uv run pytest
+uv run --no-sync pytest
 
 # Ciclo de edição: sem os testes lentos (UMAP, Docling, scikit-learn, subprocessos), em paralelo
-uv run pytest -m "not slow" -n auto
+uv run --no-sync pytest -m "not slow" -n auto
 
 # Cobertura, como o CI roda (falha abaixo do piso em [tool.coverage.report])
-uv run pytest -n auto --cov
+uv run --no-sync pytest -n auto --cov
 
 # Um arquivo / uma função
-uv run pytest tests/test_hashing.py -v
-uv run pytest tests/test_hashing.py::test_normalize_collapses_whitespace -v
+uv run --no-sync pytest tests/test_hashing.py -v
+uv run --no-sync pytest tests/test_hashing.py::test_normalize_collapses_whitespace -v
 
 # Interface web: seleção por nome (todo tests/test_web_*.py e os testes que citam a web)
-uv run pytest tests/ -k web
+uv run --no-sync pytest tests/ -k web
 
 # Contrato entre as fases: run-all sobre um Markdown, LLM fixo, embedding local
-uv run pytest tests/test_pipeline_smoke.py -v
+uv run --no-sync pytest tests/test_pipeline_smoke.py -v
 
 # Avaliação offline: replay do ask, estatística dos gold sets, mapa de medições (sem LLM, sem rede)
-uv run pytest tests/evals/ -v
-uv run python -m zettel.evals.replay evals/configs/current-ask.yaml
+uv run --no-sync pytest tests/evals/ -v
+uv run --no-sync python -m zettel.evals.replay evals/configs/current-ask.yaml
 
 # Repetir a ordem aleatória de uma execução (a semente aparece no cabeçalho)
-uv run pytest --randomly-seed=N
+uv run --no-sync pytest --randomly-seed=N
 ```
 
-A suíte não acessa a rede: `tests/conftest.py` recusa qualquer conexão fora de `127.0.0.1`/`::1`, usa o mapa de preços que vem com o LiteLLM instalado (`LITELLM_LOCAL_MODEL_COST_MAP`) e oferece a *fixture* `token_hash_embedding`, um embedding determinístico local para os testes que precisam do `VectorIndex` real. Um teste que tente abrir conexão falha com `NetworkBlockedInTests`.
+A suíte não acessa a rede:
 
-A configuração do pytest fica em `pyproject.toml` (`[tool.pytest.ini_options]`): *markers* estritos, `DeprecationWarning` do próprio pacote vira erro, *timeout* de 300 s por teste e ordem aleatória a cada execução (`pytest-randomly`; a semente aparece no cabeçalho e `--randomly-seed=N` repete a ordem). A estratégia está no [ADR-065](adrs/generated/INFRA/ADR-065-test-strategy.md).
+- `tests/conftest.py` recusa qualquer conexão fora de `127.0.0.1`/`::1`, e um teste que tente abrir conexão falha com `NetworkBlockedInTests`;
+- o mapa de preços usado é o que vem com o LiteLLM instalado (`LITELLM_LOCAL_MODEL_COST_MAP`);
+- a *fixture* `token_hash_embedding` oferece um embedding determinístico local para os testes que precisam do `VectorIndex` real.
+
+A configuração do pytest fica em `pyproject.toml` (`[tool.pytest.ini_options]`):
+
+- *markers* estritos;
+- `DeprecationWarning` do próprio pacote vira erro;
+- *timeout* de 300 s por teste;
+- ordem aleatória a cada execução (`pytest-randomly`; a semente aparece no cabeçalho e `--randomly-seed=N` repete a ordem).
+
+O CI instala com `--extra cpu`. A estratégia está no [ADR-065](adrs/generated/INFRA/ADR-065-test-strategy.md).
 
 ---
 
 ## Próximos passos
 
-- [Configuração](configuracao.md) — catálogo completo do `config.yaml`, provedores de LLM e embedding
-- [Comandos (CLI)](cli.md) — referência de todos os comandos e flags
-- [Pipeline](pipeline.md) — o que cada fase faz, em detalhe
-- [Solução de problemas](troubleshooting.md) — erros comuns e como sair deles
+- [Configuração](configuracao.md): catálogo completo do `config.yaml`, provedores de LLM e embedding
+- [Comandos (CLI)](cli.md): referência de todos os comandos e flags
+- [Pipeline](pipeline.md): o que cada fase faz, em detalhe
+- [Solução de problemas](troubleshooting.md): erros comuns e como sair deles

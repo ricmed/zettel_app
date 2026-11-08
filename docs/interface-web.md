@@ -13,22 +13,31 @@ Módulos: [`zettel/web/`](../zettel/web/) (rotas, auth, templates; ADR-039), [`w
 ```bash
 uvicorn zettel.web:app --host 0.0.0.0 --port 5000
 
-# Em hospedagens que injetam a porta (Replit e afins):
+# Em hospedagens que injetam a porta:
 uvicorn zettel.web:app --host 0.0.0.0 --port "${PORT:-5000}"
 ```
 
-Antes disso, defina o **segredo de instância** no ambiente do processo (Replit Secrets, `.env` ou variável de ambiente — **não** vai no `config.yaml`):
+Antes disso, defina o **segredo de instância** no ambiente do processo (`.env`, segredos do host ou variável de ambiente — **não** vai no `config.yaml`):
 
 ```env
 SESSION_SECRET=...
 ```
 
-Sem `SESSION_SECRET`, nenhuma sessão é emitida e o login não funciona. Para apontar a um YAML alternativo, use `ZETTEL_CONFIG=/caminho/config.yaml`.
+Sem `SESSION_SECRET`, nenhuma sessão é emitida e o login não funciona. Os scripts `scripts/setup.ps1` e `scripts/setup.sh` geram um quando o `.env` está sem ele. Para apontar a um YAML alternativo, use `ZETTEL_CONFIG=/caminho/config.yaml`.
+
+Em Docker, o `docker-compose.yml` sobe esse mesmo comando na porta 5000. Os segredos vêm do `.env`, e `data/`, `vault/` e `config/` são montados do host:
+
+```bash
+docker compose up -d
+docker compose run --rm zettel python -m zettel <comando>   # a CLI, sobre os mesmos dados
+```
+
+Uma CLI rodando ao lado da web disputa o mesmo lock (`data/zettel.lock`), como fora do container. Detalhes em [instalação](instalacao.md#docker).
 
 Testes:
 
 ```bash
-uv run pytest tests/test_web.py tests/test_web_state.py tests/test_web_package.py tests/test_web_studio.py -v
+uv run --no-sync pytest tests/test_web.py tests/test_web_state.py tests/test_web_package.py tests/test_web_studio.py -v
 ```
 
 A suíte inteira roda em CI a cada push e PR (`.github/workflows/tests.yml`: `ruff check`, `ruff format --check`, `pytest tests/`).
