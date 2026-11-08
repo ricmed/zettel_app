@@ -673,8 +673,13 @@ class VectorIndex:
         return self.collection_space(self.permanent)
 
     def collection_space(self, collection: Any) -> str:
-        """HNSW space reported by one Chroma collection (``cosine`` or ``l2``)."""
-        config = getattr(collection, "configuration", None) or {}
+        """HNSW space reported by one Chroma collection (``cosine`` or ``l2``).
+
+        Reads the raw ``configuration_json``: ``Collection.configuration`` rebuilds
+        the embedding function on every access (a Gemini client and three SSL
+        contexts, ~90 ms), and this runs once per query hit (#369).
+        """
+        config = getattr(collection, "configuration_json", None) or {}
         hnsw = config.get("hnsw") or {}
         space = hnsw.get("space")
         name = getattr(collection, "name", None) or "chroma"
