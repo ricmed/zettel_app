@@ -131,6 +131,33 @@ def test_chapter_summary_distance_uses_that_collections_space(tmp_path, token_ha
     assert notes[0]["distance_space"] == "cosine"
 
 
+def test_reading_the_space_never_rebuilds_the_embedding_function(
+    tmp_path, token_hash_embedding, monkeypatch
+):
+    """#369: ``Collection.configuration`` rebuilt the EF (a Gemini client) per query hit."""
+    from chromadb.utils.embedding_functions import known_embedding_functions
+
+    idx = VectorIndex(tmp_path / "chroma", token_hash_embedding, "m")
+    idx.upsert_permanent_note("n1", "grafos de conhecimento", {"source_id": "@S"})
+    idx.upsert_permanent_note("n2", "grafos e ligacoes", {"source_id": "@S"})
+    ef_class = type(idx.embedding_fn)
+    builds: list[dict] = []
+
+    class _Counting(ef_class):
+        @classmethod
+        def build_from_config(cls, config):
+            builds.append(config)
+            return super().build_from_config(config)
+
+    monkeypatch.setitem(known_embedding_functions, ef_class.name(), _Counting)
+
+    hits = idx.query_similar_notes("grafos de conhecimento", n_results=2)
+    assert [hit["distance_space"] for hit in hits] == ["cosine", "cosine"]
+    assert idx.distance_space == "cosine"
+    assert idx.collection_space(idx.chapter_summaries) == "cosine"
+    assert builds == []
+
+
 def test_vector_index_declares_cosine_space(tmp_path, token_hash_embedding):
     idx = VectorIndex(tmp_path / "chroma", token_hash_embedding, "m")
     assert idx.distance_space == "cosine"
