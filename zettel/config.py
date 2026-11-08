@@ -664,6 +664,10 @@ class RetrievalConfig(BaseModel):
     # pelo mesmo piso de relevancia. Nunca fura o piso (ver ADR-036).
     topic_index_boost: bool = True
     topic_index_max_seeds: int = 5
+    # Sementes das buscas que o autor le na web: Notas "pelo sentido" e a busca
+    # da secao da Mesa. linking.topk (5) e o contexto do Prompt 2 do connect;
+    # para pesquisar, poucas sementes e muitas vizinhas diluem o resultado.
+    browse_topk: int = Field(default=12, ge=1, le=50)
     graph_expansion: GraphExpansionConfig = Field(default_factory=GraphExpansionConfig)
     relevance_floor: RelevanceFloorConfig = Field(default_factory=RelevanceFloorConfig)
     # Piso PROPRIO para resumos de capitulo (ADR-047). Objeto separado de

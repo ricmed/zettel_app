@@ -208,7 +208,9 @@ def notes_semantic(
     db = service(request).db()
     try:
         idx = VectorIndex(**index_kwargs(cfg))
-        result = Retriever(cfg, db, idx).search_notes(query, expand_graph=expand)
+        result = Retriever(cfg, db, idx).search_notes(
+            query, topk=cfg.retrieval.browse_topk, expand_graph=expand
+        )
         below = [c for c in result.candidates if not c.passed_floor]
         semantic = {
             "hits": _semantic_rows(db, result.hits),

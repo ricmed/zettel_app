@@ -76,8 +76,8 @@ def test_search_by_meaning_shows_theses_neighbours_and_what_the_floor_cut(web_cl
         def __init__(self, cfg, db, idx):
             pass
 
-        def search_notes(self, query, expand_graph=None):
-            calls.append((query, expand_graph))
+        def search_notes(self, query, topk=None, expand_graph=None):
+            calls.append((query, topk, expand_graph))
             seed = RetrievedNote("N1", 0.03, vector_distance=0.2)
             neighbour = RetrievedNote(
                 "N2", 0.01, hop=1, via=[{"from": "N1", "relation_type": "contradicts"}]
@@ -90,7 +90,8 @@ def test_search_by_meaning_shows_theses_neighbours_and_what_the_floor_cut(web_cl
         "/notes/semantica", data={"csrf": csrf, "q": "ML em pontuação de crédito", "graph": "1"}
     )
     assert response.status_code == 200
-    assert calls == [("ML em pontuação de crédito", True)]
+    browse = client.app.state.service.cfg.retrieval.browse_topk
+    assert calls == [("ML em pontuação de crédito", browse, True)]
     page = response.text
     assert "2 notas encontradas" in page
     assert "Boosting supera a regressão logística em dados tabulares." in page
