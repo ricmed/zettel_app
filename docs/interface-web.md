@@ -13,11 +13,11 @@ Módulos: [`zettel/web/`](../zettel/web/) (rotas, auth, templates; ADR-039), [`w
 ```bash
 uvicorn zettel.web:app --host 0.0.0.0 --port 5000
 
-# Em hospedagens que injetam a porta (Replit e afins):
+# Em hospedagens que injetam a porta:
 uvicorn zettel.web:app --host 0.0.0.0 --port "${PORT:-5000}"
 ```
 
-Antes disso, defina o **segredo de instância** no ambiente do processo (Replit Secrets, `.env` ou variável de ambiente — **não** vai no `config.yaml`):
+Antes disso, defina o **segredo de instância** no ambiente do processo (`.env`, segredos do host ou variável de ambiente — **não** vai no `config.yaml`):
 
 ```env
 SESSION_SECRET=...
