@@ -95,19 +95,35 @@ def test_format_abnt_livro():
 @pytest.mark.parametrize(
     ("edition", "expected"),
     [
-        ("1", "1. ed."),
-        ("1 ed", "1. ed."),
-        ("1. ed.", "1. ed."),
-        ("2ª edição", "2. ed."),
-        ("3rd edition", "3. ed."),
-        ("ed. rev. e ampl.", "ed. rev. e ampl."),
+        ("2", "2. ed. "),
+        ("2 ed", "2. ed. "),
+        ("2. ed.", "2. ed. "),
+        ("2ª edição", "2. ed. "),
+        ("3rd edition", "3. ed. "),
+        ("ed. rev. e ampl.", "ed. rev. e ampl. "),
+        # ABNT practice names the edition only from the second on.
+        ("1", ""),
+        ("1. ed.", ""),
+        ("1st edition", ""),
     ],
 )
 def test_edition_is_written_the_abnt_way_with_one_period(edition, expected):
     meta = BibliographicMetadata(
         document_type="livro", authors=["Ana Lima"], title="Obra", edition=edition, year=2020
     )
-    assert format_abnt(meta) == f"LIMA, Ana. Obra. {expected} 2020."
+    assert format_abnt(meta) == f"LIMA, Ana. Obra. {expected}2020."
+
+
+def test_a_chapter_leaves_out_the_first_edition_too():
+    meta = BibliographicMetadata(
+        document_type="capitulo_livro",
+        chapter_authors=["Ana Lima"],
+        chapter_title="Risco",
+        book_title="Finanças",
+        edition="1",
+        year=2020,
+    )
+    assert format_abnt(meta) == "LIMA, Ana. Risco. In: Finanças. 2020."
 
 
 def test_an_author_list_ending_in_a_period_gets_no_second_one():

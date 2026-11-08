@@ -522,12 +522,17 @@ _EDITION = re.compile(
 
 
 def _edition(raw: str) -> str:
-    """``1``, ``1 ed``, ``1. ed.``, ``2ª edição``, ``3rd edition`` -> ``N. ed.``.
+    """``2``, ``2 ed``, ``2. ed.``, ``2ª edição``, ``2nd edition`` -> ``2. ed.``.
 
-    Anything else (``ed. rev. e ampl.``) is kept and closed with a period.
+    The first edition is left out (empty string): ABNT practice names the
+    edition only from the second on. Anything else (``ed. rev. e ampl.``) is
+    kept and closed with a period.
     """
     match = _EDITION.match(raw.strip())
-    return f"{match.group(1)}. ed." if match else _period(raw)
+    if not match:
+        return _period(raw)
+    number = int(match.group(1))
+    return "" if number <= 1 else f"{number}. ed."
 
 
 def _title_with_subtitle(title: str | None, subtitle: str | None) -> str:
@@ -547,8 +552,9 @@ def _abnt_livro(meta: BibliographicMetadata) -> str:
         parts.append(_period(title))
     if meta.translator:
         parts.append(_period(f"Traducao: {meta.translator}"))
-    if meta.edition:
-        parts.append(_edition(meta.edition))
+    edition = _edition(meta.edition) if meta.edition else ""
+    if edition:
+        parts.append(edition)
     loc = []
     if meta.place:
         loc.append(meta.place)
@@ -576,8 +582,9 @@ def _abnt_capitulo(meta: BibliographicMetadata) -> str:
         parts.append(_period(f"In: {editors} (org.). {book}"))
     elif book:
         parts.append(_period(f"In: {book}"))
-    if meta.edition:
-        parts.append(_edition(meta.edition))
+    edition = _edition(meta.edition) if meta.edition else ""
+    if edition:
+        parts.append(edition)
     loc = []
     if meta.place:
         loc.append(meta.place)
