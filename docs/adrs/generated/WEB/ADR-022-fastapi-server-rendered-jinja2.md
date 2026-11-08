@@ -92,3 +92,10 @@ A batch job reports item k only once item k is done; a batch that is one call (d
 **Status:** Accepted. Notes store `$...$` / `$$...$$` (and `\\(...\\)` / `\\[...\\]`). The Markdown parser used to treat `_` inside those delimiters as emphasis, so `$Z_t$` reached the browser as `$Z<em>t</em>$`. MathJax from a CDN ([getting started](https://www.mathjax.org/#gettingstarted)) would fix the typesetting, but it needs a remote `script-src` and injects `<style>` / `style=` attributes, which the CSP above forbids.
 
 `zettel/markdown.py` now parses those delimiters before emphasis and converts the TeX to MathML with `latex2mathml`. The sanitizer allows presentation MathML. Review cards that are not Markdown (tese, definição) go through the same conversion via the Jinja filter `with_math`. No client script, no CSP change.
+
+## Addendum (2026-11-08): vault images, and a drag that posts a form (#381, #383)
+
+**Status:** Accepted. Two additions for the Mesa ([ADR-067](./ADR-067-mesa-writing-desk.md)), neither a change to the CSP.
+
+* `GET /assets/{name}` (`zettel/web/assets.py`) serves the vault's content-addressed images, by name only. The name must match `img-<16 hex>` with a raster extension, so no separator can reach the path and an SVG, which is a document that can carry script, is never served. `zettel/markdown.py` renders `![[90_Assets/…]]` and `![..](90_Assets/..)` as `<img src="/assets/…">`. The sanitizer now admits `img`, but only with a `src` that is such a URL. Any other `img` is removed whole, so `img-src 'self'` stays enough.
+* Drag and drop on the Mesa is `static/project-board.js`. It fills and submits the same urlencoded form, with CSRF, that the arrow buttons send. A page without the script works the same. No JSON mutation is added, so the [ADR-040](./ADR-040-json-pickers-progressive-enhancement.md) exception stays the only one.

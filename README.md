@@ -172,6 +172,7 @@ vault/
 ├── 20_Literature/           # Indice LIT (raiz) + {Citekey}/ com as LIT granulares
 ├── 30_Permanent/            # Notas permanentes (ZTL)
 ├── 40_MOCs/                 # Mapas de Conteudo
+├── 50_Projetos/             # Mesas de escrita (PRJ) e seus .canvas; suas, ficam no init --reset
 ├── 90_Assets/               # Imagens extraidas de PDFs/Markdown (nome por hash)
 ├── 99_Templates/            # Templates Templater (gerados; sync-manual nao varre)
 │   ├── SRC.md
@@ -203,6 +204,28 @@ uvicorn zettel.web:app --host 0.0.0.0 --port 5000
 - Login por `SESSION_SECRET` (variável de ambiente, não vai no `config.yaml`), com tentativas limitadas; cookie assinado por uma chave aleatória (nada derivado do segredo sai do servidor), revogado no "Sair", e CSRF em todo POST.
 - Instância única com fila de jobs no SQLite: **um** trabalho mutante por vez; operações destrutivas continuam só na CLI.
 - **Acervo** (`/studio`): perguntar, catálogo, resumir, artigo (com pausa para revisar contexto e outline) e exportar skill. O catálogo responde na página; os outros entram na fila.
+- **Mesas** (`/projetos`): escrever a partir das ZTLs. Veja a seção a seguir.
+
+### Da pesquisa ao texto: a Mesa
+
+O método de Luhmann não termina na nota. Para escrever, ele tirava as fichas do arquivo, colocava na mesa, punha em ordem e escrevia o que faltava entre elas. A Mesa faz isso com as ZTLs, sem LLM:
+
+1. **Pesquisar.** Em **Notas** há a busca por termos (filtros por fonte, autor e tag) e a busca **pelo sentido**, híbrida, que encontra sinônimos e fontes em outra língua. O catálogo do Acervo mostra quais capítulos tratam do assunto. Marque as notas e escolha **Adicionar à mesa**; também dá para adicionar pelo detalhe de uma nota (e pelas conexões dela), por um MOC e pelas fontes de uma resposta do `ask`.
+2. **Organizar.** As notas chegam em "Para organizar". Crie seções, ordene os cartões com as setas ou arrastando, anote cada cartão e escreva as pontes entre eles.
+3. **Conversar.** O painel lateral lê o grafo de conexões. Ele mostra:
+   - as tensões (o que contradiz algo da mesa);
+   - a fronteira do argumento (notas ligadas aos seus cartões que ainda não estão nela);
+   - outras fontes que dizem o mesmo;
+   - cartões sem ligação com o resto da seção;
+   - seções apoiadas numa fonte só.
+
+   **Buscar para uma seção** procura notas novas pelo título e pelas teses dela.
+4. **Exportar.** O manuscrito segue a sua ordem. Cada cartão vira a tese com a citação ABNT (com página), a definição e, se você quiser, o trecho literal e os limites. As figuras saem numeradas, com legenda e fonte. `[Complementar]` marca o que falta você escrever. No fim vem `## Referências`, com cada obra uma vez, em ordem alfabética. Os formatos são:
+   - **.docx**, gerado pelo Pandoc embutido, com equações nativas do Word e o estilo "Complementar" para achar as lacunas;
+   - **.zip**, com `manuscrito.md`, `figuras/` e `referencias.bib`;
+   - **.canvas**, que abre no Canvas do Obsidian.
+
+A Mesa é um arquivo comum, `50_Projetos/PRJ - ULID - slug.md`: seções `##`, cartões `- [[ZTL - …]]` e o seu texto entre eles. Ela também pode ser editada no Obsidian; a web recusa salvar por cima de uma edição feita lá. Pela CLI: `python -m zettel manuscript <id ou arquivo> --format docx`.
 
 Páginas, operações enfileiráveis e recuperação após reinício: [docs/interface-web.md](docs/interface-web.md).
 

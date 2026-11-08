@@ -190,3 +190,7 @@ The rows sit next to the LLM's scores ([ADR-055](../LLM/ADR-055-typed-decision-l
 `run_article_graph` is now a loop over `ArticleDrive`. The CLI still passes its Rich `hitl_handler`. The web Acervo ([ADR-056](../WEB/ADR-056-web-acervo-consult-and-produce.md)) keeps the drive on the worker and sets the job to `awaiting_input` when the graph interrupts. Resume sends `Command(resume=...)` to that same object.
 
 The `MemorySaver` still does not survive a process restart. A restart marks the parked job `interrupted`, and the operator starts the article again. The catalog object stays on the live `ArticleRuntime`; it is not serialized.
+
+## Addendum (2026-11-08): the reference list is shared with the Mesa
+
+The academic `## Referências` of `assemble_article` now comes from `bibliography.reference_entries`, the same function the Mesa's manuscript uses ([ADR-067](../WEB/ADR-067-mesa-writing-desk.md)). Each source appears once. The list is in alphabetical order with accents and case folded; it used to be sorted by `upper()`, which put "Álvares" after "Zuboff". A source with no stored ABNT text is rebuilt from its `bibliography_json` before the bare fallback. The heading is spelled with its accent.

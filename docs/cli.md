@@ -6,7 +6,7 @@ Todos os comandos do `zettel`, com as flags reais do pacote [`zettel/cli/`](../z
 
 Os exemplos usam `python -m zettel ...`; prefixe com `uv run --no-sync` se o ambiente não estiver ativado.
 
-Um comando que altera dados (harvest, extract, review, connect, garden, sync-manual, reindex e afins) toma a trava `data/zettel.lock`, a mesma da interface web. Se outro comando ou um job da web estiver rodando, ele sai com código 1 e diz quem está com a trava. Os comandos de leitura (`status`, `doctor`, `ask`, `catalog`, `article`, `skill`, os dumps) não precisam dela.
+Um comando que altera dados (harvest, extract, review, connect, garden, sync-manual, reindex e afins) toma a trava `data/zettel.lock`, a mesma da interface web. Se outro comando ou um job da web estiver rodando, ele sai com código 1 e diz quem está com a trava. Os comandos de leitura (`status`, `doctor`, `ask`, `catalog`, `article`, `skill`, `manuscript`, os dumps) não precisam dela.
 
 ---
 
@@ -46,6 +46,7 @@ O `run-all` encadeia `harvest → extract → review → summarize → connect �
 | [`catalog`](#catalog) | Quais fontes tratam de um assunto, e em que capítulos |
 | [`article`](#article) | Artigo longo a partir do vault (LangGraph) |
 | [`skill`](#skill) | Exporta um recorte aprovado como Agent Skill plana |
+| [`manuscript`](#manuscript) | Exporta uma Mesa como manuscrito (DOCX, Markdown com figuras, canvas) |
 | [`new-note`](#new-note) | Scaffold de notas manuais |
 | [`sync-manual`](#sync-manual) | Adota notas escritas à mão no Obsidian |
 | [`suggest-links`](#suggest-links) | Sugere conexões numa ZTL sem reescrever o texto |
@@ -482,6 +483,31 @@ Detalhes que importam:
 - `--topic` que casa com mais de um tópico de MOC é **erro**, listando os candidatos.
 
 Decisão e alternativas: [ADR-035](adrs/generated/CLI/ADR-035-flat-agent-skill-export.md).
+
+---
+
+## `manuscript`
+
+Exporta uma Mesa (ADR-067) como manuscrito. A Mesa é a nota `50_Projetos/PRJ - ULID - slug.md`, montada na web (`/projetos`) ou escrita à mão. Não chama LLM e não grava no SQLite nem no Chroma.
+
+```bash
+python -m zettel manuscript 01JABC... --format docx --out ./saida
+python -m zettel manuscript "vault/50_Projetos/PRJ - 01JABC... - ml-em-credito.md" --format md
+python -m zettel manuscript 01JABC... --format canvas          # .canvas ao lado da mesa, no vault
+```
+
+| Flag | Efeito |
+|---|---|
+| `--format` | `docx` (Pandoc embutido), `md` (pasta com `manuscrito.md`, `figuras/` e `referencias.bib`), `zip` (a mesma pasta compactada) ou `canvas` (JSON Canvas para o Obsidian). |
+| `--out` | Diretório de saída. Default: o atual; para `canvas`, ao lado da mesa no vault. |
+| `--style` | `academic` (citação ABNT com página) ou `blog` (menção à fonte). Default: o estilo da mesa. |
+| `--placeholders/--no-placeholders` | Marca o que falta escrever com `[Complementar: …]` (introdução, abertura de seção, transição entre cartões, conclusão). |
+| `--quotes`, `--limits`, `--appendix` | Acrescentam o trecho literal de cada nota, os limites como "Ressalva" e um apêndice com as notas completas. |
+
+- Os defaults dos interruptores vêm de `manuscript.*` no `config.yaml`.
+- O manuscrito sempre termina em `## Referências`: a fonte de cada ZTL exportada, uma vez por obra, em ordem alfabética (sem acento e sem caixa).
+- Os avisos (nota ausente, ZTL sem fonte, referência sem dados ABNT) aparecem no terminal.
+- O estilo do `.docx` vem de `manuscript.docx_reference_path` ou, sem ele, do documento embutido, que define o estilo "Complementar".
 
 ---
 

@@ -1,7 +1,7 @@
-# zettel_app ADR Index (65 Decisions)
+# zettel_app ADR Index (66 Decisions)
 
-**Last Updated**: 2026-11-03  
-**Status**: Complete — 65 formal ADRs (001–066; 044 unused) across 13 modules
+**Last Updated**: 2026-11-08  
+**Status**: Complete — 66 formal ADRs (001–067; 044 unused) across 13 modules
 
 ---
 
@@ -16,7 +16,7 @@
 | **REVIEW** | 4 | [016–018, 045](#review-approval-gate) |
 | **CONNECT** | 1 | [053](#connect-permanent-notes) |
 | **GARDEN** | 5 | [019–021, 060–061](#garden-moc-generation) |
-| **WEB** | 7 | [022–023, 039–040, 056, 062–063](#web-ui--job-queue) |
+| **WEB** | 8 | [022–023, 039–040, 056, 062–063, 067](#web-ui--job-queue) |
 | **LLM** | 5 | [024–025, 048, 055, 059](#llm-provider--caching) |
 | **CLI** | 4 | [026, 032, 035, 037](#cli-orchestration) |
 | **QA-WRITING** | 4 | [028–029, 038, 051](#qa-writing--article-pipeline) |
@@ -474,6 +474,17 @@
 - **Summary**: Nothing computed from `SESSION_SECRET` leaves the server. Login CSRF is a random double-submit token; sessions are signed with a random key persisted in `web_auth` and rotated on logout (revokes every session); failed logins are throttled per client; short secrets are flagged on `/settings` and in `doctor`.
 - **Link**: [`ADR-063-web-login-without-secret-oracle.md`](./generated/WEB/ADR-063-web-login-without-secret-oracle.md)
 
+### ADR-067: The Mesa, a Writing Desk Built From Permanent Notes
+
+- **Status**: Accepted
+- **Date**: 2026-11-08
+- **Summary**: The step between finding notes and writing a text. A project is a vault note (`50_Projetos/PRJ - ULID - slug.md`, `origin: manual`) whose body is a line grammar with a lossless round trip: H2 sections, `- [[ZTL ...]]` cards, indented annotations, and the author's text kept verbatim.
+  - **Web edits.** Each edit is a form POST under the lock, checked against the file's version (409 if it changed in Obsidian). Dragging submits the same form.
+  - **The conversation.** The side panel reads the typed graph with no LLM: tensions, the one-hop frontier, corroborations from other sources, isolated cards and single-source sections.
+  - **The manuscript.** Code builds it in the author's order: theses with the note's own citation, definitions, numbered figures, `[Complementar]` gaps, and `## Referências` with each source once, in alphabetical order. It exports as DOCX through the bundled Pandoc, as a ZIP of Markdown with figures and BibTeX, or as a one-way JSON Canvas for Obsidian.
+  - **Reading fixes.** The web now has `/assets`, renders figures, has a search by meaning and a tag filter in `/notes`, and shows directed connections.
+- **Link**: [`ADR-067-mesa-writing-desk.md`](./generated/WEB/ADR-067-mesa-writing-desk.md)
+
 ---
 
 ## LLM — Provider & Caching
@@ -638,12 +649,20 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 65 |
-| **Accepted** | 65 |
+| **Total ADRs** | 66 |
+| **Accepted** | 66 |
 | **Needs Input** | 0 |
 | **Modules Covered** | 13 |
 
 The counts in this file are pinned to `docs/adrs/generated/` by `tests/test_docs_adr_references.py`.
+
+---
+
+## Status Update (2026-11-08)
+
+✅ **ADR-067** (the Mesa, epic #380) added. Addenda:
+- **ADR-022:** `/assets` for vault images, and `img` in the sanitizer only for those images. Dragging on the Mesa posts the same form as the buttons.
+- **ADR-028:** the article's reference list is shared with the Mesa. It is deduplicated per source and sorted alphabetically with accents folded.
 
 ---
 
