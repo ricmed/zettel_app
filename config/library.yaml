@@ -1,0 +1,125 @@
+# Estante (ADR-068): vocabulário de gêneros, critérios de avaliação e perfis.
+#
+# Chaves em inglês, valores e rótulos em PT-BR. Lido por zettel/library/schema.py;
+# um critério desconhecido num perfil ou um peso <= 0 é recusado no carregamento.
+
+# Escala de cada critério. A nota final fica na mesma escala.
+scale:
+  min: 1
+  max: 5
+  step: 0.5
+
+# Gênero -> natureza (ficcao | nao_ficcao | neutro) e se pede leitura reflexiva
+# (metáfora, pensamento, analogia) mesmo sendo não ficção. Livros de ficção já são
+# lidos em modo reflexivo. Um gênero fora desta lista é aceito como neutro.
+genres:
+  Romance: {nature: ficcao}
+  Ficção: {nature: ficcao}
+  Ficção Científica: {nature: ficcao}
+  Ficção Histórica: {nature: ficcao}
+  Fantasia: {nature: ficcao}
+  Mistério: {nature: ficcao}
+  Suspense: {nature: ficcao}
+  Terror: {nature: ficcao}
+  Aventura: {nature: ficcao}
+  Drama: {nature: ficcao}
+  Tragédia: {nature: ficcao}
+  Comédia: {nature: ficcao}
+  Poesia: {nature: ficcao}
+  Conto: {nature: ficcao}
+  Quadrinho: {nature: ficcao}
+  Mangá: {nature: ficcao}
+  Clássico: {nature: neutro}
+  Ilustrado: {nature: neutro}
+  Infantojuvenil: {nature: neutro}
+  Biografia: {nature: nao_ficcao, reflective: true}
+  Memórias: {nature: nao_ficcao, reflective: true}
+  Ensaio: {nature: nao_ficcao, reflective: true}
+  Filosofia: {nature: nao_ficcao, reflective: true}
+  Psicologia: {nature: nao_ficcao, reflective: true}
+  História: {nature: nao_ficcao}
+  Ciência: {nature: nao_ficcao}
+  Não-Ficção: {nature: nao_ficcao}
+  Técnico: {nature: nao_ficcao}
+
+# Critérios: chave -> rótulo exibido e ajuda.
+criteria:
+  edition: {label: Edição, help: "Acabamento, papel, revisão e capa da edição"}
+  translation_lettering: {label: Tradução/Letreiramento, help: Qualidade da tradução ou do letreiramento}
+  plot: {label: Enredo}
+  art: {label: Arte}
+  characters: {label: Personagens}
+  layout: {label: Diagramação}
+  feeling: {label: Sentimento, help: O quanto o livro mexeu com você}
+  colors: {label: Cores}
+  setting: {label: Ambientação}
+  ending: {label: Conclusão}
+  research: {label: Pesquisa}
+  writing: {label: Escrita}
+  impartiality: {label: Imparcialidade}
+  relevance: {label: Relevância}
+  structure: {label: Estrutura}
+  extras: {label: Extras, help: "Fotos, notas, apêndices"}
+  value_for_money: {label: Custo-Benefício}
+  usefulness: {label: Utilidade}
+  text_image_integration: {label: Integração texto-imagem}
+  graphic_design: {label: Projeto Gráfico}
+  average_quality: {label: Qualidade Média, help: Nível médio dos contos}
+  highlights: {label: Destaques, help: Os melhores contos da coletânea}
+  conciseness: {label: Concisão}
+  theme: {label: Tema}
+  pacing: {label: Ritmo}
+
+# Perfis em ordem: o primeiro cujo `when` casa decide (como o ifs() do Notion).
+#   genres_any: o livro tem ao menos um destes gêneros
+#   translated: o livro é traduzido (idioma original != pt; sem idioma, país != Brasil)
+# Um perfil sem `when` casa com qualquer livro.
+profiles:
+  - name: quadrinho
+    label: Quadrinho/Mangá nacional
+    when: {genres_any: [Quadrinho, Mangá], translated: false}
+    weights: {edition: 3, plot: 5, art: 5, characters: 4, layout: 4, feeling: 3, colors: 3, setting: 4, ending: 3}
+  - name: quadrinho_traduzido
+    label: Quadrinho/Mangá traduzido
+    when: {genres_any: [Quadrinho, Mangá], translated: true}
+    weights: {edition: 3, translation_lettering: 3, plot: 5, art: 5, characters: 4, layout: 4, feeling: 3, colors: 3, setting: 4, ending: 3}
+  - name: biografia
+    label: Biografia nacional
+    when: {genres_any: [Biografia], translated: false}
+    weights: {research: 5, writing: 5, characters: 4, setting: 4, impartiality: 4, relevance: 3, structure: 3, ending: 3, extras: 2, edition: 2, value_for_money: 1}
+  - name: biografia_traduzida
+    label: Biografia traduzida
+    when: {genres_any: [Biografia], translated: true}
+    weights: {research: 5, writing: 5, characters: 4, setting: 4, impartiality: 4, relevance: 3, structure: 3, ending: 3, extras: 2, edition: 2, translation_lettering: 2, value_for_money: 1}
+  - name: ilustrado
+    label: Ilustrado nacional
+    when: {genres_any: [Ilustrado], translated: false}
+    weights: {art: 5, text_image_integration: 5, plot: 4, graphic_design: 4, feeling: 4, edition: 3, setting: 3, layout: 3, value_for_money: 1}
+  - name: ilustrado_traduzido
+    label: Ilustrado traduzido
+    when: {genres_any: [Ilustrado], translated: true}
+    weights: {art: 5, text_image_integration: 5, plot: 4, graphic_design: 4, feeling: 4, edition: 3, setting: 3, layout: 3, translation_lettering: 2, value_for_money: 1}
+  - name: conto
+    label: Contos nacionais
+    when: {genres_any: [Conto], translated: false}
+    weights: {average_quality: 5, writing: 5, highlights: 4, conciseness: 4, theme: 4, characters: 3, feeling: 3, pacing: 3, edition: 2, value_for_money: 1}
+  - name: conto_traduzido
+    label: Contos traduzidos
+    when: {genres_any: [Conto], translated: true}
+    weights: {average_quality: 5, writing: 5, highlights: 4, conciseness: 4, theme: 4, characters: 3, feeling: 3, pacing: 3, edition: 2, translation_lettering: 2, value_for_money: 1}
+  - name: tecnico
+    label: Técnico/Não-ficção nacional
+    when: {genres_any: [Técnico, Não-Ficção], translated: false}
+    weights: {edition: 3, writing: 4, usefulness: 5, structure: 4, value_for_money: 5}
+  - name: tecnico_traduzido
+    label: Técnico/Não-ficção traduzido
+    when: {genres_any: [Técnico, Não-Ficção], translated: true}
+    weights: {edition: 3, translation_lettering: 3, writing: 4, usefulness: 5, structure: 4, value_for_money: 5}
+  - name: ficcao
+    label: Ficção nacional
+    when: {translated: false}
+    weights: {edition: 3, plot: 5, characters: 5, feeling: 4, theme: 4, setting: 5, ending: 4}
+  - name: ficcao_traduzida
+    label: Ficção traduzida
+    when: {translated: true}
+    weights: {edition: 2, translation_lettering: 3, plot: 4, characters: 4, feeling: 5, theme: 4, setting: 5, ending: 5}

@@ -193,6 +193,16 @@ PUBLIC_METHODS = {
     "list_decision_shadow",
     "get_stats",
     "get_web_dashboard",
+    # books (Estante, ADR-068)
+    "upsert_book",
+    "delete_books",
+    "book_file_index",
+    "get_book",
+    "get_book_by_source",
+    "list_book_identities",
+    "list_book_rows",
+    "list_book_readings",
+    "list_reflective_source_ids",
     # connection lifecycle (db.py)
     "close",
     "vacuum",

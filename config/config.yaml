@@ -402,6 +402,7 @@ retrieval:
     max_figures: 6                 # teto de figuras no catalogo
     chars_per_section_draft: 2500  # alvo de tamanho por secao no prompt de draft
     personalities_path: ./config/personalities.yaml
+    academic_include_reflective: false  # notas reflexivas da Estante (ADR-069) no artigo academico; no blog sempre entram
     default_personality: neutral   # neutral = nao reescreve via LLM
     enrich_query_count: 6          # queries extras geradas no enricher
     max_judge_iterations: 3        # ciclos draft ↔ judge
@@ -466,6 +467,14 @@ manuscript:
   quotes: false          # trecho literal de cada cartao, com a citacao
   limits: false          # "Ressalva:" com os limites de cada cartao
   appendix: false        # apendice com a nota completa de cada cartao
+
+# ── Estante (ADR-068): livros como notas LIV em 60_Estante/ ────────────
+library:
+  rating_path: ./config/library.yaml   # generos, criterios e perfis de avaliacao
+  document_types: [livro]              # harvest destes tipos cria a nota LIV do livro
+  initial_status: quero_ler            # quero_ler | lendo | lido | abandonado | relendo
+  format_letters: {fisico: F, digital: D, audiolivro: A}   # letra do codigo "0001 - F"
+  open_library_covers: true            # botao "buscar capa pelo ISBN" (covers.openlibrary.org)
 
 # ── Idioma dos prompts / texto gerado ──────────────────────────────────
 language: pt-BR

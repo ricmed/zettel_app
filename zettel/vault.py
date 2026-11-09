@@ -329,6 +329,7 @@ VAULT_DIRS = [
     "30_Permanent",
     "40_MOCs",
     "50_Projetos",
+    "60_Estante",
     "90_Assets",
 ]
 
@@ -340,6 +341,8 @@ PIPELINE_ORIGINS = frozenset({"pipeline", "hub_pipeline"})
 TEMPLATES_DIR = "99_Templates"
 # Writing projects (Mesa, ADR-067): the author's, kept by ``init --reset``.
 PROJECTS_DIR = "50_Projetos"
+# Bookshelf (Estante, ADR-068): one LIV note per book, kept by ``init --reset``.
+LIBRARY_DIR = "60_Estante"
 
 
 def init_vault(vault_path: Path) -> None:

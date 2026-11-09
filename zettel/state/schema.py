@@ -403,6 +403,48 @@ CREATE TABLE IF NOT EXISTS review_events (
 );
 CREATE INDEX IF NOT EXISTS idx_review_events_source ON review_events(source_id);
 CREATE INDEX IF NOT EXISTS idx_review_events_chunk ON review_events(chunk_id);
+
+-- Estante (ADR-068): mirror of the LIV notes in 60_Estante/, rebuilt from the
+-- files by ``library.mirror.refresh``. No foreign key to sources: a reset drops
+-- the source and the LIV keeps its source_id until it is relinked.
+CREATE TABLE IF NOT EXISTS books (
+    book_id            TEXT PRIMARY KEY,
+    path               TEXT NOT NULL,
+    file_mtime_ns      INTEGER NOT NULL,
+    file_size          INTEGER NOT NULL,
+    schema_stamp       TEXT NOT NULL DEFAULT '',
+    code_number        INTEGER,
+    code               TEXT,
+    title              TEXT NOT NULL,
+    authors_json       TEXT NOT NULL DEFAULT '[]',
+    source_id          TEXT,
+    isbn               TEXT,
+    pages              INTEGER,
+    country            TEXT,
+    original_language  TEXT,
+    genres_json        TEXT NOT NULL DEFAULT '[]',
+    nature             TEXT,
+    reading_mode       TEXT NOT NULL DEFAULT 'conceito',
+    format             TEXT,
+    status             TEXT,
+    cover              TEXT,
+    rating_profile     TEXT,
+    score              REAL,
+    favorite           INTEGER NOT NULL DEFAULT 0,
+    created_at         TEXT,
+    frontmatter_json   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_books_source ON books(source_id);
+CREATE INDEX IF NOT EXISTS idx_books_isbn ON books(isbn);
+
+CREATE TABLE IF NOT EXISTS book_readings (
+    book_id    TEXT NOT NULL REFERENCES books(book_id) ON DELETE CASCADE,
+    position   INTEGER NOT NULL,
+    start_date TEXT,
+    end_date   TEXT,
+    PRIMARY KEY (book_id, position)
+);
+CREATE INDEX IF NOT EXISTS idx_book_readings_end ON book_readings(end_date);
 """
 
 # FTS5 virtual tables for BM25 lexical search, kept in sync with notes/chunks.

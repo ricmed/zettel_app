@@ -8,6 +8,7 @@ from pathlib import Path
 
 from zettel.search_terms import fold
 from zettel.state.assets import AssetsMixin
+from zettel.state.books import BooksMixin
 from zettel.state.chapters import ChaptersMixin
 from zettel.state.chunks import ChunksMixin
 from zettel.state.concepts import ConceptsMixin
@@ -42,6 +43,7 @@ MIXINS = (
     RunsMixin,
     FtsMixin,
     WebMixin,
+    BooksMixin,
 )
 
 
