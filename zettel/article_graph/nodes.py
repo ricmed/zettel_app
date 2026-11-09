@@ -58,6 +58,7 @@ def node_vector_search_merge(state: ArticleGraphState, config: RunnableConfig) -
         use_graph = cfg.retrieval.graph_expansion.enabled
 
     retriever = Retriever(cfg, rt.db, rt.idx)
+    excluded = search.excluded_sources(cfg, rt.db, state.get("style") or "academic")
     existing = list(state.get("retrieved_notes") or [])
     executed = list(state.get("executed_queries") or [])
     queries = list(state.get("search_queries") or [])
@@ -71,6 +72,7 @@ def node_vector_search_merge(state: ArticleGraphState, config: RunnableConfig) -
         mode=mode,
         use_graph=use_graph,
         max_context_notes=art_cfg.max_context_notes,
+        exclude_source_ids=excluded,
     )
 
     moc_ids = list(state.get("moc_ids") or [])
@@ -82,6 +84,8 @@ def node_vector_search_merge(state: ArticleGraphState, config: RunnableConfig) -
         existing = search.expand_extra_hops(
             rt.db, existing, topk=topk, article_cfg=art_cfg, graph_cfg=gcfg
         )
+
+    existing = search.drop_sources(rt.db, existing, excluded)
 
     retrieval_params = search.snapshot_retrieval_params(
         cfg,

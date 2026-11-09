@@ -34,6 +34,7 @@ def run_pending_queries(
     mode: str,
     use_graph: bool,
     max_context_notes: int,
+    exclude_source_ids: list[str] | None = None,
 ) -> tuple[list[dict], list[str]]:
     """Run every query not yet executed, merging hits into ``existing``."""
     pending = [q for q in queries if q and q not in executed]
@@ -45,7 +46,13 @@ def run_pending_queries(
             total_q,
             art.clip_text(q),
         )
-        pool = retriever.search_notes(q, topk=topk, mode=mode, expand_graph=bool(use_graph))
+        pool = retriever.search_notes(
+            q,
+            topk=topk,
+            mode=mode,
+            expand_graph=bool(use_graph),
+            exclude_source_ids=exclude_source_ids or (),
+        )
         existing = art.merge_retrieved_notes(existing, pool.hits, max_context_notes)
         executed.append(q)
         logger.info(
@@ -56,6 +63,35 @@ def run_pending_queries(
             len(existing),
         )
     return existing, executed
+
+
+def excluded_sources(cfg: AppConfig, db: StateDB, style: str) -> list[str]:
+    """Sources an article of ``style`` leaves out: reflective books in academic (ADR-069).
+
+    A blog article uses the bookshelf's reflective notes as analogies; an
+    academic one cites evidence, so it leaves them out unless
+    ``retrieval.article.academic_include_reflective`` says otherwise.
+    """
+    from ..library.mirror import refresh
+    from ..library.schema import LibrarySchemaError
+
+    # Refreshed for both styles: the catalog reads each source's reading mode.
+    try:
+        refresh(db, cfg)
+    except LibrarySchemaError as exc:
+        logger.warning("Estante indisponivel; nenhuma fonte reflexiva excluida: %s", exc)
+        return []
+    if style != "academic" or cfg.retrieval.article.academic_include_reflective:
+        return []
+    return db.list_reflective_source_ids()
+
+
+def drop_sources(db: StateDB, existing: list[dict], source_ids: list[str]) -> list[dict]:
+    """``existing`` without the notes of ``source_ids`` (MOC boost and extra hops add them)."""
+    if not source_ids:
+        return existing
+    excluded = {nid for sid in source_ids for nid in db.get_note_ids_for_source(sid)}
+    return [d for d in existing if d["note_id"] not in excluded]
 
 
 def apply_moc_boost(

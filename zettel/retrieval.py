@@ -18,7 +18,7 @@ chunk_id), so fusion is a direct dictionary merge.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
@@ -228,8 +228,13 @@ class Retriever:
         source_id: str | None = None,
         graph: object | None = None,
         record_neighbours: bool = False,
+        exclude_source_ids: Iterable[str] = (),
     ) -> NoteSearchResult:
         """Retrieve permanent notes for ``query``.
+
+        ``exclude_source_ids`` drops every note of those sources from the pool,
+        the topic-index seeds and the graph neighbours (the academic article
+        leaves out the bookshelf's reflective notes, ADR-069).
 
         Returns a :class:`NoteSearchResult`:
 
@@ -254,9 +259,13 @@ class Retriever:
             expand_graph = gcfg.enabled
 
         pool = max(topk * 3, 20)
+        excluded = self._notes_of_sources(exclude_source_ids)
         vector_hits = self._vector_notes(query, pool, exclude_id, purpose=purpose)
         bm25_hits = self._bm25_notes(query, pool, exclude_id) if mode == "hybrid" else []
         vector_hits, topic_seed_ids = self._add_topic_index_seeds(query, vector_hits, exclude_id)
+        if excluded:
+            vector_hits = [h for h in vector_hits if h["id"] not in excluded]
+            bm25_hits = [h for h in bm25_hits if h["note_id"] not in excluded]
 
         fused = self._rrf_fuse_notes(vector_hits, bm25_hits)
         for hit in fused:
@@ -277,6 +286,8 @@ class Retriever:
         if not expand_graph:
             return NoteSearchResult(hits=seeds, candidates=candidates)
         hits = self._expand_with_graph(seeds, exclude_id, gcfg)
+        if excluded:
+            hits = [h for h in hits if h.note_id not in excluded]
         if record_neighbours:
             self._remember_neighbours(hits)
         return NoteSearchResult(hits=hits, candidates=candidates)
@@ -418,6 +429,11 @@ class Retriever:
         return hits
 
     # ── Vector / BM25 source rankings ──────────────────────────────────
+
+    def _notes_of_sources(self, source_ids: Iterable[str]) -> set[str]:
+        return {
+            nid for sid in dict.fromkeys(source_ids) for nid in self.db.get_note_ids_for_source(sid)
+        }
 
     def _vector_notes(
         self,

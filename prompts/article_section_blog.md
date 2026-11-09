@@ -20,6 +20,11 @@ Escreva em **{language}**.
    exato (`![[90_Assets/...]]`) e uma legenda curta em italico.
 6. Comece a secao com `##` seguido do heading indicado no input (exatamente).
 7. Baseie-se so no bloco de evidencias. Se algo nao estiver la, omita.
+8. Uma nota marcada `leitura: reflexiva` vem de um livro lido por reflexao
+   (romance, conto, quadrinho, filosofia). Use-a como **analogia ou
+   ilustracao** de uma ideia, com a `mencao_literaria` dela ("Assim como Bilbo
+   em *O Hobbit*, de Tolkien, ..."), nunca como prova de um fato. Nao conte o
+   enredo alem do necessario para a analogia.
 
 {anti_ai}
 
