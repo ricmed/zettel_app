@@ -97,3 +97,25 @@ def test_filters(tmp_path):
     assert [r["title"] for r in db.list_book_rows(status="lido")] == ["O Hobbit"]
     assert [r["title"] for r in db.list_book_rows(sort="code")] == ["Duna", "O Hobbit"]
     assert db.list_reflective_source_ids() == []
+
+
+def test_library_health_reports_repeated_codes(tmp_path):
+    from zettel.library.mirror import library_health
+
+    cfg = library_config(tmp_path)
+    first = bf.create_book(cfg, {"title": "A"})
+    ok, detail = library_health(cfg)
+    assert ok and "1 livro" in detail
+    second = bf.create_book(cfg, {"title": "B"})
+    second.meta["code_number"] = first.meta["code_number"]
+    bf.save_book(cfg, second, expected_version=second.version)
+    ok, detail = library_health(cfg)
+    assert not ok and "0001" in detail
+
+
+def test_library_health_reports_a_broken_vocabulary(tmp_path):
+    from zettel.library.mirror import library_health
+
+    cfg = library_config(tmp_path, rating_path=tmp_path / "nada.yaml")
+    ok, detail = library_health(cfg)
+    assert not ok and "nada.yaml" in detail

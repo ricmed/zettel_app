@@ -82,6 +82,32 @@ def book_row(
     return row, readings
 
 
+def library_health(cfg: Any) -> tuple[bool, str]:
+    """``(ok, detalhe)`` da Estante para o ``doctor``: vocabulário e códigos únicos."""
+    from collections import Counter
+
+    from zettel.library.book_file import list_books
+    from zettel.library.schema import LibrarySchemaError
+
+    try:
+        schema = schema_for(cfg)
+    except LibrarySchemaError as exc:
+        return False, str(exc)
+    books = list_books(cfg)
+    numbers = Counter(as_int(b.meta.get("code_number")) for b in books)
+    repeated = sorted(n for n, count in numbers.items() if n and count > 1)
+    ids = Counter(b.book_id for b in books)
+    copies = sorted(book_id for book_id, count in ids.items() if count > 1)
+    problems = []
+    if repeated:
+        problems.append("codigo repetido: " + ", ".join(f"{n:04d}" for n in repeated))
+    if copies:
+        problems.append(f"book_id em mais de um arquivo: {', '.join(copies)}")
+    if problems:
+        return False, "; ".join(problems)
+    return True, f"{len(books)} livro(s), {len(schema.profiles)} perfil(is) de avaliacao"
+
+
 def refresh(db: Any, cfg: Any) -> MirrorReport:
     """Põe o espelho em dia com ``60_Estante/``; devolve o que foi lido e removido."""
     report = MirrorReport()
