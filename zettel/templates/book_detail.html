@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% from "_mesa.html" import mesa_add with context %}
+{% block title %}{{ book.title }} · Estante{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/library.css">{% endblock %}
+{% block content %}
+{% set m = book.meta %}
+<div class="book-head">
+  <div class="book-cover">
+    {% if cover_url %}<img src="{{ cover_url }}" alt="Capa de {{ book.title }}">{% else %}<span class="shelf-cover-blank">{{ book.title }}</span>{% endif %}
+  </div>
+  <div class="book-head-text">
+    <div class="eyebrow"><a href="/books">estante</a> · <code>{{ book.code or 'sem código' }}</code></div>
+    <h1>{{ book.title }}{% if m.favorite %} <span title="Favorito">★</span>{% endif %}</h1>
+    {% if m.original_title %}<p class="muted">{{ m.original_title }}</p>{% endif %}
+    <p>{{ book.authors|join(', ') or 'Autor não informado' }}</p>
+    <dl class="book-facts">
+      <div><dt>Status</dt><dd>{{ status_labels.get(book.status, '—') }}</dd></div>
+      <div><dt>Formato</dt><dd>{{ format_labels.get(book.format, '—') }}</dd></div>
+      <div><dt>Gêneros</dt><dd>{% for g in book.genres %}<a class="tag" href="/books?genre={{ g|urlencode }}">{{ g }}</a> {% else %}—{% endfor %}</dd></div>
+      <div><dt>Natureza</dt><dd>{{ nature_labels.get(row.nature, 'indefinida') }}</dd></div>
+      <div><dt>Leitura</dt><dd>{{ mode_labels.get(row.reading_mode, '—') }}{% if not m.reading_mode %} <span class="muted">(pelos gêneros)</span>{% endif %}</dd></div>
+      <div><dt>País</dt><dd>{{ m.country or '—' }}</dd></div>
+      <div><dt>Páginas</dt><dd>{{ m.pages or '—' }}</dd></div>
+      <div><dt>Nota</dt><dd><strong>{{ '%.2f'|format(rating.score) if rating.score is not none else '—' }}</strong></dd></div>
+      <div><dt>Inclusão</dt><dd>{{ m.created_at | local_dt('date') if m.created_at else '—' }}</dd></div>
+    </dl>
+    <form method="post" action="/books/{{ book.book_id }}" class="inline-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="status">
+      <select name="status" aria-label="Status">{% for k, v in status_labels.items() %}<option value="{{ k }}" {% if book.status == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+      <button class="button" type="submit">Mudar status</button>
+    </form>
+  </div>
+</div>
+
+<div class="grid-2">
+<section class="panel" id="leituras">
+  <h2>Leituras</h2>
+  {% if readings %}<ul class="readings">{% for r in readings %}<li><span>{{ r.start or '?' }} → {{ r.end or 'em andamento' }}</span>
+    <form method="post" action="/books/{{ book.book_id }}" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="reading-remove"><input type="hidden" name="position" value="{{ loop.index0 }}"><button class="link-button" type="submit">remover</button></form></li>{% endfor %}</ul>
+  {% else %}<div class="empty">Nenhuma leitura registrada.</div>{% endif %}
+  <div class="reading-actions">
+    {% if not open_reading %}
+    <form method="post" action="/books/{{ book.book_id }}" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="reading-start"><input type="date" name="date" value="{{ today }}" aria-label="Início"><button class="button" type="submit">Comecei a ler</button></form>
+    {% endif %}
+    <form method="post" action="/books/{{ book.book_id }}" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="reading-finish"><input type="date" name="date" value="{{ today }}" aria-label="Término"><button class="button primary" type="submit">Terminei</button></form>
+  </div>
+</section>
+
+<section class="panel" id="avaliacao">
+  <h2>Avaliação</h2>
+  {% if rating.profile %}
+  <p class="muted">Perfil <b>{{ rating.profile.label or rating.profile.name }}</b>{% if not m.rating_profile %} (escolhido pelos gêneros e pela tradução){% endif %} · {{ rating.rated }} de {{ rating.total }} critérios · escala {{ schema.scale.min|int }}–{{ schema.scale.max|int }}</p>
+  <form method="post" action="/books/{{ book.book_id }}" class="rating-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="rating">
+    <table><thead><tr><th>Critério</th><th class="num">Peso</th><th>Nota</th></tr></thead><tbody>
+    {% for line in rating.lines %}<tr><td>{{ line.label }}{% if schema.criteria[line.key].help %}<small class="muted"> — {{ schema.criteria[line.key].help }}</small>{% endif %}</td><td class="num">{{ line.weight|int }}</td>
+      <td><input type="number" name="rating_{{ line.key }}" value="{{ '%g'|format(line.value) if line.value is not none else '' }}" min="{{ schema.scale.min }}" max="{{ schema.scale.max }}" step="{{ schema.scale.step }}" aria-label="{{ line.label }}"></td></tr>{% endfor %}
+    </tbody></table>
+    <label>Perfil <select name="rating_profile"><option value="">automático</option>{% for p in schema.profiles %}<option value="{{ p.name }}" {% if m.rating_profile == p.name %}selected{% endif %}>{{ p.label or p.name }}</option>{% endfor %}</select></label>
+    <button class="button primary" type="submit">Salvar notas</button>
+  </form>
+  {% if rating.ignored %}<small class="muted">Fora deste perfil ou da escala (não contam): {% for k, v in rating.ignored.items() %}{{ k }}={{ v }}{% if not loop.last %}, {% endif %}{% endfor %}</small>{% endif %}
+  {% else %}<div class="empty">Nenhum perfil de avaliação casa com este livro. Confira os perfis em <code>config/library.yaml</code>.</div>{% endif %}
+</section>
+</div>
+
+<section class="panel" id="resumo">
+  <h2>Resumo e impressões</h2>
+  <div class="grid-2">
+    <div><h3>Resumo</h3>{% if summary_html %}<div class="markdown">{{ summary_html|safe }}</div>{% else %}<div class="empty">Sem resumo.</div>{% endif %}</div>
+    <div><h3>Impressões</h3>{% if impressions_html %}<div class="markdown">{{ impressions_html|safe }}</div>{% else %}<div class="empty">Sem impressões.</div>{% endif %}</div>
+  </div>
+  <details><summary>Editar</summary>
+    <form method="post" action="/books/{{ book.book_id }}" class="book-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="summary">
+      <label>Resumo <textarea name="summary" rows="8">{{ summary }}</textarea></label>
+      <label>Impressões <textarea name="impressions" rows="6">{{ impressions }}</textarea></label>
+      <button class="button primary" type="submit">Salvar textos</button>
+    </form>
+  </details>
+</section>
+
+<section class="panel" id="notas">
+  <h2>Notas de leitura</h2>
+  {% if source %}
+  <p class="muted">Fonte: <a href="/sources/{{ source.source_id }}">{{ source.title or source.citekey }}</a> <code>{{ source.source_id }}</code></p>
+  {% elif missing_source %}
+  <div class="alert error">A fonte <code>{{ missing_source }}</code> não existe mais (um reset?). {% if candidates %}Candidatas: {% for c in candidates %}<code>{{ c.source_id }}</code>{% if not loop.last %}, {% endif %}{% endfor %}; escolha uma nos metadados.{% else %}Colha o livro de novo ou ajuste a fonte nos metadados.{% endif %}</div>
+  {% else %}<p class="muted">Sem fonte ligada: a primeira nota de leitura cria uma fonte manual para o livro.</p>{% endif %}
+  <div class="grid-2">
+    <div>
+      <h3>Literatura (LIT)</h3>
+      {% if lits %}<ul class="book-notes">{% for lit in lits %}<li><span>{{ lit.label }}{% if lit.manual %} <span class="tag">manual</span>{% endif %}</span>
+        <form method="post" action="/books/{{ book.book_id }}/permanent" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="chunk_id" value="{{ lit.chunk_id }}">
+          <label class="check"><input type="checkbox" name="use_llm" value="1" {% if not connect_llm_ready %}disabled{% endif %}> com LLM</label>
+          <button class="link-button" type="submit">Gerar ZTL</button></form></li>{% endfor %}</ul>
+      {% if not connect_llm_ready %}<small class="muted">Gerar com LLM exige a credencial da fase connect.</small>{% endif %}
+      {% else %}<div class="empty">Nenhuma nota de literatura.</div>{% endif %}
+    </div>
+    <div>
+      <h3>Permanentes (ZTL)</h3>
+      {% if notes %}<ul class="book-notes">{% for n in notes %}<li><a href="/notes/{{ n.note_id }}">{{ n.title }}</a></li>{% endfor %}</ul>
+      {{ mesa_add(desks, 'mesa-book', notes|map(attribute='note_id')|list, 'Levar as ZTL à mesa') }}
+      {% else %}<div class="empty">Nenhuma nota permanente.</div>{% endif %}
+    </div>
+  </div>
+  <details {% if not lits %}open{% endif %}><summary>Nova nota de leitura</summary>
+    <form method="post" action="/books/{{ book.book_id }}/reading-notes" class="book-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="form-row"><label>Título <input type="text" name="topic" maxlength="200" required></label><label>Página <input type="number" name="page" min="0"></label></div>
+      <label>Trecho do livro <textarea name="excerpt" rows="3"></textarea></label>
+      {% if row.reading_mode == 'reflexao' %}
+      <div class="form-row">
+        <label>Tipo <select name="reflection_kind"><option value="">—</option>{% for k, v in reflection_kinds.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+        <label>Personagens <input type="text" name="characters" placeholder="separados por vírgula"></label>
+      </div>
+      <label>A ideia (metáfora, pensamento, pergunta) <textarea name="candidate" rows="2"></textarea></label>
+      <label>Reflexão <textarea name="reflection" rows="4"></textarea></label>
+      <label>Uso como analogia <textarea name="analogy" rows="2" placeholder="Assim como … em …"></textarea></label>
+      {% else %}
+      <label>Resumo <textarea name="summary" rows="4"></textarea></label>
+      <label>Conceitos-chave <input type="text" name="concepts" placeholder="separados por vírgula"></label>
+      <label>Tese candidata a nota permanente <textarea name="candidate" rows="2"></textarea></label>
+      {% endif %}
+      <button class="button primary" type="submit">Criar nota de leitura</button>
+    </form>
+  </details>
+</section>
+
+<div class="grid-2">
+<section class="panel" id="capa">
+  <h2>Capa</h2>
+  <form method="post" action="/books/{{ book.book_id }}" enctype="multipart/form-data" class="inline-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="cover">
+    <input type="file" name="images" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" aria-label="Imagem da capa">
+    <button class="button" type="submit">Enviar capa</button>
+  </form>
+  {% if open_library %}
+  <form method="post" action="/books/{{ book.book_id }}" class="inline-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="cover-isbn"><input type="hidden" name="isbn" value="{{ m.isbn }}">
+    <button class="button" type="submit">Buscar capa pelo ISBN</button>
+  </form>
+  <small class="muted">Capas da <a href="{{ open_library_home }}" rel="noopener">Open Library</a>.</small>
+  {% endif %}
+</section>
+
+<section class="panel" id="bibliografia">
+  <h2>Bibliografia</h2>
+  <p class="muted">Editora, edição e tradutor ficam na nota SRC da fonte, que é o que as citações usam.</p>
+  <form method="post" action="/books/{{ book.book_id }}" class="book-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="bibliography">
+    <div class="form-row">
+      <label>Editora <input type="text" name="publisher" value="{{ biblio.get('publisher', '') }}"></label>
+      <label>Edição <input type="text" name="edition" value="{{ biblio.get('edition', '') }}"></label>
+      <label>Ano desta edição <input type="number" name="year" value="{{ source.year if source and source.year else '' }}"></label>
+    </div>
+    <div class="form-row">
+      <label>Local <input type="text" name="place" value="{{ biblio.get('place', '') }}"></label>
+      <label>Tradutor <input type="text" name="translator" value="{{ biblio.get('translator', '') }}"></label>
+      <label>ISBN <input type="text" name="isbn" value="{{ (source.isbn if source else '') or (m.isbn or '') }}"></label>
+    </div>
+    <button class="button" type="submit">Salvar na fonte</button>
+  </form>
+</section>
+</div>
+
+<section class="panel" id="metadados">
+  <details><summary><h2 class="inline-heading">Editar metadados</h2></summary>
+  <form method="post" action="/books/{{ book.book_id }}" class="book-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="metadata">
+    <div class="form-row">
+      <label>Título <input type="text" name="title" value="{{ book.title }}" required maxlength="300"></label>
+      <label>Título original <input type="text" name="original_title" value="{{ m.original_title or '' }}"></label>
+    </div>
+    <div class="form-row">
+      <label>Número do código <input type="number" name="code_number" value="{{ m.code_number or '' }}" min="1"></label>
+      <label>Série <input type="text" name="series" value="{{ m.series or '' }}"></label>
+      <label>Nº na série <input type="number" name="series_number" value="{{ m.series_number or '' }}" min="0"></label>
+    </div>
+    <label>Autores <textarea name="authors" rows="2">{{ book.authors|join('\n') }}</textarea></label>
+    <div class="form-row">
+      <label>Formato <select name="format">{% for k, v in format_labels.items() %}<option value="{{ k }}" {% if book.format == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+      <label>Status <select name="status">{% for k, v in status_labels.items() %}<option value="{{ k }}" {% if book.status == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+      <label>ISBN <input type="text" name="isbn" value="{{ m.isbn or '' }}"></label>
+      <label>Páginas <input type="number" name="pages" value="{{ m.pages or '' }}" min="0"></label>
+    </div>
+    <div class="form-row">
+      <label>País <input type="text" name="country" value="{{ m.country or '' }}"></label>
+      <label>Idioma original <input type="text" name="original_language" value="{{ m.original_language or '' }}"></label>
+      <label>Ano da 1ª publicação <input type="number" name="original_publication_year" value="{{ m.original_publication_year or '' }}"></label>
+    </div>
+    <fieldset class="genre-picks"><legend>Gêneros</legend>{% for g in genres %}<label class="check"><input type="checkbox" name="genres" value="{{ g }}" {% if g in book.genres %}checked{% endif %}> {{ g }}</label>{% endfor %}</fieldset>
+    <label>Outros gêneros <input type="text" name="genres_extra" placeholder="separados por vírgula"></label>
+    <label>Assuntos <input type="text" name="subjects" value="{{ (m.subjects or [])|join(', ') }}"></label>
+    <div class="form-row">
+      <label>Natureza <select name="nature"><option value="">pelos gêneros</option>{% for k, v in nature_labels.items() %}<option value="{{ k }}" {% if m.nature == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+      <label>Modo de leitura <select name="reading_mode"><option value="">pelos gêneros</option>{% for k, v in mode_labels.items() %}<option value="{{ k }}" {% if m.reading_mode == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+      <label>Fonte (source_id) <input type="text" name="source_id" value="{{ m.source_id or '' }}" placeholder="@Citekey"></label>
+    </div>
+    <label class="check"><input type="checkbox" name="favorite" value="1" {% if m.favorite %}checked{% endif %}> Favorito</label>
+    <button class="button primary" type="submit">Salvar metadados</button>
+  </form>
+  </details>
+</section>
+{% endblock %}

@@ -651,8 +651,9 @@ class LibraryConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    # Generos, criterios e perfis de avaliacao (zettel/library/schema.py).
-    rating_path: Path = Path("config/library.yaml")
+    # Generos, criterios e perfis de avaliacao (zettel/library/schema.py). O
+    # default e o arquivo do repositorio, nao um caminho relativo ao cwd.
+    rating_path: Path = _PACKAGE_DIR.parent / "config" / "library.yaml"
     # Tipos de documento cujo harvest cria a nota LIV do livro.
     document_types: list[str] = Field(default_factory=lambda: ["livro"])
     # Status de um livro criado sem status (pelo harvest ou pela web).
@@ -668,7 +669,7 @@ class LibraryConfig(BaseModel):
     @classmethod
     def resolve_rating_path(cls, v: Any) -> Path:
         if v is None or v == "":
-            return Path("config/library.yaml").resolve()
+            return _PACKAGE_DIR.parent / "config" / "library.yaml"
         return Path(v).resolve()
 
     @field_validator("format_letters")

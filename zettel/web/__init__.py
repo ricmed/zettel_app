@@ -41,6 +41,7 @@ from zettel.web import jobs  # /runs, /jobs, /api/jobs
 from zettel.web import settings  # /settings
 from zettel.web import assets  # /assets/{name}
 from zettel.web import projects  # /projetos (Mesa)
+from zettel.web import library  # /books (Estante)
 from zettel.web import details  # /sources/{id}, /notes/{id}, /mocs/{id} — LAST
 # isort: on
 
@@ -58,6 +59,7 @@ ROUTE_MODULES = (
     settings,
     assets,
     projects,
+    library,
     details,
 )
 

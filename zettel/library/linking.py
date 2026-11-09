@@ -194,13 +194,18 @@ def book_notes_lines(db: Any, source_id: str | None) -> list[str]:
 
 
 def write_book_notes_block(cfg: Any, db: Any, book: Book) -> None:
-    from zettel.vault import safe_update_managed_blocks
+    """Regrava o bloco ``auto-book-notes`` só quando ele muda (LF, pela gravação da LIV)."""
+    from zettel.vault import MalformedManagedBlock, upsert_managed_block
 
-    safe_update_managed_blocks(
-        book.path,
-        {BOOK_NOTES_BLOCK: "\n".join(book_notes_lines(db, book.source_id))},
-        vault_timezone=cfg.vault_timezone,
-    )
+    inner = "\n".join(book_notes_lines(db, book.source_id))
+    try:
+        body = upsert_managed_block(book.body, BOOK_NOTES_BLOCK, inner)
+    except MalformedManagedBlock as exc:
+        logger.warning("%s em %s; bloco de notas do livro nao atualizado", exc, book.path)
+        return
+    if body != book.body:
+        book.body = body
+        save_book(cfg, book, expected_version=book.version)
 
 
 def sync_library(cfg: Any, db: Any, source_ids: list[str] | None = None) -> LibrarySyncReport:

@@ -231,7 +231,9 @@ def read_book(path: Path) -> Book | None:
         raw = path.read_bytes()
     except OSError:
         return None
-    meta, body = parse_frontmatter(raw.decode("utf-8", errors="replace"))
+    # Um editor no Windows pode gravar CRLF; as seções são lidas por linha.
+    text = raw.decode("utf-8", errors="replace").replace("\r\n", "\n")
+    meta, body = parse_frontmatter(text)
     if not isinstance(meta, dict) or meta.get("type") != BOOK_TYPE:
         return None
     book_id = str(meta.get("book_id") or "")

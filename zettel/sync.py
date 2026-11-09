@@ -297,6 +297,15 @@ def repair_permanent_links(
     }
 
 
+def sync_source_note(cfg: AppConfig, db: StateDB, file_path: Path) -> str:
+    """Adopt (or resync) one SRC note in SQLite, without the vector index.
+
+    The bookshelf uses it when a book gets its manual source (ADR-068); the
+    source's vector is written by the next ``sync-manual`` with the index.
+    """
+    return _sync_single_note(cfg, db, _Vectors(cfg, None), file_path, "source", _Run())
+
+
 def _sync_single_note(
     cfg: AppConfig,
     db: StateDB,

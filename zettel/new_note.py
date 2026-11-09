@@ -162,9 +162,11 @@ def _collect_biblio_fields(
     edition: str | None = None,
     institution: str | None = None,
     pages: str | None = None,
+    isbn: str | None = None,
 ) -> dict[str, Any]:
     fields: dict[str, Any] = {}
     for key, val in (
+        ("isbn", isbn),
         ("place", place),
         ("publisher", publisher),
         ("doi", doi),
@@ -381,6 +383,7 @@ def scaffold_manual_note(
     edition: str | None = None,
     institution: str | None = None,
     pages: str | None = None,
+    isbn: str | None = None,
     thesis: str | None = None,
     granular: bool = False,
     chunk_index: int | None = None,
@@ -415,6 +418,7 @@ def scaffold_manual_note(
             edition=edition,
             institution=institution,
             pages=pages,
+            isbn=isbn,
         )
         meta, body = source_scaffold(
             source_id=sid,

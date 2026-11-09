@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Novo livro · Zettelkasten{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/library.css">{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">estante</div>
+    <h1>Novo livro</h1>
+    <p class="muted">O código (<code>0001 - F</code>) é o próximo número da sequência mais a letra do formato. Os demais campos podem ser preenchidos depois, na página do livro ou no Obsidian.</p>
+  </div>
+</div>
+<form method="post" action="/books" class="panel book-form">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  {% if sources %}
+  <label>A partir de uma fonte já colhida
+    <select name="source_id"><option value="">— nenhuma —</option>{% for s in sources %}<option value="{{ s.source_id }}">{{ s.title or s.citekey }} ({{ s.source_id }})</option>{% endfor %}</select>
+    <small class="muted">Com uma fonte e sem título, o livro herda título, autores e ISBN dela.</small>
+  </label>
+  {% endif %}
+  <div class="form-row">
+    <label>Título <input type="text" name="title" maxlength="300"></label>
+    <label>Título original <input type="text" name="original_title" maxlength="300"></label>
+  </div>
+  <label>Autores <textarea name="authors" rows="2" placeholder="Um por linha"></textarea></label>
+  <div class="form-row">
+    <label>Formato <select name="format">{% for k, v in format_labels.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+    <label>Status <select name="status">{% for k, v in status_labels.items() %}<option value="{{ k }}" {% if k == initial_status %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+    <label>ISBN <input type="text" name="isbn" maxlength="20"></label>
+    <label>Páginas <input type="number" name="pages" min="0"></label>
+  </div>
+  <div class="form-row">
+    <label>País <input type="text" name="country" maxlength="80" placeholder="Brasil"></label>
+    <label>Idioma original <input type="text" name="original_language" maxlength="20" placeholder="pt, en, ru…"></label>
+    <label>Ano da 1ª publicação <input type="number" name="original_publication_year" min="0" max="2999"></label>
+  </div>
+  <fieldset class="genre-picks"><legend>Gêneros</legend>{% for g in genres %}<label class="check"><input type="checkbox" name="genres" value="{{ g }}"> {{ g }}</label>{% endfor %}</fieldset>
+  <label>Outros gêneros <input type="text" name="genres_extra" placeholder="separados por vírgula"></label>
+  <button class="button primary" type="submit">Criar livro</button>
+</form>
+{% endblock %}
