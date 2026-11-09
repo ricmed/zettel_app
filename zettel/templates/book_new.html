@@ -1,40 +1,149 @@
 {% extends "base.html" %}
 {% block title %}Novo livro · Zettelkasten{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/library.css">{% endblock %}
+{% import "_library_fields.html" as fields %}
 {% block content %}
 <div class="page-heading">
   <div>
     <div class="eyebrow">estante</div>
     <h1>Novo livro</h1>
-    <p class="muted">O código (<code>0001 - F</code>) é o próximo número da sequência mais a letra do formato. Os demais campos podem ser preenchidos depois, na página do livro ou no Obsidian.</p>
+    {% if online %}
+    <ol class="steps" aria-label="Etapas do cadastro">
+      <li {% if step == 'search' %}aria-current="step"{% endif %}><a href="/books/new">1. Pesquisar</a></li>
+      <li {% if step == 'form' %}aria-current="step"{% endif %}>2. Conferir e salvar</li>
+    </ol>
+    {% endif %}
   </div>
 </div>
+
+{% if step == 'search' %}
+<section class="panel">
+  <form method="get" action="/books/new" class="lookup-form" role="search">
+    <label for="lookup-q">ISBN ou título <small class="muted">(acrescente o autor para afinar)</small></label>
+    <div class="lookup-row">
+      <input id="lookup-q" type="search" name="q" value="{{ query }}" maxlength="200" placeholder="978-85-… ou O Hobbit Tolkien" autofocus>
+      <button class="button primary" type="submit">Pesquisar</button>
+    </div>
+    <small class="muted">A pesquisa começa no Google Books; se o resultado não servir, refaça-a na Open Library. Nada é gravado até você salvar o formulário.</small>
+  </form>
+</section>
+
+{% if query %}
+<section class="panel" aria-live="polite">
+  {% set redo %}{% for p, art, label in other_providers %}<a class="button" href="/books/new?q={{ query|urlencode }}&amp;provider={{ p }}">Refazer a busca n{{ art }} {{ label }}</a>{% endfor %}{% endset %}
+  {% if lookup_error %}
+  <div class="alert error" role="alert">{{ lookup_error[:1]|upper }}{{ lookup_error[1:] }}</div>
+  <div class="lookup-redo">{{ redo }}</div>
+  {% elif not results %}
+  <p>{{ provider_article|upper }} {{ provider_label }} não encontrou <strong>{{ query }}</strong>. Tente o ISBN, outro título ou o nome do autor.</p>
+  <div class="lookup-redo">{{ redo }}</div>
+  {% else %}
+  <div class="lookup-head">
+    <h2>{{ results|length }} resultado{% if results|length != 1 %}s{% endif %} n{{ provider_article }} {{ provider_label }} para “{{ query }}”</h2>
+    <div class="lookup-redo"><span class="muted">Não é o que procura?</span> {{ redo }}</div>
+  </div>
+  <ul class="lookup-results">
+    {% for r in results %}{% set c = r.c %}
+    <li class="lookup-item">
+      {% if c.cover_ref %}<img src="/books/lookup/cover?ref={{ c.cover_ref|urlencode }}" alt="" loading="lazy" width="72" height="108">{% else %}<span class="shelf-cover-blank lookup-blank" aria-hidden="true">{{ c.title[:1] }}</span>{% endif %}
+      <div class="lookup-text">
+        <strong>{{ c.title }}</strong>{% if c.subtitle %}<span class="muted">: {{ c.subtitle }}</span>{% endif %}
+        <div>{{ c.authors|join(', ') or 'autor desconhecido' }}</div>
+        <div class="muted">
+          {% if c.publisher %}{{ c.publisher }}{% endif %}{% if c.year %} · {{ c.year }}{% endif %}{% if c.first_year and c.first_year != c.year %} · obra de {{ c.first_year }}{% endif %}{% if c.pages %} · {{ c.pages }} p.{% endif %}{% if c.isbn %} · ISBN {{ c.isbn }}{% endif %}
+        </div>
+        <div><span class="tag">{{ c.provider_label }}</span>{% for g in r.genres %} <span class="tag genre-suggested">{{ g }}</span>{% endfor %}</div>
+      </div>
+      <div class="lookup-action">
+        {% if r.on_shelf %}
+        <a class="button" href="/books/{{ r.on_shelf.book_id }}">Já na estante{% if r.code %} ({{ '%04d'|format(r.code) }}){% endif %}</a>
+        {% endif %}
+        <form method="get" action="/books/new">
+          <input type="hidden" name="step" value="form">
+          {% for k, v in r.fields.items() %}{% if k != 'authors' %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endif %}{% endfor %}
+          {% for a in c.authors %}<input type="hidden" name="authors_list" value="{{ a }}">{% endfor %}
+          {% for g in r.genres %}<input type="hidden" name="genres" value="{{ g }}">{% endfor %}
+          <button class="button {% if not r.on_shelf %}primary{% endif %}" type="submit">{% if r.on_shelf %}Cadastrar outra edição{% else %}Usar este{% endif %}</button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  <div class="lookup-redo lookup-redo-foot"><span class="muted">Nenhum destes?</span> {{ redo }}</div>
+  {% endif %}
+</section>
+{% endif %}
+
+<div class="grid-2">
+  <section class="panel">
+    <h2>Não achou?</h2>
+    <p class="muted">Cadastre à mão; capa e bibliografia podem vir depois, na página do livro.</p>
+    <a class="button" href="/books/new?step=form{% if query %}&amp;title={{ query|urlencode }}{% endif %}">Preencher à mão</a>
+  </section>
+  {% if sources %}
+  <section class="panel">
+    <h2>Fontes colhidas sem livro</h2>
+    <p class="muted">O livro herda título, autores e ISBN da fonte.</p>
+    <ul class="book-notes">
+      {% for s in sources[:12] %}
+      <li><span>{{ s.title or s.citekey }} <small class="muted">{{ s.source_id }}</small></span>
+        <form method="post" action="/books"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="source_id" value="{{ s.source_id }}"><input type="hidden" name="format" value="digital"><input type="hidden" name="status" value="{{ initial_status }}"><button class="button" type="submit">Criar livro</button></form>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+</div>
+
+{% else %}
+{% set p = prefill %}
 <form method="post" action="/books" class="panel book-form">
   <input type="hidden" name="csrf" value="{{ csrf }}">
-  {% if sources %}
+  {% if p.cover_ref %}<input type="hidden" name="cover_ref" value="{{ p.cover_ref }}">{% endif %}
+  {% if online %}<p class="muted">{% if p.title %}Dados da pesquisa: confira e complete. {% endif %}O código (<code>0001 - F</code>) é o próximo número da sequência mais a letra do formato. <a href="/books/new">Voltar à pesquisa</a></p>{% endif %}
+  <div class="new-book-head">
+    {% if p.cover_ref %}<figure class="new-book-cover"><img src="/books/lookup/cover?ref={{ p.cover_ref|urlencode }}" alt="Capa encontrada na pesquisa" width="120" height="180"><figcaption class="muted">Esta capa será salva com o livro.</figcaption></figure>{% endif %}
+    <div class="new-book-fields">
+      <div class="form-row">
+        <label>Título <input type="text" name="title" maxlength="300" value="{{ p.title or '' }}" required></label>
+        <label>Título original <input type="text" name="original_title" maxlength="300" value="{{ p.original_title or '' }}"></label>
+      </div>
+      <label>Autores <textarea name="authors" rows="3" placeholder="Um por linha">{{ p.authors or '' }}</textarea></label>
+    </div>
+  </div>
+  {% if not online and sources %}
   <label>A partir de uma fonte já colhida
     <select name="source_id"><option value="">— nenhuma —</option>{% for s in sources %}<option value="{{ s.source_id }}">{{ s.title or s.citekey }} ({{ s.source_id }})</option>{% endfor %}</select>
     <small class="muted">Com uma fonte e sem título, o livro herda título, autores e ISBN dela.</small>
   </label>
   {% endif %}
   <div class="form-row">
-    <label>Título <input type="text" name="title" maxlength="300"></label>
-    <label>Título original <input type="text" name="original_title" maxlength="300"></label>
-  </div>
-  <label>Autores <textarea name="authors" rows="2" placeholder="Um por linha"></textarea></label>
-  <div class="form-row">
     <label>Formato <select name="format">{% for k, v in format_labels.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
     <label>Status <select name="status">{% for k, v in status_labels.items() %}<option value="{{ k }}" {% if k == initial_status %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
-    <label>ISBN <input type="text" name="isbn" maxlength="20"></label>
-    <label>Páginas <input type="number" name="pages" min="0"></label>
+    <label>ISBN <input type="text" name="isbn" maxlength="20" value="{{ p.isbn or '' }}"></label>
+    <label>Páginas <input type="number" name="pages" min="0" value="{{ p.pages or '' }}"></label>
   </div>
   <div class="form-row">
-    <label>País <input type="text" name="country" maxlength="80" placeholder="Brasil"></label>
-    <label>Idioma original <input type="text" name="original_language" maxlength="20" placeholder="pt, en, ru…"></label>
-    <label>Ano da 1ª publicação <input type="number" name="original_publication_year" min="0" max="2999"></label>
+    <label>País do autor <input type="text" name="country" maxlength="80" placeholder="Brasil" value="{{ p.country or '' }}"></label>
+    <label>Idioma original <input type="text" name="original_language" maxlength="20" placeholder="pt, en, ru…" value="{{ p.original_language or '' }}"></label>
+    <label>Ano da 1ª publicação <input type="number" name="original_publication_year" min="0" max="2999" value="{{ p.original_publication_year or '' }}"></label>
   </div>
-  <fieldset class="genre-picks"><legend>Gêneros</legend>{% for g in genres %}<label class="check"><input type="checkbox" name="genres" value="{{ g }}"> {{ g }}</label>{% endfor %}</fieldset>
-  <label>Outros gêneros <input type="text" name="genres_extra" placeholder="separados por vírgula"></label>
-  <button class="button primary" type="submit">Criar livro</button>
+  {% if work %}<p class="muted field-help">País do autor, idioma, título e ano originais vieram do <a href="{{ work.url }}" rel="noopener">Wikidata ({{ work.author }})</a>{% if work.countries|length > 1 %}; o autor tem mais de uma cidadania lá: {{ work.countries|join(', ') }}{% endif %}. Confira.</p>
+  {% elif work_error %}<p class="muted field-help">O Wikidata não respondeu ({{ work_error }}); país e ano originais ficam para você ou para “Completar dados” depois.</p>
+  {% endif %}
+  {% if prefill_genres %}<p class="muted field-help">Gêneros sugeridos pelas categorias do catálogo: confira.</p>{% endif %}
+  {{ fields.genre_picks(genre_groups, prefill_genres) }}
+  {{ fields.subject_picks(subject_options, []) }}
+  <fieldset class="edition-fields"><legend>Esta edição <small class="muted">(vai para a nota SRC, que as citações usam)</small></legend>
+    <div class="form-row">
+      <label>Editora <input type="text" name="publisher" maxlength="300" value="{{ p.publisher or '' }}"></label>
+      <label>Edição <input type="text" name="edition" maxlength="80"></label>
+      <label>Local <input type="text" name="place" maxlength="120" value="{{ p.place or '' }}"></label>
+      <label>Ano <input type="number" name="year" min="1000" max="2999" value="{{ p.year or '' }}"></label>
+      <label>Tradutor <input type="text" name="translator" maxlength="300"></label>
+    </div>
+  </fieldset>
+  <button class="button primary" type="submit">Salvar livro</button>
 </form>
+{% endif %}
 {% endblock %}

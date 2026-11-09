@@ -1,9 +1,17 @@
 {% extends "base.html" %}
 {% from "_mesa.html" import mesa_add with context %}
+{% import "_library_fields.html" as fields %}
 {% block title %}{{ book.title }} · Estante{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/library.css">{% endblock %}
 {% block content %}
 {% set m = book.meta %}
+{% if completed %}
+<div class="alert{% if not completed.filled %} error{% endif %}" role="status">
+  {% if completed.filled %}<b>Completar dados</b> preencheu: {{ completed.filled|join(', ') }}.{% else %}<b>Completar dados</b> não tinha nada novo para preencher: os campos que as fontes conhecem já estavam preenchidos.{% endif %}
+  {% if completed.work == 'author' %}O Wikidata achou o autor, mas não a obra por “{{ book.title }}”{% if not m.original_title %}: preencha o <b>título original</b> nos metadados e tente de novo, para trazer o ano e o idioma originais{% endif %}.
+  {% elif completed.work == 'none' %}O Wikidata não achou a obra nem o autor.{% endif %}
+</div>
+{% endif %}
 <div class="book-head">
   <div class="book-cover">
     {% if cover_url %}<img src="{{ cover_url }}" alt="Capa de {{ book.title }}">{% else %}<span class="shelf-cover-blank">{{ book.title }}</span>{% endif %}
@@ -18,8 +26,9 @@
       <div><dt>Formato</dt><dd>{{ format_labels.get(book.format, '—') }}</dd></div>
       <div><dt>Gêneros</dt><dd>{% for g in book.genres %}<a class="tag" href="/books?genre={{ g|urlencode }}">{{ g }}</a> {% else %}—{% endfor %}</dd></div>
       <div><dt>Natureza</dt><dd>{{ nature_labels.get(row.nature, 'indefinida') }}</dd></div>
-      <div><dt>Leitura</dt><dd>{{ mode_labels.get(row.reading_mode, '—') }}{% if not m.reading_mode %} <span class="muted">(pelos gêneros)</span>{% endif %}</dd></div>
-      <div><dt>País</dt><dd>{{ m.country or '—' }}</dd></div>
+      <div><dt>Leitura</dt><dd>{{ mode_labels.get(row.reading_mode, '—') }}{% if not m.reading_mode %} <span class="muted">(automático)</span>{% endif %}</dd></div>
+      <div><dt>País do autor</dt><dd>{{ m.country or '—' }}</dd></div>
+      <div><dt>Publicado em</dt><dd>{{ m.original_publication_year or '—' }}{% if m.original_language %} <span class="muted">({{ m.original_language }})</span>{% endif %}</dd></div>
       <div><dt>Páginas</dt><dd>{{ m.pages or '—' }}</dd></div>
       <div><dt>Nota</dt><dd><strong>{{ '%.2f'|format(rating.score) if rating.score is not none else '—' }}</strong></dd></div>
       <div><dt>Inclusão</dt><dd>{{ m.created_at | local_dt('date') if m.created_at else '—' }}</dd></div>
@@ -29,6 +38,13 @@
       <select name="status" aria-label="Status">{% for k, v in status_labels.items() %}<option value="{{ k }}" {% if book.status == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
       <button class="button" type="submit">Mudar status</button>
     </form>
+    {% if online_lookup %}
+    <form method="post" action="/books/{{ book.book_id }}" class="inline-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="complete">
+      <button class="button" type="submit">Completar dados</button>
+      <small class="muted">Só os campos vazios: pelo ISBN, autores, páginas, capa e editora; pelo Wikidata, país do autor, idioma, título e ano originais.</small>
+    </form>
+    {% endif %}
   </div>
 </div>
 
@@ -135,7 +151,7 @@
     <input type="file" name="images" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" aria-label="Imagem da capa">
     <button class="button" type="submit">Enviar capa</button>
   </form>
-  {% if open_library %}
+  {% if online_lookup and m.isbn %}
   <form method="post" action="/books/{{ book.book_id }}" class="inline-form">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="cover-isbn"><input type="hidden" name="isbn" value="{{ m.isbn }}">
     <button class="button" type="submit">Buscar capa pelo ISBN</button>
@@ -185,18 +201,19 @@
       <label>Páginas <input type="number" name="pages" value="{{ m.pages or '' }}" min="0"></label>
     </div>
     <div class="form-row">
-      <label>País <input type="text" name="country" value="{{ m.country or '' }}"></label>
+      <label>País do autor <input type="text" name="country" value="{{ m.country or '' }}"></label>
       <label>Idioma original <input type="text" name="original_language" value="{{ m.original_language or '' }}"></label>
       <label>Ano da 1ª publicação <input type="number" name="original_publication_year" value="{{ m.original_publication_year or '' }}"></label>
     </div>
-    <fieldset class="genre-picks"><legend>Gêneros</legend>{% for g in genres %}<label class="check"><input type="checkbox" name="genres" value="{{ g }}" {% if g in book.genres %}checked{% endif %}> {{ g }}</label>{% endfor %}</fieldset>
-    <label>Outros gêneros <input type="text" name="genres_extra" placeholder="separados por vírgula"></label>
-    <label>Assuntos <input type="text" name="subjects" value="{{ (m.subjects or [])|join(', ') }}"></label>
+    {{ fields.genre_picks(genre_groups, book.genres) }}
+    {{ fields.subject_picks(subject_options, m.subjects or []) }}
     <div class="form-row">
-      <label>Natureza <select name="nature"><option value="">pelos gêneros</option>{% for k, v in nature_labels.items() %}<option value="{{ k }}" {% if m.nature == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
-      <label>Modo de leitura <select name="reading_mode"><option value="">pelos gêneros</option>{% for k, v in mode_labels.items() %}<option value="{{ k }}" {% if m.reading_mode == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+      <label>Natureza <select name="nature"><option value="">Automático: {{ nature_labels.get(auto_nature, 'indefinida') }}</option>{% for k, v in nature_labels.items() %}<option value="{{ k }}" {% if m.nature == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+      <label>Modo de leitura <select name="reading_mode"><option value="">Automático: {{ mode_labels.get(auto_mode, '—') }}</option>{% for k, v in mode_labels.items() %}<option value="{{ k }}" {% if m.reading_mode == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
       <label>Fonte (source_id) <input type="text" name="source_id" value="{{ m.source_id or '' }}" placeholder="@Citekey"></label>
     </div>
+    {% if book.genres and not auto_nature %}<p class="alert error field-help" role="status">Os gêneros marcados misturam ficção e não ficção, então a natureza ficou indefinida e o perfil pode não ser o esperado. Num romance, prefira <b>Ficção Psicológica</b>/<b>Ficção Filosófica</b> a Psicologia/Filosofia, ou escolha a natureza abaixo.</p>{% endif %}
+    <p class="muted field-help"><b>Automático</b> decide pelos gêneros marcados acima, conforme <code>config/library.yaml</code>: cada gênero diz se é ficção ou não ficção (Romance é ficção, Técnico não; Clássico não pesa), e a natureza fica indefinida se os gêneros discordarem. O modo de leitura é <b>Reflexão</b> para ficção e para gêneros reflexivos (filosofia, psicologia, biografia…), e <b>Conceito</b> nos demais. Escolha um valor só para fugir dessa regra neste livro.</p>
     <label class="check"><input type="checkbox" name="favorite" value="1" {% if m.favorite %}checked{% endif %}> Favorito</label>
     <button class="button primary" type="submit">Salvar metadados</button>
   </form>

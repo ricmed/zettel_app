@@ -1,8 +1,8 @@
 """Vocabulário da Estante: gêneros, critérios de avaliação e perfis (``config/library.yaml``).
 
 O arquivo é validado ao carregar: um perfil que pesa um critério inexistente, um
-peso <= 0 ou dois perfis com o mesmo nome são recusados com uma mensagem, em vez
-de virarem uma nota silenciosamente errada.
+peso <= 0, dois perfis com o mesmo nome ou um gênero num grupo que não existe são
+recusados com uma mensagem, em vez de virarem uma nota silenciosamente errada.
 """
 
 from __future__ import annotations
@@ -23,6 +23,10 @@ class GenreSpec(BaseModel):
     nature: Nature = "neutro"
     # Pede leitura reflexiva mesmo sendo não ficção (filosofia, biografia...).
     reflective: bool = False
+    # Grupo da tela (forma, gênero ficcional, não ficção...); vazio fica em "Outros".
+    group: str = ""
+    # Categorias do Google Books (BISAC) que sugerem este gênero no cadastro.
+    aliases: list[str] = Field(default_factory=list)
 
 
 class CriterionSpec(BaseModel):
@@ -36,6 +40,8 @@ class ProfileWhen(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     genres_any: list[str] = Field(default_factory=list)
+    # A natureza do livro (a escolhida, senão a dos gêneros).
+    nature: Literal["ficcao", "nao_ficcao"] | None = None
     translated: bool | None = None
 
 
@@ -80,7 +86,11 @@ class LibrarySchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     scale: ScaleSpec = Field(default_factory=ScaleSpec)
+    # Grupos de gêneros, na ordem da tela: chave -> rótulo.
+    genre_groups: dict[str, str] = Field(default_factory=dict)
     genres: dict[str, GenreSpec] = Field(default_factory=dict)
+    # Assuntos sugeridos (a área do livro); não decidem perfil nem modo de leitura.
+    subjects: list[str] = Field(default_factory=list)
     criteria: dict[str, CriterionSpec]
     profiles: list[ProfileSpec]
 
@@ -96,6 +106,11 @@ class LibrarySchema(BaseModel):
             unknown = sorted(set(profile.weights) - set(self.criteria))
             if unknown:
                 raise ValueError(f"perfil {profile.name!r} pesa critérios inexistentes: {unknown}")
+        stray = sorted(
+            g for g, s in self.genres.items() if s.group and s.group not in self.genre_groups
+        )
+        if stray:
+            raise ValueError(f"gêneros num grupo que não está em genre_groups: {stray}")
         return self
 
     def profile(self, name: str) -> ProfileSpec | None:
@@ -103,6 +118,36 @@ class LibrarySchema(BaseModel):
 
     def genre(self, name: str) -> GenreSpec:
         return self.genres.get(name) or GenreSpec()
+
+    def grouped_genres(self, extra: list[str] | None = None) -> list[tuple[str, list[str]]]:
+        """``[(rótulo, gêneros)]`` na ordem do arquivo; sem grupo ou fora do vocabulário
+        (``extra``, os gêneros que um livro já tem) vão para "Outros"."""
+        groups = [
+            (label, [g for g, s in self.genres.items() if s.group == key])
+            for key, label in self.genre_groups.items()
+        ]
+        others = [g for g, s in self.genres.items() if not s.group]
+        others += sorted(g for g in dict.fromkeys(extra or []) if g and g not in self.genres)
+        if others:
+            groups.append(("Outros", others))
+        return [(label, names) for label, names in groups if names]
+
+    def genres_for_categories(self, categories: list[str]) -> list[str]:
+        """Gêneros sugeridos por categorias de catálogo ("Fiction / Fantasy / Epic").
+
+        Cada trecho entre barras é comparado inteiro, sem acento nem caixa, com os
+        ``aliases`` de cada gênero; a ordem é a do vocabulário.
+        """
+        from zettel.search_terms import fold
+
+        segments = {
+            fold(part).strip() for c in categories for part in str(c).split("/") if part.strip()
+        }
+        return [
+            name
+            for name, spec in self.genres.items()
+            if any(fold(alias).strip() in segments for alias in spec.aliases)
+        ]
 
 
 class LibrarySchemaError(ValueError):

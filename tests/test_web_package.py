@@ -76,6 +76,7 @@ EXPECTED_ROUTES = [
     ("GET", "/books"),
     ("GET", "/books/dashboard"),
     ("GET", "/books/new"),
+    ("GET", "/books/lookup/cover"),
     ("POST", "/books"),
     ("GET", "/books/{book_id}"),
     ("POST", "/books/{book_id}"),

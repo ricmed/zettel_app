@@ -662,8 +662,9 @@ class LibraryConfig(BaseModel):
     format_letters: dict[str, str] = Field(
         default_factory=lambda: {"fisico": "F", "digital": "D", "audiolivro": "A"}
     )
-    # Botao "buscar capa pelo ISBN" (covers.openlibrary.org; uma chamada de rede).
-    open_library_covers: bool = True
+    # Pesquisa de livros por ISBN ou titulo e busca de capa (Google Books; a
+    # Open Library quando o usuario refaz a busca). Desligada, o cadastro e so o formulario manual.
+    online_lookup: bool = True
 
     @field_validator("rating_path", mode="before")
     @classmethod

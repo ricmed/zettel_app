@@ -474,7 +474,7 @@ library:
   document_types: [livro]              # harvest destes tipos cria a nota LIV do livro
   initial_status: quero_ler            # quero_ler | lendo | lido | abandonado | relendo
   format_letters: {fisico: F, digital: D, audiolivro: A}   # letra do codigo "0001 - F"
-  open_library_covers: true            # botao "buscar capa pelo ISBN" (covers.openlibrary.org)
+  online_lookup: true                  # pesquisa por ISBN/titulo e capas (Google Books; Open Library a pedido)
 
 # ── Idioma dos prompts / texto gerado ──────────────────────────────────
 language: pt-BR

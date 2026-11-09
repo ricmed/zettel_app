@@ -55,7 +55,7 @@ def test_a_deleted_file_leaves_the_mirror(tmp_path):
 def test_mirror_is_rebuilt_from_files_after_a_reset(tmp_path):
     cfg = library_config(tmp_path)
     db = library_db(cfg)
-    book = bf.create_book(cfg, {"title": "O Hobbit"})
+    book = bf.create_book(cfg, {"title": "O Hobbit", "genres": ["Fantasia"]})
     book.meta["ratings"] = {"plot": 5, "characters": 5}
     book.meta["readings"] = [{"start": "2021-01-01", "end": "2021-02-01"}]
     bf.save_book(cfg, book, expected_version=book.version)

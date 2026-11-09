@@ -237,8 +237,10 @@ A Estante guarda o lado leitor: o que você leu, quando, em que formato e o que 
   - o código `0001 - F`, que é o número sequencial universal mais a letra do formato (F físico, D digital, A audiolivro);
   - o status, as leituras (início e término, com releituras), gêneros, país e idioma original;
   - a capa, o resumo, as impressões e a avaliação.
+- **Cadastrar começa pela pesquisa.** Em **Adicionar livro**, digite o ISBN ou o título: o Google Books devolve as edições (se não servirem, refaça a busca na Open Library), e a escolhida preenche o formulário, a capa e a bibliografia da fonte. País do autor, idioma, título e ano originais vêm do Wikidata. Dá para cadastrar à mão também.
 - **O harvest cria o livro.** Colher o PDF de um livro cria a LIV dele, ou liga a que já estava na estante (mesmo ISBN, ou título e autor). Depois de um reset, a LIV é religada à fonte nova.
-- **A avaliação é ponderada por perfil.** Os perfis ficam em [`config/library.yaml`](config/library.yaml): quadrinho, biografia, ilustrado, conto, técnico, ficção, cada um nacional ou traduzido.
+- **A avaliação é ponderada por perfil.** Os perfis ficam em [`config/library.yaml`](config/library.yaml): quadrinho, biografia/memórias, ilustrado, contos/crônicas, poesia, técnico/didático, ideias (filosofia, psicologia, ensaio), história/divulgação, ficção e não ficção, cada um nacional ou traduzido, e um perfil geral para o livro sem gênero.
+- **Gêneros e assuntos.** Os gêneros aparecem agrupados (forma, gênero ficcional, não ficção, público, marcador) e decidem perfil e modo de leitura; a área do livro (Programação, Economia…) vai em Assuntos. Na pesquisa, as categorias do Google Books já sugerem os gêneros.
   - Vale o primeiro perfil que casa com os gêneros e com a tradução, e cada critério tem seu peso.
   - A nota conta só os critérios avaliados.
   - O arquivo é seu: mude pesos, critérios e perfis.
@@ -273,7 +275,7 @@ A **fonte operacional** é `[config/config.yaml](config/config.yaml)` — é o a
 | `gardener.*`, `hub_mocs.*`                                                               | Clusterização e geração de MOCs (rótulo `{pilar}: {categoria}`)                                                                      |
 | `images.*`                                                                               | Extração e descrição multimodal de imagens                                                                                           |
 | `decision.*`                                                                             | Camada de decisão tipada (TypeSafe Jev) em modo shadow: grava o veredito ao lado de dedupe, categoria do cluster, juiz do artigo e aresta `corroborates`, sem agir (ADR-055) |
-| `library.*`                                                                              | Estante: caminho do vocabulário (`config/library.yaml`: gêneros, critérios, perfis de avaliação), tipos de documento que viram livro no harvest, status inicial, letras do código e busca de capa na Open Library |
+| `library.*`                                                                              | Estante: caminho do vocabulário (`config/library.yaml`: gêneros, critérios, perfis de avaliação), tipos de documento que viram livro no harvest, status inicial, letras do código e pesquisa de livros e capas (Google Books, Open Library) |
 | `language`, `log_level`, `device`                                                        | Idioma do conteúdo gerado, logging e dispositivo (CPU/CUDA)                                                                          |
 
 

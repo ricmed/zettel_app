@@ -64,7 +64,8 @@ def apply_metadata(book: Book, form: dict[str, Any], schema: LibrarySchema) -> N
     chosen = [g for g in as_str_list(form.get("genres")) if g]
     extra = as_str_list(form.get("genres_extra"))
     book.meta["genres"] = list(dict.fromkeys(chosen + extra))
-    book.meta["subjects"] = as_str_list(form.get("subjects"))
+    subjects = as_str_list(form.get("subjects")) + as_str_list(form.get("subjects_extra"))
+    book.meta["subjects"] = list(dict.fromkeys(s for s in subjects if s))
     for key, allowed in (("nature", NATURES), ("reading_mode", READING_MODES)):
         value = str(form.get(key) or "")
         if value and value not in allowed:
@@ -176,3 +177,24 @@ def set_texts(book: Book, summary: Any, impressions: Any) -> None:
 
 def set_cover(book: Book, relpath: str) -> None:
     book.meta["cover"] = relpath
+
+
+def fill_missing(book: Book, found: dict[str, Any]) -> list[str]:
+    """Preenche só o que a LIV não tem com o que a pesquisa achou; devolve as chaves.
+
+    Um campo que o usuário escreveu nunca é trocado: a pesquisa completa, não corrige.
+    """
+    changed = []
+    if not book.authors and found.get("authors"):
+        book.meta["authors"] = [_clean(a) for a in found["authors"] if _clean(a)]
+        changed.append("authors")
+    for key in ("isbn", "original_title", "country", "original_language"):
+        if not _clean(book.meta.get(key)) and _clean(found.get(key)):
+            book.meta[key] = _clean(found[key])
+            changed.append(key)
+    for key in ("pages", "original_publication_year"):
+        value = as_int(found.get(key))
+        if as_int(book.meta.get(key)) is None and value:
+            book.meta[key] = value
+            changed.append(key)
+    return changed

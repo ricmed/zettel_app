@@ -113,12 +113,35 @@ Chosen option 1.
 * Good, because it survives `state.db` resets.
 * Bad, because Obsidian cannot read or edit it, and it is a second store to back up.
 
+## Addendum (2026-11-09): adding a book starts with a search
+
+`/books/new` asks for an ISBN or a title before showing the form. `zettel/library/lookup.py` queries one service per search: Google Books first, and Open Library (`api/books` for an ISBN, `search.json` for a title, preferring a Portuguese edition) when the user asks to redo the search there. There is no automatic fallback, because Open Library usually answers with something, just not the right edition: the first version fell back only on an empty answer, so Google Books was never asked. **Completar dados**, which has no list to choose from, tries Google Books and then Open Library. Google Books accepts an optional `GOOGLE_BOOKS_API_KEY` (`.env`): the anonymous quota is shared by every keyless client and was exhausted (429) on the day this was written, so the page names the variable when it happens. Both are free and keyless, and the search is read-only: nothing is written until the user submits the prefilled form.
+
+* **Covers.** A candidate's cover travels as a reference (`ol:<id>` or `gb:<id>`), never as a URL, and only `lookup.cover_url` builds the address. Thumbnails are served by `GET /books/lookup/cover`, so the CSP stays `img-src 'self'` (ADR-022) and the browser never contacts the catalogs.
+* **Where the data goes.** Title, authors, ISBN, pages and the work's first year go to the LIV; publisher, place and the edition's year go to the SRC, as any bibliography edit does (ADR-057 addendum).
+* **Completing a book.** The detail page's **Completar dados** fills only empty fields, so a value the user wrote is never replaced.
+* **The work, from Wikidata.** Edition catalogs describe an edition: Google Books has no author country and no first publication year, and its `country` is the requester's. `zettel/library/wikidata.py` asks Wikidata for the work (title search, PT then EN, editions excluded) and accepts it only when one of its authors matches a book author's surname. The original title is searched first when the LIV has one: a translation whose Portuguese title is not on Wikidata (*Enclausurado*, which is *Nutshell* and has no Portuguese label) is otherwise not found, and then only the author is looked up, for the country. **Completar dados** reports what it filled, or that nothing new was found, and asks for the original title in that case. It fills the author's country (P27), the first publication year (P577), the original language (P407/P218) and the original title (P1476). The prefilled form shows where the values came from, with a link to the item and every citizenship when the author has several; **Completar dados** on the detail page (which replaces Completar pelo ISBN) uses both the catalogs and Wikidata.
+* **Offline.** `library.online_lookup: false` (which replaces `open_library_covers`) opens the form directly and hides the cover and completion buttons. A catalog that does not answer is reported on the page, and the manual form stays one click away.
+
+## Addendum (2026-11-09): genre vocabulary revised
+
+The first vocabulary rated every non-fiction genre except Técnico, Não-Ficção and Biografia with the fiction profile (plot, characters, ending), because the last profile matched any book. A book with no genre was rated as fiction too. It also mixed five axes in one flat list (form, fictional genre, subject area, audience, marker), and "Ficção"/"Não-Ficção" repeated the nature field.
+
+* **Groups.** Genres carry a `group` (`genre_groups`), and the screen shows them by group. "Ficção" and "Não-Ficção" were removed. "Romance" (the form) is now separate from "Romance Romântico". Chronicles, drama, cordel, dystopia, crime, magical realism, myth, satire, erotica were added, and so were philosophy-adjacent types (religion, politics and society), journalism, true crime, travel, self-help, didactic, reference, and the audiences children and young adult.
+* **Subjects are not genres.** Areas (programming, economics, law...) go to the LIV's existing `subjects`, with a suggested list in the YAML; they decide neither profile nor reading mode.
+* **Profiles.** `when` gains `nature`. New profiles: ideas (philosophy, psychology, essay, religion, politics), history/popular science, poetry (new criteria: language, imagery, musicality, unity), biography covers memoirs, short stories cover chronicles, technical covers didactic, reference and self-help, a non-fiction profile by nature, and a last profile `geral` with no `when`. The twelve Notion branches keep their weights.
+* **Fictional psychology and philosophy.** Psicologia and Filosofia are non-fiction; ticked on a novel they made its nature undetermined and its profile Ideias. Ficção Psicológica and Ficção Filosófica (with Novela, Fantástico e Absurdo and the marker Releitura) were added for that, and the detail page warns when the ticked genres mix fiction and non-fiction.
+* **Reading mode.** A reflective neutral genre (Clássico, Infantil, Crônica) makes the book reflective only when its nature is not non-fiction: Clássico alone is read as reflection, Clássico + Técnico stays conceptual.
+* **Suggestions.** Each genre lists `aliases`, BISAC segments from Google Books ("Fiction / Fantasy" suggests Romance and Fantasia); the search results show them, and the chosen candidate prefills those checkboxes for the user to confirm.
+
 ## References
 
 * `zettel/library/book_file.py` — `create_book`, `save_book`, `format_code`, `replace_section`
 * `zettel/library/schema.py`, `zettel/library/rating.py` — vocabulary and score
 * `zettel/library/mirror.py` — `refresh`, `library_health`
 * `zettel/library/linking.py` — `sync_library`, `ensure_books_for_sources`, `relink_orphans`
+* `zettel/library/lookup.py` — `search_books`, `lookup_isbn`, `cover_url`
+* `zettel/library/wikidata.py` — `work_facts`, `same_author`
 * `zettel/library/editing.py`, `zettel/library/covers.py`, `zettel/library/stats.py`, `zettel/library/reading_notes.py`
 * `zettel/state/books.py`, `zettel/web/library.py`, `config/library.yaml`
-* `tests/test_library_book_file.py`, `tests/test_library_rating.py`, `tests/test_library_mirror.py`, `tests/test_library_linking.py`, `tests/test_web_library.py`
+* `tests/test_library_book_file.py`, `tests/test_library_rating.py`, `tests/test_library_mirror.py`, `tests/test_library_linking.py`, `tests/test_library_lookup.py`, `tests/test_web_library.py`

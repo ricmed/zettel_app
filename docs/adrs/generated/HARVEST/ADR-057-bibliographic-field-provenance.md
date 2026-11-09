@@ -37,3 +37,7 @@ An authoritative catalog (Crossref for a DOI, Open Library for an ISBN) is not c
 ## Addendum (2026-11-08): the bookshelf does not hold the bibliography (#391)
 
 The LIV note ([ADR-068](../WEB/ADR-068-estante-books-as-liv-notes.md)) keeps only the reader's data and a minimal identity (title, authors, ISBN, `source_id`), used to display the book and to relink it after a reset. Publisher, edition, place, translator and year edited on the book's page are written to the SRC note and resynced (`sync.sync_source_note`). They get provenance `user`, like any SRC frontmatter edit. Citations keep reading one bibliography.
+
+## Addendum (2026-11-09): catalog data from the bookshelf search
+
+The bookshelf now queries Open Library and Google Books when a book is added or completed by ISBN ([ADR-068](../WEB/ADR-068-estante-books-as-liv-notes.md) addendum). Their publisher, place and year reach the SRC through the same frontmatter write as a hand edit, so they are recorded `user`: the user confirmed them in the prefilled form, or asked for them with **Completar dados**, which only fills empty fields. The harvest still consults no catalog, and there is still no separate catalog origin.

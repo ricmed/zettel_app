@@ -22,7 +22,7 @@ NOTION_BRANCHES = [
     (["Conto"], False, "conto", 34),
     (["Conto"], True, "conto_traduzido", 36),
     (["Técnico"], False, "tecnico", 21),
-    (["Não-Ficção"], True, "tecnico_traduzido", 24),
+    (["Didático"], True, "tecnico_traduzido", 24),
     (["Clássico", "Drama"], False, "ficcao", 30),
     (["Clássico", "Drama"], True, "ficcao_traduzida", 32),
 ]
@@ -74,7 +74,8 @@ def test_score_matches_the_notion_formula_when_every_criterion_is_rated():
         "setting": 5,
         "ending": 5,
     }
-    result = rate(SCHEMA, {"genres": ["Clássico"], "country": "Inglaterra", "ratings": ratings})
+    meta = {"genres": ["Clássico", "Romance"], "country": "Inglaterra", "ratings": ratings}
+    result = rate(SCHEMA, meta)
     # (2*4 + 3*5 + 4*5 + 4*4 + 5*5 + 4*4 + 5*5 + 5*5) / 32 = 150/32 = 4.6875 -> ceil 4.69
     assert result.profile.name == "ficcao_traduzida"
     assert result.score == 4.69
@@ -138,3 +139,79 @@ def test_incoherent_vocabulary_is_refused(change, message):
 def test_missing_file_is_a_clear_error(tmp_path):
     with pytest.raises(LibrarySchemaError, match="nao encontrado"):
         load_library_schema(tmp_path / "nada.yaml")
+
+
+@pytest.mark.parametrize(
+    ("genres", "name"),
+    [
+        (["Filosofia"], "ideias"),
+        (["Psicologia", "Ensaio"], "ideias"),
+        (["História"], "divulgacao"),
+        (["Livro-reportagem"], "divulgacao"),
+        (["Memórias"], "biografia"),
+        (["Poesia"], "poesia"),
+        (["Crônica"], "conto"),
+        (["Autoajuda"], "tecnico"),
+        (["Fantasia"], "ficcao"),
+        # Clássico sozinho não diz a natureza: o perfil geral, não o de ficção.
+        (["Clássico"], "geral"),
+        ([], "geral"),
+    ],
+)
+def test_every_genre_family_has_its_own_profile(genres, name):
+    assert match_profile(SCHEMA, genres, False).name == name
+
+
+def test_the_chosen_nature_picks_the_profile_when_no_genre_does():
+    meta = {"genres": ["Clássico"], "nature": "nao_ficcao", "original_language": "pt"}
+    assert rate(SCHEMA, meta).profile.name == "nao_ficcao"
+    meta = {"genres": [], "nature": "ficcao", "original_language": "en"}
+    assert rate(SCHEMA, meta).profile.name == "ficcao_traduzida"
+
+
+def test_genres_are_grouped_and_unknown_ones_go_to_others():
+    groups = dict(SCHEMA.grouped_genres(["Cyberpunk"]))
+    assert list(groups) == [
+        "Forma",
+        "Gênero ficcional",
+        "Não ficção",
+        "Público",
+        "Marcador",
+        "Outros",
+    ]
+    assert "Romance" in groups["Forma"] and "Fantasia" in groups["Gênero ficcional"]
+    assert groups["Outros"] == ["Cyberpunk"]
+    assert "Ficção" not in SCHEMA.genres and "Não-Ficção" not in SCHEMA.genres
+
+
+def test_catalog_categories_suggest_genres_by_whole_segment():
+    assert SCHEMA.genres_for_categories(["Fiction / Fantasy / Epic"]) == ["Romance", "Fantasia"]
+    assert SCHEMA.genres_for_categories(["Young Adult Fiction"]) == ["Jovem Adulto"]
+    # "Science Fiction" não sugere Ciência: o trecho é comparado inteiro.
+    assert SCHEMA.genres_for_categories(["Science Fiction"]) == ["Ficção Científica"]
+    assert SCHEMA.genres_for_categories(["Computers / Programming"]) == ["Técnico"]
+    assert SCHEMA.genres_for_categories([]) == []
+
+
+def test_a_genre_in_an_unknown_group_is_refused(tmp_path):
+    raw = (REPO / "config" / "library.yaml").read_text(encoding="utf-8")
+    bad = tmp_path / "library.yaml"
+    bad.write_text(
+        raw.replace("{group: forma, nature: ficcao, aliases: [poetry]}", "{group: lirica}"),
+        encoding="utf-8",
+    )
+    with pytest.raises(LibrarySchemaError, match="genre_groups"):
+        load_library_schema(bad)
+
+
+def test_a_psychological_novel_stays_fiction():
+    """Enclausurado: as versões ficcionais de psicologia/filosofia mantêm o romance na ficção."""
+    novel = ["Novela", "Ficção Psicológica", "Ficção Filosófica", "Suspense", "Sátira", "Releitura"]
+    assert match_profile(SCHEMA, novel, True).name == "ficcao_traduzida"
+    # Psicologia/Filosofia são não ficção: misturadas a um romance, a natureza some.
+    assert match_profile(SCHEMA, ["Romance", "Psicologia"], True).name == "ideias_traduzido"
+    assert SCHEMA.genres_for_categories(["Fiction / Psychological", "Fiction / Retellings"]) == [
+        "Romance",
+        "Ficção Psicológica",
+        "Releitura",
+    ]

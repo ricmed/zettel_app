@@ -60,12 +60,26 @@ def is_translated(meta: dict[str, Any]) -> bool:
     return False
 
 
-def match_profile(schema: LibrarySchema, genres: list[str], translated: bool) -> ProfileSpec | None:
-    """O primeiro perfil cujo ``when`` casa com o livro."""
+_FROM_GENRES = "<dos gêneros>"
+
+
+def match_profile(
+    schema: LibrarySchema, genres: list[str], translated: bool, nature: str | None = _FROM_GENRES
+) -> ProfileSpec | None:
+    """O primeiro perfil cujo ``when`` casa com o livro.
+
+    ``nature`` é a natureza efetiva do livro; sem ela, a que os gêneros dão.
+    """
+    if nature == _FROM_GENRES:
+        from zettel.library.reading_mode import effective_nature
+
+        nature = effective_nature({"genres": genres}, schema)
     folded = {fold(g) for g in genres}
     for profile in schema.profiles:
         wanted = {fold(g) for g in profile.when.genres_any}
         if wanted and not (wanted & folded):
+            continue
+        if profile.when.nature is not None and profile.when.nature != nature:
             continue
         if profile.when.translated is not None and profile.when.translated != translated:
             continue
@@ -78,7 +92,10 @@ def profile_for(schema: LibrarySchema, meta: dict[str, Any]) -> ProfileSpec | No
     forced = schema.profile(str(meta.get("rating_profile") or "").strip())
     if forced:
         return forced
-    return match_profile(schema, as_str_list(meta.get("genres")), is_translated(meta))
+    from zettel.library.reading_mode import effective_nature
+
+    genres = as_str_list(meta.get("genres"))
+    return match_profile(schema, genres, is_translated(meta), effective_nature(meta, schema))
 
 
 def weighted_score(weights: dict[str, float], ratings: dict[str, float]) -> float | None:

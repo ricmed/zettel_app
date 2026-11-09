@@ -9,7 +9,13 @@
     <h1>Estante</h1>
     <p class="muted">Seus livros, técnicos ou não: o que leu, quando, em que formato e o que achou. Cada livro é uma nota em <code>60_Estante/</code> no vault e também pode ser editado no Obsidian.</p>
   </div>
-  <div class="heading-actions"><a class="button" href="/books/dashboard">Painel</a><a class="button primary" href="/books/new">Novo livro</a></div>
+  <div class="heading-actions">
+    <form method="get" action="/books/new" class="lookup-row" role="search">
+      <input type="search" name="q" maxlength="200" placeholder="ISBN ou título" aria-label="Adicionar livro: ISBN ou título">
+      <button class="button primary" type="submit">Adicionar livro</button>
+    </form>
+    <a class="button" href="/books/dashboard">Painel</a>
+  </div>
 </div>
 {% if duplicated_codes %}<div class="alert error" role="alert">Código repetido: {% for c in duplicated_codes %}{{ '%04d'|format(c) }}{% if not loop.last %}, {% endif %}{% endfor %}. Corrija o número em um dos livros.</div>{% endif %}
 <nav class="shelf-views" aria-label="Vistas prontas">
@@ -24,7 +30,7 @@
   <form method="get" action="/books" class="shelf-filters">
     <label>Buscar <input type="search" name="q" value="{{ f.query }}" placeholder="título, autor ou código"></label>
     <label>Status <select name="status"><option value="">todos</option>{% for k, v in status_labels.items() %}<option value="{{ k }}" {% if f.status == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
-    <label>Gênero <select name="genre"><option value="">todos</option>{% for g in genres %}<option {% if f.genre == g %}selected{% endif %}>{{ g }}</option>{% endfor %}</select></label>
+    <label>Gênero <select name="genre"><option value="">todos</option>{% for label, names in genre_groups %}<optgroup label="{{ label }}">{% for g in names %}<option {% if f.genre == g %}selected{% endif %}>{{ g }}</option>{% endfor %}</optgroup>{% endfor %}</select></label>
     <label>Formato <select name="format"><option value="">todos</option>{% for k, v in format_labels.items() %}<option value="{{ k }}" {% if f.format == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
     <label>Natureza <select name="nature"><option value="">todas</option>{% for k, v in nature_labels.items() %}<option value="{{ k }}" {% if f.nature == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
     <label>País <input type="text" name="country" value="{{ f.country }}" size="10"></label>

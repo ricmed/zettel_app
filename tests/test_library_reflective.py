@@ -25,7 +25,10 @@ SCHEMA = load_library_schema(REPO / "config" / "library.yaml")
         ({"genres": ["Técnico"]}, "nao_ficcao", "conceito"),
         ({"genres": ["Filosofia"]}, "nao_ficcao", "reflexao"),
         ({"genres": ["Quadrinho", "Biografia"]}, None, "reflexao"),
-        ({"genres": ["Clássico"]}, None, "conceito"),
+        # Neutro reflexivo decide só quando o livro não é não ficção.
+        ({"genres": ["Clássico"]}, None, "reflexao"),
+        ({"genres": ["Clássico", "Técnico"]}, "nao_ficcao", "conceito"),
+        ({"genres": ["Crônica"]}, None, "reflexao"),
         ({"genres": ["Fantasia"], "reading_mode": "conceito"}, "ficcao", "conceito"),
         ({"genres": ["Técnico"], "nature": "ficcao"}, "ficcao", "reflexao"),
         ({}, None, "conceito"),

@@ -26,13 +26,22 @@ def effective_nature(meta: dict[str, Any], schema: LibrarySchema) -> str | None:
 
 
 def effective_reading_mode(meta: dict[str, Any], schema: LibrarySchema) -> str:
-    """``reading_mode`` da LIV; senão reflexão para ficção ou gênero reflexivo."""
+    """``reading_mode`` da LIV; senão reflexão para ficção ou gênero reflexivo.
+
+    Um gênero neutro reflexivo (Clássico, Infantil, Crônica) só decide quando o
+    livro não é não ficção: Clássico sozinho é lido em reflexão, Clássico +
+    Técnico continua conceito.
+    """
     explicit = str(meta.get("reading_mode") or "")
     if explicit in READING_MODES:
         return explicit
-    if effective_nature(meta, schema) == "ficcao":
+    nature = effective_nature(meta, schema)
+    if nature == "ficcao":
         return REFLECTIVE
-    if any(schema.genre(g).reflective for g in as_str_list(meta.get("genres"))):
+    specs = [schema.genre(g) for g in as_str_list(meta.get("genres"))]
+    if any(s.reflective and s.nature == "nao_ficcao" for s in specs):
+        return REFLECTIVE
+    if nature is None and any(s.reflective for s in specs):
         return REFLECTIVE
     return CONCEPTUAL
 

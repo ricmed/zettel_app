@@ -1,0 +1,20 @@
+{# Campos de classificação da Estante, comuns ao cadastro e ao detalhe do livro. #}
+{% macro genre_picks(groups, selected) %}
+<fieldset class="genre-picks"><legend>Gêneros</legend>
+  {% for label, names in groups %}
+  <div class="genre-group">
+    <span class="genre-group-label">{{ label }}</span>
+    <div class="genre-group-items">{% for g in names %}<label class="check"><input type="checkbox" name="genres" value="{{ g }}" {% if g in selected %}checked{% endif %}> {{ g }}</label>{% endfor %}</div>
+  </div>
+  {% endfor %}
+</fieldset>
+<label>Outros gêneros <input type="text" name="genres_extra" placeholder="separados por vírgula"></label>
+{% endmacro %}
+
+{% macro subject_picks(options, selected) %}
+<details class="subject-picks" {% if selected %}open{% endif %}>
+  <summary>Assuntos <small class="muted">a área do livro (Programação, Economia…); não muda a avaliação nem o modo de leitura</small></summary>
+  <div class="genre-group-items">{% for s in options %}<label class="check"><input type="checkbox" name="subjects" value="{{ s }}" {% if s in selected %}checked{% endif %}> {{ s }}</label>{% endfor %}</div>
+  <label>Outros assuntos <input type="text" name="subjects_extra" placeholder="separados por vírgula"></label>
+</details>
+{% endmacro %}
