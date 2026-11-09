@@ -236,6 +236,61 @@ Leitura dos campos:
 
 ---
 
+## Livro da Estante (LIV)
+
+Uma nota por livro em `60_Estante/`, escrita pela web, pelo harvest ou à mão no Obsidian ([ADR-068](adrs/generated/WEB/ADR-068-estante-books-as-liv-notes.md)). É do autor (`origin: manual`), e o `init --reset` a mantém.
+
+```markdown
+---
+type: book
+book_id: 01M6Z061DZBNMY422J695VCVPQ
+code_number: 1
+code: 0001 - F
+title: Um Conto de Duas Cidades
+original_title: A Tale of Two Cities
+authors: [Charles Dickens]
+source_id: '@Dickens1859Conto'
+isbn: '9788574481234'
+pages: 480
+country: Inglaterra
+original_language: en
+original_publication_year: 1859
+genres: [Clássico, Ficção Histórica, Drama, Tragédia]
+nature: null            # vazio: vem dos gêneros (ficcao)
+reading_mode: null      # vazio: reflexao para ficção e gêneros reflexivos
+format: fisico          # fisico | digital | audiolivro
+status: lido            # quero_ler | lendo | lido | abandonado | relendo
+readings:
+- {start: '2020-12-01', end: '2021-01-01'}
+cover: 90_Assets/img-3f2a9c0d1e2b4a5f.jpg
+ratings: {edition: 4, translation_lettering: 4, plot: 5, characters: 5}
+rating_profile: null    # vazio: o primeiro perfil de config/library.yaml que casa
+score: 4.72             # calculado; o espelho recalcula de qualquer modo
+favorite: false
+origin: manual
+---
+
+# Um Conto de Duas Cidades
+
+## Resumo
+
+## Impressões
+
+## Notas de leitura
+
+<!-- zettel:auto-book-notes:start -->
+**Notas de literatura**
+- [[Dickens1859Conto/LIT - Dickens1859 - p078 - sacrificio-0001|p. 78 - Sacrifício]]
+<!-- zettel:auto-book-notes:end -->
+```
+
+- **O código** junta o número sequencial universal (`code_number`, nunca reaproveitado) à letra do formato. Mudar o formato troca só a letra.
+- **A bibliografia** (editora, edição, tradutor) fica no SRC. A LIV guarda só o que identifica o livro para exibi-lo e religá-lo depois de um reset.
+- **A nota** segue o perfil de [`config/library.yaml`](../config/library.yaml) e soma no denominador só os critérios avaliados.
+- **Uma ZTL de leitura reflexiva** ([ADR-069](adrs/generated/EXTRACT/ADR-069-reflective-prompts-by-reading-mode.md)) ganha no frontmatter `reading_mode: reflexao`, `reflection_kind` (`metafora`, `pensamento`, `analogia`, `questao_filosofica`, `personagem`, `cena`) e `characters`, copiados do candidato.
+
+---
+
 ## Outras saídas no vault
 
 | Arquivo | Onde | Gerado por |

@@ -129,3 +129,11 @@ A granular LIT, a blank ZTL or a ZTL derived from a LIT can include up to six im
 - **Vault changes reach SQLite.** An edited SRC is re-synced, the manual graph follows the bodies (second pass, removed links), and moved or deleted notes are tracked (`--prune`).
 
 A granular LIT without `origin` is adopted as manual. One with an unknown `origin` is refused and reported, no longer skipped in silence.
+
+## Addendum (2026-11-08): the LIV note and reading notes written on the bookshelf (#389, #394)
+
+The Estante ([ADR-068](../WEB/ADR-068-estante-books-as-liv-notes.md)) adds a fifth kind of manual note: the book (`60_Estante/LIV - ...`, `type: book`, `origin: manual`).
+
+* **The mirror.** `sync-manual` refreshes the `books` mirror and relinks orphaned LIVs. No review gate applies: the LIV holds the reader's own data.
+* **Reading notes.** A note written from a book's page is a manual granular LIT, adopted at once by `adopt_manual_literature`. A book without a source first gets a manual SRC, carrying the ISBN, through `sync.sync_source_note`. A reflective reading note carries `reading_mode`, `reflection_kind` and `characters` in its frontmatter, and `build_candidate_from_literature` reads them back ([ADR-069](../EXTRACT/ADR-069-reflective-prompts-by-reading-mode.md)).
+* **The chapter id.** The manual chapter id became `{source_id}::manual` (was `::ch000`). A PDF harvested later into the same source writes its first chapter as `::ch000`, which would have replaced the hand-written chunks.

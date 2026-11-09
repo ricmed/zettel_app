@@ -33,3 +33,7 @@ An authoritative catalog (Crossref for a DOI, Open Library for an ISBN) is not c
 * A record the model filled by itself no longer passes `--yes` just because every box is full.
 * `Discurso` is not classified as course material, and `hipótese` is not classified as a thesis, by the filename heuristic.
 * Already stored `bibliography_json` blobs have no `provenance` key. They are not rewritten. A missing origin is not treated as `llm`, so an old complete source is not suddenly rejected on a later comparison. New harvests write the key.
+
+## Addendum (2026-11-08): the bookshelf does not hold the bibliography (#391)
+
+The LIV note ([ADR-068](../WEB/ADR-068-estante-books-as-liv-notes.md)) keeps only the reader's data and a minimal identity (title, authors, ISBN, `source_id`), used to display the book and to relink it after a reset. Publisher, edition, place, translator and year edited on the book's page are written to the SRC note and resynced (`sync.sync_source_note`). They get provenance `user`, like any SRC frontmatter edit. Citations keep reading one bibliography.

@@ -1,7 +1,7 @@
-# zettel_app ADR Index (66 Decisions)
+# zettel_app ADR Index (68 Decisions)
 
 **Last Updated**: 2026-11-08  
-**Status**: Complete — 66 formal ADRs (001–067; 044 unused) across 13 modules
+**Status**: Complete — 68 formal ADRs (001–069; 044 unused) across 13 modules
 
 ---
 
@@ -12,11 +12,11 @@
 | **INFRA** | 15 | [001–008, 041–042, 052, 054, 058, 064–065](#infra-core-infrastructure) |
 | **RETRIEVAL** | 5 | [009–010, 036, 043, 047](#retrieval-hybrid-search--graph) |
 | **HARVEST** | 8 | [011–014, 027, 033, 046, 057](#harvest-ingestion--paging) |
-| **EXTRACT** | 4 | [015, 034, 049–050](#extract-literature-notes) |
+| **EXTRACT** | 5 | [015, 034, 049–050, 069](#extract-literature-notes) |
 | **REVIEW** | 4 | [016–018, 045](#review-approval-gate) |
 | **CONNECT** | 1 | [053](#connect-permanent-notes) |
 | **GARDEN** | 5 | [019–021, 060–061](#garden-moc-generation) |
-| **WEB** | 8 | [022–023, 039–040, 056, 062–063, 067](#web-ui--job-queue) |
+| **WEB** | 9 | [022–023, 039–040, 056, 062–063, 067–068](#web-ui--job-queue) |
 | **LLM** | 5 | [024–025, 048, 055, 059](#llm-provider--caching) |
 | **CLI** | 4 | [026, 032, 035, 037](#cli-orchestration) |
 | **QA-WRITING** | 4 | [028–029, 038, 051](#qa-writing--article-pipeline) |
@@ -315,6 +315,20 @@
 
 ---
 
+### ADR-069: Prompts Chosen by Reading Mode
+
+- **Status**: Accepted (provisional until pre-registration 396 is scored)
+- **Date**: 2026-11-08
+- **Summary**: A source whose book is read in `reflexao` mode (fiction, or a genre marked reflective) goes through its own prompts.
+  - **Extract.** `literature_note_reflective.md` looks for metaphors, thoughts, analogies, philosophical questions, characters and scenes, with the anchor still literal.
+  - **Connect.** `permanent_note_reflective.md` writes the idea outside the work, shows it through the work and says how to use it as an analogy.
+  - **Candidate fields.** `reflection_kind` and `characters` are optional and copied by code to the ZTL.
+  - **Writing.** Academic articles leave reflective sources out (`exclude_source_ids`). The blog and `ask` use them as analogies, never as evidence.
+  - **Unchanged sources.** Sources without a book, and technical books, keep the conceptual prompts and their cache.
+- **Link**: [`ADR-069-reflective-prompts-by-reading-mode.md`](./generated/EXTRACT/ADR-069-reflective-prompts-by-reading-mode.md)
+
+---
+
 ## REVIEW — Approval Gate
 
 ### ADR-016: Post-Approval Concept Deduplication Timing
@@ -485,6 +499,17 @@
   - **Reading fixes.** The web now has `/assets`, renders figures, has a search by meaning and a tag filter in `/notes`, and shows directed connections.
 - **Link**: [`ADR-067-mesa-writing-desk.md`](./generated/WEB/ADR-067-mesa-writing-desk.md)
 
+### ADR-068: The Estante, Books as LIV Notes With a SQLite Mirror
+
+- **Status**: Accepted
+- **Date**: 2026-11-08
+- **Summary**: A book is a vault note (`60_Estante/LIV - ULID - slug.md`, `origin: manual`) that holds the reader's data: the code `0001 - F` (universal number plus format letter), status, readings, genres, cover, ratings, summary and impressions. It survives `init --reset`, and Obsidian can edit it.
+  - **Mirror.** The `books` and `book_readings` tables are re-read incrementally for lists, filters and the dashboard.
+  - **Harvest and relinking.** A harvested book creates or links its LIV. An orphaned LIV is relinked by ISBN or title after a reset.
+  - **Rating.** `config/library.yaml` holds the genre vocabulary, criteria and profiles; the first matching profile decides, and the score averages only the rated criteria.
+  - **Web.** `/books` offers table, gallery and board, a detail page with reading notes, and a dashboard in server-rendered SVG.
+- **Link**: [`ADR-068-estante-books-as-liv-notes.md`](./generated/WEB/ADR-068-estante-books-as-liv-notes.md)
+
 ---
 
 ## LLM — Provider & Caching
@@ -649,12 +674,23 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 66 |
-| **Accepted** | 66 |
+| **Total ADRs** | 68 |
+| **Accepted** | 68 |
 | **Needs Input** | 0 |
 | **Modules Covered** | 13 |
 
 The counts in this file are pinned to `docs/adrs/generated/` by `tests/test_docs_adr_references.py`.
+
+---
+
+## Status Update (2026-11-08, Estante)
+
+✅ **ADR-068** (the Estante, epic #388) and **ADR-069** (prompts by reading mode) added. Addenda:
+- **ADR-022:** dashboard charts as server-rendered SVG.
+- **ADR-030:** the LIV note and the reading notes; the manual chapter id becomes `::manual`.
+- **ADR-046:** a textless source found by DOI or ISBN receives the harvested file.
+- **ADR-057:** the bookshelf does not hold the bibliography.
+- **ADR-028:** reflective notes in the article.
 
 ---
 

@@ -91,3 +91,14 @@ A signature over about 10 000 shingles took about 0.6 s in CPython. Layer 5's co
 A file that changes at an inbox path already recorded in `files` is not a duplicate. `harvest.modified_file_action` (`skip` by default, also `update` or `new`) decides without a TTY; interactive harvest asks. `update` reuses `source_id` and citekey. A DOI or ISBN match against that same source continues the update instead of returning the old text. The same exemption applies to the extraction-checksum layer: a Markdown file whose only change is YAML frontmatter has an unchanged body, and the update still rewrites bibliography and the SRC note. Unchanged chapters keep their chunk ids; a rewritten chapter's new chunks are `pending`. Removed chunks drop their concepts. Permanent notes stay, and the LIT file on disk is not deleted.
 
 A shared ISBN merges without a prompt only when `normalize_title` agrees and neither `document_type` is `capitulo_livro` or `anais_evento`. A chapter PDF that carries the book's ISBN, or two different titles with one ISBN, asks. Without a TTY the answer is layer 4's `continue` (new source). DOI is unchanged: it still merges without asking. The decision is still recorded as `biblio`.
+
+## Addendum (2026-11-08): a textless source found by DOI or ISBN receives the file (#392)
+
+**The case.** A source with no `extracted_text` is typically the manual SRC of a book shelved before its PDF existed. When layer 3 matches such a source, the file is no longer declined as `duplicate_id`. It becomes an update of that source: same `source_id` and citekey, extracted and chunked as usual.
+
+**What the update keeps and reuses.**
+
+* The update reuses the SRC and literature-index notes already in the folder, even when their file names carry another title (`pipeline._existing_note`).
+* The manual chapter (`{source_id}::manual`) is never pruned as an orphan, so hand-written LITs survive.
+
+A source that already has text still declines as before.

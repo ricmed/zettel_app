@@ -265,6 +265,14 @@ decision:
     article_judge: off
     corroborates: off
 
+# ── Estante (ADR-068) ───────────────────────────────────────────────────
+library:
+  rating_path: ./config/library.yaml   # generos, criterios e perfis de avaliacao
+  document_types: [livro]              # harvest destes tipos cria a nota LIV
+  initial_status: quero_ler            # status de um livro criado sem status
+  format_letters: {fisico: F, digital: D, audiolivro: A}   # letra do codigo "0001 - F"
+  open_library_covers: true            # botao "buscar capa pelo ISBN"
+
 # ── Gerais ─────────────────────────────────────────────────────────────
 language: pt-BR              # idioma dos prompts e do texto gerado
 log_level: INFO              # raiz do pipeline (httpx/openai ficam em WARNING)
@@ -278,6 +286,12 @@ Notas de uso:
 - `retrieval.*` tem uma seção própria em [recuperacao.md](recuperacao.md).
 - `gardener.*` e `hub_mocs.*` estão detalhados em [pipeline.md](pipeline.md#fase-4--garden-jardim).
 - `gardener.allowed_topics` existe no schema como override de testes e **não** deve aparecer no YAML: a whitelist real vem de `topics_path`.
+- `library.*` é a Estante. O vocabulário fica em [`config/library.yaml`](../config/library.yaml):
+  - **gêneros**, cada um com natureza (`ficcao`, `nao_ficcao`, `neutro`) e `reflective`, que liga a leitura reflexiva em gêneros de não ficção;
+  - **critérios**, com chave em inglês e rótulo em PT-BR;
+  - **perfis**, em ordem, cada um com `when: {genres_any, translated}` e `weights`; vale o primeiro que casa.
+
+  Um vocabulário inválido é recusado ao carregar. O `doctor` mostra o erro, e `extract`, `connect` e `ask` seguem em modo conceito. `retrieval.article.academic_include_reflective` (padrão `false`) decide se as notas reflexivas entram no artigo acadêmico.
 - `decision.*` não é uma fase de LLM; veja [Camada de decisão tipada](#camada-de-decisão-tipada-typesafe-jev).
 
 ---

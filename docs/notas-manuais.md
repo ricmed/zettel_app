@@ -199,9 +199,19 @@ O `new-note lit --granular` sem `--chunk-index` usa o mesmo critério: o próxim
 
 A adoção completa de uma LIT escrita à mão ([ADR-030](adrs/generated/MANUAL/ADR-030-manual-notes-adopted-at-sync-without-review-gate.md)):
 
-- `adopt_manual_literature` sintetiza a linha de `chunks` que a nota nunca teve (mais um capítulo `{source_id}::ch000` "Manual" por fonte — `chunks.chapter_id` é `NOT NULL` com FK), reconstrói o `summary_json` a partir das seções `## Resumo` / `## Conceitos-chave` / `## Candidatos a Nota Permanente` da própria nota, tira o `chunks.text` do bloco `auto-source-excerpt`, grava `status='persisted'` e chama `review._refresh_literature_index` (sem embedding, como no caminho do pipeline). É idempotente por checksum sobre excerto + corpo.
+- `adopt_manual_literature` sintetiza a linha de `chunks` que a nota nunca teve (mais um capítulo `{source_id}::manual` "Manual" por fonte, separado do `::ch000` que o harvest de um PDF da mesma fonte grava depois — `chunks.chapter_id` é `NOT NULL` com FK), reconstrói o `summary_json` a partir das seções `## Resumo` / `## Conceitos-chave` / `## Candidatos a Nota Permanente` da própria nota, tira o `chunks.text` do bloco `auto-source-excerpt`, grava `status='persisted'` e chama `review._refresh_literature_index` (sem embedding, como no caminho do pipeline). É idempotente por checksum sobre excerto + corpo.
 - Deliberadamente **não** escreve na coleção Chroma `chunks`: os limiares dessa coleção são calibrados para a dedupe do harvest sobre distância L2 crua.
 - `create_permanent_from_literature` deriva um `PermanentNoteCandidate` da nota. Com `--llm`, persiste um concept `approved` e chama `connector.run_connect(..., origin="manual")` — mesmo Prompt 2, mesmo RAG, mesmas relações e backlinks. Sem `--llm`, escreve um scaffold pré-preenchido e **consome** conceitos `approved` já existentes daquele chunk/tese (`status=noted`), para que um `connect` posterior não duplique a nota. `sync-manual` faz o mesmo ao adotar uma ZTL escrita à mão.
+
+---
+
+## Notas de leitura pela Estante
+
+Na página de um livro (`/books/{id}`), **Nova nota de leitura** escreve uma LIT manual granular e a adota na hora, como um `sync-manual` daquela nota ([ADR-068](adrs/generated/WEB/ADR-068-estante-books-as-liv-notes.md)).
+
+- **Livro sem fonte.** Ganha antes um SRC manual com o título, os autores e o ISBN da LIV. Assim o PDF colhido depois cai na mesma fonte, pelo ISBN.
+- **Leitura reflexiva.** O formulário pede o tipo (metáfora, pensamento, analogia, questão filosófica, personagem, cena), os personagens, a ideia, a reflexão e o uso como analogia. A LIT guarda `reading_mode`, `reflection_kind` e `characters` no frontmatter, e a ZTL gerada dela herda esses campos.
+- **Gerar ZTL.** É o mesmo job `manual-ztl-from-lit` do `/notes/new`, com ou sem LLM.
 
 ---
 
