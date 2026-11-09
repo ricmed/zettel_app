@@ -28,6 +28,7 @@ from zettel.hashing import (
     short_hash,
 )
 from zettel.index import VectorIndex
+from zettel.library.reading_mode import CONCEPTUAL, REFLECTIVE
 from zettel.llm import (
     LLMUnavailableError,
     PromptParts,
@@ -101,14 +102,8 @@ def run_extract(
             logger.info("Imagens descritas nesta execucao: %d", described)
 
         llm = get_llm(cfg, "extract")
-        prompt_parts = load_prompt_parts(cfg.prompts_path / "literature_note.md")
-        prompt_hash = sha256_hex(prompt_parts.full_template)
-        from zettel.domain_examples import load_domain_examples, render_for_prompt
-
-        example_fields = render_for_prompt(
-            load_domain_examples(cfg.domain.examples_path),
-            "literature_note",
-        )
+        prompts = Prompt1Set(cfg)
+        reading_modes = _reading_modes(cfg, db)
 
         pending = db.get_chunks_by_status("pending")
         total = len(pending)
@@ -151,6 +146,9 @@ def run_extract(
                     )
                     continue
 
+                prompt_parts, prompt_hash, example_fields = prompts.for_mode(
+                    reading_modes.get(source_id, CONCEPTUAL)
+                )
                 try:
                     candidates, _output = _process_chunk(
                         cfg,
@@ -212,6 +210,56 @@ def run_extract(
                 db.add_source_usage(sid, tracker.summary_for_source(sid).as_dict())
                 sync_source_costs_to_vault(cfg, db, sid)
         finish_pipeline_run(db, run_id, run_status)
+
+
+# ── Prompt 1 by reading mode (ADR-069) ────────────────────────────────
+
+# Prompt file and few-shot section for each reading mode of a source's book.
+PROMPT1_BY_MODE: dict[str, tuple[str, str]] = {
+    CONCEPTUAL: ("literature_note.md", "literature_note"),
+    REFLECTIVE: ("literature_note_reflective.md", "literature_note_reflective"),
+}
+
+
+class Prompt1Set:
+    """Prompt 1 for each reading mode, loaded on first use.
+
+    A source whose book is read in ``reflexao`` mode gets the reflective prompt;
+    every other source, the conceptual one. The prompt file is part of the cache
+    key, so the two never share an answer.
+    """
+
+    def __init__(self, cfg: AppConfig) -> None:
+        self.cfg = cfg
+        self._loaded: dict[str, tuple[PromptParts, str, dict[str, str]]] = {}
+
+    def for_mode(self, mode: str) -> tuple[PromptParts, str, dict[str, str]]:
+        mode = mode if mode in PROMPT1_BY_MODE else CONCEPTUAL
+        if mode not in self._loaded:
+            from zettel.domain_examples import load_domain_examples, render_for_prompt
+
+            filename, section = PROMPT1_BY_MODE[mode]
+            parts = load_prompt_parts(self.cfg.prompts_path / filename)
+            fields = render_for_prompt(load_domain_examples(self.cfg.domain.examples_path), section)
+            self._loaded[mode] = (parts, sha256_hex(parts.full_template), fields)
+        return self._loaded[mode]
+
+
+def _reading_modes(cfg: AppConfig, db: StateDB) -> dict[str, str]:
+    """``source_id -> reading mode`` from the bookshelf mirror, refreshed first.
+
+    A broken ``library.yaml`` must not stop extraction: every source then reads
+    as conceptual, which is what it was before the bookshelf existed.
+    """
+    from zettel.library.mirror import refresh
+    from zettel.library.schema import LibrarySchemaError
+
+    try:
+        refresh(db, cfg)
+    except LibrarySchemaError as exc:
+        logger.warning("Estante indisponivel, todas as fontes em modo conceito: %s", exc)
+        return {}
+    return dict.fromkeys(db.list_reflective_source_ids(), REFLECTIVE)
 
 
 # ── Chunk Processing ──────────────────────────────────────────────────

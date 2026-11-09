@@ -870,6 +870,23 @@ def judgement_frontmatter(candidate: Any) -> dict[str, list[str]]:
     return out
 
 
+def reflection_frontmatter(candidate: Any) -> dict[str, Any]:
+    """Frontmatter of a reflective permanent note (Estante, ADR-069), copied from the candidate.
+
+    Empty for a conceptual note, so its frontmatter stays as it always was.
+    """
+    kind = str(getattr(candidate, "reflection_kind", "") or "")
+    characters = list(getattr(candidate, "characters", None) or [])
+    if not kind and not characters:
+        return {}
+    out: dict[str, Any] = {"reading_mode": "reflexao"}
+    if kind:
+        out["reflection_kind"] = kind
+    if characters:
+        out["characters"] = characters
+    return out
+
+
 def render_decision_block(candidates: list[dict[str, Any]]) -> str:
     """Render the author's judgement captured across ``candidates``.
 

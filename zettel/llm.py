@@ -882,7 +882,9 @@ def split_prompt_text(text: str) -> PromptParts:
 # Adding a prompt file means adding it here.
 REQUIRED_PROMPTS: tuple[str, ...] = (
     "literature_note.md",
+    "literature_note_reflective.md",
     "permanent_note.md",
+    "permanent_note_reflective.md",
     "note_write.md",
     "note_link.md",
     "dedupe_decision.md",

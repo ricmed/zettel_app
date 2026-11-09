@@ -217,3 +217,118 @@ permanent_note:
     Input: "Tratar mente e corpo como substancias distintas implica que um sistema puramente simbolico nao tem o que o dualista chama de mente"
     Reason: "Tese com mecanismo transferivel (criterio de substancia → limite de um sistema sem corporeidade), debatavel nos dois dominios"
     ```
+
+# ── Leitura reflexiva (Estante, ADR-069) ────────────────────────────────
+# Livros lidos em modo "reflexao" (ficcao, contos, quadrinhos, filosofia,
+# biografia...) usam prompts proprios: o alvo nao e o conceito, e o que o
+# trecho oferece para pensar e para usar como analogia. Os exemplos abaixo
+# preenchem os mesmos placeholders dos prompts conceituais.
+literature_note_reflective:
+  relevance_examples: |
+    **Exemplos (a escala mede o que o trecho da para pensar, nao a fama da obra):**
+
+    1 — TRIVIAL
+    - "O heroi sente medo antes da batalha" (todo heroi sente; nada a pensar)
+
+    2 — INFORMATIVO BASICO
+    - "Bilbo prefere o conforto da toca a aventura" (descreve o personagem, nao ilumina nada)
+
+    3 — REFLEXAO VALIDA
+    - "Bilbo descobre a coragem justamente quando nao ha mais ninguem para agir por ele"
+
+    4 — REFLEXAO QUE TRANSFERE (alvo preferencial)
+    - "Sidney Carton troca a propria vida pela felicidade de outro e encontra nisso o sentido que a vida inteira lhe negou"
+
+    5 — QUESTAO FUNDAMENTAL (raro)
+    - "O Grande Inquisidor pergunta se o homem quer liberdade ou quer pao, e se a felicidade comprada com obediencia ainda e humana"
+
+  thesis_examples: |
+    - **BOM** (pensamento): "A coragem costuma nascer de quem menos parece apto, quando a situacao nao deixa mais ninguem para agir"
+    - **BOM** (metafora): "Em Duna, o medo e o matador da mente: o que paralisa nao e o perigo, e a antecipacao dele"
+    - **BOM** (questao filosofica): "Se a felicidade e oferecida em troca da liberdade, aceita-la ainda e uma escolha livre?"
+    - **RUIM**: "Bilbo e corajoso" (descricao, nao reflexao)
+    - **RUIM**: "O capitulo 5 mostra a charada no escuro" (resumo de enredo)
+
+  judgement_examples: |
+    #### Tipo da reflexao (reflection_kind) e personagens (characters)
+
+    - `reflection_kind`: `metafora`, `pensamento`, `analogia`, `questao_filosofica`, `personagem` ou `cena` — o que o trecho oferece
+    - `characters`: os personagens (ou pessoas reais) envolvidos, com o nome que a obra usa; maximo 5
+    - Os dois sao opcionais; use `""` e `[]` quando nao se aplicarem
+
+    #### Julgamento do autor (decision_rules, anti_patterns, named_frameworks)
+
+    - Em ensaios e filosofia, preencha so quando o autor **enunciar** a regra ou o anti-padrao
+    - Em ficcao, deixe vazio: a fala de um personagem nao e regra do autor
+
+  tag_examples: |
+    - Minusculas, sem acento, `_` para compostos; maximo 5
+    - Prefira o tema humano (`coragem`, `sacrificio`, `liberdade`, `ambicao`) ao nome da obra
+    - **BOM**: ["coragem", "heroi_improvavel", "crescimento"]
+    - **RUIM**: ["o_hobbit", "capitulo_5", "livro"]
+
+  rejection_examples: |
+    **REJEITADO - Narrative (so enredo):**
+    ```
+    Trecho: "Eles caminharam ate o rio e montaram acampamento antes do anoitecer."
+    Motivo: "Transicao de enredo sem imagem, pensamento ou conflito que convide a reflexao"
+    ```
+
+    **REJEITADO - Structural:**
+    ```
+    Trecho: "Capitulo 3 — Uma breve pausa"
+    Motivo: "Titulo de capitulo sem conteudo"
+    ```
+
+  accepted_example: |
+    ```json
+    {
+      "chunk_status": "accepted",
+      "rejection_reason": "",
+      "rejection_category": "",
+      "summary": "Coragem do heroi improvavel: no escuro, sem os anoes e sem Gandalf, Bilbo decide seguir pelo tunel sozinho.",
+      "key_concepts": ["coragem", "heroi improvavel", "solidao"],
+      "candidates": [
+        {
+          "thesis": "A coragem costuma nascer de quem menos parece apto, quando a situacao nao deixa mais ninguem para agir",
+          "definition": "Perdido no escuro e sem companheiros, Bilbo percebe que voltar e impossivel e que esperar nao resolve nada. A decisao de seguir nao vem de bravura previa, vem da falta de alternativa e de uma firmeza que ele nao sabia ter. A cena serve de analogia para qualquer situacao em que alguem sem preparo assume uma responsabilidade porque ninguem mais esta la.",
+          "limits": "A cena celebra o resultado; nao discute os casos em que o despreparado, sozinho, falha.",
+          "anchor_quote": "Ir em frente era a unica coisa a fazer; voltar nao adiantava nada, e ficar ali seria pior ainda.",
+          "source_locator": "cap. 5, p. 78",
+          "tags": ["coragem", "heroi_improvavel", "solidao"],
+          "relevance_score": 4,
+          "relevant_image_ids": [],
+          "decision_rules": [],
+          "anti_patterns": [],
+          "named_frameworks": [],
+          "reflection_kind": "personagem",
+          "characters": ["Bilbo Bolseiro"]
+        }
+      ]
+    }
+    ```
+
+permanent_note_reflective:
+  thesis_examples: |
+    - **BOM**: "A coragem costuma nascer de quem menos parece apto, quando a situacao nao deixa mais ninguem para agir"
+    - **BOM**: "Um sacrificio pode dar sentido a uma vida que parecia nao ter nenhum"
+    - **RUIM**: "Bilbo e corajoso" (descricao de personagem, nao ideia)
+
+  decision_examples: |
+    **ACEITO - Situacao de personagem com ideia transferivel:**
+    ```
+    Input: "Bilbo, sozinho no escuro, segue em frente porque voltar e impossivel"
+    Reason: "A cena ilustra uma ideia que transfere (coragem por falta de alternativa) e serve de analogia fora da obra"
+    ```
+
+    **ACEITO - Questao filosofica:**
+    ```
+    Input: "O Grande Inquisidor acusa Cristo de ter dado aos homens uma liberdade que eles nao suportam"
+    Reason: "Questao aberta sobre liberdade e felicidade, conectavel a etica e a politica"
+    ```
+
+    **REJEITADO - Generic:**
+    ```
+    Input: "O personagem fica triste com a perda"
+    Reason: "Emocao comum sem nada que ilumine uma ideia"
+    ```

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ulid import ULID
@@ -48,6 +48,7 @@ from zettel.vault import (
     literature_index_stem,
     note_filename,
     parse_frontmatter,
+    reflection_frontmatter,
     safe_write_note,
     write_auto_connections,
 )
@@ -71,6 +72,17 @@ class ConnectSession:
     run_id: int | None = None
     prompt_checksum: str = ""
     model: str = ""
+    # Sources read in "reflexao" mode (Estante, ADR-069) and their Prompt 2.
+    reflective_source_ids: frozenset[str] = frozenset()
+    reflective_parts: PromptParts | None = None
+    reflective_example_fields: dict[str, str] = field(default_factory=dict)
+
+    def prompt_for(self, source_id: str) -> tuple[PromptParts, dict[str, str], str]:
+        """``(parts, few-shots, prompt checksum)`` of the Prompt 2 this source uses."""
+        if self.reflective_parts is not None and source_id in self.reflective_source_ids:
+            parts = self.reflective_parts
+            return parts, self.reflective_example_fields, sha256_hex(parts.full_template)
+        return self.prompt_parts, self.example_fields, self.prompt_checksum
 
 
 def candidate_query_text(cand: PermanentNoteCandidate) -> str:
@@ -136,6 +148,8 @@ class PreparedNote:
     system: str = ""
     user: str = ""
     checksum: str = ""
+    prompt_parts: PromptParts | None = None
+    prompt_checksum: str = ""
 
 
 def prepare_candidate(session: ConnectSession, cand_dict: dict) -> PreparedNote | None:
@@ -185,6 +199,7 @@ def prepare_candidate(session: ConnectSession, cand_dict: dict) -> PreparedNote 
     distant = context.search_distant_analogies(
         cfg, session.idx, session.retriever, query_text, note_id, similar, session.taxonomy
     )
+    parts, examples, prompt_checksum = session.prompt_for(source_id)
     payload = Prompt2Payload(
         source_id=source_id,
         literature_ref=literature_ref,
@@ -192,20 +207,18 @@ def prepare_candidate(session: ConnectSession, cand_dict: dict) -> PreparedNote 
             db, similar, distant, note_chars=cfg.linking.rag_note_chars
         ),
         images_context=context.images_context(db, cand.relevant_image_ids),
-        examples=session.example_fields,
+        examples=examples,
     )
     system = user = checksum = ""
     if cfg.linking.prompt2_mode != "split":
         system, user = permanent_note_messages(
             cfg,
-            session.prompt_parts,
+            parts,
             cand,
             payload,
             force=bool(cand_dict.get("force_connect")),
         )
-        checksum = llm_call_checksum(
-            cfg, "connect", session.prompt_parts.full_template, system, user
-        )
+        checksum = llm_call_checksum(cfg, "connect", parts.full_template, system, user)
     return PreparedNote(
         cand_dict=cand_dict,
         note_id=note_id,
@@ -218,6 +231,8 @@ def prepare_candidate(session: ConnectSession, cand_dict: dict) -> PreparedNote 
         system=system,
         user=user,
         checksum=checksum,
+        prompt_parts=parts,
+        prompt_checksum=prompt_checksum,
     )
 
 
@@ -266,7 +281,7 @@ def finish_candidate(
                 cfg,
                 db,
                 session.llm,
-                session.prompt_parts,
+                prepared.prompt_parts or session.prompt_parts,
                 cand,
                 prepared.payload,
                 label=f"connect:{concept_id}",
@@ -339,7 +354,7 @@ def finish_candidate(
         note_id,
         hard + proposed,
         provenance={
-            "prompt_checksum": session.prompt_checksum,
+            "prompt_checksum": prepared.prompt_checksum or session.prompt_checksum,
             "model": session.model,
             "run_id": session.run_id,
         },
@@ -473,6 +488,7 @@ def _write_note(
     # LLM: the export (`zettel skill`) reads it from here instead of re-parsing the
     # LIT draft. Absent keys mean the chunk stated none — noise-free by default.
     meta.update(judgement_frontmatter(cand))
+    meta.update(reflection_frontmatter(cand))
 
     note_path = cfg.vault_path / "30_Permanent" / note_filename("ZTL", note_id, title)
     # The concept becomes resumable before the file exists, so a crash after the

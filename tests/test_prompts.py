@@ -50,8 +50,10 @@ PLACEHOLDER_RE = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
 # Where each template is filled: (module, function holding the `mapping` dict).
 CONSUMERS: dict[str, tuple[str, str]] = {
     "literature_note.md": ("extractor.py", "prompt1_messages"),
+    "literature_note_reflective.md": ("extractor.py", "prompt1_messages"),
     "dedupe_decision.md": ("extractor.py", "deduplicate_candidates"),
     "permanent_note.md": ("connector/prompt.py", "prompt2_messages"),
+    "permanent_note_reflective.md": ("connector/prompt.py", "prompt2_messages"),
     "note_write.md": ("connector/prompt.py", "note_write_messages"),
     "note_link.md": ("connector/prompt.py", "note_link_messages"),
     "ptbr_guard.md": ("connector/prompt.py", "apply_ptbr_guard"),
@@ -107,7 +109,9 @@ PER_CALL_PLACEHOLDERS = {
 # JSON examples inside these prompts must validate against the parser's schema.
 EXAMPLE_SCHEMAS: dict[str, type[BaseModel]] = {
     "literature_note.md": LiteratureChunkOutput,
+    "literature_note_reflective.md": LiteratureChunkOutput,
     "permanent_note.md": PermanentNoteLLMOutput,
+    "permanent_note_reflective.md": PermanentNoteLLMOutput,
     "note_write.md": NoteWriteOutput,
     "note_link.md": NoteLinkOutput,
     "dedupe_decision.md": DedupeResult,
@@ -344,7 +348,12 @@ def test_permanent_note_never_offers_corroborates():
     would be indistinguishable from `supports`. Only `connect` writes this edge,
     derived from `source_id`; see `connector.links.demote_llm_corroborates`.
     """
-    for name in ("permanent_note.md", "note_link.md", "note_write.md"):
+    for name in (
+        "permanent_note.md",
+        "permanent_note_reflective.md",
+        "note_link.md",
+        "note_write.md",
+    ):
         text = (PROMPTS_DIR / name).read_text(encoding="utf-8")
         assert RelationType.CORROBORATES.value not in text
 

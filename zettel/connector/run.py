@@ -126,6 +126,7 @@ def run_connect(
             run_id=run_id,
             prompt_checksum=sha256_hex(prompt_parts.full_template),
             model=f"{spec.provider}/{spec.model}",
+            **_reflective_prompt(cfg, db),
         )
 
         total = len(candidates)
@@ -410,3 +411,29 @@ def requeue_connect_rejected(db: StateDB, *, force: bool = False) -> int:
         db.set_concept_dedupe(row["concept_id"], "approved", payload)
         restored += 1
     return restored
+
+
+def _reflective_prompt(cfg: AppConfig, db: StateDB) -> dict:
+    """The reflective Prompt 2 and the sources that use it (Estante, ADR-069).
+
+    Empty when no book on the shelf is read in ``reflexao`` mode, or when the
+    shelf vocabulary is broken: every source then keeps the conceptual prompt.
+    """
+    from zettel.library.mirror import refresh
+    from zettel.library.schema import LibrarySchemaError
+
+    try:
+        refresh(db, cfg)
+    except LibrarySchemaError as exc:
+        logger.warning("Estante indisponivel, todas as fontes em modo conceito: %s", exc)
+        return {}
+    source_ids = frozenset(db.list_reflective_source_ids())
+    if not source_ids:
+        return {}
+    return {
+        "reflective_source_ids": source_ids,
+        "reflective_parts": load_prompt_parts(cfg.prompts_path / "permanent_note_reflective.md"),
+        "reflective_example_fields": render_for_prompt(
+            load_domain_examples(cfg.domain.examples_path), "permanent_note_reflective"
+        ),
+    }

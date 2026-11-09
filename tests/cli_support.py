@@ -28,6 +28,7 @@ def write_operational_config(root: Path) -> Path:
     data["prompts_path"] = str(REPO / "prompts")
     data["domain"]["examples_path"] = str(REPO / "config" / "domain_examples.yaml")
     data["gardener"]["topics_path"] = str(REPO / "config" / "moc_topics.yaml")
+    data["library"]["rating_path"] = str(REPO / "config" / "library.yaml")
     data["retrieval"]["article"]["personalities_path"] = str(REPO / "config" / "personalities.yaml")
     data["images"]["enabled"] = False
     data["harvest"]["biblio_llm_enabled"] = False
