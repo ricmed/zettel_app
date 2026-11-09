@@ -25,7 +25,7 @@ from zettel.paging import (
     resolve_content_paging,
 )
 from zettel.state import StateDB
-from zettel.vault import build_source_note, safe_write_note
+from zettel.vault import build_source_note, parse_frontmatter, safe_write_note
 
 from . import biblio_dedupe, chunking, duplicates, extract
 from .biblio_hitl import resolve_bibliography
@@ -73,12 +73,15 @@ class HarvestOutcome:
     """What one harvest run produced.
 
     ``skipped`` are failures (the CLI exits 1); ``declined`` are files that did
-    not become a new source by a decision, each with its reason.
+    not become a new source by a decision, each with its reason. ``library``
+    says which books the bookshelf created or linked for these sources.
     """
 
     source_ids: list[str] = field(default_factory=list)
     skipped: list[HarvestSkip] = field(default_factory=list)
     declined: list[HarvestSkip] = field(default_factory=list)
+    # Bookshelf counters (books created/linked) from ``library.linking`` (ADR-068).
+    library: dict[str, Any] = field(default_factory=dict)
 
 
 # ── Public API ─────────────────────────────────────────────────────
@@ -218,6 +221,10 @@ def run_harvest(
             run_status = "aborted"
 
         if outcome.source_ids:
+            from zettel.library.linking import safe_sync_library
+
+            # A book harvested here gets its LIV on the bookshelf (ADR-068).
+            outcome.library = safe_sync_library(cfg, db, outcome.source_ids)
             logger.info(
                 "Harvest concluido: %d fontes, %d caracteres, %d capitulos, %d chunks",
                 len(outcome.source_ids),
@@ -559,6 +566,18 @@ def _process_file(
                 file_path.name,
                 matched.get("citekey"),
             )
+        elif exact is not None and not matched.get("extracted_text"):
+            # A source with no text (a manual SRC from the bookshelf, #392): this
+            # file is its text, extracted into the same citekey.
+            logger.info(
+                "Arquivo '%s' tem o mesmo %s da fonte %s, que nao tem texto: "
+                "extraindo para dentro dela.",
+                file_path.name,
+                key_kind.upper(),
+                matched["source_id"],
+            )
+            updating_source_id = matched["source_id"]
+            exact = None
         elif exact is not None:
             check_reviewed_source(matched["source_id"])
             sid = matched["source_id"]
@@ -975,6 +994,10 @@ def _finalize_source_chunking(
 def _prune_orphan_chapters(
     db: StateDB, idx: VectorIndex, source_id: str, keep_ids: set[str]
 ) -> None:
+    from zettel.manual_lit import MANUAL_CHAPTER_SUFFIX
+
+    # The hand-written LITs' chapter is never an orphan of the extracted text.
+    keep_ids = keep_ids | {f"{source_id}{MANUAL_CHAPTER_SUFFIX}"}
     removed_chunks: list[str] = []
     for ch in db.get_chapters_for_source(source_id):
         if ch["chapter_id"] not in keep_ids:
@@ -1035,6 +1058,22 @@ def _complete_incomplete_source(
     }
 
 
+def _existing_note(default: Path, note_type: str, source_id: str) -> Path:
+    """``default``, or the note of this type and source already in that folder.
+
+    A source first written by hand (a bookshelf book, #392) may carry another
+    title in its file name; its PDF harvested later rewrites that note instead of
+    leaving a second SRC or literature index beside it.
+    """
+    if default.exists() or not default.parent.is_dir():
+        return default
+    for path in sorted(default.parent.glob("*.md")):
+        meta, _ = parse_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
+        if meta.get("type") == note_type and meta.get("source_id") == source_id:
+            return path
+    return default
+
+
 def _create_vault_notes(
     cfg: AppConfig,
     source_id: str,
@@ -1091,7 +1130,9 @@ def _create_vault_notes(
         docling_config_hash=docling_config_hash,
         vault_timezone=cfg.vault_timezone,
     )
-    src_path = cfg.vault_path / "10_Sources" / source_note_filename(citekey, title)
+    src_path = _existing_note(
+        cfg.vault_path / "10_Sources" / source_note_filename(citekey, title), "source", source_id
+    )
     src_path.parent.mkdir(parents=True, exist_ok=True)
     safe_write_note(src_path, src_meta, src_body)
 
@@ -1100,7 +1141,11 @@ def _create_vault_notes(
     lit_meta, lit_body = build_literature_index_note(
         source_id, citekey, title, vault_timezone=cfg.vault_timezone
     )
-    lit_path = cfg.vault_path / "20_Literature" / literature_index_filename(citekey, title)
+    lit_path = _existing_note(
+        cfg.vault_path / "20_Literature" / literature_index_filename(citekey, title),
+        "literature_index",
+        source_id,
+    )
     lit_path.parent.mkdir(parents=True, exist_ok=True)
     if not lit_path.exists():
         safe_write_note(lit_path, lit_meta, lit_body)

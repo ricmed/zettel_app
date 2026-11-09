@@ -35,7 +35,9 @@ from zettel.vault import compose_note, frontmatter_json, read_managed_block
 
 logger = logging.getLogger(__name__)
 
-MANUAL_CHAPTER_SUFFIX = "::ch000"
+# Not "::ch000": a PDF harvested later into the same source (#392) writes its first
+# chapter there and would replace the hand-written chunks.
+MANUAL_CHAPTER_SUFFIX = "::manual"
 MANUAL_CHAPTER_TITLE = "Manual"
 
 
