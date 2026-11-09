@@ -92,6 +92,8 @@
 [data-theme="dark"] .manual-form input:not([type="checkbox"]):not([type="radio"]),
 [data-theme="dark"] .manual-form textarea,
 [data-theme="dark"] .manual-form select,
+[data-theme="dark"] textarea,
+[data-theme="dark"] input[type="search"],
 [data-theme="dark"] input[type="file"],
 [data-theme="dark"] input[type="password"],
 [data-theme="dark"] input[type="text"],
@@ -176,4 +178,12 @@
   .theme-toggle {
     padding: 8px 10px;
   }
+}
+/* Placeholder é sugestão, não valor: mais claro que o texto digitado. Os campos
+   fixam -webkit-text-fill-color no texto, que o placeholder herdaria. */
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  -webkit-text-fill-color: var(--muted);
+  opacity: 0.75;
 }
