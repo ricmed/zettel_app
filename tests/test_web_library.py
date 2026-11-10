@@ -175,7 +175,7 @@ def test_unknown_action_and_missing_book(web_client):
     assert client.get("/books/01JZZZZZZZZZZZZZZZZZZZZZZZ").status_code == 404
 
 
-def test_summary_is_rendered_and_kept_verbatim(web_client):
+def test_summary_is_shown_in_the_field_and_kept_verbatim(web_client):
     client, _ = web_client
     csrf = login(client)
     book_id = _create(client, csrf)
@@ -183,7 +183,7 @@ def test_summary_is_rendered_and_kept_verbatim(web_client):
     assert _edit(client, csrf, book_id, "summary", summary=text, impressions="").status_code == 303
     book = bf.load_book(_cfg(client), book_id)
     assert bf.section_text(book.body, bf.SUMMARY_HEADING) == text
-    assert "<li>e volta</li>" in client.get(f"/books/{book_id}").text
+    assert "Bilbo sai de casa." in client.get(f"/books/{book_id}").text
 
 
 def test_cover_upload_and_open_library(web_client, monkeypatch):

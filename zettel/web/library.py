@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.datastructures import FormData
 
-from zettel.markdown import asset_url, render_markdown
+from zettel.markdown import asset_url
 from zettel.web.enqueue import operation_lock, post_job
 from zettel.web.forms import read_form
 from zettel.web.mesa import desk_choices
@@ -537,9 +537,7 @@ def book_detail(request: Request, book_id: str):
         rating=rating,
         schema=schema,
         summary=summary,
-        summary_html=render_markdown(summary) if summary else "",
         impressions=impressions,
-        impressions_html=render_markdown(impressions) if impressions else "",
         readings=book.readings,
         open_reading=bool(book.readings and book.readings[-1].start and not book.readings[-1].end),
         status_labels=bf.STATUS_LABELS,
