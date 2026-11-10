@@ -365,7 +365,7 @@ def book_create(request: Request, form: FormData = Depends(read_form)):
         return redirect_login()
     if not csrf_ok(request, str(form.get("csrf") or "")):
         return error_page(request, 403, "CSRF inválido")
-    from zettel.library.book_file import create_book, save_book
+    from zettel.library.book_file import BookFileBusy, create_book, save_book
     from zettel.library.covers import store_cover
     from zettel.library.editing import BookEditError, apply_metadata, set_cover
     from zettel.library.linking import fields_from_source
@@ -400,7 +400,10 @@ def book_create(request: Request, form: FormData = Depends(read_form)):
             values.setdefault("isbn", seed.get("isbn") or "")
         if not str(values.get("title") or "").strip():
             return error_page(request, 400, "Dê um título ao livro ou escolha uma fonte.")
-        book = create_book(cfg, {"title": values["title"], "format": values.get("format")})
+        try:
+            book = create_book(cfg, {"title": values["title"], "format": values.get("format")})
+        except BookFileBusy as exc:
+            return error_page(request, 409, f"A nota do livro não foi criada. {exc}")
         try:
             apply_metadata(book, {**_metadata_defaults(book), **values}, schema_for(cfg))
         except BookEditError as exc:
@@ -408,7 +411,16 @@ def book_create(request: Request, form: FormData = Depends(read_form)):
             return error_page(request, 400, str(exc))
         if cover:
             set_cover(book, store_cover(cfg.vault_path, *cover))
-        book = save_book(cfg, book, expected_version=book.version)
+        try:
+            book = save_book(cfg, book, expected_version=book.version)
+        except BookFileBusy as exc:
+            return error_page(
+                request,
+                409,
+                f"O livro «{book.title}» ({book.code}) ficou só com o título. {exc} "
+                "Enviar o formulário outra vez cria um segundo livro. Feche a nota e "
+                "complete a ficha na Estante, por esse título.",
+            )
         if any(source_updates.values()):
             # A edição achada na pesquisa (ou digitada) vai ao SRC, criado agora se preciso.
             _update_source(cfg, db, book, source_updates)
@@ -722,6 +734,12 @@ def _edit(
             409,
             "O livro mudou desde que esta página foi aberta (talvez no Obsidian). "
             "Recarregue a página e refaça a alteração.",
+        )
+    except bf.BookFileBusy as exc:
+        return error_page(
+            request,
+            409,
+            f"{exc} Feche a nota e repita a alteração. O arquivo no disco continua como estava.",
         )
     except (BookEditError, CoverError, ReadingNoteError) as exc:
         return error_page(request, 400, str(exc))

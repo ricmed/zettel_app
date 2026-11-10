@@ -62,6 +62,24 @@ def test_every_property_is_present_in_order(tmp_path):
     assert meta["status"] == cfg.library.initial_status
 
 
+def test_save_reports_when_windows_denies_the_replace(tmp_path, monkeypatch):
+    cfg = library_config(tmp_path)
+    book = bf.create_book(cfg, {"title": "Pílulas azuis"})
+    before = book.path.read_bytes()
+
+    def denied(src, dst):
+        raise PermissionError(5, "Acesso negado", src, None, dst)
+
+    monkeypatch.setattr(bf.os, "replace", denied)
+    book.meta["isbn"] = "9788582861585"
+    with pytest.raises(bf.BookFileBusy, match="pílulas-azuis") as caught:
+        bf.save_book(cfg, book, expected_version=book.version)
+
+    assert "Windows negou acesso" in str(caught.value)
+    assert book.path.read_bytes() == before
+    assert list(book.path.parent.glob(".*.part")) == []
+
+
 def test_save_refuses_a_file_changed_since_it_was_read(tmp_path):
     cfg = library_config(tmp_path)
     book = bf.create_book(cfg, {"title": "O Hobbit"})

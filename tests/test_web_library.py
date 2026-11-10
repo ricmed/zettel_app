@@ -107,6 +107,50 @@ def test_reading_and_rating_flow(web_client):
     assert "<svg" in dashboard and "Leituras terminadas em 2024" in dashboard
 
 
+def _deny_replace_of_existing_liv(monkeypatch):
+    real = bf.os.replace
+
+    def replace(src, dst):
+        destination = Path(dst)
+        if destination.exists() and "LIV" in destination.name:
+            raise PermissionError(5, "Acesso negado", src, None, dst)
+        return real(src, dst)
+
+    monkeypatch.setattr(bf.os, "replace", replace)
+
+
+def test_create_explains_when_windows_keeps_the_new_note_open(web_client, monkeypatch):
+    client, _ = web_client
+    csrf = login(client)
+    _deny_replace_of_existing_liv(monkeypatch)
+    response = client.post(
+        "/books",
+        data={"csrf": csrf, "title": "Pílulas azuis", "authors": "Frederik Peeters"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 409
+    assert "ficou só com o título" in response.text
+    assert "Windows negou acesso" in response.text
+    assert "segundo livro" in response.text
+    assert "ref." not in response.text
+    books = bf.list_books(_cfg(client))
+    assert len(books) == 1
+    assert books[0].title == "Pílulas azuis"
+    assert books[0].authors == []
+
+
+def test_edit_explains_when_windows_denies_the_save(web_client, monkeypatch):
+    client, _ = web_client
+    csrf = login(client)
+    book_id = _create(client, csrf)
+    _deny_replace_of_existing_liv(monkeypatch)
+    response = _edit(client, csrf, book_id, "status", status="lido")
+    assert response.status_code == 409
+    assert "Windows negou acesso" in response.text
+    assert "continua como estava" in response.text
+    assert bf.load_book(_cfg(client), book_id).status == "quero_ler"
+
+
 def test_stale_version_is_a_conflict_not_an_overwrite(web_client):
     client, _ = web_client
     csrf = login(client)

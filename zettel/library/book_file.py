@@ -7,6 +7,7 @@ que foi lido (uma edição no Obsidian, outra aba), como na Mesa (ADR-067).
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import hashlib
 import os
@@ -87,6 +88,17 @@ class BookNotFound(LookupError):
 
 class BookConflict(RuntimeError):
     """O arquivo mudou no disco depois que a página que o edita foi gerada."""
+
+
+class BookFileBusy(RuntimeError):
+    """O sistema negou gravar a nota; outro processo segura o arquivo."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        super().__init__(
+            f"O Windows negou acesso a «{path.name}». Outro programa mantém o arquivo "
+            "aberto — em geral o Obsidian, o antivírus ou a busca do Windows."
+        )
 
 
 @dataclass
@@ -294,8 +306,15 @@ def initial_body(title: str) -> str:
 def _write(path: Path, content: str) -> str:
     data = content.encode("utf-8")
     partial = path.with_name(f".{path.name}.part")
-    partial.write_bytes(data)
-    os.replace(partial, path)
+    try:
+        partial.write_bytes(data)
+        os.replace(partial, path)
+    except PermissionError as exc:
+        # No Windows a troca falha com acesso negado quando o destino recém-criado
+        # já está aberto (Obsidian, antivírus, indexador). O .part não é a nota.
+        with contextlib.suppress(OSError):
+            partial.unlink()
+        raise BookFileBusy(path) from exc
     return version_of(data)
 
 
