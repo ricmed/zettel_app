@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from zettel.library import book_file as bf
+from zettel.markdown_fences import headings_outside_fences, unclosed_fence
 from zettel.vault import partition_vault_notes
 
 from tests.library_support import library_config
+
+H2 = re.compile(r"^##[ \t]+(.+?)[ \t]*$", re.MULTILINE)
 
 
 def test_code_joins_the_universal_number_and_the_format_letter(tmp_path):
@@ -134,6 +139,20 @@ def test_replace_section_keeps_the_rest_of_the_body():
 def test_summary_round_trip(text):
     body = bf.replace_section(bf.initial_body("T"), bf.SUMMARY_HEADING, text)
     expected = text.strip("\n")
+    # A fence the text leaves open is closed, so it cannot swallow the next sections.
+    if marker := unclosed_fence(expected):
+        expected = f"{expected}\n{marker}"
     # A line that is itself an H2 would open a section: the author can write it, it just splits.
     if "\n## " not in "\n" + expected:
         assert bf.section_text(body, bf.SUMMARY_HEADING) == expected.strip()
+        headings = [m.group(1) for m in headings_outside_fences(H2, body)]
+        assert headings[-2:] == [bf.IMPRESSIONS_HEADING, "Notas de leitura"]
+
+
+def test_an_open_fence_in_the_summary_does_not_swallow_the_note():
+    summary = "Código:\n\n```python\nx = 1"
+    body = bf.replace_section(bf.initial_body("T"), bf.SUMMARY_HEADING, summary)
+    body = bf.replace_section(body, bf.IMPRESSIONS_HEADING, "Gostei.")
+    assert bf.section_text(body, bf.SUMMARY_HEADING) == "Código:\n\n```python\nx = 1\n```"
+    assert bf.section_text(body, bf.IMPRESSIONS_HEADING) == "Gostei."
+    assert "<!-- zettel:auto-book-notes:start -->" in body

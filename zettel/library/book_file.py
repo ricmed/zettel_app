@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from zettel.markdown_fences import h2_section, headings_outside_fences
+from zettel.markdown_fences import h2_section, headings_outside_fences, unclosed_fence
 from zettel.vault import LIBRARY_DIR, _slug, compose_note, parse_frontmatter
 
 BOOK_TYPE = "book"
@@ -384,9 +384,14 @@ def section_text(body: str, heading: str) -> str:
 def replace_section(body: str, heading: str, text: str) -> str:
     """Troca o texto sob ``## heading`` (até o próximo H2 fora de fence).
 
-    A seção ausente é criada antes de ``## Notas de leitura``, ou no fim.
+    A seção ausente é criada antes de ``## Notas de leitura``, ou no fim. Um
+    bloco de código que o texto deixa aberto é fechado no fim dele: aberto, ele
+    engoliria as seções seguintes e o bloco de notas.
     """
     text = text.strip("\n")
+    marker = unclosed_fence(text)
+    if marker:
+        text = f"{text}\n{marker}"
     matches = headings_outside_fences(_H2, body)
     for i, m in enumerate(matches):
         if m.group(1) == heading:
