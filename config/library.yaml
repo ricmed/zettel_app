@@ -1,0 +1,251 @@
+# Estante (ADR-068): vocabulário de gêneros, critérios de avaliação e perfis.
+#
+# Chaves em inglês, valores e rótulos em PT-BR. Lido por zettel/library/schema.py;
+# um critério desconhecido num perfil ou um peso <= 0 é recusado no carregamento.
+
+# Escala de cada critério. A nota final fica na mesma escala.
+#   step: largura das faixas do histograma de notas no painel.
+#   input_step: passo aceito no campo de nota (4.75 e 3.8 são notas válidas).
+scale:
+  min: 1
+  max: 5
+  step: 0.5
+  input_step: 0.05
+
+# Gêneros, agrupados na tela por `group` (na ordem de genre_groups).
+#   nature: ficcao | nao_ficcao | neutro. Decide a natureza do livro quando os
+#     gêneros concordam; neutro não pesa.
+#   Ficção psicológica/filosófica são gêneros ficcionais; Psicologia e Filosofia
+#     são não ficção: marcar estas num romance deixa a natureza indefinida.
+#   reflective: pede leitura reflexiva (metáfora, pensamento, analogia). Ficção já
+#     é lida assim; num gênero neutro (Clássico, Infantil) só vale quando o livro
+#     não tem gênero de não ficção, para Clássico + Técnico continuar conceito.
+#   aliases: categorias do Google Books (BISAC, em inglês) que sugerem o gênero no
+#     cadastro; casam com um trecho inteiro da categoria ("Fiction / Fantasy").
+# Áreas de conhecimento (Programação, Economia, Direito...) não são gêneros: vão em
+# Assuntos (`subjects`, abaixo). Um gênero fora desta lista é aceito como neutro.
+genre_groups:
+  forma: Forma
+  ficcao: Gênero ficcional
+  nao_ficcao: Não ficção
+  publico: Público
+  marcador: Marcador
+
+genres:
+  # Forma: como o livro é escrito.
+  Romance: {group: forma, nature: ficcao, aliases: [fiction, literary, literary fiction]}
+  Novela: {group: forma, nature: ficcao, aliases: [novellas]}
+  Conto: {group: forma, nature: ficcao, aliases: [short stories]}
+  Crônica: {group: forma, nature: neutro, reflective: true}
+  Poesia: {group: forma, nature: ficcao, aliases: [poetry]}
+  Dramaturgia: {group: forma, nature: ficcao, aliases: [drama, plays]}
+  Cordel: {group: forma, nature: ficcao}
+  Quadrinho: {group: forma, nature: ficcao, aliases: [comics & graphic novels, graphic novels, comics]}
+  Mangá: {group: forma, nature: ficcao, aliases: [manga]}
+  Ilustrado: {group: forma, nature: neutro, reflective: true, aliases: [picture books]}
+  Ensaio: {group: forma, nature: nao_ficcao, reflective: true, aliases: [essays, literary collections]}
+  Biografia: {group: forma, nature: nao_ficcao, reflective: true, aliases: [biography & autobiography, biography]}
+  Memórias: {group: forma, nature: nao_ficcao, reflective: true, aliases: [personal memoirs, memoir]}
+  # Gênero ficcional: do que a história trata.
+  Fantasia: {group: ficcao, nature: ficcao, aliases: [fantasy]}
+  Ficção Científica: {group: ficcao, nature: ficcao, aliases: [science fiction]}
+  Distopia: {group: ficcao, nature: ficcao, aliases: [dystopian]}
+  Ficção Histórica: {group: ficcao, nature: ficcao, aliases: [historical]}
+  Realismo Mágico: {group: ficcao, nature: ficcao, aliases: [magical realism]}
+  Fantástico e Absurdo: {group: ficcao, nature: ficcao, aliases: [absurdist]}
+  Ficção Psicológica: {group: ficcao, nature: ficcao, aliases: [psychological]}
+  Ficção Filosófica: {group: ficcao, nature: ficcao, aliases: [visionary & metaphysical, philosophical]}
+  Mitologia e Fábula: {group: ficcao, nature: ficcao, aliases: [mythology, fairy tales, folk tales & mythology]}
+  Mistério: {group: ficcao, nature: ficcao, aliases: [mystery & detective, mystery]}
+  Policial: {group: ficcao, nature: ficcao, aliases: [crime, police procedural]}
+  Suspense: {group: ficcao, nature: ficcao, aliases: [thrillers, suspense]}
+  Terror: {group: ficcao, nature: ficcao, aliases: [horror]}
+  Aventura: {group: ficcao, nature: ficcao, aliases: [action & adventure, adventure]}
+  Romance Romântico: {group: ficcao, nature: ficcao, aliases: [romance]}
+  Drama: {group: ficcao, nature: ficcao}
+  Tragédia: {group: ficcao, nature: ficcao}
+  Comédia: {group: ficcao, nature: ficcao, aliases: [humorous, humor]}
+  Sátira: {group: ficcao, nature: ficcao, aliases: [satire, black humor]}
+  Erótico: {group: ficcao, nature: ficcao, aliases: [erotica]}
+  Faroeste: {group: ficcao, nature: ficcao, aliases: [westerns, western]}
+  Pós-apocalíptico: {group: ficcao, nature: ficcao, aliases: [apocalyptic & post-apocalyptic]}
+  Alegoria: {group: ficcao, nature: ficcao, aliases: [allegory]}
+  # Não ficção: o tipo de livro, que decide o perfil de avaliação.
+  Filosofia: {group: nao_ficcao, nature: nao_ficcao, reflective: true, aliases: [philosophy]}
+  Psicologia: {group: nao_ficcao, nature: nao_ficcao, reflective: true, aliases: [psychology]}
+  Religião e Espiritualidade: {group: nao_ficcao, nature: nao_ficcao, reflective: true, aliases: [religion, "body, mind & spirit"]}
+  Política e Sociedade: {group: nao_ficcao, nature: nao_ficcao, reflective: true, aliases: [political science, social science]}
+  História: {group: nao_ficcao, nature: nao_ficcao, aliases: [history]}
+  Ciência: {group: nao_ficcao, nature: nao_ficcao, aliases: [science, nature]}
+  Livro-reportagem: {group: nao_ficcao, nature: nao_ficcao, aliases: [journalism]}
+  True Crime: {group: nao_ficcao, nature: nao_ficcao, aliases: [true crime]}
+  Literatura de Viagem: {group: nao_ficcao, nature: nao_ficcao, aliases: [travel]}
+  Autoajuda: {group: nao_ficcao, nature: nao_ficcao, aliases: [self-help]}
+  Técnico: {group: nao_ficcao, nature: nao_ficcao, aliases: [computers, technology & engineering, mathematics, business & economics, medical, law]}
+  Didático: {group: nao_ficcao, nature: nao_ficcao, aliases: [study aids, education]}
+  Referência: {group: nao_ficcao, nature: nao_ficcao, aliases: [reference]}
+  # Público.
+  Infantil: {group: publico, nature: neutro, reflective: true}
+  Infantojuvenil: {group: publico, nature: neutro, reflective: true, aliases: [juvenile fiction, juvenile nonfiction]}
+  Jovem Adulto: {group: publico, nature: neutro, reflective: true, aliases: [young adult fiction, young adult nonfiction]}
+  # Marcador.
+  Clássico: {group: marcador, nature: neutro, reflective: true, aliases: [classics]}
+  # Releitura de outra obra (Enclausurado reconta Hamlet); não muda a natureza.
+  Releitura: {group: marcador, nature: neutro, aliases: [retellings]}
+  # Temas e avisos: marcam o livro sem mudar natureza nem perfil.
+  Guerra: {group: marcador, nature: neutro, aliases: [war & military]}
+  Temas Sensíveis: {group: marcador, nature: neutro}
+  LGBTQIA+: {group: marcador, nature: neutro, aliases: [lgbtq+]}
+  Baseado em fatos reais: {group: marcador, nature: neutro}
+
+# Assuntos sugeridos (campo `subjects` da LIV): a área de que o livro trata. Não
+# decidem perfil nem modo de leitura; servem para filtrar e agrupar.
+subjects:
+  - Programação
+  - Engenharia de Software
+  - Dados e IA
+  - Matemática
+  - Estatística
+  - Negócios e Gestão
+  - Economia
+  - Finanças
+  - Liderança
+  - Produtividade
+  - Educação
+  - Direito
+  - Saúde
+  - Linguística
+  - Escrita
+  - Arte
+  - Música
+  - Cinema
+  - Fotografia
+  - Culinária
+  - Antropologia
+  - Sociologia
+  - Política
+
+# Critérios: chave -> rótulo exibido e ajuda.
+criteria:
+  edition: {label: Edição, help: "Acabamento, papel, revisão e capa da edição"}
+  translation_lettering: {label: Tradução/Letreiramento, help: Qualidade da tradução ou do letreiramento}
+  plot: {label: Enredo}
+  art: {label: Arte}
+  characters: {label: Personagens}
+  layout: {label: Diagramação}
+  feeling: {label: Sentimento, help: O quanto o livro mexeu com você}
+  colors: {label: Cores}
+  setting: {label: Ambientação}
+  ending: {label: Conclusão}
+  research: {label: Pesquisa}
+  writing: {label: Escrita}
+  impartiality: {label: Imparcialidade}
+  relevance: {label: Relevância}
+  structure: {label: Estrutura}
+  extras: {label: Extras, help: "Fotos, notas, apêndices"}
+  value_for_money: {label: Custo-Benefício}
+  usefulness: {label: Utilidade}
+  text_image_integration: {label: Integração texto-imagem}
+  graphic_design: {label: Projeto Gráfico}
+  average_quality: {label: Qualidade Média, help: Nível médio dos contos}
+  highlights: {label: Destaques, help: Os melhores contos da coletânea}
+  conciseness: {label: Concisão}
+  theme: {label: Tema}
+  pacing: {label: Ritmo}
+  argumentation: {label: Argumentação, help: Clareza e solidez do raciocínio}
+  depth: {label: Profundidade}
+  provocation: {label: Provocação, help: O quanto o livro faz pensar}
+  language: {label: Linguagem, help: "Escolha das palavras, sonoridade, precisão"}
+  imagery: {label: Imagens, help: Metáforas e imagens que ficam}
+  musicality: {label: Musicalidade, help: Ritmo e som dos versos}
+  unity: {label: Unidade, help: O livro como conjunto}
+
+# Perfis em ordem: o primeiro cujo `when` casa decide (como o ifs() do Notion).
+#   genres_any: o livro tem ao menos um destes gêneros
+#   nature: a natureza do livro (a escolhida, senão a dos gêneros) é esta
+#   translated: o livro é traduzido (idioma original != pt; sem idioma, país != Brasil)
+# Um perfil sem `when` casa com qualquer livro: é o último, para livros sem gênero.
+profiles:
+  - name: quadrinho
+    label: Quadrinho/Mangá nacional
+    when: {genres_any: [Quadrinho, Mangá], translated: false}
+    weights: {edition: 3, plot: 5, art: 5, characters: 4, layout: 4, feeling: 3, colors: 3, setting: 4, ending: 3}
+  - name: quadrinho_traduzido
+    label: Quadrinho/Mangá traduzido
+    when: {genres_any: [Quadrinho, Mangá], translated: true}
+    weights: {edition: 3, translation_lettering: 3, plot: 5, art: 5, characters: 4, layout: 4, feeling: 3, colors: 3, setting: 4, ending: 3}
+  - name: biografia
+    label: Biografia/Memórias nacional
+    when: {genres_any: [Biografia, Memórias], translated: false}
+    weights: {research: 5, writing: 5, characters: 4, setting: 4, impartiality: 4, relevance: 3, structure: 3, ending: 3, extras: 2, edition: 2, value_for_money: 1}
+  - name: biografia_traduzida
+    label: Biografia/Memórias traduzida
+    when: {genres_any: [Biografia, Memórias], translated: true}
+    weights: {research: 5, writing: 5, characters: 4, setting: 4, impartiality: 4, relevance: 3, structure: 3, ending: 3, extras: 2, edition: 2, translation_lettering: 2, value_for_money: 1}
+  - name: ilustrado
+    label: Ilustrado nacional
+    when: {genres_any: [Ilustrado], translated: false}
+    weights: {art: 5, text_image_integration: 5, plot: 4, graphic_design: 4, feeling: 4, edition: 3, setting: 3, layout: 3, value_for_money: 1}
+  - name: ilustrado_traduzido
+    label: Ilustrado traduzido
+    when: {genres_any: [Ilustrado], translated: true}
+    weights: {art: 5, text_image_integration: 5, plot: 4, graphic_design: 4, feeling: 4, edition: 3, setting: 3, layout: 3, translation_lettering: 2, value_for_money: 1}
+  - name: conto
+    label: Contos/Crônicas nacionais
+    when: {genres_any: [Conto, Crônica], translated: false}
+    weights: {average_quality: 5, writing: 5, highlights: 4, conciseness: 4, theme: 4, characters: 3, feeling: 3, pacing: 3, edition: 2, value_for_money: 1}
+  - name: conto_traduzido
+    label: Contos/Crônicas traduzidos
+    when: {genres_any: [Conto, Crônica], translated: true}
+    weights: {average_quality: 5, writing: 5, highlights: 4, conciseness: 4, theme: 4, characters: 3, feeling: 3, pacing: 3, edition: 2, translation_lettering: 2, value_for_money: 1}
+  - name: poesia
+    label: Poesia nacional
+    when: {genres_any: [Poesia, Cordel], translated: false}
+    weights: {language: 5, feeling: 5, imagery: 4, musicality: 4, theme: 4, unity: 3, edition: 2, value_for_money: 1}
+  - name: poesia_traduzida
+    label: Poesia traduzida
+    when: {genres_any: [Poesia, Cordel], translated: true}
+    weights: {language: 5, feeling: 5, imagery: 4, musicality: 4, theme: 4, unity: 3, edition: 2, translation_lettering: 3, value_for_money: 1}
+  - name: tecnico
+    label: Técnico/Didático nacional
+    when: {genres_any: [Técnico, Didático, Referência, Autoajuda], translated: false}
+    weights: {edition: 3, writing: 4, usefulness: 5, structure: 4, value_for_money: 5}
+  - name: tecnico_traduzido
+    label: Técnico/Didático traduzido
+    when: {genres_any: [Técnico, Didático, Referência, Autoajuda], translated: true}
+    weights: {edition: 3, translation_lettering: 3, writing: 4, usefulness: 5, structure: 4, value_for_money: 5}
+  - name: ideias
+    label: Ideias nacional
+    when: {genres_any: [Filosofia, Psicologia, Ensaio, Religião e Espiritualidade, Política e Sociedade], translated: false}
+    weights: {argumentation: 5, depth: 5, provocation: 4, writing: 4, relevance: 4, structure: 3, edition: 2, value_for_money: 1}
+  - name: ideias_traduzido
+    label: Ideias traduzido
+    when: {genres_any: [Filosofia, Psicologia, Ensaio, Religião e Espiritualidade, Política e Sociedade], translated: true}
+    weights: {argumentation: 5, depth: 5, provocation: 4, writing: 4, relevance: 4, structure: 3, edition: 2, translation_lettering: 3, value_for_money: 1}
+  - name: divulgacao
+    label: História/Divulgação nacional
+    when: {genres_any: [História, Ciência, Livro-reportagem, True Crime, Literatura de Viagem], translated: false}
+    weights: {research: 5, writing: 5, relevance: 4, impartiality: 3, structure: 3, extras: 2, edition: 2, value_for_money: 1}
+  - name: divulgacao_traduzida
+    label: História/Divulgação traduzida
+    when: {genres_any: [História, Ciência, Livro-reportagem, True Crime, Literatura de Viagem], translated: true}
+    weights: {research: 5, writing: 5, relevance: 4, impartiality: 3, structure: 3, extras: 2, edition: 2, translation_lettering: 2, value_for_money: 1}
+  - name: ficcao
+    label: Ficção nacional
+    when: {nature: ficcao, translated: false}
+    weights: {edition: 3, plot: 5, characters: 5, feeling: 4, theme: 4, setting: 5, ending: 4}
+  - name: ficcao_traduzida
+    label: Ficção traduzida
+    when: {nature: ficcao, translated: true}
+    weights: {edition: 2, translation_lettering: 3, plot: 4, characters: 4, feeling: 5, theme: 4, setting: 5, ending: 5}
+  - name: nao_ficcao
+    label: Não ficção nacional
+    when: {nature: nao_ficcao, translated: false}
+    weights: {writing: 5, relevance: 4, research: 3, structure: 3, usefulness: 3, edition: 2, value_for_money: 1}
+  - name: nao_ficcao_traduzida
+    label: Não ficção traduzida
+    when: {nature: nao_ficcao, translated: true}
+    weights: {writing: 5, relevance: 4, research: 3, structure: 3, usefulness: 3, edition: 2, translation_lettering: 3, value_for_money: 1}
+  - name: geral
+    label: Geral (sem gênero que decida)
+    weights: {writing: 5, feeling: 4, relevance: 3, edition: 2, value_for_money: 1}

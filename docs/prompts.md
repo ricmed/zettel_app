@@ -37,8 +37,10 @@ O sistema detecta automaticamente quando um prompt muda (via `llm_call_checksum`
 |---|---|
 | `bibliographic_metadata.md` | `harvest` — inferência de metadados ABNT |
 | `literature_note.md` | `extract` — Prompt 1 (resumo, conceitos, candidatos, imagens relevantes) |
+| `literature_note_reflective.md` | `extract` — Prompt 1 dos livros lidos em modo reflexão: metáfora, pensamento, analogia, questão filosófica, personagem, cena ([ADR-069](adrs/generated/EXTRACT/ADR-069-reflective-prompts-by-reading-mode.md)) |
 | `dedupe_decision.md` | `review` — decisão de deduplicação de conceitos |
 | `permanent_note.md` | `connect` — Prompt 2 (nota permanente + tipos de relação) |
+| `permanent_note_reflective.md` | `connect` — Prompt 2 dos livros lidos em modo reflexão (nota de reflexão, obra como ilustração, uso como analogia) |
 | `ptbr_guard.md` | `connect` — guardrail de idioma |
 | `image_description.md` | `extract` — descrição multimodal de imagens (`llm.images`) |
 | `moc_generation.md`, `moc_incremental.md` | `garden` (taxonômico) |

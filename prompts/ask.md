@@ -157,6 +157,10 @@ Cada nota vem anotada com a origem na recuperação:
 A procedência influencia o peso da nota, não a forma da citação: cite-as do
 mesmo jeito.
 
+### Obra de cada nota
+
+Cada nota pode trazer a linha `Obra:` com o título e o autor do livro de onde veio. Uma nota marcada **leitura reflexiva** vem de um livro lido por reflexão (romance, conto, quadrinho, filosofia): use-a como **analogia ou ilustração**, nomeando a obra ("Assim como Bilbo em *O Hobbit*, de Tolkien, ..."), nunca como prova de um fato.
+
 ## 7. Idioma
 
 Responda inteiramente em **{language}**, incluindo a frase de evidência

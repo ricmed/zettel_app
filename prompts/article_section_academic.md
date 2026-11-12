@@ -32,6 +32,9 @@ Escreva em **{language}**.
 7. Comece a secao com `##` seguido do heading indicado no input (exatamente).
 8. Nao invente dados fora das evidencias. Se o acervo for insuficiente
    para um ponto, nao o afirme.
+9. Uma nota marcada `leitura: reflexiva` vem de uma obra lida por reflexao
+   (ficcao, filosofia). So entra como ilustracao, citada pela `citacao_abnt`
+   dela, e nunca sustenta sozinha uma afirmacao factual.
 
 
 {anti_ai}

@@ -144,6 +144,15 @@ Módulo: [`extractor.py`](../zettel/extractor.py).
 6. `--auto-approve` pode promover drafts com confiança ≥ `literature_review.auto_approve_min_confidence`
 7. **Julgamento do autor** (opcional): quando o trecho *enuncia* a regra, o candidato traz `decision_rules`, `anti_patterns` e `named_frameworks`. São opcionais por construção — default `[]`, não entram na filtragem de qualidade, e o validador trunca em 3 itens em vez de falhar o chunk. O draft ganha o bloco `auto-decision` sob `## Julgamento do autor` (só quando houver conteúdo) e a ZTL carrega as listas no frontmatter ([ADR-034](adrs/generated/EXTRACT/ADR-034-optional-author-judgement-fields.md))
 
+**Leitura reflexiva.** Uma fonte cujo livro na Estante é lido em modo `reflexao` passa por `prompts/literature_note_reflective.md` no lugar do Prompt 1 conceitual, e por `prompts/permanent_note_reflective.md` no connect ([ADR-069](adrs/generated/EXTRACT/ADR-069-reflective-prompts-by-reading-mode.md)). O modo vale para ficção e para gêneros marcados como reflexivos, e pode ser trocado em cada livro.
+
+- **Extract.** Procura a metáfora, o pensamento, a analogia, a questão filosófica, o personagem ou a cena. Aceita trecho narrativo, e a citação continua literal.
+- **Candidato.** Ganha `reflection_kind` e `characters`, opcionais.
+- **Connect.** Escreve a ideia fora da obra, mostra-a pela obra e diz como usá-la como analogia.
+- **O resto.** Uma fonte sem livro e um livro técnico seguem no Prompt 1 de sempre, com o mesmo cache.
+
+O harvest de um `livro` cria a nota LIV dele na Estante, ou liga a LIV que já estava lá (mesmo ISBN, ou título e sobrenome). Uma fonte sem texto achada por DOI/ISBN (o SRC manual de um livro cadastrado antes) recebe a extração do arquivo no mesmo citekey.
+
 O nome legível do arquivo (com página e tópico) é uma decisão deliberada — [ADR-015](adrs/generated/EXTRACT/ADR-015-granular-literature-notes-readable-filenames.md).
 
 ---

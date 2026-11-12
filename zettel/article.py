@@ -8,6 +8,7 @@ personality -> judge loop -> verify/save.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections.abc import Callable
@@ -73,6 +74,9 @@ class CatalogSource:
     year: int | None = None
     abnt_reference: str = ""
     document_type: str | None = None
+    # Book read in "reflexao" mode on the bookshelf (ADR-069): its notes are
+    # analogies and illustrations, never evidence for a factual claim.
+    reflective: bool = False
 
     @property
     def in_text_cite(self) -> str:
@@ -104,6 +108,17 @@ class CatalogNote:
     # Citation provenance from the ZTL frontmatter (ADR-051), not the truncated body.
     cite: str = ""
     anchor_quote: str = ""
+    # Characters a reflective note is about, from its frontmatter (ADR-069).
+    characters: list[str] = field(default_factory=list)
+
+
+def literary_mention(note: CatalogNote, source: CatalogSource | None) -> str:
+    """How a section names a reflective note: "como Bilbo em *O Hobbit*, de Tolkien"."""
+    title = (source.title if source else "") or "a obra"
+    author = source.author_natural if source else ""
+    who = " e ".join(note.characters[:2])
+    head = f"como {who} em *{title}*" if who else f"como em *{title}*"
+    return f"{head}, de {author}" if author else head
 
 
 @dataclass
@@ -605,6 +620,8 @@ def _populate_catalog(
                     year=src_row.get("year"),
                     abnt_reference=src_row.get("abnt_reference") or "",
                     document_type=src_row.get("document_type"),
+                    reflective=(db.get_book_by_source(source_id) or {}).get("reading_mode")
+                    == "reflexao",
                 )
 
         summary = (body or "").strip()
@@ -633,6 +650,7 @@ def _populate_catalog(
             summary=summary,
             cite=_note_cite(row, catalog.sources.get(source_id or "")),
             anchor_quote=str(load_provenance(row).get("anchor_quote") or "").strip(),
+            characters=_note_characters(row),
         )
 
     # Keep top max_figures assets by frequency across notes
@@ -644,6 +662,15 @@ def _populate_catalog(
         )[:max_figures]
         keep = {a.asset_id for a in ranked}
         catalog.assets = {k: v for k, v in catalog.assets.items() if k in keep}
+
+
+def _note_characters(row: dict | None) -> list[str]:
+    try:
+        meta = json.loads((row or {}).get("frontmatter_json") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return []
+    raw = meta.get("characters") if isinstance(meta, dict) else None
+    return [str(c) for c in raw if str(c).strip()] if isinstance(raw, list) else []
 
 
 def _note_cite(row: dict | None, source: CatalogSource | None) -> str:
@@ -782,6 +809,12 @@ def _pack_section(
         cite_lines = f"- citacao_abnt: {note.cite or '(indisponivel)'}\n"
         if note.anchor_quote:
             cite_lines += f'- citacao_direta: "{note.anchor_quote}"\n'
+        src_of_note = catalog.sources.get(note.source_id or "")
+        if src_of_note and src_of_note.reflective:
+            cite_lines += (
+                "- leitura: reflexiva (analogia ou ilustracao, nunca evidencia de fato)\n"
+                f"- mencao_literaria: {literary_mention(note, src_of_note)}\n"
+            )
         evidence_parts.append(
             f"#### {note.title}\n"
             f"- note_id: {note.note_id}\n"

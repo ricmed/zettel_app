@@ -219,6 +219,14 @@ Flags: `--personality`, `--style-notes`, `--skip-context-review`, `--skip-judge`
 
 O HITL usa `interrupt()` do LangGraph com prompts Rich; o checkpointer é um `MemorySaver` por execução. Reusa o `Retriever`, o `format_abnt_in_text` e o cache de LLM.
 
+### Notas de leitura reflexiva (Estante)
+
+As ZTL de livros lidos em modo reflexão (romance, conto, quadrinho, filosofia; [ADR-069](adrs/generated/EXTRACT/ADR-069-reflective-prompts-by-reading-mode.md)) são analogias e ilustrações, não evidência.
+
+- **Artigo acadêmico.** Deixa essas fontes de fora: na busca (`Retriever.search_notes(exclude_source_ids=)`), no boost do MOC e nos saltos extras do grafo. A exceção é `retrieval.article.academic_include_reflective: true`.
+- **Artigo blog.** Mantém essas notas. Cada uma chega à seção marcada `leitura: reflexiva`, com a `mencao_literaria` ("como Bilbo em *O Hobbit*, de Tolkien"), e o prompt proíbe usá-la como prova de um fato.
+- **`ask`.** Cada nota do contexto traz a obra e o autor (`Obra:`), e as reflexivas vêm marcadas, com a mesma regra.
+
 ---
 
 ## Analogias distantes (outro domínio)

@@ -39,6 +39,9 @@ PERMANENT_NOTE_KEYS: tuple[str, ...] = (
 _PROMPT_KEYS: dict[str, tuple[str, ...]] = {
     "literature_note": LITERATURE_NOTE_KEYS,
     "permanent_note": PERMANENT_NOTE_KEYS,
+    # Leitura reflexiva (ADR-069): mesmas chaves, exemplos de outra natureza.
+    "literature_note_reflective": LITERATURE_NOTE_KEYS,
+    "permanent_note_reflective": PERMANENT_NOTE_KEYS,
 }
 
 
@@ -63,6 +66,10 @@ class PermanentNoteExamples(BaseModel):
 class DomainExamplesFile(BaseModel):
     literature_note: LiteratureNoteExamples = Field(default_factory=LiteratureNoteExamples)
     permanent_note: PermanentNoteExamples = Field(default_factory=PermanentNoteExamples)
+    literature_note_reflective: LiteratureNoteExamples = Field(
+        default_factory=LiteratureNoteExamples
+    )
+    permanent_note_reflective: PermanentNoteExamples = Field(default_factory=PermanentNoteExamples)
 
 
 def load_domain_examples(path: Path | str | None) -> DomainExamplesFile:
@@ -81,6 +88,7 @@ def load_domain_examples(path: Path | str | None) -> DomainExamplesFile:
     except Exception as e:
         raise DomainExamplesLoadError(f"Exemplos de dominio invalidos em {p}: {e}") from e
     _validate_accepted_example(examples.literature_note.accepted_example, source=p)
+    _validate_accepted_example(examples.literature_note_reflective.accepted_example, source=p)
     return examples
 
 
@@ -93,11 +101,7 @@ def render_for_prompt(examples: DomainExamplesFile, prompt_name: str) -> dict[st
     keys = _PROMPT_KEYS.get(prompt_name)
     if keys is None:
         return {}
-    section: Any
-    if prompt_name == "literature_note":
-        section = examples.literature_note
-    else:
-        section = examples.permanent_note
+    section: Any = getattr(examples, prompt_name)
     data = section.model_dump()
     return {key: str(data.get(key) or "") for key in keys}
 

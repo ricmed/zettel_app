@@ -19,16 +19,10 @@ import re
 _FENCE_LINE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
 
-def iter_fenced_spans(text: str) -> list[tuple[int, int]]:
-    """Return character spans of CommonMark fenced code blocks.
-
-    A fence closes only with the same marker family (backtick never closes tilde),
-    a marker at least as long as the opening one and no info string. An unclosed
-    fence spans to EOF. Spans are returned in order and never overlap.
-    """
+def _scan_fences(text: str) -> tuple[list[tuple[int, int]], str]:
+    """Fenced-block spans, plus the marker of a fence left open at EOF ("" if none)."""
     spans: list[tuple[int, int]] = []
-    open_char = ""
-    open_len = 0
+    open_marker = ""
     start = 0
     pos = 0
 
@@ -40,23 +34,41 @@ def iter_fenced_spans(text: str) -> list[tuple[int, int]]:
             continue
         marker, info = m.group(1), m.group(2)
 
-        if open_char:
+        if open_marker:
             # Closing fence: same family, at least as long, no info string.
-            if marker[0] == open_char and len(marker) >= open_len and not info.strip():
+            if marker[0] == open_marker[0] and len(marker) >= len(open_marker) and not info.strip():
                 spans.append((start, pos))
-                open_char = ""
+                open_marker = ""
             continue
 
         # Backtick fences cannot carry a backtick in the info string.
         if marker[0] == "`" and "`" in info:
             continue
-        open_char = marker[0]
-        open_len = len(marker)
+        open_marker = marker
         start = line_start
 
-    if open_char:
+    if open_marker:
         spans.append((start, len(text or "")))
-    return spans
+    return spans, open_marker
+
+
+def iter_fenced_spans(text: str) -> list[tuple[int, int]]:
+    """Return character spans of CommonMark fenced code blocks.
+
+    A fence closes only with the same marker family (backtick never closes tilde),
+    a marker at least as long as the opening one and no info string. An unclosed
+    fence spans to EOF. Spans are returned in order and never overlap.
+    """
+    return _scan_fences(text)[0]
+
+
+def unclosed_fence(text: str) -> str:
+    """The opening marker of a fence ``text`` leaves open, or "" when every fence closes.
+
+    Text pasted into one section of a note must close its fences: an open one
+    would turn every later heading of the note into fence content.
+    """
+    return _scan_fences(text)[1]
 
 
 # A Docling table row. Indented code and pipe characters inside a fence are not rows.

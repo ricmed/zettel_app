@@ -68,6 +68,12 @@ def _anchor_relative_paths(data: dict[str, Any], base: Path) -> dict[str, Any]:
         domain["examples_path"] = _anchor_path_value(domain["examples_path"], base)
         out["domain"] = domain
 
+    library = out.get("library")
+    if isinstance(library, dict) and "rating_path" in library:
+        library = dict(library)
+        library["rating_path"] = _anchor_path_value(library["rating_path"], base)
+        out["library"] = library
+
     manuscript = out.get("manuscript")
     if isinstance(manuscript, dict) and manuscript.get("docx_reference_path"):
         manuscript = dict(manuscript)
@@ -552,6 +558,8 @@ class ArticleConfig(BaseModel):
     max_figures: int = 6
     chars_per_section_draft: int = 2500
     personalities_path: Path = Path("./config/personalities.yaml")
+    # Notas reflexivas (Estante, ADR-069) entram no artigo academico? No blog, sempre.
+    academic_include_reflective: bool = False
     default_personality: str = "neutral"
     enrich_query_count: int = 6
     max_judge_iterations: int = 3
@@ -636,6 +644,42 @@ class ManuscriptConfig(BaseModel):
     quotes: bool = False  # trecho literal (anchor_quote) de cada cartao
     limits: bool = False  # "Ressalva:" com os limites de cada cartao
     appendix: bool = False  # apendice com a nota completa de cada cartao
+
+
+class LibraryConfig(BaseModel):
+    """Estante (ADR-068). Catalogo: config.yaml -> library; vocabulario em rating_path."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Generos, criterios e perfis de avaliacao (zettel/library/schema.py). O
+    # default e o arquivo do repositorio, nao um caminho relativo ao cwd.
+    rating_path: Path = _PACKAGE_DIR.parent / "config" / "library.yaml"
+    # Tipos de documento cujo harvest cria a nota LIV do livro.
+    document_types: list[str] = Field(default_factory=lambda: ["livro"])
+    # Status de um livro criado sem status (pelo harvest ou pela web).
+    initial_status: Literal["quero_ler", "lendo", "lido", "abandonado", "relendo"] = "quero_ler"
+    # Letra do formato no codigo "0001 - F".
+    format_letters: dict[str, str] = Field(
+        default_factory=lambda: {"fisico": "F", "digital": "D", "audiolivro": "A"}
+    )
+    # Pesquisa de livros por ISBN ou titulo e busca de capa (Google Books; a
+    # Open Library quando o usuario refaz a busca). Desligada, o cadastro e so o formulario manual.
+    online_lookup: bool = True
+
+    @field_validator("rating_path", mode="before")
+    @classmethod
+    def resolve_rating_path(cls, v: Any) -> Path:
+        if v is None or v == "":
+            return _PACKAGE_DIR.parent / "config" / "library.yaml"
+        return Path(v).resolve()
+
+    @field_validator("format_letters")
+    @classmethod
+    def letters_for_every_format(cls, v: dict[str, str]) -> dict[str, str]:
+        missing = sorted({"fisico", "digital", "audiolivro"} - set(v))
+        if missing:
+            raise ValueError(f"library.format_letters sem letra para: {missing}")
+        return v
 
 
 class SummarizeConfig(BaseModel):
@@ -774,6 +818,7 @@ class AppConfig(BaseModel):
     web: WebConfig = Field(default_factory=WebConfig)
     obsidian: ObsidianConfig = Field(default_factory=ObsidianConfig)
     manuscript: ManuscriptConfig = Field(default_factory=ManuscriptConfig)
+    library: LibraryConfig = Field(default_factory=LibraryConfig)
 
     language: str = "pt-BR"
     vault_timezone: str = "America/Sao_Paulo"

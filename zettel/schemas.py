@@ -55,6 +55,17 @@ JUDGEMENT_FIELDS: tuple[str, ...] = (
 )
 _MAX_JUDGEMENT_ITEMS = 3
 
+# Kinds of reflection a reading-mode "reflexao" candidate may carry (ADR-069).
+REFLECTION_KINDS: tuple[str, ...] = (
+    "metafora",
+    "pensamento",
+    "analogia",
+    "questao_filosofica",
+    "personagem",
+    "cena",
+)
+_MAX_CHARACTERS = 5
+
 
 class PermanentNoteCandidate(BaseModel):
     """A single atomic concept extracted from a chunk."""
@@ -97,6 +108,29 @@ class PermanentNoteCandidate(BaseModel):
         default_factory=list,
         description="Nomes proprios de frameworks/metodos, exatamente como o autor escreve",
     )
+
+    # Leitura reflexiva (Estante, ADR-069): o que o trecho oferece para pensar e os
+    # personagens nele. Opcionais como o julgamento do autor: nunca rejeitam.
+    reflection_kind: str = Field(
+        default="",
+        description="metafora | pensamento | analogia | questao_filosofica | personagem | cena",
+    )
+    characters: list[str] = Field(
+        default_factory=list,
+        description="Personagens (ou pessoas reais) envolvidos, como a obra os nomeia",
+    )
+
+    @field_validator("reflection_kind", mode="after")
+    @classmethod
+    def _known_reflection_kind(cls, v: str) -> str:
+        kind = (v or "").strip()
+        return kind if kind in REFLECTION_KINDS else ""
+
+    @field_validator("characters", mode="after")
+    @classmethod
+    def _clean_characters(cls, v: list[str]) -> list[str]:
+        cleaned = list(dict.fromkeys(item.strip() for item in v if item and item.strip()))
+        return cleaned[:_MAX_CHARACTERS]
 
     @field_validator("decision_rules", "anti_patterns", "named_frameworks", mode="after")
     @classmethod

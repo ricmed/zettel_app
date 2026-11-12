@@ -35,7 +35,9 @@ from zettel.vault import compose_note, frontmatter_json, read_managed_block
 
 logger = logging.getLogger(__name__)
 
-MANUAL_CHAPTER_SUFFIX = "::ch000"
+# Not "::ch000": a PDF harvested later into the same source (#392) writes its first
+# chapter there and would replace the hand-written chunks.
+MANUAL_CHAPTER_SUFFIX = "::manual"
 MANUAL_CHAPTER_TITLE = "Manual"
 
 
@@ -125,6 +127,11 @@ def summary_payload(body: str, content: str) -> dict[str, Any]:
     }
 
 
+# Lines the bookshelf writes under "Conceitos-chave" of a reflective reading note;
+# they describe the note, they are not tags.
+_REFLECTION_LABELS = ("Tipo:", "Personagem:")
+
+
 def build_candidate_from_literature(
     meta: dict[str, Any],
     body: str,
@@ -154,8 +161,11 @@ def build_candidate_from_literature(
             str(meta.get("section_path") or ""),
             meta.get("page_in_file"),
         ),
-        tags=_key_concepts(body),
+        tags=[t for t in _key_concepts(body) if not t.startswith(_REFLECTION_LABELS)],
         relevance_score=5,
+        # A reading note written on the bookshelf in "reflexao" mode (ADR-069).
+        reflection_kind=str(meta.get("reflection_kind") or ""),
+        characters=[str(c) for c in meta.get("characters") or [] if str(c).strip()],
     )
 
 
@@ -503,6 +513,7 @@ def create_permanent_from_literature(
     from zettel.vault import (
         judgement_frontmatter,
         note_filename,
+        reflection_frontmatter,
         safe_write_note,
         scaffold_permanent_note_body,
     )
@@ -611,6 +622,7 @@ def create_permanent_from_literature(
     }
     note_meta.update(citation_frontmatter(citation))
     note_meta.update(judgement_frontmatter(candidate))
+    note_meta.update(reflection_frontmatter(candidate))
     note_path = cfg.vault_path / "30_Permanent" / note_filename("ZTL", note_id, title)
     if note_path.exists() and not force:
         raise FileExistsError(f"Arquivo ja existe: {note_path}")

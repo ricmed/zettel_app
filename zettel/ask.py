@@ -137,7 +137,9 @@ def run_ask(
         finish_pipeline_run(db, run_id)
         return result
 
-    context = _build_context(db, hits, ask_cfg.max_chars_per_note)
+    context = _build_context(
+        db, hits, ask_cfg.max_chars_per_note, reflective=_reflective_sources(cfg, db)
+    )
     prompt_parts = load_prompt_parts(cfg.prompts_path / "ask.md")
     mapping = {
         "language": cfg.language,
@@ -186,7 +188,40 @@ def _wiki_link(db: StateDB, note_id: str, title: str) -> str:
     )
 
 
-def _build_context(db: StateDB, hits: list[RetrievedNote], max_chars: int) -> str:
+def _work_line(db: StateDB, hit: RetrievedNote, reflective: set[str]) -> str:
+    """ "- Obra: Titulo, de Autor" (+ reading mode) so the answer can name the work."""
+    from zettel.bibliography import display_author_natural
+    from zettel.citation import stored_authors
+
+    source_id = hit.metadata.get("source_id") or (db.get_note(hit.note_id) or {}).get("source_id")
+    source = db.get_source(source_id) if source_id else None
+    if not source:
+        return ""
+    author = display_author_natural(stored_authors(source.get("authors")))
+    work = f"*{source.get('title') or source.get('citekey')}*" + (
+        f", de {author}" if author else ""
+    )
+    if source_id in reflective:
+        return f"- Obra: {work} (leitura reflexiva: analogia ou ilustracao, nao evidencia)\n"
+    return f"- Obra: {work}\n"
+
+
+def _reflective_sources(cfg: AppConfig, db: StateDB) -> set[str]:
+    """Sources the bookshelf reads in "reflexao" mode (ADR-069); empty if it is unavailable."""
+    from zettel.library.mirror import refresh
+    from zettel.library.schema import LibrarySchemaError
+
+    try:
+        refresh(db, cfg)
+    except LibrarySchemaError as exc:
+        logger.warning("Estante indisponivel no ask: %s", exc)
+        return set()
+    return set(db.list_reflective_source_ids())
+
+
+def _build_context(
+    db: StateDB, hits: list[RetrievedNote], max_chars: int, reflective: set[str] | None = None
+) -> str:
     """Render retrieved notes into the prompt's context block."""
     parts: list[str] = []
     for i, hit in enumerate(hits, 1):
@@ -196,8 +231,10 @@ def _build_context(db: StateDB, hits: list[RetrievedNote], max_chars: int) -> st
         if len(body) > max_chars:
             body = body[:max_chars].rstrip() + "..."
         origin = _origin_label(hit)
+        work = _work_line(db, hit, reflective or set())
         parts.append(
-            f"### Nota {i}: {title}\n- Wikilink para citar: {wiki}\n- Origem: {origin}\n\n{body}"
+            f"### Nota {i}: {title}\n- Wikilink para citar: {wiki}\n{work}"
+            f"- Origem: {origin}\n\n{body}"
         )
     return "\n\n".join(parts)
 

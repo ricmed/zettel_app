@@ -26,7 +26,7 @@
 | Guia | O que responde |
 |---|---|
 | [Notas manuais](notas-manuais.md) | `new-note`, `sync-manual`, `suggest-links`, adoção de LIT e de imagens, caminho LIT → ZTL |
-| [Interface web](interface-web.md) | Subir a UI, páginas, fila de jobs, o que é exclusivo da CLI |
+| [Interface web](interface-web.md) | Subir a UI, páginas (inclusive a Estante, `/books`), fila de jobs, o que é exclusivo da CLI |
 
 ## Operando
 

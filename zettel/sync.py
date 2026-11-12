@@ -139,7 +139,8 @@ def run_sync_manual(
     bad note never stops the others, #342), ``embedding_pending`` and
     ``embedding_offline`` (why vectors were not written, or ``None``; #343),
     ``moved`` and ``missing`` (notes and MOCs whose file is gone; ``prune``
-    removes the manual ones from SQLite, Chroma and the graph, #348). Opens a
+    removes the manual ones from SQLite, Chroma and the graph, #348), and the
+    bookshelf counters (``books_created``, ``books_linked``, ``books_ambiguous``). Opens a
     ``sync`` run so the embedding cost of the notes it indexes is recorded (#311).
     """
     from zettel.usage import begin_run, finish_pipeline_run
@@ -205,6 +206,10 @@ def _sync_all(cfg: AppConfig, db: StateDB, vectors: _Vectors, *, prune: bool) ->
 
     stats["moved"] = run.moved
     stats.update(_missing_notes(cfg, db, vectors, run, prune=prune))
+    from zettel.library.linking import safe_sync_library
+
+    # The bookshelf mirror, orphaned LIVs relinked, their note blocks (ADR-068).
+    stats.update(safe_sync_library(cfg, db))
     stats.update(_link_notes(db, run))
     repair = repair_permanent_links(db, vault_timezone=cfg.vault_timezone)
     stats.update(repair)
@@ -290,6 +295,15 @@ def repair_permanent_links(
         "wikilinks_rewritten": wikilinks_rewritten,
         "backlinks_rebuilt": backlinks_rebuilt,
     }
+
+
+def sync_source_note(cfg: AppConfig, db: StateDB, file_path: Path) -> str:
+    """Adopt (or resync) one SRC note in SQLite, without the vector index.
+
+    The bookshelf uses it when a book gets its manual source (ADR-068); the
+    source's vector is written by the next ``sync-manual`` with the index.
+    """
+    return _sync_single_note(cfg, db, _Vectors(cfg, None), file_path, "source", _Run())
 
 
 def _sync_single_note(

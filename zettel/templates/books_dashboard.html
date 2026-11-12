@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% import "_charts.html" as charts %}
+{% block title %}Painel da Estante · Zettelkasten{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/library.css">{% endblock %}
+{% block content %}
+{% set k = stats.kpis %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">estante</div>
+    <h1>Painel de leituras</h1>
+    <p class="muted">Leituras terminadas, páginas, notas e o que a sua estante tem.</p>
+  </div>
+  <form method="get" action="/books/dashboard" class="heading-actions">
+    <label>Ano <select name="year">{% for y in stats.years %}<option {% if y == stats.year %}selected{% endif %}>{{ y }}</option>{% endfor %}</select></label>
+    <button class="button" type="submit">Ver</button>
+    <a class="button" href="/books">Estante</a>
+  </form>
+</div>
+<section class="kpi-grid">
+  <article class="kpi"><span>Lidos em {{ stats.year }}</span><strong>{{ k.read_in_year }}</strong></article>
+  <article class="kpi"><span>Páginas em {{ stats.year }}</span><strong>{{ k.pages_in_year }}</strong></article>
+  <article class="kpi"><span>Lendo agora</span><strong>{{ k.reading_now }}</strong></article>
+  <article class="kpi"><span>Nota média ({{ k.rated }} avaliados)</span><strong>{{ k.average_score }}</strong></article>
+</section>
+<div class="grid-2">
+  <section class="panel">{{ charts.vbar(stats.months) }}</section>
+  <section class="panel">{{ charts.vbar(stats.per_year) }}</section>
+</div>
+<div class="grid-2">
+  <section class="panel">{{ charts.vbar(stats.scores) }}</section>
+  <section class="panel">{{ charts.hbar(stats.top_rated) }}</section>
+</div>
+<div class="grid-2">
+  <section class="panel">{{ charts.hbar(stats.genres) }}</section>
+  <section class="panel">{{ charts.hbar(stats.criteria) }}</section>
+</div>
+<div class="grid-2">
+  <section class="panel">{{ charts.hbar(stats.statuses) }}{{ charts.hbar(stats.formats) }}</section>
+  <section class="panel">{{ charts.hbar(stats.natures) }}{{ charts.hbar(stats.countries) }}</section>
+</div>
+<p class="muted">{{ k.books }} livro(s) na estante.</p>
+{% endblock %}

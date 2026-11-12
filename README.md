@@ -173,6 +173,7 @@ vault/
 ├── 30_Permanent/            # Notas permanentes (ZTL)
 ├── 40_MOCs/                 # Mapas de Conteudo
 ├── 50_Projetos/             # Mesas de escrita (PRJ) e seus .canvas; suas, ficam no init --reset
+├── 60_Estante/              # Livros (LIV): leituras, notas, capa; seus, ficam no init --reset
 ├── 90_Assets/               # Imagens extraidas de PDFs/Markdown (nome por hash)
 ├── 99_Templates/            # Templates Templater (gerados; sync-manual nao varre)
 │   ├── SRC.md
@@ -205,6 +206,7 @@ uvicorn zettel.web:app --host 0.0.0.0 --port 5000
 - Instância única com fila de jobs no SQLite: **um** trabalho mutante por vez; operações destrutivas continuam só na CLI.
 - **Acervo** (`/studio`): perguntar, catálogo, resumir, artigo (com pausa para revisar contexto e outline) e exportar skill. O catálogo responde na página; os outros entram na fila.
 - **Mesas** (`/projetos`): escrever a partir das ZTLs. Veja a seção a seguir.
+- **Estante** (`/books`): seus livros, leituras, notas e painel. Veja [A Estante](#a-estante).
 
 ### Da pesquisa ao texto: a Mesa
 
@@ -226,6 +228,29 @@ O método de Luhmann não termina na nota. Para escrever, ele tirava as fichas d
    - **.canvas**, que abre no Canvas do Obsidian.
 
 A Mesa é um arquivo comum, `50_Projetos/PRJ - ULID - slug.md`: seções `##`, cartões `- [[ZTL - …]]` e o seu texto entre eles. Ela também pode ser editada no Obsidian; a web recusa salvar por cima de uma edição feita lá. Pela CLI: `python -m zettel manuscript <id ou arquivo> --format docx`.
+
+### A Estante
+
+A Estante guarda o lado leitor: o que você leu, quando, em que formato e o que achou, de livros técnicos, romances, quadrinhos, filosofia.
+
+- **O livro é uma nota.** Ela fica em `60_Estante/LIV - ULID - slug.md`, também editável no Obsidian, e sobrevive ao `init --reset`. Ela guarda:
+  - o código `0001 - F`, que é o número sequencial universal mais a letra do formato (F físico, D digital, A audiolivro);
+  - o status, as leituras (início e término, com releituras), gêneros, país e idioma original;
+  - a capa, o resumo, as impressões e a avaliação.
+- **Cadastrar começa pela pesquisa.** Em **Adicionar livro**, digite o ISBN ou o título: o Google Books devolve as edições (se não servirem, refaça a busca na Open Library), e a escolhida preenche o formulário, a capa e a bibliografia da fonte. País do autor, idioma, título e ano originais vêm do Wikidata. Dá para cadastrar à mão também.
+- **O harvest cria o livro.** Colher o PDF de um livro cria a LIV dele, ou liga a que já estava na estante (mesmo ISBN, ou título e autor). Depois de um reset, a LIV é religada à fonte nova.
+- **A avaliação é ponderada por perfil.** Os perfis ficam em [`config/library.yaml`](config/library.yaml): quadrinho, biografia/memórias, ilustrado, contos/crônicas, poesia, técnico/didático, ideias (filosofia, psicologia, ensaio), história/divulgação, ficção e não ficção, cada um nacional ou traduzido, e um perfil geral para o livro sem gênero.
+- **Gêneros e assuntos.** Os gêneros aparecem agrupados (forma, gênero ficcional, não ficção, público, marcador) e decidem perfil e modo de leitura; a área do livro (Programação, Economia…) vai em Assuntos. Na pesquisa, as categorias do Google Books já sugerem os gêneros.
+  - Vale o primeiro perfil que casa com os gêneros e com a tradução, e cada critério tem seu peso.
+  - A nota conta só os critérios avaliados.
+  - O arquivo é seu: mude pesos, critérios e perfis.
+- **As vistas.** Há tabela, galeria de capas e quadro por status, com filtros e vistas prontas (Lendo agora, Lidos no ano, Quero ler, Mais bem avaliados). O **painel** mostra leituras por mês e por ano, páginas, distribuição das notas, gêneros, formatos, países e média por critério.
+- **Notas de leitura.** Escreva-as a partir do livro: elas viram LIT manuais (o livro sem PDF ganha uma fonte manual com o ISBN) e, com **Gerar ZTL**, notas permanentes.
+- **Leitura reflexiva.** Romances, contos, quadrinhos, filosofia e biografia são lidos em modo **reflexão**, com prompts próprios.
+  - Em vez de conceitos, o extract procura a metáfora, o pensamento, a analogia, a questão filosófica e a situação de personagem.
+  - A ZTL guarda a ideia, a obra que a mostra e como usá-la.
+  - No `ask` e no artigo estilo blog essas notas entram como analogia ("Assim como Bilbo em *O Hobbit*..."). No artigo acadêmico ficam de fora (`retrieval.article.academic_include_reflective`).
+  - O modo vem dos gêneros e pode ser trocado em cada livro.
 
 Páginas, operações enfileiráveis e recuperação após reinício: [docs/interface-web.md](docs/interface-web.md).
 
@@ -250,6 +275,7 @@ A **fonte operacional** é `[config/config.yaml](config/config.yaml)` — é o a
 | `gardener.*`, `hub_mocs.*`                                                               | Clusterização e geração de MOCs (rótulo `{pilar}: {categoria}`)                                                                      |
 | `images.*`                                                                               | Extração e descrição multimodal de imagens                                                                                           |
 | `decision.*`                                                                             | Camada de decisão tipada (TypeSafe Jev) em modo shadow: grava o veredito ao lado de dedupe, categoria do cluster, juiz do artigo e aresta `corroborates`, sem agir (ADR-055) |
+| `library.*`                                                                              | Estante: caminho do vocabulário (`config/library.yaml`: gêneros, critérios, perfis de avaliação), tipos de documento que viram livro no harvest, status inicial, letras do código e pesquisa de livros e capas (Google Books, Open Library) |
 | `language`, `log_level`, `device`                                                        | Idioma do conteúdo gerado, logging e dispositivo (CPU/CUDA)                                                                          |
 
 

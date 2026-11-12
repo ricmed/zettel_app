@@ -99,3 +99,13 @@ A batch job reports item k only once item k is done; a batch that is one call (d
 
 * `GET /assets/{name}` (`zettel/web/assets.py`) serves the vault's content-addressed images, by name only. The name must match `img-<16 hex>` with a raster extension, so no separator can reach the path and an SVG, which is a document that can carry script, is never served. `zettel/markdown.py` renders `![[90_Assets/…]]` and `![..](90_Assets/..)` as `<img src="/assets/…">`. The sanitizer now admits `img`, but only with a `src` that is such a URL. Any other `img` is removed whole, so `img-src 'self'` stays enough.
 * Drag and drop on the Mesa is `static/project-board.js`. It fills and submits the same urlencoded form, with CSRF, that the arrow buttons send. A page without the script works the same. No JSON mutation is added, so the [ADR-040](./ADR-040-json-pickers-progressive-enhancement.md) exception stays the only one.
+
+## Addendum (2026-11-08): charts as server-rendered SVG (#395)
+
+**Status:** Accepted. The Estante dashboard ([ADR-068](./ADR-068-estante-books-as-liv-notes.md)) needs charts. A JS library from a CDN is forbidden by the CSP, and a self-hosted one would still set inline styles. Instead, `templates/_charts.html` draws one-series bars as inline SVG:
+
+* geometry is set by attributes (`x`, `width`, `height`, `rx`), and colour and text by classes in `static/library.css`, which follow the light and dark theme;
+* every bar has a `<title>` (the hover tooltip) and its value written beside it;
+* every chart has a `<details>` table view.
+
+No script, no `style=` attribute and no CSP change.

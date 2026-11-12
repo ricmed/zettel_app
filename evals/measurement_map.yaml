@@ -169,6 +169,20 @@ measurements:
       - .venv/Scripts/python.exe scripts/probe_jev_gold.py --task extract --lang en
       - .venv/Scripts/python.exe scripts/report_decision_shadow.py
 
+  reflective-reading:
+    title: Leitura reflexiva da Estante (prompts por modo de leitura) contra rótulos cegos
+    paths:
+      - prompts/literature_note_reflective.md
+      - prompts/permanent_note_reflective.md
+      - config/domain_examples.yaml
+      - config/library.yaml
+    config: [llm.extract.*, llm.connect.*, library.*]
+    preregistration: [evals/preregistration/396-leitura-reflexiva.md]
+    commands:
+      - .venv/Scripts/python.exe scripts/plan_gold_round.py --discordance 0.4 --effect 0.2
+      - .venv/Scripts/python.exe -m zettel harvest --yes --dump-chunks
+      - .venv/Scripts/python.exe -m zettel extract --yes
+
 unmeasured:
   - paths:
       - prompts/moc_generation.md

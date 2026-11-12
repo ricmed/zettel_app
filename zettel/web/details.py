@@ -145,15 +145,27 @@ def moc_adopt(request: Request, moc_id: str, csrf: str = Form("")):
 def source_detail(request: Request, source_id: str):
     if not authenticated(request):
         return redirect_login()
+    cfg = service(request).cfg
     db = service(request).db()
     try:
         source = db.get_source(source_id)
         chunks = db.get_chunks_for_source(source_id) if source else []
+        book = db.get_book_by_source(source_id) if source else None
     finally:
         db.close()
     if not source:
         return error_page(request, 404, "Fonte não encontrada")
-    return render(request, "source_detail.html", page="documents", source=source, chunks=chunks)
+    return render(
+        request,
+        "source_detail.html",
+        page="documents",
+        source=source,
+        chunks=chunks,
+        book=book,
+        # Uma fonte de livro sem LIV pode ganhar a sua aqui (o código nasce na LIV).
+        can_shelve=source.get("document_type") in cfg.library.document_types,
+        initial_status=cfg.library.initial_status,
+    )
 
 
 @router.get("/notes/{note_id}", response_class=HTMLResponse)

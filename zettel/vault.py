@@ -329,6 +329,7 @@ VAULT_DIRS = [
     "30_Permanent",
     "40_MOCs",
     "50_Projetos",
+    "60_Estante",
     "90_Assets",
 ]
 
@@ -340,6 +341,8 @@ PIPELINE_ORIGINS = frozenset({"pipeline", "hub_pipeline"})
 TEMPLATES_DIR = "99_Templates"
 # Writing projects (Mesa, ADR-067): the author's, kept by ``init --reset``.
 PROJECTS_DIR = "50_Projetos"
+# Bookshelf (Estante, ADR-068): one LIV note per book, kept by ``init --reset``.
+LIBRARY_DIR = "60_Estante"
 
 
 def init_vault(vault_path: Path) -> None:
@@ -864,6 +867,23 @@ def judgement_frontmatter(candidate: Any) -> dict[str, list[str]]:
         values = getattr(candidate, key, None) or []
         if values:
             out[key] = list(values)
+    return out
+
+
+def reflection_frontmatter(candidate: Any) -> dict[str, Any]:
+    """Frontmatter of a reflective permanent note (Estante, ADR-069), copied from the candidate.
+
+    Empty for a conceptual note, so its frontmatter stays as it always was.
+    """
+    kind = str(getattr(candidate, "reflection_kind", "") or "")
+    characters = list(getattr(candidate, "characters", None) or [])
+    if not kind and not characters:
+        return {}
+    out: dict[str, Any] = {"reading_mode": "reflexao"}
+    if kind:
+        out["reflection_kind"] = kind
+    if characters:
+        out["characters"] = characters
     return out
 
 

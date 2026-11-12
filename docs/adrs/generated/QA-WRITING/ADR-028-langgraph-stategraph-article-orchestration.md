@@ -194,3 +194,11 @@ The `MemorySaver` still does not survive a process restart. A restart marks the 
 ## Addendum (2026-11-08): the reference list is shared with the Mesa
 
 The academic `## Referências` of `assemble_article` now comes from `bibliography.reference_entries`, the same function the Mesa's manuscript uses ([ADR-067](../WEB/ADR-067-mesa-writing-desk.md)). Each source appears once. The list is in alphabetical order with accents and case folded; it used to be sorted by `upper()`, which put "Álvares" after "Zuboff". A source with no stored ABNT text is rebuilt from its `bibliography_json` before the bare fallback. The heading is spelled with its accent.
+
+## Addendum (2026-11-08): reflective notes in the article (#397)
+
+Notes from books read in `reflexao` mode ([ADR-069](../EXTRACT/ADR-069-reflective-prompts-by-reading-mode.md)) are analogies, not evidence.
+
+* **Academic style.** `node_vector_search_merge` leaves their sources out of the search, the MOC boost and the extra hops (`search.excluded_sources`, `search.drop_sources`), unless `retrieval.article.academic_include_reflective` is set.
+* **Blog style.** It keeps them. `_pack_section` marks each such note `leitura: reflexiva` and gives it a `mencao_literaria` ("como Bilbo em *O Hobbit*, de Tolkien"), built by `article.literary_mention` from the source and the note's `characters`.
+* **The prompts.** Both section prompts say a reflective note never supports a factual claim alone.

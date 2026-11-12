@@ -1,0 +1,49 @@
+{# Gráficos da Estante (ADR-068): barras de uma série em SVG, sem JS e sem atributo de estilo
+   (CSP do ADR-022). Cores e texto vêm de classes em library.css, que seguem o tema.
+   Cada barra tem <title> (dica ao passar o mouse) e o valor escrito ao lado. #}
+{% macro hbar(chart, label_width=170, width=640) %}
+{% set plot = width - label_width - 60 %}
+{% set row = 26 %}
+<figure class="chart">
+  <figcaption>{{ chart.title }}</figcaption>
+  {% if chart.bars %}
+  <svg class="chart-svg" viewBox="0 0 {{ width }} {{ chart.bars|length * row + 6 }}" width="100%" role="img" aria-label="{{ chart.title }}">
+    {% for bar in chart.bars %}{% set y = loop.index0 * row + 3 %}{% set w = (bar.value / chart.peak * plot) if bar.value else 0 %}
+    <g class="chart-row">
+      <title>{{ bar.label }}: {{ bar.display }}</title>
+      <text class="chart-label" x="{{ label_width - 10 }}" y="{{ y + 15 }}" text-anchor="end">{{ bar.label|truncate(26, True, '…') }}</text>
+      {% if w %}<rect class="chart-bar" x="{{ label_width }}" y="{{ y + 3 }}" width="{{ '%.1f'|format(w if w > 4 else 4) }}" height="{{ row - 9 }}" rx="4"></rect>{% endif %}
+      <text class="chart-value" x="{{ '%.1f'|format(label_width + w + 6) }}" y="{{ y + 15 }}">{{ bar.display }}</text>
+    </g>{% endfor %}
+  </svg>
+  <details class="chart-table"><summary>Ver como tabela</summary>
+    <table><tbody>{% for bar in chart.bars %}<tr><td>{% if bar.href %}<a href="{{ bar.href }}">{{ bar.label }}</a>{% else %}{{ bar.label }}{% endif %}</td><td class="num">{{ bar.display }}</td></tr>{% endfor %}</tbody></table>
+  </details>
+  {% else %}<div class="empty">Sem dados ainda.</div>{% endif %}
+  {% if chart.caption %}<small class="muted">{{ chart.caption }}</small>{% endif %}
+</figure>
+{% endmacro %}
+
+{% macro vbar(chart, width=640, height=170) %}
+{% set n = chart.bars|length %}
+<figure class="chart">
+  <figcaption>{{ chart.title }}</figcaption>
+  {% if n and chart.bars|sum(attribute='value') %}
+  {% set slot = (width - 20) / n %}{% set plot = height - 40 %}
+  <svg class="chart-svg" viewBox="0 0 {{ width }} {{ height }}" width="100%" role="img" aria-label="{{ chart.title }}">
+    <line class="chart-axis" x1="10" x2="{{ width - 10 }}" y1="{{ plot + 14 }}" y2="{{ plot + 14 }}"></line>
+    {% for bar in chart.bars %}{% set x = 10 + loop.index0 * slot %}{% set h = (bar.value / chart.peak * plot) if bar.value else 0 %}
+    <g class="chart-row">
+      <title>{{ bar.label }}: {{ bar.display }}</title>
+      {% if h %}<rect class="chart-bar" x="{{ '%.1f'|format(x + slot * 0.2) }}" y="{{ '%.1f'|format(plot + 14 - h) }}" width="{{ '%.1f'|format(slot * 0.6) }}" height="{{ '%.1f'|format(h) }}" rx="4"></rect>
+      <text class="chart-value" x="{{ '%.1f'|format(x + slot / 2) }}" y="{{ '%.1f'|format(plot + 10 - h) }}" text-anchor="middle">{{ bar.display }}</text>{% endif %}
+      <text class="chart-label" x="{{ '%.1f'|format(x + slot / 2) }}" y="{{ plot + 30 }}" text-anchor="middle">{{ bar.label|truncate(8, True, '…') }}</text>
+    </g>{% endfor %}
+  </svg>
+  <details class="chart-table"><summary>Ver como tabela</summary>
+    <table><tbody>{% for bar in chart.bars %}<tr><td>{% if bar.href %}<a href="{{ bar.href }}">{{ bar.label }}</a>{% else %}{{ bar.label }}{% endif %}</td><td class="num">{{ bar.display }}</td></tr>{% endfor %}</tbody></table>
+  </details>
+  {% else %}<div class="empty">Sem dados ainda.</div>{% endif %}
+  {% if chart.caption %}<small class="muted">{{ chart.caption }}</small>{% endif %}
+</figure>
+{% endmacro %}
