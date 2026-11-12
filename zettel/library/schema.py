@@ -74,11 +74,15 @@ class ScaleSpec(BaseModel):
     min: float = 1
     max: float = 5
     step: float = 0.5
+    # Passo aceito no campo de nota; ``step`` fica para o histograma do painel.
+    input_step: float | None = None
 
     @model_validator(mode="after")
     def ordered(self) -> ScaleSpec:
-        if not (self.min < self.max) or self.step <= 0:
-            raise ValueError("escala invalida: exige min < max e step > 0")
+        if self.input_step is None:
+            self.input_step = self.step
+        if not (self.min < self.max) or self.step <= 0 or self.input_step <= 0:
+            raise ValueError("escala invalida: exige min < max e passos > 0")
         return self
 
 

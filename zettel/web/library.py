@@ -60,8 +60,6 @@ PREFILL_KEYS = (
     "country",
     "original_language",
 )
-# Campos da edição: vão à nota SRC, não à LIV (ADR-057).
-SOURCE_KEYS = ("publisher", "edition", "place", "translator", "isbn")
 
 
 def _today(cfg: Any) -> datetime.date:
@@ -371,6 +369,7 @@ def book_create(request: Request, form: FormData = Depends(read_form)):
     from zettel.library.linking import fields_from_source
     from zettel.library.mirror import refresh
     from zettel.library.schema import schema_for
+    from zettel.library.sources import sync_source_code, update_source
     from zettel.oplock import LockBusy
 
     cfg = service(request).cfg
@@ -423,7 +422,8 @@ def book_create(request: Request, form: FormData = Depends(read_form)):
             )
         if any(source_updates.values()):
             # A edição achada na pesquisa (ou digitada) vai ao SRC, criado agora se preciso.
-            _update_source(cfg, db, book, source_updates)
+            update_source(cfg, db, book, source_updates)
+        sync_source_code(cfg, db, book)
         refresh(db, cfg)
     finally:
         db.close()
@@ -590,6 +590,7 @@ def _change(action: str, values: dict[str, Any], form: FormData, cfg: Any, schem
     """A edição pedida por ``action``, como função do livro (e do db)."""
     from zettel.library import editing as ed
     from zettel.library.covers import store_cover
+    from zettel.library.sources import update_source
 
     today = _today(cfg)
     if action == "metadata":
@@ -608,7 +609,7 @@ def _change(action: str, values: dict[str, Any], form: FormData, cfg: Any, schem
         return lambda book, db: ed.set_status(book, str(values.get("status") or ""))
     if action == "bibliography":
         updates = _source_updates(values)
-        return lambda book, db: _update_source(cfg, db, book, updates)
+        return lambda book, db: update_source(cfg, db, book, updates)
     if action == "cover":
         cover = _uploaded_cover(form)
         return lambda book, db: ed.set_cover(book, store_cover(cfg.vault_path, *cover))
@@ -632,6 +633,7 @@ def _uploaded_cover(form: FormData) -> tuple[bytes, str]:
 def _source_updates(values: dict[str, Any]) -> dict[str, Any]:
     """Os campos da edição de um formulário, validados; vazio é ``""``/``None``."""
     from zettel.library.editing import BookEditError
+    from zettel.library.sources import SOURCE_KEYS
 
     updates: dict[str, Any] = {
         key: " ".join(str(values.get(key) or "").split())[:300] for key in SOURCE_KEYS
@@ -641,49 +643,6 @@ def _source_updates(values: dict[str, Any]) -> dict[str, Any]:
         raise BookEditError("Ano inválido.")
     updates["year"] = int(year) if year else None
     return updates
-
-
-def _update_source(
-    cfg: Any, db: Any, book: Any, updates: dict[str, Any], *, only_missing: bool = False
-) -> list[str]:
-    """Grava a edição no SRC (a bibliografia fica lá, ADR-057), criando o SRC manual se faltar.
-
-    ``only_missing`` só preenche o que o SRC não tem: é o modo da pesquisa, que
-    completa sem nunca trocar o que o usuário escreveu.
-    """
-    from zettel.library.editing import BookEditError
-    from zettel.library.reading_notes import ensure_source
-    from zettel.sync import sync_source_note
-    from zettel.vault import compose_note, parse_frontmatter
-
-    source_id = ensure_source(cfg, db, book)
-    path = _source_note_path(cfg, source_id)
-    if path is None:
-        raise BookEditError("A nota SRC desta fonte não está no vault.")
-    meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
-    written = []
-    for key, value in updates.items():
-        if only_missing and meta.get(key):
-            continue
-        if value:
-            meta[key] = value
-            written.append(key)
-        elif not only_missing and key != "year":
-            meta.pop(key, None)
-    path.write_text(compose_note(meta, body), encoding="utf-8")
-    sync_source_note(cfg, db, path)
-    return written
-
-
-def _source_note_path(cfg: Any, source_id: str):
-    from zettel.vault import parse_frontmatter
-
-    folder = cfg.vault_path / "10_Sources"
-    for path in sorted(folder.glob("*.md")) if folder.is_dir() else []:
-        meta, _ = parse_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
-        if meta.get("type") == "source" and meta.get("source_id") == source_id:
-            return path
-    return None
 
 
 def _edit(
@@ -705,6 +664,7 @@ def _edit(
     from zettel.library.linking import write_book_notes_block
     from zettel.library.mirror import refresh
     from zettel.library.reading_notes import ReadingNoteError
+    from zettel.library.sources import sync_source_code
     from zettel.oplock import LockBusy
 
     cfg = service(request).cfg
@@ -717,12 +677,15 @@ def _edit(
         book = bf.load_book(cfg, book_id)
         if version is not None and book.version != version:
             raise bf.BookConflict(book_id)
+        previous_source = book.source_id
         # ``change`` pode gravar o livro (ao ligar a fonte); save_book atualiza
         # book.version, então a gravação seguinte confere contra o arquivo certo.
         if change(book, db) != "saved":
             bf.save_book(cfg, book, expected_version=book.version)
         refresh(db, cfg)
-        write_book_notes_block(cfg, db, bf.load_book(cfg, book_id))
+        saved = bf.load_book(cfg, book_id)
+        write_book_notes_block(cfg, db, saved)
+        sync_source_code(cfg, db, saved, previous_source)
         refresh(db, cfg)
     except bf.BookNotFound:
         return error_page(request, 404, "Livro não encontrado.")
@@ -819,6 +782,7 @@ def _complete_change(cfg: Any, book: Any, report: dict[str, Any]):
     from zettel.library.covers import store_cover
     from zettel.library.editing import BookEditError, fill_missing, set_cover
     from zettel.library.lookup import BookLookupError, lookup_isbn
+    from zettel.library.sources import update_source
 
     if book is None:
         raise BookEditError("Livro não encontrado.")
@@ -856,7 +820,7 @@ def _complete_change(cfg: Any, book: Any, report: dict[str, Any]):
             filled.append("cover")
         if any(source.values()):
             # Pode criar o SRC e gravar a LIV (source_id); a versão segue o arquivo.
-            filled += _update_source(cfg, db, book, source, only_missing=True)
+            filled += update_source(cfg, db, book, source, only_missing=True)
         report["filled"] = filled
 
     return change

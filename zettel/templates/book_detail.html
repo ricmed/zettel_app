@@ -70,7 +70,7 @@
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="rating">
     <table><thead><tr><th>Critério</th><th class="num">Peso</th><th>Nota</th></tr></thead><tbody>
     {% for line in rating.lines %}<tr><td>{{ line.label }}{% if schema.criteria[line.key].help %}<small class="muted"> — {{ schema.criteria[line.key].help }}</small>{% endif %}</td><td class="num">{{ line.weight|int }}</td>
-      <td><input type="number" name="rating_{{ line.key }}" value="{{ '%g'|format(line.value) if line.value is not none else '' }}" min="{{ schema.scale.min }}" max="{{ schema.scale.max }}" step="{{ schema.scale.step }}" aria-label="{{ line.label }}"></td></tr>{% endfor %}
+      <td><input type="number" name="rating_{{ line.key }}" value="{{ '%g'|format(line.value) if line.value is not none else '' }}" min="{{ schema.scale.min }}" max="{{ schema.scale.max }}" step="{{ schema.scale.input_step }}" aria-label="{{ line.label }}"></td></tr>{% endfor %}
     </tbody></table>
     <label>Perfil <select name="rating_profile"><option value="">automático</option>{% for p in schema.profiles %}<option value="{{ p.name }}" {% if m.rating_profile == p.name %}selected{% endif %}>{{ p.label or p.name }}</option>{% endfor %}</select></label>
     <button class="button primary" type="submit">Salvar notas</button>

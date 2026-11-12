@@ -4,10 +4,13 @@
 # um critério desconhecido num perfil ou um peso <= 0 é recusado no carregamento.
 
 # Escala de cada critério. A nota final fica na mesma escala.
+#   step: largura das faixas do histograma de notas no painel.
+#   input_step: passo aceito no campo de nota (4.75 e 3.8 são notas válidas).
 scale:
   min: 1
   max: 5
   step: 0.5
+  input_step: 0.05
 
 # Gêneros, agrupados na tela por `group` (na ordem de genre_groups).
 #   nature: ficcao | nao_ficcao | neutro. Decide a natureza do livro quando os
@@ -64,6 +67,9 @@ genres:
   Comédia: {group: ficcao, nature: ficcao, aliases: [humorous, humor]}
   Sátira: {group: ficcao, nature: ficcao, aliases: [satire, black humor]}
   Erótico: {group: ficcao, nature: ficcao, aliases: [erotica]}
+  Faroeste: {group: ficcao, nature: ficcao, aliases: [westerns, western]}
+  Pós-apocalíptico: {group: ficcao, nature: ficcao, aliases: [apocalyptic & post-apocalyptic]}
+  Alegoria: {group: ficcao, nature: ficcao, aliases: [allegory]}
   # Não ficção: o tipo de livro, que decide o perfil de avaliação.
   Filosofia: {group: nao_ficcao, nature: nao_ficcao, reflective: true, aliases: [philosophy]}
   Psicologia: {group: nao_ficcao, nature: nao_ficcao, reflective: true, aliases: [psychology]}
@@ -86,6 +92,11 @@ genres:
   Clássico: {group: marcador, nature: neutro, reflective: true, aliases: [classics]}
   # Releitura de outra obra (Enclausurado reconta Hamlet); não muda a natureza.
   Releitura: {group: marcador, nature: neutro, aliases: [retellings]}
+  # Temas e avisos: marcam o livro sem mudar natureza nem perfil.
+  Guerra: {group: marcador, nature: neutro, aliases: [war & military]}
+  Temas Sensíveis: {group: marcador, nature: neutro}
+  LGBTQIA+: {group: marcador, nature: neutro, aliases: [lgbtq+]}
+  Baseado em fatos reais: {group: marcador, nature: neutro}
 
 # Assuntos sugeridos (campo `subjects` da LIV): a área de que o livro trata. Não
 # decidem perfil nem modo de leitura; servem para filtrar e agrupar.

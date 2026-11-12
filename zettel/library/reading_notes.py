@@ -94,6 +94,9 @@ def ensure_source(cfg: Any, db: Any, book: Book) -> str:
     sync_source_note(cfg, db, result.path)
     book.meta["source_id"] = f"@{citekey}"
     save_book(cfg, book, expected_version=book.version)
+    from zettel.library.sources import sync_source_code
+
+    sync_source_code(cfg, db, book)
     return f"@{citekey}"
 
 

@@ -208,10 +208,30 @@ def write_book_notes_block(cfg: Any, db: Any, book: Book) -> None:
         save_book(cfg, book, expected_version=book.version)
 
 
+def sources_without_book(db: Any, cfg: Any) -> list[str]:
+    """Fontes de livro sem LIV, na ordem em que entraram (é a ordem dos códigos)."""
+    wanted = set(cfg.library.document_types)
+    linked = {r["source_id"] for r in db.list_book_identities() if r.get("source_id")}
+    return [
+        s["source_id"]
+        for s in db.list_sources_with_authors()
+        if (s.get("document_type") or "") in wanted and s["source_id"] not in linked
+    ]
+
+
 def sync_library(cfg: Any, db: Any, source_ids: list[str] | None = None) -> LibrarySyncReport:
-    """Espelho em dia, LIV criadas para fontes novas, órfãs religadas, blocos de notas."""
+    """Espelho em dia, LIV para as fontes de livro, órfãs religadas, blocos e códigos.
+
+    Sem ``source_ids`` (``sync-manual``), toda fonte de livro sem LIV ganha a sua:
+    o código mora na LIV, e o SRC carrega uma cópia (``sources.sync_source_codes``).
+    """
+    from zettel.library.sources import sync_source_codes
+
     mirror = refresh(db, cfg)
-    report = ensure_books_for_sources(cfg, db, source_ids or [])
+    if source_ids is None:
+        # ``book_for_source`` liga uma LIV órfã que já seja a fonte, em vez de criar outra.
+        source_ids = sources_without_book(db, cfg)
+    report = ensure_books_for_sources(cfg, db, source_ids)
     report.duplicate_ids = mirror.duplicate_ids
     relink_orphans(cfg, db, report)
     refresh(db, cfg)
@@ -220,6 +240,7 @@ def sync_library(cfg: Any, db: Any, source_ids: list[str] | None = None) -> Libr
         if book and book.source_id:
             write_book_notes_block(cfg, db, book)
     refresh(db, cfg)
+    sync_source_codes(cfg, db)
     return report
 
 

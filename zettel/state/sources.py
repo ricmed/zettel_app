@@ -10,7 +10,7 @@ from zettel.state.base import StateBase
 # Identity fields of a source — never the multi-megabyte text blobs
 # (``extracted_text`` / ``lit_body``). Shared by the web picker and the
 # title + author duplicate layer, which read exactly these.
-SOURCE_IDENTITY_COLS = "source_id, citekey, title, authors, year"
+SOURCE_IDENTITY_COLS = "source_id, citekey, title, authors, year, document_type"
 
 
 def escape_like(text: str) -> str:

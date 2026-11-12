@@ -596,3 +596,26 @@ def test_mixing_fiction_and_non_fiction_genres_is_flagged(web_client):
     assert "misturam ficção e não ficção" in client.get(f"/books/{mixed}").text
     novel = _create(client, csrf, genres=["Romance", "Ficção Psicológica"])
     assert "misturam ficção e não ficção" not in client.get(f"/books/{novel}").text
+
+
+def test_source_page_shows_the_book_code_and_the_src_keeps_a_copy(web_client):
+    from zettel.library.sources import source_note_path
+
+    client, _tmp = web_client
+    csrf = login(client)
+    book_id = _create(client, csrf, authors="J. R. R. Tolkien")
+    assert _edit(client, csrf, book_id, "bibliography", publisher="Harper").status_code == 303
+    source_id = bf.load_book(_cfg(client), book_id).source_id
+
+    def src_code():
+        path = source_note_path(_cfg(client), source_id)
+        return parse_frontmatter(path.read_text(encoding="utf-8"))[0].get("code")
+
+    assert src_code() == "0001 - F"
+    page = client.get(f"/sources/{source_id}").text
+    assert f'href="/books/{book_id}"' in page and "0001 - F" in page
+
+    fields = {"title": "O Hobbit", "authors": "J. R. R. Tolkien", "status": "quero_ler"}
+    fields["source_id"] = source_id
+    assert _edit(client, csrf, book_id, "metadata", format="digital", **fields).status_code == 303
+    assert src_code() == "0001 - D"

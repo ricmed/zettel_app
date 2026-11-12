@@ -189,3 +189,57 @@ def test_pdf_of_a_textless_source_is_extracted_into_it(cfg, db):
     assert any(c["chunk_id"] == f"{sid}::manual::0001" for c in chunks)
     assert any(c["chapter_id"] != chapter for c in chunks)
     assert len(list((cfg.vault_path / "10_Sources").glob("*.md"))) == 1
+
+
+def _src_code(cfg, source_id: str):
+    from zettel.library.sources import source_note_path
+    from zettel.vault import parse_frontmatter
+
+    meta, _ = parse_frontmatter(source_note_path(cfg, source_id).read_text(encoding="utf-8"))
+    return meta.get("code")
+
+
+def test_sync_gives_old_book_sources_a_liv_in_one_sequence(cfg, db):
+    first = _harvest(
+        cfg, db, _markdown(cfg, "h.md", title="O Hobbit", author="Tolkien", doc_type="livro")
+    )
+    bf.create_book(cfg, {"title": "Duna", "authors": ["Frank Herbert"], "format": "fisico"})
+    refresh(db, cfg)
+    article = _harvest(
+        cfg,
+        db,
+        _markdown(cfg, "a.md", title="Um artigo", author="Ana Silva", doc_type="artigo_periodico"),
+    )
+    second = _harvest(
+        cfg, db, _markdown(cfg, "s.md", title="O Silmarillion", author="Tolkien", doc_type="livro")
+    )
+
+    report = sync_library(cfg, db)
+
+    codes = {b.source_id: b.code for b in bf.list_books(cfg)}
+    assert len(report.created) == 2
+    assert codes[first] == "0002 - D" and codes[second] == "0003 - D"
+    assert article not in codes
+    assert _src_code(cfg, first) == "0002 - D" and _src_code(cfg, article) is None
+    assert sync_library(cfg, db).created == []  # a segunda vez não cria nada
+
+
+def test_src_code_follows_the_format_and_leaves_with_the_liv(cfg, db):
+    from zettel.library.sources import sync_source_code, sync_source_codes
+
+    sid = _harvest(
+        cfg, db, _markdown(cfg, "h.md", title="O Hobbit", author="Tolkien", doc_type="livro")
+    )
+    sync_library(cfg, db)
+    (book,) = bf.list_books(cfg)
+    assert _src_code(cfg, sid) == "0001 - D"
+
+    book.meta["format"] = "fisico"
+    book = bf.save_book(cfg, book, expected_version=book.version)
+    sync_source_code(cfg, db, book)
+    assert _src_code(cfg, sid) == "0001 - F"
+
+    book.path.unlink()
+    refresh(db, cfg)
+    sync_source_codes(cfg, db)
+    assert _src_code(cfg, sid) is None

@@ -122,6 +122,7 @@ Bookshelf: a book is the vault note `60_Estante/LIV - <ULID> - <slug>.md` (`type
 - **`book_file.py`.** The LIV note.
   - **Frontmatter.** `FIELD_ORDER`: every key always present, author keys kept.
     - Code: `code_number` is a universal sequence, never reused, and `code` is `"0001 - F"` from `library.format_letters`; a format change rewrites the letter.
+    - The code is allocated only on the LIV. A source whose `document_type` is in `library.document_types` always gets a LIV (harvest; `sync-manual` backfills old ones in `created_at` order), and its SRC carries a copy in `code` (`library.sources.sync_source_codes` / `sync_source_code`, removed when the LIV goes). `/sources/{id}` links the LIV or offers "Criar livro".
     - Reading: `format` (`fisico|digital|audiolivro`), `status` (`quero_ler|lendo|lido|abandonado|relendo`), `readings: [{start, end}]`.
     - Classification: `genres`, `nature`, `reading_mode`.
     - Rating and cover: `ratings`, `rating_profile`, `score`, `cover`.

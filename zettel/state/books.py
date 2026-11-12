@@ -100,7 +100,8 @@ class BooksMixin(StateBase):
     def list_book_identities(self) -> list[dict]:
         """O que identifica cada livro, para religar a LIV a uma fonte."""
         return self._fetchall(
-            "SELECT book_id, path, source_id, isbn, title, authors_json, code_number FROM books"
+            "SELECT book_id, path, source_id, isbn, title, authors_json, code_number, code "
+            "FROM books"
         )
 
     def list_book_rows(
