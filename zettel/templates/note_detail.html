@@ -13,7 +13,7 @@
 </div>
 {{ mesa_add(desks, 'mesa-add', [note.note_id]) }}
 {% if source or mocs %}<section class="panel note-context">
-  {% if source %}<div><h2>Fonte</h2>{% if source.citation %}<p><strong>{{ source.citation }}</strong></p>{% endif %}{% if source.reference %}<p>{{ source.reference }}</p>{% elif source.title %}<p>{{ source.title }}</p>{% endif %}{% if source.source_id %}<p><a href="/sources/{{ source.source_id }}"><code>{{ source.source_id }}</code></a></p>{% endif %}</div>{% endif %}
+  {% if source %}<div><h2>Fonte</h2>{% if source.citation %}<p><strong>{{ source.citation }}</strong></p>{% endif %}{% if source.reference %}<p>{{ source.reference }}</p>{% elif source.title %}<p>{{ source.title }}</p>{% endif %}{% if source.source_id %}<p><a href="/books/{{ source.source_id }}"><code>{{ source.source_id }}</code></a></p>{% endif %}</div>{% endif %}
   {% if mocs %}<div><h2>Nos MOCs</h2><ul class="note-mocs">{% for moc in mocs %}<li><a href="/mocs/{{ moc.moc_id }}">{{ moc.topic }}</a></li>{% endfor %}</ul></div>{% endif %}
 </section>{% endif %}
 <section class="panel markdown-body">{{ rendered_body|safe }}</section>

@@ -56,6 +56,7 @@ def _output(*args: str) -> str:
 EXPECTED_COMMANDS = [
     # maintenance.py — store lifecycle
     "init",
+    "migrate-acervo",
     "reindex",
     "rebuild",
     # ingest.py — phase 1 and its repair tools

@@ -74,7 +74,7 @@
         {% if catalog.sources %}{{ mesa_add(desks, 'mesa-catalog', [], 'Adicionar as notas marcadas à mesa') }}{% endif %}
         {% for src in catalog.sources %}
         <div class="catalog-source">
-          <h3><a href="/sources/{{ src.source_id }}">{{ src.title }}</a></h3>
+          <h3><a href="/books/{{ src.source_id }}">{{ src.title }}</a></h3>
           <p class="muted">{{ src.citekey }} · {{ src.total_notes }} nota(s) permanente(s)</p>
           <table class="studio-table">
             <thead><tr><th>Capítulo</th><th>Páginas</th><th class="num">Notas</th><th>Achado por</th></tr></thead>

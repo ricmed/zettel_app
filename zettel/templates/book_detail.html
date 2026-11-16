@@ -33,13 +33,13 @@
       <div><dt>Nota</dt><dd><strong>{{ '%.2f'|format(rating.score) if rating.score is not none else '—' }}</strong></dd></div>
       <div><dt>Inclusão</dt><dd>{{ m.created_at | local_dt('date') if m.created_at else '—' }}</dd></div>
     </dl>
-    <form method="post" action="/books/{{ book.book_id }}" class="inline-form">
+    <form method="post" action="/books/{{ book.source_id }}" class="inline-form">
       <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="status">
       <select name="status" aria-label="Status">{% for k, v in status_labels.items() %}<option value="{{ k }}" {% if book.status == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
       <button class="button" type="submit">Mudar status</button>
     </form>
     {% if online_lookup %}
-    <form method="post" action="/books/{{ book.book_id }}" class="inline-form">
+    <form method="post" action="/books/{{ book.source_id }}" class="inline-form">
       <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="complete">
       <button class="button" type="submit">Completar dados</button>
       <small class="muted">Só os campos vazios: pelo ISBN, autores, páginas, capa e editora; pelo Wikidata, país do autor, idioma, título e ano originais.</small>
@@ -52,13 +52,13 @@
 <section class="panel" id="leituras">
   <h2>Leituras</h2>
   {% if readings %}<ul class="readings">{% for r in readings %}<li><span>{{ r.start or '?' }} → {{ r.end or 'em andamento' }}</span>
-    <form method="post" action="/books/{{ book.book_id }}" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="reading-remove"><input type="hidden" name="position" value="{{ loop.index0 }}"><button class="link-button" type="submit">remover</button></form></li>{% endfor %}</ul>
+    <form method="post" action="/books/{{ book.source_id }}" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="reading-remove"><input type="hidden" name="position" value="{{ loop.index0 }}"><button class="link-button" type="submit">remover</button></form></li>{% endfor %}</ul>
   {% else %}<div class="empty">Nenhuma leitura registrada.</div>{% endif %}
   <div class="reading-actions">
     {% if not open_reading %}
-    <form method="post" action="/books/{{ book.book_id }}" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="reading-start"><input type="date" name="date" value="{{ today }}" aria-label="Início"><button class="button" type="submit">Comecei a ler</button></form>
+    <form method="post" action="/books/{{ book.source_id }}" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="reading-start"><input type="date" name="date" value="{{ today }}" aria-label="Início"><button class="button" type="submit">Comecei a ler</button></form>
     {% endif %}
-    <form method="post" action="/books/{{ book.book_id }}" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="reading-finish"><input type="date" name="date" value="{{ today }}" aria-label="Término"><button class="button primary" type="submit">Terminei</button></form>
+    <form method="post" action="/books/{{ book.source_id }}" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="reading-finish"><input type="date" name="date" value="{{ today }}" aria-label="Término"><button class="button primary" type="submit">Terminei</button></form>
   </div>
 </section>
 
@@ -66,7 +66,7 @@
   <h2>Avaliação</h2>
   {% if rating.profile %}
   <p class="muted">Perfil <b>{{ rating.profile.label or rating.profile.name }}</b>{% if not m.rating_profile %} (escolhido pelos gêneros e pela tradução){% endif %} · {{ rating.rated }} de {{ rating.total }} critérios · escala {{ schema.scale.min|int }}–{{ schema.scale.max|int }}</p>
-  <form method="post" action="/books/{{ book.book_id }}" class="rating-form">
+  <form method="post" action="/books/{{ book.source_id }}" class="rating-form">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="rating">
     <table><thead><tr><th>Critério</th><th class="num">Peso</th><th>Nota</th></tr></thead><tbody>
     {% for line in rating.lines %}<tr><td>{{ line.label }}{% if schema.criteria[line.key].help %}<small class="muted"> — {{ schema.criteria[line.key].help }}</small>{% endif %}</td><td class="num">{{ line.weight|int }}</td>
@@ -82,7 +82,7 @@
 
 <section class="panel" id="resumo">
   <h2>Resumo e impressões</h2>
-  <form method="post" action="/books/{{ book.book_id }}" class="book-form">
+  <form method="post" action="/books/{{ book.source_id }}" class="book-form">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="summary">
     <div class="grid-2">
       <label>Resumo <textarea name="summary" rows="8" placeholder="Sem resumo.">{{ summary }}</textarea></label>
@@ -94,16 +94,12 @@
 
 <section class="panel" id="notas">
   <h2>Notas de leitura</h2>
-  {% if source %}
-  <p class="muted">Fonte: <a href="/sources/{{ source.source_id }}">{{ source.title or source.citekey }}</a> <code>{{ source.source_id }}</code></p>
-  {% elif missing_source %}
-  <div class="alert error">A fonte <code>{{ missing_source }}</code> não existe mais (um reset?). {% if candidates %}Candidatas: {% for c in candidates %}<code>{{ c.source_id }}</code>{% if not loop.last %}, {% endif %}{% endfor %}; escolha uma nos metadados.{% else %}Colha o livro de novo ou ajuste a fonte nos metadados.{% endif %}</div>
-  {% else %}<p class="muted">Sem fonte ligada: a primeira nota de leitura cria uma fonte manual para o livro.</p>{% endif %}
+  <p class="muted">Esta ficha é a fonte <code>{{ book.source_id }}</code>.</p>
   <div class="grid-2">
     <div>
       <h3>Literatura (LIT)</h3>
       {% if lits %}<ul class="book-notes">{% for lit in lits %}<li><span>{{ lit.label }}{% if lit.manual %} <span class="tag">manual</span>{% endif %}</span>
-        <form method="post" action="/books/{{ book.book_id }}/permanent" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="chunk_id" value="{{ lit.chunk_id }}">
+        <form method="post" action="/books/{{ book.source_id }}/permanent" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="chunk_id" value="{{ lit.chunk_id }}">
           <label class="check"><input type="checkbox" name="use_llm" value="1" {% if not connect_llm_ready %}disabled{% endif %}> com LLM</label>
           <button class="link-button" type="submit">Gerar ZTL</button></form></li>{% endfor %}</ul>
       {% if not connect_llm_ready %}<small class="muted">Gerar com LLM exige a credencial da fase connect.</small>{% endif %}
@@ -117,7 +113,7 @@
     </div>
   </div>
   <details {% if not lits %}open{% endif %}><summary>Nova nota de leitura</summary>
-    <form method="post" action="/books/{{ book.book_id }}/reading-notes" class="book-form">
+    <form method="post" action="/books/{{ book.source_id }}/reading-notes" class="book-form">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <div class="form-row"><label>Título <input type="text" name="topic" maxlength="200" required></label><label>Página <input type="number" name="page" min="0"></label></div>
       <label>Trecho do livro <textarea name="excerpt" rows="3"></textarea></label>
@@ -142,13 +138,13 @@
 <div class="grid-2">
 <section class="panel" id="capa">
   <h2>Capa</h2>
-  <form method="post" action="/books/{{ book.book_id }}" enctype="multipart/form-data" class="inline-form">
+  <form method="post" action="/books/{{ book.source_id }}" enctype="multipart/form-data" class="inline-form">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="cover">
     <input type="file" name="images" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" aria-label="Imagem da capa">
     <button class="button" type="submit">Enviar capa</button>
   </form>
   {% if online_lookup and m.isbn %}
-  <form method="post" action="/books/{{ book.book_id }}" class="inline-form">
+  <form method="post" action="/books/{{ book.source_id }}" class="inline-form">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="cover-isbn"><input type="hidden" name="isbn" value="{{ m.isbn }}">
     <button class="button" type="submit">Buscar capa pelo ISBN</button>
   </form>
@@ -159,7 +155,7 @@
 <section class="panel" id="bibliografia">
   <h2>Bibliografia</h2>
   <p class="muted">Editora, edição e tradutor ficam na nota SRC da fonte, que é o que as citações usam.</p>
-  <form method="post" action="/books/{{ book.book_id }}" class="book-form">
+  <form method="post" action="/books/{{ book.source_id }}" class="book-form">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="bibliography">
     <div class="form-row">
       <label>Editora <input type="text" name="publisher" value="{{ biblio.get('publisher', '') }}"></label>
@@ -173,12 +169,25 @@
     </div>
     <button class="button" type="submit">Salvar na fonte</button>
   </form>
+  {% if source %}
+  <dl class="details">
+    <dt>Referência ABNT</dt><dd>{{ source.abnt_reference or 'Bibliografia incompleta' }}</dd>
+    <dt>Tipo</dt><dd>{{ document_label or source.document_type or '—' }}</dd>
+    <dt>Paginação</dt><dd>arquivo {{ source.total_pages_file or '—' }}{% if source.content_start_file %} · conteúdo a partir da p. {{ source.content_start_file }}{% if source.content_start_book %} = impressa {{ source.content_start_book }}{% endif %}{% endif %}</dd>
+  </dl>
+  {% endif %}
+  {% if chunks %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Chunk</th><th>Página</th><th>Status</th></tr></thead>
+    <tbody>{% for c in chunks %}<tr><td>{{ c.chunk_index }}</td><td>{{ c.page_in_book or '—' }}</td><td>{{ c.status }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% endif %}
 </section>
 </div>
 
 <section class="panel" id="metadados">
   <details><summary><h2 class="inline-heading">Editar metadados</h2></summary>
-  <form method="post" action="/books/{{ book.book_id }}" class="book-form">
+  <form method="post" action="/books/{{ book.source_id }}" class="book-form">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="metadata">
     <div class="form-row">
       <label>Título <input type="text" name="title" value="{{ book.title }}" required maxlength="300"></label>
@@ -194,7 +203,7 @@
       <label>Formato <select name="format">{% for k, v in format_labels.items() %}<option value="{{ k }}" {% if book.format == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
       <label>Status <select name="status">{% for k, v in status_labels.items() %}<option value="{{ k }}" {% if book.status == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
       <label>ISBN <input type="text" name="isbn" value="{{ m.isbn or '' }}"></label>
-      <label>Páginas <input type="number" name="pages" value="{{ m.pages or '' }}" min="0"></label>
+      <label>Páginas <input type="text" name="pages" value="{{ m.pages or '' }}" maxlength="80"></label>
     </div>
     <div class="form-row">
       <label>País do autor <input type="text" name="country" value="{{ m.country or '' }}"></label>
@@ -206,7 +215,7 @@
     <div class="form-row">
       <label>Natureza <select name="nature"><option value="">Automático: {{ nature_labels.get(auto_nature, 'indefinida') }}</option>{% for k, v in nature_labels.items() %}<option value="{{ k }}" {% if m.nature == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
       <label>Modo de leitura <select name="reading_mode"><option value="">Automático: {{ mode_labels.get(auto_mode, '—') }}</option>{% for k, v in mode_labels.items() %}<option value="{{ k }}" {% if m.reading_mode == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
-      <label>Fonte (source_id) <input type="text" name="source_id" value="{{ m.source_id or '' }}" placeholder="@Citekey"></label>
+      <span class="muted">Fonte <code>{{ book.source_id }}</code></span>
     </div>
     {% if book.genres and not auto_nature %}<p class="alert error field-help" role="status">Os gêneros marcados misturam ficção e não ficção, então a natureza ficou indefinida e o perfil pode não ser o esperado. Num romance, prefira <b>Ficção Psicológica</b>/<b>Ficção Filosófica</b> a Psicologia/Filosofia, ou escolha a natureza abaixo.</p>{% endif %}
     <p class="muted field-help"><b>Automático</b> decide pelos gêneros marcados acima, conforme <code>config/library.yaml</code>: cada gênero diz se é ficção ou não ficção (Romance é ficção, Técnico não; Clássico não pesa), e a natureza fica indefinida se os gêneros discordarem. O modo de leitura é <b>Reflexão</b> para ficção e para gêneros reflexivos (filosofia, psicologia, biografia…), e <b>Conceito</b> nos demais. Escolha um valor só para fugir dessa regra neste livro.</p>

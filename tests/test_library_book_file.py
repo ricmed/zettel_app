@@ -34,7 +34,7 @@ def test_changing_the_format_changes_only_the_letter(tmp_path):
     saved = bf.save_book(cfg, book, expected_version=book.version)
 
     assert saved.code == "0001 - D"
-    assert bf.load_book(cfg, book.book_id).meta["code_number"] == 1
+    assert bf.load_book(cfg, book.source_id).meta["code_number"] == 1
 
 
 def test_numbers_are_never_reused(tmp_path):
@@ -53,14 +53,15 @@ def test_book_is_an_author_note_kept_by_reset(tmp_path):
     book = bf.create_book(cfg, {"title": "O Hobbit"})
     pipeline, kept = partition_vault_notes(cfg.vault_path)
     assert book.path in kept and book.path not in pipeline
-    assert book.path.parent.name == "60_Estante"
-    assert book.path.name.startswith(f"LIV - {book.book_id} - o-hobbit")
+    assert book.path.parent.name == "10_Sources"
+    assert book.path.name.startswith("SRC - ")
+    assert "o-hobbit" in book.path.name
 
 
 def test_every_property_is_present_in_order(tmp_path):
     cfg = library_config(tmp_path)
     book = bf.create_book(cfg, {"title": "O Hobbit", "genres": ["Fantasia"]})
-    meta = bf.load_book(cfg, book.book_id).meta
+    meta = bf.load_book(cfg, book.source_id).meta
     assert list(meta)[: len(bf.FIELD_ORDER)] == list(bf.FIELD_ORDER)
     assert meta["genres"] == ["Fantasia"]
     assert meta["ratings"] == {}
@@ -97,12 +98,14 @@ def test_save_refuses_a_file_changed_since_it_was_read(tmp_path):
 def test_author_keys_survive_a_save(tmp_path):
     cfg = library_config(tmp_path)
     book = bf.create_book(cfg, {"title": "O Hobbit"})
-    text = book.path.read_text(encoding="utf-8").replace("type: book", "type: book\nmeu_campo: 7")
+    text = book.path.read_text(encoding="utf-8").replace(
+        "type: source", "type: source\nmeu_campo: 7", 1
+    )
     book.path.write_text(text, encoding="utf-8")
     fresh = bf.read_book(book.path)
     fresh.meta["status"] = "lido"
     bf.save_book(cfg, fresh, expected_version=fresh.version)
-    assert bf.load_book(cfg, book.book_id).meta["meu_campo"] == 7
+    assert bf.load_book(cfg, book.source_id).meta["meu_campo"] == 7
 
 
 def test_load_finds_a_file_renamed_in_obsidian(tmp_path):
@@ -110,7 +113,7 @@ def test_load_finds_a_file_renamed_in_obsidian(tmp_path):
     book = bf.create_book(cfg, {"title": "O Hobbit"})
     renamed = book.path.with_name("Meu Hobbit.md")
     book.path.rename(renamed)
-    assert bf.load_book(cfg, book.book_id).path == renamed
+    assert bf.load_book(cfg, book.source_id).path == renamed
 
 
 def test_readings_and_ratings_tolerate_hand_written_yaml():

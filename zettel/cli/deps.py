@@ -31,6 +31,7 @@ from zettel.cli.formatting import fmt_embedding_id, metrics_table
 MUTATING_COMMANDS = frozenset(
     {
         "init",
+        "migrate-acervo",
         "reindex",
         "rebuild",
         "harvest",

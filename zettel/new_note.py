@@ -277,6 +277,9 @@ def source_scaffold(
         vault_timezone=vault_timezone,
     )
     meta["citekey"] = citekey
+    from zettel.library.book_file import ordered_meta
+
+    meta = ordered_meta(meta)
     body = _append_src_ztl_hints(
         body, source_id=source_id, citekey=citekey, title=title, path=note_path
     )

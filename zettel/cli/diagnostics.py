@@ -306,7 +306,7 @@ def doctor(config: ConfigOption = None):
     checks.append(("Obsidian (templates)", *obsidian_health(cfg.vault_path)))
     from zettel.library.mirror import library_health
 
-    checks.append(("Estante (60_Estante)", *library_health(cfg)))
+    checks.append(("Estante", *library_health(cfg)))
 
     # Managed blocks the pipeline refuses to rewrite until the author fixes them (#321).
     from zettel.vault import vault_notes_with_malformed_blocks

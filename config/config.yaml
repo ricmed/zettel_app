@@ -468,10 +468,10 @@ manuscript:
   limits: false          # "Ressalva:" com os limites de cada cartao
   appendix: false        # apendice com a nota completa de cada cartao
 
-# ── Estante (ADR-068): livros como notas LIV em 60_Estante/ ────────────
+# ── Estante (ADR-068, ADR-070): a ficha é o próprio SRC ────────────────
 library:
   rating_path: ./config/library.yaml   # generos, criterios e perfis de avaliacao
-  document_types: [livro]              # harvest destes tipos cria a nota LIV do livro
+  document_types: [livro, artigo_periodico, artigo_internet, tese, material_curso, relatorio, anais_evento]
   initial_status: quero_ler            # quero_ler | lendo | lido | abandonado | relendo
   format_letters: {fisico: F, digital: D, audiolivro: A}   # letra do codigo "0001 - F"
   online_lookup: true                  # pesquisa por ISBN/titulo e capas (Google Books; Open Library a pedido)

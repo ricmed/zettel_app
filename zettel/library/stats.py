@@ -57,16 +57,18 @@ def _fmt(value: float) -> str:
     return f"{value:.2f}".replace(".", ",")
 
 
-def build_dashboard(db: Any, schema: LibrarySchema, year: int) -> dict[str, Any]:
-    books = db.list_book_rows()
-    readings = db.list_book_readings()
+def build_dashboard(
+    db: Any, schema: LibrarySchema, year: int, document_types: list[str]
+) -> dict[str, Any]:
+    books = db.list_shelf_rows(document_types)
+    readings = db.list_shelf_readings(document_types)
     finished = [r for r in readings if r.get("end_date")]
     in_year = [r for r in finished if r["end_date"][:4] == f"{year:04d}"]
 
     scored = [b["score"] for b in books if b.get("score") is not None]
     kpis = {
         "books": len(books),
-        "read_in_year": len({r["book_id"] for r in in_year}),
+        "read_in_year": len({r["source_id"] for r in in_year}),
         "pages_in_year": sum(r.get("pages") or 0 for r in in_year),
         "reading_now": sum(1 for b in books if b.get("status") in ("lendo", "relendo")),
         "average_score": _fmt(sum(scored) / len(scored)) if scored else "—",
@@ -113,7 +115,7 @@ def build_dashboard(db: Any, schema: LibrarySchema, year: int) -> dict[str, Any]
     )[:10]
     top_rated = Chart(
         "Mais bem avaliados",
-        [Bar(b["title"], b["score"], _fmt(b["score"]), f"/books/{b['book_id']}") for b in top],
+        [Bar(b["title"], b["score"], _fmt(b["score"]), f"/books/{b['source_id']}") for b in top],
     )
 
     sums: dict[str, list[float]] = defaultdict(list)

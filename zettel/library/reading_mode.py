@@ -50,5 +50,5 @@ def source_reading_mode(db: Any, source_id: str | None) -> str:
     """O modo de leitura de uma fonte, pelo espelho da Estante (sem LIV: conceito)."""
     if not source_id:
         return CONCEPTUAL
-    row = db.get_book_by_source(source_id)
+    row = db.get_source(source_id)
     return (row or {}).get("reading_mode") or CONCEPTUAL

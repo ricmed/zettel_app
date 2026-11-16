@@ -620,8 +620,7 @@ def _populate_catalog(
                     year=src_row.get("year"),
                     abnt_reference=src_row.get("abnt_reference") or "",
                     document_type=src_row.get("document_type"),
-                    reflective=(db.get_book_by_source(source_id) or {}).get("reading_mode")
-                    == "reflexao",
+                    reflective=(db.get_source(source_id) or {}).get("reading_mode") == "reflexao",
                 )
 
         summary = (body or "").strip()

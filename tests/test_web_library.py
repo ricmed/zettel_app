@@ -76,7 +76,7 @@ def test_every_layout_renders(web_client, layout):
 def test_empty_shelf_explains_how_to_start(web_client):
     client, _ = web_client
     login(client)
-    assert "Nenhum livro ainda" in client.get("/books").text
+    assert "A estante está vazia" in client.get("/books").text
     assert client.get("/books/dashboard").status_code == 200
 
 
@@ -112,7 +112,7 @@ def _deny_replace_of_existing_liv(monkeypatch):
 
     def replace(src, dst):
         destination = Path(dst)
-        if destination.exists() and "LIV" in destination.name:
+        if destination.exists() and "SRC" in destination.name:
             raise PermissionError(5, "Acesso negado", src, None, dst)
         return real(src, dst)
 
@@ -612,10 +612,39 @@ def test_source_page_shows_the_book_code_and_the_src_keeps_a_copy(web_client):
         return parse_frontmatter(path.read_text(encoding="utf-8"))[0].get("code")
 
     assert src_code() == "0001 - F"
-    page = client.get(f"/sources/{source_id}").text
-    assert f'href="/books/{book_id}"' in page and "0001 - F" in page
+    page = client.get(f"/sources/{source_id}")
+    assert page.status_code == 200
+    assert "/books/" in str(page.url)
+    assert "0001 - F" in page.text
 
     fields = {"title": "O Hobbit", "authors": "J. R. R. Tolkien", "status": "quero_ler"}
     fields["source_id"] = source_id
     assert _edit(client, csrf, book_id, "metadata", format="digital", **fields).status_code == 303
     assert src_code() == "0001 - D"
+
+
+def test_a_doi_fills_the_form_from_crossref_without_writing(web_client, monkeypatch):
+    client, tmp = web_client
+    login(client)
+    payload = (
+        b'{"message": {"DOI": "10.1000/xyz", "type": "journal-article", '
+        b'"title": ["Atencao"], "author": [{"given": "Ada", "family": "Lovelace"}], '
+        b'"container-title": ["Nature"], "issued": {"date-parts": [[2012]]}, '
+        b'"volume": "4", "issue": "2", "page": "10-12", "publisher": "Springer"}}'
+    )
+    seen = _fake_lookup(monkeypatch, {"https://api.crossref.org/": ("application/json", payload)})
+    before = list((tmp / "vault" / "10_Sources").glob("*.md"))
+    page = client.get("/books/new", params={"q": "10.1000/xyz"}).text
+    assert "Atencao" in page and "Nature" in page and "10.1000/xyz" in page
+    assert seen and all("api.crossref.org" in url for url in seen if "wikidata" not in url)
+    assert list((tmp / "vault" / "10_Sources").glob("*.md")) == before
+
+    google = (
+        "application/json",
+        b'{"items": [{"volumeInfo": {"title": "O Hobbit", "authors": ["Tolkien"]}}]}',
+    )
+    seen = _fake_lookup(monkeypatch, {"https://www.googleapis.com/": google})
+    page = client.get("/books/new", params={"q": "9788533302273"}).text
+    assert "O Hobbit" in page
+    assert any("googleapis.com" in url for url in seen)
+    assert not any("api.crossref.org" in url for url in seen)
