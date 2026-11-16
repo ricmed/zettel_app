@@ -168,12 +168,11 @@ A página da citação é a **impressa**, não o índice do PDF. No harvest, o n
 vault/
 ├── 00_Inbox/                # Entrada; respostas do `ask` e artigos salvos
 │   └── Review/              # Drafts de LIT granular (aguardando aprovacao)
-├── 10_Sources/              # Notas bibliograficas (SRC)
+├── 10_Sources/              # SRC: bibliografia e ficha de leitura; fica no init --reset
 ├── 20_Literature/           # Indice LIT (raiz) + {Citekey}/ com as LIT granulares
 ├── 30_Permanent/            # Notas permanentes (ZTL)
 ├── 40_MOCs/                 # Mapas de Conteudo
 ├── 50_Projetos/             # Mesas de escrita (PRJ) e seus .canvas; suas, ficam no init --reset
-├── 60_Estante/              # Livros (LIV): leituras, notas, capa; seus, ficam no init --reset
 ├── 90_Assets/               # Imagens extraidas de PDFs/Markdown (nome por hash)
 ├── 99_Templates/            # Templates Templater (gerados; sync-manual nao varre)
 │   ├── SRC.md
@@ -233,12 +232,12 @@ A Mesa é um arquivo comum, `50_Projetos/PRJ - ULID - slug.md`: seções `##`, c
 
 A Estante guarda o lado leitor: o que você leu, quando, em que formato e o que achou, de livros técnicos, romances, quadrinhos, filosofia.
 
-- **O livro é uma nota.** Ela fica em `60_Estante/LIV - ULID - slug.md`, também editável no Obsidian, e sobrevive ao `init --reset`. Ela guarda:
+- **A ficha é o SRC.** Ela fica em `10_Sources/SRC - AuthorYear - slug.md`, também editável no Obsidian, e o `init --reset` a mantém. Ela guarda:
   - o código `0001 - F`, que é o número sequencial universal mais a letra do formato (F físico, D digital, A audiolivro);
   - o status, as leituras (início e término, com releituras), gêneros, país e idioma original;
   - a capa, o resumo, as impressões e a avaliação.
-- **Cadastrar começa pela pesquisa.** Em **Adicionar livro**, digite o ISBN ou o título: o Google Books devolve as edições (se não servirem, refaça a busca na Open Library), e a escolhida preenche o formulário, a capa e a bibliografia da fonte. País do autor, idioma, título e ano originais vêm do Wikidata. Dá para cadastrar à mão também.
-- **O harvest cria o livro.** Colher o PDF de um livro cria a LIV dele, ou liga a que já estava na estante (mesmo ISBN, ou título e autor). Depois de um reset, a LIV é religada à fonte nova.
+- **Cadastrar começa pela pesquisa.** Em **Adicionar**, digite o ISBN, o DOI ou o título. ISBN e título vão ao Google Books (se não servirem, refaça a busca na Open Library). Um DOI vai ao Crossref e a ficha só é gravada quando você confirma. País do autor, idioma, título e ano originais de um livro vêm do Wikidata. Dá para cadastrar à mão também: um livro de papel cria o SRC na hora.
+- **O harvest grava o SRC.** Livro, artigo, tese, apostila, relatório e anais aparecem na estante. Capítulo de livro é colhido e fica de fora. Depois de um reset, o mesmo PDF reusa o SRC que ficou no vault.
 - **A avaliação é ponderada por perfil.** Os perfis ficam em [`config/library.yaml`](config/library.yaml): quadrinho, biografia/memórias, ilustrado, contos/crônicas, poesia, técnico/didático, ideias (filosofia, psicologia, ensaio), história/divulgação, ficção e não ficção, cada um nacional ou traduzido, e um perfil geral para o livro sem gênero.
 - **Gêneros e assuntos.** Os gêneros aparecem agrupados (forma, gênero ficcional, não ficção, público, marcador) e decidem perfil e modo de leitura; a área do livro (Programação, Economia…) vai em Assuntos. Na pesquisa, as categorias do Google Books já sugerem os gêneros.
   - Vale o primeiro perfil que casa com os gêneros e com a tradução, e cada critério tem seu peso.

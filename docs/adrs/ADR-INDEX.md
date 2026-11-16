@@ -1,7 +1,7 @@
-# zettel_app ADR Index (68 Decisions)
+# zettel_app ADR Index (69 Decisions)
 
-**Last Updated**: 2026-11-08  
-**Status**: Complete — 68 formal ADRs (001–069; 044 unused) across 13 modules
+**Last Updated**: 2026-11-16  
+**Status**: Complete — 69 formal ADRs (001–070; 044 unused) across 13 modules
 
 ---
 
@@ -16,7 +16,7 @@
 | **REVIEW** | 4 | [016–018, 045](#review-approval-gate) |
 | **CONNECT** | 1 | [053](#connect-permanent-notes) |
 | **GARDEN** | 5 | [019–021, 060–061](#garden-moc-generation) |
-| **WEB** | 9 | [022–023, 039–040, 056, 062–063, 067–068](#web-ui--job-queue) |
+| **WEB** | 10 | [022–023, 039–040, 056, 062–063, 067–068, 070](#web-ui--job-queue) |
 | **LLM** | 5 | [024–025, 048, 055, 059](#llm-provider--caching) |
 | **CLI** | 4 | [026, 032, 035, 037](#cli-orchestration) |
 | **QA-WRITING** | 4 | [028–029, 038, 051](#qa-writing--article-pipeline) |
@@ -509,6 +509,14 @@
   - **Rating.** `config/library.yaml` holds the genre vocabulary, criteria and profiles; the first matching profile decides, and the score averages only the rated criteria.
   - **Web.** `/books` offers table, gallery and board, a detail page with reading notes, and a dashboard in server-rendered SVG.
 - **Link**: [`ADR-068-estante-books-as-liv-notes.md`](./generated/WEB/ADR-068-estante-books-as-liv-notes.md)
+- **Superseded in part by** [ADR-070](./generated/WEB/ADR-070-shelf-is-the-source-note.md): the shelf card is the source note.
+
+### ADR-070: The Shelf Is the Source Note
+
+- **Status**: Accepted
+- **Date**: 2026-11-16
+- **Summary**: The reader's card is the SRC in `10_Sources/`. Harvest no longer writes a second note. Articles, theses, handouts, reports and proceedings appear on the shelf; a book chapter is harvested and stays off it. `init --reset` keeps every `type: source` file and the next harvest of the same PDF reuses its `source_id`. `zettel migrate-acervo` copies the old card onto the SRC and deletes it only after the copy checks out.
+- **Link**: [`ADR-070-shelf-is-the-source-note.md`](./generated/WEB/ADR-070-shelf-is-the-source-note.md)
 
 ---
 
@@ -674,7 +682,7 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 68 |
+| **Total ADRs** | 69 |
 | **Accepted** | 68 |
 | **Needs Input** | 0 |
 | **Modules Covered** | 13 |
