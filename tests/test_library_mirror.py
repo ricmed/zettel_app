@@ -106,6 +106,19 @@ def test_filters(tmp_path):
     assert set(db.list_reflective_source_ids()) == {hobbit.source_id, duna.source_id}
 
 
+def test_code_sort_uses_the_code_text_when_the_number_column_is_empty(tmp_path):
+    cfg = library_config(tmp_path)
+    db = library_db(cfg)
+    bf.create_book(cfg, {"title": "O Hobbit", "format": "fisico"})
+    bf.create_book(cfg, {"title": "Duna", "format": "digital"})
+    refresh(db, cfg)
+    db.conn.execute("UPDATE sources SET code_number = NULL")
+    db.conn.commit()
+
+    assert [r["code_number"] for r in _rows(cfg, db, sort="code")] == [None, None]
+    assert [r["title"] for r in _rows(cfg, db, sort="code")] == ["Duna", "O Hobbit"]
+
+
 def test_library_health_reports_repeated_codes(tmp_path):
     from zettel.library.mirror import library_health
 

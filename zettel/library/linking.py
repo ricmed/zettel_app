@@ -12,8 +12,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from zettel.library.book_file import (
-    as_int,
+    code_number_of,
     format_code,
+    format_for_letter,
+    format_letter_of,
     load_book,
     next_code_number,
     save_book,
@@ -132,23 +134,29 @@ def ensure_shelf_defaults(cfg: Any, source_id: str) -> bool:
     if document_type not in set(cfg.library.document_types):
         return False
     changed = False
-    if not as_int(book.meta.get("code_number")):
+    letters = cfg.library.format_letters
+    if not code_number_of(book.meta):
         number = next_code_number(cfg)
         fmt = book.format or "digital"
         book.meta["format"] = fmt
         book.meta["code_number"] = number
-        book.meta["code"] = format_code(number, fmt, cfg.library.format_letters)
+        book.meta["code"] = format_code(number, fmt, letters)
         changed = True
     if not book.status:
         book.meta["status"] = cfg.library.initial_status
         changed = True
     if not book.format:
-        book.meta["format"] = "digital"
-        if as_int(book.meta.get("code_number")):
-            book.meta["code"] = format_code(
-                int(book.meta["code_number"]), "digital", cfg.library.format_letters
-            )
-        changed = True
+        # A letra de "0002 - F" já é o formato. Forçar digital trocaria o código.
+        inferred = format_for_letter(format_letter_of(book.meta.get("code")), letters)
+        if inferred:
+            book.meta["format"] = inferred
+        else:
+            book.meta["format"] = "digital"
+            number = code_number_of(book.meta)
+            if number and not str(book.meta.get("code") or "").strip():
+                book.meta["code_number"] = number
+                book.meta["code"] = format_code(number, "digital", letters)
+            changed = True
     if changed:
         save_book(cfg, book, expected_version=book.version)
     return changed

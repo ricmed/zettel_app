@@ -14,7 +14,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from zettel.library.book_file import as_int, as_str_list, list_books, ratings_of, readings_of
+from zettel.library.book_file import (
+    as_int,
+    as_str_list,
+    code_number_of,
+    list_books,
+    ratings_of,
+    readings_of,
+)
 from zettel.library.rating import rate
 from zettel.library.reading_mode import effective_nature, effective_reading_mode
 from zettel.library.schema import LibrarySchema, schema_for
@@ -46,7 +53,7 @@ def shelf_fields(
     rating = rate(schema, meta)
     pages = as_int(meta.get("pages"))
     return {
-        "code_number": as_int(meta.get("code_number")),
+        "code_number": code_number_of(meta),
         "code": book.code or None,
         "format": book.format or None,
         "status": book.status or None,
@@ -109,7 +116,7 @@ def library_health(cfg: Any) -> tuple[bool, str]:
     except LibrarySchemaError as exc:
         return False, str(exc)
     books = list_books(cfg)
-    numbers = Counter(as_int(book.meta.get("code_number")) for book in books)
+    numbers = Counter(code_number_of(book.meta) for book in books)
     repeated = sorted(number for number, count in numbers.items() if number and count > 1)
     problems = []
     if repeated:

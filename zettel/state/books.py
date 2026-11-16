@@ -44,8 +44,11 @@ _LAST_END = (
     "(SELECT MAX(json_extract(r.value, '$.end')) FROM json_each(COALESCE(s.readings_json, '[]')) r)"
 )
 
+# ``code`` ("0254 - D") vale quando ``code_number`` ainda não foi espelhado.
+# O CAST do SQLite lê o prefixo numérico e ignora a letra.
+_CODE_SORT_KEY = "COALESCE(s.code_number, CAST(s.code AS INTEGER))"
 SHELF_SORTS = {
-    "code": "s.code_number IS NULL, s.code_number DESC",
+    "code": f"{_CODE_SORT_KEY} IS NULL OR {_CODE_SORT_KEY} = 0, {_CODE_SORT_KEY} DESC",
     "title": "zfold(s.title)",
     "score": "s.score IS NULL, s.score DESC, zfold(s.title)",
     "finished": f"{_LAST_END} IS NULL, {_LAST_END} DESC, zfold(s.title)",

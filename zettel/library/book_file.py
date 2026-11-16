@@ -206,6 +206,48 @@ def format_code(number: int, fmt: str, letters: dict[str, str]) -> str:
     return f"{number:04d} - {letter}" if letter else f"{number:04d}"
 
 
+def code_number_of(meta: dict[str, Any]) -> int | None:
+    """O número do código, ou o prefixo de ``code`` (``0002 - F``) quando a chave falta.
+
+    Fichas gravadas antes de ``code_number`` existir trazem só a linha ``code``.
+    Tratar isso como "sem código" recomeçaria a sequência em 0001.
+    """
+    number = as_int(meta.get("code_number"))
+    if number:
+        return number
+    text = str(meta.get("code") or "").strip()
+    if not text:
+        return None
+    return as_int(text.split("-", 1)[0])
+
+
+def format_letter_of(code: Any) -> str:
+    text = str(code or "")
+    if "-" not in text:
+        return ""
+    letter = text.split("-", 1)[1].strip()
+    return letter[:1].upper()
+
+
+def format_for_letter(letter: str, letters: dict[str, str]) -> str:
+    """O formato cuja letra é ``letter``; vazio quando a letra não está no mapa."""
+    inverse = {str(value).strip().upper(): key for key, value in letters.items()}
+    fmt = inverse.get(letter.upper(), "")
+    return fmt if fmt in FORMATS else ""
+
+
+def adopt_legacy_code(meta: dict[str, Any], letters: dict[str, str] | None = None) -> None:
+    """Preenche número e formato que o texto ``code`` já diz, sem gravar o arquivo."""
+    number = code_number_of(meta)
+    if number and not as_int(meta.get("code_number")):
+        meta["code_number"] = number
+    if letters is None or str(meta.get("format") or "") in FORMATS:
+        return
+    fmt = format_for_letter(format_letter_of(meta.get("code")), letters)
+    if fmt:
+        meta["format"] = fmt
+
+
 def same_reader_value(left: Any, right: Any) -> bool:
     """Os dois valores de leitor contam como o mesmo, para a migração e o espelho."""
     if isinstance(left, bool) or isinstance(right, bool):
@@ -244,6 +286,7 @@ def read_book(path: Path) -> Book | None:
     source_id = str(meta.get("source_id") or "").strip()
     if not source_id:
         return None
+    adopt_legacy_code(meta)
     return Book(source_id, path, meta, body, version_of(raw))
 
 
@@ -259,6 +302,7 @@ def list_books(cfg: Any) -> list[Book]:
     for path in list_source_files(cfg):
         book = read_book(path)
         if book and str(book.meta.get("document_type") or "") in wanted:
+            adopt_legacy_code(book.meta, cfg.library.format_letters)
             books.append(book)
     return books
 
@@ -274,6 +318,7 @@ def load_book(cfg: Any, source_id: str) -> Book:
     book = read_book(path) if path else None
     if book is None or book.source_id != source_id:
         raise BookNotFound(source_id)
+    adopt_legacy_code(book.meta, cfg.library.format_letters)
     return book
 
 
@@ -283,7 +328,7 @@ def next_code_number(cfg: Any) -> int:
     for path in list_source_files(cfg):
         book = read_book(path)
         if book:
-            numbers.append(as_int(book.meta.get("code_number")))
+            numbers.append(code_number_of(book.meta))
     return max((n for n in numbers if n), default=0) + 1
 
 
@@ -426,11 +471,12 @@ def save_book(cfg: Any, book: Book, *, expected_version: str | None) -> Book:
         raise BookNotFound(book.source_id) from exc
     if expected_version is not None and current != expected_version:
         raise BookConflict(book.source_id)
-    number = as_int(book.meta.get("code_number"))
-    if number:
-        book.meta["code"] = format_code(
-            number, book.format or str(book.meta.get("format") or ""), cfg.library.format_letters
-        )
+    number = code_number_of(book.meta)
+    fmt = book.format or str(book.meta.get("format") or "")
+    # Sem formato, um código que já tem letra ("0002 - F") fica como está.
+    if number and (fmt or not str(book.meta.get("code") or "").strip()):
+        book.meta["code_number"] = number
+        book.meta["code"] = format_code(number, fmt, cfg.library.format_letters)
     book.meta["type"] = "source"
     book.meta["source_id"] = book.source_id
     book.meta["updated_at"] = now_vault_iso(cfg.vault_timezone)

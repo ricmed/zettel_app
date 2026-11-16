@@ -151,6 +151,23 @@ def test_pdf_of_a_textless_source_is_extracted_into_it(cfg, db):
     assert len(list((cfg.vault_path / "10_Sources").glob("*.md"))) == 1
 
 
+def test_sync_keeps_a_code_that_was_stored_only_as_text(cfg, db):
+    book = bf.create_book(cfg, {"title": "O Hobbit", "format": "fisico", "status": "lido"})
+    text = book.path.read_text(encoding="utf-8")
+    kept = "".join(
+        line
+        for line in text.splitlines(keepends=True)
+        if not line.startswith(("code_number:", "format:"))
+    )
+    book.path.write_text(kept, encoding="utf-8", newline="\n")
+    refresh(db, cfg)
+
+    sync_library(cfg, db)
+    after = book.path.read_text(encoding="utf-8")
+    assert "0001 - F" in after
+    assert "0001 - D" not in after
+
+
 def test_shelf_codes_follow_one_sequence_including_articles(cfg, db):
     first = _harvest(
         cfg, db, _markdown(cfg, "h.md", title="O Hobbit", author="Tolkien", doc_type="livro")

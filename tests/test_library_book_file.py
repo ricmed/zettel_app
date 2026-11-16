@@ -37,6 +37,26 @@ def test_changing_the_format_changes_only_the_letter(tmp_path):
     assert bf.load_book(cfg, book.source_id).meta["code_number"] == 1
 
 
+def test_a_code_line_without_code_number_keeps_the_number_and_the_letter(tmp_path):
+    cfg = library_config(tmp_path)
+    book = bf.create_book(cfg, {"title": "O Hobbit", "format": "fisico"})
+    text = book.path.read_text(encoding="utf-8")
+    kept = "".join(
+        line
+        for line in text.splitlines(keepends=True)
+        if not line.startswith(("code_number:", "format:"))
+    )
+    book.path.write_text(kept, encoding="utf-8", newline="\n")
+
+    loaded = bf.load_book(cfg, book.source_id)
+    assert loaded.code == "0001 - F"
+    assert loaded.meta["code_number"] == 1
+    assert loaded.format == "fisico"
+    assert bf.next_code_number(cfg) == 2
+    nxt = bf.create_book(cfg, {"title": "Duna", "format": "digital"})
+    assert nxt.code == "0002 - D"
+
+
 def test_numbers_are_never_reused(tmp_path):
     cfg = library_config(tmp_path)
     bf.create_book(cfg, {"title": "A"})
