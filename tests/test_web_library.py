@@ -648,3 +648,143 @@ def test_a_doi_fills_the_form_from_crossref_without_writing(web_client, monkeypa
     assert "O Hobbit" in page
     assert any("googleapis.com" in url for url in seen)
     assert not any("api.crossref.org" in url for url in seen)
+
+
+def test_same_work_lists_the_sibling_and_confirms_before_a_similar_note(web_client, monkeypatch):
+    """A ficha ligada mostra a nota da irmã. O primeiro POST não grava; a confirmação grava."""
+    from zettel.manual_lit import ensure_manual_chapter
+
+    from tests.fakes import FakeVectorIndex, calls_to
+
+    client, _tmp = web_client
+    csrf = login(client)
+    portuguese = _create(
+        client, csrf, title="Construindo Aplicacoes", authors="Albada", format="fisico"
+    )
+    english = _create(
+        client, csrf, title="Building Applications", authors="Albada", format="digital"
+    )
+    page = client.get(f"/books/{portuguese}").text
+    assert "Mesma obra" in page and "Esta ficha está sozinha" in page
+    assert "Building Applications" in page
+    portuguese = bf.load_book(_cfg(client), portuguese).source_id
+    english = bf.load_book(_cfg(client), english).source_id
+    stale = client.post(
+        f"/books/{portuguese}",
+        data={
+            "csrf": csrf,
+            "version": "stale",
+            "action": "link-work",
+            "other_id": english,
+        },
+        follow_redirects=False,
+    )
+    assert stale.status_code == 409
+    assert _edit(client, csrf, portuguese, "link-work", other_id=english).status_code == 303
+
+    db = client.app.state.service.db()
+    try:
+        chapter = ensure_manual_chapter(db, english)
+        chunk_id = f"{english}::manual::en"
+        db.upsert_chunk(
+            chunk_id=chunk_id,
+            source_id=english,
+            chapter_id=chapter,
+            text="Agents act.",
+            chunk_checksum="en",
+            status="persisted",
+        )
+        db.upsert_note(
+            "N-en",
+            english,
+            None,
+            title="O que sao agentes",
+            body="> **Tese**: um agente age.",
+        )
+        db.upsert_concept(f"{chunk_id}::c", english, chunk_id, note_id="N-en", status="noted")
+    finally:
+        db.close()
+    linked = client.get(f"/books/{portuguese}").text
+    assert "O que sao agentes" in linked and "Desta edição" in linked
+    assert "Building Applications" in linked
+
+    fake = FakeVectorIndex(chunks={chunk_id: 0.1})
+    fake.upsert_chunk(chunk_id, "Agents act.", {"source_id": english})
+    opened: list[int] = []
+
+    def factory(**_kwargs):
+        opened.append(1)
+        return fake
+
+    monkeypatch.setattr("zettel.index.VectorIndex", factory)
+    monkeypatch.setattr("zettel.credentials.embedding_ready", lambda _cfg: True)
+    excerpt = "Um agente é um programa que age."
+    asked = client.post(
+        f"/books/{portuguese}/reading-notes",
+        data={"csrf": csrf, "topic": "agentes de IA", "excerpt": ""},
+    )
+    assert asked.status_code == 200
+    assert "Informe o trecho" in asked.text
+    assert opened == []
+
+    warned = client.post(
+        f"/books/{portuguese}/reading-notes",
+        data={"csrf": csrf, "topic": "agentes de IA", "excerpt": excerpt, "summary": "resumo"},
+    )
+    assert warned.status_code == 200, warned.text
+    assert "Provável" in warned.text and "O que sao agentes" in warned.text
+    assert "Gravar mesmo assim" in warned.text
+    assert 'value="agentes de IA"' in warned.text
+    assert calls_to(fake, "find_similar_chunks") == [[excerpt]]
+    db = client.app.state.service.db()
+    try:
+        assert db.get_chunks_for_source(portuguese) == []
+    finally:
+        db.close()
+
+    saved = client.post(
+        f"/books/{portuguese}/reading-notes",
+        data={
+            "csrf": csrf,
+            "topic": "agentes de IA",
+            "excerpt": excerpt,
+            "summary": "resumo",
+            "confirm": "1",
+        },
+        follow_redirects=False,
+    )
+    assert saved.status_code == 303, saved.text
+    db = client.app.state.service.db()
+    try:
+        (chunk,) = db.get_chunks_for_source(portuguese)
+        assert chunk["source_id"] == portuguese
+        assert excerpt in chunk["text"]
+        pt_chunk = chunk["chunk_id"]
+    finally:
+        db.close()
+
+    generated = client.post(
+        f"/books/{portuguese}/permanent",
+        data={"csrf": csrf, "chunk_id": pt_chunk},
+    )
+    assert generated.status_code == 200
+    assert "Gerar mesmo assim" in generated.text
+    assert calls_to(fake, "find_similar_chunks")[-1] == [excerpt]
+    queued = client.post(
+        f"/books/{portuguese}/permanent",
+        data={"csrf": csrf, "chunk_id": pt_chunk, "confirm": "1"},
+        follow_redirects=False,
+    )
+    assert queued.status_code == 303
+    job = wait_for_job(client, queued.headers["location"].rsplit("/", 1)[-1])["job"]
+    assert job["state"] == "succeeded", job
+
+    solo = _create(client, csrf, title="Outro livro", authors="Outra")
+    before = len(opened)
+    direct = client.post(
+        f"/books/{solo}/reading-notes",
+        data={"csrf": csrf, "topic": "Nota solta", "excerpt": "Trecho qualquer."},
+        follow_redirects=False,
+    )
+    assert direct.status_code == 303
+    assert len(opened) == before

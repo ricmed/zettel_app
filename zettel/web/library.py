@@ -44,6 +44,8 @@ EDIT_ACTIONS = (
     "cover",
     "cover-isbn",
     "complete",
+    "link-work",
+    "unlink-work",
 )
 _LOCK = "estante"
 # O que um candidato da pesquisa pode pré-preencher no formulário de cadastro.
@@ -485,37 +487,57 @@ def _bibliography(source: dict[str, Any] | None) -> dict[str, Any]:
     return biblio if isinstance(biblio, dict) else {}
 
 
+def _work_siblings(db: Any, source_id: str) -> list[dict[str, str]]:
+    from zettel.library.works import sibling_views
+
+    return sibling_views(db, source_id)
+
+
+def _work_choices(cfg: Any, db: Any, source_id: str) -> list[dict[str, str]]:
+    from zettel.library.works import shelf_choices
+
+    return shelf_choices(cfg, db, source_id)
+
+
 def _source_view(db: Any, source_id: str | None) -> dict[str, Any]:
-    from zettel.vault import literature_chunk_wikilink_for_row
+    from zettel.library.linking import note_groups
 
     if not source_id:
-        return {"source": None, "lits": [], "notes": []}
+        return {"source": None, "lits": [], "notes": [], "note_groups": []}
     source = db.get_source(source_id)
     if not source:
-        return {"source": None, "missing_source": source_id, "lits": [], "notes": []}
-    lits = []
-    for chunk in db.get_chunks_for_source(source_id):
-        if chunk.get("status") not in ("approved", "persisted"):
-            continue
-        link = literature_chunk_wikilink_for_row(source["citekey"], chunk, with_alias=True)
-        label = link.split("|", 1)[1].rstrip("]") if "|" in link else link.strip("[]")
-        lits.append(
-            {
-                "chunk_id": chunk["chunk_id"],
-                "label": label,
-                "manual": chunk.get("status") == "persisted",
-                "page": chunk.get("page_in_book"),
-            }
-        )
-    notes = [
-        {"note_id": n["note_id"], "title": n.get("title") or n["note_id"]}
-        for n in db.get_notes_for_source(source_id)
-    ]
-    return {"source": source, "lits": lits, "notes": notes}
+        return {
+            "source": None,
+            "missing_source": source_id,
+            "lits": [],
+            "notes": [],
+            "note_groups": [],
+        }
+    groups = note_groups(db, source_id)
+    own = next((group for group in groups if group["own"]), None) or {
+        "lits": [],
+        "notes": [],
+    }
+    return {
+        "source": source,
+        "lits": own["lits"],
+        "notes": own["notes"],
+        "note_groups": groups,
+    }
 
 
 @router.get("/books/{source_id}", response_class=HTMLResponse)
 def book_detail(request: Request, source_id: str):
+    return _book_page(request, source_id)
+
+
+def _book_page(
+    request: Request,
+    source_id: str,
+    *,
+    draft: dict[str, str] | None = None,
+    edition_notice: dict[str, Any] | None = None,
+):
     if not authenticated(request):
         return redirect_login()
     from zettel.credentials import llm_phase_ready
@@ -537,6 +559,8 @@ def book_detail(request: Request, source_id: str):
         row = db.get_source(source_id) or {}
         view = _source_view(db, book.source_id)
         chunks = db.get_chunks_for_source(book.source_id) if view.get("source") else []
+        siblings = _work_siblings(db, book.source_id)
+        choices = _work_choices(cfg, db, book.source_id)
     finally:
         db.close()
     rating = rate(schema, book.meta)
@@ -576,6 +600,10 @@ def book_detail(request: Request, source_id: str):
         desks=desk_choices(request),
         completed=_completed_notice(request),
         chunks=chunks,
+        siblings=siblings,
+        shelf_choices=choices,
+        draft=draft or {},
+        edition_notice=edition_notice,
         document_label=_type_labels(cfg).get(
             str(
                 (view.get("source") or {}).get("document_type")
@@ -642,6 +670,31 @@ def _change(action: str, values: dict[str, Any], form: FormData, cfg: Any, schem
     if action == "cover":
         cover = _uploaded_cover(form)
         return lambda book, db: ed.set_cover(book, store_cover(cfg.vault_path, *cover))
+    if action == "link-work":
+        other_id = str(values.get("other_id") or "")
+
+        def change(book, db, other_id=other_id):
+            from zettel.library.works import WorkLinkError, link_editions
+
+            try:
+                link_editions(cfg, db, book.source_id, other_id)
+            except WorkLinkError as exc:
+                raise ed.BookEditError(str(exc)) from exc
+            return "saved"
+
+        return change
+    if action == "unlink-work":
+
+        def change(book, db):
+            from zettel.library.works import WorkLinkError, unlink_edition
+
+            try:
+                unlink_edition(cfg, db, book.source_id)
+            except WorkLinkError as exc:
+                raise ed.BookEditError(str(exc)) from exc
+            return "saved"
+
+        return change
     raise ed.BookEditError("Ação desconhecida.")
 
 
@@ -776,6 +829,8 @@ def book_edit(request: Request, source_id: str, form: FormData = Depends(read_fo
     anchor = {"rating": "avaliacao", "summary": "resumo"}.get(action, "")
     if action.startswith("reading-"):
         anchor = "leituras"
+    if action in ("link-work", "unlink-work"):
+        anchor = "obra"
     query = None
     if action == "complete":
         from urllib.parse import urlencode
@@ -879,6 +934,86 @@ def _complete_change(cfg: Any, book: Any, report: dict[str, Any]):
     return change
 
 
+_NOTE_FIELDS = (
+    "topic",
+    "page",
+    "excerpt",
+    "summary",
+    "concepts",
+    "candidate",
+    "reflection_kind",
+    "characters",
+    "reflection",
+    "analogy",
+)
+
+
+def _note_draft(form: FormData) -> dict[str, str]:
+    return {key: str(form.get(key) or "") for key in _NOTE_FIELDS}
+
+
+def _notice_from_match(match: Any, *, mode: str, chunk_id: str = "", use_llm: bool = False) -> dict:
+    if match.needs_excerpt:
+        kind = "excerpt"
+    elif match.unchecked:
+        kind = "unchecked"
+    else:
+        kind = "hits"
+    return {
+        "kind": kind,
+        "mode": mode,
+        "chunk_id": chunk_id,
+        "use_llm": use_llm,
+        "hits": [
+            {
+                "title": item.title,
+                "edition": item.edition,
+                "href": item.href,
+                "probable": item.probable,
+            }
+            for item in match.passages
+        ],
+    }
+
+
+def _edition_gate(cfg: Any, source_id: str, excerpt: str, *, confirm: bool):
+    """``None`` quando dá para gravar. Senão, o aviso para a página.
+
+    Sem obra, grava direto. Sem trecho, pede o trecho e não consulta o título.
+    Com confirmação e trecho, grava. O primeiro POST com vizinhas não grava.
+    """
+    from zettel.library.edition_match import compare_excerpt
+    from zettel.library.works import sibling_source_ids
+
+    db = service_db(cfg)
+    try:
+        linked = bool(sibling_source_ids(db, source_id))
+        if not linked:
+            return None
+        if not (excerpt or "").strip():
+            from zettel.library.edition_match import EditionMatch
+
+            return _notice_from_match(EditionMatch(needs_excerpt=True), mode="lit")
+        if confirm:
+            return None
+        match = compare_excerpt(cfg, db, source_id, excerpt)
+    finally:
+        db.close()
+    if match.clear:
+        return None
+    return _notice_from_match(match, mode="lit")
+
+
+def service_db(cfg: Any):
+    """Abre o banco já espelhado. Quem chama fecha."""
+    from zettel.library.mirror import refresh
+    from zettel.state import StateDB
+
+    db = StateDB(cfg.state_db_path)
+    refresh(db, cfg)
+    return db
+
+
 @router.post("/books/{source_id}/reading-notes")
 def book_reading_note(request: Request, source_id: str, form: FormData = Depends(read_form)):
     if not authenticated(request):
@@ -892,6 +1027,11 @@ def book_reading_note(request: Request, source_id: str, form: FormData = Depends
     except ReadingNoteError as exc:
         return error_page(request, 400, str(exc))
     cfg = service(request).cfg
+    confirm = str(form.get("confirm") or "") == "1"
+    notice = _edition_gate(cfg, source_id, note.excerpt, confirm=confirm)
+    if notice is not None:
+        notice["mode"] = "lit"
+        return _book_page(request, source_id, draft=_note_draft(form), edition_notice=notice)
 
     def change(book, db):
         create_reading_note(cfg, db, book, note)
@@ -903,11 +1043,18 @@ def book_reading_note(request: Request, source_id: str, form: FormData = Depends
 
 @router.post("/books/{source_id}/permanent")
 def book_permanent(request: Request, source_id: str, form: FormData = Depends(read_form)):
-    """ZTL a partir de uma nota de leitura: o job ``manual-ztl-from-lit`` de sempre."""
+    """ZTL a partir de uma nota de leitura: o job ``manual-ztl-from-lit`` de sempre.
+
+    Com uma obra vinculada, o trecho já guardado na LIT é comparado com a outra
+    edição antes de enfileirar. A confirmação repete o envio e gera a nota.
+    """
     if not authenticated(request):
         return redirect_login()
+    if not csrf_ok(request, str(form.get("csrf") or "")):
+        return error_page(request, 403, "CSRF inválido")
     chunk_id = str(form.get("chunk_id") or "").strip()
     use_llm = str(form.get("use_llm") or "") == "1"
+    confirm = str(form.get("confirm") or "") == "1"
     if not chunk_id.startswith("@"):
         return error_page(request, 400, "Escolha a nota de leitura.")
     if use_llm:
@@ -915,5 +1062,31 @@ def book_permanent(request: Request, source_id: str, form: FormData = Depends(re
 
         if not llm_phase_ready(service(request).cfg, "connect"):
             return error_page(request, 409, "A fase connect não tem credencial de LLM.")
+    cfg = service(request).cfg
+    db = service_db(cfg)
+    try:
+        chunk = db.get_chunk(chunk_id) or {}
+        excerpt = str(chunk.get("text") or "")
+        from zettel.library.edition_match import EditionMatch, compare_excerpt
+        from zettel.library.works import sibling_source_ids
+
+        linked = bool(sibling_source_ids(db, source_id))
+        notice = None
+        if linked and not confirm:
+            if not excerpt.strip():
+                notice = _notice_from_match(EditionMatch(needs_excerpt=True), mode="ztl")
+            else:
+                match = compare_excerpt(cfg, db, source_id, excerpt)
+                if not match.clear:
+                    notice = _notice_from_match(
+                        match, mode="ztl", chunk_id=chunk_id, use_llm=use_llm
+                    )
+    finally:
+        db.close()
+    if notice is not None:
+        notice["mode"] = "ztl"
+        notice["chunk_id"] = chunk_id
+        notice["use_llm"] = use_llm
+        return _book_page(request, source_id, edition_notice=notice)
     payload = {"ref": chunk_id, "chunk_id": chunk_id, "thesis": None, "use_llm": use_llm}
     return post_job(request, "manual-ztl-from-lit", payload, str(form.get("csrf") or ""))

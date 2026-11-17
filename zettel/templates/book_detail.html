@@ -92,45 +92,93 @@
   </form>
 </section>
 
+<section class="panel" id="obra">
+  <h2>Mesma obra</h2>
+  <p class="muted">Duas fichas são a mesma obra só quando você declara. Título e ISBN não ligam nada sozinhos.</p>
+  {% if siblings %}
+  <ul class="book-notes">{% for item in siblings %}<li><a href="/books/{{ item.source_id }}">{{ item.label }}</a></li>{% endfor %}</ul>
+  <form method="post" action="/books/{{ book.source_id }}" class="inline-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="unlink-work">
+    <button class="button" type="submit">Desligar desta obra</button>
+  </form>
+  {% else %}<div class="empty">Esta ficha está sozinha.</div>{% endif %}
+  {% if shelf_choices %}
+  <form method="post" action="/books/{{ book.source_id }}" class="book-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ book.version }}"><input type="hidden" name="action" value="link-work">
+    <label>Outra edição
+      <select name="other_id">{% for item in shelf_choices %}<option value="{{ item.source_id }}">{{ item.label }}</option>{% endfor %}</select>
+    </label>
+    <button class="button" type="submit">Ligar</button>
+  </form>
+  {% endif %}
+</section>
+
 <section class="panel" id="notas">
   <h2>Notas de leitura</h2>
-  <p class="muted">Esta ficha é a fonte <code>{{ book.source_id }}</code>.</p>
+  <p class="muted">Esta ficha é a fonte <code>{{ book.source_id }}</code>. A citação continua nesta edição.</p>
+  {% if edition_notice %}
+  <div class="alert" role="status">
+    {% if edition_notice.kind == 'excerpt' %}
+    <p>Informe o trecho do livro para comparar com a outra edição. O título não entra nessa comparação.</p>
+    {% elif edition_notice.kind == 'unchecked' %}
+    <p>Não verifiquei a outra edição: o embedding não respondeu. Grave só se quiser manter esta nota mesmo assim.</p>
+    {% else %}
+    <p>A outra edição já tem uma passagem parecida. Nada foi gravado.</p>
+    <ul class="book-notes">{% for hit in edition_notice.hits %}<li>{% if hit.probable %}<b>Provável</b> — {% endif %}<a href="{{ hit.href }}">{{ hit.title }}</a> <span class="muted">{{ hit.edition }}</span></li>{% endfor %}</ul>
+    {% endif %}
+    {% if edition_notice.mode == 'ztl' and edition_notice.kind != 'excerpt' %}
+    <form method="post" action="/books/{{ book.source_id }}/permanent" class="inline-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="chunk_id" value="{{ edition_notice.chunk_id }}">
+      <input type="hidden" name="confirm" value="1">
+      {% if edition_notice.use_llm %}<input type="hidden" name="use_llm" value="1">{% endif %}
+      <button class="button" type="submit">Gerar mesmo assim</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% for group in note_groups %}
+  {% if group.heading %}<h3>{{ group.heading }}</h3>{% endif %}
   <div class="grid-2">
     <div>
       <h3>Literatura (LIT)</h3>
-      {% if lits %}<ul class="book-notes">{% for lit in lits %}<li><span>{{ lit.label }}{% if lit.manual %} <span class="tag">manual</span>{% endif %}</span>
-        <form method="post" action="/books/{{ book.source_id }}/permanent" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="chunk_id" value="{{ lit.chunk_id }}">
+      {% if group.lits %}<ul class="book-notes">{% for lit in group.lits %}<li><span>{{ lit.label }}{% if lit.manual %} <span class="tag">manual</span>{% endif %}</span>
+        {% if group.own %}<form method="post" action="/books/{{ book.source_id }}/permanent" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="chunk_id" value="{{ lit.chunk_id }}">
           <label class="check"><input type="checkbox" name="use_llm" value="1" {% if not connect_llm_ready %}disabled{% endif %}> com LLM</label>
-          <button class="link-button" type="submit">Gerar ZTL</button></form></li>{% endfor %}</ul>
-      {% if not connect_llm_ready %}<small class="muted">Gerar com LLM exige a credencial da fase connect.</small>{% endif %}
+          <button class="link-button" type="submit">Gerar ZTL</button></form>{% endif %}</li>{% endfor %}</ul>
+      {% if group.own and not connect_llm_ready %}<small class="muted">Gerar com LLM exige a credencial da fase connect.</small>{% endif %}
       {% else %}<div class="empty">Nenhuma nota de literatura.</div>{% endif %}
     </div>
     <div>
       <h3>Permanentes (ZTL)</h3>
-      {% if notes %}<ul class="book-notes">{% for n in notes %}<li><a href="/notes/{{ n.note_id }}">{{ n.title }}</a></li>{% endfor %}</ul>
-      {{ mesa_add(desks, 'mesa-book', notes|map(attribute='note_id')|list, 'Levar as ZTL à mesa') }}
+      {% if group.notes %}<ul class="book-notes">{% for n in group.notes %}<li><a href="/notes/{{ n.note_id }}">{{ n.title }}</a></li>{% endfor %}</ul>
+      {% if group.own %}{{ mesa_add(desks, 'mesa-book', notes|map(attribute='note_id')|list, 'Levar as ZTL à mesa') }}{% endif %}
       {% else %}<div class="empty">Nenhuma nota permanente.</div>{% endif %}
     </div>
   </div>
-  <details {% if not lits %}open{% endif %}><summary>Nova nota de leitura</summary>
+  {% endfor %}
+  <details {% if not lits or edition_notice %}open{% endif %}><summary>Nova nota de leitura</summary>
     <form method="post" action="/books/{{ book.source_id }}/reading-notes" class="book-form">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <div class="form-row"><label>Título <input type="text" name="topic" maxlength="200" required></label><label>Página <input type="number" name="page" min="0"></label></div>
-      <label>Trecho do livro <textarea name="excerpt" rows="3"></textarea></label>
+      <div class="form-row"><label>Título <input type="text" name="topic" maxlength="200" required value="{{ draft.topic or '' }}"></label><label>Página <input type="number" name="page" min="0" value="{{ draft.page or '' }}"></label></div>
+      <label>Trecho do livro <textarea name="excerpt" rows="3">{{ draft.excerpt or '' }}</textarea></label>
       {% if row.reading_mode == 'reflexao' %}
       <div class="form-row">
-        <label>Tipo <select name="reflection_kind"><option value="">—</option>{% for k, v in reflection_kinds.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
-        <label>Personagens <input type="text" name="characters" placeholder="separados por vírgula"></label>
+        <label>Tipo <select name="reflection_kind"><option value="">—</option>{% for k, v in reflection_kinds.items() %}<option value="{{ k }}" {% if draft.reflection_kind == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+        <label>Personagens <input type="text" name="characters" placeholder="separados por vírgula" value="{{ draft.characters or '' }}"></label>
       </div>
-      <label>A ideia (metáfora, pensamento, pergunta) <textarea name="candidate" rows="2"></textarea></label>
-      <label>Reflexão <textarea name="reflection" rows="4"></textarea></label>
-      <label>Uso como analogia <textarea name="analogy" rows="2" placeholder="Assim como … em …"></textarea></label>
+      <label>A ideia (metáfora, pensamento, pergunta) <textarea name="candidate" rows="2">{{ draft.candidate or '' }}</textarea></label>
+      <label>Reflexão <textarea name="reflection" rows="4">{{ draft.reflection or '' }}</textarea></label>
+      <label>Uso como analogia <textarea name="analogy" rows="2" placeholder="Assim como … em …">{{ draft.analogy or '' }}</textarea></label>
       {% else %}
-      <label>Resumo <textarea name="summary" rows="4"></textarea></label>
-      <label>Conceitos-chave <input type="text" name="concepts" placeholder="separados por vírgula"></label>
-      <label>Tese candidata a nota permanente <textarea name="candidate" rows="2"></textarea></label>
+      <label>Resumo <textarea name="summary" rows="4">{{ draft.summary or '' }}</textarea></label>
+      <label>Conceitos-chave <input type="text" name="concepts" placeholder="separados por vírgula" value="{{ draft.concepts or '' }}"></label>
+      <label>Tese candidata a nota permanente <textarea name="candidate" rows="2">{{ draft.candidate or '' }}</textarea></label>
       {% endif %}
       <button class="button primary" type="submit">Criar nota de leitura</button>
+      {% if edition_notice and edition_notice.mode == 'lit' and edition_notice.kind != 'excerpt' %}
+      <button class="button" type="submit" name="confirm" value="1">Gravar mesmo assim</button>
+      {% endif %}
     </form>
   </details>
 </section>
