@@ -1,7 +1,7 @@
-# zettel_app ADR Index (69 Decisions)
+# zettel_app ADR Index (70 Decisions)
 
-**Last Updated**: 2026-11-16  
-**Status**: Complete — 69 formal ADRs (001–070; 044 unused) across 13 modules
+**Last Updated**: 2026-11-17  
+**Status**: Complete — 70 formal ADRs (001–071; 044 unused) across 13 modules
 
 ---
 
@@ -16,7 +16,7 @@
 | **REVIEW** | 4 | [016–018, 045](#review-approval-gate) |
 | **CONNECT** | 1 | [053](#connect-permanent-notes) |
 | **GARDEN** | 5 | [019–021, 060–061](#garden-moc-generation) |
-| **WEB** | 10 | [022–023, 039–040, 056, 062–063, 067–068, 070](#web-ui--job-queue) |
+| **WEB** | 11 | [022–023, 039–040, 056, 062–063, 067–068, 070–071](#web-ui--job-queue) |
 | **LLM** | 5 | [024–025, 048, 055, 059](#llm-provider--caching) |
 | **CLI** | 4 | [026, 032, 035, 037](#cli-orchestration) |
 | **QA-WRITING** | 4 | [028–029, 038, 051](#qa-writing--article-pipeline) |
@@ -520,6 +520,15 @@
 
 ---
 
+### ADR-071: Editions of the Same Work Share a Declared work_id
+
+- **Status**: Accepted
+- **Date**: 2026-11-17
+- **Summary**: Two source notes are the same work only by an explicit `work_id`. Both cards list the notes, sibling editions do not corroborate, and a new note warns when the other edition already has a similar passage.
+- **Link**: [`ADR-071-editions-of-the-same-work.md`](./generated/WEB/ADR-071-editions-of-the-same-work.md)
+
+---
+
 ## LLM — Provider & Caching
 
 ### ADR-024: Pluggable Multi-Provider LLM Strategy
@@ -682,12 +691,20 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 69 |
-| **Accepted** | 68 |
+| **Total ADRs** | 70 |
+| **Accepted** | 69 |
 | **Needs Input** | 0 |
 | **Modules Covered** | 13 |
 
 The counts in this file are pinned to `docs/adrs/generated/` by `tests/test_docs_adr_references.py`.
+
+---
+
+## Status Update (2026-11-17, edições)
+
+✅ **ADR-071** (editions of one work share a declared `work_id`). Addenda:
+- **ADR-070:** `work_id` is a reader field. Harvest does not invent it and does not clear it.
+- **ADR-045:** another edition of the same work is not another author, so it does not corroborate.
 
 ---
 

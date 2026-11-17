@@ -25,3 +25,7 @@ The source note is the shelf card.
 ## Consequences
 
 Citation, the `[[SRC - ...]]` wikilink and extract keep the same source id. A later harvest does not erase `## Resumo` or `## Impressões`. A new vault does not create the old shelf folder.
+
+## Addendum (2026-11-17): work_id joins editions
+
+The decision above left `work_id` out and kept two languages as two sources. That split stays. [ADR-071](./ADR-071-editions-of-the-same-work.md) adds `work_id` as a reader field: an explicit declaration that two source notes are editions of one work. Harvest still does not invent the link, and it no longer clears one the reader set.

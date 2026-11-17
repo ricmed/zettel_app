@@ -245,6 +245,7 @@ A Estante guarda o lado leitor: o que você leu, quando, em que formato e o que 
   - O arquivo é seu: mude pesos, critérios e perfis.
 - **As vistas.** Há tabela, galeria de capas e quadro por status, com filtros e vistas prontas (Lendo agora, Lidos no ano, Quero ler, Mais bem avaliados). O **painel** mostra leituras por mês e por ano, páginas, distribuição das notas, gêneros, formatos, países e média por critério.
 - **Notas de leitura.** Escreva-as a partir do livro: elas viram LIT manuais (o livro sem PDF ganha uma fonte manual com o ISBN) e, com **Gerar ZTL**, notas permanentes.
+- **A mesma obra em duas edições.** O PDF em inglês e o físico em português continuam duas fichas. Cadastre o físico em separado e, na ficha, **Mesma obra** aponta o inglês. As duas listam as notas, cada grupo com o rótulo da edição. Uma nota nova avisa se a outra edição já tem uma passagem parecida e só grava se você confirmar. A citação continua na edição que está sendo lida.
 - **Leitura reflexiva.** Romances, contos, quadrinhos, filosofia e biografia são lidos em modo **reflexão**, com prompts próprios.
   - Em vez de conceitos, o extract procura a metáfora, o pensamento, a analogia, a questão filosófica e a situação de personagem.
   - A ZTL guarda a ideia, a obra que a mostra e como usá-la.
