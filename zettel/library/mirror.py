@@ -77,6 +77,7 @@ def shelf_fields(
         "rating_profile": rating.profile.name if rating.profile else None,
         "score": rating.score,
         "favorite": 1 if meta.get("favorite") is True else 0,
+        "work_id": str(meta.get("work_id") or "").strip() or None,
         "shelf_mtime_ns": mtime_ns,
         "shelf_size": size,
         "shelf_schema_stamp": stamp,
@@ -118,9 +119,17 @@ def library_health(cfg: Any) -> tuple[bool, str]:
     books = list_books(cfg)
     numbers = Counter(code_number_of(book.meta) for book in books)
     repeated = sorted(number for number, count in numbers.items() if number and count > 1)
+    works = Counter(
+        str(book.meta.get("work_id") or "").strip()
+        for book in books
+        if str(book.meta.get("work_id") or "").strip()
+    )
+    lonely = sorted(work for work, count in works.items() if count == 1)
     problems = []
     if repeated:
         problems.append("codigo repetido: " + ", ".join(f"{n:04d}" for n in repeated))
+    if lonely:
+        problems.append("obra com uma so edicao: " + ", ".join(lonely))
     if problems:
         return False, "; ".join(problems)
     return True, f"{len(books)} item(ns) na estante, {len(schema.profiles)} perfil(is) de avaliacao"

@@ -42,6 +42,7 @@ READER_FIELDS = (
     "score",
     "favorite",
     "pages",
+    "work_id",
 )
 LIST_FIELDS = frozenset({"genres", "subjects", "readings"})
 

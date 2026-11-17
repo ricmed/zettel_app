@@ -166,6 +166,27 @@ class ConnectionsMixin(StateBase):
         self.conn.commit()
         return cur.rowcount
 
+    def delete_derived_corroborates_between(self, source_ids: list[str]) -> int:
+        """Drop derived ``corroborates`` whose two notes belong to these sources.
+
+        Used when editions are declared the same work (ADR-071). ``supports`` and
+        ``related`` stay, and so does a ``corroborates`` the model proposed.
+        Returns the number of rows removed.
+        """
+        ids = list(dict.fromkeys(source_id for source_id in source_ids if source_id))
+        if len(ids) < 2:
+            return 0
+        marks = placeholders(ids)
+        cur = self.conn.execute(
+            "DELETE FROM note_connections "
+            "WHERE relation_type='corroborates' AND origin='derived' "
+            f"AND source_note_id IN (SELECT note_id FROM notes WHERE source_id IN ({marks})) "
+            f"AND target_note_id IN (SELECT note_id FROM notes WHERE source_id IN ({marks}))",
+            (*ids, *ids),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
     def list_connections(self, *, relation_type: str, origin: str) -> list[dict]:
         """Edges of one relation and origin, ordered for a stable diff."""
         return self._fetchall(

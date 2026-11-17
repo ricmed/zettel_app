@@ -1030,17 +1030,30 @@ class VectorIndex:
             self.chapter_summaries.delete(ids=chapter_ids)
             logger.debug("Index: %d resumos de capitulo removidos", len(chapter_ids))
 
-    def find_similar_chunks(self, texts: list[str], n_results: int = 3) -> list[dict]:
+    def find_similar_chunks(
+        self,
+        texts: list[str],
+        n_results: int = 3,
+        *,
+        where: dict[str, Any] | None = None,
+    ) -> list[dict]:
         """Find already-indexed chunks similar to a sample of newly extracted chunks.
 
         Mirrors `query_similar_notes` but runs over the `chunks` collection, and
         supports multiple query texts at once (a representative sample of a new
-        file's chunks). Returns a flat list of match dicts, one per (query, hit)
-        pair, each with id/document/metadata/distance.
+        file's chunks). ``query_texts`` goes through the embedding function's
+        query side (``RETRIEVAL_QUERY`` on Gemini). ``where`` is a Chroma
+        metadata filter; the edition check passes ``source_id`` so only the
+        linked edition's chunks are scored. Returns a flat list of match dicts,
+        one per (query, hit) pair, each with id/document/metadata/distance.
         """
         results: list[dict] = []
         texts = [t for t in texts if t and t.strip()]
-        if not texts or self.chunks.count() == 0:
+        if where:
+            available = len((self.chunks.get(where=where) or {}).get("ids") or [])
+        else:
+            available = self.chunks.count()
+        if not texts or available == 0:
             return results
 
         from zettel.llm import clip_text
@@ -1057,10 +1070,13 @@ class VectorIndex:
             preview,
         )
 
-        raw = self.chunks.query(
-            query_texts=texts,
-            n_results=min(n_results, self.chunks.count()),
-        )
+        query_kwargs: dict[str, Any] = {
+            "query_texts": texts,
+            "n_results": min(n_results, available),
+        }
+        if where:
+            query_kwargs["where"] = where
+        raw = self.chunks.query(**query_kwargs)
         for t in texts:
             self._record_embed_usage(t, label="query_chunks", purpose="chunks", count=n_results)
         ids_lists = raw.get("ids") or []

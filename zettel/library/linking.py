@@ -57,39 +57,129 @@ def same_work(left: dict[str, Any], right: dict[str, Any]) -> bool:
     return bool(author_surnames(names(left)) & author_surnames(names(right)))
 
 
-def source_notes_lines(db: Any, source_id: str | None) -> list[str]:
-    """As LIT e ZTL da fonte, como vão no bloco de notas de leitura."""
-    from zettel.vault import literature_chunk_wikilink_for_row, permanent_wikilink
+_EMPTY_NOTES = "_Nenhuma nota de leitura ainda._"
 
-    if not source_id:
-        return ["_Nenhuma nota de leitura ainda._"]
-    source = db.get_source(source_id)
-    if not source:
-        return ["_Nenhuma nota de leitura ainda._"]
-    lines: list[str] = []
-    chunks = [
-        c
-        for c in db.get_chunks_for_source(source_id)
-        if c.get("status") in ("approved", "persisted")
+
+def _lit_item(source: dict[str, Any], chunk: dict[str, Any]) -> dict[str, Any]:
+    from zettel.vault import literature_chunk_wikilink_for_row
+
+    link = literature_chunk_wikilink_for_row(source["citekey"], chunk, with_alias=True)
+    label = link.split("|", 1)[1].rstrip("]") if "|" in link else link.strip("[]")
+    return {
+        "chunk_id": chunk["chunk_id"],
+        "label": label,
+        "wikilink": link,
+        "manual": chunk.get("status") == "persisted",
+        "page": chunk.get("page_in_book"),
+    }
+
+
+def _note_item(note: dict[str, Any]) -> dict[str, Any]:
+    from zettel.vault import permanent_wikilink
+
+    return {
+        "note_id": note["note_id"],
+        "title": note.get("title") or note["note_id"],
+        "wikilink": permanent_wikilink(
+            note["note_id"], note.get("title") or "", path=note.get("path")
+        ),
+    }
+
+
+def _source_items(db: Any, source_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    source = db.get_source(source_id) or {}
+    lits = [
+        _lit_item(source, chunk)
+        for chunk in db.get_chunks_for_source(source_id)
+        if chunk.get("status") in ("approved", "persisted")
     ]
-    if chunks:
+    notes = [_note_item(note) for note in db.get_notes_for_source(source_id)]
+    return lits, notes
+
+
+def note_groups(db: Any, source_id: str | None) -> list[dict[str, Any]]:
+    """LIT e ZTL desta edição e, depois, de cada irmã com o rótulo dela.
+
+    A nota continua com um único ``source_id``. O grupo só muda a lista.
+    """
+    from zettel.library.works import labels_for, sibling_source_ids
+
+    if not source_id or not db.get_source(source_id):
+        return []
+    siblings = sibling_source_ids(db, source_id)
+    ids = [source_id, *siblings]
+    rows = [row for sid in ids if (row := db.get_source(sid))]
+    labels = labels_for(rows) if siblings else {}
+    groups = []
+    for row in rows:
+        sid = row["source_id"]
+        lits, notes = _source_items(db, sid)
+        heading = None
+        if siblings:
+            heading = "Desta edição" if sid == source_id else labels.get(sid, sid)
+        groups.append(
+            {
+                "source_id": sid,
+                "heading": heading,
+                "own": sid == source_id,
+                "lits": lits,
+                "notes": notes,
+            }
+        )
+    return groups
+
+
+def _markdown_items(group: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    if group["lits"]:
         lines.append("**Notas de literatura**")
-        lines += [
-            f"- {literature_chunk_wikilink_for_row(source['citekey'], c, with_alias=True)}"
-            for c in chunks
-        ]
-    notes = db.get_notes_for_source(source_id)
-    if notes:
+        lines += [f"- {item['wikilink']}" for item in group["lits"]]
+    if group["notes"]:
         lines.append("**Notas permanentes**")
-        lines += [
-            f"- {permanent_wikilink(n['note_id'], n.get('title') or '', path=n.get('path'))}"
-            for n in notes
-        ]
-    return lines or ["_Nenhuma nota de leitura ainda._"]
+        lines += [f"- {item['wikilink']}" for item in group["notes"]]
+    return lines
 
 
-def write_book_notes_block(cfg: Any, db: Any, book: Any) -> None:
-    """Regrava o bloco de notas de leitura do SRC quando ele muda."""
+def source_notes_lines(db: Any, source_id: str | None) -> list[str]:
+    """As LIT e ZTL da obra, como vão no bloco de notas de leitura.
+
+    Sozinha, a ficha lista só as suas. Ligada, vem **Desta edição** e depois
+    cada irmã com o rótulo (título e formato; ISBN se os títulos coincidirem).
+    """
+    groups = note_groups(db, source_id)
+    if not groups:
+        return [_EMPTY_NOTES]
+    if len(groups) == 1 and not groups[0]["heading"]:
+        return _markdown_items(groups[0]) or [_EMPTY_NOTES]
+    lines: list[str] = []
+    for group in groups:
+        lines.append(f"**{group['heading']}**")
+        lines.extend(_markdown_items(group) or [_EMPTY_NOTES])
+    return lines
+
+
+def write_book_notes_block(cfg: Any, db: Any, book: Any, *, refresh_siblings: bool = True) -> None:
+    """Regrava o bloco de notas de leitura do SRC quando ele muda.
+
+    Ao regravar um membro, regrava as irmãs: a nota nova aparece dos dois lados
+    sem esperar o próximo sync. ``refresh_siblings=False`` evita o laço quando
+    quem chama já percorre o grupo.
+    """
+    _write_notes_block(cfg, db, book)
+    if not refresh_siblings:
+        return
+    from zettel.library.book_file import BookNotFound, load_book
+    from zettel.library.works import sibling_source_ids
+
+    for source_id in sibling_source_ids(db, book.source_id):
+        try:
+            other = load_book(cfg, source_id)
+        except BookNotFound:
+            continue
+        _write_notes_block(cfg, db, other)
+
+
+def _write_notes_block(cfg: Any, db: Any, book: Any) -> None:
     from zettel.vault import MalformedManagedBlock, upsert_managed_block
 
     inner = "\n".join(source_notes_lines(db, book.source_id))

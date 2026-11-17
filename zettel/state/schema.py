@@ -83,6 +83,9 @@ CREATE TABLE IF NOT EXISTS sources (
     rating_profile       TEXT,
     score                REAL,
     favorite             INTEGER NOT NULL DEFAULT 0,
+    -- Obra que reúne edições (ADR-071). Vazio no arquivo vira NULL. Um banco
+    -- já existente ganha a coluna em StateDB._ensure_source_reader_columns.
+    work_id              TEXT,
     shelf_mtime_ns       INTEGER,
     shelf_size           INTEGER,
     shelf_schema_stamp   TEXT NOT NULL DEFAULT '',
@@ -463,6 +466,7 @@ SOURCE_READER_COLUMNS: tuple[tuple[str, str], ...] = (
     ("rating_profile", "TEXT"),
     ("score", "REAL"),
     ("favorite", "INTEGER NOT NULL DEFAULT 0"),
+    ("work_id", "TEXT"),
     ("shelf_mtime_ns", "INTEGER"),
     ("shelf_size", "INTEGER"),
     ("shelf_schema_stamp", "TEXT NOT NULL DEFAULT ''"),

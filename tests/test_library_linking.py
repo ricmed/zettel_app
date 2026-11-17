@@ -102,6 +102,24 @@ def test_reset_keeps_the_src_and_the_next_harvest_reuses_it(cfg, db):
     fresh.close()
 
 
+def test_work_id_is_blank_until_set_and_survives_harvest(cfg, db):
+    path = _markdown(cfg, "h.md", title="O Hobbit", author="Tolkien", doc_type="livro")
+    sid = _harvest(cfg, db, path)
+    book = bf.load_book(cfg, sid)
+    assert not str(book.meta.get("work_id") or "").strip()
+    book.meta["work_id"] = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    bf.save_book(cfg, book, expected_version=book.version)
+    assert bf.load_book(cfg, sid).meta["work_id"] == "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+
+    path.write_text(path.read_text(encoding="utf-8") + "\n\nMais um paragrafo.", encoding="utf-8")
+    cfg.harvest.modified_file_action = "update"
+    assert _harvest(cfg, db, path) == sid
+    kept = bf.load_book(cfg, sid)
+    assert kept.meta["work_id"] == "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    refresh(db, cfg)
+    assert db.get_source(sid)["work_id"] == "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+
+
 def test_book_notes_block_lists_the_source_notes(cfg, db):
     sid = _harvest(
         cfg, db, _markdown(cfg, "h.md", title="O Hobbit", author="Tolkien", doc_type="livro")

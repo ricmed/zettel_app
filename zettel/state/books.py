@@ -35,6 +35,7 @@ _SHELF_COLUMNS = (
     "rating_profile",
     "score",
     "favorite",
+    "work_id",
     "shelf_mtime_ns",
     "shelf_size",
     "shelf_schema_stamp",
@@ -68,6 +69,15 @@ class BooksMixin(StateBase):
                 f"UPDATE sources SET {sets} WHERE source_id=?",
                 (*values, source_id),
             )
+
+    def sources_by_work(self, work_id: str) -> list[dict]:
+        """Fontes que declaram este ``work_id``. Vazio não agrupa ninguém."""
+        if not str(work_id or "").strip():
+            return []
+        return self._fetchall(
+            "SELECT * FROM sources WHERE work_id=? ORDER BY zfold(title), source_id",
+            (work_id.strip(),),
+        )
 
     def shelf_stamps(self) -> dict[str, dict[str, Any]]:
         """``source_id ->`` o carimbo com que o espelho leu o arquivo da última vez."""
