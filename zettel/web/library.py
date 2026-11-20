@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -499,6 +500,57 @@ def _work_choices(cfg: Any, db: Any, source_id: str) -> list[dict[str, str]]:
     return shelf_choices(cfg, db, source_id)
 
 
+def _note_search(request: Request, source_id: str, groups: list[dict[str, Any]]) -> dict[str, Any]:
+    """Totais da obra e a página de 10 da busca (tipo LIT, ZTL ou ambas)."""
+    from zettel.library.linking import (
+        match_work_notes,
+        page_work_notes,
+        work_note_rows,
+        work_note_totals,
+    )
+
+    lit_total, ztl_total = work_note_totals(groups)
+    query = (request.query_params.get("q") or "").strip()[:200]
+    tipo = request.query_params.get("tipo") or "ambas"
+    if tipo not in ("lit", "ztl", "ambas"):
+        tipo = "ambas"
+    raw_page = request.query_params.get("pagina") or "1"
+    page = int(raw_page) if raw_page.isdecimal() and len(raw_page) <= 6 and int(raw_page) > 0 else 1
+    matched = match_work_notes(work_note_rows(groups), query=query, kind=tipo)
+    visible, current, pages = page_work_notes(matched, page=page)
+    own_note_ids = [
+        note["note_id"] for group in groups if group.get("own") for note in group["notes"]
+    ]
+
+    def page_url(number: int) -> str:
+        params: dict[str, str] = {}
+        if query:
+            params["q"] = query
+        if tipo != "ambas":
+            params["tipo"] = tipo
+        if number > 1:
+            params["pagina"] = str(number)
+        encoded = urlencode(params)
+        target = f"/books/{source_id}"
+        return f"{target}?{encoded}#notas" if encoded else f"{target}#notas"
+
+    return {
+        "lit_total": lit_total,
+        "ztl_total": ztl_total,
+        "note_query": query,
+        "note_tipo": tipo,
+        "note_matched": len(matched),
+        "note_page": visible,
+        "note_current": current,
+        "note_pages": pages,
+        "note_previous_url": page_url(current - 1) if current > 1 else None,
+        "note_next_url": page_url(current + 1) if current < pages else None,
+        "own_note_ids": own_note_ids,
+        "work_linked": any(group.get("heading") for group in groups),
+        "show_llm_hint": any(item["own"] and item["kind"] == "lit" for item in visible),
+    }
+
+
 def _source_view(db: Any, source_id: str | None) -> dict[str, Any]:
     from zettel.library.linking import note_groups
 
@@ -615,6 +667,7 @@ def _book_page(
         biblio=biblio,
         today=_today(cfg).isoformat(),
         **view,
+        **_note_search(request, book.source_id, view.get("note_groups") or []),
     )
 
 

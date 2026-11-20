@@ -34,6 +34,7 @@
 .book-facts dd{margin:2px 0 0}
 .inline-form{display:inline-flex;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0}
 .reading-actions{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px}
+.library-pagination{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:12px;color:var(--muted);font-size:13px}
 .readings,.book-notes{list-style:none;padding:0;margin:0}
 .readings li,.book-notes li{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}
 .rating-form table{width:100%}

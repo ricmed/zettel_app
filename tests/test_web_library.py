@@ -705,8 +705,8 @@ def test_same_work_lists_the_sibling_and_confirms_before_a_similar_note(web_clie
     finally:
         db.close()
     linked = client.get(f"/books/{portuguese}").text
-    assert "O que sao agentes" in linked and "Desta edição" in linked
-    assert "Building Applications" in linked
+    assert "O que sao agentes" in linked and "Building Applications — Digital" in linked
+    assert "1</b> nota de literatura" in linked and "1</b> nota permanente" in linked
 
     fake = FakeVectorIndex(chunks={chunk_id: 0.1})
     fake.upsert_chunk(chunk_id, "Agents act.", {"source_id": english})
@@ -788,3 +788,56 @@ def test_same_work_lists_the_sibling_and_confirms_before_a_similar_note(web_clie
     )
     assert direct.status_code == 303
     assert len(opened) == before
+
+
+def test_book_notes_search_filters_and_pages_ten_at_a_time(web_client):
+    """A obra mostra os totais e devolve a busca em páginas de dez."""
+    import re
+
+    client, _ = web_client
+    csrf = login(client)
+    book_id = _create(client, csrf, title="Livro longo", authors="Autora", format="fisico")
+    source_id = bf.load_book(_cfg(client), book_id).source_id
+    db = client.app.state.service.db()
+    try:
+        for index in range(1, 11):
+            db.upsert_note(
+                f"N-{index:02d}",
+                source_id,
+                None,
+                title=f"Nota {index:02d} sobre agentes",
+                body="tese",
+            )
+        db.upsert_note("N-mapa", source_id, None, title="Mapa de capítulos", body="tese")
+        for index, note_id in enumerate([f"N-{i:02d}" for i in range(1, 11)] + ["N-mapa"], start=1):
+            db.conn.execute(
+                "UPDATE notes SET created_at=? WHERE note_id=?",
+                (f"2026-01-01T00:00:{index:02d}", note_id),
+            )
+        db.conn.commit()
+    finally:
+        db.close()
+
+    def titles(html: str) -> list[str]:
+        return re.findall(r'data-kind="ztl">.*?<a href="/notes/[^"]+">([^<]+)</a>', html, re.S)
+
+    first = client.get(f"/books/{source_id}").text
+    second = client.get(f"/books/{source_id}", params={"pagina": "2"}).text
+    assert "0</b> notas de literatura" in first
+    assert "11</b> notas permanentes" in first
+    assert "11 itens encontrados" in first and "página 1 de 2" in first
+    assert len(titles(first)) == 10 and len(titles(second)) == 1
+    assert set(titles(first)).isdisjoint(titles(second))
+    assert set(titles(first) + titles(second)) == {
+        *[f"Nota {index:02d} sobre agentes" for index in range(1, 11)],
+        "Mapa de capítulos",
+    }
+
+    only_lit = client.get(f"/books/{source_id}", params={"tipo": "lit"}).text
+    assert "0 itens encontrados" in only_lit
+    assert "Nenhuma nota corresponde à busca." in only_lit
+    assert 'data-kind="ztl"' not in only_lit
+
+    found = client.get(f"/books/{source_id}", params={"q": "mapa", "tipo": "ztl"}).text
+    assert titles(found) == ["Mapa de capítulos"]
+    assert "1 item encontrado" in found

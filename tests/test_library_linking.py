@@ -8,7 +8,14 @@ import pytest
 from zettel.config import HarvestConfig
 from zettel.harvester.pipeline import _process_file, run_harvest
 from zettel.library import book_file as bf
-from zettel.library.linking import source_notes_lines, sync_library
+from zettel.library.linking import (
+    match_work_notes,
+    page_work_notes,
+    source_notes_lines,
+    sync_library,
+    work_note_rows,
+    work_note_totals,
+)
 from zettel.library.mirror import refresh
 from zettel.manual_lit import ensure_manual_chapter
 
@@ -212,3 +219,29 @@ def test_shelf_codes_follow_one_sequence_including_articles(cfg, db):
     assert chapter not in ids
     assert all(b.code for b in books)
     assert sync_library(cfg, db).shelved == []
+
+
+def test_work_notes_filter_by_kind_and_title_then_page_by_ten():
+    groups = [
+        {
+            "heading": "Desta edição",
+            "own": True,
+            "lits": [{"chunk_id": "c1", "label": "p. 1 — Decisão do agente", "manual": True}],
+            "notes": [{"note_id": f"N{i}", "title": f"Nota {i}"} for i in range(12)],
+        },
+        {
+            "heading": "Outra edição — Digital",
+            "own": False,
+            "lits": [],
+            "notes": [{"note_id": "Nx", "title": "Mapa"}],
+        },
+    ]
+    assert work_note_totals(groups) == (1, 13)
+    rows = work_note_rows(groups)
+    assert match_work_notes(rows, query="decisao", kind="lit")[0]["chunk_id"] == "c1"
+    assert match_work_notes(rows, query="decisao", kind="ztl") == []
+    ztl = match_work_notes(rows, query="", kind="ztl")
+    first, page, pages = page_work_notes(ztl, page=1)
+    second, _, _ = page_work_notes(ztl, page=99)
+    assert (len(first), len(second), page, pages) == (10, 3, 1, 2)
+    assert {row["note_id"] for row in first}.isdisjoint({row["note_id"] for row in second})

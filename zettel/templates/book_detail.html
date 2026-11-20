@@ -137,26 +137,63 @@
     {% endif %}
   </div>
   {% endif %}
-  {% for group in note_groups %}
-  {% if group.heading %}<h3>{{ group.heading }}</h3>{% endif %}
-  <div class="grid-2">
-    <div>
-      <h3>Literatura (LIT)</h3>
-      {% if group.lits %}<ul class="book-notes">{% for lit in group.lits %}<li><span>{{ lit.label }}{% if lit.manual %} <span class="tag">manual</span>{% endif %}</span>
-        {% if group.own %}<form method="post" action="/books/{{ book.source_id }}/permanent" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="chunk_id" value="{{ lit.chunk_id }}">
-          <label class="check"><input type="checkbox" name="use_llm" value="1" {% if not connect_llm_ready %}disabled{% endif %}> com LLM</label>
-          <button class="link-button" type="submit">Gerar ZTL</button></form>{% endif %}</li>{% endfor %}</ul>
-      {% if group.own and not connect_llm_ready %}<small class="muted">Gerar com LLM exige a credencial da fase connect.</small>{% endif %}
-      {% else %}<div class="empty">Nenhuma nota de literatura.</div>{% endif %}
-    </div>
-    <div>
-      <h3>Permanentes (ZTL)</h3>
-      {% if group.notes %}<ul class="book-notes">{% for n in group.notes %}<li><a href="/notes/{{ n.note_id }}">{{ n.title }}</a></li>{% endfor %}</ul>
-      {% if group.own %}{{ mesa_add(desks, 'mesa-book', notes|map(attribute='note_id')|list, 'Levar as ZTL à mesa') }}{% endif %}
-      {% else %}<div class="empty">Nenhuma nota permanente.</div>{% endif %}
-    </div>
-  </div>
-  {% endfor %}
+  <p>
+    {% if work_linked %}Na obra{% else %}Nesta edição{% endif %}:
+    <b>{{ lit_total }}</b> {% if lit_total == 1 %}nota de literatura{% else %}notas de literatura{% endif %}
+    · <b>{{ ztl_total }}</b> {% if ztl_total == 1 %}nota permanente{% else %}notas permanentes{% endif %}.
+  </p>
+  {% if lit_total or ztl_total %}
+  <form method="get" action="/books/{{ book.source_id }}#notas" class="shelf-filters">
+    <label>Buscar <input type="search" name="q" value="{{ note_query }}" maxlength="200" aria-label="Buscar nas notas da obra"></label>
+    <label>Tipo
+      <select name="tipo" aria-label="Filtrar por literatura ou permanente">
+        <option value="ambas" {% if note_tipo == 'ambas' %}selected{% endif %}>LIT e ZTL</option>
+        <option value="lit" {% if note_tipo == 'lit' %}selected{% endif %}>Literatura (LIT)</option>
+        <option value="ztl" {% if note_tipo == 'ztl' %}selected{% endif %}>Permanentes (ZTL)</option>
+      </select>
+    </label>
+    <button class="button" type="submit">Buscar</button>
+    {% if note_query or note_tipo != 'ambas' %}<a href="/books/{{ book.source_id }}#notas">Limpar</a>{% endif %}
+  </form>
+  <p class="muted">{{ note_matched }} {% if note_matched == 1 %}item encontrado{% else %}itens encontrados{% endif %}{% if note_matched %} · página {{ note_current }} de {{ note_pages }}{% endif %}.</p>
+  {% if note_page %}
+  <ul class="book-notes">
+    {% for item in note_page %}
+    <li data-kind="{{ item.kind }}">
+      <span>
+        <span class="tag">{% if item.kind == 'lit' %}LIT{% else %}ZTL{% endif %}</span>
+        {% if item.kind == 'ztl' %}<a href="/notes/{{ item.note_id }}">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}
+        {% if item.manual %} <span class="tag">manual</span>{% endif %}
+        {% if item.edition %} <span class="muted">{{ item.edition }}</span>{% endif %}
+      </span>
+      {% if item.own and item.kind == 'lit' %}
+      <form method="post" action="/books/{{ book.source_id }}/permanent" class="inline-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="chunk_id" value="{{ item.chunk_id }}">
+        <label class="check"><input type="checkbox" name="use_llm" value="1" {% if not connect_llm_ready %}disabled{% endif %}> com LLM</label>
+        <button class="link-button" type="submit">Gerar ZTL</button>
+      </form>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% if show_llm_hint and not connect_llm_ready %}
+  <small class="muted">Gerar com LLM exige a credencial da fase connect.</small>
+  {% endif %}
+  {% else %}
+  <div class="empty">Nenhuma nota corresponde à busca.</div>
+  {% endif %}
+  {% if note_pages > 1 %}
+  <nav class="library-pagination" aria-label="Paginação das notas">
+    {% if note_previous_url %}<a class="button" href="{{ note_previous_url }}" rel="prev">← Anterior</a>{% else %}<span></span>{% endif %}
+    <span>Página {{ note_current }} de {{ note_pages }}</span>
+    {% if note_next_url %}<a class="button" href="{{ note_next_url }}" rel="next">Próxima →</a>{% else %}<span></span>{% endif %}
+  </nav>
+  {% endif %}
+  {% if own_note_ids %}{{ mesa_add(desks, 'mesa-book', own_note_ids, 'Levar as ZTL desta edição à mesa') }}{% endif %}
+  {% else %}
+  <div class="empty">Nenhuma nota de leitura.</div>
+  {% endif %}
   <details {% if not lits or edition_notice %}open{% endif %}><summary>Nova nota de leitura</summary>
     <form method="post" action="/books/{{ book.source_id }}/reading-notes" class="book-form">
       <input type="hidden" name="csrf" value="{{ csrf }}">

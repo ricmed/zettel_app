@@ -140,6 +140,84 @@ def _markdown_items(group: dict[str, Any]) -> list[str]:
     return lines
 
 
+NOTES_PAGE_SIZE = 10
+
+
+def work_note_rows(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Uma linha por LIT ou ZTL da obra, na ordem dos grupos (esta edição primeiro)."""
+    rows: list[dict[str, Any]] = []
+    for group in groups:
+        edition = group.get("heading") or ""
+        own = bool(group.get("own"))
+        for lit in group["lits"]:
+            rows.append(
+                {
+                    "kind": "lit",
+                    "title": lit["label"],
+                    "edition": edition,
+                    "own": own,
+                    "chunk_id": lit["chunk_id"],
+                    "note_id": None,
+                    "manual": bool(lit.get("manual")),
+                }
+            )
+        for note in group["notes"]:
+            rows.append(
+                {
+                    "kind": "ztl",
+                    "title": note.get("title") or note["note_id"],
+                    "edition": edition,
+                    "own": own,
+                    "chunk_id": None,
+                    "note_id": note["note_id"],
+                    "manual": False,
+                }
+            )
+    return rows
+
+
+def work_note_totals(groups: list[dict[str, Any]]) -> tuple[int, int]:
+    """Quantas LIT e ZTL a obra tem, somando esta edição e as irmãs."""
+    return (
+        sum(len(group["lits"]) for group in groups),
+        sum(len(group["notes"]) for group in groups),
+    )
+
+
+def match_work_notes(rows: list[dict[str, Any]], *, query: str, kind: str) -> list[dict[str, Any]]:
+    """Filtra por tipo (``lit``, ``ztl`` ou ``ambas``) e por um trecho do título.
+
+    A comparação dobra acentos e maiúsculas. O título da nota é o que entra;
+    o rótulo da edição não, para "digital" não devolver a edição inteira.
+    """
+    from zettel.search_terms import fold
+
+    needle = fold(query)
+    wanted = kind if kind in ("lit", "ztl") else "ambas"
+    matched: list[dict[str, Any]] = []
+    for row in rows:
+        if wanted != "ambas" and row["kind"] != wanted:
+            continue
+        if needle and needle not in fold(row.get("title")):
+            continue
+        matched.append(row)
+    return matched
+
+
+def page_work_notes(
+    rows: list[dict[str, Any]], *, page: int, page_size: int = NOTES_PAGE_SIZE
+) -> tuple[list[dict[str, Any]], int, int]:
+    """A página pedida, o número dela (já limitado) e quantas páginas existem.
+
+    Uma busca vazia continua sendo uma página. Página além do fim volta à última.
+    """
+    total = len(rows)
+    pages = max(1, (total + page_size - 1) // page_size) if page_size else 1
+    current = min(page if page > 0 else 1, pages)
+    start = (current - 1) * page_size
+    return rows[start : start + page_size], current, pages
+
+
 def source_notes_lines(db: Any, source_id: str | None) -> list[str]:
     """As LIT e ZTL da obra, como vão no bloco de notas de leitura.
 
