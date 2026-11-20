@@ -16,7 +16,7 @@ Os três terminam no `zettel doctor`, que lista o que ainda falta.
 
 | Requisito | Detalhe |
 |---|---|
-| **[uv](https://docs.astral.sh/uv/)** | Gerencia o ambiente, as dependências ([`uv.lock`](../uv.lock)) e o próprio Python. É o único requisito obrigatório. |
+| **[uv](https://docs.astral.sh/uv/)** | Gerencia o ambiente, as dependências ([`uv.lock`](../uv.lock)) e o próprio Python. O [script de setup](#caminho-1-script-de-setup) instala o uv se ele faltar. O [passo a passo](#caminho-2-passo-a-passo) pede o uv já instalado. |
 | **Python 3.12** | Não é preciso instalar à mão: o uv lê o [`.python-version`](../.python-version) e baixa o 3.12 se ele faltar. |
 | **Chaves de API** | O [`config/config.yaml`](../config/config.yaml) padrão usa **quatro provedores**. Veja [Chaves de API](#chaves-de-api). |
 | **GPU NVIDIA** (opcional) | Acelera o Docling (layout e tabelas de PDF) e os embeddings locais. Sem GPU tudo roda em CPU. |
@@ -37,6 +37,8 @@ Opcionais, só para certos usos:
 ---
 
 ## Instalar o uv
+
+Só para o passo a passo manual. O script de setup faz esta instalação sozinho.
 
 ```bash
 # Linux / macOS
@@ -71,9 +73,10 @@ scripts/setup.sh
 
 O script executa, em ordem:
 
-1. **Instala as dependências.** Com `nvidia-smi` no sistema escolhe o torch CUDA; sem ele, o torch CPU. `-Cpu`/`-Cuda` (PowerShell) ou `--cpu`/`--cuda` (bash) forçam a escolha.
-2. **Prepara o `.env`.** Copia o `.env.example` quando o `.env` não existe e gera um `SESSION_SECRET` quando ele está vazio.
-3. **Roda `zettel init` e `zettel doctor`.**
+1. **Garante o uv.** Se o comando não está no `PATH`, instala o binário oficial em `~/.local/bin` e segue na mesma execução. O uv baixa o Python 3.12.
+2. **Instala as dependências.** Com `nvidia-smi` no sistema escolhe o torch CUDA; sem ele, o torch CPU. `-Cpu`/`-Cuda` (PowerShell) ou `--cpu`/`--cuda` (bash) forçam a escolha. Se o índice do PyTorch republicar uma roda de `torch` ou `torchvision` e o hash do `uv.lock` não bater, o script atualiza o lock só desses dois pacotes, grava o hash da roda baixada quando o índice não publica um, e tenta o sync outra vez.
+3. **Prepara o `.env`.** Copia o `.env.example` quando o `.env` não existe e gera um `SESSION_SECRET` quando ele está vazio.
+4. **Roda `zettel init` e `zettel doctor`.**
 
 Rodar de novo não estraga nada: o `.env` e o segredo já gravados ficam como estão. Depois:
 

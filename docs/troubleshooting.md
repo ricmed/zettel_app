@@ -35,6 +35,10 @@ A linha nomeia a variável que falta (`anthropic / claude-haiku-5-5: falta ANTHR
 
 ---
 
+## Hash mismatch ao instalar `torch` ou `torchvision`
+
+O índice CUDA às vezes publica a roda sem o sha256 do arquivo, ou troca o arquivo sem mudar a versão. Rode de novo o script de setup: ele atualiza o lock só desses pacotes, grava o hash da roda que o `uv` baixou e tenta o sync outra vez. No passo a passo manual, o equivalente é `uv lock --refresh-package torch --refresh-package torchvision` e, se o `uv.lock` ainda não tiver o hash dessa roda, gravar o sha256 que a mensagem `Computed` mostrou.
+
 ## O torch virou CPU (ou baixou CUDA) depois de um `uv run`
 
 O torch é instalado por um extra (`uv sync --extra cpu` ou `--extra cu126`). Um `uv run` **sem** `--no-sync` ressincroniza o ambiente sem o extra e põe no lugar o torch do PyPI: só CPU no Windows, com as bibliotecas CUDA 13 no Linux. Para voltar:

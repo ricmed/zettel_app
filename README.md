@@ -68,19 +68,7 @@ MOCs (portas de entrada) por categoria da taxonomia + clusterização
 
 ## Início rápido
 
-O único requisito é o **[uv](https://docs.astral.sh/uv/)**: ele baixa o Python 3.12 sozinho.
-
-```bash
-# Linux / macOS: instale o uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-```powershell
-# Windows: instale o uv
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-Depois, dentro do clone, rode o setup. Ele escolhe o torch (CUDA se houver `nvidia-smi`, senão CPU), cria o `.env` com um `SESSION_SECRET` gerado e roda `init` e `doctor`:
+Não há ferramenta para instalar antes. Dentro do clone, o setup baixa o [uv](https://docs.astral.sh/uv/) se ele faltar, e o uv baixa o Python 3.12. O script escolhe o torch (CUDA se houver `nvidia-smi`, senão CPU), cria o `.env` com um `SESSION_SECRET` gerado e roda `init` e `doctor`:
 
 ```bash
 scripts/setup.sh                                          # Linux / macOS
