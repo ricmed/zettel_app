@@ -426,7 +426,7 @@ def book_create(request: Request, form: FormData = Depends(read_form)):
                 cfg,
                 {
                     "title": values["title"],
-                    "authors": authors,
+                    "citekey_seed_authors": authors,
                     "format": values.get("format"),
                     "status": values.get("status"),
                     "document_type": values.get("document_type") or "livro",

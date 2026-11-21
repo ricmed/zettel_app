@@ -439,7 +439,10 @@ def create_book(cfg: Any, fields: dict[str, Any], db: Any | None = None) -> Book
     reserved: Path | None = None
     try:
         explicit = bool(str(fields.get("citekey") or "") or str(fields.get("source_id") or ""))
-        citekey = str(fields.get("citekey") or "") or generate_citekey(db, authors, year, title)
+        citekey_authors = as_str_list(fields.get("citekey_seed_authors") or authors)
+        citekey = str(fields.get("citekey") or "") or generate_citekey(
+            db, citekey_authors, year, title
+        )
         # Duas fichas órfãs com o mesmo título nascem juntas, antes de existir
         # linha no SQLite. O arquivo que a primeira acabou de gravar também
         # ocupa o nome curto: a segunda não pode reescrever a primeira.

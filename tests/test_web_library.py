@@ -23,7 +23,9 @@ def _create(client, csrf, **fields) -> str:
     data = {"csrf": csrf, "title": "O Hobbit", "format": "fisico", "status": "quero_ler", **fields}
     response = client.post("/books", data=data, follow_redirects=False)
     assert response.status_code == 303, response.text
-    return response.headers["location"].rsplit("/", 1)[-1]
+    from urllib.parse import unquote
+
+    return unquote(response.headers["location"].rsplit("/", 1)[-1])
 
 
 def _version(client, book_id: str) -> str:
