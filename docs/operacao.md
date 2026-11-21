@@ -179,7 +179,7 @@ Sem um backup, `init --reset` descarta a fonte de verdade do pipeline. Só o rep
 
 ## Backup
 
-`zettel backup` grava um `.zettelbak` cifrado do acervo. `zettel restore` aplica esse arquivo aqui. Os dois tomam a trava `data/zettel.lock`. Não há tela na web. Detalhe das flags: [cli.md](cli.md#backup). A decisão é [ADR-072](adrs/generated/INFRA/ADR-072-encrypted-backup-archive.md). O restore em outra pasta acha as notas porque `origin_path`, `files.path`, `literature_note_path`, `notes.path`, `mocs.path` e `projects.path` são relativos ao vault ou à inbox.
+`zettel backup` grava um `.zettelbak` cifrado do acervo. `zettel restore` aplica esse arquivo aqui. Os dois tomam a trava `data/zettel.lock`. A mesma operação está em `/backup` (menu e link em Configuração): a senha vai num arquivo temporário fora do vault e não entra no trabalho. Detalhe das flags: [cli.md](cli.md#backup). A decisão é [ADR-072](adrs/generated/INFRA/ADR-072-encrypted-backup-archive.md). O restore em outra pasta acha as notas porque `origin_path`, `files.path`, `literature_note_path`, `notes.path`, `mocs.path` e `projects.path` são relativos ao vault ou à inbox.
 
 ```bash
 python -m zettel backup acervo.zettelbak

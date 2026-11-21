@@ -98,3 +98,9 @@ After the write, `run_rebuild_vault(..., force=False)` recreates vault files the
 ## Addendum: paths are relative to the vault or the inbox
 
 `origin_path`, `files.path`, `literature_note_path`, `notes.path`, `mocs.path` and `projects.path` are stored relative to the vault or, for an inbox original, relative to the inbox. A file outside both stays absolute. Restore into another directory works because those fields name a place inside the restored tree, not a drive letter from the machine that made the backup. Covers and `assets.path` were already vault-relative. `scripts/relativize_stored_paths.py` rewrites rows and SRC frontmatter that were stored before this; it is not part of the package.
+
+## Addendum: the web page
+
+The non-goal "no web UI" is amended. An authenticated page at `/backup` downloads a `.zettelbak` and restores one. It calls the same `create_backup` and `restore_backup` as the CLI. The passphrase is a `type=password` field with `autocomplete=off`. It is written to a temp file outside the vault and deleted when the job finishes. It is not stored in `web_jobs.payload_json`, in a job event, or in the URL. The payload holds only the flags. Chroma starts included and the inbox starts excluded. Restore asks for the word `restaurar`. `force_env` and `rotate_session` start off.
+
+The 26 MB body limit still applies to every other route. Only `POST /backup/restaurar` accepts a larger body, and it stops at the archive cap (10 GiB, 100,000 members), counting bytes as it writes. A wrong passphrase or a damaged file fails the job with `senha incorreta ou arquivo danificado`, writes nothing, and does not repeat the passphrase. Before replacing `state.db` the worker closes the SQLite connection it opened. Afterwards it drops the cached session key, and the page says the user has to log in again. The page does not run `reindex`.

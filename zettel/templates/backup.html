@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Backup · Zettelkasten{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">acervo</div>
+    <h1>Backup</h1>
+    <p class="muted">O arquivo é cifrado. A senha não fica no banco de trabalhos nem no endereço.</p>
+  </div>
+</div>
+<section class="panel">
+  <h2>Baixar um backup</h2>
+  <form method="post" action="/backup">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Senha <input type="password" name="passphrase" autocomplete="off" required></label>
+    <label><input type="checkbox" name="include_chroma" value="1" checked> Incluir o índice Chroma</label>
+    <label><input type="checkbox" name="include_inbox" value="1"> Incluir o inbox</label>
+    <button class="button" type="submit">Criar backup</button>
+  </form>
+</section>
+<section class="panel">
+  <h2>Restaurar</h2>
+  <p class="muted">Depois de restaurar é preciso entrar de novo. O índice não é reconstruído aqui.</p>
+  <form method="post" action="/backup/restaurar" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Arquivo .zettelbak <input type="file" name="arquivo" required></label>
+    <label>Senha <input type="password" name="passphrase" autocomplete="off" required></label>
+    <label>Digite restaurar <input type="text" name="confirmar" autocomplete="off" required></label>
+    <label><input type="checkbox" name="force_env" value="1"> Substituir o .env existente</label>
+    <label><input type="checkbox" name="rotate_session" value="1"> Trocar a chave de sessão gravada no backup</label>
+    <button class="button" type="submit">Restaurar</button>
+  </form>
+</section>
+{% endblock %}

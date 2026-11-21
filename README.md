@@ -115,7 +115,7 @@ Os exemplos abaixo usam `python -m zettel ...`; prefixe com `uv run --no-sync` s
 | `zettel obsidian-templates`       | Gera `99_Templates/` a partir dos scaffolds do `new-note`; `--force` regrava |
 | `zettel obsidian-setup`           | Templates, plugin Templater e `.obsidian/` num vault existente |
 | `zettel suggest-links`            | Sugere conexões (incl. analogias distantes) sem reescrever a ZTL             |
-| `zettel backup` / `zettel restore` | Arquivo cifrado `.zettelbak` do banco, do vault, do Chroma e do `.env`; a senha não fica no arquivo nem na linha de comando. O restore não troca o `.env` sem `--force-env` |
+| `zettel backup` / `zettel restore` | Arquivo cifrado `.zettelbak` do banco, do vault, do Chroma e do `.env`; a senha não fica no arquivo nem na linha de comando. O restore não troca o `.env` sem `--force-env`. A mesma operação está na página `/backup` |
 | `zettel status` / `zettel doctor` | Estatísticas do pipeline / diagnóstico de config e dependências              |
 | `zettel db-report`                | Relatório de tamanho e conteúdo de `state.db` e Chroma                       |
 | `zettel run-all`                  | Pipeline completo, do inbox aos MOCs                                         |
@@ -251,7 +251,7 @@ Páginas, operações enfileiráveis e recuperação após reinício: [docs/inte
 
 ## Configuração
 
-A **fonte operacional** é `[config/config.yaml](config/config.yaml)` — é o arquivo que o CLI e a web carregam. `[zettel/config.py](zettel/config.py)` define o schema Pydantic e só aplica fallback quando o YAML falta ou omite uma chave. Segredos (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY`, `TYPESAFE_API_KEY`, `SESSION_SECRET`) ficam no `.env`. `zettel backup` pode levar esse `.env` para dentro do `.zettelbak` cifrado; a senha do backup não é gravada.
+A **fonte operacional** é `[config/config.yaml](config/config.yaml)` — é o arquivo que o CLI e a web carregam. `[zettel/config.py](zettel/config.py)` define o schema Pydantic e só aplica fallback quando o YAML falta ou omite uma chave. Segredos (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY`, `TYPESAFE_API_KEY`, `SESSION_SECRET`) ficam no `.env`. `zettel backup` e a página `/backup` podem levar esse `.env` para dentro do `.zettelbak` cifrado; a senha do backup não é gravada.
 
 
 | Bloco                                                                                    | Controla                                                                                                                             |

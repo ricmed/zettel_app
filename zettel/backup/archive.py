@@ -531,10 +531,13 @@ def _install(path: Path, data: bytes, *, restricted: bool, sqlite: bool) -> None
 
 
 def _discard_sqlite_sidecars(path: Path) -> None:
+    """Drop WAL sidecars so the snapshot just written is the database that opens.
+
+    A checkpoint may remove the file between the existence check and the
+    unlink. Absence is the state this function wants.
+    """
     for suffix in ("-wal", "-shm"):
-        sidecar = Path(str(path) + suffix)
-        if sidecar.is_file():
-            sidecar.unlink()
+        Path(str(path) + suffix).unlink(missing_ok=True)
 
 
 def _publish_restricted(path: Path, data: bytes) -> None:

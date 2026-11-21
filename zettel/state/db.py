@@ -53,6 +53,10 @@ class StateDB(*MIXINS):
     def __init__(self, db_path: Path | str):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._connect()
+
+    def _connect(self) -> None:
+        """Open ``db_path`` and apply the schema. ``reopen`` uses the same path."""
         self.conn = sqlite3.connect(str(self.db_path))
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL;")
@@ -109,7 +113,20 @@ class StateDB(*MIXINS):
         return True
 
     def close(self) -> None:
-        self.conn.close()
+        """Close the connection. A second call is a no-op."""
+        try:
+            self.conn.close()
+        except sqlite3.ProgrammingError:
+            return
+
+    def reopen(self) -> None:
+        """Close and open the file again.
+
+        Restore replaces ``state.db`` while this object is the worker's
+        connection. The next statement has to see the file that was just written.
+        """
+        self.close()
+        self._connect()
 
     def vacuum(self) -> None:
         """Reclaim free pages after bulk deletes (does not change logical data).

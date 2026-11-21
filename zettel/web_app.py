@@ -153,6 +153,11 @@ class JobContext:
     sessions: dict[str, Any]
     job_id: str
     _idx: Any = None
+    secret_path: Path | None = None
+    archive_path: Path | None = None
+    env_path: Path | None = None
+    publish_download: Callable[[Path], None] | None = None
+    forget_session: Callable[[], None] | None = None
 
     @property
     def idx(self) -> Any:
@@ -627,6 +632,11 @@ class WebWorker:
         # When each article parked, by the worker's clock (#317).
         self._parked_since: dict[str, float] = {}
         self._clock = clock
+        self._files_lock = threading.Lock()
+        # Passphrase file and optional upload, keyed by job, never written to SQLite.
+        self._pending: dict[str, tuple[Path, Path | None]] = {}
+        self._downloads: dict[str, Path] = {}
+        self.forget_session: Callable[[], None] | None = None
 
     def _db(self) -> StateDB:
         return StateDB(self.config.get().state_db_path)
@@ -691,6 +701,51 @@ class WebWorker:
             return None
         self._wake.set()
         return job_id
+
+    def submit_secret(
+        self,
+        operation: str,
+        payload: dict[str, Any],
+        passphrase_file: Path,
+        archive_file: Path | None,
+    ) -> str | None:
+        """Queue a job whose passphrase lives in ``passphrase_file``, not in the payload.
+
+        The files are registered before the row exists, so the worker cannot
+        start the job without them. A refused queue deletes the files.
+        """
+        job_id = uuid4().hex
+        with self._files_lock:
+            self._pending[job_id] = (passphrase_file, archive_file)
+        db = self._db()
+        try:
+            created = db.create_web_job(job_id, operation, payload)
+        finally:
+            db.close()
+        if not created:
+            self._discard_pending(job_id)
+            return None
+        self._wake.set()
+        return job_id
+
+    def claim_download(self, job_id: str) -> Path | None:
+        """Take the backup file for one download. A second call finds nothing."""
+        with self._files_lock:
+            return self._downloads.pop(job_id, None)
+
+    def _store_download(self, job_id: str, path: Path) -> None:
+        with self._files_lock:
+            self._downloads[job_id] = path
+
+    def _take_pending(self, job_id: str) -> tuple[Path | None, Path | None]:
+        with self._files_lock:
+            return self._pending.pop(job_id, (None, None))
+
+    def _discard_pending(self, job_id: str) -> None:
+        phrase, archive = self._take_pending(job_id)
+        for path in (phrase, archive):
+            if path is not None:
+                path.unlink(missing_ok=True)
 
     def _run(self) -> None:
         from zettel.oplock import LockBusy, OperationLock, lock_path
@@ -761,8 +816,10 @@ class WebWorker:
         cfg = self.config.get().model_copy(deep=True)
         db = StateDB(cfg.state_db_path)
         if not db.claim_web_job(job_id):
+            self._discard_pending(job_id)
             db.close()
             return
+        phrase_path, archive_path = self._take_pending(job_id)
         self._parked_since.pop(job_id, None)  # resumed: the clock starts again if it parks
         progress = JobProgress(db, job_id)
         job = db.get_web_job(job_id) or {}
@@ -770,8 +827,10 @@ class WebWorker:
         operation = job.get("operation", "")
         # Every run this job opens is linked to it in start_run (#311).
         run_link = current_web_job.set(job_id)
-        progress.emit(ProgressEvent("starting", f"Iniciando {operation}."))
         try:
+            progress.emit(ProgressEvent("starting", f"Iniciando {operation}."))
+            from zettel.config import env_file_path
+
             result = self._dispatch(
                 cfg,
                 db,
@@ -780,6 +839,11 @@ class WebWorker:
                 payload,
                 sessions=self._articles,
                 job_id=job_id,
+                secret_path=phrase_path,
+                archive_path=archive_path,
+                env_path=env_file_path(self.config.config_path),
+                publish_download=lambda path, job=job_id: self._store_download(job, path),
+                forget_session=self.forget_session,
             )
             db.update_web_job(
                 job_id,
@@ -846,6 +910,9 @@ class WebWorker:
                         logger.warning("Não foi possível limpar a preparação %s", unusable_id)
             finally:
                 db.close()
+            for path in (phrase_path, archive_path):
+                if path is not None:
+                    path.unlink(missing_ok=True)
             if succeeded and operation == "harvest" and payload.get("review_id"):
                 try:
                     remove_preparation(cfg, payload["review_id"])
@@ -862,13 +929,28 @@ class WebWorker:
         *,
         sessions: dict[str, Any] | None = None,
         job_id: str | None = None,
+        secret_path: Path | None = None,
+        archive_path: Path | None = None,
+        env_path: Path | None = None,
+        publish_download: Callable[[Path], None] | None = None,
+        forget_session: Callable[[], None] | None = None,
     ) -> dict[str, Any]:
         handler = OPERATIONS.get(operation)
         if handler is None:
             raise ValueError("Operação web desconhecida")
         progress.emit(ProgressEvent(operation, f"Carregando dependências para {operation}."))
         ctx = JobContext(
-            cfg, db, progress, payload, sessions if sessions is not None else {}, job_id or ""
+            cfg,
+            db,
+            progress,
+            payload,
+            sessions if sessions is not None else {},
+            job_id or "",
+            secret_path=secret_path,
+            archive_path=archive_path,
+            env_path=env_path,
+            publish_download=publish_download,
+            forget_session=forget_session,
         )
         return handler(ctx)
 
@@ -1382,6 +1464,106 @@ OPERATIONS: dict[str, Handler] = {
 }
 
 
+_BACKUP_CRYPTO_FAILURE = "senha incorreta ou arquivo danificado"
+
+
+def _op_backup(ctx: JobContext) -> dict[str, Any]:
+    """Write a ``.zettelbak`` and keep it for one authenticated download."""
+    import os
+    import tempfile
+
+    from zettel.backup.archive import BackupArchiveError, create_backup
+    from zettel.backup.crypto import BackupCryptoError, read_passphrase_file
+
+    if ctx.secret_path is None or ctx.env_path is None:
+        raise UserFacingError("A senha do backup não está mais disponível.")
+    try:
+        passphrase = read_passphrase_file(ctx.secret_path)
+    except BackupCryptoError as exc:
+        raise UserFacingError(_BACKUP_CRYPTO_FAILURE) from exc
+    descriptor, name = tempfile.mkstemp(prefix="zettel-bak-", suffix=".zettelbak")
+    os.close(descriptor)
+    dest = Path(name)
+    try:
+        result = create_backup(
+            ctx.cfg,
+            ctx.db,
+            dest,
+            passphrase,
+            env_path=ctx.env_path,
+            include_chroma=bool(ctx.payload.get("include_chroma", True)),
+            include_inbox=bool(ctx.payload.get("include_inbox", False)),
+        )
+    except BackupCryptoError as exc:
+        dest.unlink(missing_ok=True)
+        raise UserFacingError(_BACKUP_CRYPTO_FAILURE) from exc
+    except BackupArchiveError as exc:
+        dest.unlink(missing_ok=True)
+        raise UserFacingError(str(exc)) from exc
+    except Exception:
+        dest.unlink(missing_ok=True)
+        raise
+    if ctx.publish_download is None:
+        dest.unlink(missing_ok=True)
+        raise UserFacingError("O download do backup não está disponível.")
+    ctx.publish_download(dest)
+    return {
+        "members": len(result.members),
+        "include_chroma": result.include_chroma,
+        "include_inbox": result.include_inbox,
+        "download": f"/backup/arquivo/{ctx.job_id}",
+    }
+
+
+def _op_restore(ctx: JobContext) -> dict[str, Any]:
+    """Replace this acervo from a ``.zettelbak``. Closes SQLite before the swap."""
+    from zettel.backup.archive import BackupArchiveError, restore_backup
+    from zettel.backup.crypto import BackupCryptoError, read_passphrase_file
+
+    if ctx.secret_path is None or ctx.archive_path is None or ctx.env_path is None:
+        raise UserFacingError("A senha do restore não está mais disponível.")
+    try:
+        passphrase = read_passphrase_file(ctx.secret_path)
+    except BackupCryptoError as exc:
+        raise UserFacingError(_BACKUP_CRYPTO_FAILURE) from exc
+    closed = False
+    replaced = False
+    try:
+        ctx.db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        ctx.db.close()
+        closed = True
+        result = restore_backup(
+            ctx.cfg,
+            ctx.archive_path,
+            passphrase,
+            env_path=ctx.env_path,
+            force_env=bool(ctx.payload.get("force_env")),
+            rotate_session=bool(ctx.payload.get("rotate_session")),
+        )
+        replaced = True
+    except BackupCryptoError as exc:
+        raise UserFacingError(_BACKUP_CRYPTO_FAILURE) from exc
+    except BackupArchiveError as exc:
+        raise UserFacingError(str(exc)) from exc
+    finally:
+        if closed:
+            ctx.db.reopen()
+            ctx.db.remember_web_job(ctx.job_id, "restore", ctx.payload)
+    if replaced and ctx.forget_session is not None:
+        ctx.forget_session()
+    return {
+        "members": len(result.members),
+        "env_written": result.env_written,
+        "env_kept": result.env_kept,
+        "session_rotated": result.session_rotated,
+        "relogin": True,
+    }
+
+
+OPERATIONS["backup"] = _op_backup
+OPERATIONS["restore"] = _op_restore
+
+
 class WebApplication:
     """Facade used by HTTP handlers; keeps all DB access on the server."""
 
@@ -1389,6 +1571,7 @@ class WebApplication:
         self.config_path = config_path
         self._config = ConfigCache(config_path)
         self.worker = WebWorker(self._config)
+        self.worker.forget_session = self.clear_session_key
         self._session_key: bytes | None = None
         self._session_key_lock = threading.Lock()
 
@@ -1402,6 +1585,11 @@ class WebApplication:
                 finally:
                     db.close()
             return self._session_key
+
+    def clear_session_key(self) -> None:
+        """Forget the cached signing key. The next request reads ``web_auth`` again."""
+        with self._session_key_lock:
+            self._session_key = None
 
     def rotate_session_key(self) -> None:
         """End every session: the next request needs a new login."""
@@ -1428,6 +1616,18 @@ class WebApplication:
 
     def submit(self, operation: str, payload: dict[str, Any]) -> str | None:
         return self.worker.submit(operation, payload)
+
+    def submit_secret(
+        self,
+        operation: str,
+        payload: dict[str, Any],
+        passphrase_file: Path,
+        archive_file: Path | None,
+    ) -> str | None:
+        return self.worker.submit_secret(operation, payload, passphrase_file, archive_file)
+
+    def claim_backup(self, job_id: str) -> Path | None:
+        return self.worker.claim_download(job_id)
 
     def submit_review(self, review_id: str, payload: dict[str, Any]) -> str | None:
         return self.worker.submit_review(review_id, payload)

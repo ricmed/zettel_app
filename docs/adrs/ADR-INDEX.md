@@ -160,7 +160,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-11-21
-- **Summary**: `zettel backup` / `zettel restore` write one encrypted `.zettelbak` (magic `ZETTELBAK1`, scrypt, AES-256-GCM) of the SQLite snapshot, Chroma unless `--no-chroma`, `.env` when present, and the named vault folders. The passphrase is not stored and has no argv flag. The whole archive is encrypted because it carries notes, API keys and `web_auth.session_key`. No web UI, no image blobs in SQLite, no automatic `reindex`.
+- **Summary**: `zettel backup` / `zettel restore` write one encrypted `.zettelbak` (magic `ZETTELBAK1`, scrypt, AES-256-GCM) of the SQLite snapshot, Chroma unless `--no-chroma`, `.env` when present, and the named vault folders. The passphrase is not stored and has no argv flag. The whole archive is encrypted because it carries notes, API keys and `web_auth.session_key`. The page is `/backup` (the passphrase stays out of the job). No image blobs in SQLite, no automatic `reindex`.
 - **Link**: [`ADR-072-encrypted-backup-archive.md`](./generated/INFRA/ADR-072-encrypted-backup-archive.md)
 
 ---

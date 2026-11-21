@@ -39,6 +39,7 @@ from zettel.web import studio  # /studio
 from zettel.web import pickers  # /api/pickers/*
 from zettel.web import jobs  # /runs, /jobs, /api/jobs
 from zettel.web import settings  # /settings
+from zettel.web import backup  # /backup
 from zettel.web import assets  # /assets/{name}
 from zettel.web import projects  # /projetos (Mesa)
 from zettel.web import library  # /books (Estante)
@@ -57,6 +58,7 @@ ROUTE_MODULES = (
     pickers,
     jobs,
     settings,
+    backup,
     assets,
     projects,
     library,

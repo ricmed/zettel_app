@@ -12,7 +12,6 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.datastructures import FormData
 
 from zettel.hashing import file_sha256
-from zettel.stored_path import store_inbox
 from zettel.web.enqueue import post_job
 from zettel.web.forms import read_form
 from zettel.web.preconditions import blocker
@@ -27,6 +26,8 @@ ALLOWED_EXTENSIONS = {".pdf", ".md", ".markdown", ".txt"}
 
 def _file_needs_harvest(db: Any, cfg: Any, file_path: Path) -> bool:
     """Return whether a file is new, changed, or incompletely ingested."""
+    from zettel.stored_path import store_inbox
+
     record = db.get_file(store_inbox(file_path, cfg.inbox_path))
     if not record or not record.get("source_id"):
         return True
