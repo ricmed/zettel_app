@@ -16,6 +16,7 @@ from zettel.hashing import (
     sha256_hex,
 )
 from zettel.index import VectorIndex
+from zettel.library.source_body import write_source_preserving
 from zettel.llm import LLMUnavailableError
 from zettel.paging import (
     ContentPaging,
@@ -627,6 +628,18 @@ def _process_file(
                 title_matches[0]["source_id"],
             )
 
+    survived = None
+    if not updating_source_id:
+        from zettel.library.sources import find_surviving_source
+
+        # Depois de um reset o SQLite está vazio e o SRC continua no vault.
+        # O mesmo PDF (checksum) ou a mesma edição (ISBN) reusa esse source_id.
+        # A linha que já existe fica com a camada 3: um capítulo com o mesmo
+        # ISBN não entra no livro só porque o arquivo da estante sobreviveu.
+        found = find_surviving_source(cfg.vault_path, checksum=checksum, isbn=isbn or "")
+        if found and not db.get_source(found["source_id"]):
+            survived = found
+
     stored = db.get_source(updating_source_id) if updating_source_id else None
     if updating_source_id and stored is None:
         logger.warning(
@@ -638,6 +651,14 @@ def _process_file(
     if updating_source_id and stored is not None:
         citekey = stored["citekey"]
         source_id = updating_source_id
+    elif survived:
+        citekey = survived["citekey"]
+        source_id = survived["source_id"]
+        logger.info(
+            "Arquivo '%s' reaproveita o SRC %s que ja esta no vault.",
+            file_path.name,
+            source_id,
+        )
     else:
         citekey = generate_citekey(db, authors, year, title)
         source_id = f"@{citekey}"
@@ -1134,7 +1155,12 @@ def _create_vault_notes(
         cfg.vault_path / "10_Sources" / source_note_filename(citekey, title), "source", source_id
     )
     src_path.parent.mkdir(parents=True, exist_ok=True)
-    safe_write_note(src_path, src_meta, src_body)
+    notes = None
+    if db is not None:
+        from zettel.library.linking import source_notes_lines
+
+        notes = "\n".join(source_notes_lines(db, source_id))
+    write_source_preserving(src_path, src_meta, src_body, notes=notes)
 
     # Write LIT index note. Flat, title-slugged path: this is where every generated
     # wikilink points and where review/rebuild/purge look for it.

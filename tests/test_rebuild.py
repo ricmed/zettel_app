@@ -190,6 +190,29 @@ def test_rebuild_vault_does_not_overwrite_existing_without_force(db, tmp_path):
     assert ztl.read_text(encoding="utf-8") == "EDICAO MANUAL"
 
 
+def test_rebuild_of_a_missing_source_keeps_the_shelf_fields(db, tmp_path):
+    _seed(db)
+    db.conn.execute(
+        """UPDATE sources
+              SET ratings_json=?, readings_json=?, work_id=?, genres_json=?
+            WHERE source_id=?""",
+        (
+            '{"plot": 4}',
+            '[{"start": "2020-01-01", "end": "2020-02-01"}]',
+            "01WORK",
+            '["Fantasia"]',
+            "@S",
+        ),
+    )
+    db.conn.commit()
+    cfg = AppConfig(vault_path=tmp_path / "vault")
+    run_rebuild_vault(cfg, db)
+    text = next(iter((cfg.vault_path / "10_Sources").glob("*.md"))).read_text(encoding="utf-8")
+    assert "plot: 4" in text
+    assert "work_id: 01WORK" in text
+    assert "Fantasia" in text
+
+
 def test_rebuild_vault_force_preserves_manual_origin(db, tmp_path):
     _seed(db)
     # Mark the note as manual: force must still not overwrite it.

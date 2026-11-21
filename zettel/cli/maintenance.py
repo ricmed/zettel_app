@@ -182,6 +182,36 @@ def init(
     )
 
 
+@app.command(name="migrate-acervo")
+def migrate_acervo(
+    config: ConfigOption = None,
+    accept: Annotated[
+        bool,
+        typer.Option(
+            "--accept",
+            help="Mantém o valor do SRC quando diverge e apaga a ficha antiga.",
+        ),
+    ] = False,
+) -> None:
+    """Copia a estante antiga para o SRC e só então apaga as fichas antigas.
+
+    Sem ``--accept``, uma diferença de título, autores, ISBN, bibliografia ou
+    de um campo de leitor já preenchido fica no relatório e a ficha antiga
+    permanece. Nada é apagado se a cópia não conferir.
+    """
+    from zettel.library.migrate import migrate_shelf
+
+    cfg = load_deps(config)
+    db = get_db(cfg)
+    try:
+        report = migrate_shelf(cfg, db, accept=accept)
+    finally:
+        db.close()
+    console.print(report.text())
+    if not report.ok:
+        raise typer.Exit(1)
+
+
 @app.command()
 def reindex(
     config: ConfigOption = None,

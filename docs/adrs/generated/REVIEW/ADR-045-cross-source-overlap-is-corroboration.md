@@ -137,3 +137,7 @@ and that existing edges are not rebuilt. Both sentences are wrong.
 ## Addendum (2026-10-20): corroborates in an unreviewed graph (issue #299)
 
 **Status:** Accepted amendment. The "accepted and not mitigated" risk above (garden cohesion inflated by `corroborates` cliques) became the whole signal under `linking.llm_edges: propose`: right after connect, `corroborates` was the only traversable relation, so hubs ranked on authorial convergence. The garden now counts proposed LLM edges at `gardener.proposed_edge_factor` (ADR-020 addendum of the same date), which restores the argumentative relations to the hub degree, the cohesion and the entry selection. Collapsing `corroborates` cliques to one representative is still not implemented.
+
+## Addendum (2026-11-17): another edition is not another author
+
+A different `source_id` is another author only when it is another work. [ADR-071](../WEB/ADR-071-editions-of-the-same-work.md) declares editions with `work_id`. `select_corroborating_ids` skips a candidate whose source is in `sibling_source_ids`, so two editions of one work do not gain `corroborates`. Linking them deletes the derived edges already between those sources. Unlinking does not put the edges back. `supports` and `related` the model proposes stay. Dedupe remains one `source_id`.

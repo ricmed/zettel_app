@@ -294,6 +294,28 @@ def run_rebuild_vault(
         stats["written"] += 1
         return True
 
+    def _write_source(path: Path, meta: dict, body: str, origin: str, source_id: str) -> bool:
+        """Regrava o cabeçalho bibliográfico e devolve as seções que o autor já escreveu."""
+        if path.exists():
+            if not force:
+                stats["skipped"] += 1
+                return False
+            if origin == "manual":
+                logger.info("Preservando nota manual (nao sobrescrita): %s", path.name)
+                stats["skipped"] += 1
+                return False
+        if dry_run:
+            stats["written"] += 1
+            return True
+        from zettel.library.linking import source_notes_lines
+        from zettel.library.source_body import write_source_preserving
+
+        write_source_preserving(
+            path, meta, body, notes="\n".join(source_notes_lines(db, source_id))
+        )
+        stats["written"] += 1
+        return True
+
     # SRC + LIT (both derived from the sources table).
     for src in db.list_sources():
         citekey = src["citekey"]
@@ -343,7 +365,11 @@ def run_rebuild_vault(
             vault_timezone=cfg.vault_timezone,
         )
         src_path = cfg.vault_path / "10_Sources" / source_note_filename(citekey, title)
-        if _write(src_path, compose_note(src_meta, src_body), origin):
+        if not src_path.exists():
+            from zettel.library.source_body import reader_fields_from_row
+
+            src_meta.update(reader_fields_from_row(src))
+        if _write_source(src_path, src_meta, src_body, origin, src["source_id"]):
             stats["sources"] += 1
 
         # Literature index snapshot

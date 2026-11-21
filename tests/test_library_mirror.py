@@ -11,6 +11,10 @@ from zettel.library.mirror import refresh
 from tests.library_support import library_config, library_db
 
 
+def _rows(cfg, db, **filters):
+    return db.list_shelf_rows(list(cfg.library.document_types), **filters)
+
+
 def test_refresh_reads_new_books_and_skips_unchanged_ones(tmp_path):
     cfg = library_config(tmp_path)
     db = library_db(cfg)
@@ -20,12 +24,12 @@ def test_refresh_reads_new_books_and_skips_unchanged_ones(tmp_path):
     assert refresh(db, cfg).read == 2
     assert refresh(db, cfg).read == 0
 
-    hobbit = db.list_book_rows(query="hobbit")[0]
+    hobbit = _rows(cfg, db, query="hobbit")[0]
     assert hobbit["nature"] == "ficcao"
     assert hobbit["reading_mode"] == "reflexao"
     assert hobbit["rating_profile"] == "ficcao_traduzida"
     assert json.loads(hobbit["genres_json"]) == ["Fantasia"]
-    assert db.list_book_rows(query="codigo")[0]["reading_mode"] == "conceito"
+    assert _rows(cfg, db, query="codigo")[0]["reading_mode"] == "conceito"
 
 
 def test_an_obsidian_edit_is_picked_up(tmp_path):
@@ -39,7 +43,7 @@ def test_an_obsidian_edit_is_picked_up(tmp_path):
     os.utime(book.path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000))
 
     assert refresh(db, cfg).read == 1
-    assert db.get_book(book.book_id)["status"] == "lido"
+    assert db.get_source(book.source_id)["status"] == "lido"
 
 
 def test_a_deleted_file_leaves_the_mirror(tmp_path):
@@ -48,8 +52,9 @@ def test_a_deleted_file_leaves_the_mirror(tmp_path):
     book = bf.create_book(cfg, {"title": "O Hobbit"})
     refresh(db, cfg)
     book.path.unlink()
-    assert refresh(db, cfg).removed == 1
-    assert db.get_book(book.book_id) is None
+    # A linha da fonte fica; quem apaga o documento é delete-source.
+    assert refresh(db, cfg).removed == 0
+    assert db.get_source(book.source_id) is not None
 
 
 def test_mirror_is_rebuilt_from_files_after_a_reset(tmp_path):
@@ -65,7 +70,7 @@ def test_mirror_is_rebuilt_from_files_after_a_reset(tmp_path):
 
     fresh = library_db(cfg)
     assert refresh(fresh, cfg).read == 1
-    row = fresh.get_book(book.book_id)
+    row = _rows(cfg, fresh, query="hobbit")[0]
     assert row["score"] == 5.0
     assert row["last_end"] == "2021-02-01"
 
@@ -76,8 +81,8 @@ def test_duplicate_book_id_keeps_the_first_file(tmp_path):
     book = bf.create_book(cfg, {"title": "O Hobbit"})
     (book.path.parent / "zz copia.md").write_bytes(book.path.read_bytes())
     report = refresh(db, cfg)
-    assert report.duplicate_ids == [book.book_id]
-    assert db.get_book(book.book_id)["path"] == str(book.path)
+    assert report.duplicate_ids == [book.source_id]
+    assert db.get_source(book.source_id)["source_id"] == book.source_id
 
 
 def test_filters(tmp_path):
@@ -88,15 +93,62 @@ def test_filters(tmp_path):
     )
     hobbit.meta["readings"] = [{"end": "2021-05-01"}]
     bf.save_book(cfg, hobbit, expected_version=hobbit.version)
-    bf.create_book(cfg, {"title": "Duna", "genres": ["Ficção Científica"], "format": "digital"})
+    duna = bf.create_book(
+        cfg, {"title": "Duna", "genres": ["Ficção Científica"], "format": "digital"}
+    )
     refresh(db, cfg)
 
-    assert [r["title"] for r in db.list_book_rows(genre="fantasia")] == ["O Hobbit"]
-    assert [r["title"] for r in db.list_book_rows(format="digital")] == ["Duna"]
-    assert [r["title"] for r in db.list_book_rows(year=2021)] == ["O Hobbit"]
-    assert [r["title"] for r in db.list_book_rows(status="lido")] == ["O Hobbit"]
-    assert [r["title"] for r in db.list_book_rows(sort="code")] == ["Duna", "O Hobbit"]
-    assert db.list_reflective_source_ids() == []
+    assert [r["title"] for r in _rows(cfg, db, genre="fantasia")] == ["O Hobbit"]
+    assert [r["title"] for r in _rows(cfg, db, format="digital")] == ["Duna"]
+    assert [r["title"] for r in _rows(cfg, db, year=2021)] == ["O Hobbit"]
+    assert [r["title"] for r in _rows(cfg, db, status="lido")] == ["O Hobbit"]
+    assert [r["title"] for r in _rows(cfg, db, sort="code")] == ["Duna", "O Hobbit"]
+    assert set(db.list_reflective_source_ids()) == {hobbit.source_id, duna.source_id}
+
+
+def test_code_sort_uses_the_code_text_when_the_number_column_is_empty(tmp_path):
+    cfg = library_config(tmp_path)
+    db = library_db(cfg)
+    bf.create_book(cfg, {"title": "O Hobbit", "format": "fisico"})
+    bf.create_book(cfg, {"title": "Duna", "format": "digital"})
+    refresh(db, cfg)
+    db.conn.execute("UPDATE sources SET code_number = NULL")
+    db.conn.commit()
+
+    assert [r["code_number"] for r in _rows(cfg, db, sort="code")] == [None, None]
+    assert [r["title"] for r in _rows(cfg, db, sort="code")] == ["Duna", "O Hobbit"]
+
+
+def test_a_chapter_leaves_the_shelf_when_the_file_says_so(tmp_path):
+    cfg = library_config(tmp_path)
+    db = library_db(cfg)
+    book = bf.create_book(cfg, {"title": "Só o capítulo", "document_type": "livro"})
+    refresh(db, cfg)
+    assert [row["source_id"] for row in _rows(cfg, db)] == [book.source_id]
+
+    text = book.path.read_text(encoding="utf-8").replace(
+        "document_type: livro", "document_type: capitulo_livro"
+    )
+    book.path.write_text(text, encoding="utf-8", newline="\n")
+    refresh(db, cfg)
+
+    assert _rows(cfg, db) == []
+    assert db.get_source(book.source_id)["document_type"] == "capitulo_livro"
+    db.close()
+
+
+def test_dashboard_averages_the_ratings_column(tmp_path):
+    from zettel.library.schema import schema_for
+    from zettel.library.stats import build_dashboard
+
+    cfg = library_config(tmp_path)
+    db = library_db(cfg)
+    bf.create_book(cfg, {"title": "O Hobbit", "genres": ["Fantasia"], "ratings": {"plot": 4}})
+    refresh(db, cfg)
+    dashboard = build_dashboard(db, schema_for(cfg), 2026, list(cfg.library.document_types))
+
+    assert [(bar.label, bar.value) for bar in dashboard["criteria"].bars] == [("Enredo", 4)]
+    db.close()
 
 
 def test_library_health_reports_repeated_codes(tmp_path):
@@ -105,7 +157,7 @@ def test_library_health_reports_repeated_codes(tmp_path):
     cfg = library_config(tmp_path)
     first = bf.create_book(cfg, {"title": "A"})
     ok, detail = library_health(cfg)
-    assert ok and "1 livro" in detail
+    assert ok and "1 item" in detail
     second = bf.create_book(cfg, {"title": "B"})
     second.meta["code_number"] = first.meta["code_number"]
     bf.save_book(cfg, second, expected_version=second.version)

@@ -13,7 +13,7 @@ Module map:
 ``deps.py``          composition root + embedding-drift UX
 ``formatting.py``    Rich renderers (cost table, metric tables, formatters)
 ``options.py``       shared ``Annotated`` options + flag resolvers
-``maintenance.py``   init, reindex, rebuild
+``maintenance.py``   init, migrate-acervo, reindex, rebuild
 ``ingest.py``        harvest, rechunk, dump-chunks, dump-extraction, set-paging
 ``curation.py``      extract, review, retry-failed, summarize, links
 ``synthesis.py``     connect, reconnect, garden

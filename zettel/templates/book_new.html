@@ -19,16 +19,30 @@
 {% if step == 'search' %}
 <section class="panel">
   <form method="get" action="/books/new" class="lookup-form" role="search">
-    <label for="lookup-q">ISBN ou título <small class="muted">(acrescente o autor para afinar)</small></label>
+    <label for="lookup-q">ISBN, DOI ou título <small class="muted">(acrescente o autor para afinar)</small></label>
     <div class="lookup-row">
-      <input id="lookup-q" type="search" name="q" value="{{ query }}" maxlength="200" placeholder="978-85-… ou O Hobbit Tolkien" autofocus>
+      <input id="lookup-q" type="search" name="q" value="{{ query }}" maxlength="200" placeholder="978-85-…, 10.1000/xyz ou O Hobbit Tolkien" autofocus>
       <button class="button primary" type="submit">Pesquisar</button>
     </div>
-    <small class="muted">A pesquisa começa no Google Books; se o resultado não servir, refaça-a na Open Library. Nada é gravado até você salvar o formulário.</small>
+    <small class="muted">ISBN e título começam no Google Books. Um DOI pergunta ao Crossref. Nada é gravado até você salvar o formulário.</small>
   </form>
 </section>
 
-{% if query %}
+{% if doi_work %}
+<section class="panel" aria-live="polite">
+  <h2>Crossref</h2>
+  <p><strong>{{ doi_work.title }}</strong></p>
+  <p>{{ doi_work.authors|join(', ') or 'autor desconhecido' }}</p>
+  <p class="muted">{% if doi_work.container %}{{ doi_work.container }}{% endif %}{% if doi_work.year %} · {{ doi_work.year }}{% endif %}{% if doi_work.volume %} · v. {{ doi_work.volume }}{% endif %}{% if doi_work.issue %} · n. {{ doi_work.issue }}{% endif %}{% if doi_work.pages %} · {{ doi_work.pages }}{% endif %}{% if doi_work.publisher %} · {{ doi_work.publisher }}{% endif %} · DOI {{ doi_work.doi }}</p>
+  {% if doi_work.document_type %}<p class="muted">Tipo sugerido: artigo de periódico. Confirme no formulário antes de salvar.</p>{% endif %}
+  <form method="get" action="/books/new">
+    <input type="hidden" name="step" value="form">
+    {% for k, v in doi_work.form_fields().items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+    {% for a in doi_work.authors %}<input type="hidden" name="authors_list" value="{{ a }}">{% endfor %}
+    <button class="button primary" type="submit">Usar este</button>
+  </form>
+</section>
+{% elif query %}
 <section class="panel" aria-live="polite">
   {% set redo %}{% for p, art, label in other_providers %}<a class="button" href="/books/new?q={{ query|urlencode }}&amp;provider={{ p }}">Refazer a busca n{{ art }} {{ label }}</a>{% endfor %}{% endset %}
   {% if lookup_error %}
@@ -56,7 +70,7 @@
       </div>
       <div class="lookup-action">
         {% if r.on_shelf %}
-        <a class="button" href="/books/{{ r.on_shelf.book_id }}">Já na estante{% if r.code %} ({{ '%04d'|format(r.code) }}){% endif %}</a>
+        <a class="button" href="/books/{{ r.on_shelf.source_id }}">Já na estante{% if r.code %} ({{ '%04d'|format(r.code) }}){% endif %}</a>
         {% endif %}
         <form method="get" action="/books/new">
           <input type="hidden" name="step" value="form">
@@ -74,26 +88,11 @@
 </section>
 {% endif %}
 
-<div class="grid-2">
-  <section class="panel">
-    <h2>Não achou?</h2>
-    <p class="muted">Cadastre à mão; capa e bibliografia podem vir depois, na página do livro.</p>
-    <a class="button" href="/books/new?step=form{% if query %}&amp;title={{ query|urlencode }}{% endif %}">Preencher à mão</a>
-  </section>
-  {% if sources %}
-  <section class="panel">
-    <h2>Fontes colhidas sem livro</h2>
-    <p class="muted">O livro herda título, autores e ISBN da fonte.</p>
-    <ul class="book-notes">
-      {% for s in sources[:12] %}
-      <li><span>{{ s.title or s.citekey }} <small class="muted">{{ s.source_id }}</small></span>
-        <form method="post" action="/books"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="source_id" value="{{ s.source_id }}"><input type="hidden" name="format" value="digital"><input type="hidden" name="status" value="{{ initial_status }}"><button class="button" type="submit">Criar livro</button></form>
-      </li>
-      {% endfor %}
-    </ul>
-  </section>
-  {% endif %}
-</div>
+<section class="panel">
+  <h2>Não achou?</h2>
+  <p class="muted">Cadastre à mão; capa e bibliografia podem vir depois, na ficha.</p>
+  <a class="button" href="/books/new?step=form{% if query %}&amp;title={{ query|urlencode }}{% endif %}">Preencher à mão</a>
+</section>
 
 {% else %}
 {% set p = prefill %}
@@ -111,17 +110,11 @@
       <label>Autores <textarea name="authors" rows="3" placeholder="Um por linha">{{ p.authors or '' }}</textarea></label>
     </div>
   </div>
-  {% if not online and sources %}
-  <label>A partir de uma fonte já colhida
-    <select name="source_id"><option value="">— nenhuma —</option>{% for s in sources %}<option value="{{ s.source_id }}">{{ s.title or s.citekey }} ({{ s.source_id }})</option>{% endfor %}</select>
-    <small class="muted">Com uma fonte e sem título, o livro herda título, autores e ISBN dela.</small>
-  </label>
-  {% endif %}
   <div class="form-row">
     <label>Formato <select name="format">{% for k, v in format_labels.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
     <label>Status <select name="status">{% for k, v in status_labels.items() %}<option value="{{ k }}" {% if k == initial_status %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
     <label>ISBN <input type="text" name="isbn" maxlength="20" value="{{ p.isbn or '' }}"></label>
-    <label>Páginas <input type="number" name="pages" min="0" value="{{ p.pages or '' }}"></label>
+    <label>Páginas <input type="text" name="pages" maxlength="80" value="{{ p.pages or '' }}"></label>
   </div>
   <div class="form-row">
     <label>País do autor <input type="text" name="country" maxlength="80" placeholder="Brasil" value="{{ p.country or '' }}"></label>
@@ -134,13 +127,22 @@
   {% if prefill_genres %}<p class="muted field-help">Gêneros sugeridos pelas categorias do catálogo: confira.</p>{% endif %}
   {{ fields.genre_picks(genre_groups, prefill_genres) }}
   {{ fields.subject_picks(subject_options, []) }}
-  <fieldset class="edition-fields"><legend>Esta edição <small class="muted">(vai para a nota SRC, que as citações usam)</small></legend>
+  <label>Tipo
+    <select name="document_type">{% for k, v in type_labels.items() %}<option value="{{ k }}" {% if (p.document_type or 'livro') == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+  </label>
+  <fieldset class="edition-fields"><legend>Esta edição</legend>
     <div class="form-row">
       <label>Editora <input type="text" name="publisher" maxlength="300" value="{{ p.publisher or '' }}"></label>
       <label>Edição <input type="text" name="edition" maxlength="80"></label>
       <label>Local <input type="text" name="place" maxlength="120" value="{{ p.place or '' }}"></label>
       <label>Ano <input type="number" name="year" min="1000" max="2999" value="{{ p.year or '' }}"></label>
       <label>Tradutor <input type="text" name="translator" maxlength="300"></label>
+    </div>
+    <div class="form-row">
+      <label>DOI <input type="text" name="doi" maxlength="300" value="{{ p.doi or '' }}"></label>
+      <label>Periódico <input type="text" name="journal" maxlength="300" value="{{ p.journal or '' }}"></label>
+      <label>Volume <input type="text" name="volume" maxlength="40" value="{{ p.volume or '' }}"></label>
+      <label>Fascículo <input type="text" name="issue" maxlength="40" value="{{ p.issue or '' }}"></label>
     </div>
   </fieldset>
   <button class="button primary" type="submit">Salvar livro</button>

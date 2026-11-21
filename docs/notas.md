@@ -236,20 +236,20 @@ Leitura dos campos:
 
 ---
 
-## Livro da Estante (LIV)
+## Ficha da Estante (SRC)
 
-Uma nota por livro em `60_Estante/`, escrita pela web, pelo harvest ou à mão no Obsidian ([ADR-068](adrs/generated/WEB/ADR-068-estante-books-as-liv-notes.md)). É do autor (`origin: manual`), e o `init --reset` a mantém.
+A ficha de leitura é a nota da fonte em `10_Sources/`, escrita pela web, pelo harvest ou à mão no Obsidian ([ADR-070](adrs/generated/WEB/ADR-070-shelf-is-the-source-note.md)). `type: source` sobrevive ao `init --reset`.
 
 ```markdown
 ---
-type: book
-book_id: 01M6Z061DZBNMY422J695VCVPQ
+type: source
+source_id: '@Dickens1859Conto'
+citekey: Dickens1859Conto
 code_number: 1
 code: 0001 - F
 title: Um Conto de Duas Cidades
 original_title: A Tale of Two Cities
-authors: [Charles Dickens]
-source_id: '@Dickens1859Conto'
+author: [Charles Dickens]
 isbn: '9788574481234'
 pages: 480
 country: Inglaterra
@@ -285,7 +285,7 @@ origin: manual
 ```
 
 - **O código** junta o número sequencial universal (`code_number`, nunca reaproveitado) à letra do formato. Mudar o formato troca só a letra.
-- **A bibliografia** (editora, edição, tradutor) fica no SRC. A LIV guarda só o que identifica o livro para exibi-lo e religá-lo depois de um reset.
+- **A bibliografia** (editora, edição, tradutor) fica no mesmo SRC, junto com os campos de leitura.
 - **A nota** segue o perfil de [`config/library.yaml`](../config/library.yaml) e soma no denominador só os critérios avaliados.
 - **Uma ZTL de leitura reflexiva** ([ADR-069](adrs/generated/EXTRACT/ADR-069-reflective-prompts-by-reading-mode.md)) ganha no frontmatter `reading_mode: reflexao`, `reflection_kind` (`metafora`, `pensamento`, `analogia`, `questao_filosofica`, `personagem`, `cena`) e `characters`, copiados do candidato.
 

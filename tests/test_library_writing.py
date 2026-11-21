@@ -44,8 +44,19 @@ def shelf(tmp_path):
         ("O Hobbit", ["Fantasia"], "@Tolkien1937"),
         ("Código Limpo", ["Técnico"], "@Martin2008"),
     ):
-        book = bf.create_book(cfg, {"title": title, "genres": genres})
-        book.meta["source_id"] = sid
+        authors = ["J. R. R. Tolkien"] if sid == "@Tolkien1937" else ["Robert Martin"]
+        year = 1937 if sid == "@Tolkien1937" else 2008
+        book = bf.create_book(
+            cfg,
+            {
+                "title": title,
+                "genres": genres,
+                "authors": authors,
+                "year": year,
+                "source_id": sid,
+                "citekey": sid[1:],
+            },
+        )
         bf.save_book(cfg, book, expected_version=book.version)
     yield cfg, db
     db.close()

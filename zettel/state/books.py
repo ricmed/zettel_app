@@ -1,111 +1,104 @@
-"""Espelho da Estante (ADR-068): as notas LIV de ``60_Estante/`` em ``books`` / ``book_readings``.
+"""Espelho da estante na linha ``sources``: leitura reconstruída do SRC.
 
-O arquivo é a fonte da verdade; estas tabelas existem para filtrar, ordenar e
+O arquivo é a fonte da verdade. Estas colunas existem para filtrar, ordenar e
 agregar sem reler cada YAML. ``library.mirror.refresh`` as mantém em dia.
+As leituras ficam em ``readings_json``, por ``source_id``.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from zettel.search_terms import fold
 from zettel.state.base import StateBase, placeholders
 
-_BOOK_COLUMNS = (
-    "book_id",
-    "path",
-    "file_mtime_ns",
-    "file_size",
-    "schema_stamp",
+_SHELF_COLUMNS = (
     "code_number",
     "code",
-    "title",
-    "authors_json",
-    "source_id",
-    "isbn",
-    "pages",
-    "country",
-    "original_language",
-    "genres_json",
-    "nature",
-    "reading_mode",
     "format",
     "status",
+    "readings_json",
+    "genres_json",
+    "subjects_json",
+    "nature",
+    "reading_mode",
+    "country",
+    "original_language",
+    "original_publication_year",
+    "original_title",
+    "series",
+    "series_number",
+    "pages",
     "cover",
+    "ratings_json",
     "rating_profile",
     "score",
     "favorite",
-    "created_at",
-    "frontmatter_json",
+    "work_id",
+    "shelf_mtime_ns",
+    "shelf_size",
+    "shelf_schema_stamp",
 )
 
-# Última data de término de cada livro (a "Data Término" da lista).
-_LAST_END = "(SELECT MAX(end_date) FROM book_readings r WHERE r.book_id = b.book_id)"
+_LAST_END = (
+    "(SELECT MAX(json_extract(r.value, '$.end')) FROM json_each(COALESCE(s.readings_json, '[]')) r)"
+)
 
-BOOK_SORTS = {
-    "code": "b.code_number IS NULL, b.code_number DESC",
-    "title": "zfold(b.title)",
-    "score": "b.score IS NULL, b.score DESC, zfold(b.title)",
-    "finished": f"{_LAST_END} IS NULL, {_LAST_END} DESC, zfold(b.title)",
-    "added": "b.created_at DESC",
+# ``code`` ("0254 - D") vale quando ``code_number`` ainda não foi espelhado.
+# O CAST do SQLite lê o prefixo numérico e ignora a letra.
+_CODE_SORT_KEY = "COALESCE(s.code_number, CAST(s.code AS INTEGER))"
+SHELF_SORTS = {
+    "code": f"{_CODE_SORT_KEY} IS NULL OR {_CODE_SORT_KEY} = 0, {_CODE_SORT_KEY} DESC",
+    "title": "zfold(s.title)",
+    "score": "s.score IS NULL, s.score DESC, zfold(s.title)",
+    "finished": f"{_LAST_END} IS NULL, {_LAST_END} DESC, zfold(s.title)",
+    "added": "s.created_at DESC",
 }
 
 
 class BooksMixin(StateBase):
-    def upsert_book(
-        self, row: dict[str, Any], readings: list[tuple[str | None, str | None]]
-    ) -> None:
-        """Grava a linha do livro e substitui as leituras dele, numa transação."""
-        values = tuple(row.get(col) for col in _BOOK_COLUMNS)
-        sets = ", ".join(f"{c}=excluded.{c}" for c in _BOOK_COLUMNS if c != "book_id")
+    """Consultas da estante sobre ``sources``. O nome do mixin fica, para o MRO."""
+
+    def upsert_shelf(self, source_id: str, fields: dict[str, Any]) -> None:
+        """Grava os campos de leitor desta fonte. A linha precisa já existir."""
+        sets = ", ".join(f"{column}=?" for column in _SHELF_COLUMNS)
+        values = tuple(fields.get(column) for column in _SHELF_COLUMNS)
         with self.conn:
             self.conn.execute(
-                f"INSERT INTO books ({', '.join(_BOOK_COLUMNS)}) "
-                f"VALUES ({placeholders(_BOOK_COLUMNS)}) "
-                f"ON CONFLICT(book_id) DO UPDATE SET {sets}",
-                values,
-            )
-            self.conn.execute("DELETE FROM book_readings WHERE book_id=?", (row["book_id"],))
-            self.conn.executemany(
-                "INSERT INTO book_readings (book_id, position, start_date, end_date) "
-                "VALUES (?, ?, ?, ?)",
-                [(row["book_id"], i, start, end) for i, (start, end) in enumerate(readings)],
+                f"UPDATE sources SET {sets} WHERE source_id=?",
+                (*values, source_id),
             )
 
-    def delete_books(self, book_ids: list[str]) -> None:
-        if not book_ids:
-            return
-        with self.conn:
-            self.conn.execute(
-                f"DELETE FROM books WHERE book_id IN ({placeholders(book_ids)})", tuple(book_ids)
-            )
-
-    def book_file_index(self) -> dict[str, dict[str, Any]]:
-        """``book_id -> {path, file_mtime_ns, file_size, schema_stamp}`` do que o espelho já leu."""
-        rows = self._fetchall(
-            "SELECT book_id, path, file_mtime_ns, file_size, schema_stamp FROM books"
-        )
-        return {r["book_id"]: r for r in rows}
-
-    def get_book(self, book_id: str) -> dict | None:
-        return self._fetchone(
-            f"SELECT b.*, {_LAST_END} AS last_end FROM books b WHERE b.book_id=?", (book_id,)
-        )
-
-    def get_book_by_source(self, source_id: str) -> dict | None:
-        return self._fetchone(
-            "SELECT * FROM books WHERE source_id=? ORDER BY code_number LIMIT 1", (source_id,)
-        )
-
-    def list_book_identities(self) -> list[dict]:
-        """O que identifica cada livro, para religar a LIV a uma fonte."""
+    def sources_by_work(self, work_id: str) -> list[dict]:
+        """Fontes que declaram este ``work_id``. Vazio não agrupa ninguém."""
+        if not str(work_id or "").strip():
+            return []
         return self._fetchall(
-            "SELECT book_id, path, source_id, isbn, title, authors_json, code_number, code "
-            "FROM books"
+            "SELECT * FROM sources WHERE work_id=? ORDER BY zfold(title), source_id",
+            (work_id.strip(),),
         )
 
-    def list_book_rows(
+    def shelf_stamps(self) -> dict[str, dict[str, Any]]:
+        """``source_id ->`` o carimbo com que o espelho leu o arquivo da última vez."""
+        rows = self._fetchall(
+            "SELECT source_id, shelf_mtime_ns, shelf_size, shelf_schema_stamp FROM sources"
+        )
+        return {row["source_id"]: row for row in rows}
+
+    def list_shelf_identities(self, document_types: Sequence[str]) -> list[dict]:
+        """O que identifica cada item da estante, para achar um ISBN ou um título."""
+        if not document_types:
+            return []
+        return self._fetchall(
+            "SELECT source_id, isbn, title, authors, code_number, code, document_type "
+            f"FROM sources WHERE document_type IN ({placeholders(document_types)})",
+            tuple(document_types),
+        )
+
+    def list_shelf_rows(
         self,
+        document_types: Sequence[str],
         *,
         status: str = "",
         genre: str = "",
@@ -113,66 +106,97 @@ class BooksMixin(StateBase):
         format: str = "",
         country: str = "",
         reading_mode: str = "",
+        document_type: str = "",
         year: int | None = None,
         min_score: float | None = None,
         query: str = "",
         favorite: bool = False,
         sort: str = "code",
     ) -> list[dict]:
-        where: list[str] = []
-        params: list[Any] = []
+        if not document_types:
+            return []
+        where = [f"s.document_type IN ({placeholders(document_types)})"]
+        params: list[Any] = list(document_types)
         for column, value in (
             ("status", status),
             ("nature", nature),
             ("format", format),
             ("reading_mode", reading_mode),
+            ("document_type", document_type),
         ):
             if value:
-                where.append(f"b.{column}=?")
+                where.append(f"s.{column}=?")
                 params.append(value)
         if country:
-            where.append("zfold(COALESCE(b.country,''))=?")
+            where.append("zfold(COALESCE(s.country,''))=?")
             params.append(fold(country))
         if genre:
-            where.append("EXISTS (SELECT 1 FROM json_each(b.genres_json) g WHERE zfold(g.value)=?)")
+            where.append("EXISTS (SELECT 1 FROM json_each(s.genres_json) g WHERE zfold(g.value)=?)")
             params.append(fold(genre))
         if year:
             where.append(
-                "EXISTS (SELECT 1 FROM book_readings r WHERE r.book_id=b.book_id "
-                "AND substr(r.end_date,1,4)=?)"
+                "EXISTS (SELECT 1 FROM json_each(COALESCE(s.readings_json, '[]')) r "
+                "WHERE substr(json_extract(r.value, '$.end'), 1, 4)=?)"
             )
             params.append(f"{year:04d}")
         if min_score is not None:
-            where.append("b.score >= ?")
+            where.append("s.score >= ?")
             params.append(min_score)
         if favorite:
-            where.append("b.favorite=1")
+            where.append("s.favorite=1")
         if query:
             where.append(
-                "(zfold(b.title) LIKE ? OR zfold(b.authors_json) LIKE ? "
-                "OR zfold(COALESCE(b.code,'')) LIKE ?)"
+                "(zfold(s.title) LIKE ? OR zfold(s.authors) LIKE ? "
+                "OR zfold(COALESCE(s.code,'')) LIKE ?)"
             )
             like = f"%{fold(query)}%"
             params.extend([like, like, like])
-        clause = f"WHERE {' AND '.join(where)}" if where else ""
-        order = BOOK_SORTS.get(sort, BOOK_SORTS["code"])
+        order = SHELF_SORTS.get(sort, SHELF_SORTS["code"])
         return self._fetchall(
-            f"SELECT b.*, {_LAST_END} AS last_end FROM books b {clause} ORDER BY {order}",
+            f"SELECT s.*, s.authors AS authors_json, {_LAST_END} AS last_end "
+            f"FROM sources s WHERE {' AND '.join(where)} ORDER BY {order}",
             tuple(params),
         )
 
-    def list_book_readings(self) -> list[dict]:
-        """Toda leitura, com o que o painel agrega sobre o livro dela."""
+    def list_shelf_readings(self, document_types: Sequence[str]) -> list[dict]:
+        """Toda leitura dos itens da estante, com o que o painel agrega."""
+        if not document_types:
+            return []
         return self._fetchall(
-            "SELECT r.book_id, r.position, r.start_date, r.end_date, b.pages, b.format, "
-            "b.genres_json, b.country, b.nature, b.score FROM book_readings r "
-            "JOIN books b ON b.book_id = r.book_id ORDER BY r.end_date"
+            "SELECT s.source_id, r.key AS position, "
+            "json_extract(r.value, '$.start') AS start_date, "
+            "json_extract(r.value, '$.end') AS end_date, "
+            "s.pages, s.format, s.genres_json, s.country, s.nature, s.score "
+            "FROM sources s, json_each(COALESCE(s.readings_json, '[]')) r "
+            f"WHERE s.document_type IN ({placeholders(document_types)}) "
+            "ORDER BY end_date",
+            tuple(document_types),
         )
 
     def list_reflective_source_ids(self) -> list[str]:
-        """Fontes cujo livro é lido em modo reflexão (prompts e filtros do ADR-069)."""
+        """Fontes lidas em modo reflexão (prompts e filtros do ADR-069)."""
         rows = self._fetchall(
-            "SELECT DISTINCT source_id FROM books "
+            "SELECT source_id FROM sources "
             "WHERE reading_mode='reflexao' AND source_id IS NOT NULL AND source_id <> ''"
         )
-        return [r["source_id"] for r in rows]
+        return [row["source_id"] for row in rows]
+
+    def mark_shelf_migrated(self) -> None:
+        """A migração da estante terminou: a próxima abertura pode derrubar o espelho antigo."""
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO app_meta (key, value) VALUES ('shelf_unified', '1') "
+                "ON CONFLICT(key) DO UPDATE SET value='1'"
+            )
+
+    def shelf_migrated(self) -> bool:
+        row = self._fetchone("SELECT value FROM app_meta WHERE key='shelf_unified'")
+        return bool(row and row["value"] == "1")
+
+    def drop_legacy_shelf_tables(self) -> None:
+        """Derruba o espelho antigo. Sem efeito enquanto a migração não marcou o fim."""
+        if not self.shelf_migrated():
+            return
+        with self.conn:
+            self.conn.execute("DROP TABLE IF EXISTS book_readings")
+            self.conn.execute("DROP TABLE IF EXISTS books")

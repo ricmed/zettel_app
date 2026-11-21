@@ -1,4 +1,4 @@
-"""Edições de uma LIV vindas de um formulário: validam e mudam ``Book.meta`` / ``Book.body``.
+"""Edições da ficha vindas de um formulário: validam e mudam ``Book.meta`` / ``Book.body``.
 
 Nada aqui grava: quem chama faz ``save_book`` com a versão da página, sob a
 trava de operação. Um valor inválido levanta ``BookEditError`` com a mensagem
@@ -54,13 +54,16 @@ def apply_metadata(book: Book, form: dict[str, Any], schema: LibrarySchema) -> N
     book.meta["title"] = title
     for key in _INT_FIELDS:
         raw = str(form.get(key) or "").strip()
+        if key == "pages" and raw and as_int(raw) is None:
+            book.meta["pages"] = raw[:80]
+            continue
         value = as_int(raw)
         if raw and (value is None or value < 0):
             raise BookEditError(f"Valor inválido para {key}: {raw!r}.")
         if key == "code_number" and value is None:
             continue  # o número do código nunca some
         book.meta[key] = value
-    book.meta["authors"] = _lines(form.get("authors"))
+    book.meta["author"] = _lines(form.get("authors"))
     chosen = [g for g in as_str_list(form.get("genres")) if g]
     extra = as_str_list(form.get("genres_extra"))
     book.meta["genres"] = list(dict.fromkeys(chosen + extra))
@@ -77,8 +80,6 @@ def apply_metadata(book: Book, form: dict[str, Any], schema: LibrarySchema) -> N
     book.meta["format"] = fmt
     set_status(book, str(form.get("status") or ""))
     book.meta["favorite"] = str(form.get("favorite") or "") in ("1", "on", "true")
-    source_id = _clean(form.get("source_id"), 200)
-    book.meta["source_id"] = source_id or None
     refresh_score(book, schema)
 
 
@@ -164,7 +165,7 @@ def set_ratings(book: Book, form: dict[str, Any], schema: LibrarySchema) -> None
 
 
 def refresh_score(book: Book, schema: LibrarySchema) -> None:
-    """Grava a nota calculada na LIV, para o Obsidian (o espelho recalcula por conta)."""
+    """Grava a nota calculada na ficha, para o Obsidian (o espelho recalcula por conta)."""
     book.meta["score"] = rate(schema, book.meta).score
 
 
@@ -180,13 +181,13 @@ def set_cover(book: Book, relpath: str) -> None:
 
 
 def fill_missing(book: Book, found: dict[str, Any]) -> list[str]:
-    """Preenche só o que a LIV não tem com o que a pesquisa achou; devolve as chaves.
+    """Preenche só o que a ficha não tem com o que a pesquisa achou; devolve as chaves.
 
     Um campo que o usuário escreveu nunca é trocado: a pesquisa completa, não corrige.
     """
     changed = []
     if not book.authors and found.get("authors"):
-        book.meta["authors"] = [_clean(a) for a in found["authors"] if _clean(a)]
+        book.meta["author"] = [_clean(a) for a in found["authors"] if _clean(a)]
         changed.append("authors")
     for key in ("isbn", "original_title", "country", "original_language"):
         if not _clean(book.meta.get(key)) and _clean(found.get(key)):

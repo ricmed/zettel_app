@@ -1,17 +1,14 @@
-"""Importa o banco "Leituras" exportado do Notion para a Estante (ADR-068).
+"""Importa o banco "Leituras" exportado do Notion para a ficha SRC.
 
-Importação única. Sem ``--apply``, só mostra o relatório: o que seria removido
-e como cada livro seria lido. Com ``--apply``:
-
-1. remove as LIV que já estão em ``60_Estante/`` e as fontes delas (``purge_source``);
-2. cria uma LIV por livro do CSV, na ordem da data de término (o código segue as
-   leituras), com notas, capa e a resenha da página em ``## Resumo``;
-3. grava editora, edição, ano desta edição, tradutor e ISBN no SRC manual (ADR-057).
+Importação única. Sem ``--apply``, só mostra o relatório. Com ``--apply`` cria
+um SRC por livro do CSV, na ordem da data de término (o código segue as
+leituras), com notas, capa e a resenha da página em ``## Resumo``. Editora,
+edição, ano, tradutor e ISBN ficam no mesmo arquivo.
 
 As colunas ``FNQBIC Nome`` são os critérios da Estante; as letras dizem em que
 tipo de livro o critério vale (F ficção, N não ficção, Q quadrinho, B biografia,
 I ilustrado, C contos). Quando o perfil que os gêneros escolhem não é dessa
-família, a LIV ganha ``rating_profile`` com a família das notas dadas.
+família, a ficha ganha ``rating_profile`` com a família das notas dadas.
 
     .venv/Scripts/python.exe scripts/import_notion_books.py
     .venv/Scripts/python.exe scripts/import_notion_books.py --apply --download-covers
@@ -221,7 +218,7 @@ def fit_profile(entry: Entry, schema: LibrarySchema) -> None:
     O perfil vem dos gêneros. Um livro sem gênero que dê natureza (nenhum, ou só
     neutros) recebe a da família de perfis que cobre mais critérios avaliados; gêneros
     que se contradizem (Biografia + Quadrinho) ficam como estão. Só quando o perfil
-    dos gêneros cobre menos da metade das notas a LIV ganha ``rating_profile``.
+    dos gêneros cobre menos da metade das notas a ficha ganha ``rating_profile``.
     """
     rated = set(entry.ratings)
     if not rated:
@@ -364,38 +361,9 @@ def localize_images(summary: str, page: Path, vault: Path) -> str:
 
 
 def purge_existing(cfg: Any, db: Any, apply: bool) -> None:
-    from zettel.purge_source import purge_source
-
-    books = bf.list_books(cfg)
-    print(f"\n== Remoção: {len(books)} LIV existentes ==")
-    idx = None
-    for book in books:
-        source = db.get_source(book.source_id) if book.source_id else None
-        detail = ""
-        if source:
-            chunks = db.get_chunks_for_source(book.source_id)
-            detail = f" fonte {book.source_id} ({len(chunks)} chunks)"
-        print(f"  - {book.path.name}{detail}")
-        if not apply:
-            continue
-        if source:
-            if idx is None:
-                from zettel.index import VectorIndex, index_kwargs
-
-                idx = VectorIndex(**index_kwargs(cfg))
-            purge_source(cfg, db, idx, book.source_id, compact=False)
-        cover = str(book.meta.get("cover") or "")
-        book.path.unlink()
-        if cover and not cover_referenced(cfg, cover):
-            (Path(cfg.vault_path) / cover).unlink(missing_ok=True)
-
-
-def cover_referenced(cfg: Any, relpath: str) -> bool:
-    name = Path(relpath).name
-    for path in Path(cfg.vault_path).rglob("*.md"):
-        if name in path.read_text(encoding="utf-8", errors="replace"):
-            return True
-    return False
+    """Não apaga o acervo. A ficha é o SRC; uma reimportação não o remove."""
+    del cfg, db, apply
+    print("\n== A importação acrescenta SRC. Fichas já cadastradas ficam. ==")
 
 
 def retry_busy(action: Any, tries: int = 20) -> Any:
@@ -414,7 +382,11 @@ def import_entry(cfg: Any, db: Any, schema: LibrarySchema, entry: Entry, args: A
     from zettel.library.covers import store_cover
     from zettel.library.sources import update_source
 
-    book = bf.create_book(cfg, {"title": entry.title, "format": entry.fields["format"]})
+    book = bf.create_book(
+        cfg,
+        {"title": entry.title, "format": entry.fields["format"]},
+        db=db,
+    )
     ed.apply_metadata(book, {**entry.fields, "code_number": str(book.meta["code_number"])}, schema)
     book.meta["readings"] = [{"start": None, "end": entry.finished}] if entry.finished else []
     form = {f"rating_{k}": str(v) for k, v in entry.ratings.items()}
@@ -433,9 +405,13 @@ def import_entry(cfg: Any, db: Any, schema: LibrarySchema, entry: Entry, args: A
     if cover:
         ed.set_cover(book, store_cover(cfg.vault_path, *cover))
     book = retry_busy(lambda: bf.save_book(cfg, book, expected_version=None))
-    # O SRC nasce com o ano da obra (o do citekey); o ano desta edição o substitui.
+    # O ano desta edição substitui o ano da obra que o citekey usou.
     updates = {**entry.source, "isbn": entry.fields["isbn"]}
-    retry_busy(lambda: update_source(cfg, db, book, {k: v for k, v in updates.items() if v}))
+    update_source(cfg, db, book, {k: v for k, v in updates.items() if v})
+    book = retry_busy(lambda: bf.save_book(cfg, book, expected_version=book.version))
+    from zettel.sync import sync_source_note
+
+    sync_source_note(cfg, db, book.path)
 
 
 def report(entries: list[Entry], schema: LibrarySchema) -> None:

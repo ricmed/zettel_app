@@ -8,7 +8,14 @@ import pytest
 from zettel.config import HarvestConfig
 from zettel.harvester.pipeline import _process_file, run_harvest
 from zettel.library import book_file as bf
-from zettel.library.linking import book_notes_lines, ensure_books_for_sources, sync_library
+from zettel.library.linking import (
+    match_work_notes,
+    page_work_notes,
+    source_notes_lines,
+    sync_library,
+    work_note_rows,
+    work_note_totals,
+)
 from zettel.library.mirror import refresh
 from zettel.manual_lit import ensure_manual_chapter
 
@@ -23,7 +30,7 @@ def cfg(tmp_path):
     from zettel.config import AppConfig
 
     vault = tmp_path / "vault"
-    for folder in ("10_Sources", "20_Literature", "60_Estante"):
+    for folder in ("10_Sources", "20_Literature"):
         (vault / folder).mkdir(parents=True, exist_ok=True)
     (tmp_path / "inbox").mkdir()
     return AppConfig(
@@ -67,79 +74,57 @@ def _harvest(cfg, db, path) -> str:
     return sid
 
 
-def test_harvesting_a_book_creates_its_liv(cfg, db):
+def test_harvest_of_a_book_and_an_article_shelves_both_and_skips_a_chapter(cfg, db):
     _markdown(cfg, "hobbit.md", title="O Hobbit", author="J. R. R. Tolkien", doc_type="livro")
+    _markdown(cfg, "artigo.md", title="Um artigo", author="Ana Silva", doc_type="artigo_periodico")
+    _markdown(cfg, "cap.md", title="Um capitulo", author="Ana Silva", doc_type="capitulo_livro")
     outcome = run_harvest(cfg, db, FakeVectorIndex(), interactive=False, skip_biblio=True)
 
-    assert outcome.library["books_created"] == 1
-    (book,) = bf.list_books(cfg)
-    assert book.source_id == outcome.source_ids[0]
-    assert book.title == "O Hobbit"
-    assert book.authors == ["J. R. R. Tolkien"]
-    assert book.format == "digital" and book.code == "0001 - D"
+    assert outcome.library["shelved"] == 2
+    titles = {book.title for book in bf.list_books(cfg)}
+    assert titles == {"O Hobbit", "Um artigo"}
+    assert list((cfg.vault_path / "10_Sources").glob("SRC - *.md"))
+    assert not (cfg.vault_path / "60_Estante").exists()
+    assert len(outcome.source_ids) == 3
 
 
-def test_an_article_gets_no_book(cfg, db):
-    path = _markdown(
-        cfg, "a.md", title="Um artigo", author="Ana Silva", doc_type="artigo_periodico"
-    )
-    sid = _harvest(cfg, db, path)
-    report = ensure_books_for_sources(cfg, db, [sid])
-    assert report.created == [] and bf.list_books(cfg) == []
-
-
-def test_a_shelved_book_is_linked_not_duplicated(cfg, db):
-    book = bf.create_book(cfg, {"title": "O Hobbit", "authors": ["Tolkien"], "format": "fisico"})
-    refresh(db, cfg)
-    sid = _harvest(
-        cfg,
-        db,
-        _markdown(cfg, "h.md", title="O Hobbit", author="J. R. R. Tolkien", doc_type="livro"),
-    )
-    report = ensure_books_for_sources(cfg, db, [sid])
-
-    assert report.linked == [book.book_id] and report.created == []
-    assert bf.load_book(cfg, book.book_id).source_id == sid
-    assert bf.load_book(cfg, book.book_id).code == "0001 - F"
-
-
-def test_reset_and_reharvest_relinks_the_liv_with_its_ratings(cfg, db):
+def test_reset_keeps_the_src_and_the_next_harvest_reuses_it(cfg, db):
     path = _markdown(cfg, "h.md", title="O Hobbit", author="Tolkien", doc_type="livro", isbn=ISBN)
     sid = _harvest(cfg, db, path)
-    sync_library(cfg, db, [sid])
-    book = bf.list_books(cfg)[0]
+    book = bf.load_book(cfg, sid)
+    book.body = bf.replace_section(book.body, bf.SUMMARY_HEADING, "Bilbo sai de casa.")
     book.meta["ratings"] = {"plot": 5}
-    book.meta["source_id"] = "@Antigo1937Hobbit"
     bf.save_book(cfg, book, expected_version=book.version)
     db.close()
     os.remove(cfg.state_db_path)
 
     fresh = library_db(cfg)
     new_sid = _harvest(cfg, fresh, path)
-    report = sync_library(cfg, fresh, [])
-    relinked = bf.load_book(cfg, book.book_id)
-
-    assert report.relinked == [book.book_id]
-    assert relinked.source_id == new_sid
-    assert relinked.ratings == {"plot": 5.0}
-    assert len(bf.list_books(cfg)) == 1
+    files = list((cfg.vault_path / "10_Sources").glob("*.md"))
+    kept = bf.load_book(cfg, sid)
+    assert new_sid == sid
+    assert len(files) == 1
+    assert "Bilbo sai de casa." in kept.body
+    assert kept.ratings == {"plot": 5.0}
     fresh.close()
 
 
-def test_ambiguous_relink_is_reported_not_guessed(cfg, db):
-    for name, year in (("a.md", "1937"), ("b.md", "1951")):
-        path = _markdown(cfg, name, title="O Hobbit", author="Tolkien", doc_type="relatorio")
-        text = path.read_text(encoding="utf-8").replace("1937", year) + f" Edicao de {year}."
-        path.write_text(text, encoding="utf-8")
-        _harvest(cfg, db, path)
-    book = bf.create_book(cfg, {"title": "O Hobbit", "authors": ["Tolkien"]})
-    book.meta["source_id"] = "@Sumiu"
+def test_work_id_is_blank_until_set_and_survives_harvest(cfg, db):
+    path = _markdown(cfg, "h.md", title="O Hobbit", author="Tolkien", doc_type="livro")
+    sid = _harvest(cfg, db, path)
+    book = bf.load_book(cfg, sid)
+    assert not str(book.meta.get("work_id") or "").strip()
+    book.meta["work_id"] = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
     bf.save_book(cfg, book, expected_version=book.version)
+    assert bf.load_book(cfg, sid).meta["work_id"] == "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
-    report = sync_library(cfg, db, [])
-    assert report.relinked == []
-    assert len(report.ambiguous[book.book_id]) == 2
-    assert bf.load_book(cfg, book.book_id).source_id == "@Sumiu"
+    path.write_text(path.read_text(encoding="utf-8") + "\n\nMais um paragrafo.", encoding="utf-8")
+    cfg.harvest.modified_file_action = "update"
+    assert _harvest(cfg, db, path) == sid
+    kept = bf.load_book(cfg, sid)
+    assert kept.meta["work_id"] == "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    refresh(db, cfg)
+    assert db.get_source(sid)["work_id"] == "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 
 def test_book_notes_block_lists_the_source_notes(cfg, db):
@@ -150,7 +135,7 @@ def test_book_notes_block_lists_the_source_notes(cfg, db):
     book = bf.list_books(cfg)[0]
     text = book.path.read_text(encoding="utf-8")
     assert "Nenhuma nota de leitura ainda" in text
-    assert book_notes_lines(db, None)[0].startswith("_Sem fonte")
+    assert source_notes_lines(db, None)[0].startswith("_Nenhuma")
 
 
 def test_pdf_of_a_textless_source_is_extracted_into_it(cfg, db):
@@ -191,15 +176,24 @@ def test_pdf_of_a_textless_source_is_extracted_into_it(cfg, db):
     assert len(list((cfg.vault_path / "10_Sources").glob("*.md"))) == 1
 
 
-def _src_code(cfg, source_id: str):
-    from zettel.library.sources import source_note_path
-    from zettel.vault import parse_frontmatter
+def test_sync_keeps_a_code_that_was_stored_only_as_text(cfg, db):
+    book = bf.create_book(cfg, {"title": "O Hobbit", "format": "fisico", "status": "lido"})
+    text = book.path.read_text(encoding="utf-8")
+    kept = "".join(
+        line
+        for line in text.splitlines(keepends=True)
+        if not line.startswith(("code_number:", "format:"))
+    )
+    book.path.write_text(kept, encoding="utf-8", newline="\n")
+    refresh(db, cfg)
 
-    meta, _ = parse_frontmatter(source_note_path(cfg, source_id).read_text(encoding="utf-8"))
-    return meta.get("code")
+    sync_library(cfg, db)
+    after = book.path.read_text(encoding="utf-8")
+    assert "0001 - F" in after
+    assert "0001 - D" not in after
 
 
-def test_sync_gives_old_book_sources_a_liv_in_one_sequence(cfg, db):
+def test_shelf_codes_follow_one_sequence_including_articles(cfg, db):
     first = _harvest(
         cfg, db, _markdown(cfg, "h.md", title="O Hobbit", author="Tolkien", doc_type="livro")
     )
@@ -213,33 +207,41 @@ def test_sync_gives_old_book_sources_a_liv_in_one_sequence(cfg, db):
     second = _harvest(
         cfg, db, _markdown(cfg, "s.md", title="O Silmarillion", author="Tolkien", doc_type="livro")
     )
-
-    report = sync_library(cfg, db)
-
-    codes = {b.source_id: b.code for b in bf.list_books(cfg)}
-    assert len(report.created) == 2
-    assert codes[first] == "0002 - D" and codes[second] == "0003 - D"
-    assert article not in codes
-    assert _src_code(cfg, first) == "0002 - D" and _src_code(cfg, article) is None
-    assert sync_library(cfg, db).created == []  # a segunda vez não cria nada
-
-
-def test_src_code_follows_the_format_and_leaves_with_the_liv(cfg, db):
-    from zettel.library.sources import sync_source_code, sync_source_codes
-
-    sid = _harvest(
-        cfg, db, _markdown(cfg, "h.md", title="O Hobbit", author="Tolkien", doc_type="livro")
+    chapter = _harvest(
+        cfg,
+        db,
+        _markdown(cfg, "c.md", title="Um capitulo", author="Ana", doc_type="capitulo_livro"),
     )
     sync_library(cfg, db)
-    (book,) = bf.list_books(cfg)
-    assert _src_code(cfg, sid) == "0001 - D"
+    books = bf.list_books(cfg)
+    ids = {b.source_id for b in books}
+    assert {first, article, second} <= ids
+    assert chapter not in ids
+    assert all(b.code for b in books)
+    assert sync_library(cfg, db).shelved == []
 
-    book.meta["format"] = "fisico"
-    book = bf.save_book(cfg, book, expected_version=book.version)
-    sync_source_code(cfg, db, book)
-    assert _src_code(cfg, sid) == "0001 - F"
 
-    book.path.unlink()
-    refresh(db, cfg)
-    sync_source_codes(cfg, db)
-    assert _src_code(cfg, sid) is None
+def test_work_notes_filter_by_kind_and_title_then_page_by_ten():
+    groups = [
+        {
+            "heading": "Desta edição",
+            "own": True,
+            "lits": [{"chunk_id": "c1", "label": "p. 1 — Decisão do agente", "manual": True}],
+            "notes": [{"note_id": f"N{i}", "title": f"Nota {i}"} for i in range(12)],
+        },
+        {
+            "heading": "Outra edição — Digital",
+            "own": False,
+            "lits": [],
+            "notes": [{"note_id": "Nx", "title": "Mapa"}],
+        },
+    ]
+    assert work_note_totals(groups) == (1, 13)
+    rows = work_note_rows(groups)
+    assert match_work_notes(rows, query="decisao", kind="lit")[0]["chunk_id"] == "c1"
+    assert match_work_notes(rows, query="decisao", kind="ztl") == []
+    ztl = match_work_notes(rows, query="", kind="ztl")
+    first, page, pages = page_work_notes(ztl, page=1)
+    second, _, _ = page_work_notes(ztl, page=99)
+    assert (len(first), len(second), page, pages) == (10, 3, 1, 2)
+    assert {row["note_id"] for row in first}.isdisjoint({row["note_id"] for row in second})

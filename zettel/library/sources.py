@@ -1,11 +1,8 @@
-"""O SRC de um livro: a bibliografia da edição (ADR-057) e a cópia do código da LIV.
+"""O SRC: bibliografia da edição (ADR-057) e a ficha da estante, no mesmo arquivo.
 
-A LIV guarda a obra; editora, edição, local, tradutor e ano desta edição ficam
-na nota SRC, criada como fonte manual quando o livro ainda não tem uma.
-
-O código (``0001 - F``) é alocado só na LIV, uma sequência para toda a Estante.
-O SRC de um livro carrega uma cópia em ``code``, posta em dia por
-``sync_source_codes``; um SRC sem LIV não tem código.
+Editora, edição, local, tradutor e ano ficam no frontmatter do SRC, junto com
+os campos de leitor. ``update_source`` muda a ficha em memória; quem chama grava
+com ``save_book`` e leva a bibliografia ao SQLite com ``sync_source_note``.
 """
 
 from __future__ import annotations
@@ -45,77 +42,60 @@ def source_note_paths(cfg: Any) -> dict[str, Path]:
     return paths
 
 
-def _write_code(path: Path, code: str | None) -> bool:
-    """Põe (ou tira) ``code`` no frontmatter do SRC, logo depois de ``source_id``."""
-    from zettel.vault import compose_note, parse_frontmatter
+def find_surviving_source(
+    vault: Path, *, checksum: str = "", isbn: str = ""
+) -> dict[str, Any] | None:
+    """O SRC que sobreviveu a um reset, pelo checksum do arquivo ou pelo ISBN.
 
-    meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
-    if (meta.get("code") or None) == code:
-        return False
-    meta.pop("code", None)
-    out: dict[str, Any] = {}
-    for key, value in meta.items():
-        out[key] = value
-        if key == "source_id" and code:
-            out["code"] = code
-    path.write_text(compose_note(out, body), encoding="utf-8")
-    return True
-
-
-def sync_source_code(cfg: Any, db: Any, book: Any, previous_source_id: str | None = None) -> None:
-    """O código desta LIV no SRC ligado a ela (depois de criar, ligar ou mudar o formato).
-
-    ``previous_source_id`` é a fonte de antes da edição: desligada, perde o código.
+    Um único ISBN casa. Vários não escolhem ninguém. Checksum vazio não casa
+    com a ficha manual, que ainda não tem arquivo.
     """
-    if previous_source_id and previous_source_id != book.source_id:
-        old = source_note_path(cfg, previous_source_id)
-        if old is not None:
-            _write_code(old, None)
-    if not book.source_id or not db.get_source(book.source_id):
-        return
-    path = source_note_path(cfg, book.source_id)
-    if path is not None:
-        _write_code(path, book.code or None)
+    from zettel.harvester.biblio_dedupe import normalize_isbn
+    from zettel.vault import parse_frontmatter
 
-
-def sync_source_codes(cfg: Any, db: Any) -> int:
-    """Cada SRC com o código da sua LIV, e sem código quando não tem LIV; devolve as gravações."""
-    # Duas LIV na mesma fonte (doctor avisa): vale a de menor número, como em get_book_by_source.
-    rows = sorted(db.list_book_identities(), key=lambda r: r.get("code_number") or 0, reverse=True)
-    codes = {r["source_id"]: r.get("code") or None for r in rows if r.get("source_id")}
-    written = 0
-    for source_id, path in source_note_paths(cfg).items():
-        written += _write_code(path, codes.get(source_id))
-    return written
+    folder = Path(vault) / "10_Sources"
+    if not folder.is_dir():
+        return None
+    checksum = (checksum or "").strip()
+    wanted_isbn = normalize_isbn(isbn) if isbn else ""
+    by_isbn: list[dict[str, Any]] = []
+    for path in sorted(folder.glob("*.md")):
+        meta, _ = parse_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
+        if not isinstance(meta, dict) or meta.get("type") != "source":
+            continue
+        source_id = str(meta.get("source_id") or "").strip()
+        if not source_id:
+            continue
+        found = {
+            "source_id": source_id,
+            "citekey": str(meta.get("citekey") or source_id.lstrip("@")),
+            "path": path,
+        }
+        file_checksum = str(meta.get("checksum") or "").strip()
+        if checksum and file_checksum == checksum:
+            return found
+        if wanted_isbn and normalize_isbn(str(meta.get("isbn") or "")) == wanted_isbn:
+            by_isbn.append(found)
+    return by_isbn[0] if len(by_isbn) == 1 else None
 
 
 def update_source(
     cfg: Any, db: Any, book: Any, updates: dict[str, Any], *, only_missing: bool = False
 ) -> list[str]:
-    """Grava a edição no SRC, criando o SRC manual se faltar; devolve as chaves gravadas.
+    """Põe a edição na ficha em memória. Quem chama grava o arquivo.
 
-    ``only_missing`` só preenche o que o SRC não tem: é o modo da pesquisa, que
-    completa sem nunca trocar o que o usuário escreveu.
+    ``only_missing`` só preenche o que a ficha não tem: é o modo da pesquisa,
+    que completa sem trocar o que o usuário escreveu. ``cfg`` e ``db`` ficam na
+    assinatura porque os chamados já os passam.
     """
-    from zettel.library.editing import BookEditError
-    from zettel.library.reading_notes import ensure_source
-    from zettel.sync import sync_source_note
-    from zettel.vault import compose_note, parse_frontmatter
-
-    source_id = ensure_source(cfg, db, book)
-    path = source_note_path(cfg, source_id)
-    if path is None:
-        raise BookEditError("A nota SRC desta fonte não está no vault.")
-    meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+    del cfg, db
     written = []
     for key, value in updates.items():
-        if only_missing and meta.get(key):
+        if only_missing and book.meta.get(key):
             continue
         if value:
-            meta[key] = value
+            book.meta[key] = value
             written.append(key)
         elif not only_missing and key != "year":
-            meta.pop(key, None)
-    path.write_text(compose_note(meta, body), encoding="utf-8")
-    sync_source_note(cfg, db, path)
+            book.meta.pop(key, None)
     return written

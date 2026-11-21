@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -125,18 +125,23 @@ def select_corroborating_ids(
     note_id: str,
     min_similarity: float,
     max_edges: int,
+    sibling_ids: Collection[str] = (),
 ) -> list[str]:
     """Other-source notes at or above the cut, closest first, capped.
 
     This is the rule. ``corroborating_note_ids`` (connect) and
     ``build_corroboration_plan`` (rebuild) both call it, so a hit clears the cut
     in one place only. A repeated ``note_id`` keeps its highest similarity.
+    A source in ``sibling_ids`` is another edition of the same work, not another
+    author (ADR-071): it does not corroborate. ``supports`` and ``related`` are
+    untouched; this filter only decides the derived edge.
     """
+    siblings = set(sibling_ids)
     best: dict[str, float] = {}
     for cand in candidates:
         if cand.note_id == note_id or cand.similarity < min_similarity:
             continue
-        if not cand.source_id or cand.source_id == source_id:
+        if not cand.source_id or cand.source_id == source_id or cand.source_id in siblings:
             continue
         previous = best.get(cand.note_id)
         if previous is None or cand.similarity > previous:
@@ -176,12 +181,15 @@ def corroborating_note_ids(
             continue
         other = (db.get_note(hit.note_id) or {}).get("source_id") or ""
         candidates.append(CorroborationCandidate(hit.note_id, similarity, other))
+    from zettel.library.works import sibling_source_ids
+
     return select_corroborating_ids(
         candidates,
         source_id=source_id,
         note_id=note_id,
         min_similarity=cfg.linking.corroborates_min_similarity,
         max_edges=cfg.linking.corroborates_max_edges,
+        sibling_ids=sibling_source_ids(db, source_id),
     )
 
 

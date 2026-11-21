@@ -1,7 +1,6 @@
-"""Notas de leitura escritas a partir do livro: LIT manuais granulares (ADR-030).
+"""Notas de leitura escritas a partir da ficha: LIT manuais granulares (ADR-030).
 
-Um livro sem fonte ganha antes um SRC manual (com o ISBN, para que o PDF
-colhido depois caia na mesma fonte, #392). A LIT é adotada na hora, sem passar
+A ficha já é o SRC, criado no cadastro. A LIT é adotada na hora, sem passar
 pelo portão de revisão, como toda nota manual.
 """
 
@@ -11,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from zettel.library.book_file import Book, as_int, save_book
+from zettel.library.book_file import Book, as_int
 from zettel.library.reading_mode import REFLECTIVE
 
 REFLECTION_KINDS = {
@@ -72,32 +71,17 @@ class ReadingNote:
 
 
 def ensure_source(cfg: Any, db: Any, book: Book) -> str:
-    """O ``source_id`` do livro; cria o SRC manual quando ele não tem fonte."""
-    from zettel.harvester.citekey import generate_citekey
-    from zettel.new_note import scaffold_manual_note
+    """O ``source_id`` da ficha. O cadastro já criou o SRC; aqui a linha é refeita se faltar."""
     from zettel.sync import sync_source_note
 
-    if book.source_id and db.get_source(book.source_id):
+    if not book.source_id:
+        raise ReadingNoteError("Esta ficha não tem fonte.")
+    if db.get_source(book.source_id):
         return book.source_id
-    year = as_int(book.meta.get("original_publication_year"))
-    citekey = generate_citekey(db, book.authors, year, book.title)
-    result = scaffold_manual_note(
-        cfg,
-        "source",
-        book.title,
-        source_id=f"@{citekey}",
-        authors=book.authors,
-        year=year,
-        document_type="livro",
-        isbn=str(book.meta.get("isbn") or "") or None,
-    )
-    sync_source_note(cfg, db, result.path)
-    book.meta["source_id"] = f"@{citekey}"
-    save_book(cfg, book, expected_version=book.version)
-    from zettel.library.sources import sync_source_code
-
-    sync_source_code(cfg, db, book)
-    return f"@{citekey}"
+    sync_source_note(cfg, db, book.path)
+    if not db.get_source(book.source_id):
+        raise ReadingNoteError("A fonte desta ficha não entrou no acervo.")
+    return book.source_id
 
 
 def _scaffold_fields(note: ReadingNote, reflective: bool) -> dict[str, Any]:
@@ -130,7 +114,7 @@ def create_reading_note(cfg: Any, db: Any, book: Book, note: ReadingNote) -> Pat
     from zettel.vault import compose_note, parse_frontmatter
 
     source_id = ensure_source(cfg, db, book)
-    row = db.get_book(book.book_id)
+    row = db.get_source(source_id)
     reflective = (row or {}).get("reading_mode") == REFLECTIVE
     result = scaffold_manual_note(
         cfg,

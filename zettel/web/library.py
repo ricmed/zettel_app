@@ -1,4 +1,4 @@
-"""Estante (ADR-068): livros como notas LIV, com lista, painel, detalhe e notas de leitura.
+"""Estante: a ficha é o SRC, com lista, painel, detalhe e notas de leitura.
 
 Rotas em inglês (``/books``), página em PT-BR. Toda edição é um POST de
 formulário com CSRF, feito sob a trava de operação e conferido contra a versão
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -44,6 +45,8 @@ EDIT_ACTIONS = (
     "cover",
     "cover-isbn",
     "complete",
+    "link-work",
+    "unlink-work",
 )
 _LOCK = "estante"
 # O que um candidato da pesquisa pode pré-preencher no formulário de cadastro.
@@ -59,6 +62,11 @@ PREFILL_KEYS = (
     "cover_ref",
     "country",
     "original_language",
+    "document_type",
+    "doi",
+    "journal",
+    "volume",
+    "issue",
 )
 
 
@@ -93,6 +101,16 @@ def _book_card(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _type_labels(cfg: Any) -> dict[str, str]:
+    from zettel.bibliography import DOCUMENT_TYPE_LABELS
+
+    return {
+        key: DOCUMENT_TYPE_LABELS[key]
+        for key in cfg.library.document_types
+        if key in DOCUMENT_TYPE_LABELS
+    }
+
+
 def _filters(request: Request) -> dict[str, Any]:
     q = request.query_params
 
@@ -113,6 +131,7 @@ def _filters(request: Request) -> dict[str, Any]:
         "min_score": number("min_score", float),
         "query": q.get("q", "")[:200],
         "favorite": q.get("favorite") == "1",
+        "document_type": q.get("document_type", ""),
         "sort": q.get("sort", "code") if q.get("sort") in SORTS else "code",
     }
 
@@ -132,8 +151,9 @@ def books_list(request: Request):
     except LibrarySchemaError as exc:
         return error_page(request, 500, f"Vocabulário da Estante inválido: {exc}")
     try:
-        books = [_book_card(r) for r in db.list_book_rows(**filters)]
-        total = len(db.list_book_identities())
+        types = list(cfg.library.document_types)
+        books = [_book_card(r) for r in db.list_shelf_rows(types, **filters)]
+        total = len(db.list_shelf_identities(types))
     finally:
         db.close()
     board = [
@@ -159,6 +179,7 @@ def books_list(request: Request):
         status_labels=STATUS_LABELS,
         format_labels=FORMAT_LABELS,
         nature_labels=NATURE_LABELS,
+        type_labels=_type_labels(cfg),
         this_year=_today(cfg).year,
     )
 
@@ -174,19 +195,10 @@ def books_dashboard(request: Request):
     try:
         raw = request.query_params.get("year", "")
         year = int(raw) if raw.isdecimal() and len(raw) == 4 else _today(cfg).year
-        stats = build_dashboard(db, schema_for(cfg), year)
+        stats = build_dashboard(db, schema_for(cfg), year, list(cfg.library.document_types))
     finally:
         db.close()
     return render(request, "books_dashboard.html", page="library", stats=stats)
-
-
-def _sources_without_book(db: Any, cfg: Any) -> list[dict[str, Any]]:
-    linked = {r["source_id"] for r in db.list_book_identities() if r.get("source_id")}
-    return [
-        s
-        for s in db.list_sources()
-        if s["source_id"] not in linked and s.get("document_type") in cfg.library.document_types
-    ][:200]
 
 
 def _shelf_match(identities: list[dict[str, Any]], candidate: Any) -> dict[str, Any] | None:
@@ -224,21 +236,22 @@ def book_new_page(request: Request):
     """
     if not authenticated(request):
         return redirect_login()
+    from zettel.harvester.biblio_dedupe import normalize_doi
     from zettel.library.book_file import FORMAT_LABELS, STATUS_LABELS
     from zettel.library.lookup import (
         PROVIDER_ARTICLES,
         PROVIDER_LABELS,
         PROVIDERS,
         BookLookupError,
+        lookup_doi,
         search_books,
     )
     from zettel.library.schema import schema_for
 
     cfg, db = _open(request)
     try:
-        sources = _sources_without_book(db, cfg)
-        identities = db.list_book_identities()
-        codes = {r["book_id"]: r.get("code_number") for r in identities}
+        identities = db.list_shelf_identities(list(cfg.library.document_types))
+        codes = {r["source_id"]: r.get("code_number") for r in identities}
     finally:
         db.close()
     online = cfg.library.online_lookup
@@ -248,7 +261,17 @@ def book_new_page(request: Request):
     provider = provider if provider in PROVIDERS else PROVIDERS[0]
     results: list[dict[str, Any]] = []
     lookup_error = ""
-    if step == "search" and query:
+    doi_work = None
+    doi = normalize_doi(query) if step == "search" and query else ""
+    if doi and online:
+        # DOI pergunta ao Crossref, não ao Google Books. Nada é gravado neste GET.
+        try:
+            doi_work = lookup_doi(doi)
+        except BookLookupError as exc:
+            lookup_error = str(exc)
+        if doi_work is None and not lookup_error:
+            lookup_error = "O Crossref não devolveu esta obra. O formulário manual continua à mão."
+    elif step == "search" and query:
         # Só leitura e fora da trava: nada é gravado até o formulário ser enviado.
         try:
             found = search_books(query, provider)
@@ -263,14 +286,14 @@ def book_new_page(request: Request):
                     # Sugestão pelas categorias do catálogo; o usuário confere no formulário.
                     "genres": schema_for(cfg).genres_for_categories(cand.categories),
                     "on_shelf": match,
-                    "code": codes.get(match["book_id"]) if match else None,
+                    "code": codes.get(match["source_id"]) if match else None,
                 }
             )
     schema = schema_for(cfg)
     prefill = _prefill(request) if step == "form" else {}
     prefill_genres = [g[:80] for g in request.query_params.getlist("genres") if g.strip()][:12]
     work, work_error = None, ""
-    if step == "form" and online and prefill.get("title"):
+    if step == "form" and online and prefill.get("title") and not prefill.get("doi"):
         work, work_error = _work_facts(
             prefill["title"],
             prefill.get("authors", "").splitlines(),
@@ -292,6 +315,7 @@ def book_new_page(request: Request):
         query=query,
         results=results,
         lookup_error=lookup_error,
+        doi_work=doi_work,
         provider=provider,
         provider_label=PROVIDER_LABELS[provider],
         provider_article=PROVIDER_ARTICLES[provider],
@@ -301,12 +325,12 @@ def book_new_page(request: Request):
         prefill=prefill,
         work=work,
         work_error=work_error,
-        sources=sources,
         genre_groups=schema.grouped_genres(prefill_genres),
         prefill_genres=prefill_genres,
         subject_options=schema.subjects,
         format_labels=FORMAT_LABELS,
         status_labels=STATUS_LABELS,
+        type_labels=_type_labels(cfg),
         initial_status=cfg.library.initial_status,
     )
 
@@ -366,19 +390,22 @@ def book_create(request: Request, form: FormData = Depends(read_form)):
     from zettel.library.book_file import BookFileBusy, create_book, save_book
     from zettel.library.covers import store_cover
     from zettel.library.editing import BookEditError, apply_metadata, set_cover
-    from zettel.library.linking import fields_from_source
     from zettel.library.mirror import refresh
     from zettel.library.schema import schema_for
-    from zettel.library.sources import sync_source_code, update_source
+    from zettel.library.sources import update_source
     from zettel.oplock import LockBusy
+    from zettel.sync import sync_source_note
 
     cfg = service(request).cfg
     values = _form_values(form)
-    source_id = str(values.get("source_id") or "").strip()
     try:
         source_updates = _source_updates(values)
     except BookEditError as exc:
         return error_page(request, 400, str(exc))
+    for key in ("doi", "journal", "volume", "issue", "document_type"):
+        text = " ".join(str(values.get(key) or "").split())[:300]
+        if text:
+            source_updates[key] = text
     # A rede fica fora da trava: só a gravação precisa dela.
     cover = _search_cover(cfg, str(values.get("cover_ref") or ""))
     try:
@@ -387,27 +414,36 @@ def book_create(request: Request, form: FormData = Depends(read_form)):
         return error_page(request, 409, f"O vault está em uso. {busy}")
     db = service(request).db()
     try:
-        seed: dict[str, Any] = {}
-        if source_id:
-            source = db.get_source(source_id)
-            if not source:
-                return error_page(request, 400, "Fonte não encontrada.")
-            seed = fields_from_source(source)
-        if not str(values.get("title") or "").strip() and seed:
-            values["title"] = seed["title"]
-            values["authors"] = "\n".join(seed["authors"])
-            values.setdefault("isbn", seed.get("isbn") or "")
         if not str(values.get("title") or "").strip():
-            return error_page(request, 400, "Dê um título ao livro ou escolha uma fonte.")
+            return error_page(request, 400, "Dê um título ao livro.")
         try:
-            book = create_book(cfg, {"title": values["title"], "format": values.get("format")})
+            authors = [
+                line.strip()
+                for line in str(values.get("authors") or "").splitlines()
+                if line.strip()
+            ]
+            book = create_book(
+                cfg,
+                {
+                    "title": values["title"],
+                    "citekey_seed_authors": authors,
+                    "format": values.get("format"),
+                    "status": values.get("status"),
+                    "document_type": values.get("document_type") or "livro",
+                    "isbn": values.get("isbn") or None,
+                    "year": source_updates.get("year"),
+                },
+                db=db,
+            )
         except BookFileBusy as exc:
-            return error_page(request, 409, f"A nota do livro não foi criada. {exc}")
+            return error_page(request, 409, f"A nota não foi criada. {exc}")
         try:
             apply_metadata(book, {**_metadata_defaults(book), **values}, schema_for(cfg))
         except BookEditError as exc:
             book.path.unlink(missing_ok=True)
             return error_page(request, 400, str(exc))
+        if any(source_updates.values()):
+            update_source(cfg, db, book, source_updates)
         if cover:
             set_cover(book, store_cover(cfg.vault_path, *cover))
         try:
@@ -416,19 +452,16 @@ def book_create(request: Request, form: FormData = Depends(read_form)):
             return error_page(
                 request,
                 409,
-                f"O livro «{book.title}» ({book.code}) ficou só com o título. {exc} "
+                f"A ficha «{book.title}» ({book.code}) ficou só com o título. {exc} "
                 "Enviar o formulário outra vez cria um segundo livro. Feche a nota e "
                 "complete a ficha na Estante, por esse título.",
             )
-        if any(source_updates.values()):
-            # A edição achada na pesquisa (ou digitada) vai ao SRC, criado agora se preciso.
-            update_source(cfg, db, book, source_updates)
-        sync_source_code(cfg, db, book)
+        sync_source_note(cfg, db, book.path)
         refresh(db, cfg)
     finally:
         db.close()
         lock.release()
-    return RedirectResponse(f"/books/{book.book_id}", status_code=303)
+    return RedirectResponse(f"/books/{book.source_id}", status_code=303)
 
 
 def _form_values(form: FormData) -> dict[str, Any]:
@@ -461,44 +494,114 @@ def _bibliography(source: dict[str, Any] | None) -> dict[str, Any]:
     return biblio if isinstance(biblio, dict) else {}
 
 
+def _work_siblings(db: Any, source_id: str) -> list[dict[str, str]]:
+    from zettel.library.works import sibling_views
+
+    return sibling_views(db, source_id)
+
+
+def _work_choices(cfg: Any, db: Any, source_id: str) -> list[dict[str, str]]:
+    from zettel.library.works import shelf_choices
+
+    return shelf_choices(cfg, db, source_id)
+
+
+def _note_search(request: Request, source_id: str, groups: list[dict[str, Any]]) -> dict[str, Any]:
+    """Totais da obra e a página de 10 da busca (tipo LIT, ZTL ou ambas)."""
+    from zettel.library.linking import (
+        match_work_notes,
+        page_work_notes,
+        work_note_rows,
+        work_note_totals,
+    )
+
+    lit_total, ztl_total = work_note_totals(groups)
+    query = (request.query_params.get("q") or "").strip()[:200]
+    tipo = request.query_params.get("tipo") or "ambas"
+    if tipo not in ("lit", "ztl", "ambas"):
+        tipo = "ambas"
+    raw_page = request.query_params.get("pagina") or "1"
+    page = int(raw_page) if raw_page.isdecimal() and len(raw_page) <= 6 and int(raw_page) > 0 else 1
+    matched = match_work_notes(work_note_rows(groups), query=query, kind=tipo)
+    visible, current, pages = page_work_notes(matched, page=page)
+    own_note_ids = [
+        note["note_id"] for group in groups if group.get("own") for note in group["notes"]
+    ]
+
+    def page_url(number: int) -> str:
+        params: dict[str, str] = {}
+        if query:
+            params["q"] = query
+        if tipo != "ambas":
+            params["tipo"] = tipo
+        if number > 1:
+            params["pagina"] = str(number)
+        encoded = urlencode(params)
+        target = f"/books/{source_id}"
+        return f"{target}?{encoded}#notas" if encoded else f"{target}#notas"
+
+    return {
+        "lit_total": lit_total,
+        "ztl_total": ztl_total,
+        "note_query": query,
+        "note_tipo": tipo,
+        "note_matched": len(matched),
+        "note_page": visible,
+        "note_current": current,
+        "note_pages": pages,
+        "note_previous_url": page_url(current - 1) if current > 1 else None,
+        "note_next_url": page_url(current + 1) if current < pages else None,
+        "own_note_ids": own_note_ids,
+        "work_linked": any(group.get("heading") for group in groups),
+        "show_llm_hint": any(item["own"] and item["kind"] == "lit" for item in visible),
+    }
+
+
 def _source_view(db: Any, source_id: str | None) -> dict[str, Any]:
-    from zettel.vault import literature_chunk_wikilink_for_row
+    from zettel.library.linking import note_groups
 
     if not source_id:
-        return {"source": None, "lits": [], "notes": []}
+        return {"source": None, "lits": [], "notes": [], "note_groups": []}
     source = db.get_source(source_id)
     if not source:
-        return {"source": None, "missing_source": source_id, "lits": [], "notes": []}
-    lits = []
-    for chunk in db.get_chunks_for_source(source_id):
-        if chunk.get("status") not in ("approved", "persisted"):
-            continue
-        link = literature_chunk_wikilink_for_row(source["citekey"], chunk, with_alias=True)
-        label = link.split("|", 1)[1].rstrip("]") if "|" in link else link.strip("[]")
-        lits.append(
-            {
-                "chunk_id": chunk["chunk_id"],
-                "label": label,
-                "manual": chunk.get("status") == "persisted",
-                "page": chunk.get("page_in_book"),
-            }
-        )
-    notes = [
-        {"note_id": n["note_id"], "title": n.get("title") or n["note_id"]}
-        for n in db.get_notes_for_source(source_id)
-    ]
-    return {"source": source, "lits": lits, "notes": notes}
+        return {
+            "source": None,
+            "missing_source": source_id,
+            "lits": [],
+            "notes": [],
+            "note_groups": [],
+        }
+    groups = note_groups(db, source_id)
+    own = next((group for group in groups if group["own"]), None) or {
+        "lits": [],
+        "notes": [],
+    }
+    return {
+        "source": source,
+        "lits": own["lits"],
+        "notes": own["notes"],
+        "note_groups": groups,
+    }
 
 
-@router.get("/books/{book_id}", response_class=HTMLResponse)
-def book_detail(request: Request, book_id: str):
+@router.get("/books/{source_id}", response_class=HTMLResponse)
+def book_detail(request: Request, source_id: str):
+    return _book_page(request, source_id)
+
+
+def _book_page(
+    request: Request,
+    source_id: str,
+    *,
+    draft: dict[str, str] | None = None,
+    edition_notice: dict[str, Any] | None = None,
+):
     if not authenticated(request):
         return redirect_login()
     from zettel.credentials import llm_phase_ready
     from zettel.library import book_file as bf
     from zettel.library.book_file import as_str_list
     from zettel.library.covers import OPEN_LIBRARY_HOME
-    from zettel.library.linking import source_candidates
     from zettel.library.rating import rate
     from zettel.library.reading_mode import effective_nature, effective_reading_mode
     from zettel.library.reading_notes import REFLECTION_KINDS
@@ -507,15 +610,15 @@ def book_detail(request: Request, book_id: str):
     cfg, db = _open(request)
     try:
         try:
-            book = bf.load_book(cfg, book_id)
+            book = bf.load_book(cfg, source_id)
         except bf.BookNotFound:
             return error_page(request, 404, "Livro não encontrado.")
         schema = schema_for(cfg)
-        row = db.get_book(book_id) or {}
+        row = db.get_source(source_id) or {}
         view = _source_view(db, book.source_id)
-        candidates = []
-        if view.get("missing_source"):
-            candidates = [db.get_source(s) for s in source_candidates(db, row)]
+        chunks = db.get_chunks_for_source(book.source_id) if view.get("source") else []
+        siblings = _work_siblings(db, book.source_id)
+        choices = _work_choices(cfg, db, book.source_id)
     finally:
         db.close()
     rating = rate(schema, book.meta)
@@ -554,10 +657,23 @@ def book_detail(request: Request, book_id: str):
         connect_llm_ready=llm_phase_ready(cfg, "connect"),
         desks=desk_choices(request),
         completed=_completed_notice(request),
-        candidates=[c for c in candidates if c],
+        chunks=chunks,
+        siblings=siblings,
+        shelf_choices=choices,
+        draft=draft or {},
+        edition_notice=edition_notice,
+        document_label=_type_labels(cfg).get(
+            str(
+                (view.get("source") or {}).get("document_type")
+                or book.meta.get("document_type")
+                or ""
+            ),
+            "",
+        ),
         biblio=biblio,
         today=_today(cfg).isoformat(),
         **view,
+        **_note_search(request, book.source_id, view.get("note_groups") or []),
     )
 
 
@@ -613,6 +729,31 @@ def _change(action: str, values: dict[str, Any], form: FormData, cfg: Any, schem
     if action == "cover":
         cover = _uploaded_cover(form)
         return lambda book, db: ed.set_cover(book, store_cover(cfg.vault_path, *cover))
+    if action == "link-work":
+        other_id = str(values.get("other_id") or "")
+
+        def change(book, db, other_id=other_id):
+            from zettel.library.works import WorkLinkError, link_editions
+
+            try:
+                link_editions(cfg, db, book.source_id, other_id)
+            except WorkLinkError as exc:
+                raise ed.BookEditError(str(exc)) from exc
+            return "saved"
+
+        return change
+    if action == "unlink-work":
+
+        def change(book, db):
+            from zettel.library.works import WorkLinkError, unlink_edition
+
+            try:
+                unlink_edition(cfg, db, book.source_id)
+            except WorkLinkError as exc:
+                raise ed.BookEditError(str(exc)) from exc
+            return "saved"
+
+        return change
     raise ed.BookEditError("Ação desconhecida.")
 
 
@@ -647,7 +788,7 @@ def _source_updates(values: dict[str, Any]) -> dict[str, Any]:
 
 def _edit(
     request: Request,
-    book_id: str,
+    source_id: str,
     version: str | None,
     change,
     anchor: str = "",
@@ -664,8 +805,8 @@ def _edit(
     from zettel.library.linking import write_book_notes_block
     from zettel.library.mirror import refresh
     from zettel.library.reading_notes import ReadingNoteError
-    from zettel.library.sources import sync_source_code
     from zettel.oplock import LockBusy
+    from zettel.sync import sync_source_note
 
     cfg = service(request).cfg
     try:
@@ -674,18 +815,16 @@ def _edit(
         return error_page(request, 409, f"O vault está em uso. {busy}")
     db = service(request).db()
     try:
-        book = bf.load_book(cfg, book_id)
+        book = bf.load_book(cfg, source_id)
         if version is not None and book.version != version:
-            raise bf.BookConflict(book_id)
-        previous_source = book.source_id
-        # ``change`` pode gravar o livro (ao ligar a fonte); save_book atualiza
-        # book.version, então a gravação seguinte confere contra o arquivo certo.
+            raise bf.BookConflict(source_id)
         if change(book, db) != "saved":
             bf.save_book(cfg, book, expected_version=book.version)
+        saved = bf.load_book(cfg, source_id)
+        sync_source_note(cfg, db, saved.path)
         refresh(db, cfg)
-        saved = bf.load_book(cfg, book_id)
+        saved = bf.load_book(cfg, source_id)
         write_book_notes_block(cfg, db, saved)
-        sync_source_code(cfg, db, saved, previous_source)
         refresh(db, cfg)
     except bf.BookNotFound:
         return error_page(request, 404, "Livro não encontrado.")
@@ -709,13 +848,13 @@ def _edit(
         lock.release()
     suffix = query() if query else ""
     return RedirectResponse(
-        f"/books/{book_id}" + (f"?{suffix}" if suffix else "") + (f"#{anchor}" if anchor else ""),
+        f"/books/{source_id}" + (f"?{suffix}" if suffix else "") + (f"#{anchor}" if anchor else ""),
         303,
     )
 
 
-@router.post("/books/{book_id}")
-def book_edit(request: Request, book_id: str, form: FormData = Depends(read_form)):
+@router.post("/books/{source_id}")
+def book_edit(request: Request, source_id: str, form: FormData = Depends(read_form)):
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, str(form.get("csrf") or "")):
@@ -735,7 +874,7 @@ def book_edit(request: Request, book_id: str, form: FormData = Depends(read_form
             return error_page(request, 409, "A pesquisa online está desligada na configuração.")
         report: dict[str, Any] = {}
         if action == "complete":
-            change = _complete_change(cfg, _load_or_none(cfg, book_id), report)
+            change = _complete_change(cfg, _load_or_none(cfg, source_id), report)
         elif action == "cover-isbn":
             # A rede fica fora da trava: só a gravação precisa dela.
             data, suffix = fetch_open_library_cover(str(values.get("isbn") or ""))
@@ -749,6 +888,8 @@ def book_edit(request: Request, book_id: str, form: FormData = Depends(read_form
     anchor = {"rating": "avaliacao", "summary": "resumo"}.get(action, "")
     if action.startswith("reading-"):
         anchor = "leituras"
+    if action in ("link-work", "unlink-work"):
+        anchor = "obra"
     query = None
     if action == "complete":
         from urllib.parse import urlencode
@@ -758,14 +899,14 @@ def book_edit(request: Request, book_id: str, form: FormData = Depends(read_form
                 {"completed": ",".join(report["filled"]) or "-", "work": report["work"]}
             )
 
-    return _edit(request, book_id, str(form.get("version") or ""), change, anchor, query)
+    return _edit(request, source_id, str(form.get("version") or ""), change, anchor, query)
 
 
-def _load_or_none(cfg: Any, book_id: str):
+def _load_or_none(cfg: Any, source_id: str):
     from zettel.library import book_file as bf
 
     try:
-        return bf.load_book(cfg, book_id)
+        return bf.load_book(cfg, source_id)
     except bf.BookNotFound:
         return None
 
@@ -774,14 +915,14 @@ def _complete_change(cfg: Any, book: Any, report: dict[str, Any]):
     """Completar dados: pesquisa agora (fora da trava) e preenche só o que está vazio.
 
     Pelo ISBN (Google Books, depois Open Library): autores, páginas, capa e a
-    edição no SRC. Pelo Wikidata (título + autores): país do autor, idioma,
-    título e ano originais. Basta uma das duas responder. ``report`` recebe o
-    que foi preenchido (``filled``) e o que o Wikidata achou (``work``: work,
-    author ou none), para o aviso da página.
+    edição. Pelo DOI (Crossref): periódico, volume, fascículo, páginas, editora
+    e ano, só onde a ficha está vazia. Pelo Wikidata (título + autores): país do
+    autor, idioma, título e ano originais. Basta uma das fontes responder.
     """
+    from zettel.harvester.biblio_dedupe import normalize_doi
     from zettel.library.covers import store_cover
     from zettel.library.editing import BookEditError, fill_missing, set_cover
-    from zettel.library.lookup import BookLookupError, lookup_isbn
+    from zettel.library.lookup import BookLookupError, lookup_doi, lookup_isbn
     from zettel.library.sources import update_source
 
     if book is None:
@@ -793,41 +934,147 @@ def _complete_change(cfg: Any, book: Any, report: dict[str, Any]):
             found = lookup_isbn(str(book.meta["isbn"]))
         except BookLookupError as exc:
             errors.append(str(exc))
-    authors = book.authors or (found.authors if found else [])
+    crossref = None
+    doi = normalize_doi(str(book.meta.get("doi") or ""))
+    if doi:
+        try:
+            crossref = lookup_doi(doi)
+        except BookLookupError as exc:
+            errors.append(str(exc))
+    authors = (
+        book.authors or (found.authors if found else []) or (crossref.authors if crossref else [])
+    )
     work, work_error = _work_facts(book.title, authors, str(book.meta.get("original_title") or ""))
     report.update(filled=[], work=work.match if work else "none")
     if work_error:
         errors.append(work_error)
-    if found is None and work is None:
+    if found is None and work is None and crossref is None:
         raise BookEditError(
-            " ".join(errors) or "Nem os catálogos (pelo ISBN) nem o Wikidata acharam este livro."
+            " ".join(errors)
+            or "Nem os catálogos, nem o Crossref, nem o Wikidata acharam esta ficha."
         )
     fields: dict[str, Any] = {}
     if found:
         fields = {**found.form_fields(), "authors": found.authors}
         fields.pop("original_publication_year", None)  # o ano da obra vem do Wikidata
+    if crossref and crossref.authors and not fields.get("authors"):
+        fields["authors"] = crossref.authors
+    if crossref and crossref.pages and not fields.get("pages"):
+        fields["pages"] = crossref.pages
     if work:
         fields.update(work.book_fields())
     cover = _search_cover(cfg, found.cover_ref) if found else None
-    source = (
+    source: dict[str, Any] = (
         {"publisher": found.publisher, "place": found.place, "year": found.year} if found else {}
     )
+    if crossref:
+        source.update(
+            {
+                "publisher": source.get("publisher") or crossref.publisher,
+                "year": source.get("year") or crossref.year,
+                "journal": crossref.container,
+                "volume": crossref.volume,
+                "issue": crossref.issue,
+                "pages": crossref.pages,
+            }
+        )
+        if crossref.document_type and not str(book.meta.get("document_type") or "").strip():
+            source["document_type"] = crossref.document_type
 
     def change(book, db):
         filled = fill_missing(book, fields)
         if cover and not book.meta.get("cover"):
             set_cover(book, store_cover(cfg.vault_path, *cover))
             filled.append("cover")
-        if any(source.values()):
-            # Pode criar o SRC e gravar a LIV (source_id); a versão segue o arquivo.
+        if any(value not in (None, "") for value in source.values()):
             filled += update_source(cfg, db, book, source, only_missing=True)
         report["filled"] = filled
 
     return change
 
 
-@router.post("/books/{book_id}/reading-notes")
-def book_reading_note(request: Request, book_id: str, form: FormData = Depends(read_form)):
+_NOTE_FIELDS = (
+    "topic",
+    "page",
+    "excerpt",
+    "summary",
+    "concepts",
+    "candidate",
+    "reflection_kind",
+    "characters",
+    "reflection",
+    "analogy",
+)
+
+
+def _note_draft(form: FormData) -> dict[str, str]:
+    return {key: str(form.get(key) or "") for key in _NOTE_FIELDS}
+
+
+def _notice_from_match(match: Any, *, mode: str, chunk_id: str = "", use_llm: bool = False) -> dict:
+    if match.needs_excerpt:
+        kind = "excerpt"
+    elif match.unchecked:
+        kind = "unchecked"
+    else:
+        kind = "hits"
+    return {
+        "kind": kind,
+        "mode": mode,
+        "chunk_id": chunk_id,
+        "use_llm": use_llm,
+        "hits": [
+            {
+                "title": item.title,
+                "edition": item.edition,
+                "href": item.href,
+                "probable": item.probable,
+            }
+            for item in match.passages
+        ],
+    }
+
+
+def _edition_gate(cfg: Any, source_id: str, excerpt: str, *, confirm: bool):
+    """``None`` quando dá para gravar. Senão, o aviso para a página.
+
+    Sem obra, grava direto. Sem trecho, pede o trecho e não consulta o título.
+    Com confirmação e trecho, grava. O primeiro POST com vizinhas não grava.
+    """
+    from zettel.library.edition_match import compare_excerpt
+    from zettel.library.works import sibling_source_ids
+
+    db = service_db(cfg)
+    try:
+        linked = bool(sibling_source_ids(db, source_id))
+        if not linked:
+            return None
+        if not (excerpt or "").strip():
+            from zettel.library.edition_match import EditionMatch
+
+            return _notice_from_match(EditionMatch(needs_excerpt=True), mode="lit")
+        if confirm:
+            return None
+        match = compare_excerpt(cfg, db, source_id, excerpt)
+    finally:
+        db.close()
+    if match.clear:
+        return None
+    return _notice_from_match(match, mode="lit")
+
+
+def service_db(cfg: Any):
+    """Abre o banco já espelhado. Quem chama fecha."""
+    from zettel.library.mirror import refresh
+    from zettel.state import StateDB
+
+    db = StateDB(cfg.state_db_path)
+    refresh(db, cfg)
+    return db
+
+
+@router.post("/books/{source_id}/reading-notes")
+def book_reading_note(request: Request, source_id: str, form: FormData = Depends(read_form)):
     if not authenticated(request):
         return redirect_login()
     if not csrf_ok(request, str(form.get("csrf") or "")):
@@ -839,22 +1086,34 @@ def book_reading_note(request: Request, book_id: str, form: FormData = Depends(r
     except ReadingNoteError as exc:
         return error_page(request, 400, str(exc))
     cfg = service(request).cfg
+    confirm = str(form.get("confirm") or "") == "1"
+    notice = _edition_gate(cfg, source_id, note.excerpt, confirm=confirm)
+    if notice is not None:
+        notice["mode"] = "lit"
+        return _book_page(request, source_id, draft=_note_draft(form), edition_notice=notice)
 
     def change(book, db):
         create_reading_note(cfg, db, book, note)
         return "saved"
 
     # Só anexa uma nota e, no máximo, liga a fonte: não depende da versão da página.
-    return _edit(request, book_id, None, change, "notas")
+    return _edit(request, source_id, None, change, "notas")
 
 
-@router.post("/books/{book_id}/permanent")
-def book_permanent(request: Request, book_id: str, form: FormData = Depends(read_form)):
-    """ZTL a partir de uma nota de leitura: o job ``manual-ztl-from-lit`` de sempre."""
+@router.post("/books/{source_id}/permanent")
+def book_permanent(request: Request, source_id: str, form: FormData = Depends(read_form)):
+    """ZTL a partir de uma nota de leitura: o job ``manual-ztl-from-lit`` de sempre.
+
+    Com uma obra vinculada, o trecho já guardado na LIT é comparado com a outra
+    edição antes de enfileirar. A confirmação repete o envio e gera a nota.
+    """
     if not authenticated(request):
         return redirect_login()
+    if not csrf_ok(request, str(form.get("csrf") or "")):
+        return error_page(request, 403, "CSRF inválido")
     chunk_id = str(form.get("chunk_id") or "").strip()
     use_llm = str(form.get("use_llm") or "") == "1"
+    confirm = str(form.get("confirm") or "") == "1"
     if not chunk_id.startswith("@"):
         return error_page(request, 400, "Escolha a nota de leitura.")
     if use_llm:
@@ -862,5 +1121,31 @@ def book_permanent(request: Request, book_id: str, form: FormData = Depends(read
 
         if not llm_phase_ready(service(request).cfg, "connect"):
             return error_page(request, 409, "A fase connect não tem credencial de LLM.")
+    cfg = service(request).cfg
+    db = service_db(cfg)
+    try:
+        chunk = db.get_chunk(chunk_id) or {}
+        excerpt = str(chunk.get("text") or "")
+        from zettel.library.edition_match import EditionMatch, compare_excerpt
+        from zettel.library.works import sibling_source_ids
+
+        linked = bool(sibling_source_ids(db, source_id))
+        notice = None
+        if linked and not confirm:
+            if not excerpt.strip():
+                notice = _notice_from_match(EditionMatch(needs_excerpt=True), mode="ztl")
+            else:
+                match = compare_excerpt(cfg, db, source_id, excerpt)
+                if not match.clear:
+                    notice = _notice_from_match(
+                        match, mode="ztl", chunk_id=chunk_id, use_llm=use_llm
+                    )
+    finally:
+        db.close()
+    if notice is not None:
+        notice["mode"] = "ztl"
+        notice["chunk_id"] = chunk_id
+        notice["use_llm"] = use_llm
+        return _book_page(request, source_id, edition_notice=notice)
     payload = {"ref": chunk_id, "chunk_id": chunk_id, "thesis": None, "use_llm": use_llm}
     return post_job(request, "manual-ztl-from-lit", payload, str(form.get("csrf") or ""))
