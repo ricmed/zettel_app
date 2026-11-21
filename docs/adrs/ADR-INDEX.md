@@ -1,7 +1,7 @@
-# zettel_app ADR Index (70 Decisions)
+# zettel_app ADR Index (71 Decisions)
 
-**Last Updated**: 2026-11-17  
-**Status**: Complete — 70 formal ADRs (001–071; 044 unused) across 13 modules
+**Last Updated**: 2026-11-21  
+**Status**: Complete — 71 formal ADRs (001–072; 044 unused) across 13 modules
 
 ---
 
@@ -9,7 +9,7 @@
 
 | Module | Count | ADRs |
 |--------|-------|------|
-| **INFRA** | 15 | [001–008, 041–042, 052, 054, 058, 064–065](#infra-core-infrastructure) |
+| **INFRA** | 16 | [001–008, 041–042, 052, 054, 058, 064–065, 072](#infra-core-infrastructure) |
 | **RETRIEVAL** | 5 | [009–010, 036, 043, 047](#retrieval-hybrid-search--graph) |
 | **HARVEST** | 8 | [011–014, 027, 033, 046, 057](#harvest-ingestion--paging) |
 | **EXTRACT** | 5 | [015, 034, 049–050, 069](#extract-literature-notes) |
@@ -153,6 +153,15 @@
 - **Date**: 2026-09-05
 - **Summary**: SQLite rows use UTC ISO timestamps; vault frontmatter and web display use `vault_timezone` (default `America/Sao_Paulo`) via `zettel/time.py`. No legacy naive parsing.
 - **Link**: [`ADR-041-dual-timezone-utc-sqlite-vault-local.md`](./generated/INFRA/ADR-041-dual-timezone-utc-sqlite-vault-local.md)
+
+---
+
+### ADR-072: Encrypted Backup of the Vault, SQLite and Chroma
+
+- **Status**: Accepted
+- **Date**: 2026-11-21
+- **Summary**: `zettel backup` / `zettel restore` write one encrypted `.zettelbak` (magic `ZETTELBAK1`, scrypt, AES-256-GCM) of the SQLite snapshot, Chroma unless `--no-chroma`, `.env` when present, and the named vault folders. The passphrase is not stored and has no argv flag. The whole archive is encrypted because it carries notes, API keys and `web_auth.session_key`. No web UI, no image blobs in SQLite, no automatic `reindex`.
+- **Link**: [`ADR-072-encrypted-backup-archive.md`](./generated/INFRA/ADR-072-encrypted-backup-archive.md)
 
 ---
 
@@ -691,12 +700,21 @@
 
 | Category | Count |
 |----------|-------|
-| **Total ADRs** | 70 |
-| **Accepted** | 69 |
+| **Total ADRs** | 71 |
+| **Accepted** | 70 |
 | **Needs Input** | 0 |
 | **Modules Covered** | 13 |
 
 The counts in this file are pinned to `docs/adrs/generated/` by `tests/test_docs_adr_references.py`.
+
+---
+
+## Status Update (2026-11-21, backup)
+
+✅ **ADR-072** (encrypted `.zettelbak` of both stores, the vault and `.env`, issue #415). Addenda:
+- **ADR-005:** the missing snapshot of the two stores is this archive. The writes inside a run are still not one transaction.
+- **ADR-030:** `chunks.literature_body` keeps the granular LIT file; the flush key is the whole-file sha256.
+- **ADR-067:** a `projects` row can recreate a missing Mesa file. The file stays the live record.
 
 ---
 

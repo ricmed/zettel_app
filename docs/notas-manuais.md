@@ -55,9 +55,17 @@ O sync acompanha o que acontece com os arquivos (#348):
   - da ZTL, saem a linha no SQLite, a busca por texto, as arestas e o vetor no Chroma, e os `auto-backlinks` das vizinhas são reconstruídos;
   - do MOC, saem os backrefs das notas que ele listava, o índice de tópicos e a linha no banco.
 
-  Uma nota do pipeline apagada é só relatada, porque `zettel rebuild --what vault` a reescreve a partir do banco. O `--prune` fica só na CLI, por ser destrutivo.
+  Uma nota do pipeline apagada é só relatada, porque `zettel rebuild --what vault` a reescreve a partir do banco. O `--prune` fica só na CLI, por ser destrutivo. Uma nota manual apagada e removida com `--prune` perde a linha; sem `--prune`, a linha fica.
 
 Um MOC escrito à mão com nome livre (`MOC - tema.md`) agora também perde o backref de uma nota que sai da lista dele. Antes, esses backrefs nunca eram removidos.
+
+### O arquivo inteiro fica no banco
+
+No fim do `sync-manual`, e também no começo de um `zettel backup`, a retenção copia o Markdown atual de cada origem — inclusive as notas de pipeline que a adoção em si pula. A chave é o sha256 do arquivo inteiro, então uma edição só de frontmatter ou de bloco gerenciado entra na cópia. Não é só o texto que vai para o embedding.
+
+A LIT granular manual vai inteira para `chunks.literature_body`. ZTL e MOC guardam corpo e frontmatter, com `file_checksum`. A ficha SRC vai inteira para `sources.card_body` (`## Resumo` e `## Impressões`). O arquivo no vault continua sendo o que o Obsidian edita.
+
+Se esse arquivo sumir e a linha ainda estiver no banco, `zettel rebuild --what vault` ou `zettel init` (sem `--reset`) recria o `.md` a partir dessa cópia. Os dois só escrevem o que não existe. `--force` no `rebuild` continua sem sobrescrever uma nota `origin: manual` que já está no disco.
 
 ### Notas que o sync não adota
 

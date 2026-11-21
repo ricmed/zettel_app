@@ -100,7 +100,7 @@ Os exemplos abaixo usam `python -m zettel ...`; prefixe com `uv run --no-sync` s
 
 | Comando                           | O que faz                                                                    |
 | --------------------------------- | ---------------------------------------------------------------------------- |
-| `zettel init`                     | Cria o vault (sem apagar o que existe), as bases e os templates do Obsidian; `--reset` recria SQLite/Chroma/cache e remove só as notas do pipeline |
+| `zettel init`                     | Cria o vault (sem apagar o que existe) e recria do banco os `.md` que faltam; `--reset` recria SQLite/Chroma/cache, remove só as notas do pipeline e apaga as linhas manuais com o banco — `zettel backup` as traz de volta |
 | `zettel harvest`                  | Escaneia o inbox, extrai texto, cria SRC + índice LIT + chunks com página    |
 | `zettel set-paging`               | Corrige a página impressa de um PDF já harvestado, sem LLM (`--from-pdf` lê o número no arquivo) |
 | `zettel extract`                  | Prompt 1: gera drafts de LIT granular em `00_Inbox/Review`                   |
@@ -111,10 +111,11 @@ Os exemplos abaixo usam `python -m zettel ...`; prefixe com `uv run --no-sync` s
 | `zettel article "..."`            | Artigo longo a partir do vault, com outline interativo                       |
 | `zettel skill`                    | Exporta um recorte aprovado do vault como Agent Skill plana                  |
 | `zettel new-note`                 | Scaffold de nota manual (`ztl`/`src`/`lit`/`moc`)                            |
-| `zettel sync-manual`              | Adota notas escritas à mão no Obsidian (índice, grafo, backrefs), também sem rede; `--prune` remove as apagadas |
+| `zettel sync-manual`              | Adota notas escritas à mão e, no fim, retém o Markdown inteiro (não só o texto do embedding) para um `rebuild` ou `init` recriar arquivo que sumiu; `--prune` remove as apagadas |
 | `zettel obsidian-templates`       | Gera `99_Templates/` a partir dos scaffolds do `new-note`; `--force` regrava |
 | `zettel obsidian-setup`           | Templates, plugin Templater e `.obsidian/` num vault existente |
 | `zettel suggest-links`            | Sugere conexões (incl. analogias distantes) sem reescrever a ZTL             |
+| `zettel backup` / `zettel restore` | Arquivo cifrado `.zettelbak` do banco, do vault, do Chroma e do `.env`; a senha não fica no arquivo nem na linha de comando. O restore não troca o `.env` sem `--force-env` |
 | `zettel status` / `zettel doctor` | Estatísticas do pipeline / diagnóstico de config e dependências              |
 | `zettel db-report`                | Relatório de tamanho e conteúdo de `state.db` e Chroma                       |
 | `zettel run-all`                  | Pipeline completo, do inbox aos MOCs                                         |
@@ -171,6 +172,8 @@ vault/
 │   └── scripts/zettel.js    # ULID, citekey, LIT→ZTL; nao editar
 └── .obsidian/               # Plugin Templater e folder templates (init)
 ```
+
+`init --reset` mantém no disco as fichas `type: source`, as notas manuais, as Mesas e `.obsidian/`. As linhas dessas notas somem com o banco. A frase do comando é: `As linhas das notas manuais somem com o banco. 'zettel backup' e o que as traz de volta.` Os arquivos que ficaram voltam ao banco com `zettel sync-manual`.
 
 Nomes seguem `PREFIXO - IDENTIFICADOR - slug.md` (SRC/LIT usam `AuthorYear`; ZTL/MOC usam ULID). O `@` vive em `source_id` e na CLI, nunca em caminhos.
 
@@ -248,7 +251,7 @@ Páginas, operações enfileiráveis e recuperação após reinício: [docs/inte
 
 ## Configuração
 
-A **fonte operacional** é `[config/config.yaml](config/config.yaml)` — é o arquivo que o CLI e a web carregam. `[zettel/config.py](zettel/config.py)` define o schema Pydantic e só aplica fallback quando o YAML falta ou omite uma chave. Segredos (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY`, `TYPESAFE_API_KEY`, `SESSION_SECRET`) ficam no `.env`.
+A **fonte operacional** é `[config/config.yaml](config/config.yaml)` — é o arquivo que o CLI e a web carregam. `[zettel/config.py](zettel/config.py)` define o schema Pydantic e só aplica fallback quando o YAML falta ou omite uma chave. Segredos (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY`, `TYPESAFE_API_KEY`, `SESSION_SECRET`) ficam no `.env`. `zettel backup` pode levar esse `.env` para dentro do `.zettelbak` cifrado; a senha do backup não é gravada.
 
 
 | Bloco                                                                                    | Controla                                                                                                                             |

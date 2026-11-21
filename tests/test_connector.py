@@ -829,7 +829,7 @@ def test_run_connect_links_refinement_and_writes_suggestions_once(tmp_path, monk
         assert writes.count(note_id) == 1
         row = db.get_note(note_id)
         assert "FAR" in read_managed_block(row["body"], "auto-connections")
-        on_disk = Path(row["path"]).read_text(encoding="utf-8")
+        on_disk = (cfg.vault_path / row["path"]).read_text(encoding="utf-8")
         assert read_managed_block(on_disk, "auto-connections") == read_managed_block(
             row["body"], "auto-connections"
         )

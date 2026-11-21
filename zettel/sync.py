@@ -2,7 +2,9 @@
 
 Adopts notes hand-written in Obsidian (Sources, Literature, Permanent, MOCs) into
 the pipeline: assigns ids/citekeys, marks them `origin: manual`, persists their
-bodies into SQLite (retention) and indexes the embeddable ones into ChromaDB.
+bodies into SQLite and indexes the embeddable ones into ChromaDB. After that
+adoption, ``retention.flush`` copies the current file of every origin into the
+store, keyed by the sha256 of the whole file.
 """
 
 from __future__ import annotations
@@ -26,6 +28,12 @@ from zettel.hashing import (
 from zettel.index import VectorIndex
 from zettel.retrieval import Retriever
 from zettel.state import StateDB
+from zettel.stored_path import (
+    open_stored,
+    same_stored,
+    store_origin,
+    store_vault,
+)
 from zettel.vault import (
     PIPELINE_ORIGINS,
     ZTL_LINK_RE,
@@ -63,11 +71,14 @@ class _Run:
     seen: set[str] = field(default_factory=set)
     moved: int = 0
 
-    def locate(self, row: dict | None, row_id: str, file_path: Path, update: Callable) -> None:
+    def locate(
+        self, row: dict | None, row_id: str, file_path: Path, update: Callable, *, vault: Path
+    ) -> None:
         """Record ``row_id`` as present and point its row at ``file_path`` when it moved."""
         self.seen.add(row_id)
-        if row and row.get("path") and row["path"] != str(file_path):
-            update(row_id, str(file_path))
+        stored = (row or {}).get("path") or ""
+        if stored and not same_stored(stored, file_path, vault):
+            update(row_id, store_vault(file_path, vault))
             self.moved += 1
 
 
@@ -139,9 +150,10 @@ def run_sync_manual(
     bad note never stops the others, #342), ``embedding_pending`` and
     ``embedding_offline`` (why vectors were not written, or ``None``; #343),
     ``moved`` and ``missing`` (notes and MOCs whose file is gone; ``prune``
-    removes the manual ones from SQLite, Chroma and the graph, #348), and the
-    bookshelf counters (``books_created``, ``books_linked``, ``books_ambiguous``). Opens a
-    ``sync`` run so the embedding cost of the notes it indexes is recorded (#311).
+    removes the manual ones from SQLite, Chroma and the graph, #348), the
+    bookshelf counters (``books_created``, ``books_linked``, ``books_ambiguous``)
+    and ``retention`` (the flush that copies every current file into SQLite).
+    Opens a ``sync`` run so the embedding cost of the notes it indexes is recorded (#311).
     """
     from zettel.usage import begin_run, finish_pipeline_run
 
@@ -211,11 +223,14 @@ def _sync_all(cfg: AppConfig, db: StateDB, vectors: _Vectors, *, prune: bool) ->
     # The bookshelf mirror, orphaned LIVs relinked, their note blocks (ADR-068).
     stats.update(safe_sync_library(cfg, db))
     stats.update(_link_notes(db, run))
-    repair = repair_permanent_links(db, vault_timezone=cfg.vault_timezone)
+    repair = repair_permanent_links(db, vault=cfg.vault_path, vault_timezone=cfg.vault_timezone)
     stats.update(repair)
     stats["failures"] = failures
     stats["embedding_pending"] = vectors.pending
     stats["embedding_offline"] = vectors.offline_reason if vectors.pending else None
+    from zettel.retention import flush
+
+    stats["retention"] = flush(cfg, db)
 
     logger.info(
         "Sync manual: %d novas, %d atualizadas, %d sem alteração, %d com falha "
@@ -245,7 +260,10 @@ def _stops_the_run(exc: Exception) -> bool:
 
 
 def repair_permanent_links(
-    db: StateDB, *, vault_timezone: str = "America/Sao_Paulo"
+    db: StateDB,
+    *,
+    vault: Path | None = None,
+    vault_timezone: str = "America/Sao_Paulo",
 ) -> dict[str, int]:
     """Fix malformed ZTL wikilinks and rebuild auto-backlinks from the graph.
 
@@ -259,8 +277,8 @@ def repair_permanent_links(
         row = db.get_note(note_id)
         if not row or not row.get("path"):
             return None
-        path = Path(row["path"])
-        return path if path.is_file() else None
+        path = open_stored(row["path"], vault)
+        return path if path is not None and path.is_file() else None
 
     wikilinks_rewritten = 0
     backlinks_rebuilt = 0
@@ -268,8 +286,8 @@ def repair_permanent_links(
         raw_path = note.get("path")
         if not raw_path:
             continue
-        path = Path(raw_path)
-        if not path.is_file():
+        path = open_stored(raw_path, vault)
+        if path is None or not path.is_file():
             continue
         content = path.read_text(encoding="utf-8")
         rewritten = rewrite_bare_permanent_wikilinks(content, lookup_path)
@@ -281,7 +299,7 @@ def repair_permanent_links(
             db.upsert_note(
                 note_id=note["note_id"],
                 source_id=note.get("source_id"),
-                path=str(path),
+                path=store_vault(path, vault) if vault is not None else str(path),
                 title=meta.get("title") or note.get("title") or "",
                 note_semantic_checksum=semantic_checksum,
                 body=body,
@@ -289,7 +307,7 @@ def repair_permanent_links(
                 origin=note.get("origin") or "pipeline",
             )
             wikilinks_rewritten += 1
-        if rebuild_auto_backlinks(db, note["note_id"], vault_timezone=vault_timezone):
+        if rebuild_auto_backlinks(db, note["note_id"], vault=vault, vault_timezone=vault_timezone):
             backlinks_rebuilt += 1
     return {
         "wikilinks_rewritten": wikilinks_rewritten,
@@ -449,7 +467,7 @@ def _sync_source(
         authors=list(authors),
         year=year,
         file_checksum="",
-        origin_path=str(file_path),
+        origin_path=store_origin(file_path, cfg.vault_path, cfg.inbox_path),
         origin_type="md",
         origin=_manual_origin(meta),
         document_type=meta.get("document_type"),
@@ -588,7 +606,7 @@ def _sync_literature(
             authors=[],
             year=meta.get("year") if isinstance(meta.get("year"), int) else None,
             file_checksum="",
-            origin_path=str(file_path),
+            origin_path=store_origin(file_path, cfg.vault_path, cfg.inbox_path),
             origin_type="md",
             origin="manual",
         )
@@ -600,7 +618,9 @@ def _sync_literature(
             from zettel.manual_lit import adopt_manual_literature
 
             return adopt_manual_literature(cfg, db, vectors.index(), file_path, meta, body)
-        return _sync_pipeline_granular_literature(db, file_path, meta, chunk_id)
+        return _sync_pipeline_granular_literature(
+            db, file_path, meta, chunk_id, vault=cfg.vault_path
+        )
 
     # Index / legacy monolithic LIT → lit_body
     if source_id != meta.get("source_id"):
@@ -613,10 +633,19 @@ def _sync_literature(
 
     full = file_path.read_text(encoding="utf-8")
     existing = db.get_source(source_id)
-    if existing and existing.get("lit_body") == full:
+    # read_text folds CRLF; retention stores the file bytes in lit_body. A
+    # newline-only gap is the same note. Writing the folded text back would
+    # make the next flush rewrite the row and the sync after that re-adopt it.
+    stored = existing.get("lit_body") if existing else None
+    if stored is not None and _folded_newlines(stored) == full:
         return "skipped"
     db.update_source_texts(source_id, lit_body=full)
     return "new" if not (existing and existing.get("lit_body")) else "updated"
+
+
+def _folded_newlines(text: str) -> str:
+    """Line breaks as ``Path.read_text`` returns them."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _check_literature_note(
@@ -653,6 +682,8 @@ def _sync_pipeline_granular_literature(
     file_path: Path,
     meta: dict,
     chunk_id: str,
+    *,
+    vault: Path,
 ) -> str:
     """Keep a pipeline granular LIT's SQLite path in sync without re-adopting it.
 
@@ -665,9 +696,9 @@ def _sync_pipeline_granular_literature(
     chunk = db.get_chunk(chunk_id)
     if not chunk:
         return "skipped"
-    path_str = str(file_path)
+    path_str = store_vault(file_path, vault)
     literature_id = meta.get("literature_id")
-    same_path = chunk.get("literature_note_path") == path_str
+    same_path = same_stored(chunk.get("literature_note_path") or "", file_path, vault)
     same_id = not literature_id or chunk.get("literature_id") == literature_id
     if same_path and same_id:
         return "skipped"
@@ -698,7 +729,7 @@ def _sync_permanent(
         _rewrite_frontmatter(file_path, meta, body)
 
     existing = db.get_note(note_id)
-    run.locate(existing, note_id, file_path, db.update_note_path)
+    run.locate(existing, note_id, file_path, db.update_note_path, vault=cfg.vault_path)
 
     # connect already indexed these; adopting images here rewrites the body,
     # bumps the checksum and re-embeds every pipeline ZTL that cites a figure.
@@ -729,7 +760,7 @@ def _sync_permanent(
         db.upsert_note(
             note_id=note_id,
             source_id=source_id,
-            path=str(file_path),
+            path=store_vault(file_path, cfg.vault_path),
             title=title,
             note_semantic_checksum=semantic_checksum,
             embedding_model=cfg.embedding.model,
@@ -811,7 +842,7 @@ def _sync_moc(
         meta.setdefault("origin", "manual")
         _rewrite_frontmatter(file_path, meta, body)
 
-    run.locate(db.get_moc(moc_id), moc_id, file_path, db.update_moc_path)
+    run.locate(db.get_moc(moc_id), moc_id, file_path, db.update_moc_path, vault=cfg.vault_path)
     if _is_pipeline_origin(meta):
         return "skipped"
 
@@ -829,7 +860,7 @@ def _sync_moc(
     db.upsert_moc(
         moc_id,
         topic,
-        str(file_path),
+        store_vault(file_path, cfg.vault_path),
         semantic_checksum,
         body=body,
         frontmatter_json=frontmatter_json(meta),
@@ -843,6 +874,7 @@ def _sync_moc(
         topic,
         file_path,
         vault_timezone=cfg.vault_timezone,
+        vault=cfg.vault_path,
         previous_body=previous_body,
         new_body=body,
     )
@@ -905,7 +937,12 @@ def _strip_auto_blocks(body: str) -> str:
     return body
 
 
-def missing_note_files(db: StateDB, seen: set[str] | frozenset[str] = frozenset()) -> list[dict]:
+def missing_note_files(
+    db: StateDB,
+    seen: set[str] | frozenset[str] = frozenset(),
+    *,
+    vault: Path | None = None,
+) -> list[dict]:
     """Notes and MOCs whose file is gone from the vault (``seen`` ids moved, not gone)."""
     rows = [("nota", n["note_id"], n) for n in db.list_notes()] + [
         ("moc", m["moc_id"], m) for m in db.list_mocs()
@@ -913,8 +950,13 @@ def missing_note_files(db: StateDB, seen: set[str] | frozenset[str] = frozenset(
     return [
         {"kind": kind, "id": row_id, "path": row["path"], "origin": row.get("origin") or ""}
         for kind, row_id, row in rows
-        if row_id not in seen and row.get("path") and not Path(row["path"]).is_file()
+        if row_id not in seen and row.get("path") and not _stored_file_exists(row["path"], vault)
     ]
+
+
+def _stored_file_exists(stored: str, vault: Path | None) -> bool:
+    path = open_stored(stored, vault)
+    return path is not None and path.is_file()
 
 
 def _missing_notes(
@@ -930,7 +972,7 @@ def _missing_notes(
     from zettel.moc_backrefs import clear_moc_backrefs
     from zettel.topic_index import SCOPE_MOC
 
-    missing = missing_note_files(db, run.seen)
+    missing = missing_note_files(db, run.seen, vault=cfg.vault_path)
     pruned = 0
     if prune:
         removed_notes: list[str] = []
@@ -941,7 +983,12 @@ def _missing_notes(
                 db.delete_note(item["id"])
                 removed_notes.append(item["id"])
             else:
-                clear_moc_backrefs(db, db.get_moc(item["id"]), vault_timezone=cfg.vault_timezone)
+                clear_moc_backrefs(
+                    db,
+                    db.get_moc(item["id"]),
+                    vault=cfg.vault_path,
+                    vault_timezone=cfg.vault_timezone,
+                )
                 db.delete_topic_index_scope(SCOPE_MOC, item["id"])
                 db.delete_mocs([item["id"]])
             item["pruned"] = True

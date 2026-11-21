@@ -14,6 +14,7 @@ Module map:
 ``formatting.py``    Rich renderers (cost table, metric tables, formatters)
 ``options.py``       shared ``Annotated`` options + flag resolvers
 ``maintenance.py``   init, migrate-acervo, reindex, rebuild
+``backup.py``        backup, restore
 ``ingest.py``        harvest, rechunk, dump-chunks, dump-extraction, set-paging
 ``curation.py``      extract, review, retry-failed, summarize, links
 ``synthesis.py``     connect, reconnect, garden
@@ -51,6 +52,7 @@ from zettel.cli.app import app, console
 # these statements is the order of `zettel --help`. Deliberately not alphabetical:
 # do not let an import sorter touch this block.
 from zettel.cli import maintenance  # init, reindex, rebuild
+from zettel.cli import backup  # backup, restore
 from zettel.cli import ingest  # harvest, rechunk, dumps, set-paging
 from zettel.cli import curation  # extract, review, retry-failed, summarize, links
 from zettel.cli import synthesis  # connect, reconnect, garden
@@ -70,6 +72,7 @@ from zettel.cli import diagnostics  # status, doctor
 #: commands from the CLI.
 COMMAND_MODULES = (
     maintenance,
+    backup,
     ingest,
     curation,
     synthesis,

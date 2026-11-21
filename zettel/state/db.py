@@ -20,7 +20,7 @@ from zettel.state.mocs import MocsMixin
 from zettel.state.notes import NotesMixin
 from zettel.state.reviews import ReviewsMixin
 from zettel.state.runs import RunsMixin
-from zettel.state.schema import FTS_SQL, SCHEMA_SQL, SOURCE_READER_COLUMNS
+from zettel.state.schema import FTS_SQL, RETENTION_COLUMNS, SCHEMA_SQL, SOURCE_READER_COLUMNS
 from zettel.state.sources import SourcesMixin
 from zettel.state.web import WebMixin
 
@@ -61,6 +61,7 @@ class StateDB(*MIXINS):
         self.conn.executescript(SCHEMA_SQL)
         self.conn.commit()
         self._ensure_source_reader_columns()
+        self._ensure_retention_columns()
         self.drop_legacy_shelf_tables()
         self.fts_enabled = self._init_fts()
 
@@ -74,6 +75,20 @@ class StateDB(*MIXINS):
         for name, decl in SOURCE_READER_COLUMNS:
             if name not in have:
                 self.conn.execute(f"ALTER TABLE sources ADD COLUMN {name} {decl}")
+        self.conn.commit()
+
+    def _ensure_retention_columns(self) -> None:
+        """Colunas de retenção num banco criado antes do markdown integral.
+
+        ``CREATE TABLE IF NOT EXISTS`` não acrescenta coluna a uma tabela que já
+        existe. Um banco novo já nasce com elas no ``SCHEMA_SQL``. A tabela
+        ``projects`` é nova e entra pelo próprio ``SCHEMA_SQL``.
+        """
+        for table, columns in RETENTION_COLUMNS.items():
+            have = {row[1] for row in self.conn.execute(f"PRAGMA table_info({table})")}
+            for name, decl in columns:
+                if name not in have:
+                    self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
         self.conn.commit()
 
     def _init_fts(self) -> bool:

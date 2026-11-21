@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from zettel.gardener_assign import extract_note_ids_from_moc_body
+from zettel.stored_path import open_stored
 from zettel.vault import (
     note_filename,
     parse_frontmatter,
@@ -47,12 +48,12 @@ def moc_link_line(
     return f"- {moc_wikilink(moc_id, topic, path=path)}"
 
 
-def _note_path_from_db(db: StateDB, note_id: str) -> Path | None:
+def _note_path_from_db(db: StateDB, note_id: str, vault: Path | None = None) -> Path | None:
     note = db.get_note(note_id)
     if not note or not note.get("path"):
         return None
-    path = Path(note["path"])
-    return path if path.is_file() else None
+    path = open_stored(note["path"], vault)
+    return path if path is not None and path.is_file() else None
 
 
 def _link_references_moc(line: str, moc_id: str, stem: str | None = None) -> bool:
@@ -95,6 +96,7 @@ def sync_moc_backrefs(
     moc_path: Path | str,
     *,
     vault_timezone: str = "America/Sao_Paulo",
+    vault: Path | None = None,
     previous_body: str | None = None,
     new_body: str | None = None,
 ) -> None:
@@ -110,14 +112,14 @@ def sync_moc_backrefs(
     link_line = moc_link_line(moc_id, moc_topic, path=path)
 
     for note_id in old_ids - new_ids:
-        note_path = _note_path_from_db(db, note_id)
+        note_path = _note_path_from_db(db, note_id, vault)
         if note_path:
             _remove_moc_link_from_note(
                 note_path, moc_id, vault_timezone=vault_timezone, stem=path.stem
             )
 
     for note_id in new_ids - old_ids:
-        note_path = _note_path_from_db(db, note_id)
+        note_path = _note_path_from_db(db, note_id, vault)
         if note_path:
             _add_moc_link_to_note(note_path, link_line, vault_timezone=vault_timezone)
 
@@ -145,12 +147,16 @@ def _sync_moc_topic_index(db: StateDB, moc_id: str, note_ids: set[str]) -> None:
 
 
 def clear_moc_backrefs(
-    db: StateDB, moc: dict, *, vault_timezone: str = "America/Sao_Paulo"
+    db: StateDB,
+    moc: dict,
+    *,
+    vault: Path | None = None,
+    vault_timezone: str = "America/Sao_Paulo",
 ) -> None:
     """Remove this MOC from all permanent notes that referenced it."""
     body = moc.get("body") or ""
     if not body and moc.get("path"):
-        moc_path = Path(moc["path"])
+        moc_path = open_stored(moc["path"], vault) or Path(moc["path"])
         if moc_path.is_file():
             _, body = parse_frontmatter(moc_path.read_text(encoding="utf-8"))
 
@@ -160,7 +166,7 @@ def clear_moc_backrefs(
 
     stem = Path(moc["path"]).stem if moc.get("path") else None
     for note_id in extract_note_ids_from_moc_body(body):
-        note_path = _note_path_from_db(db, note_id)
+        note_path = _note_path_from_db(db, note_id, vault)
         if note_path:
             _remove_moc_link_from_note(note_path, moc_id, vault_timezone=vault_timezone, stem=stem)
 

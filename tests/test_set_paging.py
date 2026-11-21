@@ -120,7 +120,7 @@ def test_run_set_paging_updates_book_and_drops_pending(tmp_path: Path):
     )
     new_path = draft.parent / renamed
     assert new_path.exists()
-    assert kept["literature_note_path"] == str(new_path)
+    assert kept["literature_note_path"] == new_path.relative_to(cfg.vault_path).as_posix()
     src = db.get_source("@TestBook")
     assert src["content_start_file_page"] == 35
     assert src["content_start_book_page"] == 10

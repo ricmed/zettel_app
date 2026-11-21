@@ -262,7 +262,7 @@ def test_pipeline_granular_lit_moved_updates_path(cfg, db):
     stats = run_sync_manual(cfg, db, idx)
     assert stats["literature"] == 1
     row = db.get_chunk(chunk_id)
-    assert row["literature_note_path"] == str(new)
+    assert row["literature_note_path"] == new.relative_to(cfg.vault_path).as_posix()
     assert row["status"] == "persisted"
 
 
@@ -948,6 +948,27 @@ def test_rebuild_manual_edges_drops_edges_whose_link_is_gone(db):
 # -- notes deleted or moved in the vault (#348) -------------------------------
 
 
+def test_a_note_already_stored_relative_to_the_vault_is_not_moved(cfg, db):
+    path = _ztl(cfg, _A, "> **Tese**: a.")
+    relative = f"30_Permanent/{path.name}"
+    db.upsert_note(_A, None, relative, title="a", body="a", origin="manual")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert stats["moved"] == 0
+    assert db.get_note(_A)["path"] == relative
+
+
+def test_an_absolute_row_of_the_same_file_is_not_counted_as_moved(cfg, db):
+    path = _ztl(cfg, _A, "> **Tese**: a.")
+    db.upsert_note(_A, None, str(path.resolve()), title="a", body="a", origin="manual")
+
+    stats = run_sync_manual(cfg, db, FakeVectorIndex())
+
+    assert stats["moved"] == 0
+    assert db.get_note(_A)["path"] == f"30_Permanent/{path.name}"
+
+
 def test_a_renamed_note_keeps_its_row_and_follows_the_file(cfg, db):
     idx = FakeVectorIndex()
     old = _ztl(cfg, _A, "> **Tese**: a.")
@@ -958,7 +979,7 @@ def test_a_renamed_note_keeps_its_row_and_follows_the_file(cfg, db):
     stats = run_sync_manual(cfg, db, idx)
 
     assert stats["moved"] == 1 and stats["missing"] == []
-    assert [n["path"] for n in db.list_notes()] == [str(new)]
+    assert [n["path"] for n in db.list_notes()] == [f"30_Permanent/{new.name}"]
 
 
 def test_a_moved_pipeline_note_and_moc_follow_their_files(cfg, db):
@@ -972,8 +993,8 @@ def test_a_moved_pipeline_note_and_moc_follow_their_files(cfg, db):
     stats = run_sync_manual(cfg, db, FakeVectorIndex())
 
     assert stats["moved"] == 2
-    assert db.get_note(_B)["path"] == str(note)
-    assert db.get_moc("M1")["path"] == str(moc)
+    assert db.get_note(_B)["path"] == f"30_Permanent/{note.name}"
+    assert db.get_moc("M1")["path"] == f"40_MOCs/{moc.name}"
 
 
 def test_a_deleted_note_is_reported_and_pruned_only_when_asked(cfg, db):
@@ -987,7 +1008,14 @@ def test_a_deleted_note_is_reported_and_pruned_only_when_asked(cfg, db):
     gone.unlink()
 
     stats = run_sync_manual(cfg, db, idx)
-    assert stats["missing"] == [{"kind": "nota", "id": _A, "path": str(gone), "origin": "manual"}]
+    assert stats["missing"] == [
+        {
+            "kind": "nota",
+            "id": _A,
+            "path": f"30_Permanent/{gone.name}",
+            "origin": "manual",
+        }
+    ]
     assert db.get_note(_A) is not None
 
     stats = run_sync_manual(cfg, db, idx, prune=True)

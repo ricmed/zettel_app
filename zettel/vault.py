@@ -621,7 +621,11 @@ def literature_index_link_label(
 
 
 def literature_chunk_wikilink_for_row(
-    citekey: str, chunk: dict[str, Any], *, with_alias: bool = False
+    citekey: str,
+    chunk: dict[str, Any],
+    *,
+    with_alias: bool = False,
+    vault: Path | None = None,
 ) -> str:
     """Wikilink to a granular LIT, preferring the file that is actually on disk.
 
@@ -644,6 +648,13 @@ def literature_chunk_wikilink_for_row(
     on_disk = chunk.get("literature_note_path")
     if on_disk:
         path = Path(on_disk)
+        if vault is not None and not path.is_absolute():
+            from zettel.stored_path import StoredPathError, resolve_stored
+
+            try:
+                path = resolve_stored(str(on_disk), vault)
+            except StoredPathError:
+                path = Path(on_disk)
         if path.is_file():
             target = f"{path.parent.name}/{path.stem}"
             return f"[[{target}|{alias}]]" if alias else f"[[{target}]]"

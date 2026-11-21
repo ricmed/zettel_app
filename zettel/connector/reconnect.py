@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 
 from zettel.config import AppConfig, llm_phase
 from zettel.connector import context, links
@@ -28,6 +27,7 @@ from zettel.llm import LLMUnavailableError, load_prompt_parts
 from zettel.note_content import note_sections
 from zettel.schemas import PermanentNoteCandidate
 from zettel.state import StateDB
+from zettel.stored_path import open_stored
 from zettel.usage import begin_run, finish_pipeline_run, set_source
 
 logger = logging.getLogger(__name__)
@@ -155,12 +155,15 @@ def apply_relink(
         )
     new_targets = {edge["related_note_id"] for edge in proposed}
     for target_id in sorted(old_targets | new_targets | {note_id}):
-        links.rebuild_auto_backlinks(db, target_id, vault_timezone=cfg.vault_timezone)
+        links.rebuild_auto_backlinks(
+            db, target_id, vault=cfg.vault_path, vault_timezone=cfg.vault_timezone
+        )
     record = db.get_note(note_id)
-    if links.note_on_disk(record):
+    path = open_stored(record["path"], cfg.vault_path) if record and record.get("path") else None
+    if path is not None and path.is_file():
         links.sync_connections_section(
-            Path(record["path"]),
-            links.outgoing_connection_bullets(db, note_id),
+            path,
+            links.outgoing_connection_bullets(db, note_id, vault=cfg.vault_path),
             vault_timezone=cfg.vault_timezone,
         )
 
@@ -217,7 +220,9 @@ def propose_links(session: ConnectSession, note: dict) -> list[dict]:
         output_connections = list(output.connections)
     demoted = links.demote_llm_corroborates(output_connections)
     allowed = {hit.note_id for hit in similar} | {hit.note_id for hit in distant}
-    resolved = links.resolve_connections(db, demoted, allowed_ids=allowed)
+    resolved = links.resolve_connections(
+        db, demoted, allowed_ids=allowed, vault=session.cfg.vault_path
+    )
     distant_ids = {item.note_id for item in distant}
     return [
         edge

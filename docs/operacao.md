@@ -8,9 +8,20 @@ O que é fonte de verdade, o que é cache descartável, como reconstruir cada ca
 
 ## Retenção e reconstrução
 
-O **SQLite é a fonte de verdade durável**: além do estado do pipeline, ele persiste tudo que é caro de reproduzir — o texto extraído completo de cada fonte, o corpo integral das notas LIT/ZTL/MOC (com frontmatter), os candidatos completos (`candidate_json`) e as descrições de imagens. Os **embeddings não** são guardados no SQLite (são baratos de recomputar via API ou modelo local).
+O **SQLite é a fonte de verdade durável** do estado do pipeline: o texto extraído de cada fonte, o grafo, o cache de LLM, os candidatos (`candidate_json`) e as descrições de imagens. Os **bytes das imagens não** ficam no SQLite — estão em `vault/90_Assets/` e, num `zettel backup`, dentro do arquivo. Os **embeddings não** ficam no SQLite; `zettel reindex` os recomputa.
 
-Como consequência:
+O Markdown que o `rebuild` e o `init` conseguem repor vem da retenção (`retention.flush`), no fim do `sync-manual` e no começo do `backup`. Ela corre para toda origem. A chave é o sha256 do arquivo inteiro, então uma edição só de frontmatter também atualiza a linha. Não é só o texto que vai para o embedding.
+
+| O quê | Coluna | Se o arquivo sumiu |
+|---|---|---|
+| ZTL | `notes.body` + `notes.frontmatter_json`, com `notes.file_checksum` | a nota, blocos gerenciados inclusive |
+| MOC | `mocs.body` + `mocs.frontmatter_json`, com `mocs.file_checksum` | o MOC |
+| LIT granular | `chunks.literature_body` (o arquivo inteiro) | esse Markdown; coluna vazia cai em `summary_json` |
+| Índice LIT | `sources.lit_body` (o arquivo inteiro) | o índice |
+| Ficha SRC | `sources.card_body` (o arquivo inteiro) | a ficha, com `## Resumo` e `## Impressões` |
+| Mesa | `projects` (`project_id`, `path`, `body`, `frontmatter_json`, `file_checksum`) | o arquivo, se o caminho gravado continua dentro do vault |
+
+O arquivo da Mesa continua o registro vivo: a Mesa não lê o SQLite para abrir um projeto. Um arquivo que já existe não é sobrescrito. `--force` no `rebuild` também não sobrescreve `origin: manual`.
 
 ### `zettel reindex`
 
@@ -36,7 +47,7 @@ python -m zettel rebuild --what all --dry-run  # simula vault + chroma
 python -m zettel rebuild --what vault --force  # sobrescreve arquivos existentes
 ```
 
-Nunca sobrescreve um arquivo existente sem `--force`, e **nunca** sobrescreve uma nota `origin: manual` (mesmo com `--force`).
+Nunca sobrescreve um arquivo existente sem `--force`, e **nunca** sobrescreve uma nota `origin: manual` (mesmo com `--force`). Um arquivo manual que sumiu, e cuja linha a retenção ainda tem, é recriado. `zettel init` sem `--reset` faz o mesmo para o que falta no disco e, quando grava algum, imprime `{n} arquivo(s) recriado(s) a partir do banco.`
 
 ### `zettel rechunk`
 
@@ -149,36 +160,76 @@ Por padrão roda **`VACUUM`** em `state.db` e `chroma.sqlite3` após a exclusão
 ## `init --reset`
 
 ```bash
-python -m zettel init            # cria as pastas do vault que faltam; nunca apaga nada
+python -m zettel init            # cria as pastas que faltam e recria do banco o .md que o disco não tem
 python -m zettel init --reset    # + apaga State DB, ChromaDB, cache e as notas do pipeline (pede confirmacao)
 ```
 
-`init` nunca apaga o vault (#341) e, com `obsidian.setup_on_init`, grava os templates e configura o Templater no vault ([notas-manuais.md](notas-manuais.md#o-vault-já-sai-pronto-para-o-obsidian)). O `--reset` remove apenas as notas cujo frontmatter declara `origin: pipeline` ou `hub_pipeline`, além das subpastas de citekey que ficarem vazias. Ficam preservados:
+`init` nunca apaga o vault (#341). Sem `--reset`, recria os arquivos que o banco já tem e o disco não tem. Quando grava algum, imprime `{n} arquivo(s) recriado(s) a partir do banco.` Com `obsidian.setup_on_init`, grava os templates e configura o Templater no vault ([notas-manuais.md](notas-manuais.md#o-vault-já-sai-pronto-para-o-obsidian)). O `--reset` remove apenas as notas cujo frontmatter declara `origin: pipeline` ou `hub_pipeline`, além das subpastas de citekey que ficarem vazias. Ficam no disco:
 
 - as notas do usuário: `origin: manual`, sem `origin` ou com frontmatter ilegível;
 - as notas `ask` e `article`;
 - `.obsidian/` e as demais pastas ocultas;
 - `90_Assets/`.
 
-A confirmação informa quantas notas de cada grupo existem. Depois do reset, rode `zettel sync-manual` para readotar as notas manuais.
+A confirmação informa quantas notas de cada grupo existem e avisa: `As linhas das notas manuais somem com o banco. 'zettel backup' e o que as traz de volta.` Os arquivos manuais continuam no vault. Depois do reset, rode `zettel sync-manual` para readotá-los. O backup é o que devolve as linhas — e o banco — sem reprocessar o pipeline.
 
-`init --reset` é o único comando que descarta a fonte de verdade. Depois dele, só o reprocessamento completo dos arquivos originais (com custo de LLM) recupera o acervo do pipeline.
+Sem um backup, `init --reset` descarta a fonte de verdade do pipeline. Só o reprocessamento completo dos arquivos originais (com custo de LLM) recupera o acervo gerado. As linhas manuais não voltam com esse reprocessamento.
 
 ---
 
 ## Backup
 
-O que precisa ir para um backup/armazenamento persistente:
+`zettel backup` grava um `.zettelbak` cifrado do acervo. `zettel restore` aplica esse arquivo aqui. Os dois tomam a trava `data/zettel.lock`. Não há tela na web. Detalhe das flags: [cli.md](cli.md#backup). A decisão é [ADR-072](adrs/generated/INFRA/ADR-072-encrypted-backup-archive.md). O restore em outra pasta acha as notas porque `origin_path`, `files.path`, `literature_note_path`, `notes.path`, `mocs.path` e `projects.path` são relativos ao vault ou à inbox.
 
-| Caminho | Conteúdo | Reconstruível? |
-|---|---|---|
-| `vault/` | As notas `.md` | Sim, via `rebuild --what vault` (exceto notas manuais) |
-| `data/state.db` | Fonte de verdade: estado, textos, corpos, grafo, cache de LLM | **Não** |
-| `data/chroma/` | Vetores | Sim, via `reindex` |
-| `data/inbox/`, `data/processed/` | Arquivos originais | **Não** (são a entrada) |
-| `data/cache/` | Dumps e checkpointer | Sim (descartável) |
+```bash
+python -m zettel backup acervo.zettelbak
+python -m zettel backup acervo.zettelbak --passphrase-file segredo.txt --no-chroma
+python -m zettel backup acervo.zettelbak --with-inbox
+python -m zettel restore acervo.zettelbak
+python -m zettel restore acervo.zettelbak --force-env --rotate-session
+```
 
-Ou seja: um backup de `data/state.db` + arquivos originais + notas manuais reconstrói o resto sem gastar LLM.
+Não existe `--passphrase`. A senha vem do terminal (`Senha do backup:`) ou de `--passphrase-file`. Sem terminal e sem esse arquivo, o comando sai com código 2: `Sem terminal para ler a senha. Use --passphrase-file.` Senha vazia sai com código 1. No POSIX o arquivo de senha precisa estar em modo 0600. A senha não entra no arquivo e não fica na linha de comando.
+
+### O que entra no arquivo
+
+O disco guarda um blob, não um zip aberto. Por dentro, depois da cifra: magic `ZETTELBAK1` (10 bytes), salt scrypt de 16 bytes, nonce AES-GCM de 12 bytes, ciphertext AES-256-GCM (a tag de 16 bytes vai no fim). A chave é scrypt com `n=2**14`, `r=8`, `p=1`. O zip interno leva:
+
+| Membro | Quando |
+|---|---|
+| `manifest.json` | Sempre. Versão 1, `created_at` em UTC, sha256 de cada membro, `include_chroma`, `include_inbox` |
+| `state.db` | Sempre. Snapshot pela API de backup do SQLite, não uma cópia do arquivo ao vivo |
+| `.env` | Se o arquivo do projeto existe |
+| `chroma/` | Salvo com `--no-chroma` |
+| `inbox/` | Só com `--with-inbox` |
+| `vault/10_Sources`, `20_Literature`, `30_Permanent`, `40_MOCs`, `50_Projetos`, `90_Assets`, `99_Templates`, `vault/.obsidian` | Quando a pasta existe |
+
+`.obsidian` deixa de fora pastas chamadas `cache` e, dentro de `plugins/`, `main.js` e `styles.css`. Nunca entram `data/cache`, `zettel.lock` nem `.venv`. Também não entram `00_Inbox/` (drafts, respostas do `ask`, artigos) nem uma `60_Estante/` antiga.
+
+Antes do snapshot, o backup roda a mesma retenção do `sync-manual`, então o `state.db` do pacote já tem o Markdown atual.
+
+### O que o SQLite reconstrói, e o que não
+
+| Caminho | Reconstruível a partir do SQLite? |
+|---|---|
+| ZTL, MOC, LIT granular, índice LIT, ficha SRC (Resumo e Impressões), Mesa | Sim, pelas colunas da tabela acima, via `rebuild --what vault` ou `init`. Arquivo que já existe não é sobrescrito |
+| `data/state.db` | Não. É o que o backup guarda. `init --reset` apaga, inclusive as linhas manuais |
+| `data/chroma/` | Sim, via `zettel reindex`. O backup inclui o diretório, salvo `--no-chroma` |
+| `data/inbox/` | Não. Só entra no arquivo com `--with-inbox` |
+| Bytes de imagem em `90_Assets/` | Não. Estão no arquivo, na pasta do vault, não no SQLite |
+| `data/cache/` | Descartável, e não entra no arquivo |
+
+### Restore
+
+O restore recusa o pacote antes de escrever qualquer arquivo se um membro tem caminho absoluto ou `..` (também barra invertida, `.`, letra de unidade), se há mais de 100.000 membros ou se o zip descompactado passa de 10 GiB.
+
+Os membros são gravados por cima dos caminhos correspondentes. O `.env` existente só é trocado com `--force-env`; sem a flag, ele fica e o comando avisa. O `.env` gravado sai em modo 0600 quando o sistema permite — no Windows o modo pode não pegar.
+
+`--rotate-session` troca `web_auth.session_key` e não imprime a chave nova. Sem essa flag, restaurar o `state.db` recoloca a chave antiga. Ela viaja dentro do banco cifrado: quem abre um arquivo vazado forja o cookie de sessão até a chave ser trocada (esta flag, ou Sair na web).
+
+Em seguida, os `.md` que o banco tem e o disco não tem são recriados (`run_rebuild_vault` com `force` desligado). Essa etapa não sobrescreve arquivo que já existe, inclusive nota manual. Se o backup não trouxe o Chroma, o comando diz para rodar `zettel reindex` e não roda o reindex. Um Chroma que já estava no disco não é apagado.
+
+Senha errada ou arquivo danificado no restore: código 1, mensagem `senha incorreta ou arquivo danificado`, sem imprimir segredo. Uma falha ao cifrar, no backup, é outra mensagem (`Nao foi possivel cifrar o backup.`) e também sai com código 1.
 
 ---
 

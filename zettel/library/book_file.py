@@ -25,6 +25,7 @@ from zettel.library.source_body import (
     render_notes,
 )
 from zettel.markdown_fences import h2_section, headings_outside_fences, unclosed_fence
+from zettel.stored_path import store_vault
 from zettel.vault import compose_note, parse_frontmatter
 
 SUMMARY_HEADING = "Resumo"
@@ -489,7 +490,7 @@ def create_book(cfg: Any, fields: dict[str, Any], db: Any | None = None) -> Book
     meta = ordered_meta(meta)
     path = reserved or (folder / source_note_filename(citekey, title))
     if not meta.get("origin_path"):
-        meta["origin_path"] = str(path)
+        meta["origin_path"] = store_vault(path, cfg.vault_path)
     body = _shelf_body(body)
     version = _write(path, compose_note(meta, body))
     return Book(source_id, path, meta, body, version)

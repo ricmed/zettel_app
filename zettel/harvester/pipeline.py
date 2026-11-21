@@ -26,6 +26,7 @@ from zettel.paging import (
     resolve_content_paging,
 )
 from zettel.state import StateDB
+from zettel.stored_path import store_inbox, store_origin
 from zettel.vault import build_source_note, parse_frontmatter, safe_write_note
 
 from . import biblio_dedupe, chunking, duplicates, extract
@@ -36,6 +37,14 @@ from .duplicates import HarvestAborted
 logger = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS = {".pdf", ".md", ".markdown", ".txt"}
+
+
+def _stored_inbox(cfg: AppConfig, file_path: Path) -> str:
+    return store_inbox(file_path, cfg.inbox_path)
+
+
+def _stored_origin(cfg: AppConfig, file_path: Path) -> str:
+    return store_origin(file_path, cfg.vault_path, cfg.inbox_path)
 
 
 @dataclass(frozen=True)
@@ -345,7 +354,7 @@ def _process_file(
         raise ValueError(
             "A configuração de extração mudou após a revisão. Prepare o documento novamente."
         )
-    existing = db.get_file(str(file_path))
+    existing = db.get_file(_stored_inbox(cfg, file_path))
     config_hash = compute_docling_config_hash(cfg)
 
     def check_reviewed_source(source_id: str) -> None:
@@ -407,7 +416,7 @@ def _process_file(
         if action == "update":
             updating_source_id = existing["source_id"]
 
-    renamed_from = db.get_file_by_checksum(checksum, exclude_path=str(file_path))
+    renamed_from = db.get_file_by_checksum(checksum, exclude_path=_stored_inbox(cfg, file_path))
     if renamed_from and renamed_from.get("source_id"):
         check_reviewed_source(renamed_from["source_id"])
         logger.info(
@@ -418,7 +427,9 @@ def _process_file(
             renamed_from["source_id"],
         )
         sid = renamed_from["source_id"]
-        db.upsert_file(str(file_path), checksum, file_path.suffix.lower().lstrip("."), sid)
+        db.upsert_file(
+            _stored_inbox(cfg, file_path), checksum, file_path.suffix.lower().lstrip("."), sid
+        )
         db.record_duplicate(run_id, "file")
         if source_chunking_incomplete(db, sid):
             return _complete_incomplete_source(cfg, db, idx, sid)
@@ -462,7 +473,7 @@ def _process_file(
             sid,
             cross_format_source["citekey"],
         )
-        db.upsert_file(str(file_path), checksum, origin_type, sid)
+        db.upsert_file(_stored_inbox(cfg, file_path), checksum, origin_type, sid)
         db.record_duplicate(run_id, "content")
         if source_chunking_incomplete(db, sid):
             return _complete_incomplete_source(cfg, db, idx, sid)
@@ -590,7 +601,7 @@ def _process_file(
                 sid,
                 matched["citekey"],
             )
-            db.upsert_file(str(file_path), checksum, origin_type, sid)
+            db.upsert_file(_stored_inbox(cfg, file_path), checksum, origin_type, sid)
             db.record_duplicate(run_id, "biblio")
             if source_chunking_incomplete(db, sid):
                 return _complete_incomplete_source(cfg, db, idx, sid)
@@ -740,7 +751,7 @@ def _process_file(
         from zettel.harvester.prepared import promote_staged_assets
 
         promote_staged_assets(cfg, prepared["review_id"])
-    db.upsert_file(str(file_path), checksum, origin_type, source_id)
+    db.upsert_file(_stored_inbox(cfg, file_path), checksum, origin_type, source_id)
     db.upsert_source(
         source_id=source_id,
         citekey=citekey,
@@ -748,7 +759,7 @@ def _process_file(
         authors=authors,
         year=year,
         file_checksum=checksum,
-        origin_path=str(file_path),
+        origin_path=_stored_origin(cfg, file_path),
         origin_type=origin_type,
         extraction_checksum=extraction_checksum,
         document_type=biblio.document_type,
@@ -783,7 +794,7 @@ def _process_file(
         title,
         authors,
         year,
-        str(file_path),
+        _stored_origin(cfg, file_path),
         origin_type,
         checksum,
         document_type=biblio.document_type,
@@ -867,7 +878,7 @@ def _process_file(
         title,
         authors,
         year,
-        str(file_path),
+        _stored_origin(cfg, file_path),
         origin_type,
         checksum,
         document_type=biblio.document_type,
@@ -1159,7 +1170,7 @@ def _create_vault_notes(
     if db is not None:
         from zettel.library.linking import source_notes_lines
 
-        notes = "\n".join(source_notes_lines(db, source_id))
+        notes = "\n".join(source_notes_lines(db, source_id, vault=cfg.vault_path))
     write_source_preserving(src_path, src_meta, src_body, notes=notes)
 
     # Write LIT index note. Flat, title-slugged path: this is where every generated

@@ -34,6 +34,8 @@ MUTATING_COMMANDS = frozenset(
         "migrate-acervo",
         "reindex",
         "rebuild",
+        "backup",
+        "restore",
         "harvest",
         "rechunk",
         "set-paging",

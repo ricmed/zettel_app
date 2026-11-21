@@ -48,7 +48,7 @@ Chosen option: "Keep two independent stores, mitigate via checkpointing and manu
 * A crash between a SQLite write and its corresponding ChromaDB upsert (or the reverse order elsewhere in the pipeline) leaves the two stores in a divergent state with no automatic detection.
 * Recovery currently depends on a human running `zettel reindex` or `zettel sync-manual --rebuild-graph`; there is no proactive check that flags drift on its own.
 * The risk scales with the size of a run — a harvest processing hundreds of chunks has a correspondingly larger window of exposure per crash.
-* There is no automated backup or disaster-recovery strategy covering both stores together, so a corrupted or divergent pair of stores has no independent snapshot to fall back to.
+* Both stores can be snapshotted together by `zettel backup` ([ADR-072](./ADR-072-encrypted-backup-archive.md)). The archive is a snapshot, not a cross-store transaction: a crash can still leave SQLite and Chroma divergent.
 
 ## Pros and Cons of the Options
 
@@ -94,3 +94,7 @@ The single-writer job queue in the web UI (rejecting a second mutating job with 
 ## Addendum (2026-10-19): a ZTL is `noted` only after the vector and the edges (issue #282)
 
 **Status:** Accepted. Connect used to mark the concept `noted` before the embedding upsert and the graph writes. A failure there left a note that `connect` would never see again, and the run row stayed `completed` unless the exception was `LLMUnavailableError`. The concept is now `connecting` as soon as its `note_id` is chosen. `noted` is written after `upsert_permanent_note` and `persist_and_backlink`. There is still no transaction across the vault, SQLite and Chroma. Resume reuses the id and the file.
+
+## Addendum (2026-11-21): one encrypted snapshot of both stores (issue #415)
+
+**Status:** Accepted amendment. The negative consequence that there was no backup of the two stores is closed by [ADR-072](./ADR-072-encrypted-backup-archive.md). `zettel backup` writes one encrypted `.zettelbak` of the SQLite snapshot, Chroma (unless `--no-chroma`), the vault folders that ADR names, and `.env` when it exists. The two writes inside a pipeline run are still not atomic.

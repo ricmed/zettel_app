@@ -33,6 +33,11 @@ from zettel.vault import (
 from tests.fakes import FakeVectorIndex, deleted
 
 
+def _stored(cfg: AppConfig, stored: str) -> Path:
+    path = Path(stored)
+    return path if path.is_absolute() else cfg.vault_path / stored
+
+
 @pytest.fixture
 def env(tmp_path):
     cfg = AppConfig(
@@ -152,7 +157,7 @@ def test_approve_moves_draft_without_embedding(env):
         cfg.vault_path / "00_Inbox" / "Review" / literature_source_dirname("Book2024") / fname
     ).exists()
     # The audit trail lives in the vault and in SQLite, never in the vector store.
-    assert chunk["literature_note_path"] == str(dest)
+    assert chunk["literature_note_path"] == dest.relative_to(cfg.vault_path).as_posix()
     concepts = db.get_concepts_for_chunk("@Book2024::ch000::abc")
     assert concepts[0]["status"] == "extracted"
 
@@ -530,7 +535,7 @@ def test_one_of_two_candidates_can_be_approved(env):
     assert outcome["persisted"] == ["@Book2024::ch000::abc"]
     assert db.get_concept("c1")["status"] == "extracted"
     assert db.get_concept("c2")["status"] == "rejected"
-    text = Path(db.get_chunk("@Book2024::ch000::abc")["literature_note_path"]).read_text(
+    text = _stored(cfg, db.get_chunk("@Book2024::ch000::abc")["literature_note_path"]).read_text(
         encoding="utf-8"
     )
     assert "**t**" in text
@@ -578,7 +583,7 @@ def test_edited_draft_thesis_reaches_candidate_json_and_bad_anchor_is_refused(en
     )
     body = body.replace(thesis, "Tese reescrita pelo revisor no rascunho")
     body = body.replace(quote, "uma frase que o chunk nao contem de modo algum")
-    safe_write_note(Path(chunk["literature_note_path"]), meta, body)
+    safe_write_note(_stored(cfg, chunk["literature_note_path"]), meta, body)
 
     outcome = decide_concepts(cfg, db, idx, {"c1": "approve"})
     assert outcome["refused"] == ["c1"]
@@ -591,7 +596,7 @@ def test_edited_draft_thesis_reaches_candidate_json_and_bad_anchor_is_refused(en
         "uma frase que o chunk nao contem de modo algum",
         quote,
     )
-    safe_write_note(Path(chunk["literature_note_path"]), meta, body)
+    safe_write_note(_stored(cfg, chunk["literature_note_path"]), meta, body)
     outcome = decide_concepts(cfg, db, idx, {"c1": "approve"})
     assert outcome["persisted"] == [chunk_id]
     assert json.loads(db.get_concept("c1")["candidate_json"])["thesis"].startswith("Tese reescrita")
@@ -647,7 +652,7 @@ def test_partial_approval_keeps_the_edited_candidate_line(env):
     )
     body = body.replace(second["thesis"], "Tese reescrita do segundo candidato")
     body = body.replace(second["anchor_quote"], "uma frase que o chunk nao contem")
-    safe_write_note(Path(chunk["literature_note_path"]), meta, body)
+    safe_write_note(_stored(cfg, chunk["literature_note_path"]), meta, body)
 
     outcome = decide_concepts(cfg, db, idx, {"c1": "reject", "c2": "approve"})
     assert outcome["refused"] == ["c2"]
@@ -658,11 +663,13 @@ def test_partial_approval_keeps_the_edited_candidate_line(env):
     assert stored["anchor_quote"] == second["anchor_quote"]
 
     body = body.replace("uma frase que o chunk nao contem", second["anchor_quote"])
-    safe_write_note(Path(chunk["literature_note_path"]), meta, body)
+    safe_write_note(_stored(cfg, chunk["literature_note_path"]), meta, body)
     outcome = decide_concepts(cfg, db, idx, {"c2": "approve"})
     assert outcome["persisted"] == [chunk_id]
     assert json.loads(db.get_concept("c2")["candidate_json"])["thesis"].startswith("Tese reescrita")
-    approved = Path(db.get_chunk(chunk_id)["literature_note_path"]).read_text(encoding="utf-8")
+    approved = _stored(cfg, db.get_chunk(chunk_id)["literature_note_path"]).read_text(
+        encoding="utf-8"
+    )
     assert "Tese reescrita do segundo candidato" in approved
 
 
@@ -1486,7 +1493,7 @@ def test_approved_lit_lists_the_permanent_notes_it_produced(env):
     cfg, db, idx = env
     chunk_id = "@Book2024::ch000::abc"
     assert approve_chunk(cfg, db, idx, chunk_id)
-    lit = Path(db.get_chunk(chunk_id)["literature_note_path"])
+    lit = _stored(cfg, db.get_chunk(chunk_id)["literature_note_path"])
     # Approval scaffolds the section with a placeholder.
     text = lit.read_text(encoding="utf-8")
     assert "## Notas permanentes geradas" in text
@@ -1510,7 +1517,7 @@ def test_lit_with_a_stray_end_marker_is_left_alone(env):
     cfg, db, idx = env
     chunk_id = "@Book2024::ch000::abc"
     assert approve_chunk(cfg, db, idx, chunk_id)
-    lit = Path(db.get_chunk(chunk_id)["literature_note_path"])
+    lit = _stored(cfg, db.get_chunk(chunk_id)["literature_note_path"])
     broken = (
         lit.read_text(encoding="utf-8").replace(f"<!-- zettel:{LIT_PERMANENT_BLOCK}:start -->", "")
         + "\nTexto manual do autor.\n"
@@ -1527,7 +1534,7 @@ def test_lit_links_skip_drafts_still_in_review(env):
 
     cfg, db, _ = env
     chunk_id = "@Book2024::ch000::abc"
-    draft = Path(db.get_chunk(chunk_id)["literature_note_path"])
+    draft = _stored(cfg, db.get_chunk(chunk_id)["literature_note_path"])
     before = draft.read_text(encoding="utf-8")
     sync_lit_permanent_links(cfg, db, [chunk_id])
     assert draft.read_text(encoding="utf-8") == before
@@ -1700,7 +1707,7 @@ def test_auto_approve_refreshes_the_literature_index_once_per_source(env, monkey
 def test_approve_chunk_keeps_the_draft_when_sqlite_update_fails(env, monkeypatch):
     cfg, db, idx = env
     chunk_id = "@Book2024::ch000::abc"
-    draft = Path(db.get_chunk(chunk_id)["literature_note_path"])
+    draft = _stored(cfg, db.get_chunk(chunk_id)["literature_note_path"])
 
     def fail(*_a, **_k):
         raise RuntimeError("sqlite")
@@ -1716,7 +1723,7 @@ def test_approve_chunk_keeps_the_draft_when_sqlite_update_fails(env, monkeypatch
 def test_approve_chunk_deletes_the_draft_after_sqlite(env, monkeypatch):
     cfg, db, idx = env
     chunk_id = "@Book2024::ch000::abc"
-    draft = Path(db.get_chunk(chunk_id)["literature_note_path"])
+    draft = _stored(cfg, db.get_chunk(chunk_id)["literature_note_path"])
     order: list[str] = []
     real_update = db.update_chunk_review
 
@@ -1745,7 +1752,7 @@ def test_reject_chunk_counts_a_draft_left_on_disk(env, monkeypatch):
 
     cfg, db, idx = env
     chunk_id = "@Book2024::ch000::abc"
-    draft = Path(db.get_chunk(chunk_id)["literature_note_path"])
+    draft = _stored(cfg, db.get_chunk(chunk_id)["literature_note_path"])
 
     def refuse(self, *args, **kwargs):
         raise OSError("locked")

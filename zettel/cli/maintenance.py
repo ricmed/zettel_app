@@ -67,8 +67,9 @@ def init(
 ):
     """Inicializar o vault, banco de dados e índice vetorial.
 
-    Nunca apaga o vault: só cria as pastas que faltam. ``--reset`` remove as notas
-    que o pipeline escreveu e preserva as do usuário (#341).
+    Nunca apaga o vault: só cria as pastas que faltam e recria o ``.md`` que o
+    banco já tem e o disco não tem. ``--reset`` remove as notas que o pipeline
+    escreveu e preserva as do usuário (#341).
     """
     cfg = load_deps(config)
     if vault:
@@ -79,6 +80,9 @@ def init(
     from zettel.vault import init_vault, partition_vault_notes, remove_pipeline_notes
 
     kept_notes: list[Path] = []
+    manual_rows = (
+        "As linhas das notas manuais somem com o banco. 'zettel backup' e o que as traz de volta."
+    )
     if reset:
         import shutil
 
@@ -86,7 +90,8 @@ def init(
         confirmed = typer.confirm(
             "Isso vai APAGAR o State DB, ChromaDB, cache e "
             f"{len(pipeline_notes)} nota(s) do pipeline no vault. "
-            f"{len(kept_notes)} nota(s) do usuario e .obsidian/ serao preservadas. Continuar?"
+            f"{len(kept_notes)} nota(s) do usuario e .obsidian/ serao preservadas. "
+            f"{manual_rows} Continuar?"
         )
         if not confirmed:
             console.print("[yellow]Reset cancelado.[/yellow]")
@@ -129,8 +134,11 @@ def init(
             console.print(f"[yellow]Obsidian nao configurado:[/yellow] {exc}")
 
     from zettel.credentials import embedding_credential_env, embedding_ready
+    from zettel.rebuild import run_rebuild_vault
 
     db = get_db(cfg)
+    # Missing files only (force=False). No embedding credential: this reads SQLite.
+    written = run_rebuild_vault(cfg, db, force=False)["written"]
     index_line = f"[green]ChromaDB:[/green] {cfg.chroma_path}"
     if embedding_ready(cfg):
         # Called for the side effect, not the value: constructing VectorIndex is what
@@ -159,9 +167,14 @@ def init(
     if gpu["available"]:
         device_line += f" ({gpu.get('device_name', '?')} — {gpu.get('vram_gb', '?')} GB VRAM)"
 
+    materialize_line = ""
+    if written:
+        materialize_line = f"\n[green]{written} arquivo(s) recriado(s) a partir do banco.[/green]"
     reset_line = ""
     if reset:
-        reset_line = "\n[red]Bases de dados recriadas do zero.[/red]"
+        reset_line = (
+            f"\n[red]Bases de dados recriadas do zero.[/red]\n[yellow]{manual_rows}[/yellow]"
+        )
         if kept_notes:
             reset_line += (
                 f"\n[yellow]{len(kept_notes)} nota(s) do usuario preservadas no vault; "
@@ -175,7 +188,7 @@ def init(
             f"[green]Inbox:[/green] {cfg.inbox_path}\n"
             f"[green]State DB:[/green] {cfg.state_db_path}\n"
             f"{index_line}\n"
-            f"{device_line}{reset_line}",
+            f"{device_line}{materialize_line}{reset_line}",
             title="Zettelkasten -- Init",
             border_style="green",
         )

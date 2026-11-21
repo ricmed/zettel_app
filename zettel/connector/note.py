@@ -11,6 +11,7 @@ import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from ulid import ULID
@@ -38,6 +39,7 @@ from zettel.llm import LLMUnavailableError, PromptParts, llm_call_checksum
 from zettel.retrieval import Retriever
 from zettel.schemas import PermanentNoteCandidate, PermanentNoteLLMOutput, RelationType
 from zettel.state import StateDB
+from zettel.stored_path import store_vault
 from zettel.time import now_vault_iso
 from zettel.usage import clear_progress, get_tracker, set_progress
 from zettel.vault import (
@@ -90,14 +92,20 @@ def candidate_query_text(cand: PermanentNoteCandidate) -> str:
     return f"{cand.thesis} {cand.definition}"
 
 
-def literature_ref_for_chunk(citekey: str, title_src: str, chunk: dict[str, Any] | None) -> str:
+def literature_ref_for_chunk(
+    citekey: str,
+    title_src: str,
+    chunk: dict[str, Any] | None,
+    *,
+    vault: Path | None = None,
+) -> str:
     """Wikilink to the approved granular LIT for this chunk (fallback: index).
 
     The alias carries the printed page, so the reader sees ``p. 42 — Topico``
     instead of a bare filename.
     """
     if chunk and chunk.get("status") in ("approved", "persisted"):
-        return literature_chunk_wikilink_for_row(citekey, chunk, with_alias=True)
+        return literature_chunk_wikilink_for_row(citekey, chunk, with_alias=True, vault=vault)
     return f"[[{literature_index_stem(citekey, title_src)}]]"
 
 
@@ -178,6 +186,7 @@ def prepare_candidate(session: ConnectSession, cand_dict: dict) -> PreparedNote 
         source["citekey"] if source else "unknown",
         source["title"] if source else "",
         chunk_row,
+        vault=cfg.vault_path,
     )
     # Structural page and citation, derived by code from the chunk row and the
     # grounded anchor quote — never from the LLM-authored locator (ADR-051).
@@ -325,7 +334,9 @@ def finish_candidate(
     context_ids = {hit.note_id for hit in similar} | {hit.note_id for hit in distant}
     if cand_dict.get("refines_note_id"):
         context_ids.add(cand_dict["refines_note_id"])
-    resolved = links.resolve_connections(db, connections, allowed_ids=context_ids)
+    resolved = links.resolve_connections(
+        db, connections, allowed_ids=context_ids, vault=cfg.vault_path
+    )
     edges = [c for c in resolved if c["related_note_id"] not in distant_ids]
     suggestions = [c for c in resolved if c["related_note_id"] in distant_ids]
     hard, proposed = links.split_for_review(
@@ -527,7 +538,7 @@ def _write_note(
     db.upsert_note(
         note_id=note_id,
         source_id=source_id,
-        path=str(note_path),
+        path=store_vault(note_path, cfg.vault_path),
         title=title,
         note_semantic_checksum=semantic_checksum,
         embedding_model=cfg.embedding.model,

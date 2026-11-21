@@ -127,7 +127,7 @@ def test_manual_granular_literature_is_adopted(cfg, db):
     assert chunk is not None, "a nota manual precisa virar uma linha em chunks"
     assert chunk["status"] == "persisted"
     assert chunk["page_in_book"] == 42
-    assert chunk["literature_note_path"] == str(lit)
+    assert chunk["literature_note_path"] == lit.relative_to(cfg.vault_path).as_posix()
     assert "caminho entre dois vertices" in chunk["text"]
 
     # Chapter FK satisfied by the synthetic manual chapter.

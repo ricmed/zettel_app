@@ -138,7 +138,7 @@ def status(config: ConfigOption = None):
 
     from zettel.review import rejected_drafts_on_disk
 
-    orphans = rejected_drafts_on_disk(db)
+    orphans = rejected_drafts_on_disk(db, vault=cfg.vault_path)
     if orphans:
         console.print(
             f"[yellow]{len(orphans)} draft(s) rejeitado(s) ainda no disco "
@@ -458,7 +458,7 @@ def doctor(config: ConfigOption = None):
 
     gone_db = get_db(cfg)
     try:
-        gone = missing_note_files(gone_db)
+        gone = missing_note_files(gone_db, vault=cfg.vault_path)
     finally:
         gone_db.close()
     checks.append(
