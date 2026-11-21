@@ -192,7 +192,7 @@ def test_cover_ref_urls_are_built_here():
 
 def test_fill_missing_never_replaces_what_the_user_wrote(tmp_path):
     meta = {"title": "O Hobbit", "authors": [], "pages": 300}
-    book = Book(book_id="b", path=tmp_path / "x.md", meta=meta, body="", version="v")
+    book = Book(source_id="@b", path=tmp_path / "x.md", meta=meta, body="", version="v")
     changed = fill_missing(
         book,
         {

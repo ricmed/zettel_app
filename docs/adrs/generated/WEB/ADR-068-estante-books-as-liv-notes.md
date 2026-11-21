@@ -1,7 +1,12 @@
 # ADR-068: The Estante, Books as LIV Notes With a SQLite Mirror
 
-**Status:** Accepted
+**Status:** Superseded in part by [ADR-070: The Shelf Is the Source Note](./ADR-070-shelf-is-the-source-note.md)
 **Date:** 2026-11-08
+
+## Addendum (2026-11-16)
+
+The shelf card is the source note. Reader fields live on that file and on the `sources` row. The separate shelf note and the `books` / `book_readings` tables are removed by `zettel migrate-acervo`, and only after the copy has been checked. Rating, genres and the `/books` layouts below stay. The rest of this ADR is the record of the design it replaced.
+
 **Depends on:** [ADR-022: FastAPI Server-Rendered Web Interface](./ADR-022-fastapi-server-rendered-jinja2.md), [ADR-030: Manual Notes Adopted at Sync Without Review Gate](../MANUAL/ADR-030-manual-notes-adopted-at-sync-without-review-gate.md), [ADR-067: The Mesa, a Writing Desk Built From Permanent Notes](./ADR-067-mesa-writing-desk.md)
 **Related to:** [ADR-046: Bibliographic Duplicate Layers](../HARVEST/ADR-046-bibliographic-duplicate-layers.md), [ADR-057: Bibliographic Field Provenance](../HARVEST/ADR-057-bibliographic-field-provenance.md), [ADR-069: Prompts Chosen by Reading Mode](../EXTRACT/ADR-069-reflective-prompts-by-reading-mode.md)
 

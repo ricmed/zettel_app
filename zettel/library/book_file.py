@@ -1,8 +1,9 @@
-"""A nota LIV (``60_Estante/LIV - <ULID> - <slug>.md``): leitura, criação e gravação.
+"""A ficha da estante é a nota SRC (``10_Sources/SRC - AuthorYear - slug.md``).
 
-O arquivo é o registro do livro: o espelho no SQLite (``library.mirror``) é
-reconstruído a partir dele. A gravação é recusada quando o arquivo mudou desde
-que foi lido (uma edição no Obsidian, outra aba), como na Mesa (ADR-067).
+O arquivo guarda a bibliografia e o que é do leitor (código, formato, status,
+leituras, gêneros, capa, resumo, avaliação). O espelho no SQLite é reconstruído
+a partir dele. A gravação é recusada quando o arquivo mudou desde que foi lido
+(uma edição no Obsidian, outra aba), como na Mesa.
 """
 
 from __future__ import annotations
@@ -16,14 +17,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from zettel.library.source_body import (
+    LIST_FIELDS,
+    NOTES_BLOCK,
+    READER_FIELDS,
+    assemble_body,
+    render_notes,
+)
 from zettel.markdown_fences import h2_section, headings_outside_fences, unclosed_fence
-from zettel.vault import LIBRARY_DIR, _slug, compose_note, parse_frontmatter
+from zettel.vault import compose_note, parse_frontmatter
 
-BOOK_TYPE = "book"
-BOOK_PREFIX = "LIV"
-BOOK_NOTES_BLOCK = "auto-book-notes"
 SUMMARY_HEADING = "Resumo"
 IMPRESSIONS_HEADING = "Impressões"
+BOOK_NOTES_BLOCK = NOTES_BLOCK
 
 FORMATS = ("fisico", "digital", "audiolivro")
 STATUSES = ("quero_ler", "lendo", "lido", "abandonado", "relendo")
@@ -41,44 +47,17 @@ STATUS_LABELS = {
 NATURE_LABELS = {"ficcao": "Ficção", "nao_ficcao": "Não ficção"}
 READING_MODE_LABELS = {"reflexao": "Reflexão", "conceito": "Conceito"}
 
-# Ordem das propriedades no frontmatter: todas presentes, vazias quando não
-# preenchidas, para o painel de propriedades do Obsidian mostrar cada uma.
-FIELD_ORDER = (
+_HEAD = (
     "type",
-    "book_id",
-    "code_number",
-    "code",
-    "title",
-    "original_title",
-    "series",
-    "series_number",
-    "authors",
     "source_id",
-    "isbn",
-    "pages",
-    "country",
-    "original_language",
-    "original_publication_year",
-    "genres",
-    "subjects",
-    "nature",
-    "reading_mode",
-    "format",
-    "status",
-    "readings",
-    "cover",
-    "ratings",
-    "rating_profile",
-    "score",
-    "favorite",
-    "origin",
-    "created_at",
-    "updated_at",
+    "citekey",
+    "title",
+    "author",
+    "year",
+    "document_type",
 )
-LIST_FIELDS = frozenset({"authors", "genres", "subjects", "readings"})
-INT_FIELDS = frozenset({"code_number", "series_number", "pages", "original_publication_year"})
-
-_BOOK_ID = re.compile(r"[0-9A-HJKMNP-TV-Z]{26}")
+_TAIL = ("origin", "origin_path", "origin_type", "checksum", "created_at", "updated_at")
+FIELD_ORDER = _HEAD + READER_FIELDS + _TAIL
 _H2 = re.compile(r"^##[ \t]+(.+?)[ \t]*$", re.MULTILINE)
 
 
@@ -109,7 +88,9 @@ class Reading:
 
 @dataclass
 class Book:
-    book_id: str
+    """Uma nota SRC vista pela estante. A identidade é o ``source_id``."""
+
+    source_id: str
     path: Path
     meta: dict[str, Any]
     body: str
@@ -135,16 +116,14 @@ class Book:
 
     @property
     def authors(self) -> list[str]:
-        return as_str_list(self.meta.get("authors"))
+        raw = self.meta.get("author")
+        if raw is None:
+            raw = self.meta.get("authors")
+        return as_str_list(raw)
 
     @property
     def genres(self) -> list[str]:
         return as_str_list(self.meta.get("genres"))
-
-    @property
-    def source_id(self) -> str | None:
-        value = str(self.meta.get("source_id") or "").strip()
-        return value or None
 
     @property
     def readings(self) -> list[Reading]:
@@ -227,11 +206,67 @@ def format_code(number: int, fmt: str, letters: dict[str, str]) -> str:
     return f"{number:04d} - {letter}" if letter else f"{number:04d}"
 
 
+def code_number_of(meta: dict[str, Any]) -> int | None:
+    """O número do código, ou o prefixo de ``code`` (``0002 - F``) quando a chave falta.
+
+    Fichas gravadas antes de ``code_number`` existir trazem só a linha ``code``.
+    Tratar isso como "sem código" recomeçaria a sequência em 0001.
+    """
+    number = as_int(meta.get("code_number"))
+    if number:
+        return number
+    text = str(meta.get("code") or "").strip()
+    if not text:
+        return None
+    return as_int(text.split("-", 1)[0])
+
+
+def format_letter_of(code: Any) -> str:
+    text = str(code or "")
+    if "-" not in text:
+        return ""
+    letter = text.split("-", 1)[1].strip()
+    return letter[:1].upper()
+
+
+def format_for_letter(letter: str, letters: dict[str, str]) -> str:
+    """O formato cuja letra é ``letter``; vazio quando a letra não está no mapa."""
+    inverse = {str(value).strip().upper(): key for key, value in letters.items()}
+    fmt = inverse.get(letter.upper(), "")
+    return fmt if fmt in FORMATS else ""
+
+
+def adopt_legacy_code(meta: dict[str, Any], letters: dict[str, str] | None = None) -> None:
+    """Preenche número e formato que o texto ``code`` já diz, sem gravar o arquivo."""
+    number = code_number_of(meta)
+    if number and not as_int(meta.get("code_number")):
+        meta["code_number"] = number
+    if letters is None or str(meta.get("format") or "") in FORMATS:
+        return
+    fmt = format_for_letter(format_letter_of(meta.get("code")), letters)
+    if fmt:
+        meta["format"] = fmt
+
+
+def same_reader_value(left: Any, right: Any) -> bool:
+    """Os dois valores de leitor contam como o mesmo, para a migração e o espelho."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        return bool(left) == bool(right)
+    if isinstance(left, list) or isinstance(right, list):
+        return as_str_list(left) == as_str_list(right)
+    if isinstance(left, dict) or isinstance(right, dict):
+        return ratings_of({"ratings": left}) == ratings_of({"ratings": right})
+    left_int, right_int = as_int(left), as_int(right)
+    if left_int is not None and right_int is not None:
+        return left_int == right_int
+    return str(left or "").strip() == str(right or "").strip()
+
+
 # ── Arquivo ────────────────────────────────────────────────────────────
 
 
-def books_dir(cfg: Any) -> Path:
-    return Path(cfg.vault_path) / LIBRARY_DIR
+def sources_dir(cfg: Any) -> Path:
+    return Path(cfg.vault_path) / "10_Sources"
 
 
 def version_of(raw: bytes) -> str:
@@ -239,68 +274,92 @@ def version_of(raw: bytes) -> str:
 
 
 def read_book(path: Path) -> Book | None:
+    """A nota SRC neste caminho, ou ``None`` quando não é uma fonte legível."""
     try:
         raw = path.read_bytes()
     except OSError:
         return None
-    # Um editor no Windows pode gravar CRLF; as seções são lidas por linha.
     text = raw.decode("utf-8", errors="replace").replace("\r\n", "\n")
     meta, body = parse_frontmatter(text)
-    if not isinstance(meta, dict) or meta.get("type") != BOOK_TYPE:
+    if not isinstance(meta, dict) or meta.get("type") != "source":
         return None
-    book_id = str(meta.get("book_id") or "")
-    if not _BOOK_ID.fullmatch(book_id):
+    source_id = str(meta.get("source_id") or "").strip()
+    if not source_id:
         return None
-    return Book(book_id, path, meta, body, version_of(raw))
+    adopt_legacy_code(meta)
+    return Book(source_id, path, meta, body, version_of(raw))
 
 
-def list_book_files(cfg: Any) -> list[Path]:
-    folder = books_dir(cfg)
+def list_source_files(cfg: Any) -> list[Path]:
+    folder = sources_dir(cfg)
     return sorted(folder.glob("*.md")) if folder.is_dir() else []
 
 
 def list_books(cfg: Any) -> list[Book]:
-    return [b for b in (read_book(p) for p in list_book_files(cfg)) if b]
-
-
-def load_book(cfg: Any, book_id: str) -> Book:
-    if not _BOOK_ID.fullmatch(book_id or ""):
-        raise BookNotFound(book_id)
-    for path in books_dir(cfg).glob(f"{BOOK_PREFIX} - {book_id}*.md"):
+    """As fontes cujo tipo entra na estante."""
+    wanted = set(cfg.library.document_types)
+    books = []
+    for path in list_source_files(cfg):
         book = read_book(path)
-        if book and book.book_id == book_id:
-            return book
-    # Um arquivo renomeado no Obsidian guarda o id no frontmatter.
-    for book in list_books(cfg):
-        if book.book_id == book_id:
-            return book
-    raise BookNotFound(book_id)
+        if book and str(book.meta.get("document_type") or "") in wanted:
+            adopt_legacy_code(book.meta, cfg.library.format_letters)
+            books.append(book)
+    return books
+
+
+def load_book(cfg: Any, source_id: str) -> Book:
+    """A ficha desta fonte. ``BookNotFound`` quando o SRC não está no vault."""
+    from zettel.library.sources import source_note_path
+
+    source_id = str(source_id or "").strip()
+    if not source_id:
+        raise BookNotFound(source_id)
+    path = source_note_path(cfg, source_id)
+    book = read_book(path) if path else None
+    if book is None or book.source_id != source_id:
+        raise BookNotFound(source_id)
+    adopt_legacy_code(book.meta, cfg.library.format_letters)
+    return book
 
 
 def next_code_number(cfg: Any) -> int:
     """Próximo número da sequência universal: maior já usado + 1 (nunca reaproveita)."""
-    numbers = [as_int(b.meta.get("code_number")) for b in list_books(cfg)]
+    numbers = []
+    for path in list_source_files(cfg):
+        book = read_book(path)
+        if book:
+            numbers.append(code_number_of(book.meta))
     return max((n for n in numbers if n), default=0) + 1
 
 
 def ordered_meta(meta: dict[str, Any]) -> dict[str, Any]:
-    """As propriedades conhecidas na ordem de ``FIELD_ORDER``, depois as do autor."""
-    out = {key: meta.get(key) for key in FIELD_ORDER}
+    """Identidade, campos de leitor e o que mais o arquivo já tinha."""
+    cleaned = dict(meta)
+    if cleaned.get("author") is None and cleaned.get("authors") is not None:
+        cleaned["author"] = cleaned.get("authors")
+    cleaned.pop("authors", None)
+    cleaned.pop("book_id", None)
+    cleaned["type"] = "source"
+    out: dict[str, Any] = {}
+    for key in _HEAD:
+        if key in cleaned:
+            out[key] = cleaned[key]
+    for key in READER_FIELDS:
+        out[key] = cleaned.get(key)
+    for key in _TAIL:
+        if key in cleaned:
+            out[key] = cleaned[key]
+    for key, value in cleaned.items():
+        if key not in out:
+            out[key] = value
     for key in LIST_FIELDS:
-        if out[key] is None:
+        if out.get(key) is None:
             out[key] = []
-    if out["ratings"] is None:
+    if out.get("ratings") is None:
         out["ratings"] = {}
-    out.update({k: v for k, v in meta.items() if k not in out})
+    if out.get("favorite") is None:
+        out["favorite"] = False
     return out
-
-
-def initial_body(title: str) -> str:
-    return (
-        f"# {title}\n\n## {SUMMARY_HEADING}\n\n## {IMPRESSIONS_HEADING}\n\n"
-        f"## Notas de leitura\n\n<!-- zettel:{BOOK_NOTES_BLOCK}:start -->\n"
-        f"<!-- zettel:{BOOK_NOTES_BLOCK}:end -->\n"
-    )
 
 
 def _write(path: Path, content: str) -> str:
@@ -310,71 +369,120 @@ def _write(path: Path, content: str) -> str:
         partial.write_bytes(data)
         os.replace(partial, path)
     except PermissionError as exc:
-        # No Windows a troca falha com acesso negado quando o destino recém-criado
-        # já está aberto (Obsidian, antivírus, indexador). O .part não é a nota.
         with contextlib.suppress(OSError):
             partial.unlink()
         raise BookFileBusy(path) from exc
     return version_of(data)
 
 
-def create_book(cfg: Any, fields: dict[str, Any]) -> Book:
-    """Cria a LIV com o próximo código; ``fields`` traz ao menos ``title``."""
-    from ulid import ULID
+def initial_body(title: str = "") -> str:
+    """Corpo de uma ficha nova: resumo, impressões e o bloco de notas."""
+    del title
+    return _shelf_body("")
 
+
+def _shelf_body(header: str) -> str:
+    sections = [
+        (SUMMARY_HEADING, f"## {SUMMARY_HEADING}"),
+        (IMPRESSIONS_HEADING, f"## {IMPRESSIONS_HEADING}"),
+    ]
+    return assemble_body(header, sections, render_notes("_Nenhuma nota de leitura ainda._"))
+
+
+def create_book(cfg: Any, fields: dict[str, Any], db: Any | None = None) -> Book:
+    """Cria o SRC manual na hora, com o próximo código. ``fields`` traz o título."""
+    from zettel.harvester.citekey import generate_citekey
     from zettel.time import now_vault_iso
+    from zettel.vault import build_source_note, source_note_filename
 
-    title = " ".join(str(fields.get("title") or "").split())[:300] or "Livro sem título"
+    title = " ".join(str(fields.get("title") or "").split())[:300] or "Sem título"
+    authors = as_str_list(fields.get("authors") or fields.get("author"))
+    year = as_int(fields.get("year") or fields.get("original_publication_year"))
     fmt = fields.get("format") if fields.get("format") in FORMATS else "fisico"
-    number = next_code_number(cfg)
-    now = now_vault_iso(cfg.vault_timezone)
-    book_id = str(ULID())
-    meta = ordered_meta(
-        {
-            **{k: v for k, v in fields.items() if k in FIELD_ORDER},
-            "type": BOOK_TYPE,
-            "book_id": book_id,
-            "code_number": number,
-            "code": format_code(number, fmt, cfg.library.format_letters),
-            "title": title,
-            "format": fmt,
-            "status": fields.get("status")
-            if fields.get("status") in STATUSES
-            else cfg.library.initial_status,
-            "origin": "manual",
-            "created_at": now,
-            "updated_at": now,
-        }
+    document_type = str(fields.get("document_type") or "livro")
+    status = (
+        fields.get("status") if fields.get("status") in STATUSES else cfg.library.initial_status
     )
-    folder = books_dir(cfg)
+    if db is None:
+        from zettel.state import StateDB
+
+        db = StateDB(cfg.state_db_path)
+        own_db = True
+    else:
+        own_db = False
+    try:
+        citekey = str(fields.get("citekey") or "") or generate_citekey(db, authors, year, title)
+    finally:
+        if own_db:
+            db.close()
+    source_id = str(fields.get("source_id") or f"@{citekey}")
+    number = as_int(fields.get("code_number")) or next_code_number(cfg)
+    now = now_vault_iso(cfg.vault_timezone)
+    meta, body = build_source_note(
+        source_id,
+        citekey,
+        title,
+        authors,
+        year,
+        str(fields.get("origin_path") or ""),
+        "md",
+        str(fields.get("checksum") or ""),
+        origin="manual",
+        document_type=document_type,
+        vault_timezone=cfg.vault_timezone,
+    )
+    meta["citekey"] = citekey
+    meta["author"] = authors
+    meta["code_number"] = number
+    meta["format"] = fmt
+    meta["code"] = str(fields.get("code") or "") or format_code(
+        number, fmt, cfg.library.format_letters
+    )
+    meta["status"] = status
+    for key in READER_FIELDS:
+        if key in fields and fields[key] not in (None, ""):
+            meta[key] = fields[key]
+    meta["code_number"] = number
+    meta["format"] = fmt
+    meta["code"] = meta["code"]
+    meta["status"] = status
+    if fields.get("isbn"):
+        meta["isbn"] = fields["isbn"]
+    meta["created_at"] = fields.get("created_at") or now
+    meta["updated_at"] = now
+    meta = ordered_meta(meta)
+    folder = sources_dir(cfg)
     folder.mkdir(parents=True, exist_ok=True)
-    slug = _slug(title, max_len=60) or "livro"
-    path = folder / f"{BOOK_PREFIX} - {book_id} - {slug}.md"
-    body = initial_body(title)
+    path = folder / source_note_filename(citekey, title)
+    if not meta.get("origin_path"):
+        meta["origin_path"] = str(path)
+    body = _shelf_body(body)
     version = _write(path, compose_note(meta, body))
-    return Book(book_id, path, meta, body, version)
+    return Book(source_id, path, meta, body, version)
 
 
 def save_book(cfg: Any, book: Book, *, expected_version: str | None) -> Book:
-    """Grava o livro editado; recusa quando o arquivo não é mais o que foi editado."""
+    """Grava a ficha editada; recusa quando o arquivo não é mais o que foi editado."""
     from zettel.time import now_vault_iso
 
     try:
         current = version_of(book.path.read_bytes())
     except OSError as exc:
-        raise BookNotFound(book.book_id) from exc
+        raise BookNotFound(book.source_id) from exc
     if expected_version is not None and current != expected_version:
-        raise BookConflict(book.book_id)
-    number = as_int(book.meta.get("code_number"))
-    if number:
-        book.meta["code"] = format_code(number, book.format, cfg.library.format_letters)
+        raise BookConflict(book.source_id)
+    number = code_number_of(book.meta)
+    fmt = book.format or str(book.meta.get("format") or "")
+    # Sem formato, um código que já tem letra ("0002 - F") fica como está.
+    if number and (fmt or not str(book.meta.get("code") or "").strip()):
+        book.meta["code_number"] = number
+        book.meta["code"] = format_code(number, fmt, cfg.library.format_letters)
+    book.meta["type"] = "source"
+    book.meta["source_id"] = book.source_id
     book.meta["updated_at"] = now_vault_iso(cfg.vault_timezone)
     book.meta = ordered_meta(book.meta)
     book.version = _write(book.path, compose_note(book.meta, book.body))
     return book
-
-
-# ── Seções do corpo escritas pelo autor ────────────────────────────────
 
 
 def section_text(body: str, heading: str) -> str:
@@ -393,13 +501,13 @@ def replace_section(body: str, heading: str, text: str) -> str:
     if marker:
         text = f"{text}\n{marker}"
     matches = headings_outside_fences(_H2, body)
-    for i, m in enumerate(matches):
-        if m.group(1) == heading:
+    for i, match in enumerate(matches):
+        if match.group(1) == heading:
             end = matches[i + 1].start() if i + 1 < len(matches) else len(body)
             inner = f"\n\n{text}\n\n" if text else "\n\n"
-            return body[: m.end()] + inner + body[end:].lstrip("\n")
+            return body[: match.end()] + inner + body[end:].lstrip("\n")
     block = f"## {heading}\n\n{text}\n\n" if text else f"## {heading}\n\n"
-    anchor = next((m for m in matches if m.group(1) == "Notas de leitura"), None)
+    anchor = next((match for match in matches if match.group(1) == "Notas de leitura"), None)
     if anchor:
         return body[: anchor.start()] + block + body[anchor.start() :]
     return body.rstrip("\n") + "\n\n" + block

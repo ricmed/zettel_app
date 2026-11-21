@@ -76,7 +76,7 @@ def test_every_layout_renders(web_client, layout):
 def test_empty_shelf_explains_how_to_start(web_client):
     client, _ = web_client
     login(client)
-    assert "Nenhum livro ainda" in client.get("/books").text
+    assert "A estante está vazia" in client.get("/books").text
     assert client.get("/books/dashboard").status_code == 200
 
 
@@ -112,7 +112,7 @@ def _deny_replace_of_existing_liv(monkeypatch):
 
     def replace(src, dst):
         destination = Path(dst)
-        if destination.exists() and "LIV" in destination.name:
+        if destination.exists() and "SRC" in destination.name:
             raise PermissionError(5, "Acesso negado", src, None, dst)
         return real(src, dst)
 
@@ -612,10 +612,232 @@ def test_source_page_shows_the_book_code_and_the_src_keeps_a_copy(web_client):
         return parse_frontmatter(path.read_text(encoding="utf-8"))[0].get("code")
 
     assert src_code() == "0001 - F"
-    page = client.get(f"/sources/{source_id}").text
-    assert f'href="/books/{book_id}"' in page and "0001 - F" in page
+    page = client.get(f"/sources/{source_id}")
+    assert page.status_code == 200
+    assert "/books/" in str(page.url)
+    assert "0001 - F" in page.text
 
     fields = {"title": "O Hobbit", "authors": "J. R. R. Tolkien", "status": "quero_ler"}
     fields["source_id"] = source_id
     assert _edit(client, csrf, book_id, "metadata", format="digital", **fields).status_code == 303
     assert src_code() == "0001 - D"
+
+
+def test_a_doi_fills_the_form_from_crossref_without_writing(web_client, monkeypatch):
+    client, tmp = web_client
+    login(client)
+    payload = (
+        b'{"message": {"DOI": "10.1000/xyz", "type": "journal-article", '
+        b'"title": ["Atencao"], "author": [{"given": "Ada", "family": "Lovelace"}], '
+        b'"container-title": ["Nature"], "issued": {"date-parts": [[2012]]}, '
+        b'"volume": "4", "issue": "2", "page": "10-12", "publisher": "Springer"}}'
+    )
+    seen = _fake_lookup(monkeypatch, {"https://api.crossref.org/": ("application/json", payload)})
+    before = list((tmp / "vault" / "10_Sources").glob("*.md"))
+    page = client.get("/books/new", params={"q": "10.1000/xyz"}).text
+    assert "Atencao" in page and "Nature" in page and "10.1000/xyz" in page
+    assert seen and all("api.crossref.org" in url for url in seen if "wikidata" not in url)
+    assert list((tmp / "vault" / "10_Sources").glob("*.md")) == before
+
+    google = (
+        "application/json",
+        b'{"items": [{"volumeInfo": {"title": "O Hobbit", "authors": ["Tolkien"]}}]}',
+    )
+    seen = _fake_lookup(monkeypatch, {"https://www.googleapis.com/": google})
+    page = client.get("/books/new", params={"q": "9788533302273"}).text
+    assert "O Hobbit" in page
+    assert any("googleapis.com" in url for url in seen)
+    assert not any("api.crossref.org" in url for url in seen)
+
+
+def test_same_work_lists_the_sibling_and_confirms_before_a_similar_note(web_client, monkeypatch):
+    """A ficha ligada mostra a nota da irmã. O primeiro POST não grava; a confirmação grava."""
+    from zettel.manual_lit import ensure_manual_chapter
+
+    from tests.fakes import FakeVectorIndex, calls_to
+
+    client, _tmp = web_client
+    csrf = login(client)
+    portuguese = _create(
+        client, csrf, title="Construindo Aplicacoes", authors="Albada", format="fisico"
+    )
+    english = _create(
+        client, csrf, title="Building Applications", authors="Albada", format="digital"
+    )
+    page = client.get(f"/books/{portuguese}").text
+    assert "Mesma obra" in page and "Esta ficha está sozinha" in page
+    assert "Building Applications" in page
+    portuguese = bf.load_book(_cfg(client), portuguese).source_id
+    english = bf.load_book(_cfg(client), english).source_id
+    stale = client.post(
+        f"/books/{portuguese}",
+        data={
+            "csrf": csrf,
+            "version": "stale",
+            "action": "link-work",
+            "other_id": english,
+        },
+        follow_redirects=False,
+    )
+    assert stale.status_code == 409
+    assert _edit(client, csrf, portuguese, "link-work", other_id=english).status_code == 303
+
+    db = client.app.state.service.db()
+    try:
+        chapter = ensure_manual_chapter(db, english)
+        chunk_id = f"{english}::manual::en"
+        db.upsert_chunk(
+            chunk_id=chunk_id,
+            source_id=english,
+            chapter_id=chapter,
+            text="Agents act.",
+            chunk_checksum="en",
+            status="persisted",
+        )
+        db.upsert_note(
+            "N-en",
+            english,
+            None,
+            title="O que sao agentes",
+            body="> **Tese**: um agente age.",
+        )
+        db.upsert_concept(f"{chunk_id}::c", english, chunk_id, note_id="N-en", status="noted")
+    finally:
+        db.close()
+    linked = client.get(f"/books/{portuguese}").text
+    assert "O que sao agentes" in linked and "Building Applications — Digital" in linked
+    assert "1</b> nota de literatura" in linked and "1</b> nota permanente" in linked
+
+    fake = FakeVectorIndex(chunks={chunk_id: 0.1})
+    fake.upsert_chunk(chunk_id, "Agents act.", {"source_id": english})
+    opened: list[int] = []
+
+    def factory(**_kwargs):
+        opened.append(1)
+        return fake
+
+    monkeypatch.setattr("zettel.index.VectorIndex", factory)
+    monkeypatch.setattr("zettel.credentials.embedding_ready", lambda _cfg: True)
+    excerpt = "Um agente é um programa que age."
+    asked = client.post(
+        f"/books/{portuguese}/reading-notes",
+        data={"csrf": csrf, "topic": "agentes de IA", "excerpt": ""},
+    )
+    assert asked.status_code == 200
+    assert "Informe o trecho" in asked.text
+    assert opened == []
+
+    warned = client.post(
+        f"/books/{portuguese}/reading-notes",
+        data={"csrf": csrf, "topic": "agentes de IA", "excerpt": excerpt, "summary": "resumo"},
+    )
+    assert warned.status_code == 200, warned.text
+    assert "Provável" in warned.text and "O que sao agentes" in warned.text
+    assert "Gravar mesmo assim" in warned.text
+    assert 'value="agentes de IA"' in warned.text
+    assert calls_to(fake, "find_similar_chunks") == [[excerpt]]
+    db = client.app.state.service.db()
+    try:
+        assert db.get_chunks_for_source(portuguese) == []
+    finally:
+        db.close()
+
+    saved = client.post(
+        f"/books/{portuguese}/reading-notes",
+        data={
+            "csrf": csrf,
+            "topic": "agentes de IA",
+            "excerpt": excerpt,
+            "summary": "resumo",
+            "confirm": "1",
+        },
+        follow_redirects=False,
+    )
+    assert saved.status_code == 303, saved.text
+    db = client.app.state.service.db()
+    try:
+        (chunk,) = db.get_chunks_for_source(portuguese)
+        assert chunk["source_id"] == portuguese
+        assert excerpt in chunk["text"]
+        pt_chunk = chunk["chunk_id"]
+    finally:
+        db.close()
+
+    generated = client.post(
+        f"/books/{portuguese}/permanent",
+        data={"csrf": csrf, "chunk_id": pt_chunk},
+    )
+    assert generated.status_code == 200
+    assert "Gerar mesmo assim" in generated.text
+    assert calls_to(fake, "find_similar_chunks")[-1] == [excerpt]
+    queued = client.post(
+        f"/books/{portuguese}/permanent",
+        data={"csrf": csrf, "chunk_id": pt_chunk, "confirm": "1"},
+        follow_redirects=False,
+    )
+    assert queued.status_code == 303
+    job = wait_for_job(client, queued.headers["location"].rsplit("/", 1)[-1])["job"]
+    assert job["state"] == "succeeded", job
+
+    solo = _create(client, csrf, title="Outro livro", authors="Outra")
+    before = len(opened)
+    direct = client.post(
+        f"/books/{solo}/reading-notes",
+        data={"csrf": csrf, "topic": "Nota solta", "excerpt": "Trecho qualquer."},
+        follow_redirects=False,
+    )
+    assert direct.status_code == 303
+    assert len(opened) == before
+
+
+def test_book_notes_search_filters_and_pages_ten_at_a_time(web_client):
+    """A obra mostra os totais e devolve a busca em páginas de dez."""
+    import re
+
+    client, _ = web_client
+    csrf = login(client)
+    book_id = _create(client, csrf, title="Livro longo", authors="Autora", format="fisico")
+    source_id = bf.load_book(_cfg(client), book_id).source_id
+    db = client.app.state.service.db()
+    try:
+        for index in range(1, 11):
+            db.upsert_note(
+                f"N-{index:02d}",
+                source_id,
+                None,
+                title=f"Nota {index:02d} sobre agentes",
+                body="tese",
+            )
+        db.upsert_note("N-mapa", source_id, None, title="Mapa de capítulos", body="tese")
+        for index, note_id in enumerate([f"N-{i:02d}" for i in range(1, 11)] + ["N-mapa"], start=1):
+            db.conn.execute(
+                "UPDATE notes SET created_at=? WHERE note_id=?",
+                (f"2026-01-01T00:00:{index:02d}", note_id),
+            )
+        db.conn.commit()
+    finally:
+        db.close()
+
+    def titles(html: str) -> list[str]:
+        return re.findall(r'data-kind="ztl">.*?<a href="/notes/[^"]+">([^<]+)</a>', html, re.S)
+
+    first = client.get(f"/books/{source_id}").text
+    second = client.get(f"/books/{source_id}", params={"pagina": "2"}).text
+    assert "0</b> notas de literatura" in first
+    assert "11</b> notas permanentes" in first
+    assert "11 itens encontrados" in first and "página 1 de 2" in first
+    assert len(titles(first)) == 10 and len(titles(second)) == 1
+    assert set(titles(first)).isdisjoint(titles(second))
+    assert set(titles(first) + titles(second)) == {
+        *[f"Nota {index:02d} sobre agentes" for index in range(1, 11)],
+        "Mapa de capítulos",
+    }
+
+    only_lit = client.get(f"/books/{source_id}", params={"tipo": "lit"}).text
+    assert "0 itens encontrados" in only_lit
+    assert "Nenhuma nota corresponde à busca." in only_lit
+    assert 'data-kind="ztl"' not in only_lit
+
+    found = client.get(f"/books/{source_id}", params={"q": "mapa", "tipo": "ztl"}).text
+    assert titles(found) == ["Mapa de capítulos"]
+    assert "1 item encontrado" in found

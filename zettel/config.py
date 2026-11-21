@@ -654,8 +654,18 @@ class LibraryConfig(BaseModel):
     # Generos, criterios e perfis de avaliacao (zettel/library/schema.py). O
     # default e o arquivo do repositorio, nao um caminho relativo ao cwd.
     rating_path: Path = _PACKAGE_DIR.parent / "config" / "library.yaml"
-    # Tipos de documento cujo harvest cria a nota LIV do livro.
-    document_types: list[str] = Field(default_factory=lambda: ["livro"])
+    # Tipos que aparecem na estante. Capítulo de livro é colhido e fica de fora.
+    document_types: list[str] = Field(
+        default_factory=lambda: [
+            "livro",
+            "artigo_periodico",
+            "artigo_internet",
+            "tese",
+            "material_curso",
+            "relatorio",
+            "anais_evento",
+        ]
+    )
     # Status de um livro criado sem status (pelo harvest ou pela web).
     initial_status: Literal["quero_ler", "lendo", "lido", "abandonado", "relendo"] = "quero_ler"
     # Letra do formato no codigo "0001 - F".

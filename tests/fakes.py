@@ -276,6 +276,12 @@ class FakeVectorIndex:
         self._record("query_chapter_summaries", query_text)
         return self._hits("chapter_summaries", n_results)
 
-    def find_similar_chunks(self, texts: list[str], n_results: int = 3) -> list[dict]:
+    def find_similar_chunks(
+        self,
+        texts: list[str],
+        n_results: int = 3,
+        *,
+        where: dict[str, Any] | None = None,
+    ) -> list[dict]:
         self._record("find_similar_chunks", list(texts))
-        return [hit for _t in texts for hit in self._hits("chunks", n_results)]
+        return [hit for _t in texts for hit in self._hits("chunks", n_results, where=where)]

@@ -59,6 +59,36 @@ CREATE TABLE IF NOT EXISTS sources (
     tokens_prompt        INTEGER NOT NULL DEFAULT 0,
     tokens_completion    INTEGER NOT NULL DEFAULT 0,
     tokens_embedding     INTEGER NOT NULL DEFAULT 0,
+    -- Leitura da estante, espelhada do frontmatter do SRC. Um banco já
+    -- existente ganha as colunas em StateDB._ensure_source_reader_columns:
+    -- CREATE TABLE IF NOT EXISTS não altera a tabela que já está lá.
+    code_number          INTEGER,
+    code                 TEXT,
+    format               TEXT,
+    status               TEXT,
+    readings_json        TEXT NOT NULL DEFAULT '[]',
+    genres_json          TEXT NOT NULL DEFAULT '[]',
+    subjects_json        TEXT NOT NULL DEFAULT '[]',
+    nature               TEXT,
+    reading_mode         TEXT,
+    country              TEXT,
+    original_language    TEXT,
+    original_publication_year INTEGER,
+    original_title       TEXT,
+    series               TEXT,
+    series_number        INTEGER,
+    pages                INTEGER,
+    cover                TEXT,
+    ratings_json         TEXT NOT NULL DEFAULT '{}',
+    rating_profile       TEXT,
+    score                REAL,
+    favorite             INTEGER NOT NULL DEFAULT 0,
+    -- Obra que reúne edições (ADR-071). Vazio no arquivo vira NULL. Um banco
+    -- já existente ganha a coluna em StateDB._ensure_source_reader_columns.
+    work_id              TEXT,
+    shelf_mtime_ns       INTEGER,
+    shelf_size           INTEGER,
+    shelf_schema_stamp   TEXT NOT NULL DEFAULT '',
     created_at           TEXT NOT NULL,
     updated_at           TEXT NOT NULL
 );
@@ -404,48 +434,43 @@ CREATE TABLE IF NOT EXISTS review_events (
 CREATE INDEX IF NOT EXISTS idx_review_events_source ON review_events(source_id);
 CREATE INDEX IF NOT EXISTS idx_review_events_chunk ON review_events(chunk_id);
 
--- Estante (ADR-068): mirror of the LIV notes in 60_Estante/, rebuilt from the
--- files by ``library.mirror.refresh``. No foreign key to sources: a reset drops
--- the source and the LIV keeps its source_id until it is relinked.
-CREATE TABLE IF NOT EXISTS books (
-    book_id            TEXT PRIMARY KEY,
-    path               TEXT NOT NULL,
-    file_mtime_ns      INTEGER NOT NULL,
-    file_size          INTEGER NOT NULL,
-    schema_stamp       TEXT NOT NULL DEFAULT '',
-    code_number        INTEGER,
-    code               TEXT,
-    title              TEXT NOT NULL,
-    authors_json       TEXT NOT NULL DEFAULT '[]',
-    source_id          TEXT,
-    isbn               TEXT,
-    pages              INTEGER,
-    country            TEXT,
-    original_language  TEXT,
-    genres_json        TEXT NOT NULL DEFAULT '[]',
-    nature             TEXT,
-    reading_mode       TEXT NOT NULL DEFAULT 'conceito',
-    format             TEXT,
-    status             TEXT,
-    cover              TEXT,
-    rating_profile     TEXT,
-    score              REAL,
-    favorite           INTEGER NOT NULL DEFAULT 0,
-    created_at         TEXT,
-    frontmatter_json   TEXT NOT NULL
+-- Marcador da migração da estante. A abertura do StateDB só derruba as tabelas
+-- antigas da estante depois que este marcador existe (a migração é quem o grava
+-- e quem derruba; isto cobre o processo que morre entre as duas coisas).
+CREATE TABLE IF NOT EXISTS app_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_books_source ON books(source_id);
-CREATE INDEX IF NOT EXISTS idx_books_isbn ON books(isbn);
-
-CREATE TABLE IF NOT EXISTS book_readings (
-    book_id    TEXT NOT NULL REFERENCES books(book_id) ON DELETE CASCADE,
-    position   INTEGER NOT NULL,
-    start_date TEXT,
-    end_date   TEXT,
-    PRIMARY KEY (book_id, position)
-);
-CREATE INDEX IF NOT EXISTS idx_book_readings_end ON book_readings(end_date);
 """
+
+# Added to an existing ``sources`` table on open. Declarations match SCHEMA_SQL.
+SOURCE_READER_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("code_number", "INTEGER"),
+    ("code", "TEXT"),
+    ("format", "TEXT"),
+    ("status", "TEXT"),
+    ("readings_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ("genres_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ("subjects_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ("nature", "TEXT"),
+    ("reading_mode", "TEXT"),
+    ("country", "TEXT"),
+    ("original_language", "TEXT"),
+    ("original_publication_year", "INTEGER"),
+    ("original_title", "TEXT"),
+    ("series", "TEXT"),
+    ("series_number", "INTEGER"),
+    ("pages", "INTEGER"),
+    ("cover", "TEXT"),
+    ("ratings_json", "TEXT NOT NULL DEFAULT '{}'"),
+    ("rating_profile", "TEXT"),
+    ("score", "REAL"),
+    ("favorite", "INTEGER NOT NULL DEFAULT 0"),
+    ("work_id", "TEXT"),
+    ("shelf_mtime_ns", "INTEGER"),
+    ("shelf_size", "INTEGER"),
+    ("shelf_schema_stamp", "TEXT NOT NULL DEFAULT ''"),
+)
 
 # FTS5 virtual tables for BM25 lexical search, kept in sync with notes/chunks.
 # `remove_diacritics 2` matters for PT-BR: "conexao" matches "conexão".

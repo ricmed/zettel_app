@@ -68,18 +68,14 @@ def test_extract_picks_the_prompt_by_the_source_reading_mode(tmp_path):
     cfg.prompts_path = REPO / "prompts"
     db = library_db(cfg)
     novel = bf.create_book(cfg, {"title": "O Hobbit", "genres": ["Fantasia"]})
-    novel.meta["source_id"] = "@Tolkien1937Hobbit"
-    bf.save_book(cfg, novel, expected_version=novel.version)
     manual = bf.create_book(cfg, {"title": "Código Limpo", "genres": ["Técnico"]})
-    manual.meta["source_id"] = "@Martin2008Codigo"
-    bf.save_book(cfg, manual, expected_version=manual.version)
 
     modes = _reading_modes(cfg, db)
-    assert modes == {"@Tolkien1937Hobbit": "reflexao"}
+    assert modes == {novel.source_id: "reflexao"}
 
     prompts = Prompt1Set(cfg)
     reflective, reflective_hash, reflective_examples = prompts.for_mode("reflexao")
-    conceptual, conceptual_hash, _ = prompts.for_mode(modes.get("@Martin2008Codigo", "conceito"))
+    conceptual, conceptual_hash, _ = prompts.for_mode(modes.get(manual.source_id, "conceito"))
     assert "Nota de Literatura Reflexiva" in reflective.system
     assert "Nota de Literatura Reflexiva" not in conceptual.system
     assert reflective_hash != conceptual_hash
@@ -125,12 +121,16 @@ def test_a_reflective_book_goes_through_run_all_with_its_own_prompts(
     from zettel.config import load_config
 
     cfg = load_config(instance.config)
+    from zettel.hashing import file_sha256
+
     book = bf.create_book(
         cfg, {"title": "O Capital", "authors": ["Karl Marx"], "reading_mode": "reflexao"}
     )
+    book.meta["checksum"] = file_sha256(instance.inbox / "capital.md")
+    bf.save_book(cfg, book, expected_version=book.version)
     instance.run("run-all", "--yes", "--auto-approve")
 
-    assert bf.load_book(cfg, book.book_id).source_id
+    assert bf.load_book(cfg, book.source_id).source_id
     assert systems["extract"] and all(
         "Nota de Literatura Reflexiva" in s for s in systems["extract"]
     )
@@ -147,6 +147,6 @@ def test_a_reflective_book_goes_through_run_all_with_its_own_prompts(
     db = instance.db()
     try:
         refresh(db, cfg)
-        assert db.list_reflective_source_ids() == [bf.load_book(cfg, book.book_id).source_id]
+        assert db.list_reflective_source_ids() == [bf.load_book(cfg, book.source_id).source_id]
     finally:
         db.close()

@@ -329,7 +329,6 @@ VAULT_DIRS = [
     "30_Permanent",
     "40_MOCs",
     "50_Projetos",
-    "60_Estante",
     "90_Assets",
 ]
 
@@ -341,8 +340,6 @@ PIPELINE_ORIGINS = frozenset({"pipeline", "hub_pipeline"})
 TEMPLATES_DIR = "99_Templates"
 # Writing projects (Mesa, ADR-067): the author's, kept by ``init --reset``.
 PROJECTS_DIR = "50_Projetos"
-# Bookshelf (Estante, ADR-068): one LIV note per book, kept by ``init --reset``.
-LIBRARY_DIR = "60_Estante"
 
 
 def init_vault(vault_path: Path) -> None:
@@ -371,6 +368,11 @@ def partition_vault_notes(vault_path: Path) -> tuple[list[Path], list[Path]]:
         if any(part.startswith(".") for part in rel.parts):
             continue
         meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+        # A source note keeps the reader's fields. Reset drops the database;
+        # the file is what the shelf is rebuilt from, whichever origin wrote it.
+        if isinstance(meta, dict) and meta.get("type") == "source":
+            kept.append(path)
+            continue
         is_pipeline = isinstance(meta, dict) and str(meta.get("origin") or "") in PIPELINE_ORIGINS
         (pipeline if is_pipeline else kept).append(path)
     return pipeline, kept

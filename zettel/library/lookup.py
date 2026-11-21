@@ -338,6 +338,104 @@ def lookup_isbn(isbn: str, fetch: Fetcher | None = None) -> BookCandidate | None
     return None
 
 
+def _crossref_year(message: dict[str, Any]) -> int | None:
+    for key in ("issued", "published-print", "published-online"):
+        block = message.get(key)
+        if not isinstance(block, dict):
+            continue
+        parts = block.get("date-parts")
+        if (
+            not isinstance(parts, list)
+            or not parts
+            or not isinstance(parts[0], list)
+            or not parts[0]
+        ):
+            continue
+        year = parts[0][0]
+        if isinstance(year, int):
+            return year
+    return None
+
+
+@dataclass(frozen=True)
+class CrossrefWork:
+    """Uma obra do Crossref, para conferir antes de gravar."""
+
+    doi: str
+    title: str
+    authors: list[str]
+    container: str
+    year: int | None
+    volume: str
+    issue: str
+    pages: str
+    publisher: str
+    work_type: str
+
+    @property
+    def document_type(self) -> str:
+        """``journal-article`` sugere artigo de periódico; o usuário confirma."""
+        return "artigo_periodico" if self.work_type == "journal-article" else ""
+
+    def form_fields(self) -> dict[str, str]:
+        values = {
+            "title": self.title,
+            "doi": self.doi,
+            "journal": self.container,
+            "year": str(self.year or ""),
+            "volume": self.volume,
+            "issue": self.issue,
+            "pages": self.pages,
+            "publisher": self.publisher,
+            "document_type": self.document_type,
+        }
+        return {key: value for key, value in values.items() if value}
+
+
+def lookup_doi(doi: str, fetch: Fetcher | None = None) -> CrossrefWork | None:
+    """A ficha do Crossref para um DOI já normalizado. ``None`` quando não há obra.
+
+    Nada é gravado aqui. ``BookLookupError`` quando o serviço não responde.
+    O teste troca ``fetch`` pelo mesmo caminho de ``_urlopen`` das outras consultas.
+    """
+    clean = " ".join(str(doi or "").split())
+    if not clean:
+        return None
+    url = f"https://api.crossref.org/works/{urllib.parse.quote(clean, safe='/')}"
+    payload = _get_json(url, fetch, "o Crossref")
+    if not isinstance(payload, dict):
+        return None
+    message = payload.get("message")
+    if not isinstance(message, dict):
+        return None
+    authors = []
+    for person in message.get("author") or []:
+        if not isinstance(person, dict):
+            continue
+        given = str(person.get("given") or "").strip()
+        family = str(person.get("family") or "").strip()
+        name = " ".join(part for part in (given, family) if part)
+        if name:
+            authors.append(name)
+    year = _crossref_year(message)
+    container = _first(message.get("container-title"))
+    title = _first(message.get("title"))
+    if not title and not container:
+        return None
+    return CrossrefWork(
+        doi=str(message.get("DOI") or clean).lower(),
+        title=title,
+        authors=authors,
+        container=container,
+        year=year if isinstance(year, int) else None,
+        volume=_text(message.get("volume")),
+        issue=_text(message.get("issue")),
+        pages=_text(message.get("page")),
+        publisher=_text(message.get("publisher")),
+        work_type=_text(message.get("type")),
+    )
+
+
 def cover_url(ref: str, *, large: bool) -> str:
     """URL da capa de uma referência ``ol:``/``gb:``; ``ValueError`` se ela não é válida."""
     if not COVER_REF_RE.match(ref or ""):
