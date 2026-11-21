@@ -634,10 +634,11 @@ def _process_file(
 
         # Depois de um reset o SQLite está vazio e o SRC continua no vault.
         # O mesmo PDF (checksum) ou a mesma edição (ISBN) reusa esse source_id.
-        survived = find_surviving_source(cfg.vault_path, checksum=checksum, isbn=isbn or "")
-        if survived and db.get_source(survived["source_id"]):
-            updating_source_id = survived["source_id"]
-            survived = None
+        # A linha que já existe fica com a camada 3: um capítulo com o mesmo
+        # ISBN não entra no livro só porque o arquivo da estante sobreviveu.
+        found = find_surviving_source(cfg.vault_path, checksum=checksum, isbn=isbn or "")
+        if found and not db.get_source(found["source_id"]):
+            survived = found
 
     stored = db.get_source(updating_source_id) if updating_source_id else None
     if updating_source_id and stored is None:

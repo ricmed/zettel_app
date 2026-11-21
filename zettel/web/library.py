@@ -417,10 +417,16 @@ def book_create(request: Request, form: FormData = Depends(read_form)):
         if not str(values.get("title") or "").strip():
             return error_page(request, 400, "Dê um título ao livro.")
         try:
+            authors = [
+                line.strip()
+                for line in str(values.get("authors") or "").splitlines()
+                if line.strip()
+            ]
             book = create_book(
                 cfg,
                 {
                     "title": values["title"],
+                    "authors": authors,
                     "format": values.get("format"),
                     "status": values.get("status"),
                     "document_type": values.get("document_type") or "livro",

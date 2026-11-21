@@ -389,6 +389,30 @@ def _shelf_body(header: str) -> str:
     return assemble_body(header, sections, render_notes("_Nenhuma nota de leitura ainda._"))
 
 
+def _unused_citekey(db: Any, citekey: str, title: str, folder: Path) -> tuple[str, Path]:
+    """Citekey e caminho livres.
+
+    O nome curto do SRC usa só autor e ano, então duas fichas do mesmo título
+    cairiam no mesmo arquivo. A segunda leva o citekey inteiro no nome.
+    """
+    from zettel.harvester.citekey import _disambiguation_suffix
+    from zettel.vault import note_filename, source_note_filename
+
+    base = citekey
+    index = 0
+    while db.get_source_by_citekey(citekey):
+        index += 1
+        citekey = f"{base}{_disambiguation_suffix(index)}"
+    path = folder / source_note_filename(citekey, title)
+    while path.exists():
+        index += 1
+        citekey = f"{base}{_disambiguation_suffix(index)}"
+        if db.get_source_by_citekey(citekey):
+            continue
+        path = folder / note_filename("SRC", citekey, title)
+    return citekey, path
+
+
 def create_book(cfg: Any, fields: dict[str, Any], db: Any | None = None) -> Book:
     """Cria o SRC manual na hora, com o próximo código. ``fields`` traz o título."""
     from zettel.harvester.citekey import generate_citekey
@@ -403,6 +427,8 @@ def create_book(cfg: Any, fields: dict[str, Any], db: Any | None = None) -> Book
     status = (
         fields.get("status") if fields.get("status") in STATUSES else cfg.library.initial_status
     )
+    folder = sources_dir(cfg)
+    folder.mkdir(parents=True, exist_ok=True)
     if db is None:
         from zettel.state import StateDB
 
@@ -410,8 +436,15 @@ def create_book(cfg: Any, fields: dict[str, Any], db: Any | None = None) -> Book
         own_db = True
     else:
         own_db = False
+    reserved: Path | None = None
     try:
+        explicit = bool(str(fields.get("citekey") or "") or str(fields.get("source_id") or ""))
         citekey = str(fields.get("citekey") or "") or generate_citekey(db, authors, year, title)
+        # Duas fichas órfãs com o mesmo título nascem juntas, antes de existir
+        # linha no SQLite. O arquivo que a primeira acabou de gravar também
+        # ocupa o nome curto: a segunda não pode reescrever a primeira.
+        if not explicit:
+            citekey, reserved = _unused_citekey(db, citekey, title, folder)
     finally:
         if own_db:
             db.close()
@@ -451,9 +484,7 @@ def create_book(cfg: Any, fields: dict[str, Any], db: Any | None = None) -> Book
     meta["created_at"] = fields.get("created_at") or now
     meta["updated_at"] = now
     meta = ordered_meta(meta)
-    folder = sources_dir(cfg)
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / source_note_filename(citekey, title)
+    path = reserved or (folder / source_note_filename(citekey, title))
     if not meta.get("origin_path"):
         meta["origin_path"] = str(path)
     body = _shelf_body(body)

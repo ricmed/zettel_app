@@ -49,6 +49,7 @@ def test_create_writes_a_manual_liv_kept_by_reset(web_client):
     )
     book = bf.load_book(_cfg(client), book_id)
     assert book.code == "0001 - F"
+    assert book.source_id.startswith("@Tolkien")
     assert book.authors == ["J. R. R. Tolkien"]
     assert book.genres == ["Fantasia", "Clássico"]
     _pipeline, kept = partition_vault_notes(tmp_path / "vault")

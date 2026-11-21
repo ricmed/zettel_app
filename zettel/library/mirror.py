@@ -19,7 +19,9 @@ from zettel.library.book_file import (
     as_str_list,
     code_number_of,
     list_books,
+    list_source_files,
     ratings_of,
+    read_book,
     readings_of,
 )
 from zettel.library.rating import rate
@@ -135,14 +137,46 @@ def library_health(cfg: Any) -> tuple[bool, str]:
     return True, f"{len(books)} item(ns) na estante, {len(schema.profiles)} perfil(is) de avaliacao"
 
 
+def _sync_document_type(db: Any, book: Any) -> None:
+    """O tipo do arquivo manda. Um capítulo deixa de aparecer na estante."""
+    row = db.get_source(book.source_id)
+    if not row:
+        return
+    document_type = str(book.meta.get("document_type") or "").strip()
+    if not document_type or document_type == str(row.get("document_type") or ""):
+        return
+    try:
+        authors = json.loads(row.get("authors") or "[]")
+    except json.JSONDecodeError:
+        authors = []
+    db.update_source_bibliography(
+        book.source_id,
+        title=str(row.get("title") or book.title),
+        authors=authors if isinstance(authors, list) else [],
+        year=row.get("year"),
+        document_type=document_type,
+        bibliography_json=None,
+        abnt_reference=None,
+        doi=None,
+        isbn=None,
+    )
+
+
 def refresh(db: Any, cfg: Any) -> MirrorReport:
     """Põe o espelho em dia com os SRC da estante."""
     report = MirrorReport()
     schema = schema_for(cfg)
     stamp = schema_stamp(cfg)
     known = db.shelf_stamps()
+    wanted = set(cfg.library.document_types)
     seen: set[str] = set()
-    for book in list_books(cfg):
+    for path in list_source_files(cfg):
+        book = read_book(path)
+        if book is None:
+            continue
+        if str(book.meta.get("document_type") or "") not in wanted:
+            _sync_document_type(db, book)
+            continue
         try:
             st = book.path.stat()
         except OSError:
@@ -163,6 +197,7 @@ def refresh(db: Any, cfg: Any) -> MirrorReport:
         if unchanged:
             seen.add(book.source_id)
             continue
+        _sync_document_type(db, book)
         _ensure_row(db, book)
         db.upsert_shelf(
             book.source_id,

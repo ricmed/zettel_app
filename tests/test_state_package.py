@@ -200,6 +200,8 @@ PUBLIC_METHODS = {
     "list_shelf_rows",
     "list_shelf_readings",
     "list_reflective_source_ids",
+    "sources_by_work",
+    "delete_derived_corroborates_between",
     "mark_shelf_migrated",
     "shelf_migrated",
     "drop_legacy_shelf_tables",

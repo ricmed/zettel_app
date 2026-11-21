@@ -120,7 +120,7 @@ def build_dashboard(
 
     sums: dict[str, list[float]] = defaultdict(list)
     for book in books:
-        ratings = (json.loads(book.get("frontmatter_json") or "{}") or {}).get("ratings")
+        ratings = json.loads(book.get("ratings_json") or "{}")
         if isinstance(ratings, dict):
             for key, value in ratings.items():
                 if key in schema.criteria and isinstance(value, (int, float)):

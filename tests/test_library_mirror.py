@@ -119,6 +119,38 @@ def test_code_sort_uses_the_code_text_when_the_number_column_is_empty(tmp_path):
     assert [r["title"] for r in _rows(cfg, db, sort="code")] == ["Duna", "O Hobbit"]
 
 
+def test_a_chapter_leaves_the_shelf_when_the_file_says_so(tmp_path):
+    cfg = library_config(tmp_path)
+    db = library_db(cfg)
+    book = bf.create_book(cfg, {"title": "Só o capítulo", "document_type": "livro"})
+    refresh(db, cfg)
+    assert [row["source_id"] for row in _rows(cfg, db)] == [book.source_id]
+
+    text = book.path.read_text(encoding="utf-8").replace(
+        "document_type: livro", "document_type: capitulo_livro"
+    )
+    book.path.write_text(text, encoding="utf-8", newline="\n")
+    refresh(db, cfg)
+
+    assert _rows(cfg, db) == []
+    assert db.get_source(book.source_id)["document_type"] == "capitulo_livro"
+    db.close()
+
+
+def test_dashboard_averages_the_ratings_column(tmp_path):
+    from zettel.library.schema import schema_for
+    from zettel.library.stats import build_dashboard
+
+    cfg = library_config(tmp_path)
+    db = library_db(cfg)
+    bf.create_book(cfg, {"title": "O Hobbit", "genres": ["Fantasia"], "ratings": {"plot": 4}})
+    refresh(db, cfg)
+    dashboard = build_dashboard(db, schema_for(cfg), 2026, list(cfg.library.document_types))
+
+    assert [(bar.label, bar.value) for bar in dashboard["criteria"].bars] == [("Enredo", 4)]
+    db.close()
+
+
 def test_library_health_reports_repeated_codes(tmp_path):
     from zettel.library.mirror import library_health
 

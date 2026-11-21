@@ -100,3 +100,19 @@ def test_a_different_title_stops_the_deletion_until_it_is_accepted(tmp_path):
     assert bf.load_book(cfg, book.source_id).title == "O Hobbit"
     assert "books" not in _tables(db)
     db.close()
+
+
+def test_two_orphan_copies_keep_two_sources(tmp_path):
+    cfg = library_config(tmp_path)
+    db = library_db(cfg)
+    shared = {"type": "book", "title": "Duna", "authors": ["Frank Herbert"], "year": 1965}
+    _liv(cfg, "LIV - digital.md", {**shared, "format": "digital"}, "## Resumo\n\nEdicao digital.\n")
+    _liv(cfg, "LIV - fisico.md", {**shared, "format": "fisico"}, "## Resumo\n\nEdicao fisica.\n")
+
+    report = migrate_shelf(cfg, db)
+    assert report.ok, report.text()
+    books = bf.list_books(cfg)
+    assert len({book.source_id for book in books}) == 2
+    bodies = "\n".join(book.body for book in books)
+    assert "Edicao digital." in bodies and "Edicao fisica." in bodies
+    db.close()

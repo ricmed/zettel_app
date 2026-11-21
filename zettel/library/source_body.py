@@ -53,6 +53,59 @@ _NOTES = re.compile(
 )
 
 
+def reader_fields_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Campos de leitor que o espelho guarda, no formato do frontmatter.
+
+    O rebuild de um SRC que sumiu do disco não tem arquivo antigo para fundir.
+    Sem isto, a próxima leitura do espelho gravaria vazio por cima da linha.
+    """
+    import json
+
+    def parsed(key: str, kind: type) -> Any:
+        try:
+            value = json.loads(row.get(key) or "")
+        except (json.JSONDecodeError, TypeError):
+            return None
+        return value if isinstance(value, kind) else None
+
+    fields: dict[str, Any] = {}
+    for key in (
+        "code",
+        "format",
+        "status",
+        "original_title",
+        "series",
+        "country",
+        "original_language",
+        "nature",
+        "reading_mode",
+        "cover",
+        "rating_profile",
+        "work_id",
+    ):
+        text = str(row.get(key) or "").strip()
+        if text:
+            fields[key] = text
+    for key in ("code_number", "series_number", "original_publication_year", "pages"):
+        value = row.get(key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            fields[key] = value
+    if row.get("score") is not None:
+        fields["score"] = row["score"]
+    if row.get("favorite"):
+        fields["favorite"] = True
+    for key, column, kind in (
+        ("genres", "genres_json", list),
+        ("subjects", "subjects_json", list),
+        ("readings", "readings_json", list),
+        ("ratings", "ratings_json", dict),
+    ):
+        value = parsed(column, kind)
+        if value:
+            fields[key] = value
+    return fields
+
+
 def blank(value: Any) -> bool:
     """Vazio para um campo de leitor: ausente, texto em branco, lista ou mapa vazio."""
     return value is None or value in ("", [], {})

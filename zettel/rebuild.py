@@ -365,6 +365,10 @@ def run_rebuild_vault(
             vault_timezone=cfg.vault_timezone,
         )
         src_path = cfg.vault_path / "10_Sources" / source_note_filename(citekey, title)
+        if not src_path.exists():
+            from zettel.library.source_body import reader_fields_from_row
+
+            src_meta.update(reader_fields_from_row(src))
         if _write_source(src_path, src_meta, src_body, origin, src["source_id"]):
             stats["sources"] += 1
 
