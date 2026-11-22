@@ -179,14 +179,14 @@ Sem um backup, `init --reset` descarta a fonte de verdade do pipeline. Só o rep
 
 ## Backup
 
-`zettel backup` grava um `.zettelbak` cifrado do acervo. `zettel restore` aplica esse arquivo aqui. Os dois tomam a trava `data/zettel.lock`. A mesma operação está em `/backup` (menu e link em Configuração): a senha vai num arquivo temporário fora do vault e não entra no trabalho. Detalhe das flags: [cli.md](cli.md#backup). A decisão é [ADR-072](adrs/generated/INFRA/ADR-072-encrypted-backup-archive.md). O restore em outra pasta acha as notas porque `origin_path`, `files.path`, `literature_note_path`, `notes.path`, `mocs.path` e `projects.path` são relativos ao vault ou à inbox.
+`zettel backup PATH` grava um `.zettelbak` cifrado no arquivo `PATH`. Esse argumento é obrigatório: relativo ao diretório em que o comando roda, ou absoluto. A pasta é criada se faltar, e um arquivo já existente nesse caminho é substituído. `zettel restore PATH` lê esse arquivo e aplica neste acervo — o projeto do comando. Não há um caminho de destino separado. Os dois tomam a trava `data/zettel.lock`. A mesma operação está em `/backup` (menu e link em Configuração): a senha vai num arquivo temporário fora do vault e não entra no trabalho. Detalhe do `PATH` e das flags: [cli.md](cli.md#backup). A decisão é [ADR-072](adrs/generated/INFRA/ADR-072-encrypted-backup-archive.md). O restore em outra pasta acha as notas porque `origin_path`, `files.path`, `literature_note_path`, `notes.path`, `mocs.path` e `projects.path` são relativos ao vault ou à inbox.
 
 ```bash
 python -m zettel backup acervo.zettelbak
-python -m zettel backup acervo.zettelbak --passphrase-file segredo.txt --no-chroma
+python -m zettel backup ../backups/acervo.zettelbak --passphrase-file segredo.txt --no-chroma
 python -m zettel backup acervo.zettelbak --with-inbox
 python -m zettel restore acervo.zettelbak
-python -m zettel restore acervo.zettelbak --force-env --rotate-session
+python -m zettel restore ../backups/acervo.zettelbak --force-env --rotate-session
 ```
 
 Não existe `--passphrase`. A senha vem do terminal (`Senha do backup:`) ou de `--passphrase-file`. Sem terminal e sem esse arquivo, o comando sai com código 2: `Sem terminal para ler a senha. Use --passphrase-file.` Senha vazia sai com código 1. No POSIX o arquivo de senha precisa estar em modo 0600. A senha não entra no arquivo e não fica na linha de comando.

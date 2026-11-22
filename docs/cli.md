@@ -683,18 +683,21 @@ python -m zettel rebuild --what vault --force  # sobrescreve (nunca notas manuai
 
 ## `backup`
 
-Grava um `.zettelbak` cifrado. O zip só existe dentro do blob. A senha vem do terminal (`Senha do backup:`) ou de `--passphrase-file`. Não existe `--passphrase`. Sem terminal e sem o arquivo, sai com código 2: `Sem terminal para ler a senha. Use --passphrase-file.` Senha vazia sai com código 1. A senha não é gravada no arquivo.
+Grava um `.zettelbak` cifrado no caminho do argumento obrigatório `PATH`. Sem ele o comando pede o argumento e sai com código 2. `PATH` é o arquivo de saída: relativo ao diretório em que o comando roda, ou absoluto (`acervo.zettelbak`, `../backups/acervo.zettelbak`). A pasta desse arquivo é criada se faltar. Um arquivo que já existe nesse caminho é substituído. O destino não pode ser um diretório (`O destino do backup e um diretorio.`) nem o `state.db` ao vivo (`O destino nao pode ser o banco ao vivo.`); os dois saem com código 1. A extensão `.zettelbak` é a convenção do formato; o comando grava no caminho que você passou.
+
+O zip só existe dentro do blob. A senha vem do terminal (`Senha do backup:`) ou de `--passphrase-file`. Não existe `--passphrase`. Sem terminal e sem o arquivo, sai com código 2: `Sem terminal para ler a senha. Use --passphrase-file.` Senha vazia sai com código 1. A senha não é gravada no arquivo.
 
 ```bash
 python -m zettel backup acervo.zettelbak
+python -m zettel backup ../backups/acervo.zettelbak
 python -m zettel backup acervo.zettelbak --passphrase-file segredo.txt
 python -m zettel backup acervo.zettelbak --no-chroma
 python -m zettel backup acervo.zettelbak --with-inbox
 ```
 
-| Flag | Efeito |
+| Argumento ou flag | Efeito |
 |---|---|
-| `PATH` | Arquivo `.zettelbak` de saída (argumento). |
+| `PATH` | Obrigatório. Arquivo `.zettelbak` de saída, relativo ao diretório atual ou absoluto. |
 | `--passphrase-file` | Lê a senha desse arquivo (UTF-8; um newline final é removido). No POSIX o arquivo precisa estar em modo 0600. |
 | `--no-chroma` | Não inclui o diretório Chroma. |
 | `--with-inbox` | Inclui o inbox. Sem a flag, os originais ficam de fora. |
@@ -709,18 +712,18 @@ O arquivo sai em modo 0600 quando o sistema permite. Formato, tetos do restore e
 
 ## `restore`
 
-Restaura um `.zettelbak` neste acervo. A senha segue a mesma regra do `backup`.
+Restaura o arquivo do argumento obrigatório `PATH` neste acervo: o vault, o `state.db`, o Chroma, o inbox e o `.env` do projeto em que o comando roda. Não há um segundo caminho de destino. `PATH` é o `.zettelbak` a ler, relativo ao diretório atual ou absoluto. Sem ele o comando pede o argumento e sai com código 2. Arquivo ausente sai com código 1: `Arquivo de backup nao encontrado.` A senha segue a mesma regra do `backup`.
 
 ```bash
 python -m zettel restore acervo.zettelbak
-python -m zettel restore acervo.zettelbak --passphrase-file segredo.txt
+python -m zettel restore ../backups/acervo.zettelbak --passphrase-file segredo.txt
 python -m zettel restore acervo.zettelbak --force-env
 python -m zettel restore acervo.zettelbak --rotate-session
 ```
 
-| Flag | Efeito |
+| Argumento ou flag | Efeito |
 |---|---|
-| `PATH` | Arquivo `.zettelbak` a restaurar (argumento). |
+| `PATH` | Obrigatório. Arquivo `.zettelbak` a ler, relativo ao diretório atual ou absoluto. O conteúdo volta para este projeto. |
 | `--passphrase-file` | Igual ao `backup`. |
 | `--force-env` | Substitui o `.env` existente pelo do arquivo. Sem a flag, o `.env` atual fica e o comando avisa. |
 | `--rotate-session` | Troca `web_auth.session_key` depois de restaurar o banco e não imprime a chave nova. Sem a flag, a chave antiga volta com o `state.db`. |

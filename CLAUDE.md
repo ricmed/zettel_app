@@ -38,7 +38,11 @@ uv sync --extra cu126      # or --extra cpu; then uv run --no-sync (plain uv run
 # Check dependencies and config integrity
 .venv/Scripts/python.exe -m zettel doctor
 
-# Encrypted backup / restore (.zettelbak). Passphrase via the terminal or --passphrase-file; there is no --passphrase.
+# Encrypted backup / restore (.zettelbak). PATH is required: the archive file,
+# relative to the working directory or absolute. Parent directories are created;
+# an existing file at that path is replaced. restore reads PATH and writes into
+# this project's vault, state.db, Chroma and .env; it has no destination argument.
+# Passphrase via the terminal or --passphrase-file; there is no --passphrase.
 .venv/Scripts/python.exe -m zettel backup acervo.zettelbak
 .venv/Scripts/python.exe -m zettel restore acervo.zettelbak
 

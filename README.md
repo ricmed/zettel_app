@@ -115,7 +115,7 @@ Os exemplos abaixo usam `python -m zettel ...`; prefixe com `uv run --no-sync` s
 | `zettel obsidian-templates`       | Gera `99_Templates/` a partir dos scaffolds do `new-note`; `--force` regrava |
 | `zettel obsidian-setup`           | Templates, plugin Templater e `.obsidian/` num vault existente |
 | `zettel suggest-links`            | Sugere conexões (incl. analogias distantes) sem reescrever a ZTL             |
-| `zettel backup` / `zettel restore` | Arquivo cifrado `.zettelbak` do banco, do vault, do Chroma e do `.env`; a senha não fica no arquivo nem na linha de comando. O restore não troca o `.env` sem `--force-env`. A mesma operação está na página `/backup` |
+| `zettel backup PATH` / `zettel restore PATH` | `PATH` é obrigatório: o arquivo `.zettelbak` (relativo ao diretório atual ou absoluto). O backup grava nesse caminho; o restore lê esse arquivo e devolve o banco, o vault, o Chroma e o `.env` neste projeto. A senha não fica no arquivo nem na linha de comando. O restore não troca o `.env` sem `--force-env`. A mesma operação está na página `/backup` |
 | `zettel status` / `zettel doctor` | Estatísticas do pipeline / diagnóstico de config e dependências              |
 | `zettel db-report`                | Relatório de tamanho e conteúdo de `state.db` e Chroma                       |
 | `zettel run-all`                  | Pipeline completo, do inbox aos MOCs                                         |
