@@ -1281,6 +1281,8 @@ def test_documents_hide_completed_file_but_show_changed_copy(web_client, monkeyp
     incomplete.write_text("# Interrompido", encoding="utf-8")
     pending.write_text("# Novo", encoding="utf-8")
 
+    from zettel.stored_path import store_inbox
+
     checksum = file_sha256(completed)
     incomplete_checksum = file_sha256(incomplete)
     db = client.app.state.service.db()
@@ -1292,12 +1294,12 @@ def test_documents_hide_completed_file_but_show_changed_copy(web_client, monkeyp
             authors=[],
             year=None,
             file_checksum=checksum,
-            origin_path=str(completed.resolve()),
+            origin_path=store_inbox(completed, inbox),
             origin_type="md",
             processing_status="completed",
         )
         db.upsert_file(
-            str(completed.resolve()),
+            store_inbox(completed, inbox),
             checksum,
             "md",
             source_id="@completed",
@@ -1309,7 +1311,7 @@ def test_documents_hide_completed_file_but_show_changed_copy(web_client, monkeyp
             authors=[],
             year=None,
             file_checksum=incomplete_checksum,
-            origin_path=str(incomplete.resolve()),
+            origin_path=store_inbox(incomplete, inbox),
             origin_type="md",
             processing_status="completed",
         )
@@ -1318,7 +1320,7 @@ def test_documents_hide_completed_file_but_show_changed_copy(web_client, monkeyp
             extracted_text="# Capítulo incompleto\n\nConteúdo que ainda precisa de chunks.",
         )
         db.upsert_file(
-            str(incomplete.resolve()),
+            store_inbox(incomplete, inbox),
             incomplete_checksum,
             "md",
             source_id="@incomplete",

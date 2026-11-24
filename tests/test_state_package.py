@@ -186,6 +186,7 @@ PUBLIC_METHODS = {
     "cancel_web_harvest_review",
     "discard_unavailable_web_harvest_reviews",
     "queue_web_harvest_review",
+    "remember_web_job",
     # decisions (ADR-055 shadow)
     "get_decision_shadow",
     "record_decision_shadow",
@@ -207,6 +208,7 @@ PUBLIC_METHODS = {
     "drop_legacy_shelf_tables",
     # connection lifecycle (db.py)
     "close",
+    "reopen",
     "vacuum",
 }
 
