@@ -509,7 +509,7 @@ def test_no_chroma_omits_chroma_and_records_it(tmp_path: Path):
         ]
     )
     assert restore_out.exit_code == 0, restore_out.output
-    assert "zettel reindex" in restore_out.output
+    assert "zettel reindex --force" in restore_out.output
     assert not (dest / "data" / "chroma").exists()
     assert (dest / "vault" / "30_Permanent" / "nota.md").read_bytes() == NOTE
 

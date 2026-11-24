@@ -63,7 +63,7 @@ Packed paths are then replaced. An existing `.env` is replaced only with `--forc
 
 `--rotate-session` replaces `web_auth.session_key` and does not print the new key. Without it, restoring `state.db` puts the archived session key back in service. The key is inside the encrypted database: anyone who can open a leaked archive can forge session cookies until the key is rotated (this flag, or logout).
 
-After the write, `run_rebuild_vault(..., force=False)` recreates vault files the database has and the disk does not. A file that already exists is left as it is. `origin: manual` is not overwritten even by `rebuild --force`. If the archive omitted Chroma, restore prints that the user may run `zettel reindex`. It does not run it, and it does not delete a Chroma directory that was already on disk.
+After the write, `run_rebuild_vault(..., force=False)` recreates vault files the database has and the disk does not. A file that already exists is left as it is. `origin: manual` is not overwritten even by `rebuild --force`. If the archive omitted Chroma, restore prints that the user should run `zettel reindex --force`, or delete the Chroma directory before a plain `zettel reindex`. It does not run it, and it does not delete a Chroma directory that was already on disk. Without `--force`, searches can still return vectors that the restored SQLite does not have.
 
 ### Consequences
 

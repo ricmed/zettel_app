@@ -227,7 +227,7 @@ Os membros são gravados por cima dos caminhos correspondentes. O `.env` existen
 
 `--rotate-session` troca `web_auth.session_key` e não imprime a chave nova. Sem essa flag, restaurar o `state.db` recoloca a chave antiga. Ela viaja dentro do banco cifrado: quem abre um arquivo vazado forja o cookie de sessão até a chave ser trocada (esta flag, ou Sair na web).
 
-Em seguida, os `.md` que o banco tem e o disco não tem são recriados (`run_rebuild_vault` com `force` desligado). Essa etapa não sobrescreve arquivo que já existe, inclusive nota manual. Se o backup não trouxe o Chroma, o comando diz para rodar `zettel reindex` e não roda o reindex. Um Chroma que já estava no disco não é apagado.
+Em seguida, os `.md` que o banco tem e o disco não tem são recriados (`run_rebuild_vault` com `force` desligado). Essa etapa não sobrescreve arquivo que já existe, inclusive nota manual. Se o backup não trouxe o Chroma, o comando diz para rodar `zettel reindex --force` (ou apagar o diretório Chroma antes de um `zettel reindex`) e não roda o reindex. Um Chroma que já estava no disco não é apagado; sem `--force`, as buscas continuam devolvendo vetores que o SQLite restaurado não tem.
 
 Senha errada ou arquivo danificado no restore: código 1, mensagem `senha incorreta ou arquivo danificado`, sem imprimir segredo. Uma falha ao cifrar, no backup, é outra mensagem (`Nao foi possivel cifrar o backup.`) e também sai com código 1.
 

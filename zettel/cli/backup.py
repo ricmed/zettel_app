@@ -17,7 +17,11 @@ from zettel.cli.app import app, console
 from zettel.cli.deps import get_db, load_deps
 from zettel.cli.options import ConfigOption
 
-_REINDEX_HINT = "O backup nao inclui o Chroma. Rode `zettel reindex` para reconstruir o indice."
+_REINDEX_HINT = (
+    "O backup nao inclui o Chroma. Rode `zettel reindex --force` para reconstruir o indice, "
+    "ou apague o diretorio Chroma antes. Sem --force, vetores que nao estao no SQLite "
+    "restaurado continuam nas buscas."
+)
 _CRYPTO_FAILURE = "senha incorreta ou arquivo danificado"
 
 

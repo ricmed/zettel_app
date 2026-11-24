@@ -734,7 +734,7 @@ O comando recusa o pacote (caminho absoluto, `..`, mais de 100.000 membros ou ma
 
 Os membros são gravados por cima dos caminhos correspondentes. Em seguida, os `.md` que o banco tem e o disco não tem são recriados. Essa etapa não sobrescreve arquivo que já existe, inclusive nota manual.
 
-Se o backup não trouxe o Chroma, o comando avisa para rodar `zettel reindex` e não roda o reindex.
+Se o backup não trouxe o Chroma, o comando avisa para rodar `zettel reindex --force` (ou apagar o diretório Chroma antes de um `zettel reindex`) e não roda o reindex. Sem `--force`, um Chroma que já estava no disco continua devolvendo vetores que o SQLite restaurado não tem.
 
 ---
 
