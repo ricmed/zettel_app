@@ -11,6 +11,7 @@ from typing import Any
 from zettel.config import AppConfig
 from zettel.index import VectorIndex
 from zettel.state import StateDB
+from zettel.stored_path import open_stored
 from zettel.time import now_vault_iso
 from zettel.vault import (
     compose_note,
@@ -269,7 +270,9 @@ def purge_source(
             row = db.get_note(note_id)
             if not row or not row.get("path"):
                 continue
-            note_path = Path(row["path"])
+            note_path = open_stored(row["path"], cfg.vault_path)
+            if note_path is None:
+                continue
             exclude_paths.add(note_path.resolve())
             if note_path.is_file():
                 note_path.unlink()

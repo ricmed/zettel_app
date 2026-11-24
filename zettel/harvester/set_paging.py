@@ -217,9 +217,10 @@ def run_set_paging(
             if ch.get("status") == "pending":
                 stats["dropped_pending"] += 1
             lit = ch.get("literature_note_path")
-            if lit:
+            located = open_stored(lit, cfg.vault_path) if lit else None
+            if located is not None:
                 with contextlib.suppress(OSError):
-                    Path(lit).unlink(missing_ok=True)
+                    located.unlink(missing_ok=True)
         db.delete_chunks(drop_ids)
         idx.delete_chunks(drop_ids)
 
@@ -272,7 +273,7 @@ def run_set_paging(
 
     from zettel.review import _refresh_literature_index
 
-    stats["permanent_patched"] = _retarget_permanent_notes(db, source_id, renamed)
+    stats["permanent_patched"] = _retarget_permanent_notes(db, source_id, renamed, cfg.vault_path)
     _refresh_literature_index(cfg, db, source_id)
     logger.info(
         "set-paging %s: updated=%d dropped_pending=%d dropped_other=%d "
@@ -296,12 +297,13 @@ def _retarget_permanent_notes(
     db: StateDB,
     source_id: str,
     renamed: list[tuple[str, str]],
+    vault: Path,
 ) -> int:
     """Point ZTL citations at the new printed page without touching their hashes."""
     changed = 0
     source = db.get_source(source_id)
     for note in db.get_notes_for_source(source_id):
-        if not _rewrite_permanent_note(db, source, note, renamed):
+        if not _rewrite_permanent_note(db, source, note, renamed, vault):
             continue
         changed += 1
     return changed
@@ -312,8 +314,9 @@ def _rewrite_permanent_note(
     source: dict | None,
     note: dict,
     renamed: list[tuple[str, str]],
+    vault: Path,
 ) -> bool:
-    path = Path(note["path"]) if note.get("path") else None
+    path = open_stored(note["path"], vault) if note.get("path") else None
     if path is not None and path.is_file():
         try:
             meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))

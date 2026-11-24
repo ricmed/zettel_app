@@ -9,6 +9,7 @@ import pytest
 from zettel.config import AppConfig, LiteratureReviewConfig
 from zettel.harvester import run_set_paging
 from zettel.state import StateDB
+from zettel.stored_path import store_vault
 from zettel.vault import (
     build_permanent_note_body,
     frontmatter_json,
@@ -204,7 +205,7 @@ def test_set_paging_from_pdf_rewrites_citation_without_touching_hashes(tmp_path:
         page_in_book=8,
         section_path="Capitulo",
         status="approved",
-        literature_note_path=str(lit_path),
+        literature_note_path=store_vault(lit_path, cfg.vault_path),
     )
     stem = lit_path.stem
     body = build_permanent_note_body(
@@ -228,7 +229,7 @@ def test_set_paging_from_pdf_rewrites_citation_without_touching_hashes(tmp_path:
     db.upsert_note(
         "N1",
         "@TestBook",
-        str(ztl),
+        store_vault(ztl, cfg.vault_path),
         title="Conceito",
         note_semantic_checksum="keep-me",
         body=body,
