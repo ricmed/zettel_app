@@ -39,6 +39,8 @@ TEMPLATE = b"template-ficticio\n"
 SESSION = "sess-FICTICIA-413-original"
 CACHE_BYTES = b"CACHE-FICTICIO-413"
 _NO_PASSPHRASE_FLAG = re.compile(r"--passphrase(?!-file)\b")
+# Typer colors a forced terminal and splits "--passphrase-file" at the hyphen.
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 @dataclass
@@ -624,19 +626,25 @@ def test_rebuild_runs_after_restore_without_overwriting(
     assert (_cfg(dest).vault_path / "30_Permanent" / "nota.md").read_bytes() == NOTE
 
 
+def _plain_help(result) -> str:
+    return _ANSI.sub("", result.output)
+
+
 def test_help_lists_backup_and_restore_without_a_passphrase_option():
     root = _invoke(["--help"])
-    assert root.exit_code == 0, root.output
-    assert "backup" in root.output
-    assert "restore" in root.output
+    root_help = _plain_help(root)
+    assert root.exit_code == 0, root_help
+    assert "backup" in root_help
+    assert "restore" in root_help
     for command in ("backup", "restore"):
         result = _invoke([command, "--help"])
-        assert result.exit_code == 0, result.output
-        assert "--passphrase-file" in result.output
-        assert _NO_PASSPHRASE_FLAG.search(result.output) is None
-        assert "--password" not in result.output
-    backup_help = _invoke(["backup", "--help"]).output
-    restore_help = _invoke(["restore", "--help"]).output
+        output = _plain_help(result)
+        assert result.exit_code == 0, output
+        assert "--passphrase-file" in output
+        assert _NO_PASSPHRASE_FLAG.search(output) is None
+        assert "--password" not in output
+    backup_help = _plain_help(_invoke(["backup", "--help"]))
+    restore_help = _plain_help(_invoke(["restore", "--help"]))
     assert "--no-chroma" in backup_help
     assert "--with-inbox" in backup_help
     assert "--force-env" in restore_help
