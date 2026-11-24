@@ -712,7 +712,8 @@ class WebWorker:
         """Queue a job whose passphrase lives in ``passphrase_file``, not in the payload.
 
         The files are registered before the row exists, so the worker cannot
-        start the job without them. A refused queue deletes the files.
+        start the job without them. A refused queue deletes the files. So does
+        a failure to write the row: no job exists to clean them up later.
         """
         job_id = uuid4().hex
         with self._files_lock:
@@ -720,6 +721,9 @@ class WebWorker:
         db = self._db()
         try:
             created = db.create_web_job(job_id, operation, payload)
+        except Exception:
+            self._discard_pending(job_id)
+            raise
         finally:
             db.close()
         if not created:

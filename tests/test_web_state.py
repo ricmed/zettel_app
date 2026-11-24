@@ -734,6 +734,34 @@ def test_worker_start_applies_the_job_retention(tmp_path: Path):
         db.close()
 
 
+def test_submit_secret_discards_files_when_the_job_row_cannot_be_written(
+    tmp_path: Path, monkeypatch
+):
+    from zettel.web_app import ConfigCache
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"state_db_path: {tmp_path / 'state.db'}\ncache_path: {tmp_path / 'cache'}\n",
+        encoding="utf-8",
+    )
+    StateDB(tmp_path / "state.db").close()
+    phrase = tmp_path / "senha.txt"
+    archive = tmp_path / "arquivo.zettelbak"
+    phrase.write_text("segredo", encoding="utf-8")
+    archive.write_bytes(b"arquivo")
+
+    def fail(*_args):
+        raise OSError("sqlite nao gravou")
+
+    monkeypatch.setattr(StateDB, "create_web_job", fail)
+    worker = WebWorker(ConfigCache(config))
+    with pytest.raises(OSError, match="sqlite nao gravou"):
+        worker.submit_secret("backup", {}, phrase, archive)
+    assert not phrase.exists()
+    assert not archive.exists()
+    assert worker._pending == {}
+
+
 def test_safe_error_hides_any_message_it_does_not_know(tmp_path: Path):
     """An allowlist, not a blocklist: a Windows path has no "secret" in it (#315)."""
     leak = RuntimeError(r"no such table em D:\projetos\zettel_app\data\state.db")
