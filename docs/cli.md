@@ -6,7 +6,7 @@ Todos os comandos do `zettel`, com as flags reais do pacote [`zettel/cli/`](../z
 
 Os exemplos usam `python -m zettel ...`; prefixe com `uv run --no-sync` se o ambiente não estiver ativado.
 
-Um comando que altera dados (harvest, extract, review, connect, garden, sync-manual, reindex e afins) toma a trava `data/zettel.lock`, a mesma da interface web. Se outro comando ou um job da web estiver rodando, ele sai com código 1 e diz quem está com a trava. Os comandos de leitura (`status`, `doctor`, `ask`, `catalog`, `article`, `skill`, `manuscript`, os dumps) não precisam dela.
+Um comando que altera dados (harvest, extract, review, connect, garden, sync-manual, reindex, backup, restore e afins) toma a trava `data/zettel.lock`, a mesma da interface web. Se outro comando ou um job da web estiver rodando, ele sai com código 1 e diz quem está com a trava. Os comandos de leitura (`status`, `doctor`, `ask`, `catalog`, `article`, `skill`, `manuscript`, os dumps) não precisam dela.
 
 ---
 
@@ -31,7 +31,7 @@ O `run-all` encadeia `harvest → extract → review → summarize → connect �
 
 | Comando | O que faz |
 |---|---|
-| [`init`](#init) | Cria/recria a estrutura do vault e das bases |
+| [`init`](#init) | Cria a estrutura do vault e das bases; sem `--reset`, recria do banco os `.md` que faltam |
 | [`harvest`](#harvest) | Escaneia o inbox, extrai texto, cria SRC + índice LIT + chunks |
 | [`set-paging`](#set-paging) | Corrige a paginação de uma fonte já harvestada |
 | [`rechunk`](#rechunk) | Re-chunka a partir do texto já extraído |
@@ -57,6 +57,8 @@ O `run-all` encadeia `harvest → extract → review → summarize → connect �
 | [`dump-extraction`](#dump-extraction) | Exporta o Markdown extraído |
 | [`reindex`](#reindex) | Reconstrói o ChromaDB a partir do SQLite |
 | [`rebuild`](#rebuild) | Reconstrói o vault (`.md`) e/ou o Chroma |
+| [`backup`](#backup) | Grava um `.zettelbak` cifrado do acervo |
+| [`restore`](#restore) | Restaura um `.zettelbak` neste acervo |
 | [`retry-failed`](#retry-failed) | Reprocessa chunks/imagens com falha, ou chunks `rejected` do extract (`--rejected`) |
 | [`status`](#status) | Estatísticas do pipeline |
 | [`doctor`](#doctor) | Diagnóstico de configuração e dependências |
@@ -87,6 +89,10 @@ python -m zettel init --vault /outro/vault --inbox /outro/inbox
 | `--reset` | Apaga **e** recria State DB, ChromaDB e cache, e remove do vault só as notas `origin: pipeline`/`hub_pipeline`. Pede confirmação. |
 | `--vault` | Override do `vault_path` desta execução. |
 | `--inbox` | Override do `inbox_path` desta execução. |
+
+Sem `--reset`, o `init` recria os `.md` que o banco tem e o disco não tem (notas, fichas, Mesas). Se gravar algum, imprime `{n} arquivo(s) recriado(s) a partir do banco.`
+
+`--reset` apaga o banco. A confirmação e o painel dizem: `As linhas das notas manuais somem com o banco. 'zettel backup' e o que as traz de volta.` Os arquivos manuais ficam; `zettel sync-manual` os readota. As notas `origin: pipeline` e `hub_pipeline` saem do vault.
 
 ---
 
@@ -670,6 +676,65 @@ python -m zettel rebuild --what vault --force  # sobrescreve (nunca notas manuai
 | `--what vault\|chroma\|all` | O que reconstruir (default `vault`). |
 | `--force` | Sobrescreve arquivos existentes — **nunca** notas `origin: manual`. |
 | `--dry-run` | Simula sem escrever. |
+
+`--force` nunca sobrescreve uma nota `origin: manual`. Um arquivo que falta, e cuja retenção existe, é recriado mesmo sem `--force`.
+
+---
+
+## `backup`
+
+Grava um `.zettelbak` cifrado no caminho do argumento obrigatório `PATH`. Sem ele o comando pede o argumento e sai com código 2. `PATH` é o arquivo de saída: relativo ao diretório em que o comando roda, ou absoluto (`acervo.zettelbak`, `../backups/acervo.zettelbak`). A pasta desse arquivo é criada se faltar. Um arquivo que já existe nesse caminho é substituído. O destino não pode ser um diretório (`O destino do backup e um diretorio.`) nem o `state.db` ao vivo (`O destino nao pode ser o banco ao vivo.`); os dois saem com código 1. A extensão `.zettelbak` é a convenção do formato; o comando grava no caminho que você passou.
+
+O zip só existe dentro do blob. A senha vem do terminal (`Senha do backup:`) ou de `--passphrase-file`. Não existe `--passphrase`. Sem terminal e sem o arquivo, sai com código 2: `Sem terminal para ler a senha. Use --passphrase-file.` Senha vazia sai com código 1. A senha não é gravada no arquivo.
+
+```bash
+python -m zettel backup acervo.zettelbak
+python -m zettel backup ../backups/acervo.zettelbak
+python -m zettel backup acervo.zettelbak --passphrase-file segredo.txt
+python -m zettel backup acervo.zettelbak --no-chroma
+python -m zettel backup acervo.zettelbak --with-inbox
+```
+
+| Argumento ou flag | Efeito |
+|---|---|
+| `PATH` | Obrigatório. Arquivo `.zettelbak` de saída, relativo ao diretório atual ou absoluto. |
+| `--passphrase-file` | Lê a senha desse arquivo (UTF-8; um newline final é removido). No POSIX o arquivo precisa estar em modo 0600. |
+| `--no-chroma` | Não inclui o diretório Chroma. |
+| `--with-inbox` | Inclui o inbox. Sem a flag, os originais ficam de fora. |
+
+Antes de gravar, copia o Markdown atual para o SQLite. O `state.db` do pacote é um snapshot pela API de backup do SQLite, não uma cópia do arquivo ao vivo.
+
+Entram: `manifest.json` (versão 1, `created_at` em UTC, sha256 de cada membro, `include_chroma`, `include_inbox`), `state.db`, `.env` se existir, `chroma/` salvo `--no-chroma`, `inbox/` só com `--with-inbox`, e do vault `10_Sources`, `20_Literature`, `30_Permanent`, `40_MOCs`, `50_Projetos`, `90_Assets`, `99_Templates` e `.obsidian`. O `.obsidian` deixa de fora pastas `cache` e, em `plugins/`, `main.js` e `styles.css`. Não entram `data/cache`, `zettel.lock` nem `.venv`.
+
+O arquivo sai em modo 0600 quando o sistema permite. Formato, tetos do restore e a chave de sessão: [operacao.md](operacao.md#backup).
+
+---
+
+## `restore`
+
+Restaura o arquivo do argumento obrigatório `PATH` neste acervo: o vault, o `state.db`, o Chroma, o inbox e o `.env` do projeto em que o comando roda. Não há um segundo caminho de destino. `PATH` é o `.zettelbak` a ler, relativo ao diretório atual ou absoluto. Sem ele o comando pede o argumento e sai com código 2. Arquivo ausente sai com código 1: `Arquivo de backup nao encontrado.` A senha segue a mesma regra do `backup`.
+
+```bash
+python -m zettel restore acervo.zettelbak
+python -m zettel restore ../backups/acervo.zettelbak --passphrase-file segredo.txt
+python -m zettel restore acervo.zettelbak --force-env
+python -m zettel restore acervo.zettelbak --rotate-session
+```
+
+| Argumento ou flag | Efeito |
+|---|---|
+| `PATH` | Obrigatório. Arquivo `.zettelbak` a ler, relativo ao diretório atual ou absoluto. O conteúdo volta para este projeto. |
+| `--passphrase-file` | Igual ao `backup`. |
+| `--force-env` | Substitui o `.env` existente pelo do arquivo. Sem a flag, o `.env` atual fica e o comando avisa. |
+| `--rotate-session` | Troca `web_auth.session_key` depois de restaurar o banco e não imprime a chave nova. Sem a flag, a chave antiga volta com o `state.db`. |
+
+Senha errada ou blob danificado: código 1, mensagem `senha incorreta ou arquivo danificado`, sem imprimir segredo.
+
+O comando recusa o pacote (caminho absoluto, `..`, mais de 100.000 membros ou mais de 10 GiB descompactados) antes de escrever qualquer arquivo. O `.env` restaurado fica em modo 0600 quando o sistema permite.
+
+Os membros são gravados por cima dos caminhos correspondentes. Em seguida, os `.md` que o banco tem e o disco não tem são recriados. Essa etapa não sobrescreve arquivo que já existe, inclusive nota manual.
+
+Se o backup não trouxe o Chroma, o comando avisa para rodar `zettel reindex --force` (ou apagar o diretório Chroma antes de um `zettel reindex`) e não roda o reindex. Sem `--force`, um Chroma que já estava no disco continua devolvendo vetores que o SQLite restaurado não tem.
 
 ---
 

@@ -5,8 +5,10 @@ Two rebuilders, both LLM-free:
 - `run_reindex`  — regenerate ChromaDB collections from SQLite (Fase 2). The vector
   store is a disposable cache; this recreates it from `chunks.text` and the persisted
   note/MOC bodies, so it can be deleted and rebuilt at will.
-- `run_rebuild_vault` — recreate the Obsidian `.md` files from the persisted bodies
-  (Fase 5), without reprocessing the LLM. Never overwrites manual notes silently.
+- `run_rebuild_vault` — recreate missing Obsidian `.md` files from the persisted
+  bodies (Fase 5), without reprocessing the LLM. A missing file of any origin is
+  written, including manual. An existing manual file is never overwritten, even
+  with ``force``.
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ from zettel.index import (
     COL_SOURCES,
     VectorIndex,
 )
+from zettel.retention import path_inside_vault, retained_projects
 from zettel.state import StateDB
 from zettel.vault import (
     build_literature_chunk_note,
@@ -261,10 +264,15 @@ def run_rebuild_vault(
     force: bool = False,
     dry_run: bool = False,
 ) -> dict[str, int]:
-    """Recreate vault .md files from the persisted bodies in SQLite.
+    """Recreate missing vault .md files from the persisted bodies in SQLite.
 
     Writes a file only if it does not already exist; with `force`, overwrites but
     only for records whose origin is 'pipeline' (never clobbers manual notes).
+    A missing granular LIT is the retained ``literature_body`` when that column
+    is non-empty, and the ``summary_json`` synthesis only when it is empty. A
+    missing SRC is ``card_body`` when that column is non-empty. A missing Mesa
+    project is rewritten from its retention row, and only inside the vault; an
+    existing project file is left as it is.
     Returns counts per note type plus 'written' and 'skipped'.
     """
     stats = {
@@ -272,6 +280,7 @@ def run_rebuild_vault(
         "literature": 0,
         "permanent": 0,
         "mocs": 0,
+        "projects": 0,
         "written": 0,
         "skipped": 0,
         "missing_body": 0,
@@ -290,7 +299,7 @@ def run_rebuild_vault(
             stats["written"] += 1
             return True
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        path.write_text(content, encoding="utf-8", newline="\n")
         stats["written"] += 1
         return True
 
@@ -311,7 +320,10 @@ def run_rebuild_vault(
         from zettel.library.source_body import write_source_preserving
 
         write_source_preserving(
-            path, meta, body, notes="\n".join(source_notes_lines(db, source_id))
+            path,
+            meta,
+            body,
+            notes="\n".join(source_notes_lines(db, source_id, vault=cfg.vault_path)),
         )
         stats["written"] += 1
         return True
@@ -365,12 +377,17 @@ def run_rebuild_vault(
             vault_timezone=cfg.vault_timezone,
         )
         src_path = cfg.vault_path / "10_Sources" / source_note_filename(citekey, title)
-        if not src_path.exists():
-            from zettel.library.source_body import reader_fields_from_row
+        card_body = src.get("card_body")
+        if not src_path.exists() and card_body:
+            if _write(src_path, card_body, origin):
+                stats["sources"] += 1
+        else:
+            if not src_path.exists():
+                from zettel.library.source_body import reader_fields_from_row
 
-            src_meta.update(reader_fields_from_row(src))
-        if _write_source(src_path, src_meta, src_body, origin, src["source_id"]):
-            stats["sources"] += 1
+                src_meta.update(reader_fields_from_row(src))
+            if _write_source(src_path, src_meta, src_body, origin, src["source_id"]):
+                stats["sources"] += 1
 
         # Literature index snapshot
         lit_body = src.get("lit_body")
@@ -391,8 +408,9 @@ def run_rebuild_vault(
                 / literature_source_dirname(citekey)
                 / literature_chunk_filename_for_row(citekey, chunk)
             )
-            if chunk.get("literature_note_path") and Path(chunk["literature_note_path"]).exists():
-                content = Path(chunk["literature_note_path"]).read_text(encoding="utf-8")
+            located = path_inside_vault(cfg.vault_path, chunk.get("literature_note_path") or "")
+            if located is not None and located.is_file():
+                content = located.read_text(encoding="utf-8")
                 if _write(dest, content, origin):
                     stats["literature"] += 1
                     if not dry_run and dest.exists():
@@ -402,6 +420,12 @@ def run_rebuild_vault(
                             {"auto-source-excerpt": excerpt},
                             vault_timezone=cfg.vault_timezone,
                         )
+                continue
+            # The file is gone. The retained markdown wins over summary synthesis.
+            retained = chunk.get("literature_body")
+            if retained:
+                if _write(dest, retained, origin):
+                    stats["literature"] += 1
                 continue
             summary_data: dict[str, Any] = {}
             if chunk.get("summary_json"):
@@ -441,15 +465,14 @@ def run_rebuild_vault(
         if not meta.get("title") and note.get("title"):
             meta["title"] = note["title"][:100]
         path_str = note.get("path")
-        note_path = (
-            Path(path_str)
-            if path_str
-            else (
-                cfg.vault_path
-                / "30_Permanent"
-                / note_filename("ZTL", note["note_id"], note.get("title", ""))
-            )
+        fallback = (
+            cfg.vault_path
+            / "30_Permanent"
+            / note_filename("ZTL", note["note_id"], note.get("title", ""))
         )
+        note_path = path_inside_vault(cfg.vault_path, path_str) if path_str else None
+        if note_path is None:
+            note_path = fallback
         if _write(note_path, compose_note(meta, body), note.get("origin", "pipeline")):
             stats["permanent"] += 1
 
@@ -462,12 +485,45 @@ def run_rebuild_vault(
             continue
         meta = json.loads(fm_json)
         path_str = moc.get("path")
-        moc_path = (
-            Path(path_str)
-            if path_str
-            else (cfg.vault_path / "40_MOCs" / note_filename("MOC", moc["moc_id"], moc["topic"]))
-        )
+        fallback = cfg.vault_path / "40_MOCs" / note_filename("MOC", moc["moc_id"], moc["topic"])
+        moc_path = path_inside_vault(cfg.vault_path, path_str) if path_str else None
+        if moc_path is None:
+            moc_path = fallback
         if _write(moc_path, compose_note(meta, body), moc.get("origin", "pipeline")):
             stats["mocs"] += 1
 
+    _rebuild_projects(cfg, db, stats, dry_run=dry_run)
     return stats
+
+
+def _rebuild_projects(cfg: AppConfig, db: StateDB, stats: dict[str, int], *, dry_run: bool) -> None:
+    """Recreate a missing Mesa file from its retention row. Never overwrites one."""
+    for row in retained_projects(db):
+        dest = path_inside_vault(cfg.vault_path, row.get("path") or "")
+        if dest is None:
+            logger.info("Projeto fora do vault, nao recriado: %s", row.get("project_id"))
+            stats["skipped"] += 1
+            continue
+        if dest.exists():
+            stats["skipped"] += 1
+            continue
+        fm_json = row.get("frontmatter_json")
+        if not fm_json:
+            stats["missing_body"] += 1
+            continue
+        try:
+            meta = json.loads(fm_json)
+        except json.JSONDecodeError:
+            stats["missing_body"] += 1
+            continue
+        if not isinstance(meta, dict):
+            stats["missing_body"] += 1
+            continue
+        if dry_run:
+            stats["written"] += 1
+            stats["projects"] += 1
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(compose_note(meta, row.get("body") or ""), encoding="utf-8", newline="\n")
+        stats["written"] += 1
+        stats["projects"] += 1

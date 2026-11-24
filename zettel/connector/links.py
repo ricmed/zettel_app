@@ -238,11 +238,18 @@ def assemble_connections(
     return connections
 
 
-def note_on_disk(record: dict | None) -> bool:
+def note_on_disk(record: dict | None, *, vault: Path | None = None) -> bool:
     """True when the note row points at a file that still exists."""
+    located = _stored_note(record, vault)
+    return located is not None and located.is_file()
+
+
+def _stored_note(record: dict | None, vault: Path | None) -> Path | None:
     if not record or not record.get("path"):
-        return False
-    return Path(record["path"]).is_file()
+        return None
+    from zettel.stored_path import open_stored
+
+    return open_stored(record["path"], vault)
 
 
 def resolve_connections(
@@ -250,6 +257,7 @@ def resolve_connections(
     connections: list[RelationshipResult],
     *,
     allowed_ids: set[str] | None = None,
+    vault: Path | None = None,
 ) -> list[dict]:
     """Resolve LLM note_ids into wiki-links for vault rendering.
 
@@ -277,7 +285,7 @@ def resolve_connections(
             )
             continue
         note_record = db.get_note(note_id)
-        if not note_on_disk(note_record):
+        if not note_on_disk(note_record, vault=vault):
             logger.warning(
                 "Conexao descartada: related_note_id=%r (canonico=%s) nao existe no vault",
                 conn.related_note_id,
@@ -368,21 +376,27 @@ def persist_and_backlink(
             run_id=prov.get("run_id"),
             status=status,
         )
-        rebuild_auto_backlinks(db, target_id, vault_timezone=cfg.vault_timezone)
-    rebuild_auto_backlinks(db, new_note_id, vault_timezone=cfg.vault_timezone)
+        rebuild_auto_backlinks(
+            db, target_id, vault=cfg.vault_path, vault_timezone=cfg.vault_timezone
+        )
+    rebuild_auto_backlinks(db, new_note_id, vault=cfg.vault_path, vault_timezone=cfg.vault_timezone)
 
 
 def rebuild_auto_backlinks(
-    db: StateDB, note_id: str, *, vault_timezone: str = "America/Sao_Paulo"
+    db: StateDB,
+    note_id: str,
+    *,
+    vault: Path | None = None,
+    vault_timezone: str = "America/Sao_Paulo",
 ) -> bool:
     """Replace ``auto-backlinks`` with incoming graph edges whose source file exists.
 
     Returns True when the vault file was written (including clearing a stale block).
     """
     record = db.get_note(note_id)
-    if not note_on_disk(record):
+    path = _stored_note(record, vault)
+    if path is None or not path.is_file():
         return False
-    path = Path(record["path"])
 
     lines: list[str] = []
     for edge in db.get_note_connections(note_id):
@@ -391,7 +405,7 @@ def rebuild_auto_backlinks(
         if not edge_is_traversable(edge):
             continue
         source = db.get_note(edge["source_note_id"])
-        if not note_on_disk(source):
+        if not note_on_disk(source, vault=vault):
             continue
         wiki = permanent_wikilink(
             edge["source_note_id"], source.get("title") or "", path=source.get("path")
@@ -530,7 +544,7 @@ def build_corroboration_plan(
             continue
         hits = list(search(note_id, query))
         desired = corroborating_note_ids(cfg, db, hits, row["source_id"], note_id)
-        persisted = [nid for nid in desired if note_on_disk(db.get_note(nid))]
+        persisted = [nid for nid in desired if note_on_disk(db.get_note(nid), vault=cfg.vault_path)]
         recomputed.add(note_id)
         current = existing.get(note_id, set())
         for target_id in sorted(set(persisted) - current):
@@ -576,7 +590,7 @@ def build_corroboration_plan(
     )
 
 
-def corroborates_bullets(db: StateDB, note_id: str) -> list[str]:
+def corroborates_bullets(db: StateDB, note_id: str, *, vault: Path | None = None) -> list[str]:
     """Outgoing derived ``corroborates`` as ``## Conexões`` lines."""
     lines: list[str] = []
     edges = [
@@ -589,7 +603,7 @@ def corroborates_bullets(db: StateDB, note_id: str) -> list[str]:
     edges.sort(key=lambda edge: edge["target_note_id"])
     for edge in edges:
         target = db.get_note(edge["target_note_id"]) or {}
-        if not note_on_disk(target):
+        if not note_on_disk(target, vault=vault):
             continue
         wiki = permanent_wikilink(
             edge["target_note_id"], target.get("title") or "", path=target.get("path")
@@ -677,7 +691,9 @@ def _edge_shows_in_body(edge: dict) -> bool:
     return edge_is_traversable(edge)
 
 
-def outgoing_connection_bullets(db: StateDB, note_id: str) -> list[str]:
+def outgoing_connection_bullets(
+    db: StateDB, note_id: str, *, vault: Path | None = None
+) -> list[str]:
     """Every traversable outgoing edge as a ``## Conexões`` line, graph order."""
     edges = [
         edge
@@ -688,7 +704,7 @@ def outgoing_connection_bullets(db: StateDB, note_id: str) -> list[str]:
     lines: list[str] = []
     for edge in edges:
         target = db.get_note(edge["target_note_id"]) or {}
-        if not note_on_disk(target):
+        if not note_on_disk(target, vault=vault):
             continue
         wiki = permanent_wikilink(
             edge["target_note_id"], target.get("title") or "", path=target.get("path")
@@ -761,14 +777,15 @@ def apply_corroboration_plan(cfg: AppConfig, db: StateDB, plan: CorroborationPla
     touched = {change.source_note_id for change in (*plan.remove, *plan.create)}
     touched.update(change.target_note_id for change in (*plan.remove, *plan.create))
     for note_id in sorted(touched):
-        rebuild_auto_backlinks(db, note_id, vault_timezone=cfg.vault_timezone)
+        rebuild_auto_backlinks(db, note_id, vault=cfg.vault_path, vault_timezone=cfg.vault_timezone)
     for note_id in sorted({change.source_note_id for change in (*plan.remove, *plan.create)}):
         record = db.get_note(note_id)
-        if not note_on_disk(record):
+        path = _stored_note(record, cfg.vault_path)
+        if path is None or not path.is_file():
             continue
         sync_corroborates_section(
-            Path(record["path"]),
-            corroborates_bullets(db, note_id),
+            path,
+            corroborates_bullets(db, note_id, vault=cfg.vault_path),
             vault_timezone=cfg.vault_timezone,
         )
 
@@ -778,14 +795,14 @@ def _refresh_after_link_decision(
 ) -> None:
     """Backlinks follow the traversable graph. The suggestion block drops the decided target."""
     for note_id in (source_note_id, target_note_id):
-        rebuild_auto_backlinks(db, note_id, vault_timezone=cfg.vault_timezone)
+        rebuild_auto_backlinks(db, note_id, vault=cfg.vault_path, vault_timezone=cfg.vault_timezone)
     record = db.get_note(source_note_id)
-    if not note_on_disk(record):
+    path = _stored_note(record, cfg.vault_path)
+    if path is None or not path.is_file():
         return
-    path = Path(record["path"])
     sync_connections_section(
         path,
-        outgoing_connection_bullets(db, source_note_id),
+        outgoing_connection_bullets(db, source_note_id, vault=cfg.vault_path),
         vault_timezone=cfg.vault_timezone,
     )
     text = path.read_text(encoding="utf-8")
@@ -804,7 +821,7 @@ def _refresh_after_link_decision(
     ]
     for edge in proposed:
         other = db.get_note(edge["target_note_id"]) or {}
-        if not note_on_disk(other):
+        if not note_on_disk(other, vault=cfg.vault_path):
             continue
         wiki = permanent_wikilink(
             edge["target_note_id"], other.get("title") or "", path=other.get("path")

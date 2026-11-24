@@ -44,6 +44,7 @@ def test_a_markdown_source_becomes_cited_permanent_notes(pipeline):
     run_all()
 
     from zettel.state import StateDB
+    from zettel.stored_path import open_stored
     from zettel.vault import parse_frontmatter, read_managed_block
 
     vault = root / "vault"
@@ -66,7 +67,8 @@ def test_a_markdown_source_becomes_cited_permanent_notes(pipeline):
             assert chunk["status"] in ("approved", "persisted")
 
             # the note cites the approved granular LIT of its own chunk ...
-            lit = Path(chunk["literature_note_path"])
+            lit = open_stored(chunk["literature_note_path"], vault)
+            assert lit is not None
             assert lit.is_file() and lit.parent.name == citekey
             assert lit.stem in body.split("## Fonte", 1)[1]
 

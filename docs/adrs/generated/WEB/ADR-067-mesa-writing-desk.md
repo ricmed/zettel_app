@@ -75,6 +75,10 @@ Chosen option 1.
 * `pypandoc-binary` adds about 30 MB to an install.
 * The canvas is one-way. Changes made in Obsidian's Canvas do not come back to the project.
 
+## Addendum (2026-11-21): a retention row for a missing project file (issue #415)
+
+**Status:** Accepted amendment. The decision outcome's sentence that there is no SQLite row is amended. `retention.flush` — at the end of `sync-manual` and at the start of `zettel backup` — writes `projects` (`project_id`, `path`, `body`, `frontmatter_json`, `file_checksum`) for every origin it can attach. The file in `50_Projetos/` remains the live record. Mesa still does not read SQLite to load a project (`load_project` reads the file). `rebuild` and `init` rewrite a missing project from that row only when the stored path stays inside the vault, and they never overwrite a project file that is already there. See [ADR-072](../INFRA/ADR-072-encrypted-backup-archive.md).
+
 ## References
 
 * `zettel/project_file.py` — `parse_body`, `render_body` and the edits

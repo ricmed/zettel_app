@@ -520,7 +520,9 @@ def _create_new_hub_moc(
         previous_body=None,
         stats=garden_stats,
     )
-    _store_moc_row(db, moc_id, topic, moc_path, cluster_signature, _HUB_ORIGIN)
+    _store_moc_row(
+        db, moc_id, topic, moc_path, cluster_signature, _HUB_ORIGIN, vault=cfg.vault_path
+    )
     if stats is not None:
         stats.omitted += garden_stats.omitted
     logger.info("MOC hub criado: %s — %s (hub %s, %d entradas)", moc_id, topic, hub_id, len(placed))

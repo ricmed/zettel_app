@@ -7,6 +7,7 @@ import yaml
 from zettel.config import AppConfig
 from zettel.purge_source import normalize_source_id, purge_source
 from zettel.state import StateDB
+from zettel.stored_path import store_vault
 from zettel.vault import (
     build_literature_chunk_note,
     literature_chunk_filename_for_row,
@@ -246,7 +247,13 @@ def test_purge_source_delete_permanent(env):
         {"type": "permanent", "note_id": "NOTE01", "source_id": "@Book2024"},
         "Corpo\n",
     )
-    db.upsert_note("NOTE01", "@Book2024", str(ztl_path), title="Conceito", body="Corpo\n")
+    db.upsert_note(
+        "NOTE01",
+        "@Book2024",
+        store_vault(ztl_path, cfg.vault_path),
+        title="Conceito",
+        body="Corpo\n",
+    )
     db.upsert_note_connection("NOTE01", "OTHER", "related", "test")
 
     result = purge_source(cfg, db, idx, "@Book2024", delete_permanent=True, compact=False)

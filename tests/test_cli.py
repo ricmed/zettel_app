@@ -59,6 +59,9 @@ EXPECTED_COMMANDS = [
     "migrate-acervo",
     "reindex",
     "rebuild",
+    # backup.py — encrypted archive
+    "backup",
+    "restore",
     # ingest.py — phase 1 and its repair tools
     "harvest",
     "rechunk",

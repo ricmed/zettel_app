@@ -223,7 +223,7 @@ def preflight_from_lit(
                 "(precisa de type: literature e chunk_id no frontmatter)."
             )
     else:
-        path, meta, body, content = resolve_literature_note(db, ref)
+        path, meta, body, content = resolve_literature_note(db, ref, vault=cfg.vault_path)
 
     source_id = str(meta.get("source_id") or "")
     if parsed.get("use_llm"):

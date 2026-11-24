@@ -490,7 +490,9 @@ def render_chapter_map(cfg: AppConfig, db: StateDB, source_id: str) -> str:
         lines.append("")
 
         lit_links = [
-            literature_chunk_wikilink_for_row(src["citekey"], c, with_alias=True)
+            literature_chunk_wikilink_for_row(
+                src["citekey"], c, with_alias=True, vault=cfg.vault_path
+            )
             for c in sorted(
                 (
                     c

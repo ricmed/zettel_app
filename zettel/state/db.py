@@ -20,7 +20,7 @@ from zettel.state.mocs import MocsMixin
 from zettel.state.notes import NotesMixin
 from zettel.state.reviews import ReviewsMixin
 from zettel.state.runs import RunsMixin
-from zettel.state.schema import FTS_SQL, SCHEMA_SQL, SOURCE_READER_COLUMNS
+from zettel.state.schema import FTS_SQL, RETENTION_COLUMNS, SCHEMA_SQL, SOURCE_READER_COLUMNS
 from zettel.state.sources import SourcesMixin
 from zettel.state.web import WebMixin
 
@@ -53,6 +53,10 @@ class StateDB(*MIXINS):
     def __init__(self, db_path: Path | str):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._connect()
+
+    def _connect(self) -> None:
+        """Open ``db_path`` and apply the schema. ``reopen`` uses the same path."""
         self.conn = sqlite3.connect(str(self.db_path))
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL;")
@@ -61,6 +65,7 @@ class StateDB(*MIXINS):
         self.conn.executescript(SCHEMA_SQL)
         self.conn.commit()
         self._ensure_source_reader_columns()
+        self._ensure_retention_columns()
         self.drop_legacy_shelf_tables()
         self.fts_enabled = self._init_fts()
 
@@ -74,6 +79,20 @@ class StateDB(*MIXINS):
         for name, decl in SOURCE_READER_COLUMNS:
             if name not in have:
                 self.conn.execute(f"ALTER TABLE sources ADD COLUMN {name} {decl}")
+        self.conn.commit()
+
+    def _ensure_retention_columns(self) -> None:
+        """Colunas de retenção num banco criado antes do markdown integral.
+
+        ``CREATE TABLE IF NOT EXISTS`` não acrescenta coluna a uma tabela que já
+        existe. Um banco novo já nasce com elas no ``SCHEMA_SQL``. A tabela
+        ``projects`` é nova e entra pelo próprio ``SCHEMA_SQL``.
+        """
+        for table, columns in RETENTION_COLUMNS.items():
+            have = {row[1] for row in self.conn.execute(f"PRAGMA table_info({table})")}
+            for name, decl in columns:
+                if name not in have:
+                    self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
         self.conn.commit()
 
     def _init_fts(self) -> bool:
@@ -94,7 +113,20 @@ class StateDB(*MIXINS):
         return True
 
     def close(self) -> None:
-        self.conn.close()
+        """Close the connection. A second call is a no-op."""
+        try:
+            self.conn.close()
+        except sqlite3.ProgrammingError:
+            return
+
+    def reopen(self) -> None:
+        """Close and open the file again.
+
+        Restore replaces ``state.db`` while this object is the worker's
+        connection. The next statement has to see the file that was just written.
+        """
+        self.close()
+        self._connect()
 
     def vacuum(self) -> None:
         """Reclaim free pages after bulk deletes (does not change logical data).

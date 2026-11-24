@@ -13,6 +13,12 @@ from typing import Any
 # multipart envelope and the other form fields.
 MAX_BODY_BYTES = 26 * 1024 * 1024
 
+# Only ``POST /backup/restaurar`` may exceed that. The cap is the archive's own
+# uncompressed ceiling (``zettel.backup.archive.MAX_UNCOMPRESSED_BYTES``). The
+# route still counts bytes as it writes and stops at the same number.
+RESTORE_UPLOAD_PATH = "/backup/restaurar"
+RESTORE_BODY_BYTES = 10 * 1024**3
+
 # No 'unsafe-inline': every script is a file under /static and no template
 # carries an event handler or a style attribute (tests/test_web_hardening.py).
 # frame-ancestors replaces X-Frame-Options.
@@ -67,9 +73,12 @@ class BodyLimit:
         if b"transfer-encoding" in headers:
             await _plain(send, 411, "Envie o corpo com Content-Length.")
             return
+        limit = self.limit
+        if scope.get("method") == "POST" and scope.get("path") == RESTORE_UPLOAD_PATH:
+            limit = RESTORE_BODY_BYTES
         length = headers.get(b"content-length", b"0")
-        if not length.isdigit() or int(length) > self.limit:
-            mb = self.limit // (1024 * 1024)
+        if not length.isdigit() or int(length) > limit:
+            mb = limit // (1024 * 1024)
             await _plain(send, 413, f"Requisição acima de {mb} MB.")
             return
         await self.app(scope, receive, send)

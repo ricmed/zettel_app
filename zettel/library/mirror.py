@@ -27,6 +27,7 @@ from zettel.library.book_file import (
 from zettel.library.rating import rate
 from zettel.library.reading_mode import effective_nature, effective_reading_mode
 from zettel.library.schema import LibrarySchema, schema_for
+from zettel.stored_path import relativize
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,13 @@ def shelf_fields(
     }
 
 
-def _ensure_row(db: Any, book: Any) -> None:
+def _stored_origin(meta: dict, book: Any, cfg: Any) -> str:
+    raw = str(meta.get("origin_path") or book.path)
+    canonical, status = relativize(raw, kind="origin", vault=cfg.vault_path, inbox=cfg.inbox_path)
+    return raw if status == "invalid" else canonical
+
+
+def _ensure_row(db: Any, book: Any, cfg: Any) -> None:
     """Depois de um reset a linha some e o arquivo fica. O espelho a refaz."""
     if db.get_source(book.source_id):
         return
@@ -99,7 +106,7 @@ def _ensure_row(db: Any, book: Any) -> None:
         authors=book.authors,
         year=year,
         file_checksum=str(meta.get("checksum") or ""),
-        origin_path=str(meta.get("origin_path") or book.path),
+        origin_path=_stored_origin(meta, book, cfg),
         origin_type=str(meta.get("origin_type") or "md"),
         origin=str(meta.get("origin") or "manual"),
         document_type=meta.get("document_type"),
@@ -198,7 +205,7 @@ def refresh(db: Any, cfg: Any) -> MirrorReport:
             seen.add(book.source_id)
             continue
         _sync_document_type(db, book)
-        _ensure_row(db, book)
+        _ensure_row(db, book, cfg)
         db.upsert_shelf(
             book.source_id,
             shelf_fields(book, schema, mtime_ns=st.st_mtime_ns, size=st.st_size, stamp=stamp),

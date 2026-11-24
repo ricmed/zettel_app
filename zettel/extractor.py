@@ -51,6 +51,7 @@ from zettel.schemas import (
 from zettel.search_terms import PT_STOPWORDS
 from zettel.similarity import cosine_from_distance, cosine_similarity
 from zettel.state import StateDB
+from zettel.stored_path import store_vault
 from zettel.vault import (
     best_candidate_thesis,
     build_literature_chunk_note,
@@ -608,7 +609,7 @@ def _process_chunk(
     db.update_chunk_review(
         chunk_id,
         status=final_status,
-        literature_note_path=str(draft_path) if draft_path else None,
+        literature_note_path=store_vault(draft_path, cfg.vault_path) if draft_path else None,
         literature_id=literature_id,
         review_confidence=confidence,
         summary_json=json.dumps(summary_payload, ensure_ascii=False),

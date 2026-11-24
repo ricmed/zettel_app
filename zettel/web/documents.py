@@ -24,9 +24,11 @@ MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 ALLOWED_EXTENSIONS = {".pdf", ".md", ".markdown", ".txt"}
 
 
-def _file_needs_harvest(db: Any, file_path: Path) -> bool:
+def _file_needs_harvest(db: Any, cfg: Any, file_path: Path) -> bool:
     """Return whether a file is new, changed, or incompletely ingested."""
-    record = db.get_file(str(file_path.resolve()))
+    from zettel.stored_path import store_inbox
+
+    record = db.get_file(store_inbox(file_path, cfg.inbox_path))
     if not record or not record.get("source_id"):
         return True
     source_id = record["source_id"]
@@ -50,7 +52,7 @@ def _list_pending_inbox(db: Any, cfg: Any) -> list[dict[str, Any]]:
     pending = []
     for file_path in sorted(cfg.inbox_path.rglob("*")):
         if file_path.is_file() and file_path.suffix.lower() in ALLOWED_EXTENSIONS:
-            if _file_needs_harvest(db, file_path):
+            if _file_needs_harvest(db, cfg, file_path):
                 pending.append(
                     {
                         "name": file_path.name,
@@ -179,7 +181,7 @@ def harvest(
         return error_page(request, 404, "Arquivo não encontrado")
     db = service(request).db()
     try:
-        if not _file_needs_harvest(db, selected):
+        if not _file_needs_harvest(db, cfg, selected):
             return error_page(
                 request, 409, "Este documento já foi processado e não precisa de novo harvest."
             )

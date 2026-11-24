@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import Request
@@ -9,6 +10,13 @@ from fastapi.responses import RedirectResponse
 
 from zettel.web.rendering import error_page, service
 from zettel.web.security import authenticated, csrf_ok, redirect_login
+
+
+def discard_local_files(*paths: Path | None) -> None:
+    """Delete temp files the request created and the worker will not own."""
+    for path in paths:
+        if path is not None:
+            path.unlink(missing_ok=True)
 
 
 def lock_busy_message(request: Request) -> str | None:
@@ -31,13 +39,35 @@ def operation_lock(request: Request, operation: str):
     return lock
 
 
-def post_job(request: Request, operation: str, payload: dict[str, Any], csrf: str):
+def post_job(
+    request: Request,
+    operation: str,
+    payload: dict[str, Any],
+    csrf: str,
+    *,
+    secret: tuple[Path, Path | None] | None = None,
+):
+    """Enqueue ``operation``. ``secret`` is a passphrase file and an optional upload.
+
+    The payload stays free of the passphrase. When the job is not queued, the
+    files are deleted here; otherwise the worker deletes them.
+    """
     if not authenticated(request):
+        discard_local_files(*(secret or ()))
         return redirect_login()
     if not csrf_ok(request, csrf):
+        discard_local_files(*(secret or ()))
         return error_page(request, 403, "CSRF inválido")
     busy = lock_busy_message(request)
-    job_id = None if busy else service(request).submit(operation, payload)
+    if secret is None:
+        job_id = None if busy else service(request).submit(operation, payload)
+    else:
+        phrase, archive = secret
+        job_id = (
+            None if busy else service(request).submit_secret(operation, payload, phrase, archive)
+        )
+        if not job_id:
+            discard_local_files(phrase, archive)
     if job_id:
         return RedirectResponse(f"/jobs/{job_id}", status_code=303)
     if busy:  # the CLI, or a job between two of its steps, holds the lock

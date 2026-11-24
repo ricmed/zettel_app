@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from zettel.library.book_file import (
@@ -60,10 +61,12 @@ def same_work(left: dict[str, Any], right: dict[str, Any]) -> bool:
 _EMPTY_NOTES = "_Nenhuma nota de leitura ainda._"
 
 
-def _lit_item(source: dict[str, Any], chunk: dict[str, Any]) -> dict[str, Any]:
+def _lit_item(
+    source: dict[str, Any], chunk: dict[str, Any], vault: Path | None = None
+) -> dict[str, Any]:
     from zettel.vault import literature_chunk_wikilink_for_row
 
-    link = literature_chunk_wikilink_for_row(source["citekey"], chunk, with_alias=True)
+    link = literature_chunk_wikilink_for_row(source["citekey"], chunk, with_alias=True, vault=vault)
     label = link.split("|", 1)[1].rstrip("]") if "|" in link else link.strip("[]")
     return {
         "chunk_id": chunk["chunk_id"],
@@ -86,10 +89,12 @@ def _note_item(note: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _source_items(db: Any, source_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _source_items(
+    db: Any, source_id: str, vault: Path | None = None
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     source = db.get_source(source_id) or {}
     lits = [
-        _lit_item(source, chunk)
+        _lit_item(source, chunk, vault)
         for chunk in db.get_chunks_for_source(source_id)
         if chunk.get("status") in ("approved", "persisted")
     ]
@@ -97,7 +102,9 @@ def _source_items(db: Any, source_id: str) -> tuple[list[dict[str, Any]], list[d
     return lits, notes
 
 
-def note_groups(db: Any, source_id: str | None) -> list[dict[str, Any]]:
+def note_groups(
+    db: Any, source_id: str | None, *, vault: Path | None = None
+) -> list[dict[str, Any]]:
     """LIT e ZTL desta edição e, depois, de cada irmã com o rótulo dela.
 
     A nota continua com um único ``source_id``. O grupo só muda a lista.
@@ -113,7 +120,7 @@ def note_groups(db: Any, source_id: str | None) -> list[dict[str, Any]]:
     groups = []
     for row in rows:
         sid = row["source_id"]
-        lits, notes = _source_items(db, sid)
+        lits, notes = _source_items(db, sid, vault)
         heading = None
         if siblings:
             heading = "Desta edição" if sid == source_id else labels.get(sid, sid)
@@ -218,13 +225,13 @@ def page_work_notes(
     return rows[start : start + page_size], current, pages
 
 
-def source_notes_lines(db: Any, source_id: str | None) -> list[str]:
+def source_notes_lines(db: Any, source_id: str | None, *, vault: Path | None = None) -> list[str]:
     """As LIT e ZTL da obra, como vão no bloco de notas de leitura.
 
     Sozinha, a ficha lista só as suas. Ligada, vem **Desta edição** e depois
     cada irmã com o rótulo (título e formato; ISBN se os títulos coincidirem).
     """
-    groups = note_groups(db, source_id)
+    groups = note_groups(db, source_id, vault=vault)
     if not groups:
         return [_EMPTY_NOTES]
     if len(groups) == 1 and not groups[0]["heading"]:
@@ -260,7 +267,7 @@ def write_book_notes_block(cfg: Any, db: Any, book: Any, *, refresh_siblings: bo
 def _write_notes_block(cfg: Any, db: Any, book: Any) -> None:
     from zettel.vault import MalformedManagedBlock, upsert_managed_block
 
-    inner = "\n".join(source_notes_lines(db, book.source_id))
+    inner = "\n".join(source_notes_lines(db, book.source_id, vault=cfg.vault_path))
     try:
         body = upsert_managed_block(book.body, NOTES_BLOCK, inner)
     except MalformedManagedBlock as exc:

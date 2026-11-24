@@ -15,6 +15,7 @@ from zettel.index import VectorIndex
 from zettel.progress import ProgressObserver, report
 from zettel.schemas import PermanentNoteCandidate
 from zettel.state import StateDB
+from zettel.stored_path import open_stored, store_vault
 from zettel.time import now_vault_iso
 from zettel.vault import (
     build_literature_index_note,
@@ -1363,8 +1364,8 @@ def _apply_draft_edits(cfg: AppConfig, db: StateDB, chunk: dict, concepts: list[
     draft_path_str = chunk.get("literature_note_path")
     if not draft_path_str or not concepts:
         return set()
-    draft_path = Path(draft_path_str)
-    if not draft_path.exists():
+    draft_path = open_stored(draft_path_str, cfg.vault_path) if draft_path_str else None
+    if draft_path is None or not draft_path.exists():
         return set()
     _meta, body = parse_frontmatter(draft_path.read_text(encoding="utf-8"))
     theses, quotes = _draft_candidate_lines(body)
@@ -1513,7 +1514,7 @@ def decide_concepts(
             outcome["rejected_chunks"].append(chunk_id)
             kept = db.get_chunk(chunk_id) or {}
             path = kept.get("literature_note_path") or ""
-            if path and Path(path).is_file():
+            if path and (open_stored(path, cfg.vault_path) or Path(path)).is_file():
                 outcome["draft_delete_failures"].append(chunk_id)
     if refresh_source:
         refresh_approved_literature(cfg, db, outcome["persisted"])
@@ -1564,7 +1565,7 @@ def approve_chunk(
     citekey = source["citekey"]
     chunk_index = int(chunk.get("chunk_index") or 0)
     draft_path_str = chunk.get("literature_note_path")
-    draft_path = Path(draft_path_str) if draft_path_str else None
+    draft_path = open_stored(draft_path_str, cfg.vault_path) if draft_path_str else None
 
     dest_dir = cfg.vault_path / "20_Literature" / literature_source_dirname(citekey)
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -1616,7 +1617,7 @@ def approve_chunk(
     db.update_chunk_review(
         chunk_id,
         status="persisted",
-        literature_note_path=str(dest_path),
+        literature_note_path=store_vault(dest_path, cfg.vault_path),
     )
     if wrote_from_draft and draft_path is not None:
         _unlink_draft(draft_path)
@@ -1662,7 +1663,8 @@ def reject_chunk(
             concepts=db.get_concepts_for_chunk(chunk_id),
         )
     draft_path_str = chunk.get("literature_note_path")
-    if draft_path_str and not _unlink_draft(Path(draft_path_str)):
+    draft_file = open_stored(draft_path_str or "", cfg.vault_path) if draft_path_str else None
+    if draft_file is not None and draft_file.is_file() and not _unlink_draft(draft_file):
         if stats is not None:
             stats["draft_delete_failures"] = stats.get("draft_delete_failures", 0) + 1
         log_review_event(
@@ -1763,12 +1765,13 @@ def _unlink_draft(path: Path) -> bool:
     return True
 
 
-def rejected_drafts_on_disk(db: StateDB) -> list[dict]:
+def rejected_drafts_on_disk(db: StateDB, *, vault: Path | None = None) -> list[dict]:
     """Rejected chunks whose draft file is still in the review inbox."""
     kept = []
     for chunk in db.get_chunks_by_status("rejected"):
         path = chunk.get("literature_note_path") or ""
-        if path and Path(path).is_file():
+        located = open_stored(path, vault) if path else None
+        if located is not None and located.is_file():
             kept.append(chunk)
     return kept
 
@@ -1837,7 +1840,8 @@ def sync_lit_permanent_links(cfg: AppConfig, db: StateDB, chunk_ids: list[str]) 
         chunk = db.get_chunk(chunk_id)
         if not chunk or chunk.get("status") not in ("approved", "persisted"):
             continue
-        path = Path(chunk.get("literature_note_path") or "")
+        located = open_stored(chunk.get("literature_note_path") or "", cfg.vault_path)
+        path = located if located is not None else Path(chunk.get("literature_note_path") or "")
         if not path.is_file():
             continue
         links = [

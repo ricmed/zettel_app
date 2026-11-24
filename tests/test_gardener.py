@@ -41,6 +41,11 @@ from zettel.taxonomy import (
 from zettel.vault import safe_write_note
 
 
+def _moc_file(cfg: AppConfig, stored: str) -> Path:
+    path = Path(stored)
+    return path if path.is_absolute() else cfg.vault_path / stored
+
+
 def _make_config(
     allowed_topics: list[str] | None = None,
     strict: bool = True,
@@ -1398,7 +1403,7 @@ def test_subject_below_the_cap_gets_one_moc_with_a_subsection_per_cluster(tmp_pa
     assert "### Grupo 3" in calls[0][1]
     assert "uma subsecao por grupo" in calls[0][1]
     assert len(moc_ids) == 1 and len(db.list_mocs()) == 1
-    structure = _parse_moc_structure(Path(db.get_moc(moc_ids[0])["path"]))
+    structure = _parse_moc_structure(_moc_file(cfg, db.get_moc(moc_ids[0])["path"]))
     assert [s["title"] for s in structure["subsections"]] == ["Sub 1", "Sub 2", "Sub 3"]
     # 10 // 3 entries per cluster, so every cluster has its door.
     assert [len(s["entries"]) for s in structure["subsections"]] == [3, 3, 3]
@@ -1433,7 +1438,7 @@ def test_subject_above_the_cap_becomes_a_moc_of_mocs(tmp_path, monkeypatch):
         "Categoria Um — Gama",
     ]
     assert set(moc_ids) == {parent["moc_id"], *(c["moc_id"] for c in children)}
-    structure = _parse_moc_structure(Path(parent["path"]))
+    structure = _parse_moc_structure(_moc_file(cfg, parent["path"]))
     assert structure["all_note_ids"] == set()
     assert structure["summary"] == "Mapa dos subtemas."
     assert [orientation for _, orientation in structure["children"]] == [
@@ -1442,7 +1447,7 @@ def test_subject_above_the_cap_becomes_a_moc_of_mocs(tmp_path, monkeypatch):
         "Resumo de Gama.",
         "Resumo de Delta.",
     ]
-    child_meta = _parse_moc_structure(Path(children[0]["path"]))["meta"]
+    child_meta = _parse_moc_structure(_moc_file(cfg, children[0]["path"]))["meta"]
     assert child_meta["parent_moc_id"] == parent["moc_id"]
     actions = [a.action for a in stats.actions]
     assert (actions.count("submoc"), actions.count("moc_of_mocs")) == (4, 1)
@@ -1484,7 +1489,7 @@ def test_cluster_fully_discarded_by_the_incremental_gets_a_sub_moc(tmp_path, mon
     assert len(calls) == 2  # incremental (all ignored) + the sub-MOC
     [child] = db.list_child_mocs("HOME01")
     assert child["topic"] == "Categoria Um — Prompts"
-    home = _parse_moc_structure(Path(db.get_moc("HOME01")["path"]))
+    home = _parse_moc_structure(_moc_file(cfg, db.get_moc("HOME01")["path"]))
     assert home["all_note_ids"] == set(_cluster("A")[:3])
     assert [cid for cid, _ in home["children"]] == [child["moc_id"]]
     assert set(db.moc_discard_checksums("HOME01")) == set(_cluster("E"))
@@ -1613,7 +1618,11 @@ def test_second_run_with_no_new_note_changes_no_moc(tmp_path, monkeypatch):
     for category, clusters in subjects.items():
         _process_subject(cfg, db, MagicMock(), category, clusters, _GardenStats())
     snapshot = {
-        m["moc_id"]: (Path(m["path"]).read_bytes(), m["cluster_signature"]) for m in db.list_mocs()
+        m["moc_id"]: (
+            _moc_file(cfg, m["path"]).read_bytes(),
+            m["cluster_signature"],
+        )
+        for m in db.list_mocs()
     }
     first_calls = len(calls)
 
@@ -1624,10 +1633,14 @@ def test_second_run_with_no_new_note_changes_no_moc(tmp_path, monkeypatch):
 
     assert len(calls) == first_calls
     assert {
-        m["moc_id"]: (Path(m["path"]).read_bytes(), m["cluster_signature"]) for m in db.list_mocs()
+        m["moc_id"]: (
+            _moc_file(cfg, m["path"]).read_bytes(),
+            m["cluster_signature"],
+        )
+        for m in db.list_mocs()
     } == snapshot
     for moc in db.list_mocs():
-        assert "cluster_signature" not in _parse_moc_structure(Path(moc["path"]))["meta"]
+        assert "cluster_signature" not in _parse_moc_structure(_moc_file(cfg, moc["path"]))["meta"]
     db.close()
 
 
@@ -1646,7 +1659,7 @@ def test_note_that_changed_cluster_leaves_its_old_moc_and_backref(tmp_path, monk
     _process_subject(cfg, db, MagicMock(), "Categoria Dois", [["A1", "B1", "B2", "B3"]], stats)
     _rebalance(cfg, db, stats)
 
-    remaining = _parse_moc_structure(Path(old["path"]))["all_note_ids"]
+    remaining = _parse_moc_structure(_moc_file(cfg, old["path"]))["all_note_ids"]
     new = db.find_moc_by_topic("Categoria Dois", origins=("pipeline",))
     assert remaining == {"A2", "A3", "A4"}
     assert stats.departed == {old["moc_id"]: 1}
@@ -1668,7 +1681,7 @@ def test_adopted_moc_is_left_alone_by_the_garden_and_synced_by_hand(tmp_path, mo
     cfg, db, _calls = _subject_env(tmp_path, monkeypatch, lambda s, u: _generation(u))
     _process_subject(cfg, db, MagicMock(), "Categoria Um", [_cluster("A")], _GardenStats())
     moc = db.find_moc_by_topic("Categoria Um", origins=("pipeline",))
-    path = Path(moc["path"])
+    path = _moc_file(cfg, moc["path"])
 
     result = adopt_moc(cfg, db, moc["moc_id"])
     adopted = path.read_bytes()

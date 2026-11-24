@@ -10,6 +10,7 @@ from typing import Any
 from ulid import ULID
 
 from zettel.config import AppConfig
+from zettel.stored_path import store_vault
 from zettel.time import now_vault_iso
 from zettel.vault import (
     author_year_label,
@@ -255,6 +256,7 @@ def source_scaffold(
     authors: list[str],
     year: int | None,
     note_path: Path,
+    vault: Path | None = None,
     document_type: str | None = None,
     biblio_fields: dict[str, Any] | None = None,
     abnt_reference: str | None = None,
@@ -267,7 +269,7 @@ def source_scaffold(
         title=title,
         authors=authors,
         year=year,
-        origin_path=str(note_path),
+        origin_path=store_vault(note_path, vault) if vault is not None else note_path.as_posix(),
         origin_type="md",
         checksum="",
         origin="manual",
@@ -430,6 +432,7 @@ def scaffold_manual_note(
             authors=author_list,
             year=year,
             note_path=path,
+            vault=cfg.vault_path,
             document_type=document_type,
             biblio_fields=biblio_fields,
             abnt_reference=abnt_reference,

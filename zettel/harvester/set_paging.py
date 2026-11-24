@@ -19,6 +19,7 @@ from zettel.paging import (
     read_printed_page_candidates,
 )
 from zettel.state import StateDB
+from zettel.stored_path import StoredPathError, open_stored, relativize, resolve_origin, store_vault
 from zettel.vault import (
     frontmatter_json,
     literature_chunk_filename_for_row,
@@ -29,6 +30,13 @@ from zettel.vault import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _canonical_origin(cfg: AppConfig, stored: str) -> str:
+    canonical, status = relativize(
+        stored, kind="origin", vault=cfg.vault_path, inbox=cfg.inbox_path
+    )
+    return stored if status == "invalid" else canonical
 
 
 def run_set_paging(
@@ -67,7 +75,12 @@ def run_set_paging(
     if from_pdf or printed_candidates is not None:
         candidates = printed_candidates
         if candidates is None:
-            origin = Path(src.get("origin_path") or "")
+            try:
+                origin = resolve_origin(
+                    src.get("origin_path") or "", cfg.vault_path, cfg.inbox_path
+                )
+            except StoredPathError:
+                origin = Path(src.get("origin_path") or "")
             if not origin.is_file():
                 raise ValueError(f"PDF da fonte nao encontrado: {origin}")
             candidates = read_printed_page_candidates(origin)
@@ -165,9 +178,10 @@ def run_set_paging(
         lit_path_str = chunk.get("literature_note_path")
         if not lit_path_str:
             continue
-        path = Path(lit_path_str)
-        if not path.exists():
+        located = open_stored(lit_path_str, cfg.vault_path)
+        if located is None or not located.exists():
             continue
+        path = located
         citekey = src["citekey"]
         updated_row = dict(chunk)
         updated_row["page_in_book"] = page_book
@@ -180,7 +194,9 @@ def run_set_paging(
                 path = new_path
             except OSError:
                 continue
-            db.update_chunk_review(chunk["chunk_id"], literature_note_path=str(path))
+            db.update_chunk_review(
+                chunk["chunk_id"], literature_note_path=store_vault(path, cfg.vault_path)
+            )
             renamed.append((old_stem, path.stem))
         try:
             meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
@@ -201,9 +217,10 @@ def run_set_paging(
             if ch.get("status") == "pending":
                 stats["dropped_pending"] += 1
             lit = ch.get("literature_note_path")
-            if lit:
+            located = open_stored(lit, cfg.vault_path) if lit else None
+            if located is not None:
                 with contextlib.suppress(OSError):
-                    Path(lit).unlink(missing_ok=True)
+                    located.unlink(missing_ok=True)
         db.delete_chunks(drop_ids)
         idx.delete_chunks(drop_ids)
 
@@ -236,7 +253,7 @@ def run_set_paging(
         src["title"],
         authors,
         src.get("year"),
-        src.get("origin_path") or "",
+        _canonical_origin(cfg, src.get("origin_path") or ""),
         src.get("origin_type") or "pdf",
         src.get("file_checksum") or "",
         document_type=src.get("document_type"),
@@ -256,7 +273,7 @@ def run_set_paging(
 
     from zettel.review import _refresh_literature_index
 
-    stats["permanent_patched"] = _retarget_permanent_notes(db, source_id, renamed)
+    stats["permanent_patched"] = _retarget_permanent_notes(db, source_id, renamed, cfg.vault_path)
     _refresh_literature_index(cfg, db, source_id)
     logger.info(
         "set-paging %s: updated=%d dropped_pending=%d dropped_other=%d "
@@ -280,12 +297,13 @@ def _retarget_permanent_notes(
     db: StateDB,
     source_id: str,
     renamed: list[tuple[str, str]],
+    vault: Path,
 ) -> int:
     """Point ZTL citations at the new printed page without touching their hashes."""
     changed = 0
     source = db.get_source(source_id)
     for note in db.get_notes_for_source(source_id):
-        if not _rewrite_permanent_note(db, source, note, renamed):
+        if not _rewrite_permanent_note(db, source, note, renamed, vault):
             continue
         changed += 1
     return changed
@@ -296,8 +314,9 @@ def _rewrite_permanent_note(
     source: dict | None,
     note: dict,
     renamed: list[tuple[str, str]],
+    vault: Path,
 ) -> bool:
-    path = Path(note["path"]) if note.get("path") else None
+    path = open_stored(note["path"], vault) if note.get("path") else None
     if path is not None and path.is_file():
         try:
             meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 from zettel.library.works import labels_for, members, sibling_source_ids
 
@@ -121,7 +122,7 @@ def _search(
     passages: list[SimilarPassage] = []
     seen: set[str] = set()
     for chunk_id, probable in chosen:
-        for passage in _passages(db, chunk_id, labels, probable):
+        for passage in _passages(db, chunk_id, labels, probable, cfg.vault_path):
             if passage.href in seen:
                 continue
             seen.add(passage.href)
@@ -140,6 +141,7 @@ def _passages(
     chunk_id: str,
     labels: dict[str, str],
     probable: bool,
+    vault: Path | None = None,
 ) -> list[SimilarPassage]:
     from zettel.vault import literature_chunk_wikilink_for_row
 
@@ -152,7 +154,10 @@ def _passages(
     if chunk.get("status") in ("approved", "persisted"):
         source = db.get_source(source_id) or {}
         link = literature_chunk_wikilink_for_row(
-            str(source.get("citekey") or ""), chunk, with_alias=True
+            str(source.get("citekey") or ""),
+            chunk,
+            with_alias=True,
+            vault=vault,
         )
         title = link.split("|", 1)[1].rstrip("]") if "|" in link else link.strip("[]")
         found.append(

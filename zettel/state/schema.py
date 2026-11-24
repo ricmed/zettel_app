@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS sources (
     origin_type          TEXT NOT NULL,
     extracted_text       TEXT,
     lit_body             TEXT,
+    -- Markdown integral da ficha SRC, com ## Resumo e ## Impressões.
+    -- CREATE TABLE IF NOT EXISTS não altera a tabela que já existe: um banco
+    -- antigo ganha a coluna em StateDB._ensure_retention_columns.
+    card_body            TEXT,
     origin               TEXT NOT NULL DEFAULT 'pipeline',
     document_type        TEXT,
     bibliography_json    TEXT,
@@ -135,6 +139,8 @@ CREATE TABLE IF NOT EXISTS chunks (
     page_confidence           TEXT NOT NULL DEFAULT 'unknown',
     literature_note_path      TEXT,
     literature_id             TEXT,
+    -- Markdown integral da LIT granular. Banco antigo: _ensure_retention_columns.
+    literature_body           TEXT,
     review_confidence         REAL,
     summary_json              TEXT,
     llm_prompt1_hash          TEXT,
@@ -168,6 +174,10 @@ CREATE TABLE IF NOT EXISTS notes (
     origin                 TEXT NOT NULL DEFAULT 'pipeline',
     note_semantic_checksum TEXT,
     embedding_input_hash   TEXT,
+    -- sha256 do arquivo inteiro. Chave de skip da retenção: não é o checksum
+    -- semântico, então frontmatter ou bloco gerenciado também atualizam a linha.
+    -- Banco antigo: StateDB._ensure_retention_columns.
+    file_checksum          TEXT,
     embedding_model        TEXT,
     created_at             TEXT NOT NULL,
     updated_at             TEXT NOT NULL
@@ -179,11 +189,24 @@ CREATE TABLE IF NOT EXISTS mocs (
     path                TEXT,
     body                TEXT,
     frontmatter_json    TEXT,
+    -- sha256 do arquivo inteiro (retenção). Banco antigo: _ensure_retention_columns.
+    file_checksum       TEXT,
     origin              TEXT NOT NULL DEFAULT 'pipeline',
     cluster_signature   TEXT,
     parent_moc_id       TEXT,
     created_at          TEXT NOT NULL,
     updated_at          TEXT NOT NULL
+);
+
+-- Retenção da Mesa. O arquivo em 50_Projetos continua o registro vivo; a linha
+-- só deixa o rebuild recriar o .md se ele sumir. Tabela nova: um state.db
+-- antigo a recebe no próximo open, sem init --reset.
+CREATE TABLE IF NOT EXISTS projects (
+    project_id        TEXT PRIMARY KEY,
+    path              TEXT,
+    body              TEXT,
+    frontmatter_json  TEXT,
+    file_checksum     TEXT
 );
 
 -- Entry candidates the garden LLM answered "ignorar" for one MOC (#296): kept
@@ -442,6 +465,15 @@ CREATE TABLE IF NOT EXISTS app_meta (
     value TEXT NOT NULL
 );
 """
+
+# Added to an existing database on open. Declarations match SCHEMA_SQL.
+# ``projects`` is a new table and arrives through CREATE TABLE IF NOT EXISTS.
+RETENTION_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
+    "sources": (("card_body", "TEXT"),),
+    "chunks": (("literature_body", "TEXT"),),
+    "notes": (("file_checksum", "TEXT"),),
+    "mocs": (("file_checksum", "TEXT"),),
+}
 
 # Added to an existing ``sources`` table on open. Declarations match SCHEMA_SQL.
 SOURCE_READER_COLUMNS: tuple[tuple[str, str], ...] = (

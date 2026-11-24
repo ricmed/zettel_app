@@ -30,6 +30,7 @@ from zettel.markdown_fences import h2_section
 from zettel.note_content import thesis_from_permanent_note
 from zettel.schemas import PermanentNoteCandidate
 from zettel.state import StateDB
+from zettel.stored_path import open_stored, store_vault
 from zettel.time import now_vault_iso
 from zettel.vault import compose_note, frontmatter_json, read_managed_block
 
@@ -357,14 +358,14 @@ def adopt_manual_literature(
         page_in_file=meta.get("page_in_file"),
         page_in_book=meta.get("page_in_book"),
         page_confidence=str(meta.get("page_confidence") or "unknown"),
-        literature_note_path=str(file_path),
+        literature_note_path=store_vault(file_path, cfg.vault_path),
         literature_id=literature_id,
     )
     # upsert_chunk COALESCEs summary_json, so an edited body needs an explicit update.
     db.update_chunk_review(
         chunk_id,
         status="persisted",
-        literature_note_path=str(file_path),
+        literature_note_path=store_vault(file_path, cfg.vault_path),
         literature_id=literature_id,
         summary_json=json.dumps(summary_payload(body, content), ensure_ascii=False),
     )
@@ -377,7 +378,9 @@ def adopt_manual_literature(
 # -- Literature note -> permanent note ----------------------------------
 
 
-def resolve_literature_note(db: StateDB, ref: str) -> tuple[Path, dict[str, Any], str, str]:
+def resolve_literature_note(
+    db: StateDB, ref: str, *, vault: Path | None = None
+) -> tuple[Path, dict[str, Any], str, str]:
     """Resolve a LIT note from a file path or a chunk_id.
 
     Returns ``(path, frontmatter, body, raw_content)``.
@@ -388,7 +391,9 @@ def resolve_literature_note(db: StateDB, ref: str) -> tuple[Path, dict[str, Any]
     if not path.is_file():
         chunk = db.get_chunk(ref)
         raw = (chunk or {}).get("literature_note_path")
-        path = Path(raw) if raw else path
+        if raw:
+            located = open_stored(raw, vault)
+            path = located if located is not None else Path(raw)
     if not path.is_file():
         raise FileNotFoundError(
             f"Nota de literatura nao encontrada: {ref!r} "
@@ -460,7 +465,7 @@ def _attach_uploaded_figures(
             db.upsert_note(
                 note_id=note_id,
                 source_id=row.get("source_id"),
-                path=str(note_path),
+                path=store_vault(note_path, cfg.vault_path),
                 title=row.get("title") or str(meta.get("title") or ""),
                 note_semantic_checksum=semantic,
                 embedding_model=row.get("embedding_model"),
@@ -518,7 +523,7 @@ def create_permanent_from_literature(
         scaffold_permanent_note_body,
     )
 
-    path, meta, body, content = resolve_literature_note(db, ref)
+    path, meta, body, content = resolve_literature_note(db, ref, vault=cfg.vault_path)
     chunk_id = str(meta["chunk_id"])
     source_id = str(meta.get("source_id") or "")
     figures = _merged_figures(cfg, body, images)
@@ -536,7 +541,7 @@ def create_permanent_from_literature(
     citekey = source["citekey"] if source else str(meta.get("citekey") or "")
     title_src = source["title"] if source else ""
     chunk_row = db.get_chunk(chunk_id)
-    literature_ref = literature_ref_for_chunk(citekey, title_src, chunk_row)
+    literature_ref = literature_ref_for_chunk(citekey, title_src, chunk_row, vault=cfg.vault_path)
 
     if use_llm:
         concept_id = concept_id_for(source_id, chunk_id, candidate.thesis)
@@ -578,7 +583,9 @@ def create_permanent_from_literature(
                 raise ConnectRejected(errors[0])
             raise ConnectRejected(_ztl_llm_rejected_message(""))
         row = db.get_note(note_ids[0]) or {}
-        note_path = Path(row.get("path") or "")
+        note_path = open_stored(row.get("path") or "", cfg.vault_path) or Path(
+            row.get("path") or ""
+        )
         if figures:
             _attach_uploaded_figures(cfg, db, idx, note_path, figures, source_id)
         return note_path, True
@@ -674,7 +681,7 @@ def suggest_connections_for_permanent(
     if not path.is_file():
         row = db.get_note(ref)
         if row and row.get("path"):
-            path = Path(row["path"])
+            path = open_stored(row["path"], cfg.vault_path) or Path(row["path"])
     if not path.is_file():
         raise FileNotFoundError(
             f"Nota permanente nao encontrada: {ref!r} "

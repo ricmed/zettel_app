@@ -63,6 +63,7 @@ from zettel.schemas import (
 )
 from zettel.search_terms import PT_STOPWORDS, fold
 from zettel.state import StateDB
+from zettel.stored_path import open_stored, store_vault
 from zettel.taxonomy import TaxonomyLoadError, resolve_allowed_topics
 from zettel.time import now_vault_iso
 from zettel.vault import (
@@ -444,7 +445,7 @@ def purge_mocs_by_origin(cfg: AppConfig, db: StateDB, origin: str) -> int:
         return 0
 
     for moc in removed:
-        clear_moc_backrefs(db, moc, vault_timezone=cfg.vault_timezone)
+        clear_moc_backrefs(db, moc, vault=cfg.vault_path, vault_timezone=cfg.vault_timezone)
 
     moc_ids = [m["moc_id"] for m in removed]
     db.delete_mocs(moc_ids)
@@ -495,7 +496,9 @@ def _rebalance(cfg: AppConfig, db: StateDB, stats: _GardenStats) -> None:
             previous_body=structure["body"],
             stats=stats,
         )
-        _store_moc_row(db, moc_id, moc["topic"], path, moc.get("cluster_signature") or "")
+        _store_moc_row(
+            db, moc_id, moc["topic"], path, moc.get("cluster_signature") or "", vault=cfg.vault_path
+        )
         stats.departed[moc_id] = len(leaving)
         logger.info("MOC %s: %d entrada(s) sairam (mudaram de cluster)", moc_id, len(leaving))
 
@@ -538,7 +541,7 @@ def adopt_moc(cfg: AppConfig, db: StateDB, moc_id: str) -> dict:
     db.upsert_moc(
         moc_id,
         moc["topic"],
-        str(path),
+        store_vault(path, cfg.vault_path),
         None,
         body=body,
         frontmatter_json=json.dumps(meta, ensure_ascii=False),
@@ -598,9 +601,10 @@ def moc_file_origin(path: Path) -> str | None:
 
 
 def _moc_vault_path(cfg: AppConfig, moc: dict) -> Path:
-    path_str = moc.get("path")
-    if path_str:
-        return Path(path_str)
+    path_str = moc.get("path") or ""
+    located = open_stored(path_str, cfg.vault_path) if path_str else None
+    if located is not None:
+        return located
     return cfg.vault_path / "40_MOCs" / note_filename("MOC", moc["moc_id"], moc["topic"])
 
 
@@ -1010,7 +1014,7 @@ def _create_moc_of_mocs(
         previous_body=None,
         stats=stats,
     )
-    _store_moc_row(db, parent_id, category, moc_path, step.signature)
+    _store_moc_row(db, parent_id, category, moc_path, step.signature, vault=cfg.vault_path)
     _record(stats, category, _size(step), "moc_of_mocs", parent_id)
     logger.info("MOC de MOCs criado: %s — %s (%d sub-MOCs)", parent_id, category, len(children))
     return [parent_id, *children]
@@ -1058,7 +1062,14 @@ def _attach_children(
         previous_body=structure["body"],
         stats=stats,
     )
-    _store_moc_row(db, moc["moc_id"], moc["topic"], path, moc.get("cluster_signature") or "")
+    _store_moc_row(
+        db,
+        moc["moc_id"],
+        moc["topic"],
+        path,
+        moc.get("cluster_signature") or "",
+        vault=cfg.vault_path,
+    )
 
 
 def _create_new_moc(
@@ -1183,7 +1194,15 @@ def _create_new_moc(
         previous_body=None,
         stats=stats,
     )
-    _store_moc_row(db, moc_id, topic, moc_path, cluster_signature, parent_moc_id=parent_id)
+    _store_moc_row(
+        db,
+        moc_id,
+        topic,
+        moc_path,
+        cluster_signature,
+        vault=cfg.vault_path,
+        parent_moc_id=parent_id,
+    )
     logger.info("MOC criado: %s — %s (%d entradas)", moc_id, topic, len(placed))
     return moc_id
 
@@ -1342,7 +1361,7 @@ def _update_existing_moc(
     """
     stats = stats if stats is not None else _GardenStats()
     moc_id = existing_moc["moc_id"]
-    moc_path = Path(existing_moc["path"]) if existing_moc.get("path") else None
+    moc_path = _moc_vault_path(cfg, existing_moc) if existing_moc.get("path") else None
 
     if not moc_path or not moc_path.exists():
         logger.warning("MOC file not found for %s, skipping incremental update", moc_id)
@@ -1434,7 +1453,9 @@ def _update_existing_moc(
         previous_body=structure["body"],
         stats=stats,
     )
-    _store_moc_row(db, moc_id, existing_moc["topic"], moc_path, cluster_signature, origin)
+    _store_moc_row(
+        db, moc_id, existing_moc["topic"], moc_path, cluster_signature, origin, vault=cfg.vault_path
+    )
     logger.info(
         "MOC %s atualizado: %d entradas, %d deixadas de fora pelo LLM, %d omitidas",
         moc_id,
@@ -1669,6 +1690,7 @@ def _write_moc(
         topic,
         moc_path,
         vault_timezone=cfg.vault_timezone,
+        vault=cfg.vault_path,
         previous_body=previous_body,
     )
     return body
@@ -1682,13 +1704,14 @@ def _store_moc_row(
     signature: str,
     origin: str = PIPELINE_ORIGIN,
     *,
+    vault: Path,
     parent_moc_id: str | None = None,
 ) -> None:
     body_snap, fm_snap = _snapshot_moc_file(moc_path)
     db.upsert_moc(
         moc_id,
         topic,
-        str(moc_path),
+        store_vault(moc_path, vault),
         signature,
         body=body_snap,
         frontmatter_json=fm_snap,

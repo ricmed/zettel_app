@@ -1029,7 +1029,6 @@ def test_process_chunk_accepted_but_all_candidates_filtered_writes_no_draft_file
 def test_process_chunk_accepted_with_approved_candidate_writes_draft_file(tmp_path, monkeypatch):
     """A chunk with at least one approved candidate keeps writing its draft."""
     import json
-    from pathlib import Path
 
     from zettel.extractor import _process_chunk
     from zettel.llm import load_prompt_parts
@@ -1069,7 +1068,10 @@ def test_process_chunk_accepted_with_approved_candidate_writes_draft_file(tmp_pa
 
     row = db.get_chunk("@Book2024::ch000::abc")
     assert row["literature_note_path"] is not None
-    assert Path(row["literature_note_path"]).is_file()
+    from zettel.stored_path import open_stored
+
+    draft = open_stored(row["literature_note_path"], cfg.vault_path)
+    assert draft is not None and draft.is_file()
     db.close()
 
 
@@ -1288,7 +1290,9 @@ def test_process_chunk_draft_filename_and_h1_share_the_same_thesis(tmp_path, mon
     _process_chunk(cfg, db, None, object(), chunk_row, prompt_parts, "prompthash")
 
     row = db.get_chunk("@Book2024::ch000::abc")
-    draft_path = row["literature_note_path"]
+    from zettel.stored_path import open_stored
+
+    draft_path = open_stored(row["literature_note_path"], cfg.vault_path)
     assert draft_path is not None
     body = Path(draft_path).read_text(encoding="utf-8")
 

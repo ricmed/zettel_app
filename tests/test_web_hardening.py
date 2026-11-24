@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from zettel.web import create_app
-from zettel.web.hardening import MAX_BODY_BYTES, BodyLimit
+from zettel.web.hardening import MAX_BODY_BYTES, RESTORE_BODY_BYTES, RESTORE_UPLOAD_PATH, BodyLimit
 
 _TEMPLATES = Path(__file__).resolve().parent.parent / "zettel" / "templates"
 
@@ -56,7 +56,7 @@ def test_templates_need_no_unsafe_inline(template):
     assert "<style" not in text
 
 
-def _call(app, headers, body=b""):
+def _call(app, headers, body=b"", path="/documents/upload"):
     """Drive one ASGI request; return the status sent and how often body was read."""
     reads = []
     sent = {}
@@ -72,7 +72,7 @@ def _call(app, headers, body=b""):
     scope = {
         "type": "http",
         "method": "POST",
-        "path": "/documents/upload",
+        "path": path,
         "headers": [(k.encode(), v.encode()) for k, v in headers.items()],
     }
     asyncio.run(app(scope, receive, send))
@@ -90,6 +90,26 @@ def test_body_over_the_limit_is_refused_before_it_is_read():
     assert (status, reads) == (413, 0)
     assert _call(limited, {"content-length": "10"}, b"0123456789") == (200, 1)
     assert _call(limited, {"transfer-encoding": "chunked"})[0] == 411
+
+
+def test_restore_upload_is_the_only_route_above_26_mb():
+    """A body over 26 MB is refused everywhere except the restore route, which stops at 10 GiB."""
+    from zettel.backup.archive import MAX_UNCOMPRESSED_BYTES
+
+    assert RESTORE_BODY_BYTES == MAX_UNCOMPRESSED_BYTES
+
+    async def app(scope, receive, send):
+        await receive()
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    limited = BodyLimit(app)
+    over = {"content-length": str(MAX_BODY_BYTES + 1)}
+    assert _call(limited, over) == (413, 0)
+    assert _call(limited, over, path=RESTORE_UPLOAD_PATH) == (200, 1)
+    huge = {"content-length": str(RESTORE_BODY_BYTES + 1)}
+    assert _call(limited, huge, path=RESTORE_UPLOAD_PATH) == (413, 0)
+    assert _call(limited, {"transfer-encoding": "chunked"}, path=RESTORE_UPLOAD_PATH)[0] == 411
 
 
 def test_upload_over_the_limit_never_reaches_the_inbox(client, tmp_path):

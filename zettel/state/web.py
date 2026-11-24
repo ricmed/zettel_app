@@ -108,6 +108,20 @@ class WebMixin(StateBase):
             self.conn.rollback()
             raise
 
+    def remember_web_job(self, job_id: str, operation: str, payload: dict) -> None:
+        """Keep a job row after restore replaces the database that held it.
+
+        The worker still has to record success or failure. ``ON CONFLICT`` leaves
+        a row that was already there (a failed restore never swapped the file).
+        """
+        self.conn.execute(
+            "INSERT INTO web_jobs (job_id, operation, payload_json, state, phase, created_at) "
+            "VALUES (?, ?, ?, 'running', 'starting', ?) "
+            "ON CONFLICT(job_id) DO NOTHING",
+            (job_id, operation, json.dumps(payload), self._now()),
+        )
+        self.conn.commit()
+
     # ── Session signing key (#305) ─────────────────────────────────────
 
     def web_session_key(self) -> str:
