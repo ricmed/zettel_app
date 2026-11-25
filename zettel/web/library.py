@@ -26,6 +26,23 @@ from zettel.web.security import authenticated, csrf_ok, redirect_login
 router = APIRouter()
 
 LAYOUTS = ("table", "gallery", "board")
+LAYOUT_LABELS = (("table", "Tabela"), ("gallery", "Galeria"), ("board", "Quadro"))
+SHELF_PAGE_SIZE = 10
+# Qualquer uma destas chaves na query pede a lista. ``layout`` e ``pagina`` sozinhos não.
+_LISTING_KEYS = (
+    "q",
+    "status",
+    "genre",
+    "document_type",
+    "format",
+    "nature",
+    "country",
+    "year",
+    "min_score",
+    "sort",
+    "favorite",
+    "reading_mode",
+)
 SORTS = {
     "code": "Código",
     "title": "Título",
@@ -136,6 +153,58 @@ def _filters(request: Request) -> dict[str, Any]:
     }
 
 
+def _listing_requested(request: Request) -> bool:
+    return any(key in request.query_params for key in _LISTING_KEYS)
+
+
+def _page_number(request: Request) -> int:
+    raw = request.query_params.get("pagina") or "1"
+    if raw.isdecimal() and len(raw) <= 6 and int(raw) > 0:
+        return int(raw)
+    return 1
+
+
+def _page_slice(
+    rows: list[Any], page: int, page_size: int = SHELF_PAGE_SIZE
+) -> tuple[list[Any], int, int]:
+    """O mesmo corte de ``page_work_notes``: página inválida volta à última."""
+    total = len(rows)
+    pages = max(1, (total + page_size - 1) // page_size) if page_size else 1
+    current = min(page if page > 0 else 1, pages)
+    start = (current - 1) * page_size
+    return rows[start : start + page_size], current, pages
+
+
+def _kept_query(request: Request) -> list[tuple[str, str]]:
+    return [
+        (key, request.query_params[key]) for key in _LISTING_KEYS if request.query_params.get(key)
+    ]
+
+
+def _shelf_href(kept: list[tuple[str, str]], *, layout: str, page: int) -> str:
+    params = [*kept, ("layout", layout)]
+    if page > 1:
+        params.append(("pagina", str(page)))
+    return "/books?" + urlencode(params)
+
+
+def _extra_genres(rows: list[dict[str, Any]]) -> list[str]:
+    import json
+
+    found = {
+        genre
+        for row in rows
+        for genre in json.loads(row.get("genres_json") or "[]")
+        if isinstance(genre, str) and genre
+    }
+    return sorted(found)
+
+
+def _duplicated_codes(identities: list[dict[str, Any]]) -> list[Any]:
+    codes = [row["code_number"] for row in identities if row.get("code_number")]
+    return sorted({code for code in codes if codes.count(code) > 1})
+
+
 @router.get("/books", response_class=HTMLResponse)
 def books_list(request: Request):
     if not authenticated(request):
@@ -146,22 +215,43 @@ def books_list(request: Request):
     filters = _filters(request)
     layout = request.query_params.get("layout", "table")
     layout = layout if layout in LAYOUTS else "table"
+    listing = _listing_requested(request)
     try:
         cfg, db = _open(request)
     except LibrarySchemaError as exc:
         return error_page(request, 500, f"Vocabulário da Estante inválido: {exc}")
     try:
         types = list(cfg.library.document_types)
-        books = [_book_card(r) for r in db.list_shelf_rows(types, **filters)]
-        total = len(db.list_shelf_identities(types))
+        identities = db.list_shelf_identities(types)
+        catalog = db.list_shelf_rows(types)
+        if listing:
+            filtered = db.list_shelf_rows(types, **filters)
+            visible, current, pages = _page_slice(filtered, _page_number(request))
+            matched = len(filtered)
+        else:
+            visible, current, pages = [], 1, 1
+            matched = 0
+        books = [_book_card(row) for row in visible]
+        extra_genres = _extra_genres(catalog)
+        duplicated = _duplicated_codes(identities)
+        total = len(identities)
     finally:
         db.close()
     board = [
         {"status": s, "label": STATUS_LABELS[s], "books": [b for b in books if b["status"] == s]}
         for s in STATUSES
     ]
-    codes = [b["code_number"] for b in books if b.get("code_number")]
-    duplicated = sorted({c for c in codes if codes.count(c) > 1})
+    kept = _kept_query(request)
+    page_for_links = current if listing else 1
+    layout_links = [
+        {
+            "key": key,
+            "label": label,
+            "active": layout == key,
+            "href": _shelf_href(kept, layout=key, page=page_for_links),
+        }
+        for key, label in LAYOUT_LABELS
+    ]
     return render(
         request,
         "books.html",
@@ -169,13 +259,24 @@ def books_list(request: Request):
         books=books,
         board=board,
         total=total,
+        matched=matched,
+        listing=listing,
+        current=current,
+        pages=pages,
+        previous_url=(
+            _shelf_href(kept, layout=layout, page=current - 1) if listing and current > 1 else None
+        ),
+        next_url=(
+            _shelf_href(kept, layout=layout, page=current + 1)
+            if listing and current < pages
+            else None
+        ),
+        layout_links=layout_links,
         filters=filters,
         layout=layout,
         sorts=SORTS,
         duplicated_codes=duplicated,
-        genre_groups=schema_for(cfg).grouped_genres(
-            sorted({g for b in books for g in b["genres"]})
-        ),
+        genre_groups=schema_for(cfg).grouped_genres(extra_genres),
         status_labels=STATUS_LABELS,
         format_labels=FORMAT_LABELS,
         nature_labels=NATURE_LABELS,

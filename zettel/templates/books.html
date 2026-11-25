@@ -9,24 +9,27 @@
     <h1>Estante</h1>
     <p class="muted">Livros, artigos, teses, apostilas, relatórios e anais. A ficha é a nota SRC em <code>10_Sources/</code> e também pode ser editada no Obsidian.</p>
   </div>
-  <div class="heading-actions">
+  <div class="heading-actions shelf-heading-actions">
     <form method="get" action="/books/new" class="lookup-row" role="search">
       <input type="search" name="q" maxlength="200" placeholder="ISBN, DOI ou título" aria-label="Adicionar: ISBN, DOI ou título">
       <button class="button primary" type="submit">Adicionar livro</button>
     </form>
-    <a class="button" href="/books/dashboard">Painel</a>
+    <a class="button shelf-panel" href="/books/dashboard">Painel</a>
   </div>
 </div>
 {% if duplicated_codes %}<div class="alert error" role="alert">Código repetido: {% for c in duplicated_codes %}{{ '%04d'|format(c) }}{% if not loop.last %}, {% endif %}{% endfor %}. Corrija o número em um dos livros.</div>{% endif %}
-<nav class="shelf-views" aria-label="Vistas prontas">
-  <a href="/books?status=lendo&amp;layout={{ layout }}">Lendo agora</a>
-  <a href="/books?year={{ this_year }}&amp;sort=finished&amp;layout={{ layout }}">Lidos em {{ this_year }}</a>
-  <a href="/books?status=quero_ler&amp;layout={{ layout }}">Quero ler</a>
-  <a href="/books?sort=score&amp;min_score=4&amp;layout={{ layout }}">Mais bem avaliados</a>
-  <a href="/books?favorite=1&amp;layout={{ layout }}">Favoritos</a>
-  <a href="/books?reading_mode=reflexao&amp;layout={{ layout }}">Leitura reflexiva</a>
-</nav>
 <section class="panel">
+  <div class="shelf-presets">
+    <span class="eyebrow">Filtros prontos</span>
+    <nav class="shelf-views" aria-label="Filtros prontos">
+      <a href="/books?status=lendo&amp;layout={{ layout }}">Lendo agora</a>
+      <a href="/books?year={{ this_year }}&amp;sort=finished&amp;layout={{ layout }}">Lidos em {{ this_year }}</a>
+      <a href="/books?status=quero_ler&amp;layout={{ layout }}">Quero ler</a>
+      <a href="/books?sort=score&amp;min_score=4.5&amp;layout={{ layout }}">Mais bem avaliados</a>
+      <a href="/books?favorite=1&amp;layout={{ layout }}">Favoritos</a>
+      <a href="/books?reading_mode=reflexao&amp;layout={{ layout }}">Leitura reflexiva</a>
+    </nav>
+  </div>
   <form method="get" action="/books" class="shelf-filters">
     <label>Buscar <input type="search" name="q" value="{{ f.query }}" placeholder="título, autor ou código"></label>
     <label>Status <select name="status"><option value="">todos</option>{% for k, v in status_labels.items() %}<option value="{{ k }}" {% if f.status == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
@@ -39,13 +42,18 @@
     <label>Nota mín. <input type="number" name="min_score" value="{{ f.min_score or '' }}" step="0.5" min="0" max="10"></label>
     <label>Ordem <select name="sort">{% for k, v in sorts.items() %}<option value="{{ k }}" {% if f.sort == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
     <input type="hidden" name="layout" value="{{ layout }}">
-    <button class="button" type="submit">Filtrar</button>
-    <a href="/books?layout={{ layout }}">Limpar</a>
+    <div class="shelf-filter-actions">
+      <button class="button primary" type="submit">Filtrar</button>
+      <a class="button" href="/books?layout={{ layout }}">Limpar</a>
+    </div>
   </form>
-  <div class="shelf-layouts" role="tablist">{% for key, label in [('table','Tabela'),('gallery','Galeria'),('board','Quadro')] %}<a role="tab" class="{% if layout == key %}active{% endif %}" href="?{% for k in ['q','status','genre','format','nature','country','year','min_score','sort','favorite','reading_mode','document_type'] %}{% if request.query_params.get(k) %}{{ k }}={{ request.query_params.get(k)|urlencode }}&amp;{% endif %}{% endfor %}layout={{ key }}">{{ label }}</a>{% endfor %}
-    <span class="muted">{{ books|length }} de {{ total }}</span></div>
 </section>
-{% if not books %}
+<section class="shelf-results">
+  <div class="shelf-layouts" role="tablist">{% for link in layout_links %}<a role="tab" class="{% if link.active %}active{% endif %}" href="{{ link.href }}" {% if link.active %}aria-selected="true"{% endif %}>{{ link.label }}</a>{% endfor %}
+    {% if listing %}<span class="muted">{{ matched }} de {{ total }}</span>{% endif %}</div>
+{% if not listing %}
+<div class="empty">{% if total %}Escolha um filtro pronto ou use Filtrar para ver os livros.{% else %}A estante está vazia. Cadastre em <a href="/books/new">Adicionar</a>, ou colha um PDF: a ficha aparece aqui.{% endif %}</div>
+{% elif not books %}
 <div class="empty">{% if total %}Nada com esses filtros.{% else %}A estante está vazia. Cadastre em <a href="/books/new">Adicionar</a>, ou colha um PDF: a ficha aparece aqui.{% endif %}</div>
 {% elif layout == 'gallery' %}
 <section class="shelf-gallery">{% for b in books %}
@@ -63,18 +71,25 @@
 </section>
 {% else %}
 <section class="panel"><div class="table-wrap"><table>
-  <thead><tr><th>Código</th><th>Título</th><th>Tipo</th><th>Autor</th><th>Gêneros</th><th>Formato</th><th>Status</th><th>Término</th><th class="num">Nota</th></tr></thead>
+  <thead><tr><th>Código</th><th>Título</th><th>Tipo</th><th>Autor</th><th>Gêneros</th><th>Formato</th><th>Status</th><th class="num">Nota</th></tr></thead>
   <tbody>{% for b in books %}<tr>
     <td><code>{{ b.code or '—' }}</code></td>
     <td><a href="/books/{{ b.source_id }}">{{ b.title }}</a>{% if b.favorite %} <span title="Favorito">★</span>{% endif %}</td>
     <td>{{ type_labels.get(b.document_type, b.document_type or '—') }}</td>
     <td>{{ b.authors|join(', ') }}</td>
-    <td>{% for g in b.genres %}<a class="tag" href="/books?genre={{ g|urlencode }}">{{ g }}</a> {% endfor %}</td>
+    <td>{% for g in b.genres %}<a class="tag" href="/books?genre={{ g|urlencode }}&amp;layout={{ layout }}">{{ g }}</a> {% endfor %}</td>
     <td>{{ b.format_label }}</td>
     <td>{{ b.status_label }}</td>
-    <td>{{ b.last_end or '—' }}</td>
     <td class="num">{{ '%.2f'|format(b.score) if b.score is not none else '—' }}</td>
   </tr>{% endfor %}</tbody>
 </table></div></section>
 {% endif %}
+{% if listing and pages > 1 %}
+<nav class="library-pagination" aria-label="Paginação da estante">
+  {% if previous_url %}<a class="button" href="{{ previous_url }}" rel="prev">← Anterior</a>{% else %}<span></span>{% endif %}
+  <span>Página {{ current }} de {{ pages }}</span>
+  {% if next_url %}<a class="button" href="{{ next_url }}" rel="next">Próxima →</a>{% else %}<span></span>{% endif %}
+</nav>
+{% endif %}
+</section>
 {% endblock %}
