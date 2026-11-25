@@ -38,7 +38,7 @@
     <label>Formato <select name="format"><option value="">todos</option>{% for k, v in format_labels.items() %}<option value="{{ k }}" {% if f.format == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
     <label>Natureza <select name="nature"><option value="">todas</option>{% for k, v in nature_labels.items() %}<option value="{{ k }}" {% if f.nature == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
     <label>País <input type="text" name="country" value="{{ f.country }}" size="10"></label>
-    <label>Lido em <input type="number" name="year" value="{{ f.year or '' }}" min="1900" max="2999"></label>
+    <label>Lido em <input type="number" name="year" value="{% if 'year' in request.query_params %}{{ f.year or '' }}{% else %}{{ this_year }}{% endif %}" min="2010" max="2050"></label>
     <label>Nota mín. <input type="number" name="min_score" value="{{ f.min_score or '' }}" step="0.5" min="0" max="10"></label>
     <label>Ordem <select name="sort">{% for k, v in sorts.items() %}<option value="{{ k }}" {% if f.sort == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
     <input type="hidden" name="layout" value="{{ layout }}">

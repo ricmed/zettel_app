@@ -82,10 +82,17 @@ def test_every_layout_renders(web_client, layout):
 
 
 def test_shelf_filter_chrome_and_no_finish_column(web_client):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
     client, _ = web_client
     csrf = login(client)
     _create(client, csrf, genres=["Fantasia"])
+    year = datetime.now(ZoneInfo(_cfg(client).vault_timezone)).year
     page = client.get("/books?sort=code").text
+    assert f'name="year" value="{year}"' in page
+    assert 'name="year" value=""' in client.get("/books?year=").text
+    assert 'name="year" value="1999"' in client.get("/books?year=1999").text
     assert "min_score=4.5" in page
     assert "Filtros prontos" in page
     assert '<button class="button primary" type="submit">Filtrar</button>' in page
