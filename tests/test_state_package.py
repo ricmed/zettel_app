@@ -197,6 +197,7 @@ PUBLIC_METHODS = {
     # shelf (a ficha é a linha sources)
     "upsert_shelf",
     "shelf_stamps",
+    "list_shelf_genre_json",
     "list_shelf_identities",
     "list_shelf_rows",
     "list_shelf_readings",

@@ -49,7 +49,13 @@ def schema_stamp(cfg: Any) -> str:
 
 
 def shelf_fields(
-    book: Any, schema: LibrarySchema, *, mtime_ns: int, size: int, stamp: str
+    book: Any,
+    schema: LibrarySchema,
+    *,
+    mtime_ns: int,
+    size: int,
+    stamp: str,
+    shelf_path: str,
 ) -> dict[str, Any]:
     """Colunas de leitor desta ficha, mais o carimbo do arquivo."""
     meta = book.meta
@@ -84,6 +90,7 @@ def shelf_fields(
         "shelf_mtime_ns": mtime_ns,
         "shelf_size": size,
         "shelf_schema_stamp": stamp,
+        "shelf_path": shelf_path,
     }
 
 
@@ -169,24 +176,49 @@ def _sync_document_type(db: Any, book: Any) -> None:
     )
 
 
+def _unchanged(cached: dict[str, Any], st: Any, stamp: str) -> bool:
+    return (
+        cached["shelf_mtime_ns"] == st.st_mtime_ns
+        and cached["shelf_size"] == st.st_size
+        and cached["shelf_schema_stamp"] == stamp
+    )
+
+
 def refresh(db: Any, cfg: Any) -> MirrorReport:
-    """Põe o espelho em dia com os SRC da estante."""
+    """Põe o espelho em dia com os SRC da estante.
+
+    Um arquivo cujo nome já está em ``shelf_path``, com o mesmo mtime, tamanho
+    e carimbo de ``library.yaml``, só passa por ``stat()``. A primeira leitura
+    grava o nome; uma mudança no vocabulário relê todos.
+    """
     report = MirrorReport()
     schema = schema_for(cfg)
     stamp = schema_stamp(cfg)
     known = db.shelf_stamps()
+    by_name = {
+        str(row["shelf_path"]): row for row in known.values() if str(row.get("shelf_path") or "")
+    }
     wanted = set(cfg.library.document_types)
     seen: set[str] = set()
     for path in list_source_files(cfg):
+        try:
+            st = path.stat()
+        except OSError:
+            continue
+        cached = by_name.get(path.name)
+        if cached is not None and _unchanged(cached, st, stamp):
+            source_id = str(cached["source_id"])
+            if source_id in seen:
+                report.duplicate_ids.append(source_id)
+                logger.warning("source_id %s repetido em %s; mantido o primeiro", source_id, path)
+                continue
+            seen.add(source_id)
+            continue
         book = read_book(path)
         if book is None:
             continue
         if str(book.meta.get("document_type") or "") not in wanted:
             _sync_document_type(db, book)
-            continue
-        try:
-            st = book.path.stat()
-        except OSError:
             continue
         if book.source_id in seen:
             report.duplicate_ids.append(book.source_id)
@@ -194,21 +226,18 @@ def refresh(db: Any, cfg: Any) -> MirrorReport:
                 "source_id %s repetido em %s; mantido o primeiro", book.source_id, book.path
             )
             continue
-        cached = known.get(book.source_id)
-        unchanged = (
-            cached is not None
-            and cached["shelf_mtime_ns"] == st.st_mtime_ns
-            and cached["shelf_size"] == st.st_size
-            and cached["shelf_schema_stamp"] == stamp
-        )
-        if unchanged:
-            seen.add(book.source_id)
-            continue
         _sync_document_type(db, book)
         _ensure_row(db, book, cfg)
         db.upsert_shelf(
             book.source_id,
-            shelf_fields(book, schema, mtime_ns=st.st_mtime_ns, size=st.st_size, stamp=stamp),
+            shelf_fields(
+                book,
+                schema,
+                mtime_ns=st.st_mtime_ns,
+                size=st.st_size,
+                stamp=stamp,
+                shelf_path=path.name,
+            ),
         )
         seen.add(book.source_id)
         report.read += 1

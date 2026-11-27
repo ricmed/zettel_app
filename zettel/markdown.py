@@ -22,14 +22,15 @@ if TYPE_CHECKING:
 _MARKDOWN = MarkdownIt("commonmark", {"html": False, "linkify": True}).enable(["table", "linkify"])
 # Vault files keep ``<!-- zettel:auto-*:start/end -->`` so the pipeline can find
 # the block. The parser has html off (CSP), so those lines would otherwise show
-# as prose in the browser. Inner content stays.
+# as prose in the browser. Inner content stays. ``\r`` is optional because
+# retention stores the vault file as read (CRLF on Windows) in ``notes.body``.
 _MANAGED_MARKER_LINE = re.compile(
-    r"^[ \t]*<!--[ \t]*zettel:[a-z0-9-]+:(?:start|end)[ \t]*-->[ \t]*(?:\n|$)",
+    r"^[ \t]*<!--[ \t]*zettel:[a-z0-9-]+:(?:start|end)[ \t]*-->[ \t]*\r?(?:\n|$)",
     re.MULTILINE | re.IGNORECASE,
 )
 # Written on empty manual ZTLs; after the markers are gone it would show as prose.
 _MANUAL_CONNECTIONS_PLACEHOLDER_LINE = re.compile(
-    r"^[ \t]*_Sincronize com sync-manual para sugestoes automaticas\._[ \t]*(?:\n|$)",
+    r"^[ \t]*_Sincronize com sync-manual para sugestoes automaticas\._[ \t]*\r?(?:\n|$)",
     re.MULTILINE,
 )
 _VAULT_WIKILINK = re.compile(

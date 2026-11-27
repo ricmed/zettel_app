@@ -39,10 +39,21 @@ _SHELF_COLUMNS = (
     "shelf_mtime_ns",
     "shelf_size",
     "shelf_schema_stamp",
+    "shelf_path",
 )
 
 _LAST_END = (
     "(SELECT MAX(json_extract(r.value, '$.end')) FROM json_each(COALESCE(s.readings_json, '[]')) r)"
+)
+
+# O que a lista, o painel e o menu de gêneros leem. Sem o texto extraído,
+# o índice, o resumo e a bibliografia: isso vive na mesma linha e não entra na tela.
+_SHELF_LIST_SQL = (
+    "s.source_id, s.title, s.authors AS authors_json, s.document_type, "
+    "s.code, s.code_number, s.format, s.status, s.genres_json, s.nature, "
+    "s.reading_mode, s.rating_profile, s.country, s.score, s.favorite, "
+    "s.cover, s.ratings_json, "
+    f"{_LAST_END} AS last_end"
 )
 
 # ``code`` ("0254 - D") vale quando ``code_number`` ainda não foi espelhado.
@@ -82,7 +93,8 @@ class BooksMixin(StateBase):
     def shelf_stamps(self) -> dict[str, dict[str, Any]]:
         """``source_id ->`` o carimbo com que o espelho leu o arquivo da última vez."""
         rows = self._fetchall(
-            "SELECT source_id, shelf_mtime_ns, shelf_size, shelf_schema_stamp FROM sources"
+            "SELECT source_id, shelf_mtime_ns, shelf_size, shelf_schema_stamp, shelf_path "
+            "FROM sources"
         )
         return {row["source_id"]: row for row in rows}
 
@@ -153,10 +165,20 @@ class BooksMixin(StateBase):
             params.extend([like, like, like])
         order = SHELF_SORTS.get(sort, SHELF_SORTS["code"])
         return self._fetchall(
-            f"SELECT s.*, s.authors AS authors_json, {_LAST_END} AS last_end "
-            f"FROM sources s WHERE {' AND '.join(where)} ORDER BY {order}",
+            f"SELECT {_SHELF_LIST_SQL} FROM sources s WHERE {' AND '.join(where)} ORDER BY {order}",
             tuple(params),
         )
+
+    def list_shelf_genre_json(self, document_types: Sequence[str]) -> list[str]:
+        """O ``genres_json`` de cada item da estante, para o menu de gêneros."""
+        if not document_types:
+            return []
+        rows = self._fetchall(
+            "SELECT genres_json FROM sources "
+            f"WHERE document_type IN ({placeholders(document_types)})",
+            tuple(document_types),
+        )
+        return [row["genres_json"] or "[]" for row in rows]
 
     def list_shelf_readings(self, document_types: Sequence[str]) -> list[dict]:
         """Toda leitura dos itens da estante, com o que o painel agrega."""

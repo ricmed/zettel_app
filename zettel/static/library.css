@@ -1,14 +1,24 @@
 /* Estante (ADR-068): lista, galeria, quadro, detalhe do livro e gráficos SVG. */
 .heading-actions{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
 .heading-actions label{display:flex;flex-direction:column;font-size:12px}
-.shelf-views{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}
+.page-heading:has(.shelf-heading-actions)>div:first-child{flex:1 1 50%;min-width:0}
+.shelf-heading-actions{flex:0 0 50%;width:50%;max-width:50%;align-items:center;gap:16px}
+.shelf-heading-actions .lookup-row{flex:1;min-width:0}
+.button.shelf-panel{flex:none;margin-left:4px;border-color:var(--accent);color:var(--accent-dark);background:color-mix(in srgb,var(--accent) 12%,var(--card))}
+.button.shelf-panel:hover{border-color:var(--accent-dark);background:color-mix(in srgb,var(--accent) 20%,var(--card))}
+.shelf-presets{margin:0 0 14px;padding:10px 12px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;background:var(--surface-subtle,#f8f8f3)}
+.shelf-presets .eyebrow{display:block;margin-bottom:8px}
+.shelf-views{display:flex;flex-wrap:wrap;gap:6px;margin:0}
 .shelf-views a{padding:5px 11px;border:1px solid var(--line);border-radius:999px;background:var(--card);font-size:13px;text-decoration:none}
 .shelf-views a:hover{border-color:var(--accent)}
 .shelf-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 14px}
+.shelf-filter-actions{flex:1 0 100%;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:4px;padding:8px 10px;border:1px solid var(--accent);border-radius:8px;background:var(--card)}
+.shelf-filter-actions .button{font-weight:600}
 .shelf-filters label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
 .shelf-filters input,.shelf-filters select{padding:6px 8px;font-size:14px}
 .shelf-filters input[type=number]{width:96px}
-.shelf-layouts{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.shelf-results{margin-top:18px}
+.shelf-layouts{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 12px}
 .shelf-layouts a{padding:5px 12px;border-radius:6px;text-decoration:none}
 .shelf-layouts a.active{background:var(--surface-hover);font-weight:600}
 .shelf-layouts .muted{margin-left:auto;font-size:12px}
@@ -92,6 +102,7 @@
 .new-book-cover figcaption{font-size:12px;margin-top:4px}
 .edition-fields{border:1px solid var(--line);border-radius:8px;padding:10px 12px}
 @media (max-width:760px){
+  .page-heading:has(.shelf-heading-actions)>div:first-child,.shelf-heading-actions{flex:1 1 100%;width:100%;max-width:none}
   .lookup-item{grid-template-columns:56px minmax(0,1fr)}
   .lookup-item img,.lookup-blank{width:56px;height:84px}
   .lookup-action{grid-column:1/-1}

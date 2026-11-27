@@ -93,6 +93,9 @@ CREATE TABLE IF NOT EXISTS sources (
     shelf_mtime_ns       INTEGER,
     shelf_size           INTEGER,
     shelf_schema_stamp   TEXT NOT NULL DEFAULT '',
+    -- Nome do SRC em 10_Sources/. Com mtime e tamanho, o espelho faz stat()
+    -- e não reabre o arquivo. Banco antigo ganha a coluna no ALTER.
+    shelf_path           TEXT,
     created_at           TEXT NOT NULL,
     updated_at           TEXT NOT NULL
 );
@@ -502,6 +505,7 @@ SOURCE_READER_COLUMNS: tuple[tuple[str, str], ...] = (
     ("shelf_mtime_ns", "INTEGER"),
     ("shelf_size", "INTEGER"),
     ("shelf_schema_stamp", "TEXT NOT NULL DEFAULT ''"),
+    ("shelf_path", "TEXT"),
 )
 
 # FTS5 virtual tables for BM25 lexical search, kept in sync with notes/chunks.

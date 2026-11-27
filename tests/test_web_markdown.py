@@ -147,3 +147,25 @@ def test_markdown_hides_managed_block_markers_and_keeps_inner_content():
     assert "Sincronize com sync-manual" not in html
     fenced = render_markdown("```\n<!-- zettel:auto-connections:start -->\n```\n")
     assert "zettel:auto-connections:start" in fenced
+
+
+def test_markdown_hides_managed_block_markers_when_the_body_is_crlf():
+    html = render_markdown(
+        "## Fonte\r\n\r\n"
+        "<!-- zettel:auto-evidence:start -->\r\n"
+        "- Citação: (GRUS, 2019, p. 357)\r\n\r\n"
+        '- Trecho literal:\r\n\r\n> "Falhas éticas." (GRUS, 2019, p. 357)\r\n'
+        "<!-- zettel:auto-evidence:end -->\r\n\r\n"
+        "<!-- zettel:auto-backlinks:start -->\r\n"
+        "- [[ZTL - 01ABC]] (supports)\r\n"
+        "<!-- zettel:auto-backlinks:end -->\r\n"
+        "<!-- zettel:auto-connections:start -->\r\n"
+        "_Sincronize com sync-manual para sugestoes automaticas._\r\n"
+        "<!-- zettel:auto-connections:end -->\r\n"
+    )
+    assert "zettel:auto-" not in html
+    assert "&lt;!--" not in html
+    assert "GRUS, 2019, p. 357" in html
+    assert "Falhas éticas." in html
+    assert "01ABC" in html
+    assert "Sincronize com sync-manual" not in html

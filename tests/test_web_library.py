@@ -61,7 +61,11 @@ def test_create_writes_a_manual_liv_kept_by_reset(web_client):
     assert bf.load_book(_cfg(client), second).code == "0002 - D"
 
     listing = client.get("/books").text
-    assert "O Hobbit" in listing and "0001 - F" in listing
+    assert "O Hobbit" not in listing
+    assert "Escolha um filtro pronto ou use Filtrar para ver os livros." in listing
+    found = client.get("/books?q=Hobbit").text
+    assert "O Hobbit" in found and "0001 - F" in found
+    assert "Duna" not in found
     assert "Duna" in client.get("/books?format=digital").text
     assert "O Hobbit" not in client.get("/books?format=digital").text
 
@@ -71,9 +75,80 @@ def test_every_layout_renders(web_client, layout):
     client, _ = web_client
     csrf = login(client)
     _create(client, csrf)
-    page = client.get(f"/books?layout={layout}")
+    page = client.get("/books", params={"layout": layout, "status": "quero_ler"})
     assert page.status_code == 200
     assert "O Hobbit" in page.text
+    assert "O Hobbit" not in client.get("/books", params={"layout": layout}).text
+
+
+def test_shelf_filter_chrome_and_no_finish_column(web_client):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    client, _ = web_client
+    csrf = login(client)
+    _create(client, csrf, genres=["Fantasia"])
+    year = datetime.now(ZoneInfo(_cfg(client).vault_timezone)).year
+    page = client.get("/books?sort=code").text
+    assert f'name="year" value="{year}"' in page
+    assert 'name="year" value=""' in client.get("/books?year=").text
+    assert 'name="year" value="1999"' in client.get("/books?year=1999").text
+    assert "min_score=4.5" in page
+    assert "Filtros prontos" in page
+    assert '<button class="button primary" type="submit">Filtrar</button>' in page
+    assert 'class="shelf-filter-actions"' in page
+    assert 'class="heading-actions shelf-heading-actions"' in page
+    assert 'class="button shelf-panel" href="/books/dashboard">Painel</a>' in page
+    assert 'href="/books?layout=table">Limpar</a>' in page
+    assert "<th>Término</th>" not in page
+    assert 'value="finished"' in page
+    form, _, rest = page.partition("</form>")
+    assert "Tabela" not in form
+    assert 'class="shelf-layouts"' in rest
+    assert "Nada com esses filtros." in client.get("/books?q=zzzz-nenhum-livro").text
+
+
+@pytest.mark.parametrize("layout", ["table", "gallery", "board"])
+def test_shelf_pages_ten_at_a_time(web_client, layout):
+    client, _ = web_client
+    csrf = login(client)
+    for number in range(1, 12):
+        _create(client, csrf, title=f"Tomo {number:02d}")
+    params = {"sort": "code", "layout": layout}
+    first = client.get("/books", params=params).text
+    assert "Tomo 11" in first and "Tomo 02" in first
+    assert "Tomo 01" not in first
+    assert "11 de 11" in first
+    assert "Página 1 de 2" in first
+    second = client.get("/books", params={**params, "pagina": "2"}).text
+    assert "Tomo 01" in second
+    assert "Tomo 11" not in second
+    assert "Página 2 de 2" in second
+    assert "sort=code&amp;layout=gallery&amp;pagina=2" in second
+    clamped = client.get("/books", params={**params, "pagina": "99"}).text
+    assert "Tomo 01" in clamped
+    assert "Página 2 de 2" in clamped
+
+
+def test_unfiltered_shelf_does_not_load_the_row_query(web_client, monkeypatch):
+    from zettel.state.db import StateDB
+
+    client, _ = web_client
+    csrf = login(client)
+    _create(client, csrf, genres=["Fantasia"])
+    calls: list = []
+    real = StateDB.list_shelf_rows
+
+    def spy(self, *args, **kwargs):
+        calls.append(args)
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(StateDB, "list_shelf_rows", spy)
+    page = client.get("/books")
+    assert page.status_code == 200
+    assert calls == []
+    assert "Fantasia" in page.text
+    assert "Escolha um filtro pronto ou use Filtrar para ver os livros." in page.text
 
 
 def test_empty_shelf_explains_how_to_start(web_client):

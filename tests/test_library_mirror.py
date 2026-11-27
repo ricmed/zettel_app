@@ -15,6 +15,54 @@ def _rows(cfg, db, **filters):
     return db.list_shelf_rows(list(cfg.library.document_types), **filters)
 
 
+def test_a_quiet_src_is_not_opened_again(tmp_path, monkeypatch):
+    from zettel.library import mirror
+
+    cfg = library_config(tmp_path)
+    db = library_db(cfg)
+    book = bf.create_book(cfg, {"title": "O Hobbit"})
+    assert refresh(db, cfg).read == 1
+    assert db.shelf_stamps()[book.source_id]["shelf_path"] == book.path.name
+
+    opened: list = []
+    real = mirror.read_book
+
+    def spy(path):
+        opened.append(path)
+        return real(path)
+
+    monkeypatch.setattr(mirror, "read_book", spy)
+    assert refresh(db, cfg).read == 0
+    assert opened == []
+
+    text = book.path.read_text(encoding="utf-8").replace("status: quero_ler", "status: lido")
+    book.path.write_text(text, encoding="utf-8", newline="\n")
+    st = book.path.stat()
+    os.utime(book.path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000))
+    assert refresh(db, cfg).read == 1
+    assert opened == [book.path]
+    assert db.get_source(book.source_id)["status"] == "lido"
+    db.close()
+
+
+def test_shelf_list_omits_extracted_text(tmp_path):
+    cfg = library_config(tmp_path)
+    db = library_db(cfg)
+    book = bf.create_book(cfg, {"title": "O Hobbit"})
+    refresh(db, cfg)
+    db.conn.execute(
+        "UPDATE sources SET extracted_text=? WHERE source_id=?",
+        ("TEXTO EXTRAIDO", book.source_id),
+    )
+    db.conn.commit()
+
+    row = _rows(cfg, db)[0]
+    assert "extracted_text" not in row
+    assert row["title"] == "O Hobbit"
+    assert row["genres_json"]
+    db.close()
+
+
 def test_refresh_reads_new_books_and_skips_unchanged_ones(tmp_path):
     cfg = library_config(tmp_path)
     db = library_db(cfg)
