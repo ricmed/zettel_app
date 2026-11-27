@@ -188,13 +188,13 @@ def _shelf_href(kept: list[tuple[str, str]], *, layout: str, page: int) -> str:
     return "/books?" + urlencode(params)
 
 
-def _extra_genres(rows: list[dict[str, Any]]) -> list[str]:
+def _extra_genres(blobs: list[str]) -> list[str]:
     import json
 
     found = {
         genre
-        for row in rows
-        for genre in json.loads(row.get("genres_json") or "[]")
+        for blob in blobs
+        for genre in json.loads(blob or "[]")
         if isinstance(genre, str) and genre
     }
     return sorted(found)
@@ -223,7 +223,7 @@ def books_list(request: Request):
     try:
         types = list(cfg.library.document_types)
         identities = db.list_shelf_identities(types)
-        catalog = db.list_shelf_rows(types)
+        extra_genres = _extra_genres(db.list_shelf_genre_json(types))
         if listing:
             filtered = db.list_shelf_rows(types, **filters)
             visible, current, pages = _page_slice(filtered, _page_number(request))
@@ -232,7 +232,6 @@ def books_list(request: Request):
             visible, current, pages = [], 1, 1
             matched = 0
         books = [_book_card(row) for row in visible]
-        extra_genres = _extra_genres(catalog)
         duplicated = _duplicated_codes(identities)
         total = len(identities)
     finally:

@@ -130,6 +130,27 @@ def test_shelf_pages_ten_at_a_time(web_client, layout):
     assert "Página 2 de 2" in clamped
 
 
+def test_unfiltered_shelf_does_not_load_the_row_query(web_client, monkeypatch):
+    from zettel.state.db import StateDB
+
+    client, _ = web_client
+    csrf = login(client)
+    _create(client, csrf, genres=["Fantasia"])
+    calls: list = []
+    real = StateDB.list_shelf_rows
+
+    def spy(self, *args, **kwargs):
+        calls.append(args)
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(StateDB, "list_shelf_rows", spy)
+    page = client.get("/books")
+    assert page.status_code == 200
+    assert calls == []
+    assert "Fantasia" in page.text
+    assert "Escolha um filtro pronto ou use Filtrar para ver os livros." in page.text
+
+
 def test_empty_shelf_explains_how_to_start(web_client):
     client, _ = web_client
     login(client)
