@@ -104,3 +104,9 @@ The bytes are stored with `_save_image` (content-addressed under `90_Assets/`). 
 Nothing else about the decision moves. Adoption is still not gated on `images.enabled`. The asset stays `status='pending'`; `extract` and retry assets remain the only description path. A blank ZTL with an image and no source in SQLite is refused, because `assets.source_id` is NOT NULL. SRC, the literature index and the CLI keep the previous gesture: paste the image in Obsidian and run `sync-manual`.
 
 A ZTL created from a granular LIT (`create_permanent_from_literature`, web or `new-note ztl --from-lit`) inherits the canonical `![[90_Assets/…]]` embeds already on that LIT and then appends any images sent on the form, without duplicating a path. The bytes stay where they are; only the embed is copied into `## Figuras`.
+
+## Addendum (2026-11-27): content verdict and a single LIT caption
+
+**Status:** Accepted amendment.
+
+A path embedded in the chunk no longer sends every figure to the ZTL. The description ends with `Conteudo: nenhum` or `Conteudo: conceitual`, stored in the existing `assets.description` (no new column). `nenhum` — an icon, logo, ornament or mark without content — is dropped before the concept is stored, again when connect prepares the note, and in `resolve_images`, even if Prompt 1 named the id. A description written before this line still counts. The path fallback remains for `conceitual` images. The visible caption omits the verdict line. `Conceitos: (nenhum)` alone does not drop the figure. Notes already written are not rewritten by this change.

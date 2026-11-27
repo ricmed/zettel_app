@@ -1051,9 +1051,11 @@ def build_literature_chunk_note(
     body += "<!-- zettel:auto-source-excerpt:end -->\n\n"
     body += "## Imagens Relacionadas\n\n"
     if images:
+        from zettel.assets import visible_image_caption
+
         for img in images:
             path = img.get("path", "")
-            desc = img.get("description") or ""
+            desc = visible_image_caption(img.get("description") or "")
             line = f"- ![[{path}]]"
             if desc:
                 line += f" — {desc}"
@@ -1116,10 +1118,12 @@ def build_permanent_note_body(
     if limits:
         parts.append(f"## Limites\n\n{limits}\n")
     if images:
+        from zettel.assets import visible_image_caption
+
         fig_lines: list[str] = []
         for img in images:
             embed = f"![[{img['path']}]]"
-            desc = img.get("description") or ""
+            desc = visible_image_caption(img.get("description") or "")
             fig_lines.append(f"{embed}\n\n{desc}\n" if desc else f"{embed}\n")
         parts.append("## Figuras\n\n" + "\n".join(fig_lines))
     if connections:

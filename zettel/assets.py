@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 ASSETS_DIR = "90_Assets"
 _MD_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 _DOCLING_PLACEHOLDER = "<!-- image -->"
+_CONTENT_VERDICT_RE = re.compile(r"^Conteudo:\s*(nenhum|conceitual)\s*$", re.IGNORECASE)
 
 
 # ── IDs and paths ──────────────────────────────────────────────────────
@@ -279,6 +280,52 @@ def asset_ids_in_text(db: StateDB, source_id: str, text: str) -> list[str]:
         if path and path in text:
             ids.append(asset["asset_id"])
     return ids
+
+
+def image_content_verdict(description: str | None) -> str | None:
+    """``nenhum``, ``conceitual``, or None when the description has no verdict line.
+
+    The line is the last non-empty line, exactly ``Conteudo: nenhum`` or
+    ``Conteudo: conceitual``. A description written before that line existed
+    returns None, and the image keeps today's behavior.
+    """
+    lines = [line.strip() for line in (description or "").splitlines() if line.strip()]
+    if not lines:
+        return None
+    match = _CONTENT_VERDICT_RE.match(lines[-1])
+    if not match:
+        return None
+    return match.group(1).casefold()
+
+
+def visible_image_caption(description: str | None) -> str:
+    """Description shown to the reader. The trailing ``Conteudo:`` line stays out."""
+    lines = (description or "").splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if lines and _CONTENT_VERDICT_RE.match(lines[-1].strip()):
+        lines.pop()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines).strip()
+
+
+def drop_contentless_image_ids(db: StateDB, image_ids: list[str]) -> list[str]:
+    """Drop ids whose description ends in ``Conteudo: nenhum``.
+
+    ``conceitual`` and a missing line stay. An id with no asset row stays too:
+    there is no verdict to read, and ``resolve_images`` already skips a row
+    without a path. The path fallback is a different function and is not filtered
+    here.
+    """
+    kept: list[str] = []
+    for aid in image_ids:
+        asset = db.get_asset(aid)
+        description = (asset or {}).get("description") or ""
+        if image_content_verdict(description) == "nenhum":
+            continue
+        kept.append(aid)
+    return kept
 
 
 def _resolve_chapter_id(

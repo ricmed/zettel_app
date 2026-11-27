@@ -116,7 +116,7 @@ Texto do chunk:
 ---
 ```
 
-Se houver imagens (quadrinhos, livros ilustrados) e uma delas for essencial para o candidato, inclua o `asset_id` em `relevant_image_ids`; a descrição da imagem pode ancorar o candidato quando o texto for escasso.
+Se houver imagens (quadrinhos, livros ilustrados) e uma delas for essencial para o candidato, inclua o `asset_id` em `relevant_image_ids`; nao inclua imagem com `Conteudo: nenhum`. A descrição da imagem pode ancorar o candidato quando o texto for escasso.
 
 ---
 

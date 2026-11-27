@@ -627,10 +627,11 @@ def _process_chunk(
 
     candidates: list[dict] = []
     for cand in approved_cands:
-        if not cand.relevant_image_ids:
-            from zettel.assets import asset_ids_in_text
+        from zettel.assets import asset_ids_in_text, drop_contentless_image_ids
 
+        if not cand.relevant_image_ids:
             cand.relevant_image_ids = asset_ids_in_text(db, source_id, chunk_text)
+        cand.relevant_image_ids = drop_contentless_image_ids(db, cand.relevant_image_ids)
 
         concept_id = _compute_concept_id(source_id, chunk_id, cand)
         candidates.append(

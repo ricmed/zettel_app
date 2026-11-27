@@ -180,7 +180,7 @@ Pacote: [`connector/`](../zettel/connector/) ([ADR-053](adrs/generated/CONNECT/A
 2. Chama o LLM com o **Prompt 2** (`permanent_note.md`):
    - Conceito + contexto RAG (embedding / grafo / analogias distantes) + opcionalmente `{images_context}` das figuras do candidato → nota permanente completa
 3. Valida idioma PT-BR (guardrail automático)
-4. Resolve imagens do candidato (`relevant_image_ids`, com fallback por path no chunk se a lista estiver vazia) e cria o arquivo **ZTL** em `30_Permanent/` com:
+4. Resolve imagens do candidato (`relevant_image_ids`, com fallback por path no chunk se a lista estiver vazia). Descrição que termina em `Conteudo: nenhum` não entra, nem pelo fallback nem quando o Prompt 1 citou o id; `conceitual` e descrição antiga sem essa linha seguem. A legenda visível omite a linha `Conteudo:`. Cria o arquivo **ZTL** em `30_Permanent/` com:
    - Frontmatter YAML enxuto (type, note_id, title, source_id, chunk_id, tags, origin, page, datas e as listas de julgamento do autor). `literature_ref`, `source_locator`, `citation`, `anchor_quote` e o custo LLM da nota ficam em `notes.provenance_json` no SQLite — os quatro primeiros já aparecem no corpo
    - Corpo: Tese → Definição (prosa direta sem heading) → Limites (opcional) → **Figuras** (embeds Obsidian + legendas) → Conexões → Fonte
 5. Atualiza **backlinks** nas notas relacionadas via blocos gerenciados:

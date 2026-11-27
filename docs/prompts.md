@@ -15,7 +15,7 @@ Os prompts em [`prompts/`](../prompts) são templates Markdown com placeholders 
 - **Profundidade**: mais ou menos detalhes por nota
 - **Tags**: criterios para sugestao de tags (pelo menos uma estrutural/transferível ao lado das específicas; os exemplos moram em `domain_examples.yaml`)
 - **Seletividade**: regras de relevancia e filtragem em `literature_note.md`. O texto descreve o chunk que o codigo envia: sem marcadores de pagina, sobreposicao so dentro de secao longa, tese em uma frase, definicao em 3-5 frases. Mudar esse arquivo invalida o cache de Prompt 1.
-- **Imagens → candidatos/ZTL**: criterios de `relevant_image_ids` e extracao a partir de diagramas em `literature_note.md`; tom da descricao em `image_description.md`; uso de figuras no Prompt 2 em `permanent_note.md`
+- **Imagens → candidatos/ZTL**: criterios de `relevant_image_ids` e extracao a partir de diagramas em `literature_note.md` (nao listar `Conteudo: nenhum`; o codigo descarta mesmo assim); a descricao em `image_description.md` termina em `Conteudo: nenhum` ou `Conteudo: conceitual`; uso de figuras no Prompt 2 em `permanent_note.md`
 - **Taxonomia de MOCs**: edite `config/moc_topics.yaml` (pilares, categorias e topicos)
 - **Dominio e categorias**: `{domain}` vem de `domain.name` e chega a `moc_generation.md`, `moc_hub_generation.md`, `literature_note.md` e `permanent_note.md`; few-shots vêm de `domain.examples_path`; `{allowed_topics_section}` em `moc_generation.md` vem do YAML da taxonomia
 - **Classificacao incremental**: edite `moc_incremental.md` para ajustar como novas notas sao classificadas em MOCs existentes

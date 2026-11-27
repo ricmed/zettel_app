@@ -193,8 +193,12 @@ def prepare_candidate(session: ConnectSession, cand_dict: dict) -> PreparedNote 
     citation = resolve_citation(source, chunk_row, cand.anchor_quote)
 
     # Prefer LLM-provided image ids; fall back to paths embedded in the source chunk.
+    # ``Conteudo: nenhum`` is dropped either way, including an id Prompt 1 listed.
+    from zettel.assets import drop_contentless_image_ids
+
     if not cand.relevant_image_ids:
         cand.relevant_image_ids = context.fallback_image_ids(db, source_id, chunk_row)
+    cand.relevant_image_ids = drop_contentless_image_ids(db, cand.relevant_image_ids)
 
     query_text = candidate_query_text(cand)
     similar = session.retriever.search_notes(
