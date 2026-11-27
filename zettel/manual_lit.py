@@ -82,9 +82,14 @@ def _section(body: str, heading: str) -> str:
 
 
 def _excerpt(content: str) -> str:
-    """Source excerpt from the auto-source-excerpt managed block."""
+    """Source excerpt from the auto-source-excerpt managed block.
+
+    The ``auto-image-caption`` block is the reader's explanation, not source text.
+    """
+    from zettel.assets import strip_image_captions
+
     block = read_managed_block(content, "auto-source-excerpt")
-    text = (block or "").strip()
+    text = strip_image_captions(block or "").strip()
     return "" if text.lower() in _PLACEHOLDERS else text
 
 

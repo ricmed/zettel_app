@@ -681,7 +681,7 @@ def _write_literature_draft(
     section_path = chunk_row.get("section_path") or ""
 
     candidate_dicts = [c.model_dump() for c in candidates]
-    images = _images_for_chunk(db, chunk_row)
+    images = images_for_chunk(db, chunk_row)
     meta, body = build_literature_chunk_note(
         source_id=chunk_row["source_id"],
         citekey=citekey,
@@ -741,7 +741,7 @@ def _chunk_has_pending_image(db: StateDB, chunk_row: dict) -> bool:
     return False
 
 
-def _images_for_chunk(db: StateDB, chunk_row: dict) -> list[dict[str, Any]]:
+def images_for_chunk(db: StateDB, chunk_row: dict) -> list[dict[str, Any]]:
     """Assets for this chunk: same chapter, optionally same page."""
     assets = db.get_assets_for_source(chunk_row["source_id"])
     chapter_id = chunk_row.get("chapter_id")

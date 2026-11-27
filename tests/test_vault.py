@@ -456,6 +456,56 @@ def test_literature_chunk_note_candidate_without_anchor_quote_does_not_break_lay
     assert "## Trecho da fonte" in body  # rest of the note still renders
 
 
+def test_literature_chunk_note_captions_the_first_excerpt_image_once():
+    """The explanation sits once under the first embed; the section keeps the neighbour."""
+    source = (
+        "Antes.\n\n"
+        "![Imagem](90_Assets/img-no-trecho.png)\n\n"
+        "Depois da figura, ainda fonte.\n\n"
+        "![Imagem](90_Assets/img-no-trecho.png)\n"
+    )
+    _, body = build_literature_chunk_note(
+        source_id="@S",
+        citekey="Book2024",
+        title="Livro",
+        chunk_id="@S::ch::abc",
+        chunk_index=1,
+        literature_id="lit1",
+        summary="Resumo.",
+        key_concepts=[],
+        candidates=[],
+        images=[
+            {
+                "path": "90_Assets/img-no-trecho.png",
+                "description": "Diagrama do mecanismo.\nConteudo: conceitual",
+            },
+            {
+                "path": "90_Assets/img-vizinho.png",
+                "description": "Mapa do capitulo.\nConteudo: conceitual",
+            },
+        ],
+        source_text=source,
+        page_in_book=20,
+    )
+    excerpt = body.split("zettel:auto-source-excerpt:start", 1)[1].split(
+        "zettel:auto-source-excerpt:end", 1
+    )[0]
+    section = body.split("## Imagens Relacionadas", 1)[1]
+    assert excerpt.count("zettel:auto-image-caption:start") == 1
+    assert excerpt.index("![Imagem](90_Assets/img-no-trecho.png)") < excerpt.index(
+        "zettel:auto-image-caption:start"
+    )
+    assert "Diagrama do mecanismo." in excerpt
+    assert "Conteudo:" not in body
+    assert "img-no-trecho" not in section
+    assert "img-vizinho" in section
+    assert "Mapa do capitulo." in section
+    embeddable = extract_embeddable_text(compose_note({"type": "literature"}, body))
+    assert "Depois da figura, ainda fonte." not in embeddable
+    assert "Diagrama do mecanismo." not in embeddable
+    assert "Mapa do capitulo." in embeddable
+
+
 def test_literature_chunk_note_empty_source_placeholder():
     _, body = build_literature_chunk_note(
         source_id="@S",

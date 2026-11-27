@@ -197,11 +197,22 @@ def malformed_managed_blocks(content: str) -> list[str]:
     seen: dict[str, list[str]] = {}
     for match in _MARKER_RE.finditer(content):
         seen.setdefault(match.group(1), []).append(match.group(2))
-    return sorted(
-        name
-        for name, kinds in seen.items()
-        if _marker_reason(kinds.count("start"), kinds.count("end"), kinds[0] == "start")
-    )
+    broken: list[str] = []
+    for name, kinds in seen.items():
+        # One caption per figure, inside the excerpt. Pairs stay start/end/start/end.
+        # Upsert of this name is not how the caption is rewritten.
+        if name == "auto-image-caption" and _caption_pairs_well_formed(kinds):
+            continue
+        if _marker_reason(kinds.count("start"), kinds.count("end"), kinds[0] == "start"):
+            broken.append(name)
+    return sorted(broken)
+
+
+def _caption_pairs_well_formed(kinds: list[str]) -> bool:
+    """True when every ``auto-image-caption`` start is closed before the next one."""
+    if not kinds or len(kinds) % 2:
+        return False
+    return all(kinds[i] == "start" and kinds[i + 1] == "end" for i in range(0, len(kinds), 2))
 
 
 def vault_notes_with_malformed_blocks(vault_path: Path) -> list[tuple[Path, list[str]]]:
@@ -1044,23 +1055,28 @@ def build_literature_chunk_note(
         body += "## Julgamento do autor\n"
         body = upsert_managed_block(body, "auto-decision", decision_inner)
         body += "\n"
-    excerpt = (source_text or "").strip() or "_Trecho nao disponivel._"
+    from zettel.assets import excerpt_image_paths, literature_source_excerpt, visible_image_caption
+
+    raw_excerpt = (source_text or "").strip()
+    excerpt = literature_source_excerpt(raw_excerpt, images)
+    in_excerpt = excerpt_image_paths(raw_excerpt)
     body += "## Trecho da fonte\n\n"
     body += "<!-- zettel:auto-source-excerpt:start -->\n"
     body += f"{excerpt}\n"
     body += "<!-- zettel:auto-source-excerpt:end -->\n\n"
     body += "## Imagens Relacionadas\n\n"
-    if images:
-        from zettel.assets import visible_image_caption
-
-        for img in images:
-            path = img.get("path", "")
-            desc = visible_image_caption(img.get("description") or "")
-            line = f"- ![[{path}]]"
-            if desc:
-                line += f" — {desc}"
-            body += line + "\n"
-        body += "\n"
+    related: list[str] = []
+    for img in images or []:
+        path = str(img.get("path") or "").replace("\\", "/")
+        if path in in_excerpt:
+            continue
+        desc = visible_image_caption(img.get("description") or "")
+        line = f"- ![[{path}]]"
+        if desc:
+            line += f" — {desc}"
+        related.append(line)
+    if related:
+        body += "\n".join(related) + "\n\n"
     else:
         body += "_Nenhuma._\n\n"
     body += f"## Backlink\n\n← [[{index_stem}]]\n"

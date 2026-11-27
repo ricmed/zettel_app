@@ -19,7 +19,9 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from zettel.assets import literature_source_excerpt
 from zettel.config import AppConfig
+from zettel.extractor import images_for_chunk
 from zettel.hashing import (
     compute_embedding_input_hash,
     extract_embeddable_text,
@@ -414,7 +416,8 @@ def run_rebuild_vault(
                 if _write(dest, content, origin):
                     stats["literature"] += 1
                     if not dry_run and dest.exists():
-                        excerpt = (chunk.get("text") or "").strip() or "_Trecho nao disponivel._"
+                        images = images_for_chunk(db, chunk)
+                        excerpt = literature_source_excerpt(chunk.get("text") or "", images)
                         safe_update_managed_blocks(
                             dest,
                             {"auto-source-excerpt": excerpt},
@@ -431,6 +434,7 @@ def run_rebuild_vault(
             if chunk.get("summary_json"):
                 with contextlib.suppress(json.JSONDecodeError):
                     summary_data = json.loads(chunk["summary_json"])
+            images = images_for_chunk(db, chunk)
             meta, body = build_literature_chunk_note(
                 source_id=src["source_id"],
                 citekey=citekey,
@@ -441,6 +445,7 @@ def run_rebuild_vault(
                 summary=summary_data.get("summary", ""),
                 key_concepts=summary_data.get("key_concepts") or [],
                 candidates=summary_data.get("candidates") or [],
+                images=images,
                 section_path=chunk.get("section_path") or "",
                 source_text=chunk.get("text") or "",
                 page_in_file=chunk.get("page_in_file"),
