@@ -14,6 +14,7 @@ from zettel.harvester.extract import (
     find_render_hidden_text,
     page_map_for_source,
 )
+from zettel.markdown_fences import iter_fenced_spans
 from zettel.paging import page_marker
 
 
@@ -256,6 +257,34 @@ def test_extract_pdf_docling_merges_lowercase_continuation_hyphenation(monkeypat
     text, _metadata = extract_pdf_docling(_cfg(), pdf)
     assert "palavra quebrada" in text
     assert "pala-\nvra" not in text
+
+
+def test_extract_pdf_docling_repairs_a_fence_cut_at_the_page(monkeypatch, tmp_path):
+    """A listagem partida no marcador volta a ser uma cerca, e o mapa é relido dela."""
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+
+    class _SplitFence:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def convert(self, path):
+            return _FakeResult(
+                [
+                    "```\npredicted = model.forward(input)\n```",
+                    "```\nepoch_loss += loss.item()\n```",
+                ]
+            )
+
+    monkeypatch.setattr("docling.document_converter.DocumentConverter", _SplitFence)
+    text, metadata = extract_pdf_docling(_cfg(), pdf)
+    assert len(iter_fenced_spans(text)) == 1
+    assert "model.forward" in text and "epoch_loss" in text
+    assert page_marker(1) in text and page_marker(2) in text
+    page_map = metadata["_page_map"]
+    assert [page for page, _body in page_map] == [1, 2]
+    assert "model.forward" in page_map[0][1]
+    assert "epoch_loss" in page_map[1][1]
 
 
 def test_extract_pdf_docling_preserves_uppercase_continuation_hyphenation(monkeypatch, tmp_path):

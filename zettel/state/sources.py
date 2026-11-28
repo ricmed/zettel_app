@@ -214,21 +214,24 @@ class SourcesMixin(StateBase):
         source_id: str,
         extracted_text: str | None = None,
         lit_body: str | None = None,
+        extraction_checksum: str | None = None,
     ) -> None:
         """Persist the full extracted text and/or the LIT index snapshot for a source.
 
         Only overwrites columns whose argument is not None, so callers can update
         one field without clobbering the other. This is the durable retention layer
         that lets `rechunk` and `rebuild` run without reprocessing the source file.
-        ``lit_body`` stores the literature *index* note.
+        ``lit_body`` stores the literature *index* note. ``extraction_checksum`` is
+        the hash of the same text harvest stores, so a repair keeps the two in step.
         """
         self.conn.execute(
             """UPDATE sources SET
                  extracted_text=COALESCE(?, extracted_text),
                  lit_body=COALESCE(?, lit_body),
+                 extraction_checksum=COALESCE(?, extraction_checksum),
                  updated_at=?
                WHERE source_id=?""",
-            (extracted_text, lit_body, self._now(), source_id),
+            (extracted_text, lit_body, extraction_checksum, self._now(), source_id),
         )
         self.conn.commit()
 

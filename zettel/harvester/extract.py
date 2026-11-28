@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from zettel.code_fence_repair import repair_docling_code_fences
 from zettel.config import AppConfig
 from zettel.hashing import dehyphenate_pdf_linebreaks
 from zettel.markdown_fences import collapse_table_padding
@@ -365,6 +366,29 @@ def release_docling_pipelines(converter: Any) -> None:
         pipelines.clear()
 
 
+def _reread_exact_page_map(
+    text: str,
+    *,
+    exact: bool,
+    page_map: list[tuple[int, str]],
+    num_pages: int | None,
+    file_name: str,
+) -> tuple[bool, list[tuple[int, str]]]:
+    """Relê o mapa nos marcadores já gravados no texto. O mesmo sítio da desifenização."""
+    if not exact:
+        return exact, page_map
+    parsed = page_map_from_marked_markdown(text)
+    if page_map_is_complete(parsed, num_pages):
+        return True, parsed
+    logger.error(
+        "Mapa de paginas de %s deixou de cobrir 1..%s apos a limpeza do texto. "
+        "Nenhuma pagina sera rotulada como exata.",
+        file_name,
+        num_pages,
+    )
+    return False, []
+
+
 def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str, Any]]:
     """Extract text from PDF using Docling, with GPU acceleration when available.
 
@@ -439,19 +463,13 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
     # LLM prompt, the embedding and the anchor_quote never see "pala-\nvra".
     # normalize_text_for_hash() also runs this (idempotent) for the hashing path.
     text = dehyphenate_pdf_linebreaks(text)
-    if exact:
-        parsed = page_map_from_marked_markdown(text)
-        if page_map_is_complete(parsed, num_pages):
-            page_map = parsed
-        else:
-            logger.error(
-                "Mapa de paginas de %s deixou de cobrir 1..%s apos a limpeza do texto. "
-                "Nenhuma pagina sera rotulada como exata.",
-                file_path.name,
-                num_pages,
-            )
-            page_map = []
-            exact = False
+    exact, page_map = _reread_exact_page_map(
+        text,
+        exact=exact,
+        page_map=page_map,
+        num_pages=num_pages,
+        file_name=file_path.name,
+    )
 
     metadata: dict[str, Any] = {
         "title": file_path.stem,
@@ -500,6 +518,19 @@ def extract_pdf_docling(cfg: AppConfig, file_path: Path) -> tuple[str, dict[str,
                 file_path.name,
                 len(outline),
             )
+
+    # Depois da desifenização e do outline: a cerca cortada na página volta a
+    # ser uma, e o mapa é relido dos marcadores que o reparo deixou no texto.
+    repaired = repair_docling_code_fences(text)
+    if repaired != text:
+        text = repaired
+        exact, page_map = _reread_exact_page_map(
+            text,
+            exact=exact,
+            page_map=page_map,
+            num_pages=num_pages,
+            file_name=file_path.name,
+        )
 
     if exact and page_map:
         metadata["_page_map"] = page_map

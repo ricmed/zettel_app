@@ -417,6 +417,38 @@ def test_rechunk_removes_orphans_on_changed_text(tmp_path):
         db.close()
 
 
+def test_rechunk_repairs_page_split_fences_and_stores_the_checksum(tmp_path):
+    """O texto reparado e o extraction_checksum são gravados juntos, antes do split."""
+    from zettel.hashing import normalize_text_for_hash, sha256_hex
+
+    text = (
+        "```\npredicted = model.forward(input)\n```\n\n"
+        "<!-- zettel:page 2 -->\n\n"
+        "```\nepoch_loss += loss.item()\n```\n"
+    )
+    db = StateDB(tmp_path / "s.db")
+    try:
+        db.upsert_source("@S", "S", "T", [], None, "h", "/p", "pdf", extraction_checksum="stale")
+        db.update_source_texts("@S", extracted_text=text)
+        stats = run_rechunk(AppConfig(), db, FakeVectorIndex(), "@S")
+        src = db.get_source("@S")
+        repaired = src["extracted_text"]
+        assert stats["sources"] == 1
+        assert repaired != text
+        assert len(_iter_fenced_spans(repaired)) == 1
+        assert "<!-- zettel:page 2 -->" in repaired
+        assert "epoch_loss" in repaired and "model.forward" in repaired
+        checksum = sha256_hex(normalize_text_for_hash(repaired))
+        assert src["extraction_checksum"] == checksum
+        assert src["extraction_checksum"] != "stale"
+        run_rechunk(AppConfig(), db, FakeVectorIndex(), "@S")
+        again = db.get_source("@S")
+        assert again["extracted_text"] == repaired
+        assert again["extraction_checksum"] == checksum
+    finally:
+        db.close()
+
+
 def test_rechunk_skips_source_without_extracted_text(tmp_path):
     db = StateDB(tmp_path / "s.db")
     try:

@@ -246,3 +246,23 @@ Docling exports every PDF `section_header` as `##`, so `split_into_chapters` tre
 ## Amendment (2026-10-17): chunk overlap and the size floor stay at the defaults (#250)
 
 `chunk_overlap` stays 400, `min_chunk_chars` stays 200, and `chunk_size` stays 2500. A literature result that overlap does not help question answering is not a measurement of this extract. The comparison is pre-registered in [evals/preregistration/250-chunking-gold.md](../../../../evals/preregistration/250-chunking-gold.md), against the #175 gold set, and it has not been run. The defaults change only if that rule is met.
+
+## Amendment (2026-11-27): repair page-split code fences before the chunker
+
+**Status:** Accepted amendment. It does not change `fence_section_slack`, the pre-LLM gate, or any prompt. It does not reopen #154 or #150.
+
+**Cause.** Docling's harvest export is one Markdown slice per PDF page (`docling_page_map_by_export`, concatenated by `render_page_marked_markdown`). Each slice opens and closes its own fences. The chunker then does what ADR-014 already requires: a CommonMark fence is an atom, so two fences stay two atoms even when they are the same listing. On a harvested programming book this showed up as a loop cut at `predicted = model.forward(input)` / `epoch_loss +=`, a `page_rank` listing split across `<!-- zettel:page N -->`, book prose echoed inside the next fence, and code lines promoted to headings (`### import tqdm`, `### return input`). A token Docling already dropped does not come back.
+
+**Amendment.** `repair_docling_code_fences` (`zettel/code_fence_repair.py`) is a pure function, with no config switch — a switch left off would repeat the dead knob from #154. Text without a numbered `<!-- zettel:page N -->` marker is returned unchanged, so hand-written Markdown is not rewritten. A second pass is a no-op. Page markers are never deleted. The rules, in order:
+
+1. Page furniture inside a fence comes out: a footer (`Word Vectors | 293`, `294 | Chapter 21…`), a dash ruler, and a lone `|`. The same furniture in the gap between two fences comes out too. The page marker stays.
+2. When the gap between a closing fence and the next opening fence is only whitespace, `|`, and one page marker, the two bodies become one fence and the marker stays in the middle. A real sentence in the gap blocks the join. A heading that repeats the next fence's first code line is not that sentence.
+3. A fence line that, with whitespace collapsed and a trailing hyphen removed, is a prefix, a suffix, or a stretch of at least 30 characters of a paragraph in the gap immediately outside the fence, leaves the fence. The outside copy stays. A `#` / `//` / `/*` / `*` / `--` comment is not removed this way.
+4. A line that is not a comment, is not inside a triple-quoted string, has at least five alphabetic words, and is not a code line (`def` / `class` / `import` / `from` / `return` / `for` / `while` / `if` / `elif` / `else` / `try` / `except` / `with` / `yield` / `assert` / `raise` / `print` / `@`, or `=` / a call) moves out of the fence, splitting the fence around it.
+5. An ATX heading whose text repeats the first line of the following fence (`### import tqdm`, `### return input`) stops being a heading, so `section_path` returns to the book's section. The code line remains inside the fence.
+
+`extract_pdf_docling` runs the repair after `dehyphenate_pdf_linebreaks` and the PDF outline, then re-reads the page map from the repaired markers — the same re-read the dehyphenation already uses. The extraction checksum is the checksum of that repaired text. `run_rechunk` runs the same function on the persisted `extracted_text` and, when the text changes, writes the text and the checksum together before `split_into_chapters`.
+
+**Residual.** Two programs that Docling places against each other at a page boundary, with no prose between them, become one fence. A language parser does not belong in this change. Already harvested sources, including a vault extracted before this rule, stay as they are until `zettel rechunk`. Rechunk changes `chunk_id` where the text changes and invalidates the extract cache for those parts. Running that rechunk, and extract again, is out of scope here.
+
+**References.** `zettel/code_fence_repair.py` — `repair_docling_code_fences`; `zettel/harvester/extract.py` — `extract_pdf_docling`; `zettel/harvester/pipeline.py` — `run_rechunk`; `tests/test_code_fence_repair.py`.

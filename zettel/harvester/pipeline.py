@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from zettel.code_fence_repair import repair_docling_code_fences
 from zettel.config import AppConfig
 from zettel.hashing import (
     compute_pipeline_signature,
@@ -277,6 +278,14 @@ def run_rechunk(
             )
             stats["skipped"] += 1
             continue
+        repaired = repair_docling_code_fences(text)
+        if repaired != text:
+            text = repaired
+            db.update_source_texts(
+                sid,
+                extracted_text=text,
+                extraction_checksum=sha256_hex(normalize_text_for_hash(text)),
+            )
         chapters = chunking.split_into_chapters(text, src["origin_type"])
         paging = _paging_from_source(db, src)
         page_map = extract.page_map_for_source(src)
