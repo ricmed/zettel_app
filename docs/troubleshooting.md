@@ -92,8 +92,9 @@ Não quebra nada (`device: auto` cai para CPU), mas ocupa cerca de 2,5 GB. Troqu
 
 ## ZTL sem seção Figuras
 
-- Figuras dependem de `relevant_image_ids` no candidato (Prompt 1) ou do **fallback** (path `90_Assets/...` presente no texto do chunk)
+- Figuras dependem de `relevant_image_ids` no candidato (Prompt 1) ou do **fallback** (path `90_Assets/...` presente no texto do chunk). Descrição que termina em `Conteudo: nenhum` não entra, nem pelo fallback nem por id citado; sem essa linha, ou com `Conteudo: conceitual`, a figura segue. A legenda visível omite a linha `Conteudo:`
 - Se a imagem está em outro capítulo/chunk, o fallback não a anexa — o LLM precisa marcá-la via `{images_context}` do mesmo capítulo
+- Na LIT, a explicação fica na primeira ocorrência do embed no trecho (`auto-image-caption`); `## Imagens Relacionadas` não repete esse path. Imagem do capítulo que não está no trecho continua só na seção
 - Confira o bloco `## Imagens` da LIT e se o asset tem `status: described`
 - Imagens com falha de descrição voltam para a fila com `python -m zettel retry-failed --assets`
 

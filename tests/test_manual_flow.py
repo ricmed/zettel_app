@@ -8,6 +8,7 @@ from zettel.config import AppConfig
 from zettel.hashing import normalize_text_for_hash, sha256_hex
 from zettel.manual_lit import (
     _candidate_theses,
+    _excerpt,
     build_candidate_from_literature,
     create_permanent_from_literature,
 )
@@ -742,3 +743,25 @@ def test_connect_skips_generation_when_manual_ztl_already_covers(cfg, db, monkey
     assert row["status"] == "noted"
     assert row["note_id"] == note_id
     assert parse_frontmatter(path.read_text(encoding="utf-8"))[0]["origin"] == "manual"
+
+
+def test_excerpt_reader_ignores_the_image_caption():
+    """Adoption reads the source passage, not the generated caption."""
+    content = (
+        "---\ntype: literature\n---\n"
+        "## Trecho da fonte\n\n"
+        "<!-- zettel:auto-source-excerpt:start -->\n"
+        "Antes.\n"
+        "![Imagem](90_Assets/img-a.png)\n"
+        "<!-- zettel:auto-image-caption:start -->\n"
+        "Diagrama do mecanismo.\n"
+        "<!-- zettel:auto-image-caption:end -->\n"
+        "Depois da figura.\n"
+        "<!-- zettel:auto-source-excerpt:end -->\n"
+    )
+    text = _excerpt(content)
+    assert "Diagrama do mecanismo" not in text
+    assert "auto-image-caption" not in text
+    assert "![Imagem](90_Assets/img-a.png)" in text
+    assert "Antes." in text
+    assert "Depois da figura." in text

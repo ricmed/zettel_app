@@ -162,6 +162,59 @@ def test_approve_moves_draft_without_embedding(env):
     assert concepts[0]["status"] == "extracted"
 
 
+def test_approve_rewrites_excerpt_with_one_image_caption(env):
+    """Approval rebuilds the excerpt with the caption helper and passes images=."""
+    cfg, db, idx = env
+    chunk_id = "@Book2024::ch000::abc"
+    db.conn.execute(
+        "UPDATE chunks SET text=? WHERE chunk_id=?",
+        ("Antes.\n\n![Imagem](90_Assets/img-a.png)\n\nDepois.", chunk_id),
+    )
+    db.conn.commit()
+    db.upsert_asset(
+        "@Book2024::img::a",
+        "@Book2024",
+        "90_Assets/img-a.png",
+        "cka",
+        chapter_id="@Book2024::ch000",
+        page_in_file=20,
+    )
+    db.upsert_asset(
+        "@Book2024::img::v",
+        "@Book2024",
+        "90_Assets/img-v.png",
+        "ckv",
+        chapter_id="@Book2024::ch000",
+        page_in_file=21,
+    )
+    db.update_asset_description(
+        "@Book2024::img::a",
+        "Diagrama do mecanismo.\nConteudo: conceitual",
+        "ca",
+    )
+    db.update_asset_description(
+        "@Book2024::img::v",
+        "Mapa vizinho.\nConteudo: conceitual",
+        "cv",
+    )
+    # The draft is gone, so approval rebuilds the LIT and must pass images=.
+    Path(db.get_chunk(chunk_id)["literature_note_path"]).unlink()
+    assert approve_chunk(cfg, db, idx, chunk_id)
+    fname = literature_chunk_filename_for_row("Book2024", db.get_chunk(chunk_id))
+    dest = cfg.vault_path / "20_Literature" / literature_source_dirname("Book2024") / fname
+    text = dest.read_text(encoding="utf-8")
+    excerpt = text.split("zettel:auto-source-excerpt:start", 1)[1].split(
+        "zettel:auto-source-excerpt:end", 1
+    )[0]
+    section = text.split("## Imagens Relacionadas", 1)[1]
+    assert excerpt.count("zettel:auto-image-caption:start") == 1
+    assert "Diagrama do mecanismo." in excerpt
+    assert "Conteudo:" not in text
+    assert "img-a.png" not in section
+    assert "img-v.png" in section
+    assert "Mapa vizinho." in section
+
+
 def test_approve_preserves_candidate_quotes_block_without_duplicating(tmp_path):
     """#58: the anchor-quote managed block survives promotion exactly once."""
     cfg = AppConfig(

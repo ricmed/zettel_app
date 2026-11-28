@@ -203,12 +203,23 @@ def fallback_image_ids(db: StateDB, source_id: str, chunk_row: dict | None) -> l
 
 
 def resolve_images(db: StateDB, image_ids: list[str]) -> list[dict]:
-    """Resolve asset ids into ``{path, description}`` for the ZTL body."""
+    """Resolve asset ids into ``{path, description}`` for the ZTL body.
+
+    ``Conteudo: nenhum`` is dropped here even when the caller listed the id.
+    The description is the visible caption: the verdict line stays out of the note.
+    """
+    from zettel.assets import drop_contentless_image_ids, visible_image_caption
+
     resolved: list[dict] = []
-    for aid in image_ids:
+    for aid in drop_contentless_image_ids(db, image_ids):
         asset = db.get_asset(aid)
         if asset and asset.get("path"):
-            resolved.append({"path": asset["path"], "description": asset.get("description") or ""})
+            resolved.append(
+                {
+                    "path": asset["path"],
+                    "description": visible_image_caption(asset.get("description") or ""),
+                }
+            )
     return resolved
 
 

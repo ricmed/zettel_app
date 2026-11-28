@@ -1571,6 +1571,10 @@ def approve_chunk(
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest_path = dest_dir / literature_chunk_filename_for_row(citekey, chunk)
 
+    from zettel.assets import literature_source_excerpt
+    from zettel.extractor import images_for_chunk
+
+    images = images_for_chunk(db, chunk)
     wrote_from_draft = False
     if draft_path and draft_path.exists():
         content = draft_path.read_text(encoding="utf-8")
@@ -1596,6 +1600,7 @@ def approve_chunk(
             summary=summary_data.get("summary", ""),
             key_concepts=summary_data.get("key_concepts") or [],
             candidates=summary_data.get("candidates") or [],
+            images=images,
             section_path=chunk.get("section_path") or "",
             source_text=chunk.get("text") or "",
             page_in_file=chunk.get("page_in_file"),
@@ -1609,7 +1614,7 @@ def approve_chunk(
         body = replace_literature_candidates(body, approved_candidates)
     safe_write_note(dest_path, meta, body)
 
-    excerpt = (chunk.get("text") or "").strip() or "_Trecho nao disponivel._"
+    excerpt = literature_source_excerpt(chunk.get("text") or "", images)
     safe_update_managed_blocks(
         dest_path, {"auto-source-excerpt": excerpt}, vault_timezone=cfg.vault_timezone
     )
