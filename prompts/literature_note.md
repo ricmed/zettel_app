@@ -238,8 +238,9 @@ Texto do chunk:
 
 1. Se uma figura for **essencial** para entender um candidato (diagrama do
    mecanismo, pipeline, modelo de dados), inclua o `asset_id` correspondente em
-   `relevant_image_ids` daquele candidato. Nao inclua imagens meramente decorativas
-   nem capturas de codigo sem valor conceitual.
+   `relevant_image_ids` daquele candidato. Nao inclua imagem com `Conteudo: nenhum`
+   (icone, logo, ornamento ou marca sem conteudo) nem capturas de codigo sem valor
+   conceitual.
 2. Se o texto do chunk for fino (listing, notacao sem glosa, transicao) mas a
    **descricao da figura** trouxer um conceito atomizavel (diagrama de mecanismo,
    esquema de um argumento), **gere o candidato a partir da descricao**. Use

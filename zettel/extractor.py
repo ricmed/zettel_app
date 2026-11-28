@@ -627,10 +627,11 @@ def _process_chunk(
 
     candidates: list[dict] = []
     for cand in approved_cands:
-        if not cand.relevant_image_ids:
-            from zettel.assets import asset_ids_in_text
+        from zettel.assets import asset_ids_in_text, drop_contentless_image_ids
 
+        if not cand.relevant_image_ids:
             cand.relevant_image_ids = asset_ids_in_text(db, source_id, chunk_text)
+        cand.relevant_image_ids = drop_contentless_image_ids(db, cand.relevant_image_ids)
 
         concept_id = _compute_concept_id(source_id, chunk_id, cand)
         candidates.append(
@@ -680,7 +681,7 @@ def _write_literature_draft(
     section_path = chunk_row.get("section_path") or ""
 
     candidate_dicts = [c.model_dump() for c in candidates]
-    images = _images_for_chunk(db, chunk_row)
+    images = images_for_chunk(db, chunk_row)
     meta, body = build_literature_chunk_note(
         source_id=chunk_row["source_id"],
         citekey=citekey,
@@ -740,7 +741,7 @@ def _chunk_has_pending_image(db: StateDB, chunk_row: dict) -> bool:
     return False
 
 
-def _images_for_chunk(db: StateDB, chunk_row: dict) -> list[dict[str, Any]]:
+def images_for_chunk(db: StateDB, chunk_row: dict) -> list[dict[str, Any]]:
     """Assets for this chunk: same chapter, optionally same page."""
     assets = db.get_assets_for_source(chunk_row["source_id"])
     chapter_id = chunk_row.get("chapter_id")

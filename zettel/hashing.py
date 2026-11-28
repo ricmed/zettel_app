@@ -205,7 +205,9 @@ def extract_embeddable_text(markdown_body: str) -> str:
     lines = markdown_body.split("\n")
     result_lines: list[str] = []
     in_frontmatter = False
-    in_managed_block = False
+    # Depth, not a flag: an ``auto-image-caption`` block sits inside the source
+    # excerpt, and the inner end marker must not release the rest of the excerpt.
+    managed_depth = 0
 
     for i, line in enumerate(lines):
         stripped = line.strip()
@@ -219,12 +221,12 @@ def extract_embeddable_text(markdown_body: str) -> str:
             continue
         # Skip managed blocks
         if re.match(r"<!--\s*zettel:auto-.*:start\s*-->", stripped):
-            in_managed_block = True
+            managed_depth += 1
             continue
         if re.match(r"<!--\s*zettel:auto-.*:end\s*-->", stripped):
-            in_managed_block = False
+            managed_depth = max(0, managed_depth - 1)
             continue
-        if in_managed_block:
+        if managed_depth:
             continue
         result_lines.append(line)
 

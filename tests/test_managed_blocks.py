@@ -100,6 +100,19 @@ def test_well_formed_note_has_no_malformed_block():
     assert malformed_managed_blocks(f"# T\n{START}\n- a\n{END}\n") == []
 
 
+def test_repeated_image_captions_are_not_malformed():
+    """One caption per figure is a sequence of pairs, not a broken span."""
+    one = (
+        "<!-- zettel:auto-image-caption:start -->\nDiagrama.\n"
+        "<!-- zettel:auto-image-caption:end -->\n"
+    )
+    two = one + one
+    assert malformed_managed_blocks(two) == []
+    assert malformed_managed_blocks(f"# T\n{START}\n- a\n{END}\n{START}\n- b\n{END}\n") == [
+        "auto-backlinks"
+    ]
+
+
 def test_vault_scan_lists_only_notes_with_broken_markers(tmp_path):
     (tmp_path / "30_Permanent").mkdir()
     (tmp_path / "30_Permanent" / "ok.md").write_text(f"{START}\n{END}\n", encoding="utf-8")

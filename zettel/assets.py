@@ -35,6 +35,14 @@ logger = logging.getLogger(__name__)
 ASSETS_DIR = "90_Assets"
 _MD_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 _DOCLING_PLACEHOLDER = "<!-- image -->"
+# Harvest writes this exact embed. The caption attaches to the first one of each path.
+_EXCERPT_ASSET_RE = re.compile(r"!\[Imagem\]\((90_Assets/[^)\s]+)\)")
+_CONTENT_VERDICT_RE = re.compile(r"^Conteudo:\s*(nenhum|conceitual)\s*$", re.IGNORECASE)
+_CAPTION_BLOCK_RE = re.compile(
+    r"<!--\s*zettel:auto-image-caption:start\s*-->.*?<!--\s*zettel:auto-image-caption:end\s*-->",
+    re.DOTALL,
+)
+_EXCERPT_PLACEHOLDER = "_Trecho nao disponivel._"
 
 
 # ── IDs and paths ──────────────────────────────────────────────────────
@@ -279,6 +287,103 @@ def asset_ids_in_text(db: StateDB, source_id: str, text: str) -> list[str]:
         if path and path in text:
             ids.append(asset["asset_id"])
     return ids
+
+
+def image_content_verdict(description: str | None) -> str | None:
+    """``nenhum``, ``conceitual``, or None when the description has no verdict line.
+
+    The line is the last non-empty line, exactly ``Conteudo: nenhum`` or
+    ``Conteudo: conceitual``. A description written before that line existed
+    returns None, and the image keeps today's behavior.
+    """
+    lines = [line.strip() for line in (description or "").splitlines() if line.strip()]
+    if not lines:
+        return None
+    match = _CONTENT_VERDICT_RE.match(lines[-1])
+    if not match:
+        return None
+    return match.group(1).casefold()
+
+
+def visible_image_caption(description: str | None) -> str:
+    """Description shown to the reader. The trailing ``Conteudo:`` line stays out."""
+    lines = (description or "").splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if lines and _CONTENT_VERDICT_RE.match(lines[-1].strip()):
+        lines.pop()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines).strip()
+
+
+def drop_contentless_image_ids(db: StateDB, image_ids: list[str]) -> list[str]:
+    """Drop ids whose description ends in ``Conteudo: nenhum``.
+
+    ``conceitual`` and a missing line stay. An id with no asset row stays too:
+    there is no verdict to read, and ``resolve_images`` already skips a row
+    without a path. The path fallback is a different function and is not filtered
+    here.
+    """
+    kept: list[str] = []
+    for aid in image_ids:
+        asset = db.get_asset(aid)
+        description = (asset or {}).get("description") or ""
+        if image_content_verdict(description) == "nenhum":
+            continue
+        kept.append(aid)
+    return kept
+
+
+def excerpt_image_paths(text: str) -> set[str]:
+    """Vault paths of ``![Imagem](90_Assets/...)`` in ``text``."""
+    return {match.group(1).replace("\\", "/") for match in _EXCERPT_ASSET_RE.finditer(text or "")}
+
+
+def caption_excerpt(text: str, images: list[dict] | None) -> str:
+    """Put ``auto-image-caption`` under the first embed of each asset path.
+
+    A later copy of the same path is left alone. A path with no visible
+    description gets no block. The verdict line is not part of the caption.
+    """
+    by_path: dict[str, str] = {}
+    for img in images or []:
+        path = str(img.get("path") or "").replace("\\", "/")
+        if path and path not in by_path:
+            by_path[path] = visible_image_caption(img.get("description") or "")
+    seen: set[str] = set()
+
+    def repl(match: re.Match[str]) -> str:
+        path = match.group(1).replace("\\", "/")
+        if path in seen:
+            return match.group(0)
+        seen.add(path)
+        desc = by_path.get(path, "")
+        if not desc:
+            return match.group(0)
+        return (
+            f"{match.group(0)}\n"
+            "<!-- zettel:auto-image-caption:start -->\n"
+            f"{desc}\n"
+            "<!-- zettel:auto-image-caption:end -->"
+        )
+
+    return _EXCERPT_ASSET_RE.sub(repl, text or "")
+
+
+def literature_source_excerpt(text: str | None, images: list[dict] | None = None) -> str:
+    """Excerpt stored in the LIT: captioned chunk text, or the empty placeholder."""
+    raw = (text or "").strip()
+    if not raw:
+        return _EXCERPT_PLACEHOLDER
+    return caption_excerpt(raw, images)
+
+
+def strip_image_captions(text: str) -> str:
+    """Remove ``auto-image-caption`` blocks so the excerpt can be read as source."""
+    if not text:
+        return ""
+    return _CAPTION_BLOCK_RE.sub("", text)
 
 
 def _resolve_chapter_id(

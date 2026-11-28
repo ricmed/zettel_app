@@ -525,6 +525,68 @@ def test_fallback_image_ids_from_chunk_text(tmp_path):
         db.close()
 
 
+def test_contentless_image_does_not_enter_the_ztl(tmp_path):
+    """``Conteudo: nenhum`` stays out of the body, by fallback and by explicit id.
+
+    ``conceitual`` and a description with no verdict line still render, without
+    the ``Conteudo:`` line. The fallback itself still returns the path.
+    """
+    from zettel.assets import drop_contentless_image_ids
+
+    db = StateDB(tmp_path / "s.db")
+    try:
+        db.upsert_source("@S", "S", "T", [], None, "h", "/p", "md")
+        db.upsert_chapter("@S::ch000", "@S", "Cap", "ck", "Cap")
+        chunk_text = (
+            "Texto com ![Imagem](90_Assets/img-icon.png) e "
+            "![Imagem](90_Assets/img-diagram.png) e ![Imagem](90_Assets/img-old.png)."
+        )
+        db.upsert_chunk("c1", "@S", "@S::ch000", chunk_text, "h1")
+        db.upsert_asset("@S::img::icon", "@S", "90_Assets/img-icon.png", "ckicon")
+        db.upsert_asset("@S::img::diagram", "@S", "90_Assets/img-diagram.png", "ckdiagram")
+        db.upsert_asset("@S::img::old", "@S", "90_Assets/img-old.png", "ckold")
+        db.update_asset_description(
+            "@S::img::icon",
+            "Marca no canto da pagina.\nConteudo: nenhum",
+            "c1",
+        )
+        db.update_asset_description(
+            "@S::img::diagram",
+            "Diagrama do fluxo entre os componentes.\nConceitos: (nenhum)\nConteudo: conceitual",
+            "c2",
+        )
+        db.update_asset_description("@S::img::old", "Grafico antigo sem veredito.", "c3")
+
+        ids = fallback_image_ids(db, "@S", db.get_chunk("c1"))
+        assert set(ids) == {"@S::img::icon", "@S::img::diagram", "@S::img::old"}
+        assert drop_contentless_image_ids(db, ids) == [aid for aid in ids if aid != "@S::img::icon"]
+
+        via_fallback = resolve_images(db, ids)
+        via_explicit = resolve_images(db, ["@S::img::icon", "@S::img::diagram", "@S::img::old"])
+        assert {img["path"] for img in via_fallback} == {
+            "90_Assets/img-diagram.png",
+            "90_Assets/img-old.png",
+        }
+        assert [img["path"] for img in via_explicit] == [
+            "90_Assets/img-diagram.png",
+            "90_Assets/img-old.png",
+        ]
+        body = build_permanent_note_body(
+            thesis="Tese",
+            definition="Def",
+            images=via_explicit,
+        )
+        assert "img-icon.png" not in body
+        assert "Marca no canto" not in body
+        assert "Conteudo:" not in body
+        assert "Diagrama do fluxo entre os componentes." in body
+        assert "Conceitos: (nenhum)" in body
+        assert "Grafico antigo sem veredito." in body
+        assert "![[90_Assets/img-diagram.png]]" in body
+    finally:
+        db.close()
+
+
 def test_fallback_image_ids_empty_when_no_paths(tmp_path):
     db = StateDB(tmp_path / "s.db")
     try:

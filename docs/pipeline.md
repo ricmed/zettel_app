@@ -137,7 +137,7 @@ Módulo: [`extractor.py`](../zettel/extractor.py).
 
 0. Descreve imagens pendentes com LLM multimodal (cache determinístico)
 1. Para cada chunk `pending`, chama o LLM com o **Prompt 1**; localizador preferencial = `p.{page_in_book} / {section_path}`
-2. Escreve um **draft** em `00_Inbox/Review/{Citekey}/LIT - AuthorYear - pNNN - topico-NNNN.md` (resumo, conceitos, candidatos, **trecho integral da fonte**, imagens; mesmo basename da nota aprovada)
+2. Escreve um **draft** em `00_Inbox/Review/{Citekey}/LIT - AuthorYear - pNNN - topico-NNNN.md` (resumo, conceitos, candidatos, **trecho integral da fonte**, imagens; mesmo basename da nota aprovada). A primeira `![Imagem](90_Assets/...)` de cada path no trecho ganha a legenda `auto-image-caption`; esse path não se repete em `## Imagens Relacionadas`
 3. Checkpoint no SQLite após **cada** chunk: `status=awaiting_review`, `summary_json`, `review_confidence`, `literature_note_path`
 4. Concepts ficam em `awaiting_review` (não elegíveis ao `connect` ainda)
 5. Filtragem estrutural de qualidade (`extraction.min_relevance_score`, `min_thesis_words`, `min_definition_words`, `require_anchor_quote`, `verify_anchor_quote` — piso de 10 palavras; acima do teto tolerado, uma citação literal é recortada para 25 palavras em vez de descartar o candidato; citação que não está no chunk continua descartada)
@@ -180,7 +180,7 @@ Pacote: [`connector/`](../zettel/connector/) ([ADR-053](adrs/generated/CONNECT/A
 2. Chama o LLM com o **Prompt 2** (`permanent_note.md`):
    - Conceito + contexto RAG (embedding / grafo / analogias distantes) + opcionalmente `{images_context}` das figuras do candidato → nota permanente completa
 3. Valida idioma PT-BR (guardrail automático)
-4. Resolve imagens do candidato (`relevant_image_ids`, com fallback por path no chunk se a lista estiver vazia) e cria o arquivo **ZTL** em `30_Permanent/` com:
+4. Resolve imagens do candidato (`relevant_image_ids`, com fallback por path no chunk se a lista estiver vazia). Descrição que termina em `Conteudo: nenhum` não entra, nem pelo fallback nem quando o Prompt 1 citou o id; `conceitual` e descrição antiga sem essa linha seguem. A legenda visível omite a linha `Conteudo:`. Cria o arquivo **ZTL** em `30_Permanent/` com:
    - Frontmatter YAML enxuto (type, note_id, title, source_id, chunk_id, tags, origin, page, datas e as listas de julgamento do autor). `literature_ref`, `source_locator`, `citation`, `anchor_quote` e o custo LLM da nota ficam em `notes.provenance_json` no SQLite — os quatro primeiros já aparecem no corpo
    - Corpo: Tese → Definição (prosa direta sem heading) → Limites (opcional) → **Figuras** (embeds Obsidian + legendas) → Conexões → Fonte
 5. Atualiza **backlinks** nas notas relacionadas via blocos gerenciados:

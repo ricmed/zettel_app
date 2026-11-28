@@ -104,3 +104,11 @@ The bytes are stored with `_save_image` (content-addressed under `90_Assets/`). 
 Nothing else about the decision moves. Adoption is still not gated on `images.enabled`. The asset stays `status='pending'`; `extract` and retry assets remain the only description path. A blank ZTL with an image and no source in SQLite is refused, because `assets.source_id` is NOT NULL. SRC, the literature index and the CLI keep the previous gesture: paste the image in Obsidian and run `sync-manual`.
 
 A ZTL created from a granular LIT (`create_permanent_from_literature`, web or `new-note ztl --from-lit`) inherits the canonical `![[90_Assets/…]]` embeds already on that LIT and then appends any images sent on the form, without duplicating a path. The bytes stay where they are; only the embed is copied into `## Figuras`.
+
+## Addendum (2026-11-27): content verdict and a single LIT caption
+
+**Status:** Accepted amendment.
+
+A path embedded in the chunk no longer sends every figure to the ZTL. The description ends with `Conteudo: nenhum` or `Conteudo: conceitual`, stored in the existing `assets.description` (no new column). `nenhum` — an icon, logo, ornament or mark without content — is dropped before the concept is stored, again when connect prepares the note, and in `resolve_images`, even if Prompt 1 named the id. A description written before this line still counts. The path fallback remains for `conceitual` images. The visible caption omits the verdict line. `Conceitos: (nenhum)` alone does not drop the figure.
+
+The granular LIT no longer repeats an embed that is already in the excerpt. The first `![Imagem](90_Assets/...)` of each path gains an `auto-image-caption` block with the description; that path leaves `## Imagens Relacionadas`. A figure from the same chapter that is not in the excerpt stays in the section. Readers of the excerpt as source text (`manual_lit._excerpt`) drop the caption block first. Approval and rebuild use that same helper and pass the chunk's images when they rebuild the LIT, so a later run does not erase the caption. Notes already written are not rewritten by this change.

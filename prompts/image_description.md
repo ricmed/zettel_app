@@ -11,6 +11,10 @@ Regras:
 - Não comece com "A imagem mostra"; vá direto ao ponto.
 - Ao final, em uma linha separada, liste os conceitos técnicos nomeados na figura no formato:
   `Conceitos: termo1, termo2` (ou `Conceitos: (nenhum)` se não houver termos claros).
+- A última linha da resposta, depois de `Conceitos:`, é exatamente uma destas, sem mais nada:
+  `Conteudo: nenhum` — ícone, logo, ornamento ou marca sem conteúdo;
+  `Conteudo: conceitual` — diagrama, gráfico ou objeto que ilustra a explicação, mesmo sem termo nomeado.
+  `Conceitos: (nenhum)` sozinho não decide esse veredito.
 - Retorne apenas a descrição, sem markdown adicional.
 
 O contexto textual ao redor da imagem (pode estar vazio) e a própria imagem
