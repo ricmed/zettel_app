@@ -30,6 +30,8 @@ data/state.db-shm
 .cursor/*
 !.cursor/skills/
 !.cursor/skills/**
+!.cursor/rules/
+!.cursor/rules/**
 
 # Trabalho bruto de avaliacao: trajetorias cruas e vaults privados.
 # So os agregados pequenos em evals/results/ sao commitaveis.

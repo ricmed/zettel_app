@@ -1,0 +1,14 @@
+---
+description: Entrega de um plano — branch, Project 3, docs, comentários e commits
+alwaysApply: true
+---
+
+# Entrega
+
+No modo Plan, o plano inclui a seção **Branch, tarefas e commits**, com todos os itens abaixo já preenchidos (nomes, títulos, arquivos). A execução só acontece quando o plano for aprovado e pedido para implementar.
+
+- **Branch** a partir do HEAD, no formato `tipo(escopo)/descricao-curta`. Exemplo: `refactor(lit-note)/update-image-management`.
+- **Tarefas** no Project 3 (`ricmed/zettel_app`), uma por entrega independente, pela skill `gh-project-task` e por `tools/gh_project_task.py`. Título em PT-BR, imperativo. Corpo com resumo, contrato e critérios de aceite.
+- **Contexto.** Ler o ADR, o README e o `CLAUDE.md` que descrevem o comportamento tocado. O plano lista o que cada um ganha de atualização; o que não muda fica dito numa frase.
+- **Comentário** em cada issue, depois do código e dos testes: o que foi feito, decisões, o que ficou de fora e problemas encontrados. Use `gh issue comment <id> --body-file ...`.
+- **Commit** semântico em PT-BR, uma frase que baste para entender a mudança. O id entra no assunto como `(#123)`, o que vincula sem fechar a issue. Detalhe, decisão e problema ficam no comentário da issue, não no corpo do commit. Exemplo: `fix(lit): coloca a explicação da imagem na primeira ocorrência (#412)`.
